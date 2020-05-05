@@ -114,5 +114,8 @@ print(LOGFILENAME)
 ################  EXECUTE SCRIPTS: GENERATE AND MODIFY THE GDOCS EXPERIMENT LOG  ##################
 ###################################################################################################
 service = docgen.establishService('script','v1')
-DOCUMENT_ID = config['DEFAULT']['logid']
+try:
+    DOCUMENT_ID = config['DEFAULT']['logid']
+except:
+    DOCUMENT_ID = docgen.createExperimentLog(LOGTEMPLATE_ID,TEMPLATEFOLDER_ID,LOGFOLDER_ID,LOGFILENAME,argconfig,service)
 docgen.appendToLog(ENDTEMPLATE_ID,DOCUMENT_ID,None,service)

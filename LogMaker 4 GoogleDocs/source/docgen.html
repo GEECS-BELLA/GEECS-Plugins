@@ -1,0 +1,219 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html><head><title>Python: module docgen</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+</head><body bgcolor="#f0f0f8">
+
+<table width="100%" cellspacing=0 cellpadding=2 border=0 summary="heading">
+<tr bgcolor="#7799ee">
+<td valign=bottom>&nbsp;<br>
+<font color="#ffffff" face="helvetica, arial">&nbsp;<br><big><big><strong>docgen</strong></big></big> (version 0.1)</font></td
+><td align=right valign=bottom
+><font color="#ffffff" face="helvetica, arial"><a href=".">index</a><br><a href="file:c%3A%5Cgeecs%5Cdevelopers%20version%5Cgeecs-plugins%5Clogmaker%204%20googledocs%5Csource%5Cdocgen.py">c:\geecs\developers version\geecs-plugins\logmaker 4 googledocs\source\docgen.py</a></font></td></tr></table>
+    <p><tt>This&nbsp;module&nbsp;provides&nbsp;functions&nbsp;for&nbsp;automated&nbsp;document&nbsp;creation&nbsp;from&nbsp;<br>
+templates&nbsp;in&nbsp;Gdocs.&nbsp;The&nbsp;second&nbsp;half&nbsp;of&nbsp;this&nbsp;code&nbsp;is&nbsp;a&nbsp;google&nbsp;apps&nbsp;<br>
+script&nbsp;project&nbsp;available&nbsp;online.&nbsp;A&nbsp;version&nbsp;of&nbsp;the&nbsp;Google&nbsp;Project&nbsp;source<br>
+code&nbsp;will&nbsp;be&nbsp;stored&nbsp;in&nbsp;the&nbsp;github&nbsp;repository&nbsp;for&nbsp;convenience.<br>
+&nbsp;<br>
+It&nbsp;is&nbsp;currently&nbsp;used&nbsp;for&nbsp;automated&nbsp;experiment&nbsp;logs&nbsp;at&nbsp;<br>
+BELLA&nbsp;Center@LBNL.<br>
+&nbsp;<br>
+Example:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;An&nbsp;example&nbsp;of&nbsp;how&nbsp;to&nbsp;implement&nbsp;the&nbsp;functions&nbsp;to&nbsp;generate&nbsp;a&nbsp;Google&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;doc&nbsp;step&nbsp;by&nbsp;step&nbsp;can&nbsp;be&nbsp;seen&nbsp;in&nbsp;createGdoc.py&nbsp;and&nbsp;appendScan.py<br>
+&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;$&nbsp;python&nbsp;createGdoc.py&nbsp;parameters.ini&nbsp;placeholders.ini&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;currentvalues.ini<br>
+&nbsp;<br>
+&nbsp;<br>
+by&nbsp;Tobias&nbsp;Ostermayr,&nbsp;last&nbsp;updated&nbsp;04/20/2020</tt></p>
+<p>
+<table width="100%" cellspacing=0 cellpadding=2 border=0 summary="section">
+<tr bgcolor="#aa55cc">
+<td colspan=3 valign=bottom>&nbsp;<br>
+<font color="#ffffff" face="helvetica, arial"><big><strong>Modules</strong></big></font></td></tr>
+    
+<tr><td bgcolor="#aa55cc"><tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</tt></td><td>&nbsp;</td>
+<td width="100%"><table width="100%" summary="list"><tr><td width="25%" valign=top><a href="PIL.Image.html">PIL.Image</a><br>
+<a href="configparser.html">configparser</a><br>
+</td><td width="25%" valign=top><a href="decimal.html">decimal</a><br>
+<a href="googleapiclient.errors.html">googleapiclient.errors</a><br>
+</td><td width="25%" valign=top><a href="glob.html">glob</a><br>
+<a href="os.html">os</a><br>
+</td><td width="25%" valign=top><a href="pickle.html">pickle</a><br>
+<a href="sys.html">sys</a><br>
+</td></tr></table></td></tr></table><p>
+<table width="100%" cellspacing=0 cellpadding=2 border=0 summary="section">
+<tr bgcolor="#eeaa77">
+<td colspan=3 valign=bottom>&nbsp;<br>
+<font color="#ffffff" face="helvetica, arial"><big><strong>Functions</strong></big></font></td></tr>
+    
+<tr><td bgcolor="#eeaa77"><tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</tt></td><td>&nbsp;</td>
+<td width="100%"><dl><dt><a name="-appendToLog"><strong>appendToLog</strong></a>(templateID, documentID, search, servicevar)</dt><dd><tt>Appends&nbsp;a&nbsp;google&nbsp;template&nbsp;to&nbsp;a&nbsp;google&nbsp;document&nbsp;if&nbsp;the&nbsp;search<br>
+phrase&nbsp;(search)&nbsp;is&nbsp;not&nbsp;present&nbsp;in&nbsp;the&nbsp;document&nbsp;yet.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;template&nbsp;ID&nbsp;(str):&nbsp;google&nbsp;ID&nbsp;of&nbsp;the&nbsp;template<br>
+&nbsp;&nbsp;&nbsp;&nbsp;document&nbsp;ID&nbsp;(str):&nbsp;google&nbsp;ID&nbsp;of&nbsp;the&nbsp;document&nbsp;to&nbsp;write&nbsp;in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;search&nbsp;(str):&nbsp;search&nbsp;phrase&nbsp;to&nbsp;look&nbsp;for&nbsp;in&nbsp;google&nbsp;doc<br>
+&nbsp;&nbsp;&nbsp;&nbsp;servicevar&nbsp;(json?!):&nbsp;service&nbsp;established&nbsp;with&nbsp;google<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;If&nbsp;search&nbsp;is&nbsp;not&nbsp;found&nbsp;in&nbsp;doc,&nbsp;appends&nbsp;the&nbsp;template&nbsp;to&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;document&nbsp;and&nbsp;returns&nbsp;0.&nbsp;If&nbsp;search&nbsp;is&nbsp;found,&nbsp;does&nbsp;not<br>
+&nbsp;&nbsp;&nbsp;&nbsp;append&nbsp;the&nbsp;template,&nbsp;writes&nbsp;stdout&nbsp;explanation&nbsp;and&nbsp;quits.</tt></dd></dl>
+ <dl><dt><a name="-checkFileContains"><strong>checkFileContains</strong></a>(fileID, search, servicevar)</dt><dd><tt>Checks&nbsp;whether&nbsp;a&nbsp;google&nbsp;docs&nbsp;file&nbsp;contains&nbsp;a&nbsp;search&nbsp;phrase<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;fileID&nbsp;(str):&nbsp;google&nbsp;ID&nbsp;of&nbsp;the&nbsp;document&nbsp;to&nbsp;search&nbsp;in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;search&nbsp;(str):&nbsp;search&nbsp;phrase<br>
+&nbsp;&nbsp;&nbsp;&nbsp;servicevar&nbsp;(json?!):&nbsp;service&nbsp;established&nbsp;with&nbsp;google<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;True&nbsp;if&nbsp;google&nbsp;docs&nbsp;contains&nbsp;search&nbsp;phrase<br>
+&nbsp;&nbsp;&nbsp;&nbsp;False&nbsp;if&nbsp;not.</tt></dd></dl>
+ <dl><dt><a name="-createExperimentLog"><strong>createExperimentLog</strong></a>(logtempID, tempfolderID, logfolderID, logfilename, argconfig, servicevar)</dt><dd><tt>If&nbsp;no&nbsp;Google&nbsp;Docfile&nbsp;exists&nbsp;for&nbsp;this&nbsp;day&nbsp;yet,&nbsp;this&nbsp;function<br>
+generates&nbsp;a&nbsp;new&nbsp;file&nbsp;from&nbsp;the&nbsp;template.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;logtempID&nbsp;(str):&nbsp;google&nbsp;ID&nbsp;of&nbsp;the&nbsp;template&nbsp;google&nbsp;document<br>
+&nbsp;&nbsp;&nbsp;&nbsp;tempfolderID&nbsp;(str):&nbsp;google&nbsp;ID&nbsp;of&nbsp;the&nbsp;template&nbsp;google&nbsp;folder<br>
+&nbsp;&nbsp;&nbsp;&nbsp;logfolderID&nbsp;(str):&nbsp;target&nbsp;google&nbsp;folder&nbsp;for&nbsp;the&nbsp;new&nbsp;document<br>
+&nbsp;&nbsp;&nbsp;&nbsp;logfilename&nbsp;(str):&nbsp;filename&nbsp;for&nbsp;the&nbsp;new&nbsp;google&nbsp;doc<br>
+&nbsp;&nbsp;&nbsp;&nbsp;argconfig&nbsp;(str):&nbsp;path&nbsp;to&nbsp;the&nbsp;ini&nbsp;file&nbsp;containing&nbsp;the&nbsp;apps&nbsp;script&nbsp;ID<br>
+&nbsp;&nbsp;&nbsp;&nbsp;servicevar&nbsp;(json?!):&nbsp;service&nbsp;passed&nbsp;on&nbsp;from&nbsp;previously&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;establishservice<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Returns&nbsp;the&nbsp;google&nbsp;ID&nbsp;of&nbsp;the&nbsp;new&nbsp;document&nbsp;and&nbsp;updates&nbsp;stores<br>
+&nbsp;&nbsp;&nbsp;&nbsp;its&nbsp;value&nbsp;in&nbsp;the&nbsp;configfile&nbsp;with&nbsp;path&nbsp;argconfig.</tt></dd></dl>
+ <dl><dt><a name="-cropAndScaleImage"><strong>cropAndScaleImage</strong></a>(imagepath, margin_left, margin_top, margin_right, margin_bottom, scalefactor)</dt><dd><tt>Crops&nbsp;and&nbsp;scales&nbsp;and&nbsp;image.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;imagepath&nbsp;(str):&nbsp;path&nbsp;to&nbsp;image<br>
+&nbsp;&nbsp;&nbsp;&nbsp;margin_left&nbsp;(int):&nbsp;explains&nbsp;itself<br>
+&nbsp;&nbsp;&nbsp;&nbsp;margin_top&nbsp;(int):&nbsp;explains&nbsp;itself<br>
+&nbsp;&nbsp;&nbsp;&nbsp;margin_right&nbsp;(int):&nbsp;explains&nbsp;itself<br>
+&nbsp;&nbsp;&nbsp;&nbsp;margin_bottom&nbsp;(int):&nbsp;explains&nbsp;itself<br>
+&nbsp;&nbsp;&nbsp;&nbsp;scalefactor&nbsp;(float):&nbsp;explains&nbsp;itself<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Saves&nbsp;a&nbsp;cropped&nbsp;and&nbsp;scaled&nbsp;image&nbsp;in&nbsp;the&nbsp;same&nbsp;path</tt></dd></dl>
+ <dl><dt><a name="-establishService"><strong>establishService</strong></a>(apiservice, apiversion)</dt><dd><tt>Handles&nbsp;connection&nbsp;with&nbsp;google&nbsp;api&nbsp;and&nbsp;authorization.<br>
+&nbsp;<br>
+Args:&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;apiservice&nbsp;(str):&nbsp;name&nbsp;of&nbsp;the&nbsp;google&nbsp;api<br>
+&nbsp;&nbsp;&nbsp;&nbsp;apiversion&nbsp;(str):&nbsp;version&nbsp;number&nbsp;of&nbsp;api<br>
+&nbsp;<br>
+Returns:<br>
+Service&nbsp;object&nbsp;(JSON?!)&nbsp;that&nbsp;can&nbsp;be&nbsp;called&nbsp;by&nbsp;other&nbsp;functions.</tt></dd></dl>
+ <dl><dt><a name="-findAndReplace"><strong>findAndReplace</strong></a>(documentID, placeholdersandvalues, servicevar)</dt><dd><tt>Finds&nbsp;placeholders&nbsp;in&nbsp;a&nbsp;google&nbsp;document&nbsp;and&nbsp;replaces<br>
+them&nbsp;with&nbsp;values.&nbsp;<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;document&nbsp;ID&nbsp;(str):&nbsp;google&nbsp;ID&nbsp;of&nbsp;the&nbsp;document&nbsp;to&nbsp;write&nbsp;in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;placeholdersandvalues:&nbsp;configparser&nbsp;containing&nbsp;placeholders<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;as&nbsp;keys&nbsp;and&nbsp;the&nbsp;values&nbsp;to&nbsp;replace&nbsp;them&nbsp;with&nbsp;as&nbsp;values.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Placeholders&nbsp;in&nbsp;the&nbsp;configparser&nbsp;are&nbsp;stripped&nbsp;of&nbsp;{{}},<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;which&nbsp;will&nbsp;be&nbsp;used&nbsp;in&nbsp;the&nbsp;google&nbsp;docs&nbsp;to&nbsp;identify&nbsp;them.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;servicevar&nbsp;(json?!):&nbsp;service&nbsp;established&nbsp;with&nbsp;google<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Finds&nbsp;and&nbsp;replaces&nbsp;all&nbsp;instances&nbsp;of&nbsp;placeholder&nbsp;keys&nbsp;within<br>
+&nbsp;&nbsp;&nbsp;&nbsp;{{}}&nbsp;in&nbsp;the&nbsp;google&nbsp;docs&nbsp;and&nbsp;replaces&nbsp;them&nbsp;by&nbsp;values&nbsp;stored&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;in&nbsp;the&nbsp;configparser&nbsp;placeholdersandvalues.&nbsp;This&nbsp;configparser<br>
+&nbsp;&nbsp;&nbsp;&nbsp;can&nbsp;for&nbsp;instance&nbsp;be&nbsp;stored&nbsp;in&nbsp;a&nbsp;file&nbsp;(currentvalues.ini)</tt></dd></dl>
+ <dl><dt><a name="-findAndReplaceImage"><strong>findAndReplaceImage</strong></a>(documentID, imageid, pattern, servicevar)</dt><dd><tt>Finds&nbsp;pattern&nbsp;in&nbsp;a&nbsp;gdocument&nbsp;and&nbsp;replaces<br>
+it&nbsp;with&nbsp;an&nbsp;image&nbsp;from&nbsp;google&nbsp;drive.&nbsp;<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;document&nbsp;ID&nbsp;(str):&nbsp;google&nbsp;ID&nbsp;of&nbsp;the&nbsp;document&nbsp;to&nbsp;write&nbsp;in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;imageID:&nbsp;ID&nbsp;of&nbsp;an&nbsp;image&nbsp;on&nbsp;google&nbsp;drive<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pattern:&nbsp;search&nbsp;pattern&nbsp;that&nbsp;should&nbsp;be&nbsp;replaced&nbsp;in&nbsp;google&nbsp;doc<br>
+&nbsp;&nbsp;&nbsp;&nbsp;servicevar&nbsp;(json?!):&nbsp;service&nbsp;established&nbsp;with&nbsp;google<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Replaces&nbsp;pattern&nbsp;(e.g.,&nbsp;'{{screenshot}}')&nbsp;in&nbsp;the&nbsp;google&nbsp;docs<br>
+&nbsp;&nbsp;&nbsp;&nbsp;with&nbsp;an&nbsp;image&nbsp;from&nbsp;google&nbsp;drive.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Currently&nbsp;works&nbsp;only&nbsp;for&nbsp;images&nbsp;in&nbsp;a&nbsp;table.</tt></dd></dl>
+ <dl><dt><a name="-format_number"><strong>format_number</strong></a>(num)</dt><dd><tt>Remove&nbsp;trailing&nbsp;zeros&nbsp;from&nbsp;numbers&nbsp;exported&nbsp;from&nbsp;MC<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;num&nbsp;(float):&nbsp;any&nbsp;float&nbsp;number<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;val:&nbsp;same&nbsp;number&nbsp;trimmed&nbsp;by&nbsp;trainling&nbsp;zeroes</tt></dd></dl>
+ <dl><dt><a name="-getValueForNameKeysECS"><strong>getValueForNameKeysECS</strong></a>(path, pattern, keylist, currentvalues, argcurrentvalues)</dt><dd><tt>Open&nbsp;the&nbsp;latest&nbsp;scan/ECS&nbsp;file&nbsp;in&nbsp;path&nbsp;and&nbsp;replace&nbsp;device&nbsp;parameter&nbsp;<br>
+keys&nbsp;from&nbsp;keylist&nbsp;(placeholders.ini)&nbsp;with&nbsp;current&nbsp;values&nbsp;in&nbsp;a&nbsp;new&nbsp;<br>
+ini&nbsp;file&nbsp;(configparser&nbsp;currentvalues)&nbsp;writing&nbsp;them&nbsp;in&nbsp;<br>
+argcurrentvalues.<br>
+This&nbsp;step&nbsp;connects&nbsp;names&nbsp;in&nbsp;Google&nbsp;Templates&nbsp;with&nbsp;the&nbsp;current<br>
+device&nbsp;value&nbsp;that&nbsp;are&nbsp;stored&nbsp;locally.&nbsp;<br>
+Pattern&nbsp;refers&nbsp;to&nbsp;a&nbsp;specific&nbsp;pattern&nbsp;in&nbsp;the&nbsp;filename&nbsp;if&nbsp;required,<br>
+e.g.,&nbsp;"ECS&nbsp;Live&nbsp;Dump"&nbsp;or&nbsp;"Scan&nbsp;No&nbsp;"<br>
+&nbsp;<br>
+Args:&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;path&nbsp;(str):&nbsp;path&nbsp;to&nbsp;look&nbsp;for&nbsp;scan/ECS&nbsp;files&nbsp;locally<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pattern&nbsp;(str):&nbsp;search&nbsp;for&nbsp;name&nbsp;pattern&nbsp;in&nbsp;path<br>
+&nbsp;&nbsp;&nbsp;&nbsp;keylist&nbsp;(list):&nbsp;keyword&nbsp;list&nbsp;of&nbsp;data&nbsp;extracted&nbsp;from&nbsp;ECS/scan<br>
+&nbsp;&nbsp;&nbsp;&nbsp;currentvalues&nbsp;(configparser):&nbsp;configparser&nbsp;to&nbsp;store&nbsp;extracted&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;values&nbsp;in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;argcurrentvalues:&nbsp;path&nbsp;to&nbsp;store&nbsp;currentvalues&nbsp;config<br>
+&nbsp;<br>
+Returns:&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Saves&nbsp;a&nbsp;new&nbsp;configuration&nbsp;file&nbsp;in&nbsp;the&nbsp;specified&nbsp;location,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;where&nbsp;all&nbsp;keys&nbsp;from&nbsp;a&nbsp;keylist&nbsp;(placeholders)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;are&nbsp;looked&nbsp;up&nbsp;in&nbsp;the&nbsp;ECS/scan&nbsp;file&nbsp;and&nbsp;connected&nbsp;to&nbsp;their&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;current&nbsp;values.</tt></dd></dl>
+ <dl><dt><a name="-getValueForNameKeysScanFiles"><strong>getValueForNameKeysScanFiles</strong></a>(path, pattern, currentvalues, argcurrentvalues)</dt><dd><tt>Append&nbsp;the&nbsp;latest&nbsp;scan&nbsp;detail&nbsp;info&nbsp;(parameter,&nbsp;range&nbsp;etc)&nbsp;<br>
+to&nbsp;the&nbsp;currentvalues.ini&nbsp;that&nbsp;contains&nbsp;the&nbsp;latest&nbsp;values.<br>
+Does&nbsp;not&nbsp;use&nbsp;keys&nbsp;like&nbsp;ECS&nbsp;version,&nbsp;but&nbsp;takes&nbsp;whole&nbsp;scan-<br>
+file&nbsp;'Scan&nbsp;Info'&nbsp;section.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;path&nbsp;(str):&nbsp;path&nbsp;to&nbsp;scanfile<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pattern&nbsp;(str):&nbsp;pattern&nbsp;for&nbsp;scanfile&nbsp;name<br>
+&nbsp;&nbsp;&nbsp;&nbsp;currentvalues&nbsp;(configparser):&nbsp;configparser&nbsp;to&nbsp;write&nbsp;values<br>
+&nbsp;&nbsp;&nbsp;&nbsp;argcurrentvalues&nbsp;(str):&nbsp;path&nbsp;to&nbsp;save&nbsp;currenvalues<br>
+&nbsp;<br>
+Returns:&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Config&nbsp;file&nbsp;with&nbsp;the&nbsp;standard&nbsp;scan&nbsp;info&nbsp;added</tt></dd></dl>
+ <dl><dt><a name="-latestFileInDirectory"><strong>latestFileInDirectory</strong></a>(path, pattern)</dt><dd><tt>Get&nbsp;path&nbsp;to&nbsp;latest&nbsp;file&nbsp;in&nbsp;local&nbsp;directory<br>
+&nbsp;<br>
+Args:&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;path&nbsp;(str):&nbsp;The&nbsp;directory&nbsp;you&nbsp;want&nbsp;to&nbsp;probe<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pattern&nbsp;(str):&nbsp;Search&nbsp;pattern<br>
+&nbsp;<br>
+Returns:&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Name&nbsp;of&nbsp;the&nbsp;latest&nbsp;file&nbsp;or&nbsp;directory&nbsp;in&nbsp;path&nbsp;matching&nbsp;pattern</tt></dd></dl>
+ <dl><dt><a name="-uploadImage"><strong>uploadImage</strong></a>(localimagepath, destinationID)</dt><dd><tt>Uploads&nbsp;a&nbsp;local&nbsp;png&nbsp;image&nbsp;to&nbsp;google&nbsp;drive<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;localimagepath&nbsp;(str):&nbsp;path&nbsp;to&nbsp;png&nbsp;image&nbsp;to&nbsp;upload<br>
+&nbsp;&nbsp;&nbsp;&nbsp;destinationID&nbsp;(str):&nbsp;ID&nbsp;of&nbsp;the&nbsp;google&nbsp;folder&nbsp;to&nbsp;upload&nbsp;to<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Uploads&nbsp;image&nbsp;to&nbsp;the&nbsp;specified&nbsp;folder&nbsp;named&nbsp;tmp&nbsp;and&nbsp;tagged<br>
+&nbsp;&nbsp;&nbsp;&nbsp;with&nbsp;a&nbsp;timestamp.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Function&nbsp;returns&nbsp;the&nbsp;google&nbsp;ID&nbsp;of&nbsp;the&nbsp;uploaded&nbsp;image.</tt></dd></dl>
+</td></tr></table><p>
+<table width="100%" cellspacing=0 cellpadding=2 border=0 summary="section">
+<tr bgcolor="#55aa55">
+<td colspan=3 valign=bottom>&nbsp;<br>
+<font color="#ffffff" face="helvetica, arial"><big><strong>Data</strong></big></font></td></tr>
+    
+<tr><td bgcolor="#55aa55"><tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</tt></td><td>&nbsp;</td>
+<td width="100%"><strong>SCOPES</strong> = 'https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive'<br>
+<strong>SCRIPT_ID</strong> = '19DaHeOOX69nkoBTv_XWQlggBDz1QgS0ZYUpeXc9lxqi3KAlox34xtRuI'<br>
+<strong>date</strong> = '05-05-20'<br>
+<strong>print_function</strong> = _Feature((2, 6, 0, 'alpha', 2), (3, 0, 0, 'alpha', 0), 65536)<br>
+<strong>scriptconfig</strong> = &lt;configparser.ConfigParser object&gt;<br>
+<strong>time</strong> = '13:38'<br>
+<strong>today</strong> = datetime.datetime(2020, 5, 5, 13, 38, 0, 296476)</td></tr></table><p>
+<table width="100%" cellspacing=0 cellpadding=2 border=0 summary="section">
+<tr bgcolor="#7799ee">
+<td colspan=3 valign=bottom>&nbsp;<br>
+<font color="#ffffff" face="helvetica, arial"><big><strong>Author</strong></big></font></td></tr>
+    
+<tr><td bgcolor="#7799ee"><tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</tt></td><td>&nbsp;</td>
+<td width="100%">Tobias&nbsp;Ostermayr</td></tr></table>
+</body></html>
