@@ -1,4 +1,4 @@
-#ShowImageLive
+# ShowImageLive
 
 Show the latest image of a device saved in the scan data, and update it every second.
 This is useful when you want to see the latest image (or live image) taken during a scan.
