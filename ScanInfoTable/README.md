@@ -1,4 +1,4 @@
-#ScanInfoTable
+# ScanInfoTable
 This code runs an interface that shows a list of scan infomation of the day.
 Simply run this script by  clicking the file and choose 'open with python'.
 Or open a cygwin or terminal then type "python ScanInfoTable.py".
