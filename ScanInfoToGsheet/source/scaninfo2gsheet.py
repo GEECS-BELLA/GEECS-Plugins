@@ -25,18 +25,21 @@ class scaninfo2gsheet:
 
     def update(self):
         '''If there are new scans, these infomation will be added in the google sheet
-        return: latest scan number
+        return: latest scan number if there is a new scan. Otherwise return None
         '''
         scan_new = get_last_scannumber(self.dir_date)
-        scaninfo_new = get_scaninfo_row(self.dir_date, self.para_txt, scan_new, self.n_columns)
-        self.sheet[0].append_table(scaninfo_new)
-        self.n_scans = scan_new
-        return self.n_scans
+        if nscan_new > self.n_scans:
+            scaninfo_new = get_scaninfo_row(self.dir_date, self.para_txt, scan_new, self.n_columns)
+            self.sheet[0].append_table(scaninfo_new)
+            self.n_scans = scan_new
+            return self.n_scans
+        else:
+            return None
 
 
 def main():
     dir_date = 'Z:\\data\\Undulator\\Y2020\\01-Jan\\20_0122'
-    sheet_title = 'HTU test2'
+    sheet_title = 'HTU test10'
     para_txt = 'Jet_X,Jet_Y,Jet_Z,Pressure,separation'
     gdrive_dir = '0B6BJlLNDz1MabGZSMUVWOHVqbE0'
     isAutoUpdate = False

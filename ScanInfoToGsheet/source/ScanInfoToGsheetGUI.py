@@ -89,7 +89,7 @@ class Gui(object):
             self.write_config(para_list, dir_date)
 
     def update(self):
-        '''Update google sheet every minute.'''
+        '''Update google sheet every 30 sec.'''
         if bool(self.gui.get('auto_update')) and self.exported:
             # if autoupdate is turned on, message appears on status window
             if not self.autoupdateOn:
