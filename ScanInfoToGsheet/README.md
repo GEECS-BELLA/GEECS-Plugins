@@ -12,7 +12,7 @@ If your PC asks you about access rights, right-click --> properties, general tab
     
 * If you want to add/edit Google drive folders where Google sheets are going to be saved, open 'config_gdrive.ini' and edit it. (scaninfo@scaninfo-275704.iam.gserviceaccount.com needs permission to the google folder)
 
-## If you want to run a python program and choose setting manually...
+## If you want to set gsheet title and save location manually...
 Run scaninfo2gsheet.py. (scaninfo2gsheet.py does a same thing as ScanInfoToGsheetGUI)
 
 Before running, open the file and fill in sections in main function.
