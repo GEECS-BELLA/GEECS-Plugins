@@ -10,7 +10,7 @@ If your PC asks you about access rights, right-click --> properties, general tab
     
 * In 'enable auto update' section, you can select/unselect anytime to run/stop the auto update. It will update the Google sheet every 30 seconds as long as you already clicked **Export** before.
     
-* If you want to add/edit Google drive folders where Google sheets are going to be saved, open 'config_gdrive.ini' and edit it. 
+* If you want to add/edit Google drive folders where Google sheets are going to be saved, open 'config_gdrive.ini' and edit it. (**scaninfo@scaninfo-275704.iam.gserviceaccount.com** needs permission to the google folder)
 
 ## If you want to run a python program and choose setting manually...
 Run scaninfo2gsheet.py. (scaninfo2gsheet.py does a same thing as ScanInfoToGsheetGUI)
