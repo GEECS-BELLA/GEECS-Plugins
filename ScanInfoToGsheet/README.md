@@ -1,7 +1,7 @@
 # ScanInfoToGsheetGUI
 This GUI gets scan information/variables of all scans of a day and export it to a google sheet in a google drive.
 
-For 'Scan Date Folder' section, please choose a folder of a scan date where scan data are stored.
+For 'Scan Date Folder' section, choose a folder of a scan date where scan data are stored.
     ex) Z:\\data\\Undulator\\Y2020\\01-Jan\\20_0123
     
 For 'enable auto update' section, you can select/unselect anytime to run/stop the auto update. It will update the Google sheet every 30 seconds as long as you already clicked 'Export' before.
