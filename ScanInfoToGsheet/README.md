@@ -1,12 +1,16 @@
 # ScanInfoToGsheetGUI
 This GUI gets scan information/variables of all scans of a day and export it to a google sheet in a google drive.
 
-For 'Scan Date Folder' section, choose a folder of a scan date where scan data are stored.
-    ex) Z:\\data\\Undulator\\Y2020\\01-Jan\\20_0123
+## Download
+Go to [release page](https://github.com/GEECS-BELLA/GEECS-Plugins/releases) in github and download the build package.
+If your PC asks you about access rights, right-click --> properties, general tab --> "this file came from another computer and might be blocked help protect this computer" --> unblock
+
+## How to run
+* In 'Scan Date Folder' section, choose a folder of a scan date where scan data are stored. Ex) `Z:\\data\\Undulator\\Y2020\\01-Jan\\20_0123`. Fill in experimental parameters to list, then choose a google folder location for the gsheet to be saved. Click **Export**.
     
-For 'enable auto update' section, you can select/unselect anytime to run/stop the auto update. It will update the Google sheet every 30 seconds as long as you already clicked 'Export' before.
+* In 'enable auto update' section, you can select/unselect anytime to run/stop the auto update. It will update the Google sheet every 30 seconds as long as you already clicked **Export** before.
     
-*If you want to add/edit a Google drive folder where Google sheets are going to be saved, open 'config_gdrive.ini' and edit it.
+* If you want to add/edit Google drive folders where Google sheets are going to be saved, open 'config_gdrive.ini' and edit it. 
 
 ## If you want to run a python program and choose setting manually...
 Run scaninfo2gsheet.py. (scaninfo2gsheet.py does a same thing as ScanInfoToGsheetGUI)
@@ -28,6 +32,6 @@ Before running, open the file and fill in sections in main function.
 Run this python script in the command line `python ExportScanInfo.py`. Or, you can run right click the file in the folder, 'Open with > Python'.
 
 
-May 8th, 2020
+May 29th, 2020
 Fumika Isono
 fisono@lbl.gov, fumika21@gmail.com
