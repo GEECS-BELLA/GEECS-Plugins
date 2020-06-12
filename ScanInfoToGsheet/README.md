@@ -2,8 +2,10 @@
 This GUI gets scan information/variables of all scans of a day and export it to a google sheet in a google drive.
 
 ## Download
-Go to [release page](https://github.com/GEECS-BELLA/GEECS-Plugins/releases) in github and download the build package.
+1. Go to [release page](https://github.com/GEECS-BELLA/GEECS-Plugins/releases) in github and download the build package.
 If your PC asks you about access rights, right-click --> properties, general tab --> "this file came from another computer and might be blocked help protect this computer" --> unblock
+
+2. Download a [json file](https://drive.google.com/file/d/1q3kZ9eK_sg6X9vrSyA4xOed_7NVv9z0U/view?usp=sharing) and put it in the same location as the files you doanloaded at step 1. This is an access key to to BELLA google drive.
 
 ## How to run
 * In 'Scan Date Folder' section, choose a folder of a scan date where scan data are stored. Ex) `Z:\\data\\Undulator\\Y2020\\01-Jan\\20_0123`. Fill in experimental parameters to list, then choose a google folder location for the gsheet to be saved. Click **Export**.
