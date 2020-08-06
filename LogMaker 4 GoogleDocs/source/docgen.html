@@ -6,9 +6,9 @@
 <table width="100%" cellspacing=0 cellpadding=2 border=0 summary="heading">
 <tr bgcolor="#7799ee">
 <td valign=bottom>&nbsp;<br>
-<font color="#ffffff" face="helvetica, arial">&nbsp;<br><big><big><strong>docgen</strong></big></big> (version 0.1)</font></td
+<font color="#ffffff" face="helvetica, arial">&nbsp;<br><big><big><strong>docgen</strong></big></big> (version 0.2)</font></td
 ><td align=right valign=bottom
-><font color="#ffffff" face="helvetica, arial"><a href=".">index</a><br><a href="file:c%3A%5Cgeecs%5Cdevelopers%20version%5Cgeecs-plugins%5Clogmaker%204%20googledocs%5Csource%5Cdocgen.py">c:\geecs\developers version\geecs-plugins\logmaker 4 googledocs\source\docgen.py</a></font></td></tr></table>
+><font color="#ffffff" face="helvetica, arial"><a href=".">index</a><br><a href="file:c%3A%5Cgeecs%5Cdevelopers%20version%5Csource%5Cgeecs-plugins%5Clogmaker%204%20googledocs%5Csource%5Cdocgen.py">c:\geecs\developers version\source\geecs-plugins\logmaker 4 googledocs\source\docgen.py</a></font></td></tr></table>
     <p><tt>This&nbsp;module&nbsp;provides&nbsp;functions&nbsp;for&nbsp;automated&nbsp;document&nbsp;creation&nbsp;from&nbsp;<br>
 templates&nbsp;in&nbsp;Gdocs.&nbsp;The&nbsp;second&nbsp;half&nbsp;of&nbsp;this&nbsp;code&nbsp;is&nbsp;a&nbsp;google&nbsp;apps&nbsp;<br>
 script&nbsp;project&nbsp;available&nbsp;online.&nbsp;A&nbsp;version&nbsp;of&nbsp;the&nbsp;Google&nbsp;Project&nbsp;source<br>
@@ -25,7 +25,7 @@ Example:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;currentvalues.ini<br>
 &nbsp;<br>
 &nbsp;<br>
-by&nbsp;Tobias&nbsp;Ostermayr,&nbsp;last&nbsp;updated&nbsp;04/20/2020</tt></p>
+by&nbsp;Tobias&nbsp;Ostermayr,&nbsp;last&nbsp;updated&nbsp;08/06/2020</tt></p>
 <p>
 <table width="100%" cellspacing=0 cellpadding=2 border=0 summary="section">
 <tr bgcolor="#aa55cc">
@@ -177,6 +177,17 @@ Args:<br>
 &nbsp;<br>
 Returns:&nbsp;<br>
 &nbsp;&nbsp;&nbsp;&nbsp;Config&nbsp;file&nbsp;with&nbsp;the&nbsp;standard&nbsp;scan&nbsp;info&nbsp;added</tt></dd></dl>
+ <dl><dt><a name="-lastRowOfSpreadsheet"><strong>lastRowOfSpreadsheet</strong></a>(fileID, sheetString, firstcol, lastcol, servicevar)</dt><dd><tt>Extracts&nbsp;last&nbsp;row&nbsp;of&nbsp;a&nbsp;spreadsheet<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;fileID&nbsp;(str):&nbsp;google&nbsp;ID&nbsp;of&nbsp;the&nbsp;document&nbsp;to&nbsp;search&nbsp;in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;sheetString&nbsp;(str):&nbsp;Name&nbsp;of&nbsp;the&nbsp;Sheet&nbsp;in&nbsp;the&nbsp;spreadsheet&nbsp;document<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rangeString&nbsp;(str):&nbsp;Range&nbsp;to&nbsp;look&nbsp;in&nbsp;(e.g.&nbsp;A1:G1000)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;servicevar&nbsp;(json?!):&nbsp;service&nbsp;established&nbsp;with&nbsp;google<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Last&nbsp;row&nbsp;of&nbsp;the&nbsp;specified&nbsp;document&nbsp;within&nbsp;the&nbsp;specified&nbsp;range&nbsp;as&nbsp;2&nbsp;dim&nbsp;array&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;(use&nbsp;as&nbsp;variable[0][column])</tt></dd></dl>
  <dl><dt><a name="-latestFileInDirectory"><strong>latestFileInDirectory</strong></a>(path, pattern)</dt><dd><tt>Get&nbsp;path&nbsp;to&nbsp;latest&nbsp;file&nbsp;in&nbsp;local&nbsp;directory<br>
 &nbsp;<br>
 Args:&nbsp;<br>
@@ -202,13 +213,13 @@ Returns:<br>
 <font color="#ffffff" face="helvetica, arial"><big><strong>Data</strong></big></font></td></tr>
     
 <tr><td bgcolor="#55aa55"><tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</tt></td><td>&nbsp;</td>
-<td width="100%"><strong>SCOPES</strong> = 'https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive'<br>
+<td width="100%"><strong>SCOPES</strong> = ['https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']<br>
 <strong>SCRIPT_ID</strong> = '19DaHeOOX69nkoBTv_XWQlggBDz1QgS0ZYUpeXc9lxqi3KAlox34xtRuI'<br>
-<strong>date</strong> = '05-05-20'<br>
+<strong>date</strong> = '08-06-20'<br>
 <strong>print_function</strong> = _Feature((2, 6, 0, 'alpha', 2), (3, 0, 0, 'alpha', 0), 65536)<br>
 <strong>scriptconfig</strong> = &lt;configparser.ConfigParser object&gt;<br>
-<strong>time</strong> = '13:38'<br>
-<strong>today</strong> = datetime.datetime(2020, 5, 5, 13, 38, 0, 296476)</td></tr></table><p>
+<strong>time</strong> = '14:42'<br>
+<strong>today</strong> = datetime.datetime(2020, 8, 6, 14, 42, 44, 95221)</td></tr></table><p>
 <table width="100%" cellspacing=0 cellpadding=2 border=0 summary="section">
 <tr bgcolor="#7799ee">
 <td colspan=3 valign=bottom>&nbsp;<br>

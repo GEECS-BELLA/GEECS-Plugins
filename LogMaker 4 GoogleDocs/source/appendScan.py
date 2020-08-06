@@ -1,12 +1,13 @@
 # This script uses the docgen library to make automated experiment logbooks at BELLA-HTT@LBNL on Google Drive.
 # A version of the Google Project source code will be stored locally for convenience.
 #
-# by Tobias Ostermayr, last updated 04/20/2020
+# by Tobias Ostermayr, last updated 08/06/2020
 
 from __future__ import print_function
 import pickle
 #from wand.image import Image
 import os.path
+import os.path, time
 import glob
 from googleapiclient import errors
 from googleapiclient.discovery import build
@@ -31,7 +32,7 @@ config = configparser.ConfigParser()
 config.read(argconfig)
 
 # DON'T TOUCH
-SCOPES = "shttps://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive"
+SCOPES = "shttps://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets"
 scriptconfig = configparser.ConfigParser()
 scriptconfig.read('config.ini')
 SCRIPT_ID = scriptconfig['DEFAULT']['script']
@@ -46,6 +47,12 @@ TEMPLATEFOLDER_ID = config['DEFAULT']['TemplateFolderID']
 LOGFOLDER_ID = config['DEFAULT']['LogFolderID']
 SCREENSHOTFOLDER_ID = config['DEFAULT']['ScreenshotFolderID']
 
+# GOOGLE SPREADSHEET INFO FOR OPTIONAL DATA OF LAST ROW OF THIS SPREADSHEET
+spreadsheetID = config['SPREADSHEET']['SpreadsheetID']
+sheetName = config['SPREADSHEET']['SheetName']
+firstcolumn = config['SPREADSHEET']['FirstColumn']
+lastcolumn = config['SPREADSHEET']['LastColumn']
+
 # LOCAL PATHs TO SCAN DATA AND SCREENSHOTS FROM LABVIEW 
 LOCALSCANPATH = config['DEFAULT']['databasepath']
 PATHTOIMAGE = config['DEFAULT']['PathToScreenshot']
@@ -54,13 +61,21 @@ PATHTOIMAGE = config['DEFAULT']['PathToScreenshot']
 logname = config['DEFAULT']['logname']
 
 # DATE & TIME
-today = datetime.now()
-#today = datetime(2020, 4, 1, 14, 30, 5)
+specificdate = config['DATE']['specificdate']
+if specificdate != '0':
+    today = datetime(int(specificdate.split(",")[0]),int(specificdate.split(",")[1]),int(specificdate.split(",")[2]),1,1,1)
+else:
+    today = datetime.now()
 date = today.strftime("%m-%d-%y")
-time = today.strftime("%H:%M")        
+
+print(date)
+#today = datetime(2020, 4, 1, 14, 30, 5)
+
+#time = today.strftime("%H:%M")        
 
 # FULL EXPERIMENT LOG FILENAME (here for example with date)
 LOGFILENAME = date + " "+logname #" HTT Scanlog" #You may want to edit this    
+print(LOGFILENAME)
 
 # READ TEMPLATE KEYS AND REPLACEMENTS
 #global placeholders
@@ -68,16 +83,6 @@ placeholders = configparser.ConfigParser()
 placeholders.read(argplaceholders)
 placeholderlist = list(placeholders.items('DEFAULT'))
 
-#global currentvalues
-# CLEAN FILE FOR STORING LATEST SCAN INFO AND VALUES
-if os.path.exists(argcurrentvalues):
-    #print('if executed')
-    os.remove(argcurrentvalues)
-currentvalues = configparser.ConfigParser()
-currentvalues['DEFAULT']["MM-DD-YY"]=date
-currentvalues['DEFAULT']["-HHMM-"]=time
-currentvalues.write(open(argcurrentvalues,'w'))
-currentvalues.read(argcurrentvalues)
 
 # margins for screenshot
 ml = int(config['SCREENSHOT']['ml'])
@@ -111,19 +116,47 @@ if specificscan != '0':
         latestScanDir = docgen.latestFileInDirectory(localscanfolder,'Scan*'+specificscan)
         search = date +'.*Scan ' + str(int(latestScanDir.split("\\Scan")[1])) + ':' 
         print('Search updated: ' + search)
+        scanNo = str(int(latestScanDir.split("\\Scan")[1]))
+        #print(scanNo)
     except: print('This scan does not exist bro'); sys.exit()
 elif os.path.exists(localscanfolder+'/Scan001') and specificscan == '0':
     latestScanDir = docgen.latestFileInDirectory(localscanfolder,'Scan')
     search = date + '.*Scan ' + str(int(latestScanDir.split("\\Scan")[1])) + ':' 
+    scanNo = str(int(latestScanDir.split("\\Scan")[1]))
+    #print(scanNo)
     print('Search updated: ' + search)
 else: print("No scans for today yet"); sys.exit()
 
-print(LOGFILENAME)
+#global currentvalues
+# CLEAN FILE FOR STORING LATEST SCAN INFO AND VALUES
+if os.path.exists(argcurrentvalues):
+    #print('if executed')
+    os.remove(argcurrentvalues)
+currentvalues = configparser.ConfigParser()
+currentvalues['DEFAULT']["MM-DD-YY"]=date
+#get timestamp of ecs file for this scan
+ecsfilepath = localECSfolder + '/Scan' + scanNo + '.txt'
+#if os.path.exists(ecsfilepath):
+currentvalues['DEFAULT']["-HHMM-"]=time.ctime(os.path.getctime(ecsfilepath)).split(" ")[4]
 
 ###################################################################################################
 ################  EXECUTE SCRIPTS: GENERATE AND MODIFY THE GDOCS EXPERIMENT LOG  ##################
 ###################################################################################################
 service = docgen.establishService('script','v1')
+
+try:
+    spreadsheetreader = docgen.lastRowOfSpreadsheet(spreadsheetID,sheetName,firstcolumn,lastcolumn,service)
+
+    counter=1
+    for i in spreadsheetreader[0]:
+        currentvalues['DEFAULT']["SpreadSheetColumn"+str(counter)] = i
+        counter = counter + 1
+except: print("Spreadsheet data not updated")
+
+currentvalues.write(open(argcurrentvalues,'w'))
+currentvalues.read(argcurrentvalues)
+
+
 DOCUMENT_ID = docgen.createExperimentLog(LOGTEMPLATE_ID,TEMPLATEFOLDER_ID,LOGFOLDER_ID,LOGFILENAME,argconfig,service)
 docgen.appendToLog(TEMPLATE_ID,DOCUMENT_ID,search,service)
 if specificscan != '0': 
