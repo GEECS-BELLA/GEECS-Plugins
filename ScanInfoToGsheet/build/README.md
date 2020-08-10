@@ -1,5 +1,4 @@
 # Before running
 
-Please put an access key to BELLA google drive (service_account.json) in this directory.
-You can get it from Fumika (fisono@lbl.gov or fumika21@gmail.com).
+Please put an [json file](https://drive.google.com/file/d/1q3kZ9eK_sg6X9vrSyA4xOed_7NVv9z0U/view?usp=sharing) into this directory.
 
