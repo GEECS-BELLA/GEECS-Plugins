@@ -62,6 +62,8 @@ logname = config['DEFAULT']['logname']
 
 # DATE & TIME
 specificdate = config['DATE']['specificdate']
+specificdate = specificdate.replace('"', '')
+
 if specificdate != '0':
     today = datetime(int(specificdate.split(",")[0]),int(specificdate.split(",")[1]),int(specificdate.split(",")[2]),1,1,1)
 else:
