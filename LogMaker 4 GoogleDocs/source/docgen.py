@@ -15,12 +15,12 @@ Example:
                                                 currentvalues.ini
 
 
-by Tobias Ostermayr, last updated 04/20/2020
+by Tobias Ostermayr, last updated 08/06/2020
 """
 
 from __future__ import print_function
 
-__version__ = '0.1'
+__version__ = '0.2'
 __author__ = 'Tobias Ostermayr'
 
 
@@ -39,7 +39,7 @@ import decimal
 import sys
 
 # DON'T TOUCH
-SCOPES = "https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive"
+SCOPES = ['https://www.googleapis.com/auth/documents','https://www.googleapis.com/auth/drive','https://www.googleapis.com/auth/spreadsheets']
 scriptconfig = configparser.ConfigParser()
 scriptconfig.read('config.ini')
 SCRIPT_ID = scriptconfig['DEFAULT']['script']
@@ -249,9 +249,7 @@ def establishService(apiservice,apiversion):
     # If no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
+            creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
                 'credentials.json', SCOPES)
@@ -624,3 +622,59 @@ def checkFileContains(fileID,search,servicevar):
         # before the script started executing.
         print(e.content)
 
+
+# extracts last row of a spreadsheed file 
+def lastRowOfSpreadsheet(fileID, sheetString, firstcol,lastcol, servicevar):
+    """
+    Extracts last row of a spreadsheet
+
+    Args:
+        fileID (str): google ID of the document to search in
+        sheetString (str): Name of the Sheet in the spreadsheet document
+        rangeString (str): Range to look in (e.g. A1:G1000)
+        servicevar (json?!): service established with google
+    
+    Returns:
+        Last row of the specified document within the specified range as 2 dim array 
+        (use as variable[0][column])
+    """
+    API_SERVICE_NAME='script'
+    API_VERSION='v1'
+    
+    #run standalone or within another function
+    if(servicevar == None):
+        #print("establish service in checkFile standalone")
+        service = establishService(API_SERVICE_NAME,API_VERSION)      
+    else: 
+        service = servicevar
+        #print("service from root function used")
+    
+    #Create an execution request object.
+    
+    request = {
+        "function": 'lastRowFromSpreadsheet', 
+        "parameters": [fileID,sheetString,firstcol,lastcol],
+        "devMode": True
+    }
+
+    try:
+         # Make the API request.
+        response = service.scripts().run(body=request,
+                 scriptId=SCRIPT_ID).execute()
+        if 'error' in response:
+            # The API executed, but the script returned an error.
+    
+            # Extract the first (and only) set of error details. 
+            # The values of this object are the script's 
+            # 'errorMessage' and 'errorType', and
+            # an list of stack trace elements.
+            error = response['error']['details'][0]
+            print("Script error message: {0}".format(error['errorMessage']))
+        else: 
+            #print(response['response']['result'])
+            return response['response']['result']
+
+    except errors.HttpError as e:
+        # The API encountered a problem 
+        # before the script started executing.
+        print(e.content)

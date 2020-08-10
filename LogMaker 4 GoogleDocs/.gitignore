@@ -1,2 +1,4 @@
 token*
 credentials*
+*.ini
+__pycache__

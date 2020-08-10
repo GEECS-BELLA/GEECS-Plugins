@@ -1,11 +1,17 @@
-//HTT EXPERIMENT LOG GENERATOR APPS Script
-//Needs to be installed as a google apps script and deployed as API
+//HTT EXPERIMENT LOG GENERATOR
 
 /**
+ * Extending Google Docs developer guide:
+ *     https://developers.google.com/apps-script/guides/docs
+ *
+ * Document service reference documentation:
+ *     https://developers.google.com/apps-script/reference/document/
+ *
+ *
  * This project works with a local python interface calling the functions via Google Apps Scripts API.
- * The purpose of this script is to make automated experiment logs at BELLA Center.
+ * The purpose of this script is to make automated experiment logs for the HTT experiment at the Berkeley Lab Laser Accelerator Center.
  * 
- * by Tobias Ostermayr, last updated March 31, 2020
+ * by Tobias Ostermayr, last updated August 6, 2020
  */
 
 //=================================MAIN FUNCTIONS======================================
@@ -111,6 +117,9 @@ return 0
 
 }
 
+
+
+
 //=================================HELPER FUNCTIONS=======================================
 
 //CHECK FILE EXISTENCE IN A FOLDER
@@ -130,4 +139,27 @@ function checkFileContains(fileID, search){
   if(searchresult!=null){
     return true}
   else{return false}
+}
+
+
+//CHECKS STRING EXISTENCE WITHIN FILE
+function lastRowFromSpreadsheet(fileID, sheetString, firstCol,lastCol){
+  var sheet = SpreadsheetApp.openById(fileID).getSheetByName(sheetString);
+  
+  var rng = sheet.getRange(firstCol+":"+lastCol).getValues();
+  var lrIndex;
+  
+  for(var i = rng.length-1;i>=0;i--){
+    lrIndex=i;
+    if(!rng[i].every(function(c){ return c == ""; })){
+      break;
+    }
+    
+  }
+  
+  var lr = lrIndex+1;
+  
+  var rowVals = sheet.getRange(firstCol+lr+":"+lastCol+lr).getDisplayValues();
+ 
+return rowVals;
 }
