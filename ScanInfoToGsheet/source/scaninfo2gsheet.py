@@ -38,8 +38,8 @@ class scaninfo2gsheet:
 
 
 def main():
-    dir_date = 'Z:\\data\\Undulator\\Y2020\\01-Jan\\20_0122'
-    sheet_title = 'HTU test10'
+    dir_date = 'Z:\\data\\Undulator\\Y2020\\08-Aug\\20_0810'
+    sheet_title = 'HTU test2008'
     para_txt = 'Jet_X,Jet_Y,Jet_Z,Pressure,separation'
     gdrive_dir = '0B6BJlLNDz1MabGZSMUVWOHVqbE0'
     isAutoUpdate = False

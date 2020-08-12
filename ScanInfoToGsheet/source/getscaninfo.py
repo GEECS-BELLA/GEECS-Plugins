@@ -48,6 +48,7 @@ def get_scaninfo_row(dir_date, para_txt, n_scan, len_col):
     #Get basic scan info from scaninfo file
     keys, values = get_scaninfo(dir_date, n_scan)
     if not keys:
+        #empty scan info
         row_list = [n_scan] + ['-'] * (len(len_col) - 1)
     else:
         #Get data from analysis file
