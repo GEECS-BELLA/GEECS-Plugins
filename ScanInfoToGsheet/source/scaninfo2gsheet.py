@@ -6,7 +6,7 @@ from df2gsheet import df2gsheet
 class scaninfo2gsheet:
     def __init__(self, dir_date, para_txt):
         self.dir_date = dir_date
-        self.para_txt = para_txt
+        self.exp_paras = para_txt.replace(", ", ",").split(",") if para_txt else None
         self.sheet = None
         self.n_columns = None
         self.n_scans = None
@@ -16,7 +16,7 @@ class scaninfo2gsheet:
         Open (Create if not exist) a google sheet in the google drive, then write down the all scans' infomation
         '''
         # get a dataframe to write
-        df = df_scaninfo(self.dir_date, self.para_txt)
+        df = df_scaninfo(self.dir_date, self.exp_paras)
         # write the dataframe into a google sheet
         self.sheet = df2gsheet(sheet_title, df, gdr_dir)
         self.n_scans = df.index[-1] + 1
@@ -29,7 +29,7 @@ class scaninfo2gsheet:
         '''
         scan_new = get_last_scannumber(self.dir_date)
         if nscan_new > self.n_scans:
-            scaninfo_new = get_scaninfo_row(self.dir_date, self.para_txt, scan_new, self.n_columns)
+            scaninfo_new = get_scaninfo_row(self.dir_date, self.exp_paras, scan_new, self.n_columns)
             self.sheet[0].append_table(scaninfo_new)
             self.n_scans = scan_new
             return self.n_scans

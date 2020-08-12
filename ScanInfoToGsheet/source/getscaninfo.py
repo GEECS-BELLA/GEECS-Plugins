@@ -6,7 +6,7 @@ import glob
 from getanalysisdata import analysisdata
 
 
-def df_scaninfo(dir_date, para_txt):
+def df_scaninfo(dir_date, exp_paras):
     '''Create a dataframe from all the scan data'''
 
     #get column names for the dataframe
@@ -20,8 +20,6 @@ def df_scaninfo(dir_date, para_txt):
         columns = info_key
         
     #add experimental parameters to the column names    
-    if para_txt:
-        exp_paras = para_txt.replace(", ", ",").split(",")
         columns = columns+exp_paras
 
     # fill in data
@@ -42,7 +40,7 @@ def config_keys(dir_date, last_scan=10):
             break
     return keys
 
-def get_scaninfo_row(dir_date, para_txt, n_scan, len_col):
+def get_scaninfo_row(dir_date, exp_paras, n_scan, len_col):
     '''Get scan info for a scan (n_scan). Return a text of a row to write on a table.'''
 
     #Get basic scan info from scaninfo file
@@ -77,8 +75,6 @@ def get_scaninfo_row(dir_date, para_txt, n_scan, len_col):
 
         #get additional experimental parameters
         exp_vals = []
-        if para_txt:
-            exp_paras = para_txt.replace(", ", ",").split(",")
             for i in range(len(exp_paras)):
                 exp_val = analysis.get_val(exp_paras[i])
                 # say 'scan' if this is a scan parameter
