@@ -2,7 +2,7 @@ from configparser import ConfigParser
 import pandas as pd
 from decimal import Decimal
 
-from getanalysisdata import analysisdata
+from analysisdata import analysisdata
 
 class scaninfo_row:
     def __init__(self, dir_date, exp_paras, n_scan):
@@ -40,8 +40,8 @@ class scaninfo_row:
             _, info_vals[6] = self.analysis.get_start_end_val('Shotnumber')
         else:
             #For scan, get alias of scan parameter if exists
-            try: info_vals[2] = self.analysis.get_par_alias(info_vals[2])
-            except: None
+            if self.analysis.get_par_alias(info_vals[2]):
+                info_vals[2] = self.analysis.get_par_alias(info_vals[2])
             
             #For old MC version, append start&end values
             if 'start'=='-':

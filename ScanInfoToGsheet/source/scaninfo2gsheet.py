@@ -1,5 +1,5 @@
 import time
-from getscaninfo import df_scaninfo, get_last_scannumber, get_scaninfo_row
+from getscaninfo import df_scaninfo, get_last_scannumber
 from df2gsheet import df2gsheet
 
 
