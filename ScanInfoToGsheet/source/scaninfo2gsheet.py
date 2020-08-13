@@ -1,6 +1,7 @@
 import time
 from getscaninfo import df_scaninfo, get_last_scannumber
 from df2gsheet import df2gsheet
+from scaninfo_row import scaninfo_row
 
 
 class scaninfo2gsheet:
@@ -28,9 +29,9 @@ class scaninfo2gsheet:
         return: latest scan number if there is a new scan. Otherwise return None
         '''
         scan_new = get_last_scannumber(self.dir_date)
-        if nscan_new > self.n_scans:
-            scaninfo_new = get_scaninfo_row(self.dir_date, self.exp_paras, scan_new, self.n_columns)
-            self.sheet[0].append_table(scaninfo_new)
+        if scan_new > self.n_scans:
+            newinfo = scaninfo_row(self.dir_date, self.exp_paras, scan_new)
+            self.sheet[0].append_table(newinfo.scaninfo_row)
             self.n_scans = scan_new
             return self.n_scans
         else:
