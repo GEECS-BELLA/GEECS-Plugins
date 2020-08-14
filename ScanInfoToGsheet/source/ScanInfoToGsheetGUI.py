@@ -122,7 +122,7 @@ def get_proj_name(dir_date):
                 values: [proj] in google_dir.ini
     '''
     path_parent = os.path.normpath(dir_date).split(os.path.sep)[-4]
-    dct_project = {'Thomson': 'HTT', 'Undulator': 'HTU', 'data': 'PW', 'kHz LPA': 'kHz'}
+    dct_project = {'Thomson': 'HTT', 'Undulator': 'HTU', 'data': 'PW', 'kHzLPA': 'kHz'}
     return dct_project[path_parent]
 
 
