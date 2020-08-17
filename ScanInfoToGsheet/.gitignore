@@ -9,4 +9,9 @@ ScanInfo_test.ipynb
 
 #key
 build/service_account.json
+build/ScanInoToGsheetGUI.exe
+build/config_gdrive.ini
+build/config_parameters.ini
 source/service_account.json
+
+
