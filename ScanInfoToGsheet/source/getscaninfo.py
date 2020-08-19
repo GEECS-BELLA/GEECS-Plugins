@@ -1,17 +1,16 @@
-from configparser import ConfigParser
 import os
 import re
 import pandas as pd
 import glob
-from analysisdata import analysisdata
 from scaninfo_row import scaninfo_row
 
 
 def df_scaninfo(dir_date, exp_paras):
     '''Create a dataframe from all the scan data'''
 
-    info_keys = ['scan no', 'scanstartinfo', 'scan parameter', 'start', 'end', 'step size', 'shots per step',
-               'scanendinfo']        
+    #following naming can be changed, but are associated with info_keys in scaninfo_row.get_info_list function.
+    info_keys = ['scan', 'shots', 'start time',' startinfo', 'scan parameter', 'start', 'end', 'step size', 'shot/step',
+               'endinfo']        
     #add experimental parameters to the column names
     print(exp_paras)
     columns = info_keys+exp_paras

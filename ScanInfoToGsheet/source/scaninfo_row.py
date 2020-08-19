@@ -1,6 +1,10 @@
 from configparser import ConfigParser
 import pandas as pd
 from decimal import Decimal
+from dateutil.relativedelta import relativedelta
+from datetime import datetime
+from pytz import timezone
+
 
 from analysisdata import analysisdata
 
@@ -20,24 +24,26 @@ class scaninfo_row:
         self.scaninfo_row = self.info_vals+exp_vals
 
     def get_info_list(self):
-        '''Modify data getting from get_info, and return a list of values associated with info_keys.'''
-    
+        '''Get values from saninfo ini file, modify/add missing components, then insert total shot number
+        and time. Return a list (len=10) with values associated with info_keys in getscaninfo.df_scaninfo.  '''
+        
+        #following names has to match the key names in the Scaninfo txt file
         info_keys = ['scan no', 'scanstartinfo', 'scan parameter', 'start', 'end', 'step size', 'shots per step',
                'scanendinfo']
         
-        #get an empty list with scan nomber on the first cell
+        #Create an empty list with scan number on the first cell
         info_vals = [self.n_scan] + ['-'] * (len(info_keys) - 1)
         
-        #get scan info, fill the scan info into the list
+        #Get scan info, fill the scan info into the list
         infodict = self.get_info()
         for i in range(len(info_keys)-1):
             if info_keys[i+1] in infodict:
                 info_vals[i+1] = infodict[info_keys[i+1]]
-                        
-        #for no scan, get total shot number
+        
+        #Modify or to fill up the missing components in the list
+        #for no scan, say 'No Scan'
         if info_vals[2]=='Shotnumber':
             info_vals[2] = 'No Scan'
-            _, info_vals[6] = self.analysis.get_start_end_val('Shotnumber')
         else:
             #For scan, get alias of scan parameter if exists
             if self.analysis.get_par_alias(info_vals[2]):
@@ -46,10 +52,21 @@ class scaninfo_row:
             #For old MC version, append start&end values
             if 'start'=='-':
                 info_vals[4], info_vals[5] = self.analysis.get_start_end_val(values[2])
-                _, totalshot = self.analysis.get_start_end_val('Shotnumber')
-                #info_vals[6] = str(totalshot)+'/step' #get total shot number
+                
+        #Insert total shot number into second index of the list
+        _, shots = self.analysis.get_start_end_val('Shotnumber')
+        info_vals.insert(1, shots)
+        
+        #Insert time into third index of the list
+        #get the time of the first shot
+        timestamp,_ = self.analysis.get_start_end_val('Timestamp')
+        
+        #convert to pacific time
+        time_str = PT_timestr(float(timestamp), "%H:%M:%S")
+        info_vals.insert(2, time_str)
                 
         return info_vals
+        
 
     def get_info(self):
         '''Get info from ScanInfoScan***.ini as a dictionary'''
@@ -70,17 +87,29 @@ class scaninfo_row:
         return dict(config.items('Scan Info'))
 
     def get_exp_vals(self):
-        '''get additional experimental parameters'''
+        '''get additional experimental parameters, return the list'''
         exp_vals = []
         for i in range(len(self.exp_paras)):
-            exp_val = self.analysis.get_val(self.exp_paras[i])
-            # say 'scan' if this is a scan parameter
+            #get the value of the first shot
+            exp_val,_ = self.analysis.get_start_end_val(self.exp_paras[i])
+            # say 'scan' if this is the scan parameter
             if self.exp_paras[i] in self.info_vals[2]:
                 exp_val = 'scan'
             exp_vals = exp_vals + [exp_val]
         return exp_vals
 
+def PT_timestr(lvtimestamp,strformat):
+    '''Conert the labview timestamp to pacific time.
+    lvtimestamp: labview timestamp (float). should be 10 digit (36...)
+    strformat: format of the string to be returned. ex) "%m/%d/%Y, %H:%M:%S"'''
+    lv_dt = datetime.fromtimestamp(lvtimestamp) #labview time
+    utc_dt = lv_dt - relativedelta(years=66, days=1) #UTC time
+    #convert to Pacific time
+    ca_tz = timezone('America/Los_Angeles')
+    ca_date = utc_dt.astimezone(ca_tz)
 
+    return ca_date.strftime(strformat)
+    
 def main():
     dir_date = 'Z:\\data\\Undulator\\Y2020\\08-Aug\\20_0811'
     para_txt = 'Jet_X,Jet_Y,Jet_Z,Pressure,separation'
