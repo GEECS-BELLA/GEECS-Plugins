@@ -1,6 +1,5 @@
 from configparser import ConfigParser
 import pandas as pd
-from decimal import Decimal
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 from pytz import timezone
@@ -77,11 +76,15 @@ class scaninfo_row:
         config = ConfigParser()
         config_read = config.read(file_config)
 
-        #Strip "", normalize numbers (get rid of unnecessary decimals)
+        #Strip "", get rid of unnecessary decimals
         for i in config['Scan Info'].keys():
-            config['Scan Info'][i] = config['Scan Info'][i].strip('""')
+            config['Scan Info'][i] = config['Scan Info'][i].strip('""')            
             try:
-                config['Scan Info'][i] = str(Decimal(config['Scan Info'][i]).normalize())
+                val = float(config['Scan Info'][i])
+                if val.is_integer():
+                    config['Scan Info'][i] = str(int(val))
+                else:
+                    config['Scan Info'][i] = str(round(val,3))                
             except:
                 None
         return dict(config.items('Scan Info'))
@@ -93,7 +96,7 @@ class scaninfo_row:
             #get the value of the first shot
             exp_val,_ = self.analysis.get_start_end_val(self.exp_paras[i])
             # say 'scan' if this is the scan parameter
-            if self.exp_paras[i] in self.info_vals[2]:
+            if self.exp_paras[i] in self.info_vals[4]:
                 exp_val = 'scan'
             exp_vals = exp_vals + [exp_val]
         return exp_vals
