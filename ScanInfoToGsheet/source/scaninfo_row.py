@@ -61,7 +61,7 @@ class scaninfo_row:
         timestamp,_ = self.analysis.get_start_end_val('Timestamp')
         
         #convert to pacific time
-        time_str = PT_timestr(float(timestamp), "%H:%M:%S")
+        time_str = PT_timestr(float(timestamp), "%H:%M")
         info_vals.insert(2, time_str)
                 
         return info_vals

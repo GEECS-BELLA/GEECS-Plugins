@@ -22,6 +22,7 @@ class Gui(object):
         self.gui.addCheck('auto_update', '', ['Turn On Auto Update'])
         self.gui.addButton('commands')
         self.gui.changeWidget('commands', 0, text='Export', command=self.export)
+        self.gui.changeWidget('commands', 1, text='Exit')
 
         self.gui.plot('dir_date', row=0)
         self.gui.plot('para_list', row=1, pady=5)

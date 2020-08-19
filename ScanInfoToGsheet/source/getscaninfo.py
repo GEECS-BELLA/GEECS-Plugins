@@ -12,7 +12,6 @@ def df_scaninfo(dir_date, exp_paras):
     info_keys = ['scan', 'shots', 'start time',' startinfo', 'scan parameter', 'start', 'end', 'step size', 'shot/step',
                'endinfo']        
     #add experimental parameters to the column names
-    print(exp_paras)
     columns = info_keys+exp_paras
 
     # fill in data
