@@ -1,5 +1,5 @@
 # ScanInfoTable
-This code runs a GUI that shows a table of scan infomation and parameters of the day. This is a simpler version of [ScanInfoToGsheet](https://github.com/GEECS-BELLA/GEECS-Plugins/tree/master/ScanInfoToGsheet), since this code just shows a table (not saving). It is sufull when you want to look back several run days quickly.
+This code runs a GUI that shows a table of scan infomation and parameters of the day. This is a simpler version of [ScanInfoToGsheet](https://github.com/GEECS-BELLA/GEECS-Plugins/tree/master/ScanInfoToGsheet), since this code just shows a table (not saving). It is usefull when you want to look back several run days quickly.
 
 ## How to run
 Commandline: `python ScanInfoTable.py`, or right click the file and choose **open with python**.
