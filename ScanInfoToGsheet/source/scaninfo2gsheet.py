@@ -39,11 +39,11 @@ class scaninfo2gsheet:
 
 
 def main():
-    dir_date = 'Z:\\data\\Undulator\\Y2020\\06-Jun\\20_0622'
-    sheet_title = 'test0622'
+    dir_date = 'Z:\\data\\Undulator\\Y2020\\09-Sep\\20_0908'
+    sheet_title = 'HTU 20_0908 ScanSummary_'
     para_txt = 'Jet_X,Jet_Y,Jet_Z,Pressure,separation'
-    gdrive_dir = '0B3exNkpbT8vdREk0VzV5RVEyd1E'
-    isAutoUpdate = False
+    gdrive_dir = '1CIhAy9Ykh4r4Tq4FfL-msCfeJ_vTTJCVNziObS43RYc'
+    isAutoUpdate = True
 
     scaninfo = scaninfo2gsheet(dir_date, para_txt)
     sheet = scaninfo.write(gdrive_dir, sheet_title)
