@@ -138,8 +138,9 @@ currentvalues['DEFAULT']["MM-DD-YY"]=date
 #get timestamp of ecs file for this scan
 ecsfilepath = localECSfolder + '/Scan' + scanNo + '.txt'
 #if os.path.exists(ecsfilepath):
-currentvalues['DEFAULT']["-HHMM-"]=time.ctime(os.path.getctime(ecsfilepath)).split(" ")[4]
-
+filedate = os.path.getctime(ecsfilepath)
+hourandminuteandsecond = datetime.fromtimestamp(filedate).strftime('%H:%M:%S')
+currentvalues['DEFAULT']["-HHMM-"]=hourandminuteandsecond
 ###################################################################################################
 ################  EXECUTE SCRIPTS: GENERATE AND MODIFY THE GDOCS EXPERIMENT LOG  ##################
 ###################################################################################################
