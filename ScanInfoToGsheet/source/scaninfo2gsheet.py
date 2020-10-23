@@ -41,7 +41,7 @@ class scaninfo2gsheet:
 def main():
     dir_date = 'Z:\\data\\Undulator\\Y2020\\09-Sep\\20_0908'
     sheet_title = 'HTU 20_0908 ScanSummary_'
-    para_txt = 'Jet_X,Jet_Y,Jet_Z,Pressure,separation'
+    para_txt = 'Jet_X,Jet_Y,Jet_Z,JetBlade,Pressure,separation'
     gdrive_dir = '1CIhAy9Ykh4r4Tq4FfL-msCfeJ_vTTJCVNziObS43RYc'
     isAutoUpdate = True
 
