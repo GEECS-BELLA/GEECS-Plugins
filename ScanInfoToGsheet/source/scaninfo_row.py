@@ -114,12 +114,12 @@ def PT_timestr(lvtimestamp,strformat):
     return ca_date.strftime(strformat)
     
 def main():
-    dir_date = 'Z:\\data\\Undulator\\Y2020\\08-Aug\\20_0811'
+    dir_date = 'Z:\\data\\Undulator\\Y2020\\09-Sep\\20_0922'
     para_txt = 'Jet_X,Jet_Y,Jet_Z,Pressure,separation'
 
     exp_paras = para_txt.replace(", ", ",").split(",") if para_txt else None
     #get scan info
-    scaninfo = scaninfo_row(dir_date, exp_paras, 9)
+    scaninfo = scaninfo_row(dir_date, exp_paras, 19)
     print(scaninfo.scaninfo_row)
     
 if __name__ == '__main__':

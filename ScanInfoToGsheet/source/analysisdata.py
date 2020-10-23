@@ -35,13 +35,14 @@ class analysisdata():
     
     def get_par_alias(self, par):
         '''Get the Alias name of the parameter if exists'''
-        par_full = list(self.data)[self.idx(par)]
-        
-        # Get Alias if exists
-        if 'Alias' in par_full:
-            return par_full.split('Alias:', 1)[1]
+
+        if self.idx(par):
+            par_full = list(self.data)[self.idx(par)]
+            # Get Alias if exists
+            if 'Alias' in par_full:
+                return par_full.split('Alias:', 1)[1]
         else:
-            return None
+            return par
         
     def idx(self, par):
         '''Get index of a parameter. Return None if the parameter cannot be found'''

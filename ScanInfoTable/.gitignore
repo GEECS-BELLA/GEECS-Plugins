@@ -1,7 +1,5 @@
-/DS_Store
+*/DS_Store
+*.DS_Store
 .ipynb_checkpoints/
 __pycache__/
-
-
-#personal
-ScanInfoTable_develop.py
+*Shortcut.lnk

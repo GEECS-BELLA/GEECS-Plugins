@@ -29,7 +29,9 @@ class ScanInfoTable:
         
         #load configuration file
         self.config = configparser.ConfigParser()
-        self.config.read('config.ini')    
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        print('directory:    ', dir_path)
+        self.config.read(dir_path+'\\config.ini')    
     
         # Make a top frame and a frame with a scrolled window
         self.win_width, self.win_height = '1000', '800'
