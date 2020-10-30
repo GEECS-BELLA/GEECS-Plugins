@@ -16,10 +16,12 @@ class Gui(object):
         self.gui = Window()
         self.gui.setTitle('Export ScanInfo to Gsheet')
         self.gui.addChooseDir('dir_date', 'Scan Date Folder', width=40, initialdir='')
-        self.gui.addEntry('para_list', 'Parameters to list', width=50)
+        #self.gui.addEntry('para_list', 'Parameters to list', width=50)
+        #self.gui.set('para_list', self.config['DEFAULT']['parameters'])
+        self.gui.addCombo('para_list', 'Paramters to list', None,
+                          postcommand=self.para_update, width=47)
         self.gui.addCombo('gdir', 'Save location in google drive', None,
                           postcommand=self.gdir_update, width=47)
-        self.gui.set('para_list', self.config['DEFAULT']['parameters'])
         self.gui.addText('status', width=40, height=5, prompt='Status:')
         self.gui.addCheck('auto_update', '', ['Turn On Auto Update'])
         self.gui.addButton('commands')
@@ -55,12 +57,26 @@ class Gui(object):
 
         # update save folder options in GUI
         self.gui.set('gdir', self.g_name, allValues=True)
+        
+    def para_update(self):
+        """
+        Update a parameter list on GUI
+        """
+        # get google drive folder name and ID from .ini file
+        cfg = configparser.ConfigParser()
+        cfg.read(self.dir_path+'\\config_parameters.ini')
+        self.para = [cfg[i]['parameters'] for i in cfg.sections()]
+
+        # update save folder options in GUI
+        self.gui.set('para_list', self.para, allValues=True)
+        
 
     def export(self):
         '''When Export button is pressed, scan info is written into a google sheet'''
         # Get settings from GUI
         dir_date = self.gui.get('dir_date', allValues=True)  # directory of scandata
-        para_list = self.gui.get('para_list', allValues=True)  # parameters to save
+        para_list = self.gui.get('para_list')  # parameters to save
+        print('para_list', para_list)
         gdrive_name = self.gui.get('gdir')  # name of the google drive
 
         if not dir_date or not gdrive_name:
@@ -70,6 +86,7 @@ class Gui(object):
             sheet_title = self.proj + ' ' + os.path.basename(dir_date) + ' ScanSummary'
 
             # write
+            
             self.scaninfo = scaninfo2gsheet(dir_date, para_list)
             sheet = self.scaninfo.write(gdrive_id, sheet_title)
             self.exported = True
@@ -82,7 +99,7 @@ class Gui(object):
             webbrowser.open(sheet.url)
 
             # update the config file
-            self.write_config(para_list, dir_date)
+            #self.write_config(para_list, dir_date)
 
     def update(self):
         '''Update google sheet every 30 sec.'''
