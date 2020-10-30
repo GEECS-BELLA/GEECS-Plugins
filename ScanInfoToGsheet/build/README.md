@@ -1,8 +1,6 @@
-The executable is already in vol1 > data > ScanInfoToGsheet and you can readily run it. If you want to download executable from github, please follow the steps below.
-It might take a minute to start depending on the computer (it's pretty quick on appserver).  
-If you think the executable is too slow, please run ScanInfoToGsheet.py directly, which is in the source folder.  
+The code is readily available at vol1 > data > ScanInfoToGsheet. Just run ScanInfoToGsheetGUI.py.  
 
-To townload executable from github...
+To download executable from github... (exe might not be up to date.)
 
 1. Go to the [github release page](https://github.com/GEECS-BELLA/GEECS-Plugins/releases) and download config_gdrive.ini, gofing_parameters.ini, and ScanInfoToGsheetGUI.exe
 
