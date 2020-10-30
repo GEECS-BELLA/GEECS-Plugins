@@ -7,8 +7,9 @@ import configparser
 class Gui(object):
     def __init__(self):
         # read configuration file
+        self.dir_path = os.path.dirname(os.path.realpath(__file__))
         self.config = configparser.ConfigParser()
-        self.config.read('config_parameters.ini')
+        self.config.read(self.dir_path+'\\config_parameters.ini')
 
         # write gui
         self.gui = Window()
@@ -39,16 +40,6 @@ class Gui(object):
         self.autoupdateOn = False
         self.update()
 
-    def get_dirname_id(proj):
-        '''Get the name and ID of google drive save locaion from google_dir.ini
-        proj:'''
-        config_g = configparser.ConfigParser()
-        config_g.read('google_dir')
-
-        name = [config_g[i]['name'] for i in config_g.sections() if config_g[i]['proj'] == proj]
-        ID = [config_g[i]['id'] for i in config_g.sections() if config_g[i]['proj'] == proj]
-        return name, ID
-
     def gdir_update(self):
         '''Update a saving location option on GUI, depending on your project'''
         # get BELLA project name
@@ -57,7 +48,7 @@ class Gui(object):
 
         # get google drive folder name and ID from .ini file
         cfg = configparser.ConfigParser()
-        cfg.read('config_gdrive.ini')
+        cfg.read(self.dir_path+'\\config_gdrive.ini')
         self.g_name = [cfg[i]['name'] for i in cfg.sections() if cfg[i]['proj'] == self.proj]
         self.g_ID = [cfg[i]['id'] for i in cfg.sections() if cfg[i]['proj'] == self.proj]
 
@@ -113,7 +104,7 @@ class Gui(object):
     def write_config(self, para_list, dir_date):
         '''Save updated parameter list in config.ini file'''
         self.config['DEFAULT']['parameters'] = para_list
-        with open('config_parameters.ini', 'w') as configfile:
+        with open(self.dir_path+'\\config_parameters.ini', 'w') as configfile:
             self.config.write(configfile)
 
 
