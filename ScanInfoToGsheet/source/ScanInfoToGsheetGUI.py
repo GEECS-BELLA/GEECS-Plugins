@@ -2,6 +2,7 @@ from tkintertoy import Window
 import os
 from scaninfo2gsheet import scaninfo2gsheet
 import configparser
+import webbrowser
 
 
 class Gui(object):
@@ -74,8 +75,11 @@ class Gui(object):
             self.exported = True
 
             # add text to status window
-            message = 'Gsheet \'' + sheet.title + '\' saved\nURL: ' + sheet.url
+            message = 'Gsheet \'' + sheet.title + '\' saved\n'#URL: ' + sheet.url
             self.gui.set('status', message)
+            
+            #open the url
+            webbrowser.open(sheet.url)
 
             # update the config file
             self.write_config(para_list, dir_date)
@@ -87,8 +91,8 @@ class Gui(object):
             if not self.autoupdateOn:
                 self.gui.set('status', '\nAuto update On...')
             self.autoupdateOn = True
-
             nscan_new = self.scaninfo.update()
+            
             # if there is a new scan, add text to the status window
             if nscan_new:
                 message = '\nScan ' + str(nscan_new) + ' updated'
@@ -99,7 +103,8 @@ class Gui(object):
                 self.gui.set('status', '\nAuto update Off')
             self.autoupdateOn = False
 
-        self.gui.master.after(30 * 1000, self.update)  # wait for 30 seconds
+        #update after 30 seconds
+        self.gui.master.after(30 * 1000, self.update)
 
     def write_config(self, para_list, dir_date):
         '''Save updated parameter list in config.ini file'''
