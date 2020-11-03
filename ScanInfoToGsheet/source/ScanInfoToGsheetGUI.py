@@ -76,7 +76,6 @@ class Gui(object):
         # Get settings from GUI
         dir_date = self.gui.get('dir_date', allValues=True)  # directory of scandata
         para_list = self.gui.get('para_list')  # parameters to save
-        print('para_list', para_list)
         gdrive_name = self.gui.get('gdir')  # name of the google drive
 
         if not dir_date or not gdrive_name:
@@ -85,8 +84,7 @@ class Gui(object):
             gdrive_id = self.g_ID[self.g_name.index(gdrive_name)]  # google drive ID
             sheet_title = self.proj + ' ' + os.path.basename(dir_date) + ' ScanSummary'
 
-            # write
-            
+            # write          
             self.scaninfo = scaninfo2gsheet(dir_date, para_list)
             sheet = self.scaninfo.write(gdrive_id, sheet_title)
             self.exported = True

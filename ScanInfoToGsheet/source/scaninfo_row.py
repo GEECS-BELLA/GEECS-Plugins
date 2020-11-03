@@ -3,8 +3,6 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 from pytz import timezone
-
-
 from analysisdata import analysisdata
 
 class scaninfo_row:
