@@ -90,8 +90,10 @@ class ScanInfo:
         timestamp,_ = analysis.get_start_end_val('Timestamp')
         
         #convert to pacific time
-        print(timestamp)
-        time_str = PT_timestr(float(timestamp), "%H:%M")
+        try:
+            time_str = PT_timestr(float(timestamp), "%H:%M")
+        except:
+            time_str = timestamp
         info_vals.insert(2, time_str)
                 
         return info_vals
