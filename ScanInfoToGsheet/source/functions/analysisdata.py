@@ -1,6 +1,6 @@
 import pandas as pd
 
-class analysisdata():
+class AnalysisData():
     '''Get data(alias of a parameter or start&end value of the parameter) of a scan from
     analysis\s**.txt file
     dir_date: Date directory where scan data are stored.

@@ -1,6 +1,6 @@
 from tkintertoy import Window
 import os
-from scaninfo2gsheet import scaninfo2gsheet
+from functions.gsheet import GSheet
 import configparser
 import webbrowser
 
@@ -85,7 +85,7 @@ class Gui(object):
             sheet_title = self.proj + ' ' + os.path.basename(dir_date) + ' ScanSummary'
 
             # write          
-            self.scaninfo = scaninfo2gsheet(dir_date, para_list)
+            self.scaninfo = GSheet(dir_date, para_list)
             sheet = self.scaninfo.write(gdrive_id, sheet_title)
             self.exported = True
 
