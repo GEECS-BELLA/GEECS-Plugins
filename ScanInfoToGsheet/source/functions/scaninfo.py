@@ -145,9 +145,8 @@ class ScanInfo:
         else:
             # get last scan info file name
             files = glob.glob(path + '\\s*info.txt')
-            file_last = os.path.basename(files[-1])
             # regexp. find number in the file name
-            n_scans = int(re.findall(r"\d+", file_last)[0])
+            n_scans = len(files)
             return n_scans
 
 def main():
