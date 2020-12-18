@@ -78,8 +78,9 @@ class ScanInfo:
                 info_vals[2] = analysis.get_par_alias(info_vals[2])
             
             #For old MC version, append start&end values
-            if 'start'=='-':
-                info_vals[4], info_vals[5] = analysis.get_start_end_val(values[2])
+            if info_vals[4]=='-':
+                print('Old MC version on scan ', info_vals[0])
+                info_vals[3], info_vals[4] = analysis.get_start_end_val(info_vals[2])
                 
         #Insert total shot number into second index of the list
         _, shots = analysis.get_start_end_val('Shotnumber')

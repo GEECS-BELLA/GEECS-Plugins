@@ -41,6 +41,8 @@ class AnalysisData():
             # Get Alias if exists
             if 'Alias' in par_full:
                 return par_full.split('Alias:', 1)[1]
+            else:
+                return par_full
         else:
             return par
         

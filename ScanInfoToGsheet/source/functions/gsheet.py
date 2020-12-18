@@ -37,7 +37,7 @@ class GSheet:
         '''
         scan_new = self.scaninfo.get_last_scannumber()        
         if scan_new > self.n_scans:
-            self.sheet[0].append_table(self.scaninfo.get_scaninfo(scan_new))
+            self.sheet[0].append_table(self.scaninfo.get_scaninfo(scan_new), start='A'+str(scan_new+1))
             self.n_scans = scan_new
             return self.n_scans
         else:
