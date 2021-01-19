@@ -1,7 +1,7 @@
 # This script uses the docgen library to make automated experiment logbooks at BELLA-HTT@LBNL on Google Drive.
 # A version of the Google Project source code will be stored locally for convenience.
 #
-# by Tobias Ostermayr, last updated 08/06/2020
+# by Tobias Ostermayr, last updated 01/19/2021
 
 from __future__ import print_function
 import pickle
@@ -161,20 +161,44 @@ currentvalues.read(argcurrentvalues)
 
 
 DOCUMENT_ID = config['DEFAULT']['logid']
-docgen.appendToLog(TEMPLATE_ID,DOCUMENT_ID,search,service)
+
+returnvalue = 2
+for i in range(0,4):
+    try: returnvalue = docgen.appendToLog(TEMPLATE_ID,DOCUMENT_ID,search,service); 
+    except: time.sleep(1)
+    if returnvalue == 0: break
+
+print('**Scanfiles found**')
 if specificscan != '0': 
     docgen.getValueForNameKeysECS(localECSfolder,"Scan*"+specificscan,placeholderlist,currentvalues,argcurrentvalues)
     docgen.getValueForNameKeysScanFiles(latestScanDir,"ScanInfo*"+specificscan,currentvalues,argcurrentvalues)
 else: 
     docgen.getValueForNameKeysECS(localECSfolder,"Scan*",placeholderlist,currentvalues,argcurrentvalues)
     docgen.getValueForNameKeysScanFiles(latestScanDir,"ScanInfo*",currentvalues,argcurrentvalues)
-docgen.findAndReplace(DOCUMENT_ID,currentvalues,service)
+
+returnvalue = 2
+for i in range(0,4):
+    print('**Find and replace placeholders with current values**') 
+    try: returnvalue = docgen.findAndReplace(DOCUMENT_ID,currentvalues,service);
+    except: time.sleep(1)
+    if returnvalue == 0: break
+
 try: 
     docgen.cropAndScaleImage(PATHTOIMAGE,ml,mt,mr,mb,imgscale)
     imageid = docgen.uploadImage(PATHTOIMAGE,SCREENSHOTFOLDER_ID)
-    docgen.findAndReplaceImage(DOCUMENT_ID,imageid,"{{screenshot}}",service)
+    for i in range(0,4):
+        print('**Adding screenshot**')
+        try: docgen.findAndReplaceImage(DOCUMENT_ID,imageid,"{{screenshot}}",service);break
+        except: time.sleep(1)
 except: 
-    print("no screenshot added")
+    print("**No screenshot added**")
     tmpconf = configparser.ConfigParser()
     tmpconf['DEFAULT']['screenshot']="no screenshot"
-    docgen.findAndReplace(DOCUMENT_ID,tmpconf,service)
+    
+    returnvalue = 2
+    for i in range(0,4):
+        try:
+            print('...find and replace screenshot placeholder with generic sentence') 
+            returnvalue = docgen.findAndReplace(DOCUMENT_ID,tmpconf,service)
+        except: time.sleep(1)
+        if returnvalue == 0: break

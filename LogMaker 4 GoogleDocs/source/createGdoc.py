@@ -129,5 +129,13 @@ except: print("Spreadsheet data not updated")
 currentvalues.write(open(argcurrentvalues,'w'))
 currentvalues.read(argcurrentvalues)
 
-DOCUMENT_ID = docgen.createExperimentLog(LOGTEMPLATE_ID,TEMPLATEFOLDER_ID,LOGFOLDER_ID,LOGFILENAME,argconfig,service)
-docgen.findAndReplace(DOCUMENT_ID,currentvalues,service)
+for i in range(0,4):
+    try: DOCUMENT_ID = docgen.createExperimentLog(LOGTEMPLATE_ID,TEMPLATEFOLDER_ID,LOGFOLDER_ID,LOGFILENAME,argconfig,service);break
+    except: time.sleep(1)
+    
+returnvalue = 2
+for i in range(0,4):
+    print('**Find and replace placeholders with current values**') 
+    try: returnvalue = docgen.findAndReplace(DOCUMENT_ID,currentvalues,service);
+    except: time.sleep(1)
+    if returnvalue == 0: break

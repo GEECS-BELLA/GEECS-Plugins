@@ -37,7 +37,6 @@ from datetime import datetime
 import configparser
 import decimal
 import sys
-import httplib2
 
 # DON'T TOUCH
 SCOPES = ['https://www.googleapis.com/auth/documents','https://www.googleapis.com/auth/drive','https://www.googleapis.com/auth/spreadsheets']
@@ -240,12 +239,10 @@ def establishService(apiservice,apiversion):
     Returns:
     Service object (JSON?!) that can be called by other functions.
     """
-    print('**Establish Server Connection with Google Cloud**')
     creds = None
     # The file token.pickle stores the user's access and refresh tokens. 
     # It is created automatically when the authorization flow completes 
     # for the first time.
-
     if os.path.exists('token.pickle'):
         with open('token.pickle', 'rb') as token:
             creds = pickle.load(token)
@@ -266,13 +263,12 @@ def establishService(apiservice,apiversion):
     # Call the Apps Script API
     try:
         service = build(apiservice,apiversion, credentials=creds)
-        print('...Service created successfully')
-        print(service)
-    except Exception as e: print("...Error in opening the service")
-    #except errors.HttpError as e:
-    #    print('failed to establish a service')
-    #    print(e.content)
-    
+        #print('Service created successfully')
+        #print(service)
+    #except Exception as e:
+    except errors.HttpError as e:
+        #print('fail')
+        print(e.content)
     return(service)
 
 # Create daily log and return ID// if exits already, just return ID
@@ -295,27 +291,26 @@ def createExperimentLog(logtempID,tempfolderID,logfolderID,
         Returns the google ID of the new document and updates stores
         its value in the configfile with path argconfig.
     """
-    print('**Create or find Log...**')
     API_SERVICE_NAME='script'
     API_VERSION='v1'
     if(servicevar == None):
-        print("...establish service in createExperimentLog standalone")
+        #print("establish service in checkFile standalone")
         service = establishService(API_SERVICE_NAME,API_VERSION)      
     else: 
         service = servicevar
-        print("...existing service used")    #documentID = ""
+        #print("service from root function used")    documentID = ""
     #Create an execution request object.
     request = {
         "function": 'createExperimentLog', 
         "parameters": [logtempID, tempfolderID, logfolderID, logfilename],
-        "devMode": False
+        "devMode": True
     }
 
     try:
          # Make the API request.
-        print('...sending request to service')
         response = service.scripts().run(body=request,
                  scriptId=SCRIPT_ID).execute()
+        
         if 'error' in response:
             # The API executed, but the script returned an error.
     
@@ -323,11 +318,9 @@ def createExperimentLog(logtempID,tempfolderID,logfolderID,
             # The values of this object are the script's 
             # 'errorMessage' and 'errorType', and an list of stack 
             # trace elements.
-            print("...Something went wrong in createExperimentLog")
             error = response['error']['details'][0]
             print("Script error message: {0}".format(error['errorMessage']))
         else: 
-            print('...returned documend ID: ', response['response']['result'])
             documentID = response['response']['result']
             #print(str(documentID))
             config = configparser.ConfigParser()
@@ -338,9 +331,8 @@ def createExperimentLog(logtempID,tempfolderID,logfolderID,
     except errors.HttpError as e:
         # The API encountered a problem before the script
         # started executing.
-        print("...HTTP error occurred in create Experiment:")
+        print("here")
         print(e.content)
-    except Exception as e: print("...non HTTP error in opening the service")
     return(documentID)
 
 # Append to the ExperimentLog Document from a Template
@@ -364,7 +356,7 @@ def appendToLog(templateID,documentID,search,servicevar):
     API_VERSION='v1'
     if(servicevar == None):
         #print("establish service in checkFile standalone")
-        service = establishService(API_SERVICE_NAME,API_VERSION)   
+        service = establishService(API_SERVICE_NAME,API_VERSION)      
     else: 
         service = servicevar
         #print("service from root function used")     
@@ -373,23 +365,18 @@ def appendToLog(templateID,documentID,search,servicevar):
     request = {
         "function": 'appendTemplate', 
         "parameters": [templateID,documentID],
-        "devMode": False
+        "devMode": True
     }
     # If no search term is provided, 
     # or the search term ain't in the document,
     # the function will execute and insert the template to the document
     if (search == None): search = "SomethingNobodyWouldEverWriteInADocentEver"
-    tmp = None
-    try: tmp = checkFileContains(documentID,search,service)
-    except: print("...Failed to check file for search pattern"); return 1; 
-    if (tmp == False):
-        #print('Trying to append...')
+    if (checkFileContains(documentID,search,service) == False):
         try:
-            print("**Append template to document...**")
+            print("Append template to document")
              # Make the API request.
             response = service.scripts().run(body=request,
                     scriptId=SCRIPT_ID).execute()
-            
             if 'error' in response:
                 # The API executed, but the script returned an error.
     
@@ -399,22 +386,14 @@ def appendToLog(templateID,documentID,search,servicevar):
                 # and a list of stack trace elements.
                 error = response['error']['details'][0]
                 print("Script error msg: {0}".format(error['errorMessage']))
-            else: 
-                print('...',response['response']['result'])
-                #print(documentID)
-                return 0
-        #except errors.HttpError as e:
+            else: return 0
+                #print(response['response']['result'])
+        except errors.HttpError as e:
             # The API encountered a problem 
             # before the script started executing.
-        #    print("HTTP ERROR occurred in Append to Log")
-        #    print(e.content)
-        except errors.HttpError as e:
-        # The API encountered a problem before the script
-        # started executing.
-            print("...HTTP error occurred in Append To Log",e)
-        except Exception as e: print("Error in Append To Log ", e)
-    elif (tmp == True): print("...this Scan is already present in the Log", documentID); return 0; 
-    else: print("...retry"); return 1
+            #print("here")
+            print(e.content)
+    else: print("This Scan is already present in the Log"); sys.exit()
 
 # Use the currentvalues.ini file created via getValueForNameKeysECS
 # and getValueForScanFiles functions to replace all placeholder 
@@ -457,7 +436,7 @@ def findAndReplace(documentID,placeholdersandvalues,servicevar):
     request = {
         "function": 'findAndReplace', 
         "parameters": [documentID,keys,values],
-        "devMode": False
+        "devMode": True
     }
 
     try:
@@ -472,17 +451,16 @@ def findAndReplace(documentID,placeholdersandvalues,servicevar):
             # 'errorMessage' and 'errorType', and
             # an list of stack trace elements.
             error = response['error']['details'][0]
-            print("...Script error message: {0}".format(error['errorMessage']))
-            return 1
+            print("Script error message: {0}".format(error['errorMessage']))
         else: 
             #print(response['response']['result'])
             return 0
             
-    except Exception as e: print("Error in findAndReplace")
+
     except errors.HttpError as e:
         # The API encountered a problem 
         # before the script started executing.
-        print("...HTTP Error in findAndReplace", e.content)
+        print(e.content)
 
 # Find and replace placeholders in tables with images. 
 # So far only for images in tables.
@@ -517,7 +495,7 @@ def findAndReplaceImage(documentID,imageid, pattern,servicevar):
     request = {
         "function": 'findAndReplaceImage', 
         "parameters": [documentID,imageid,pattern],
-        "devMode": False
+        "devMode": True
     }
 
     try:
@@ -619,7 +597,7 @@ def checkFileContains(fileID,search,servicevar):
     request = {
         "function": 'checkFileContains', 
         "parameters": [fileID,search],
-        "devMode": False
+        "devMode": True
     }
 
     try:
@@ -676,7 +654,7 @@ def lastRowOfSpreadsheet(fileID, sheetString, firstcol,lastcol, servicevar):
     request = {
         "function": 'lastRowFromSpreadsheet', 
         "parameters": [fileID,sheetString,firstcol,lastcol],
-        "devMode": False
+        "devMode": True
     }
 
     try:
