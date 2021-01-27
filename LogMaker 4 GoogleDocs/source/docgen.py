@@ -268,7 +268,7 @@ def establishService(apiservice,apiversion):
         service = build(apiservice,apiversion, credentials=creds)
         print('...Service created successfully')
         print(service)
-    except Exception as e: print("...Error in opening the service")
+    except Exception as e: print("...Error in opening the service: ", e)
     #except errors.HttpError as e:
     #    print('failed to establish a service')
     #    print(e.content)
