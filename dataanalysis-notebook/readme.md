@@ -6,4 +6,4 @@ You can analyze data with jupyter notebook very easily. Templates are included i
 ## Converting images to GIF
 Check out Gonvert2GIF.ipynb. You can convert images in a folder to one GIF. It will include text with shotnumber and scan variable&parameter! The GIF will be saved in the folder where images are stored.
 
-![sample GIF](https://github.com/GEECS-BELLA/GEECS-Plugins/edit/master/dataanalysis-notebook/GIF_sample.gif)
+![sample GIF](https://github.com/GEECS-BELLA/GEECS-Plugins/dataanalysis-notebook/GIF_sample.gif)
