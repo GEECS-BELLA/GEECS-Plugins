@@ -1,7 +1,7 @@
 # READ ME
 
 ## Analyze experimental data
-You can analyze data with jupyter notebook very easily. Check out the ![example notebook](dataanalysis-notebook/200817_OAP2_ebeampointing.ipynb).
+You can analyze data with jupyter notebook very easily. Check out the ![example notebook](200817_OAP2_ebeampointing.ipynb).
 
 ## Converting images to GIF
 Check out Gonvert2GIF.ipynb. You can convert images in a folder to one GIF. It will include a text with shotnumber and scan variable&parameter! The GIF will be saved in the folder where images are stored.
