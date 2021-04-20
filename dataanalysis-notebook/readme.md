@@ -10,6 +10,7 @@ Check out an example in this [notebook](Gonvert2GIF.ipynb). You can convert imag
 - Can change the contrast ratio by specifying gamma value (rescale= between 0 and 10) or taking a log of counts (rescale='log')
 - To autoscale the image, set rescale='auto'. If rescale=11 ~ 255(int), linearly rescaled to make the count max.
 - Can change frame rate per second (fps=).
+- Background subtraction: img_bkg (default False) background image (ndarray) to be subtracted. If True, top-left corner (10%x10% of image) is used as bkg.
 
 ![alt text](GIF_sample.gif)
 
