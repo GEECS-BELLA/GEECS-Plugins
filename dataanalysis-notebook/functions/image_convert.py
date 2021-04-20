@@ -19,8 +19,9 @@ from functions.scanparameter import get_scanpara
 
 def downsize_img(img, size):
     """Downsize the image file.
-    img: Image.open(file)
+    img: PIL image format( ex) = Image.open(file))
     size: if <1, ratio of width. if 1=>, final basewidth
+    return: PIL image format
     """
     if size == 1:
         return img
@@ -35,19 +36,18 @@ def downsize_img(img, size):
         img_low = img.resize((basewidth, hsize), Image.ANTIALIAS)
     return img_low
 
-def get_gif(path, f_format, labview, size=0.2, background=None, fps=10., gamma=None, raw=True):
+def get_gif(path, f_format, labview, size=0.2, fps=10., rescale=False, img_bkg=False):
     """Make a GIF from all the files with format f_format in the folder.
     path: directory where the images are
     f_format: format in str. ex) 'png', 'jpg'
-    f_name: GIF file name (str)
     size: either the ratio (0< & <=1) or the final pixel of the width
-    scale_max: normalize and scale to set the max to scale_max (int)
-    background: None or 0 ~1 (if 0.2, background becomes 20% of the saturation)
-    gamma: gamma correction if !=1
-    raw: if true, no image process, just stitch raw data
+    rescale:
+    1) if 1 ~ 10 (int): gamma correction
+    2) if 11 ~ 255(int): linear rescale with max the count
+    3) if 'log': log scale.
+    32bit image will be systematically convrted to 8bit (except option 2). ( 2^32 -1 -> 2^8 -1 )
+    4) if 'auto': max count of the first image becomes 255 (8bit)
     """
-    if gamma or background:
-        raw = False
     
     # get png file paths
     png_files = sorted(glob.glob(path + '/*.' + f_format))
@@ -60,49 +60,34 @@ def get_gif(path, f_format, labview, size=0.2, background=None, fps=10., gamma=N
     img_max0 = 0
 
     for i in range(len(png_files)):
-        #if image taken with labview system, significan bits has to be taken into account
+        
+        #If image taken with labview system, significan bits has to be taken into account
         if labview:
-            #img = Image.open(png_files[i])
             img_sbit = nBitPNG(png_files[i]).astype('int')
-            #get max count of the first shot for text
-            if i==0:
-                img_max0 = img_sbit.max()            
             img = Image.fromarray(img_sbit)
         else:
             img = Image.open(png_files[i])
-            #get max count of the first shot for text
-            if i==0:
-                img_max0 = np.asarray(img).max()
         
+        #show image mode
+        if i==0:
+            mode_to_bpp = {"1": 1, "L": 8, "P": 8, "RGB": 24, "RGBA": 32, "CMYK": 32, "YCbCr": 24, "LAB": 24, "HSV": 24, "I": 32, "F": 32}
+            print('Image mode: ', img.mode,'(', mode_to_bpp[img.mode], 'bit)')
+       
         # downsize
         img_low = downsize_img(img, size)
         
-        if not raw:
-            # change from image format to array, unsigned byte format with [0,225]
-            im2arr = np.asarray(img_low, np.dtype('uint8'))
-
-            if gamma:
-                im2arr = gamma_corr(im2arr, gamma, log=True)
-            elif background:
-                im2arr = scale_background(im2arr, background)  # rescale the intensity
-
-            im2arr = img_as_ubyte(im2arr)
-
-            # change back to image format
-            # gray scale ('L') or rbg (None)
-            color_fm = None
-            if len(im2arr.shape) == 2:
-                color_fm = 'L'
-            img_low = Image.fromarray(im2arr, color_fm)
+        #convert image(ndarray) to 8bit image format.Rescale if nessesary.
+        if rescale == 'auto' and i==0:
+            rescale = float(np.max(np.asarray(img_low)))
+            print('Rescale image to make count ', rescale, ' max')
         
-        #write text
+        if rescale:
+            img_low = rescale_8bit(img_low, rescale = rescale, img_bkg=img_bkg)
+        
+        #add text to the image
         draw = ImageDraw.Draw(img_low)
         font = ImageFont.truetype('functions/Roboto-Regular.ttf', 20)
-        if raw:
-            fill_count = 2000
-        else:
-            fill_count = 225 #uint8
-        draw.text((0, 0), txt_draw_list[i], fill=fill_count, font=font)
+        draw.text((0, 0), txt_draw_list[i], fill=255, font=font)
                 
         #create a list of images
         int_maps_gif.append(img_low)
@@ -149,69 +134,67 @@ def img_crop(img, length, cx=None, cy=None):
     img2 = img[cy - r0:cy + r0, cx - r0:cx + r0]
     return img2
 
-
-def scale_background(img, scale, img_bkg=None):
-    '''
-    adjuct the background of the 2d array to scale
-    scale: 0 ~1 (if 0.2, background becomes 20% of the saturation)
-    img_bkg: background image to be scaled. if None, 10% of the right top of the original image
-    '''
-
-    if img_bkg is None:
-        # calculate the pixel size equivalent to 10% of the image at the right top
-        pix_dx = int(img.shape[0] * 0.1)
-        pix_dy = int(img.shape[1] * 0.1)
-        img_bkg = img[:pix_dx, img.shape[1] - pix_dy:]
-    else:
-        pix_dx, pix_dy = img_bkg.shape
-
-    # smooth the backgound
-    blur = cv2.GaussianBlur(img_bkg, (11, 11), 0)
-
-    corner_ave = np.sum(blur) / pix_dx / pix_dy
-
-    # the corner is scaled to 'scale'
-    scale = 255 * scale / corner_ave
-
-    new_matrix = (img * scale).astype(int)
-
-    return np.array(new_matrix, dtype=img.dtype)
-
-
-def gamma_corr(img, gamma, log=True, img_bkg=None):
+def rescale_8bit(img, rescale=False, img_bkg=False):
     """
-    subtract backgroun, gamma correct, and log scale
-    return np array iamge ([0,255])
-    img: numpy array with uint8
+    rescale& background option:subtract background, gamma correct, log scale,
+    linear scale to match max as 'rescale'. Then converts to uint8 image format.
+    if both rescale and img_bkg are False, this only do the bit conversion.
+    
+    img: PIL image format
+    img_bkg: background image to be subtracted. If True, top-left corner (10%x10% of image) is used as bkg. If None, no background subtraction
+    rescale:
+        1) if 1 ~ 10 (int): gamma correction
+        2) if 11 ~ 255(int): linear rescale with max the count
+        3) if 'log': log scale.
+        32bit image will be systematically convrted to 8bit (except option 2). ( 2^32 -1 -> 2^8 -1 )
+        
+    return: Image format uint8.
     """
+    img = np.asarray(img)
+    
+    #background subtraction
+    if img_bkg:
+        if img_bkg == True:
+            # calculate the pixel size equivalent to 10% of the image at the right top
+            pix_dx = int(img.shape[0] * 0.1)
+            pix_dy = int(img.shape[1] * 0.1)
+            img_bkg = img[:pix_dx, img.shape[1] - pix_dy:]
+        else:
+            pix_dx, pix_dy = img_bkg.shape
 
-    if img_bkg is None:
-        # calculate the pixel size equivalent to 10% of the image at the right top
-        pix_dx = int(img.shape[0] * 0.1)
-        pix_dy = int(img.shape[1] * 0.1)
-        img_bkg = img[:pix_dx, img.shape[1] - pix_dy:]
+        # background subtraction
+        corner_ave = np.sum(img_bkg) / pix_dx / pix_dy
+        img = img - corner_ave
+
+        # negative values to zero
+        img[img < 0] = 0
+    
+    if rescale and isinstance(rescale, int):
+        rescale = float(rescale)
+    
+    if isinstance(rescale, float) and rescale > 10:
+        #rescale so that 'rescale' becomes the max count 225 (uint8)
+        #print('rescale to make max count ', rescale)
+        img = (img / rescale *255).astype(np.uint8)
+        #counts are preserved (255 stays 255 after converting to image format)
+        img_uint8 = Image.fromarray(img)
     else:
-        pix_dx, pix_dy = img_bkg.shape
-
-    # background subtraction
-    corner_ave = np.sum(img_bkg) / pix_dx / pix_dy
-    img = img - corner_ave
-
-    # negative values to zero
-    img[img < 0] = 0
-
-    # gamma correction
-    img = exposure.adjust_gamma(img, gamma)
-    # Logarithmic
-    if log:
-        img = exposure.adjust_log(img, 1)
-
-    count_max = np.amax(img)
-    imgRescale = img / count_max * 255
-
-    new_matrix = (imgRescale).astype(int)
-
-    return new_matrix
+        if isinstance(rescale, float) and rescale <=10:
+            # gamma correction
+            #print('Apply gamma correction')
+            img = exposure.adjust_gamma(img, rescale)
+            #convert to image format           
+        elif isinstance(rescale, str) and rescale == 'log':
+            # Logarithmic scale
+            #print('Apply logarithmic scale')
+            img = exposure.adjust_log(img, 1)
+        else:
+            raise NameError('check the correct input for rescale')
+            
+        # systematically scaled to uint8 ('L') (ex. 610 in 32bit becomes 80 in 8bit)
+        img_uint8 = Image.fromarray(img.astype(np.uint8), mode='L') 
+            
+    return img_uint8
 
 
 def get_scanval(path, f_format):
