@@ -5,8 +5,11 @@ You can analyze data with jupyter notebook very easily. Check out the [example n
 
 ## Converting images to GIF
 Check out an example in this [notebook](Gonvert2GIF.ipynb). You can convert images in a folder to one GIF. It will include a text with shotnumber and scan variable&parameter! The GIF will be saved in the folder where images are stored.
-- significant bits are taken care. make labview=True for images saved by labview devices.
-- Can change the contrast ratio by specifying gamma value (gamma= ), or taking a log of counts (log=True)
+- Significant bits are taken care. Make labview=True for images saved by labview devices.
+- Can lower the resolution by setting size to between 0 and 1(no resizing).
+- Can change the contrast ratio by specifying gamma value (rescale= between 0 and 10) or taking a log of counts (rescale='log')
+- For autoscale counts, set rescale='auto'
+- To set rescale to make the 
 - Can change frame per second (fps=)
 
 ![alt text](GIF_sample.gif)
