@@ -8,8 +8,8 @@ Check out an example in this [notebook](Gonvert2GIF.ipynb). You can convert imag
 - Significant bits are taken care. Make labview=True for images saved by labview devices.
 - Can lower the resolution by setting size to between 0 and 1(no resizing).
 - Can change the contrast ratio by specifying gamma value (rescale= between 0 and 10) or taking a log of counts (rescale='log')
-- For autoscale counts, set rescale='auto'. If rescale=11 ~ 255(int), linearly rescaled to make the count max.
-- Can change frame per second (fps=)
+- To autoscale the image, set rescale='auto'. If rescale=11 ~ 255(int), linearly rescaled to make the count max.
+- Can change frame rate per second (fps=).
 
 ![alt text](GIF_sample.gif)
 
