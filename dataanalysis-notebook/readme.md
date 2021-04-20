@@ -4,7 +4,7 @@
 You can analyze data with jupyter notebook very easily. Check out the [example notebook](200817_OAP2_ebeampointing.ipynb).
 
 ## Converting images to GIF
-Check out an example in this [notebook](Gonvert2GIF.ipynb). You can convert images in a folder to one GIF. It will include a text with shotnumber and scan variable&parameter! The GIF will be saved in the folder where images are stored.
+Check out an example in this [notebook](Convert2GIF.ipynb). You can convert images in a folder to one GIF. It will include a text with shotnumber and scan variable&parameter! The GIF will be saved in the folder where images are stored.
 - Significant bits are taken care. Make labview=True for images saved by labview devices.
 - Can lower the resolution by setting size to between 0 and 1(no resizing).
 - Can change the contrast ratio by specifying gamma value (rescale= between 0 and 10) or taking a log of counts (rescale='log')
