@@ -36,29 +36,37 @@ def downsize_img(img, size):
         img_low = img.resize((basewidth, hsize), Image.ANTIALIAS)
     return img_low
 
-def get_gif(path, f_format, labview, size=0.2, fps=10., rescale=False, img_bkg=False):
+def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gamma=1, img_bkg=False):
     """Make a GIF from all the files with format f_format in the folder.
     path: directory where the images are
     f_format: format in str. ex) 'png', 'jpg'
     size: either the ratio (0< & <=1) or the final pixel of the width
     rescale:
-    1) if 1 ~ 10 (int): gamma correction
+    1) if 1 ~ 10 (int/float): gamma correction
     2) if 11 ~ 255(int): linear rescale with max the count
     3) if 'log': log scale.
     32bit image will be systematically convrted to 8bit (except option 2). ( 2^32 -1 -> 2^8 -1 )
     4) if 'auto': max count of the first image becomes 255 (8bit)
+    gamma: gamma correction (numerical value) if not 1
     """
     
     # get png file paths
-    png_files = sorted(glob.glob(path + '/*.' + f_format))
-
-    # list of txts to draw in the image
+    png_files = sorted(glob.glob(path + '/*.' + f_format), key=os.path.getmtime)
+    
+    # get a file save name
+    scan_str = os.path.basename(os.path.dirname(path))
+    device_str = os.path.basename(path)
+    f_name = scan_str + '_' + device_str + '.gif'
+    print( scan_str + '_' + device_str)
+    
+    # list of texts to draw in the image
     txt_draw_list = get_scanval(path, f_format)
 
-    # downsize the image and make a GIF
-    int_maps_gif = []
-    img_max0 = 0
+    imgs_before = []
+    imgs_gif = []
+    max_count = 0
 
+    # get images and find the global max count
     for i in range(len(png_files)):
         
         #If image taken with labview system, significan bits has to be taken into account
@@ -67,58 +75,43 @@ def get_gif(path, f_format, labview, size=0.2, fps=10., rescale=False, img_bkg=F
             img = Image.fromarray(img_sbit)
         else:
             img = Image.open(png_files[i])
+        imgs_before.append(img)
         
-        #show image mode
-        if i==0:
-            mode_to_bpp = {"1": 1, "L": 8, "P": 8, "RGB": 24, "RGBA": 32, "CMYK": 32, "YCbCr": 24, "LAB": 24, "HSV": 24, "I": 32, "F": 32}
-            print('Image mode: ', img.mode,'(', mode_to_bpp[img.mode], 'bit)')
-       
+        #update max count
+        max_count_i = float(np.max(np.asarray(img_low)))
+        if max_count_i > max_count:
+            max_count = max_count_i
+            
+    #show the image mode
+    mode_to_bpp = {"1": 1, "L": 8, "P": 8, "RGB": 24, "RGBA": 32, "CMYK": 32, "YCbCr": 24, "LAB": 24, "HSV": 24, "I": 32, "F": 32}
+    print(' Image mode: ', img.mode,'(', mode_to_bpp[img.mode], 'bit)')
+    
+    if rescale == 'auto':
+        rescale = max_count
+        print(' Rescale image to make count ', rescale, ' max')
+    
+    #Now rescale all images
+    for img in imgs_before:       
         # downsize
         img_low = downsize_img(img, size)
         
         #convert image(ndarray) to 8bit image format.Rescale if nessesary.
-        if rescale == 'auto' and i==0:
-            rescale = float(np.max(np.asarray(img_low)))
-            print('Rescale image to make count ', rescale, ' max')
-        
-        if rescale:
-            img_low = rescale_8bit(img_low, rescale = rescale, img_bkg=img_bkg)
+        if rescale or gamma != 1:
+            img_low = rescale_8bit(img_low, rescale = rescale, gamma=gamma, img_bkg=img_bkg)
         
         #add text to the image
         draw = ImageDraw.Draw(img_low)
         font = ImageFont.truetype('functions/Roboto-Regular.ttf', 20)
         draw.text((0, 0), txt_draw_list[i], fill=255, font=font)
                 
-        #create a list of images
-        int_maps_gif.append(img_low)
+        #create a new list of images
+        imgs_gif.append(img_low)
 
-    # get a file save name
-    scan_str = os.path.basename(os.path.dirname(path))
-    device_str = os.path.basename(path)
-    f_name = scan_str + '_' + device_str + '.gif'
     # save into gif
-    imageio.mimsave(path + '/' + f_name, int_maps_gif, duration=1. / fps)
+    imageio.mimsave(path + '/' + f_name, imgs_gif, duration=1. / fps)
     print(f_name, ' Saved')
 
     return None
-
-
-def get_movie():
-    image_folder = 'images'
-    video_name = 'video.avi'
-
-    images = [img for img in os.listdir(image_folder) if img.endswith(".png")]
-    frame = cv2.imread(os.path.join(image_folder, images[0]))
-    height, width, layers = frame.shape
-
-    video = cv2.VideoWriter(video_name, 0, 1, (width, height))
-
-    for image in images:
-        video.write(cv2.imread(os.path.join(image_folder, image)))
-
-    cv2.destroyAllWindows()
-    video.release()
-
 
 def img_crop(img, length, cx=None, cy=None):
     """
@@ -134,7 +127,7 @@ def img_crop(img, length, cx=None, cy=None):
     img2 = img[cy - r0:cy + r0, cx - r0:cx + r0]
     return img2
 
-def rescale_8bit(img, rescale=False, img_bkg=False):
+def rescale_8bit(img, rescale=False,gamma=1,img_bkg=False):
     """
     rescale& background option:subtract background, gamma correct, log scale,
     linear scale to match max as 'rescale'. Then converts to uint8 image format.
