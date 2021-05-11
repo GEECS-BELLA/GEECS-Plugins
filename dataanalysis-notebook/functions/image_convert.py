@@ -88,7 +88,7 @@ def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gam
     
     if rescale == 'auto':
         rescale = max_count
-        print(' Rescale image to make count ', rescale, ' max')
+        print(' Rescale images to make count ', int(rescale), 'as maximum')
     
     #Now rescale all images
     for img in imgs_before:       
@@ -109,7 +109,7 @@ def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gam
 
     # save into gif
     imageio.mimsave(path + '/' + f_name, imgs_gif, duration=1. / fps)
-    print(f_name, ' Saved')
+    print(' ', f_name, ' Saved')
 
     return None
 
