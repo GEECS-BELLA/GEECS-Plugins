@@ -78,7 +78,7 @@ def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gam
         imgs_before.append(img)
         
         #update max count
-        max_count_i = float(np.max(np.asarray(img_low)))
+        max_count_i = float(np.max(np.asarray(img)))
         if max_count_i > max_count:
             max_count = max_count_i
             
