@@ -1,7 +1,7 @@
 # ScanInfoToGsheetGUI
 This GUI gets scan information/variables of all scans of a day and export it to a google sheet in a google drive. There is an option to autoatically update it every half minute.
 
-![example google sheet](example.png)
+![example google sheet](example2.png)
 ## Download
 1. Go to [release page](https://github.com/GEECS-BELLA/GEECS-Plugins/releases) in github and download the build package.
 If your PC asks you about access rights, right-click --> properties, general tab --> "this file came from another computer and might be blocked help protect this computer" --> unblock
