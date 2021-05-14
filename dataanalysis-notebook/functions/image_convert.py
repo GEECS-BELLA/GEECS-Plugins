@@ -51,13 +51,13 @@ def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gam
     """
     
     # get png file paths
-    png_files = sorted(glob.glob(path + '/*.' + f_format), key=os.path.getmtime)
+    png_files = sorted(glob.glob(path + '/*.' + f_format), key=lambda x: x[0].split('_')[-1][:-4])
     
     # get a file save name
     scan_str = os.path.basename(os.path.dirname(path))
     device_str = os.path.basename(path)
     f_name = scan_str + '_' + device_str + '.gif'
-    print( scan_str + '_' + device_str)
+    print('opening ', scan_str + '_' + device_str)
     
     # list of texts to draw in the image
     txt_draw_list = get_scanval(path, f_format)
@@ -65,16 +65,21 @@ def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gam
     imgs_before = []
     imgs_gif = []
     max_count = 0
+    #img_ave_array = 0 to subtract average in the future
 
     # get images and find the global max count
     for i in range(len(png_files)):
         
+        if np.mod(i,100) == 0 and i!=0:
+            print(' opening ', i,'th image...')
         #If image taken with labview system, significan bits has to be taken into account
         if labview:
             img_sbit = nBitPNG(png_files[i]).astype('int')
+            #img_ave_array += img_sbit/len(png_files)
             img = Image.fromarray(img_sbit)
         else:
             img = Image.open(png_files[i])
+            #img_ave_array += np.array(img)/len(png_files)
         imgs_before.append(img)
         
         #update max count
@@ -91,7 +96,10 @@ def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gam
         print(' Rescale images to make count ', int(rescale), 'as maximum')
     
     #Now rescale all images
-    for img in imgs_before:       
+    for img in imgs_before:
+        if np.mod(i,100) == 0 and i!=0:
+            print(' rescaling ', i,'th image...')
+            
         # downsize
         img_low = downsize_img(img, size)
         
