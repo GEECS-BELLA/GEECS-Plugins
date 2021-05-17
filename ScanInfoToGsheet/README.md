@@ -1,5 +1,5 @@
 # ScanInfoToGsheetGUI
-This GUI exorts scan information and variables of all scans of a day to a google sheet. There is an option to autoatically update it every half minute so you can let it run during the experiment.
+This GUI exorts scan information and variables of all scans of a day to a google sheet. There is an option to autoatically update it every minute so you can let it run during the experiment.
 
 ![example google sheet](example2.png)
 ## Download
@@ -11,12 +11,12 @@ If your PC asks you about access rights, right-click --> properties, general tab
 ## How to run
 * In 'Scan Date Folder' section, choose a folder of a scan date where scan data are stored. Ex) `Z:\\data\\Undulator\\Y2020\\01-Jan\\20_0123`. Fill in experimental parameters to list, then choose a google folder location for the gsheet to be saved. Click **Export**.
     
-* In 'enable auto update' section, you can select/unselect anytime to run/stop the auto update. It will update the Google sheet every 30 seconds as long as you already clicked **Export** before.
+* In 'enable auto update' section, you can select/unselect anytime to run/stop the auto update. It will update the Google sheet every minute as long as you already clicked **Export** before.
     
 * If you want to add/edit Google drive folders where Google sheets are going to be saved, open 'config_gdrive.ini' and edit it. (scaninfo@scaninfo-275704.iam.gserviceaccount.com needs permission to the google folder)
 
 ## If you want to set gsheet title and saving location manually...
-Run scaninfo2gsheet.py. (scaninfo2gsheet.py does a same thing as ScanInfoToGsheetGUI) This file is in the source folder.
+Run function/gsheet.py (It does the same thing as ScanInfoToGsheetGUI, but without the GUI).
 
 Before running, open the file and fill in sections in main function.
 
