@@ -1,5 +1,5 @@
 # ScanInfoToGsheetGUI
-This GUI gets scan information/variables of all scans of a day and export it to a google sheet in a google drive. There is an option to autoatically update it every half minute.
+This GUI exorts scan information and variables of all scans of a day to a google sheet. There is an option to autoatically update it every half minute so you can let it run during the experiment.
 
 ![example google sheet](example2.png)
 ## Download
