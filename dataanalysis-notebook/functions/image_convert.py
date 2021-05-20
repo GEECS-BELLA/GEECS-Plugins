@@ -96,12 +96,12 @@ def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gam
         print(' Rescale images to make count ', int(rescale), 'as maximum')
     
     #Now rescale all images
-    for img in imgs_before:
+    for i in range(len(imgs_before)):
         if np.mod(i,100) == 0 and i!=0:
             print(' rescaling ', i,'th image...')
             
         # downsize
-        img_low = downsize_img(img, size)
+        img_low = downsize_img(imgs_before[i], size)
         
         #convert image(ndarray) to 8bit image format.Rescale if nessesary.
         if rescale or gamma != 1:
