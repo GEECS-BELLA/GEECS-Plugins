@@ -39,15 +39,17 @@ def downsize_img(img, size):
 def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gamma=1, img_bkg=False):
     """Make a GIF from all the files with format f_format in the folder.
     path: directory where the images are
+    labview: True if images are saved by labview devices. It takes care of significant bits (otherwise shows wrong intensity)
     f_format: format in str. ex) 'png', 'jpg'
-    size: either the ratio (0< & <=1) or the final pixel of the width
+    size: either the ratio (0< & <=1) or the final pixel of the width (to lower the resolution)
+    fps: frame rate per second
     rescale:
-    1) if 1 ~ 10 (int/float): gamma correction
-    2) if 11 ~ 255(int): linear rescale with max the count
-    3) if 'log': log scale.
-    32bit image will be systematically convrted to 8bit (except option 2). ( 2^32 -1 -> 2^8 -1 )
-    4) if 'auto': max count of the first image becomes 255 (8bit)
-    gamma: gamma correction (numerical value) if not 1
+        0)if 'auto': autoscale the images to maximum of all images
+        1) if 1 ~ 10 (int): gamma correction (to change the contrast ratio)
+        2) if 11 ~ 255(int): linear rescale with max the count
+        3) if 'log': log scale.
+        32bit image will be systematically convrted to 8bit (except option 2). ( 2^32 -1 -> 2^8 -1 )
+    img_bkg: Background subtraction(default False). Set img_bkg = background image (ndarray) to be subtracted. If set True, top-left corner (10%x10% of image) is used as bkg.
     """
     
     # get png file paths
