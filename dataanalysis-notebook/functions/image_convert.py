@@ -23,17 +23,14 @@ def downsize_img(img, size):
     size: if <1, ratio of width. if 1=>, final basewidth
     return: PIL image format
     """
-    if size == 1:
-        return img
+    if size < 1:
+        wpercent = size
+        basewidth = int(size * float(img.size[0]))
     else:
-        if size <= 1:
-            wpercent = size
-            basewidth = int(size * float(img.size[0]))
-        else:
-            basewidth = size
-            wpercent = (size / float(img.size[0]))
-        hsize = int((float(img.size[1]) * float(wpercent)))
-        img_low = img.resize((basewidth, hsize), Image.ANTIALIAS)
+        basewidth = size
+        wpercent = (size / float(img.size[0]))
+    hsize = int((float(img.size[1]) * float(wpercent)))
+    img = img.resize((basewidth, hsize), Image.ANTIALIAS)
     return img_low
 
 def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gamma=1, img_bkg=False):
@@ -67,7 +64,6 @@ def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gam
     imgs_before = []
     imgs_gif = []
     max_count = 0
-    #img_ave_array = 0 to subtract average in the future
 
     # get images and find the global max count
     for i in range(len(png_files)):
@@ -77,11 +73,9 @@ def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gam
         #If image taken with labview system, significan bits has to be taken into account
         if labview:
             img_sbit = nBitPNG(png_files[i]).astype('int')
-            #img_ave_array += img_sbit/len(png_files)
             img = Image.fromarray(img_sbit)
         else:
             img = Image.open(png_files[i])
-            #img_ave_array += np.array(img)/len(png_files)
         imgs_before.append(img)
         
         #update max count
