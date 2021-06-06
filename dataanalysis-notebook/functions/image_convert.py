@@ -31,7 +31,7 @@ def downsize_img(img, size):
         wpercent = (size / float(img.size[0]))
     hsize = int((float(img.size[1]) * float(wpercent)))
     img = img.resize((basewidth, hsize), Image.ANTIALIAS)
-    return img_low
+    return img
 
 def get_gif(path, labview, f_format='png', size=0.2, fps=10., rescale=False, gamma=1, img_bkg=False):
     """Make a GIF from all the files with format f_format in the folder.
