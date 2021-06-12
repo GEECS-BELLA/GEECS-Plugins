@@ -11,7 +11,7 @@ from functions.scaninfo import ScanInfo
 class GSheet:
     def __init__(self, dir_date, para_txt):
         self.dir_date = dir_date
-        self.exp_paras = para_txt.replace(", ", ",").split(",") if para_txt else None
+        self.exp_paras = [item.strip() for item in para_txt.split(",")] if para_txt else None
         self.sheet = None
         self.n_columns = None
         self.n_scans = None
