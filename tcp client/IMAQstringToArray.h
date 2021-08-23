@@ -14,8 +14,8 @@ typedef Uint16ArrayBase **Uint16Array;
 /*!
  * IMAQFlattenedStringToArray
  */
-void __stdcall IMAQFlattenedStringToArray(char FlattenedImageString[], 
-	Uint16Array *ImagePixelsU16);
+void __stdcall IMAQFlattenedStringToArray(uint8_t U8StringImage[], 
+	Uint16Array *ImageU16, int32_t len);
 
 MgErr __cdecl LVDLLStatus(char *errStr, int errStrLen, void *module);
 

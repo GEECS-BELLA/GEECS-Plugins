@@ -9,7 +9,7 @@ extern "C" {
 /*!
  * CreateExampleIMAQFlattenedString
  */
-void __stdcall CreateExampleIMAQFlattenedString(char DataString[], 
+void __stdcall CreateExampleIMAQFlattenedString(uint8_t U8StringImage[], 
 	int32_t len);
 
 MgErr __cdecl LVDLLStatus(char *errStr, int errStrLen, void *module);
