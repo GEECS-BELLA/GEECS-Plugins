@@ -1,18 +1,9 @@
 [DEFAULT]
-mm-dd-yy = 12-20-22
--hhmm- = 17:19:24
+mm-dd-yy = 01-03-23
 spreadsheetcolumn1 = 4/16/2021
 spreadsheetcolumn2 = Repaired crack and replaced dotted rod by Art after UM Lasernet run
 spreadsheetcolumn3 = 4/16/2021
 spreadsheetcolumn4 = OK
 spreadsheetcolumn5 = 4/16/2021
 spreadsheetcolumn6 = Cleaning Scatter G2, Drive looks relatively OK
-scan no = 23
-scanstartinfo = jet blade scan at jet y -8.5
-scan parameter = U_ModeImagerESP Position.Axis 2
-start = -17.16
-end = -17.05
-step size = 0.01
-shots per step = 20
-scanendinfo = 
 

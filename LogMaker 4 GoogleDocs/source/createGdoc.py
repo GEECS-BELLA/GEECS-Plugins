@@ -68,7 +68,9 @@ if specificdate != '0':
     today = datetime(int(specificdate.split(",")[0]),int(specificdate.split(",")[1]),int(specificdate.split(",")[2]),1,1,1)
 else:
     today = datetime.now()
+#Sam: cahnging the date format
 date = today.strftime("%m-%d-%y")
+#date = today.strftime("%y-%m-%d")
 
 print(date)
 #today = datetime(2020, 4, 1, 14, 30, 5)
@@ -132,7 +134,8 @@ currentvalues.read(argcurrentvalues)
 for i in range(0,4):
     try: DOCUMENT_ID = docgen.createExperimentLog(LOGTEMPLATE_ID,TEMPLATEFOLDER_ID,LOGFOLDER_ID,LOGFILENAME,argconfig,service);break
     except: time.sleep(1)
-    
+print(DOCUMENT_ID)
+print(currentvalues)
 returnvalue = 2
 for i in range(0,4):
     print('**Find and replace placeholders with current values**') 
