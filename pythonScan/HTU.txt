@@ -1,0 +1,9 @@
+tag	device	variable	min	max
+JetX	U_ESP_JetXYZ	Position.Axis 1	4.0	7.0
+JetY	U_ESP_JetXYZ	Position.Axis 2	-8.25	-6.5
+JetZ	U_ESP_JetXYZ	Position.Axis 3	10.0	22.0
+Jet blade	U_ModeImagerESP	Position.Axis 2	-18.05	-17.95
+pressure	U_HP_Daq	AnalogOutput.Channel 1	3	6.5
+CompressorSeparation	U_CompAerotech	Position.Axis1	42600.0	43600.0
+CompressorSeparation	U_CompAerotech	Position.Axis1	42600.0	43600.0
+CompressorSeparation	U_CompAerotech	Position.Axis1	42600.0	43600.0
