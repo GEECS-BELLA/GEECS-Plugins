@@ -30,7 +30,7 @@ argcurrentvalues = sys.argv[3]
 
 config = configparser.ConfigParser()
 config.read(argconfig)
-
+print('hello')
 # DON'T TOUCH
 SCOPES = "shttps://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets"
 scriptconfig = configparser.ConfigParser()
@@ -99,10 +99,11 @@ search = "notinthefileforsure.,.,.><><>"
 # PREPARE PATHs TO VOL1 FOLDERS FOR ECS DUMPS AND SCANINFO FILES
 datescanstring = today.strftime("Y%Y/%m-%b/%y_%m%d/scans")
 localscanfolder = LOCALSCANPATH + datescanstring
+print(localscanfolder)
 
 dateECSstring = today.strftime("Y%Y/%m-%b/%y_%m%d/ECS Live dumps")
 localECSfolder = LOCALSCANPATH + dateECSstring
-
+print(localECSfolder)
 
 # Create search for "Scan XX:" to avoid multiple postings of the same scan table.
 # And define path to this scanfolder
@@ -111,10 +112,13 @@ localECSfolder = LOCALSCANPATH + dateECSstring
 # Search goes as variable into appentToLog function.
 
 specificscan = str(config['SCAN']['scannumber'])
+print('specific scan is ' + specificscan)
+print(os.path.exists(localscanfolder))
 
 if specificscan != '0':
     try: 
         latestScanDir = docgen.latestFileInDirectory(localscanfolder,'Scan*'+specificscan)
+        print('lastest scan dir' + latestScanDir)
         search = date +'.*Scan ' + str(int(latestScanDir.split("\\Scan")[1])) + ':' 
         print('Search updated: ' + search)
         scanNo = str(int(latestScanDir.split("\\Scan")[1]))
@@ -122,9 +126,10 @@ if specificscan != '0':
     except: print('This scan does not exist bro'); sys.exit()
 elif os.path.exists(localscanfolder+'/Scan001') and specificscan == '0':
     latestScanDir = docgen.latestFileInDirectory(localscanfolder,'Scan')
+    print(latestScanDir)
     search = date + '.*Scan ' + str(int(latestScanDir.split("\\Scan")[1])) + ':' 
     scanNo = str(int(latestScanDir.split("\\Scan")[1]))
-    #print(scanNo)
+    print(scanNo)
     print('Search updated: ' + search)
 else: print("No scans for today yet"); sys.exit()
 
