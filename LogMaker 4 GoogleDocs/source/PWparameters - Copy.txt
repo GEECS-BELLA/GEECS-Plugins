@@ -1,0 +1,31 @@
+[DEFAULT]
+templatefolderid = 1XkeH9zuTLND6QsK23UC7ouTRQRrV7ixO
+logfolderid = 1E9AMqZeBlDPcKI22eXhZg3ZqBnj5CWng
+screenshotfolderid = 1d1nN4a0a2fgwvRt_RzXn8WvisqVX7tnM
+scantemplateid = 1xjEDzP3pTJbjZJ6xGQeDDRxZ8Eq6n7u535lFjRE6km0
+logtemplateid = 16Sl8NDyWHEANAgK7h_-OIdAu22AXrfLXsZq-XNa4umE
+endtemplateid = 1hC46QQUf9HsfA5W2ZhbXJPps58C8xMScEzyF0HwQK00
+logid = 1TvVVjVL3c6pLEfKlgj8RUP-uLBjX8qZi0k-DyEe1sCk
+databasepath = N:/data/
+pathtoscreenshot = frontpanel.png
+logname = PW Scanlog
+
+[SCREENSHOT]
+ml = 10
+mt = 60
+mr = 380
+mb = 50
+imgscale = 0.85
+
+[SCAN]
+scannumber = 0
+
+[DATE]
+specificdate = 0
+
+[SPREADSHEET]
+spreadsheetid = 1O1M-0DvY1zYv-wgssdWL8UZPk8-JTr0G34SsfYyjNQw
+sheetname = Sheet1
+firstcolumn = A
+lastcolumn = F
+
