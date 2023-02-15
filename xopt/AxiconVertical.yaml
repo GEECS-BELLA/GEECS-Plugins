@@ -9,7 +9,7 @@ control_variables: #tag: [device_name, variable_name, min_value, max_value]
     newDataFlag: 0
     tcp_client: 'na'
     actual_value: 0.0
-    set: True
+    set: False
     set_value: 0.0
     proximal_lengthscale: 0.1
     objective: False
@@ -23,13 +23,13 @@ control_variables: #tag: [device_name, variable_name, min_value, max_value]
     newDataFlag: 0
     tcp_client: 'na'
     actual_value: 0.0
-    set: False
+    set: True
     set_value: 0.0
     proximal_lengthscale: 0.1
     objective: False
   Charge: 
     device_name: CAM-PL1-LPMode
-    device_variable: centroidx
+    device_variable: centroidy
     ipaddress: 0.0.0.0
     port: 9999
     busy: 0
@@ -58,4 +58,4 @@ database:
   user: loasis
   password: dat+l0sim
 optimization_parameters:
-  shots_per_step: 2
+  shots_per_step: 8
