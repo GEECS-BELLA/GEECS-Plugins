@@ -11,7 +11,7 @@ control_variables: #tag: [device_name, variable_name, min_value, max_value]
     actual_value: 0.0
     set: True
     set_value: 0.0
-    proximal_lengthscale: 0.1
+    proximal_lengthscale: 0.001
     objective: False
   Charge: 
     device_name: CAM-PL1-LPMode
@@ -44,4 +44,4 @@ database:
   user: loasis
   password: dat+l0sim
 optimization_parameters:
-  shots_per_step: 5
+  shots_per_step: 15
