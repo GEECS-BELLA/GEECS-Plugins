@@ -17,6 +17,8 @@ import numpy as np
 from scipy.sparse import csc_matrix, csr_matrix
 from scipy.sparse.linalg import lsqr
 
+from skimage.restoration import unwrap_phase
+
 from pint import UnitRegistry
 if TYPE_CHECKING:
     from pint import Quantity
@@ -41,7 +43,7 @@ class PhasicsImageAnalyzer:
     """
 
     CAMERA_RESOLUTION = Q_(4 * 4.74, 'micrometer')
-    SHEARING_ANGLE = Q_(0.00, 'radian')
+    GRATING_CAMERA_DISTANCE = Q_(1.0, 'centimeter')  # this is a wild guess
     
     def __init__(self,
                  reconstruction_method = 'baffou',
@@ -81,11 +83,11 @@ class PhasicsImageAnalyzer:
             self.column = column
         
         @property
-        def kx(self):
+        def nu_x(self):
             return self.parent.freq_x[self.column]
         
         @property
-        def ky(self):
+        def nu_y(self):
             return self.parent.freq_y[self.row]
     
     def new_center(self, row: int, column: int):
@@ -147,7 +149,7 @@ class PhasicsImageAnalyzer:
         """ Calculate minimum distance between any two centers
         """
         self.diffraction_spot_crop_radius = np.sqrt( 
-            min((center2.kx - center1.kx)**2 + (center2.ky - center1.ky)**2
+            min((center2.nu_x - center1.nu_x)**2 + (center2.nu_y - center1.nu_y)**2
                 for center1, center2 in product(self.diffraction_spot_centers, self.diffraction_spot_centers)
                 if center1 is not center2
                )
@@ -186,8 +188,8 @@ class PhasicsImageAnalyzer:
             # np.roll won't work on a Quantity array, so create a unit-aware version
             roll_ua = ureg.wraps('=A', ('=A', None, None))(np.roll)
             
-            KX, KY = np.meshgrid(self.freq_x, self.freq_y)
-            IMG_cropped = self.IMG * ((np.square(KX - center.kx) + np.square(KY - center.ky)) < self.diffraction_spot_crop_radius**2)
+            NU_X, NU_Y = np.meshgrid(self.freq_x, self.freq_y)
+            IMG_cropped = self.IMG * ((np.square(NU_X - center.nu_x) + np.square(NU_Y - center.nu_y)) < self.diffraction_spot_crop_radius**2)
             IMG_recentered = roll_ua(IMG_cropped, (self.shape[0]//2 - center.row, self.shape[1]//2 - center.column), (0, 1))
             return IMG_recentered
 
@@ -199,7 +201,7 @@ class PhasicsImageAnalyzer:
         return self.diffraction_spot_IMGs
     
     
-    def _inverse_fourier_transform(self) -> list[np.ndarray]:
+    def _reconstruct_phase_gradient_maps_from_cropped_centered_diffraction_FTs(self) -> list[np.ndarray]:
         """ Calculate the angle (argument) of the inverse FT of a diffraction 
             spot image.
             
@@ -207,12 +209,8 @@ class PhasicsImageAnalyzer:
             direction is in the argument of the inverse FT. 
         
         """
-        def _inverse_fourier_transform_one_image(IMG: np.ndarray) -> np.ndarray:
-            angle = np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m)))
-            # return np.unwrap(np.unwrap(angle, axis=1), axis=0)
-            return angle
-        
-        self.phase_gradient_maps = [_inverse_fourier_transform_one_image(IMG)
+
+        self.phase_gradient_maps = [unwrap_phase(np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m))))
                                     for IMG in self.diffraction_spot_IMGs
                                    ] 
 
@@ -234,12 +232,24 @@ class PhasicsImageAnalyzer:
     def _integrate_gradient_maps(self) -> np.ndarray:
         """ Calculates the phase map from gradients in different directions.
         
+        More precisely, this finds the phase map whose gradients in different directions
+        most closely match the given gradient maps. It constructs a matrix representing 
+        finite differences in each gradient direction for each pixel and solves the least
+        squares matrix equation.
+
         Returns
         -------
         phase map : np.ndarray
 
         """
         
+        # Construct sparse matrix specifying the gradients in each direction for each pixel
+        # for the equation A.x = b. 
+        # Each row of A, and its corresponding value in b, represents the gradient in one particular
+        # direction for one particular pixel of the phase map. The row is constructed by taking a 2D
+        # image of zeros except for a few finite difference coefficients around a specific pixel, then
+        # flattening it. 
+
         m = 0
         data = []
         row_ind = []
@@ -252,16 +262,16 @@ class PhasicsImageAnalyzer:
         
         for center, phase_gradient_map in zip(self.diffraction_spot_centers, self.phase_gradient_maps):
             # finite_difference_coefficients = np.array(
-            #     [[ 0.0,             -center.ky / 2,      0.0       ],
-            #      [ -center.kx / 2,         0.0       center.kx / 2 ],
-            #      [ 0.0               center.ky / 2,      0.0       ]
+            #     [[ 0.0,               -center.nu_y / 2,       0.0       ],
+            #      [ -center.nu_x / 2,         0.0       center.nu_x / 2  ],
+            #      [ 0.0                 center.nu_y / 2,       0.0       ]
             #     ]
-            # ) * self.CAMERA_RESOLUTION
+            # ) * 2*np.pi * self.GRATING_CAMERA_DISTANCE
             
-            finite_difference_coefficients = [((-1, 0), (-center.ky / 2 * self.CAMERA_RESOLUTION).m_as('')),
-                                              ((0, -1), (-center.kx / 2 * self.CAMERA_RESOLUTION).m_as('')),
-                                              ((0, 1),  ( center.kx / 2 * self.CAMERA_RESOLUTION).m_as('')),
-                                              ((1, 0),  ( center.ky / 2 * self.CAMERA_RESOLUTION).m_as('')),
+            finite_difference_coefficients = [((-1, 0), (-2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_y / 2).m_as('')),
+                                              ((0, -1), (-2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_x / 2).m_as('')),
+                                              ((0, 1),  ( 2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_x / 2).m_as('')),
+                                              ((1, 0),  ( 2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_y / 2).m_as('')),
                                              ]
         
             for i in range(1, self.shape[0] - 1):
@@ -273,15 +283,25 @@ class PhasicsImageAnalyzer:
                     b.append(phase_gradient_map[i, j])
                     m += 1
 
-        A = csr_matrix((data, (row_ind, col_ind)), shape=(len(self.phase_gradient_maps) * (self.shape[0] - 2) * (self.shape[1] - 2), 
+        # The least squares loss is invariant under adding a constant to the entire phase map, so add a row to the list of 
+        # equations requiring that the mean of the whole map is 0. 
+
+        for j in range(self.shape[0] * self.shape[1]):
+            data.append(1.0)
+            row_ind.append(m)
+            col_ind.append(j)
+        b.append(0.0)
+
+        A = csr_matrix((data, (row_ind, col_ind)), shape=(len(self.phase_gradient_maps) * (self.shape[0] - 2) * (self.shape[1] - 2) + 1, 
                                                           self.shape[0] * self.shape[1]
                                                          )
                       )
 
-        return lsqr(A, b)[0].reshape(self.shape)
+        # solve the linear equation in the least squares sense.
+        self.phase_map = lsqr(A, b)[0].reshape(self.shape)
+
+        return self.phase_map
             
-        
-        
     
     def calculate_phase_map(self, img: np.ndarray) -> np.ndarray:
         """ Analyze cropped Phasics quadriwave shearing image
@@ -317,7 +337,7 @@ class PhasicsImageAnalyzer:
         
         # reconstruct phase map from diffraction spot FTs
         if self.reconstruction_method == 'baffou':
-            self._inverse_fourier_transform()
+            self._reconstruct_phase_gradient_maps_from_cropped_centered_diffraction_FTs()
             # self._rotate_phase_gradient_maps()
             W = self._integrate_gradient_maps()
             
