@@ -232,12 +232,24 @@ class PhasicsImageAnalyzer:
     def _integrate_gradient_maps(self) -> np.ndarray:
         """ Calculates the phase map from gradients in different directions.
         
+        More precisely, this finds the phase map whose gradients in different directions
+        most closely match the given gradient maps. It constructs a matrix representing 
+        finite differences in each gradient direction for each pixel and solves the least
+        squares matrix equation.
+
         Returns
         -------
         phase map : np.ndarray
 
         """
         
+        # Construct sparse matrix specifying the gradients in each direction for each pixel
+        # for the equation A.x = b. 
+        # Each row of A, and its corresponding value in b, represents the gradient in one particular
+        # direction for one particular pixel of the phase map. The row is constructed by taking a 2D
+        # image of zeros except for a few finite difference coefficients around a specific pixel, then
+        # flattening it. 
+
         m = 0
         data = []
         row_ind = []
