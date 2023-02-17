@@ -43,7 +43,7 @@ class PhasicsImageAnalyzer:
     """
 
     CAMERA_RESOLUTION = Q_(4 * 4.74, 'micrometer')
-    SHEARING_ANGLE = Q_(0.00, 'radian')
+    GRATING_CAMERA_DISTANCE = Q_(1.0, 'centimeter')  # this is a wild guess
     
     def __init__(self,
                  reconstruction_method = 'baffou',
@@ -250,16 +250,16 @@ class PhasicsImageAnalyzer:
         
         for center, phase_gradient_map in zip(self.diffraction_spot_centers, self.phase_gradient_maps):
             # finite_difference_coefficients = np.array(
-            #     [[ 0.0,             -center.ky / 2,      0.0       ],
-            #      [ -center.kx / 2,         0.0       center.kx / 2 ],
-            #      [ 0.0               center.ky / 2,      0.0       ]
+            #     [[ 0.0,               -center.nu_y / 2,       0.0       ],
+            #      [ -center.nu_x / 2,         0.0       center.nu_x / 2  ],
+            #      [ 0.0                 center.nu_y / 2,       0.0       ]
             #     ]
-            # ) * self.CAMERA_RESOLUTION
+            # ) * 2*np.pi * self.GRATING_CAMERA_DISTANCE
             
-            finite_difference_coefficients = [((-1, 0), (-center.ky / 2 * self.CAMERA_RESOLUTION).m_as('')),
-                                              ((0, -1), (-center.kx / 2 * self.CAMERA_RESOLUTION).m_as('')),
-                                              ((0, 1),  ( center.kx / 2 * self.CAMERA_RESOLUTION).m_as('')),
-                                              ((1, 0),  ( center.ky / 2 * self.CAMERA_RESOLUTION).m_as('')),
+            finite_difference_coefficients = [((-1, 0), (-2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_y / 2).m_as('')),
+                                              ((0, -1), (-2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_x / 2).m_as('')),
+                                              ((0, 1),  ( 2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_x / 2).m_as('')),
+                                              ((1, 0),  ( 2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_y / 2).m_as('')),
                                              ]
         
             for i in range(1, self.shape[0] - 1):
