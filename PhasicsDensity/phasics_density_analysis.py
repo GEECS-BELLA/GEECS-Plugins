@@ -83,11 +83,11 @@ class PhasicsImageAnalyzer:
             self.column = column
         
         @property
-        def kx(self):
+        def nu_x(self):
             return self.parent.freq_x[self.column]
         
         @property
-        def ky(self):
+        def nu_y(self):
             return self.parent.freq_y[self.row]
     
     def new_center(self, row: int, column: int):
@@ -149,7 +149,7 @@ class PhasicsImageAnalyzer:
         """ Calculate minimum distance between any two centers
         """
         self.diffraction_spot_crop_radius = np.sqrt( 
-            min((center2.kx - center1.kx)**2 + (center2.ky - center1.ky)**2
+            min((center2.nu_x - center1.nu_x)**2 + (center2.nu_y - center1.nu_y)**2
                 for center1, center2 in product(self.diffraction_spot_centers, self.diffraction_spot_centers)
                 if center1 is not center2
                )
@@ -188,8 +188,8 @@ class PhasicsImageAnalyzer:
             # np.roll won't work on a Quantity array, so create a unit-aware version
             roll_ua = ureg.wraps('=A', ('=A', None, None))(np.roll)
             
-            KX, KY = np.meshgrid(self.freq_x, self.freq_y)
-            IMG_cropped = self.IMG * ((np.square(KX - center.kx) + np.square(KY - center.ky)) < self.diffraction_spot_crop_radius**2)
+            NU_X, NU_Y = np.meshgrid(self.freq_x, self.freq_y)
+            IMG_cropped = self.IMG * ((np.square(NU_X - center.nu_x) + np.square(NU_Y - center.nu_y)) < self.diffraction_spot_crop_radius**2)
             IMG_recentered = roll_ua(IMG_cropped, (self.shape[0]//2 - center.row, self.shape[1]//2 - center.column), (0, 1))
             return IMG_recentered
 
