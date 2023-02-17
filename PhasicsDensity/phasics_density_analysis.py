@@ -17,6 +17,8 @@ import numpy as np
 from scipy.sparse import csc_matrix, csr_matrix
 from scipy.sparse.linalg import lsqr
 
+from skimage.restoration import unwrap_phase
+
 from pint import UnitRegistry
 if TYPE_CHECKING:
     from pint import Quantity
@@ -199,7 +201,7 @@ class PhasicsImageAnalyzer:
         return self.diffraction_spot_IMGs
     
     
-    def _inverse_fourier_transform(self) -> list[np.ndarray]:
+    def _reconstruct_phase_gradient_maps_from_cropped_centered_diffraction_FTs(self) -> list[np.ndarray]:
         """ Calculate the angle (argument) of the inverse FT of a diffraction 
             spot image.
             
@@ -207,12 +209,8 @@ class PhasicsImageAnalyzer:
             direction is in the argument of the inverse FT. 
         
         """
-        def _inverse_fourier_transform_one_image(IMG: np.ndarray) -> np.ndarray:
-            angle = np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m)))
-            # return np.unwrap(np.unwrap(angle, axis=1), axis=0)
-            return angle
-        
-        self.phase_gradient_maps = [_inverse_fourier_transform_one_image(IMG)
+
+        self.phase_gradient_maps = [unwrap_phase(np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m))))
                                     for IMG in self.diffraction_spot_IMGs
                                    ] 
 
@@ -317,7 +315,7 @@ class PhasicsImageAnalyzer:
         
         # reconstruct phase map from diffraction spot FTs
         if self.reconstruction_method == 'baffou':
-            self._inverse_fourier_transform()
+            self._reconstruct_phase_gradient_maps_from_cropped_centered_diffraction_FTs()
             # self._rotate_phase_gradient_maps()
             W = self._integrate_gradient_maps()
             
