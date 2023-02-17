@@ -271,15 +271,25 @@ class PhasicsImageAnalyzer:
                     b.append(phase_gradient_map[i, j])
                     m += 1
 
-        A = csr_matrix((data, (row_ind, col_ind)), shape=(len(self.phase_gradient_maps) * (self.shape[0] - 2) * (self.shape[1] - 2), 
+        # The least squares loss is invariant under adding a constant to the entire phase map, so add a row to the list of 
+        # equations requiring that the mean of the whole map is 0. 
+
+        for j in range(self.shape[0] * self.shape[1]):
+            data.append(1.0)
+            row_ind.append(m)
+            col_ind.append(j)
+        b.append(0.0)
+
+        A = csr_matrix((data, (row_ind, col_ind)), shape=(len(self.phase_gradient_maps) * (self.shape[0] - 2) * (self.shape[1] - 2) + 1, 
                                                           self.shape[0] * self.shape[1]
                                                          )
                       )
 
-        return lsqr(A, b)[0].reshape(self.shape)
+        # solve the linear equation in the least squares sense.
+        self.phase_map = lsqr(A, b)[0].reshape(self.shape)
+
+        return self.phase_map
             
-        
-        
     
     def calculate_phase_map(self, img: np.ndarray) -> np.ndarray:
         """ Analyze cropped Phasics quadriwave shearing image
