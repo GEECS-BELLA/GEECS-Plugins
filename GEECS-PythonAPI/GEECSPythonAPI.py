@@ -173,8 +173,8 @@ class GEECSDevice:
         s.bind(('', info+1))
         info = s.getsockname()[1]
         print(info)
-
-        #s.sendto(MESSAGE, (UDP_IP, UDP_PORT))
+        bufferSize=1024
+        s.sendto(MESSAGE, (UDP_IP, UDP_PORT))
 
         msgFromServer = s.recvfrom(bufferSize)
         msgSlow = "Message from Server {} ".format(msgFromServer[0])
