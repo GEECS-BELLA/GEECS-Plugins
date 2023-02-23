@@ -164,7 +164,7 @@ class GEECSDevice:
         
     def get_udp(self):
         
-        MESSAGE = f"get{self.variables[0]}>>{value:.6f}".encode('ascii')
+        MESSAGE = f"get{self.variables[0]}>>".encode('ascii')
 
         s = socket.socket(socket.AF_INET, # Internet
                             socket.SOCK_DGRAM) # UDP
