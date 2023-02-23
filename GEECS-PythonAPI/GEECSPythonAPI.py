@@ -162,7 +162,27 @@ class GEECSDevice:
             print(msgSlow)
             s.close()
         
+    def get_udp(self):
         
+        MESSAGE = f"get{self.variables[0]}>>{value:.6f}".encode('ascii')
+
+        s = socket.socket(socket.AF_INET, # Internet
+                            socket.SOCK_DGRAM) # UDP
+        #sock.settimeout(0.0001)
+        # to get socket port?
+        s.bind(('', info+1))
+        info = s.getsockname()[1]
+        print(info)
+
+        #s.sendto(MESSAGE, (UDP_IP, UDP_PORT))
+
+        msgFromServer = s.recvfrom(bufferSize)
+        msgSlow = "Message from Server {} ".format(msgFromServer[0])
+
+        print(msgSlow)
+        s.close()
+        
+          
 
         
     def get_tcp_nonblocking(self):    
