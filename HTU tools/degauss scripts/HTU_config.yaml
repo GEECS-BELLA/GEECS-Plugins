@@ -1,0 +1,415 @@
+control_variables: #tag: [device_name, variable_name, min_value, max_value]
+  VoltageLimit.Ch1: 
+    device_name: U_EMQTripletBipolar
+    device_variable: Voltage_Limit.Ch1
+    range: [ 0.0, 18.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  CurrentLimit.Ch1: 
+    device_name: U_EMQTripletBipolar
+    device_variable: Current_Limit.Ch1
+    range: [ -8.0, 8.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False 
+  Enable.Ch1: 
+    device_name: U_EMQTripletBipolar
+    device_variable: Enable_Output.Ch1
+    range: [ 0.0, 18.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  VoltageLimit.Ch2: 
+    device_name: U_EMQTripletBipolar
+    device_variable: Voltage_Limit.Ch2
+    range: [ 0.0, 18.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  CurrentLimit.Ch2: 
+    device_name: U_EMQTripletBipolar
+    device_variable: Current_Limit.Ch2
+    range: [ -8.0, 8.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False  
+  Enable.Ch2: 
+    device_name: U_EMQTripletBipolar
+    device_variable: Enable_Output.Ch2
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  VoltageLimit.Ch3: 
+    device_name: U_EMQTripletBipolar
+    device_variable: Voltage_Limit.Ch3
+    range: [ 0.0, 18.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  CurrentLimit.Ch3: 
+    device_name: U_EMQTripletBipolar
+    device_variable: Current_Limit.Ch3
+    range: [ -8.0, 8.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False  
+  Enable.Ch3: 
+    device_name: U_EMQTripletBipolar
+    device_variable: Enable_Output.Ch3
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Enable.S1H: 
+    device_name: U_S1H
+    device_variable: Enable_Output
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Current.S1H: 
+    device_name: U_S1H
+    device_variable: Current
+    range: [ -5.0, 5.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Enable.S1V: 
+    device_name: U_S1V
+    device_variable: Enable_Output
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Current.S1V: 
+    device_name: U_S1V
+    device_variable: Current
+    range: [ -5.0, 5.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Enable.S2H: 
+    device_name: U_S2H
+    device_variable: Enable_Output
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Current.S2H: 
+    device_name: U_S2H
+    device_variable: Current
+    range: [ -5.0, 5.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Enable.S2V: 
+    device_name: U_S2V
+    device_variable: Enable_Output
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Current.S2V: 
+    device_name: U_S2V
+    device_variable: Current
+    range: [ -5.0, 5.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Enable.S3H: 
+    device_name: U_S3H
+    device_variable: Enable_Output
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Current.S3H: 
+    device_name: U_S3H
+    device_variable: Current
+    range: [ -5.0, 5.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Enable.S3V: 
+    device_name: U_S3V
+    device_variable: Enable_Output
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Current.S3V: 
+    device_name: U_S3V
+    device_variable: Current
+    range: [ -5.0, 5.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Enable.S4H: 
+    device_name: U_S4H
+    device_variable: Enable_Output
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Current.S4H: 
+    device_name: U_S4H
+    device_variable: Current
+    range: [ -5.0, 5.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Enable.S4V: 
+    device_name: U_S4V
+    device_variable: Enable_Output
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Current.S4V: 
+    device_name: U_S4V
+    device_variable: Current
+    range: [ -5.0, 5.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Enable.ChicaneOuter: 
+    device_name: U_ChicaneOuter
+    device_variable: Enable_Output
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Current.ChicaneOuter: 
+    device_name: U_ChicaneOuter
+    device_variable: Current
+    range: [ -5.0, 5.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Enable.ChicaneInner: 
+    device_name: U_ChicaneInner
+    device_variable: Enable_Output
+    range: [ 0.0, 12.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+  Current.ChicaneInner: 
+    device_name: U_ChicaneInner
+    device_variable: Current
+    range: [ -5.0, 5.0]
+    ipaddress: 0.0.0.0
+    port: 9999
+    busy: 0
+    newDataFlag: 0
+    tcp_client: 'na'
+    actual_value: 0.0
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1.5
+    objective: False
+database:
+  name: loasis
+  port: 3306
+  ipaddress: 192.168.6.14
+  user: loasis
+  password: dat+l0sim
+optimization_parameters:
+  shots_per_step: 20
