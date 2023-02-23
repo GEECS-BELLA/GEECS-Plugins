@@ -33,6 +33,7 @@ class GEECSDevice:
     def __init__(self,
                  device_name = None,
                  variables = None,
+                 database_ip = "192.168.6.14"
                 ):
         """ 
         Parameters
@@ -41,18 +42,23 @@ class GEECSDevice:
 
         variables: variables associated with device. Should be in format of [variable_name, [min_value,max_value], 
             Boolean, tcp_client]
+            
+        database_ip: ip address of the database
 
         """
 
         self.device_name = device_name
         self.variables = variables
+        self.database_ip = database_ip
         self.busy = 0
         self.newDataFlag = 0
         self.actual_value=None
     
     def echo_dev_name(self):
+        print(self.database_ip)
         print(self.device_name)
         print(self.variables)
+
         
     def create_tcp_subscribing_client(self,var):
         #print('in the client factory for device: ',var)
@@ -72,9 +78,9 @@ class GEECSDevice:
     def database_lookup(self):
         
         mydb = mysql.connector.connect(
-        host="192.168.6.14",
-        user="loasis",
-        password="dat+l0sim")
+        host = self.database_ip,
+        user = "loasis",
+        password = "dat+l0sim")
 
         selectors=["ipaddress","commport"]
         selectorString=",".join(selectors)
@@ -96,47 +102,68 @@ class GEECSDevice:
         self.database_lookup()
         self.variables[3]=self.create_tcp_subscribing_client(self.variables[0])
         
+    def device_close(self):
+        self.tcp_client.close()
+        
     def set(self,value):
         
-        #example message to set something
-        MESSAGE = bytes("set"+self.variables[0]+">>" + str(value), 'ascii')
+        command_accepted=False
+        timedout=False
+        timeout=5
+        t0=time.monotonic()
+        while not command_accepted and not timedout:
+            #example message to set something
+            MESSAGE = f"set{self.variables[0]}>>{value:.6f}".encode('ascii')
+
+            #create socket for UDP command
+            sock = socket.socket(socket.AF_INET, # Internet
+                                socket.SOCK_DGRAM) # UDP
+
+            # get the port number used for the UDP command
+            sock.bind(('', 0))
+            info = sock.getsockname()[1]
+
+            #send message
+            bufferSize = 1024
+            sock.sendto(MESSAGE, (self.ip, self.tcp_port))
+
+            msgFromServer = sock.recvfrom(bufferSize)
+
+#             msg = "Message from Server {} ".format(msgFromServer[0])
+#             print(msg)
+            
+            t1=time.monotonic()
+            if t1-t0>timeout:
+                timedout=True
+                print("set command timed out")
+           
+            resp=(msgFromServer[0].decode('ascii')).split(">>")[-1]
+            if resp=='accepted':
+                command_accepted=True
+                print("set command accepted")
+                
+            time.sleep(0.05)
+            
+            sock.close()
+        if command_accepted:
+            s = socket.socket(socket.AF_INET, # Internet
+                                socket.SOCK_DGRAM) # UDP
+            #sock.settimeout(0.0001)
+            # to get socket port?
+            s.bind(('', info+1))
+            info = s.getsockname()[1]
+            print(info)
+
+            #s.sendto(MESSAGE, (UDP_IP, UDP_PORT))
+
+            msgFromServer = s.recvfrom(bufferSize)
+            msgSlow = "Message from Server {} ".format(msgFromServer[0])
+
+            print(msgSlow)
+            s.close()
         
-        #create socket for UDP command
-        sock = socket.socket(socket.AF_INET, # Internet
-                            socket.SOCK_DGRAM) # UDP
-
-        # get the port number used for the UDP command
-        sock.bind(('', 0))
-        info = sock.getsockname()[1]
         
-        #send message
-        bufferSize = 1024
-        sock.sendto(MESSAGE, (self.ip, self.tcp_port))
 
-        msgFromServer = sock.recvfrom(bufferSize)
-
-        msg = "Message from Server {} ".format(msgFromServer[0])
-
-        print(msg)
-        sock.close()
-
-
-        s = socket.socket(socket.AF_INET, # Internet
-                            socket.SOCK_DGRAM) # UDP
-        #sock.settimeout(0.0001)
-        # to get socket port?
-        s.bind(('', info+1))
-        info = s.getsockname()[1]
-        print(info)
-
-        #s.sendto(MESSAGE, (UDP_IP, UDP_PORT))
-
-        msgFromServer = s.recvfrom(bufferSize)
-
-        msgSlow = "Message from Server {} ".format(msgFromServer[0])
-
-        print(msgSlow)
-        sock.close()
         
     def get_tcp_nonblocking(self):    
         #info('function get1')
