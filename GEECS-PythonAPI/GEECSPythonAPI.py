@@ -13,8 +13,12 @@ import numpy as np
 import time
 import select
 
-#%% GEECS device class
+# define Python user-defined exceptions
+class UDPCommunicationError(Exception):
+    "Raised when the UDP communication with a device fails"
+    pass
 
+#%% GEECS device class
 class GEECSDevice:
     """ .
 
@@ -32,7 +36,7 @@ class GEECSDevice:
     
     def __init__(self,
                  device_name = None,
-                 variables = None,
+#                  variables = None,
                  database_ip = "192.168.6.14"
                 ):
         """ 
@@ -48,7 +52,7 @@ class GEECSDevice:
         """
 
         self.device_name = device_name
-        self.variables = variables
+#         self.variables = variables
         self.database_ip = database_ip
         self.busy = 0
         self.newDataFlag = 0
@@ -57,7 +61,7 @@ class GEECSDevice:
     def echo_dev_name(self):
         print(self.database_ip)
         print(self.device_name)
-        print(self.variables)
+#         print(self.variables)
 
         
     def create_tcp_subscribing_client(self,var):
@@ -88,32 +92,52 @@ class GEECSDevice:
         mycursor = mydb.cursor()
         db_name='loasis'
         select_stmt="SELECT "+selectorString+" FROM "+db_name+".device where name="+'"'+self.device_name+ '"'+";"
-        #print(select_stmt)
         mycursor.execute(select_stmt)
         myresult = list(mycursor.fetchall()[0])
-        #print(myresult)
 
         self.ip = myresult[0]
         self.tcp_port = int(myresult[1])
         bufferSize = 1024
-        #print(self.ip)
     
     def device_initialize(self):
         self.database_lookup()
-        self.variables[3]=self.create_tcp_subscribing_client(self.variables[0])
+#         self.variables[3]=self.create_tcp_subscribing_client(self.variables[0])
         
     def device_close(self):
         self.tcp_client.close()
         
-    def set(self,value):
+    def command(self,command_string,var,**kwargs):
         
         command_accepted=False
         timedout=False
-        timeout=5
+        valid_command = False
+        timeout=30
         t0=time.monotonic()
-        while not command_accepted and not timedout:
-            #example message to set something
-            MESSAGE = f"set{self.variables[0]}>>{value:.6f}".encode('ascii')
+        
+        ####bit of code below to assemble the UDP message, which is either a 'get' or 'set' command
+        try:
+            if command_string == 'get':
+                MESSAGE = f"{command_string}{var}>>".encode('ascii')
+                valid_command = True
+
+            elif command_string == 'set':
+                try:
+                    if 'value' in kwargs:
+                        value=kwargs['value']
+                        MESSAGE = f"{command_string}{var}>>{value:.6f}".encode('ascii')
+                        valid_command = True
+                    else:
+                        raise UDPCommunicationError
+
+                except UDPCommunicationError:
+                    print('no value passed for set command')
+
+            else:
+                raise UDPCommunicationError
+        except UDPCommunicationError:
+            print('invalid command')
+        
+        while not command_accepted and not timedout and valid_command:
 
             #create socket for UDP command
             sock = socket.socket(socket.AF_INET, # Internet
@@ -129,62 +153,49 @@ class GEECSDevice:
 
             msgFromServer = sock.recvfrom(bufferSize)
 
-#             msg = "Message from Server {} ".format(msgFromServer[0])
-#             print(msg)
-            
             t1=time.monotonic()
             if t1-t0>timeout:
                 timedout=True
-                print("set command timed out")
+                print(f"{command_string} command timed out")
            
             resp=(msgFromServer[0].decode('ascii')).split(">>")[-1]
             if resp=='accepted':
                 command_accepted=True
-                print("set command accepted")
+                print(f"{command_string} command accepted")
+            else:
+#                 print("command rejected")
+                pass
                 
             time.sleep(0.05)
             
             sock.close()
-        if command_accepted:
+
+        if command_accepted and kwargs['wait_for_response']:
             s = socket.socket(socket.AF_INET, # Internet
                                 socket.SOCK_DGRAM) # UDP
-            #sock.settimeout(0.0001)
+            s.settimeout(30)
             # to get socket port?
             s.bind(('', info+1))
             info = s.getsockname()[1]
-            print(info)
-
-            #s.sendto(MESSAGE, (UDP_IP, UDP_PORT))
 
             msgFromServer = s.recvfrom(bufferSize)
             msgSlow = "Message from Server {} ".format(msgFromServer[0])
-
-            print(msgSlow)
+            self.last_slow_udp=msgFromServer[0]
             s.close()
+            
         
-    def get_udp(self):
-        
-        MESSAGE = f"get{self.variables[0]}>>".encode('ascii')
-
-        s = socket.socket(socket.AF_INET, # Internet
-                            socket.SOCK_DGRAM) # UDP
-        #sock.settimeout(0.0001)
-        # to get socket port?
-        s.bind(('', info+1))
-        info = s.getsockname()[1]
-        print(info)
-        bufferSize=1024
-        s.sendto(MESSAGE, (UDP_IP, UDP_PORT))
-
-        msgFromServer = s.recvfrom(bufferSize)
-        msgSlow = "Message from Server {} ".format(msgFromServer[0])
-
-        print(msgSlow)
-        s.close()
-        
-          
-
-        
+    def get_udp(self,var_name):
+        self.command('get',var_name, wait_for_response=True)
+        print(self.last_slow_udp)
+        return self.last_slow_udp.decode('ascii').split(">>")[-2]
+    
+    def set_and_wait_udp(self,var_name,value):
+        self.command('set',var_name,value=value,wait_for_response=True)
+        return self.last_slow_udp.decode('ascii').split(">>")[-2]
+    
+    def set_only_udp(self,var_name,value):
+        self.command('set',var_name,value=value,wait_for_response=False)
+                
     def get_tcp_nonblocking(self):    
         #info('function get1')
 
@@ -212,10 +223,10 @@ class GEECSDevice:
                 #Typical response time when a device has information to transmit is well below 1 ms. So, we rely
                 # on the timeout to tell us that there is no information on the buffer, and we are waiting on 
                 # another iteration of the device's acquire loop.
-                while dt<0.0015:
+                while dt<0.0045:
                     counter=counter+1
                     t0=time.monotonic()
-                    ready=select.select([client],[],[],.002 ) #last arguement is timeout in seconds
+                    ready=select.select([client],[],[],.005 ) #last arguement is timeout in seconds
                     #print(ready)
                     if ready[0]:
                         size = struct.unpack('>i', client.recv(4))[0]  # Extract the msg size from four bytes - mind the encoding
@@ -244,6 +255,7 @@ class GEECSDevice:
                             self.newDataFlag=0
                     t1=time.monotonic()
                     dt=t1-t0
+                    #print(dt)
                 self.busy=0 #release the socket
                 #print("socket released")
         else:
