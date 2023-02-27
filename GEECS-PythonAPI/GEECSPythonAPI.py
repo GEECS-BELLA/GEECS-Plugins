@@ -12,6 +12,9 @@ import mysql.connector
 import numpy as np
 import time
 import select
+import os
+import sys
+import configparser
 
 # define Python user-defined exceptions
 class UDPCommunicationError(Exception):
@@ -36,8 +39,6 @@ class GEECSDevice:
     
     def __init__(self,
                  device_name = None,
-#                  variables = None,
-                 database_ip = "192.168.6.14"
                 ):
         """ 
         Parameters
@@ -52,17 +53,12 @@ class GEECSDevice:
         """
 
         self.device_name = device_name
-#         self.variables = variables
-        self.database_ip = database_ip
         self.busy = 0
         self.newDataFlag = 0
         self.actual_value=None
     
     def echo_dev_name(self):
-        print(self.database_ip)
         print(self.device_name)
-#         print(self.variables)
-
         
     def create_tcp_subscribing_client(self,var):
         #print('in the client factory for device: ',var)
@@ -80,11 +76,10 @@ class GEECSDevice:
         return client
     
     def database_lookup(self):
-        
         mydb = mysql.connector.connect(
         host = self.database_ip,
-        user = "loasis",
-        password = "dat+l0sim")
+        user = self.database_user,
+        password = self.database_password)
 
         selectors=["ipaddress","commport"]
         selectorString=",".join(selectors)
@@ -99,11 +94,23 @@ class GEECSDevice:
         self.tcp_port = int(myresult[1])
         bufferSize = 1024
     
+    def find_database(self):
+        found=False
+        while not found:
+            os.chdir('..')
+            found = os.path.exists('user data')
+        os.chdir('user data')
+        config = configparser.ConfigParser()
+        config.read('Configurations.INI')
+        self.database_ip=config['Database']['ipaddress']
+        self.database_password=config['Database']['password']
+        self.database_user=config['Database']['user']
+
     def device_initialize(self):
+        self.find_database()
         self.database_lookup()
-#         self.variables[3]=self.create_tcp_subscribing_client(self.variables[0])
         
-    def device_close(self):
+    def tcp_close_client(self):
         self.tcp_client.close()
         
     def command(self,command_string,var,**kwargs):
@@ -319,7 +326,6 @@ class OptimizationControl(GEECSDevice):
                   device_name = None,
                   variable = None,
                  bounds = None,
-                   database_ip = "192.168.6.14",
                  settable = None
                 ):
         """ 
@@ -333,7 +339,6 @@ class OptimizationControl(GEECSDevice):
         database_ip: ip address of the database
 
         """
-        super(OptimizationControl, self).__init__(database_ip=database_ip)
         self.device_name = device_name
         self.variable = variable
         self.bounds = bounds
