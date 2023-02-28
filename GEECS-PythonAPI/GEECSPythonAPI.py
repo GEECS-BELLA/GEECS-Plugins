@@ -12,6 +12,9 @@ import mysql.connector
 import numpy as np
 import time
 import select
+import os
+import sys
+import configparser
 
 # define Python user-defined exceptions
 class UDPCommunicationError(Exception):
@@ -36,8 +39,6 @@ class GEECSDevice:
     
     def __init__(self,
                  device_name = None,
-#                  variables = None,
-                 database_ip = "192.168.6.14"
                 ):
         """ 
         Parameters
@@ -52,17 +53,12 @@ class GEECSDevice:
         """
 
         self.device_name = device_name
-#         self.variables = variables
-        self.database_ip = database_ip
         self.busy = 0
         self.newDataFlag = 0
         self.actual_value=None
     
     def echo_dev_name(self):
-        print(self.database_ip)
         print(self.device_name)
-#         print(self.variables)
-
         
     def create_tcp_subscribing_client(self,var):
         #print('in the client factory for device: ',var)
@@ -80,11 +76,10 @@ class GEECSDevice:
         return client
     
     def database_lookup(self):
-        
         mydb = mysql.connector.connect(
         host = self.database_ip,
-        user = "loasis",
-        password = "dat+l0sim")
+        user = self.database_user,
+        password = self.database_password)
 
         selectors=["ipaddress","commport"]
         selectorString=",".join(selectors)
@@ -99,11 +94,23 @@ class GEECSDevice:
         self.tcp_port = int(myresult[1])
         bufferSize = 1024
     
+    def find_database(self):
+        found=False
+        while not found:
+            os.chdir('..')
+            found = os.path.exists('user data')
+        os.chdir('user data')
+        config = configparser.ConfigParser()
+        config.read('Configurations.INI')
+        self.database_ip=config['Database']['ipaddress']
+        self.database_password=config['Database']['password']
+        self.database_user=config['Database']['user']
+
     def device_initialize(self):
+        self.find_database()
         self.database_lookup()
-#         self.variables[3]=self.create_tcp_subscribing_client(self.variables[0])
         
-    def device_close(self):
+    def tcp_close_client(self):
         self.tcp_client.close()
         
     def command(self,command_string,var,**kwargs):
@@ -111,6 +118,11 @@ class GEECSDevice:
         command_accepted=False
         timedout=False
         valid_command = False
+        if 'port_bind' in kwargs:
+            port_bind=kwargs['port_bind']
+        else:
+            port_bind=True
+            
         timeout=30
         t0=time.monotonic()
         
@@ -136,13 +148,14 @@ class GEECSDevice:
                 raise UDPCommunicationError
         except UDPCommunicationError:
             print('invalid command')
+            
         
         while not command_accepted and not timedout and valid_command:
 
             #create socket for UDP command
             sock = socket.socket(socket.AF_INET, # Internet
                                 socket.SOCK_DGRAM) # UDP
-
+            sock.settimeout(15)
             # get the port number used for the UDP command
             sock.bind(('', 0))
             info = sock.getsockname()[1]
@@ -163,28 +176,49 @@ class GEECSDevice:
                 command_accepted=True
                 print(f"{command_string} command accepted")
             else:
-#                 print("command rejected")
+                #print("command rejected")
                 pass
                 
             time.sleep(0.05)
             
             sock.close()
 
-        if command_accepted and kwargs['wait_for_response']:
-            s = socket.socket(socket.AF_INET, # Internet
+        if command_accepted and port_bind:
+            self.slow_UDP_socket = socket.socket(socket.AF_INET, # Internet
                                 socket.SOCK_DGRAM) # UDP
-            s.settimeout(30)
+            self.slow_UDP_socket.settimeout(30)
             # to get socket port?
-            s.bind(('', info+1))
-            info = s.getsockname()[1]
+            self.slow_UDP_socket.bind(('', info+1))
 
-            msgFromServer = s.recvfrom(bufferSize)
-            msgSlow = "Message from Server {} ".format(msgFromServer[0])
-            self.last_slow_udp=msgFromServer[0]
-            s.close()
-            
-        
-    def get_udp(self,var_name):
+            if kwargs['wait_for_response']:
+                self.read_slow_UDP()
+
+    
+    def read_slow_UDP(self):
+        bufferSize = 1024
+        msgFromServer = self.slow_UDP_socket.recvfrom(bufferSize)
+        msgSlow = "Message from Server {} ".format(msgFromServer[0])
+        self.last_slow_udp=msgFromServer[0]
+        self.slow_UDP_socket.close()
+        return self.last_slow_udp.decode('ascii').split(">>")[-2]
+
+    def get_only_udp(self,var_name,**kwargs):
+        if 'port_bind' in kwargs:
+            port_bind=kwargs['port_bind']
+        else:
+            port_bind=True
+        self.command('get',var_name, port_bind=port_bind, wait_for_response=False)
+#         print(self.last_slow_udp)
+#         return self.last_slow_udp.decode('ascii').split(">>")[-2]
+
+    def set_only_udp(self,var_name,value, **kwargs):
+        if 'port_bind' in kwargs:
+            port_bind=kwargs['port_bind']
+        else:
+            port_bind=True
+        self.command('set',var_name,value=value, port_bind=port_bind, wait_for_response=False)
+
+    def get_and_wait_udp(self,var_name):
         self.command('get',var_name, wait_for_response=True)
         print(self.last_slow_udp)
         return self.last_slow_udp.decode('ascii').split(">>")[-2]
@@ -193,8 +227,7 @@ class GEECSDevice:
         self.command('set',var_name,value=value,wait_for_response=True)
         return self.last_slow_udp.decode('ascii').split(">>")[-2]
     
-    def set_only_udp(self,var_name,value):
-        self.command('set',var_name,value=value,wait_for_response=False)
+
                 
     def get_tcp_nonblocking(self):    
         #info('function get1')
@@ -271,3 +304,56 @@ class GEECSDevice:
         #can change how get is defined but use this function elsewhere
         value=self.get_tcp_nonblocking()
         return value
+    
+    
+#%% GEECS device class
+class OptimizationControl(GEECSDevice):
+    """ .
+
+    General usage, with `img` an image from the HTU Gasjet Phasics camera 
+       pia = PhasicsImageAnalyzer()
+       phase_map = pia.calculate_phase_map(pia.crop_image(img))
+
+              
+    Methods
+    -------
+    set()
+    get()
+
+    """
+    
+    def __init__(self,
+                  device_name = None,
+                  variable = None,
+                 bounds = None,
+                 settable = None
+                ):
+        """ 
+        Parameters
+        ----------
+        device_name : name of a GEECS device
+
+        variables: variables associated with device. Should be in format of [variable_name, [min_value,max_value], 
+            Boolean, tcp_client]
+            
+        database_ip: ip address of the database
+
+        """
+        self.device_name = device_name
+        self.variable = variable
+        self.bounds = bounds
+        self.busy = 0
+        self.newDataFlag = 0
+        self.actual_value=None
+        
+    def xopt_set(self,value):
+        if self.bounds == None:
+            print('no bounds defined for this device variable. This is unsafe so set function is disabled')
+        else:  
+            if self.bounds[0]<=value<=self.bounds[1]:
+                print("can set")
+                self.set_and_wait_udp(self.variable,value)
+            else:
+                print("out of bounds")
+                
+    
