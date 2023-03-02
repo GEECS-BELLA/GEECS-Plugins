@@ -1,7 +1,7 @@
 import os
 import configparser
 import mysql.connector
-from geecs_errors import *
+from geecs_api.interface.geecs_errors import *
 import tkinter as tk
 from tkinter import filedialog
 
@@ -74,7 +74,7 @@ if __name__ == '__main__':
     print('User:\n\t' + GeecsDatabase.database_user)
     print('Password:\n\t' + GeecsDatabase.database_pwd)
 
-    device_ip, device_port = GeecsDatabase.find_device('U_ESP_JetXYZ123')
+    device_ip, device_port = GeecsDatabase.find_device('U_ESP_JetXYZ')
     if device_ip:
         print('Device:\n\t' + device_ip + f', {device_port}')
     else:
