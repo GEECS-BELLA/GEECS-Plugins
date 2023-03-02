@@ -63,12 +63,19 @@ class GeecsDatabase:
             dev_ip = db_result[0]
             dev_port = int(db_result[1])
 
-        except ErrorAPI('Device not found in database!'):
+        except Exception:
             dev_ip = dev_port = ''
-            pass
 
         return dev_ip, dev_port
 
 
 if __name__ == '__main__':
-    print(find_database())
+    print('IP:\n\t' + GeecsDatabase.database_ip)
+    print('User:\n\t' + GeecsDatabase.database_user)
+    print('Password:\n\t' + GeecsDatabase.database_pwd)
+
+    device_ip, device_port = GeecsDatabase.find_device('U_ESP_JetXYZ123')
+    if device_ip:
+        print('Device:\n\t' + device_ip + f', {device_port}')
+    else:
+        print('Device not found')
