@@ -5,7 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="57cd07c8-2df9-4361-88de-95c1694d3cbd" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/geecs_interface/tcp_client.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/GEECS-PythonAPI.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/GEECS-PythonAPI.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -35,13 +35,20 @@
   "keyToString": {
     "RunOnceActivity.OpenProjectViewOnStart": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
-    "last_opened_file_path": "C:/Users/loasis/Documents/Users/GPlateau/UCI Py3 API",
-    "settings.editor.selected.configurable": "pyconsole"
+    "last_opened_file_path": "C:/GEECS/Developers Version/source/GEECS-Plugins/GEECS-PythonAPI",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
   }
 }]]></component>
   <component name="PyConsoleOptionsProvider">
     <option name="myPythonConsoleState">
-      <console-settings module-name="GEECS-PythonAPI" is-module-sdk="true">
+      <console-settings module-name="GEECS-PythonAPI" sdk-home="C:\Users\GuillaumePlateau\anaconda3\python.exe" is-module-sdk="true">
+        <option name="sdk">
+          <Sdk />
+        </option>
+        <option name="mySdkHome" value="C:\Users\GuillaumePlateau\anaconda3\python.exe" />
+        <option name="mySdk">
+          <Sdk />
+        </option>
         <option name="myUseModuleSdk" value="true" />
         <option name="myModuleName" value="GEECS-PythonAPI" />
       </console-settings>
