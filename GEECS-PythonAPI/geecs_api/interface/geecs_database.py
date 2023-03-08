@@ -29,17 +29,18 @@ def find_database():
         config = configparser.ConfigParser()
         config.read(path_cfg)
 
+        db_name = config['Database']['name']
         db_ip = config['Database']['ipaddress']
         db_user = config['Database']['user']
         db_pwd = config['Database']['password']
     except ErrorAPI():
-        db_ip = db_user = db_pwd = ''
+        db_name = db_ip = db_user = db_pwd = ''
 
-    return db_ip, db_user, db_pwd
+    return db_name, db_ip, db_user, db_pwd
 
 
 class GeecsDatabase:
-    database_ip, database_user, database_pwd = find_database()
+    database_name, database_ip, database_user, database_pwd = find_database()
 
     @staticmethod
     def find_device(dev_name=''):
@@ -50,26 +51,26 @@ class GeecsDatabase:
                 password=GeecsDatabase.database_pwd)
 
             selectors = ["ipaddress", "commport"]
-            selector_string = ",".join(selectors)
 
-            db_cursor = db.cursor()
-            db_name = 'loasis'
-            select_stmt = "SELECT " + selector_string\
-                          + " FROM " + db_name + ".device where name="\
-                          + '"' + dev_name + '"' + ";"
-            db_cursor.execute(select_stmt)
-            db_result = list(db_cursor.fetchall()[0])
+            with db.cursor() as db_cursor:
+                db_cursor.execute(f'SELECT {",".join(selectors)} FROM device WHERE name=%s;', (dev_name,))
+                db_result = db_cursor.fetchone()
+                dev_ip = db_result[0]
+                dev_port = int(db_result[1])
 
-            dev_ip = db_result[0]
-            dev_port = int(db_result[1])
+        except Exception as ex:
+            print(ex)
+            dev_ip = ''
+            dev_port = 0
 
-        except Exception:
-            dev_ip = dev_port = ''
+        finally:
+            db_cursor.close()
 
         return dev_ip, dev_port
 
 
 if __name__ == '__main__':
+    print('Name:\n\t' + GeecsDatabase.database_name)
     print('IP:\n\t' + GeecsDatabase.database_ip)
     print('User:\n\t' + GeecsDatabase.database_user)
     print('Password:\n\t' + GeecsDatabase.database_pwd)
@@ -79,3 +80,10 @@ if __name__ == '__main__':
         print('Device:\n\t' + device_ip + f', {device_port}')
     else:
         print('Device not found')
+
+    MCAST_GRP = '234.5.6.8'
+    MCAST_PORT = 58432
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, MULTICAST_TTL)
+    sock.sendto("preset>>HTU_Amp4>>192.168.7.227".encode(), (MCAST_GRP, MCAST_PORT))
+    sock.close()
