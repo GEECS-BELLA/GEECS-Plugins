@@ -6,6 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="57cd07c8-2df9-4361-88de-95c1694d3cbd" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/geecs_api/interface/tcp_subscriber.py" beforeDir="false" afterPath="$PROJECT_DIR$/geecs_api/interface/tcp_subscriber.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

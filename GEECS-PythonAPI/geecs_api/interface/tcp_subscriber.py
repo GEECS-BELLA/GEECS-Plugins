@@ -3,15 +3,17 @@ import select
 import time
 import struct
 from geecs_api.interface.geecs_errors import *
+from geecs_api.interface.event_handler import EventHandler
 
 
 class TcpSubscriber:
     def __init__(self):
-        self.host = self.port = ''
+        self.host = ''
+        self.port = 0
 
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        except ErrorAPI('TCP socket creation failed!'):
+        except Exception:
             self.sock = None
 
     def connect(self, host=None, port=None, timeout_sec=None):
