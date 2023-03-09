@@ -14,6 +14,8 @@ def find_database():
     default_path = r'C:\GEECS\user data'
     default_name = 'Configurations.INI'
 
+    db_name = db_ip = db_user = db_pwd = ''
+
     if not os.path.isfile(os.path.join(default_path, default_name)):
         path_cfg = filedialog.askopenfilename(filetypes=[('INI Files', '*.INI'), ('All Files', '*.*')],
                                               initialdir=default_path,
@@ -22,68 +24,69 @@ def find_database():
     else:
         path_cfg = os.path.join(default_path, default_name)
 
-    if not path_cfg:
-        return False
+    if path_cfg:
+        try:
+            config = configparser.ConfigParser()
+            config.read(path_cfg)
 
-    try:
-        config = configparser.ConfigParser()
-        config.read(path_cfg)
+            db_name = config['Database']['name']
+            db_ip = config['Database']['ipaddress']
+            db_user = config['Database']['user']
+            db_pwd = config['Database']['password']
 
-        db_name = config['Database']['name']
-        db_ip = config['Database']['ipaddress']
-        db_user = config['Database']['user']
-        db_pwd = config['Database']['password']
-    except ErrorAPI():
-        db_name = db_ip = db_user = db_pwd = ''
+        except Exception:
+            pass
 
     return db_name, db_ip, db_user, db_pwd
 
 
 class GeecsDatabase:
-    database_name, database_ip, database_user, database_pwd = find_database()
+    name, ipv4, username, password = find_database()
 
     @staticmethod
     def find_device(dev_name=''):
+        db_cursor = None
+        dev_ip = ''
+        dev_port = 0
+        err = ErrorAPI()
+
         try:
             db = mysql.connector.connect(
-                host=GeecsDatabase.database_ip,
-                user=GeecsDatabase.database_user,
-                password=GeecsDatabase.database_pwd)
+                host=GeecsDatabase.ipv4,
+                user=GeecsDatabase.username,
+                password=GeecsDatabase.password)
 
             selectors = ["ipaddress", "commport"]
 
-            with db.cursor() as db_cursor:
-                db_cursor.execute(f'SELECT {",".join(selectors)} FROM device WHERE name=%s;', (dev_name,))
-                db_result = db_cursor.fetchone()
-                dev_ip = db_result[0]
-                dev_port = int(db_result[1])
+            db_cursor = db.cursor()
+            db_cursor.execute(f'SELECT {",".join(selectors)} FROM {GeecsDatabase.name}.device WHERE name=%s;',
+                              (dev_name,))
+            db_result = db_cursor.fetchone()
+            dev_ip = db_result[0]
+            dev_port = int(db_result[1])
 
         except Exception as ex:
-            print(ex)
-            dev_ip = ''
-            dev_port = 0
+            err = ErrorAPI(str(ex), 'GeecsDatabase class, static method "find_device"')
 
         finally:
-            db_cursor.close()
+            try:
+                db_cursor.close()
+            except Exception:
+                pass
 
-        return dev_ip, dev_port
+        return dev_ip, dev_port, err
 
 
 if __name__ == '__main__':
-    print('Name:\n\t' + GeecsDatabase.database_name)
-    print('IP:\n\t' + GeecsDatabase.database_ip)
-    print('User:\n\t' + GeecsDatabase.database_user)
-    print('Password:\n\t' + GeecsDatabase.database_pwd)
+    print('Name:\n\t' + GeecsDatabase.name)
+    print('IP:\n\t' + GeecsDatabase.ipv4)
+    print('User:\n\t' + GeecsDatabase.username)
+    print('Password:\n\t' + GeecsDatabase.password)
 
-    device_ip, device_port = GeecsDatabase.find_device('U_ESP_JetXYZ')
+    device_ip, device_port, error = GeecsDatabase.find_device('U_ESP_JetXYZ')
+    print(error)
+
     if device_ip:
         print('Device:\n\t' + device_ip + f', {device_port}')
     else:
         print('Device not found')
-
-    MCAST_GRP = '234.5.6.8'
-    MCAST_PORT = 58432
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, MULTICAST_TTL)
-    sock.sendto("preset>>HTU_Amp4>>192.168.7.227".encode(), (MCAST_GRP, MCAST_PORT))
-    sock.close()
