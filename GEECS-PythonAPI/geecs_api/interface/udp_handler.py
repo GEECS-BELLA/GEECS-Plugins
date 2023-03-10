@@ -2,8 +2,10 @@ import socket
 import select
 import queue
 import threading
+from copy import deepcopy as dup
 from typing import Optional
-from geecs_api.interface.geecs_errors import *
+import geecs_api.interface.message_handling as mh
+from geecs_api.interface.geecs_errors import ErrorAPI, api_error
 from geecs_api.interface.event_handler import EventHandler
 
 
@@ -41,11 +43,12 @@ class UdpHandler:
         try:
             if self.sock_cmd:
                 self.sock_cmd.close()
-                self.sock_cmd = None
-                self.port_cmd = -1
-                self.bounded_cmd = False
         except Exception:
             pass
+        finally:
+            self.sock_cmd = None
+            self.port_cmd = -1
+            self.bounded_cmd = False
 
     def send_cmd(self, ipv4=('', -1), msg='', err_in=ErrorAPI()):
         """ Send message. """
@@ -60,22 +63,39 @@ class UdpHandler:
 
         return sent, err.merge_with_previous(err_in)
 
-    def ack_cmd(self, ready_timeout_sec=5.0, err_in=ErrorAPI()):
+    # def ack_cmd(self, ready_timeout_sec=5.0, err_in=ErrorAPI()):
+    #     """ Listen for command acknowledgement. """
+    #
+    #     err = ErrorAPI()
+    #     accepted = False
+    #
+    #     try:
+    #         ready = select.select([self.sock_cmd], [], [], ready_timeout_sec)
+    #         if ready[0]:
+    #             geecs_str = self.sock_cmd.recv(self.buffer_size)
+    #             geecs_ans = (geecs_str.decode('ascii')).split(">>")[-1]
+    #             accepted = (geecs_ans == 'accepted')
+    #         else:
+    #             err = ErrorAPI('Socket not ready to receive', 'UdpHandler class, method "receive"', warning=True)
+    #
+    #     except Exception:
+    #         err = ErrorAPI('Failed to read UDP message', 'UdpHandler class, method "receive"')
+    #
+    #     return accepted, err.merge_with_previous(err_in)
+    def ack_cmd(self, ready_timeout_sec=5.0):
         """ Listen for command acknowledgement. """
 
-        err = ErrorAPI()
         accepted = False
-
         try:
             ready = select.select([self.sock_cmd], [], [], ready_timeout_sec)
             if ready[0]:
-                geecs_str = self.sock_cmd.recvfrom(self.buffer_size)
-                geecs_ans = (geecs_str[0].decode('ascii')).split(">>")[-1]
+                geecs_str = self.sock_cmd.recv(self.buffer_size)
+                geecs_ans = (geecs_str.decode('ascii')).split(">>")[-1]
                 accepted = (geecs_ans == 'accepted')
             else:
-                err = ErrorAPI('Socket not ready to receive', 'UdpHandler class, method "receive"', warning=True)
+                api_error.merge('Socket not ready to receive', 'UdpHandler class, method "receive"', warning=True)
 
-        except ErrorAPI('Failed to read UDP message!'):
+        except Exception:
             err = ErrorAPI('Failed to read UDP message', 'UdpHandler class, method "receive"')
 
         return accepted, err.merge_with_previous(err_in)
@@ -111,10 +131,13 @@ class UdpServer:
     def __init__(self, port=-1):
         # initialize publisher
         self.publisher = EventHandler(['UDP Message'])
-        self.publisher.register('UDP Message', 'UDP handler', self.async_msg_handler)
+        self.publisher.register('UDP Message', 'UDP handler', mh.async_msg_handler)
 
         # FIFO queue of messages
         self.queue_msgs = queue.Queue()
+
+        # message notifier
+        self.notifier = threading.Condition()
 
         # initialize socket
         self.buffer_size = 1024
@@ -130,8 +153,8 @@ class UdpServer:
             self.bounded = False
 
     def __del__(self):
-        self.publisher.unregister_all()
-        self.flush_queue()
+        self.publisher.unregister('UDP Message', 'UDP handler')
+        mh.flush_queue(self.queue_msgs)
         self.close_sock_exe()
 
     def close_sock_exe(self):
@@ -140,61 +163,12 @@ class UdpServer:
         try:
             if self.sock:
                 self.sock.close()
-                self.sock = None
-                self.port = -1
-                self.bounded = False
-        except Exception:
-            pass
-
-    def next_msg(self, *args, **kwargs):
-        err = ErrorAPI()
-
-        try:
-            tag, msg, err = self.queue_msgs.get(*args, **kwargs)
-            self.queue_msgs.task_done()
-        except queue.Empty:
-            msg = ''
-        except Exception:
-            msg = ''
-            err = ErrorAPI('Failed to dequeue UDP message', 'UdpServer class, method "next_msg"')
-
-        return msg, err
-
-    def flush_queue(self):
-        flushed_msgs = list()
-
-        try:
-            for q_element in range(self.queue_msgs.qsize()):
-                this_element = self.queue_msgs.get()
-                self.queue_msgs.task_done()
-                flushed_msgs.append(this_element)
         except Exception:
             pass
         finally:
-            self.queue_msgs = queue.Queue()
-
-        return flushed_msgs
-
-    def async_msg_handler(self, message):  # message = tuple of string and ErrorAPI
-        try:
-            cmd_tag, udp_msg, error = message
-            self.next_msg(False)  # tmp (to be handled by device) Queue.get() call to dequeue message
-
-            if error.is_error:
-                err_str = f'Error:\n\tDescription: {error.error_msg}\n\tSource: {error.error_src}'
-            elif error.is_warning:
-                err_str = f'Warning:\n\tDescription: {error.error_msg}\n\tSource: {error.error_src}'
-            else:
-                err_str = ''
-
-            if err_str:
-                print(err_str)
-            else:
-                print(f'Asynchronous UDP response to "{cmd_tag}":\n\t{udp_msg}')
-
-        except Exception as ex:
-            err = ErrorAPI(str(ex), 'UdpServer class, method "async_msg_handler"')
-            print(err)
+            self.sock = None
+            self.port = -1
+            self.bounded = False
 
     def listen(self, cmd_tag: str, ready_timeout_sec=15.0) -> tuple[str, ErrorAPI]:
         """ Listens for messages. """
@@ -214,9 +188,16 @@ class UdpServer:
         except Exception:
             err = ErrorAPI('Failed to read UDP message', 'UdpServer class, method "listen"')
 
-        # queue & publish message
-        self.queue_msgs.put((cmd_tag, geecs_ans, err))
-        self.publisher.publish('UDP Message', (cmd_tag, geecs_ans, err))
+        # queue, notify & publish message
+        try:
+            self.notifier.acquire()
+            self.queue_msgs.put((cmd_tag, geecs_ans, err))
+            self.notifier.notify_all()
+            self.publisher.publish('UDP Message', (cmd_tag, geecs_ans, err))
+            self.notifier.release()
+
+        except Exception:
+            err = ErrorAPI('Failed to publish UDP message', 'UdpServer class, method "listen"')
 
         return geecs_ans, err
 

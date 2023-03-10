@@ -13,11 +13,22 @@ class ErrorAPI(Exception):
         else:
             self.error_msg = self.error_src = ''
 
-    def merge_with_previous(self, prev_err=None):
-        if prev_err and isinstance(prev_err, ErrorAPI):
-            if prev_err.is_error or (not prev_err.is_error and not self.is_error and prev_err.is_warning):
-                self.is_error, self.is_warning, self.error_msg, self.error_src = \
-                    [prev_err.is_error, prev_err.is_warning, prev_err.error_msg, prev_err.error_src]
+    def merge(self, message='', source='', warning=False):
+        is_error = not warning and bool(message)
+        is_warning = warning and bool(message)
+
+        if not self.is_error and (self.is_error or is_error or not self.is_warning):
+            self.is_error, self.is_warning, self.error_msg, self.error_src = [is_error, is_warning, message, source]
+
+    def error(self, message='', source=''):
+        self.merge(message=message, source=source, warning=False)
+
+    def warning(self, message='', source=''):
+        self.merge(message=message, source=source, warning=True)
+
+    def clear(self):
+        self.error_msg = self.error_src = ''
+        self.is_error =self.is_warning = False
 
     def __str__(self):
         if self.is_error:
@@ -32,8 +43,20 @@ class ErrorAPI(Exception):
         return err_str
 
 
+# define global
+api_error = ErrorAPI()
+
+
 if __name__ == '__main__':
-    ini_err = ErrorAPI('initial', 'main', True)
-    new_err = ErrorAPI('', 'sub')
-    new_err.merge_with_previous(ini_err)
-    print(new_err)
+    print(api_error)
+
+    api_error.warning('initial', 'main')
+    print(api_error)
+
+    api_error.error('my error', 'sub')
+    print(api_error)
+
+    # api_error.clear()
+
+    api_error.error('my further error', 'sub')
+    print(api_error)

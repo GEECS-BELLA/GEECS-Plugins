@@ -1,11 +1,29 @@
 import socket
+import select
 import struct
+import queue
 import threading
-from geecs_api.interface.geecs_errors import *
+import geecs_api.interface.message_handling as mh
+from geecs_api.interface.geecs_errors import ErrorAPI
+from geecs_api.interface.event_handler import EventHandler
 
 
 class TcpSubscriber:
-    def __init__(self):
+    def __init__(self, dev_name=''):
+        self.device = dev_name
+
+        # initialize publisher
+        self.publisher = EventHandler(['TCP Message'])
+        self.publisher.register('TCP Message', 'TCP subscriber', mh.async_msg_handler)
+
+        # FIFO queue of messages
+        self.queue_msgs = queue.Queue()
+
+        # message notifier
+        self.notifier = threading.Condition()
+
+        # initialize socket
+        self.unsubscribe_event = threading.Event()
         self.host = ''
         self.port = -1
         self.connected = False
@@ -15,7 +33,12 @@ class TcpSubscriber:
         except Exception:
             self.sock = None
 
-    def connect(self, ipv4=('', -1), err_in=ErrorAPI()):
+    def __del__(self):
+        self.publisher.unregister('TCP Message', 'TCP subscriber')
+        mh.flush_queue(self.queue_msgs)
+        self.close_sock()
+
+    def connect(self, ipv4: tuple[str, int] = ('', -1), err_in=ErrorAPI()) -> tuple[bool, ErrorAPI]:
         """ Connects to "host/IP" on port "port". """
 
         err = ErrorAPI()
@@ -42,40 +65,21 @@ class TcpSubscriber:
 
         return self.connected
 
-    def close(self):
+    def close_sock(self):
         """ Closes the socket. """
 
         try:
             if self.sock:
                 self.sock.close()
-                self.sock = None
-                self.host = ''
-                self.port = -1
-                self.connected = False
         except Exception:
             pass
+        finally:
+            self.sock = None
+            self.host = ''
+            self.port = -1
+            self.connected = False
 
-    def async_msg_handler(self, message: str):
-        try:
-            cmd_tag, udp_msg, error = message
-
-            if error.is_error:
-                err_str = f'Error:\n\tDescription: {error.error_msg}\n\tSource: {error.error_src}'
-            elif error.is_warning:
-                err_str = f'Warning:\n\tDescription: {error.error_msg}\n\tSource: {error.error_src}'
-            else:
-                err_str = ''
-
-            if err_str:
-                print(err_str)
-            else:
-                print(f'Asynchronous UDP response to "{cmd_tag}":\n\t{udp_msg}')
-
-        except Exception as ex:
-            err = ErrorAPI(str(ex), 'UdpServer class, method "async_msg_handler"')
-            print(err)
-
-    def subscribe(self, var, err_in=ErrorAPI()):
+    def subscribe(self, var: str, err_in=ErrorAPI()) -> tuple[bool, ErrorAPI]:
         err = ErrorAPI()
         subscribed = False
 
@@ -93,3 +97,51 @@ class TcpSubscriber:
             err = ErrorAPI('Cannot subscribe, not connected', 'TcpSubscriber class, method "subscribe"', warning=True)
 
         return subscribed, err.merge_with_previous(err_in)
+
+    def unsubscribe(self):
+        self.unsubscribe_event.set()
+
+    def async_listener(self):
+        """ Listens for and parses messages. """
+
+        self.sock.settimeout(1.0)
+
+        # read messages
+        while True:
+            err = ErrorAPI()
+            ready = select.select([self.sock], [], [], 0.005)
+
+            if ready[0]:
+                try:
+                    msg_len: int = struct.unpack('>i', self.sock.recv(4))[0]
+                except socket.timeout:
+                    continue
+                except Exception:
+                    err = ErrorAPI('Failed to read TCP header bytes', 'TcpSubscriber class, method "async_listener"')
+                    continue
+
+                this_msg = ''
+                received = False
+                while True:
+                    try:
+                        chunk = self.sock.recv(msg_len)
+                        if chunk:
+                            this_msg += chunk.decode('ascii')
+                    except socket.timeout:
+                        pass
+                    except Exception:
+                        err = ErrorAPI('Failed to read TCP message bytes',
+                                       'TcpSubscriber class, method "async_listener"')
+                        pass
+
+                    received = len(this_msg) == msg_len
+                    if received:
+                        break
+                    if self.unsubscribe_event.wait(0.):
+                        return
+
+                if received:
+                    this_msg = this_msg[:line_breaks[0][0]]  # without the end character(s)
+
+            if self.unsubscribe_event.wait(0.):
+                return

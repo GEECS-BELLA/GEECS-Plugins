@@ -10,32 +10,32 @@ class SubscriberExample:
 
 
 class EventHandler:
-    def __init__(self, events_names):
+    def __init__(self, events_names: iter):
         self.events = {event_name: dict() for event_name in events_names}  # dict (events) of dict (subscribers)
 
-    def add_events(self, events_names):
+    def add_events(self, events_names: iter):
         for event_name in events_names:
             if event_name not in self.events:
                 self.events[event_name] = dict()
 
-    def delete_events(self, events_names):
+    def delete_events(self, events_names: iter):
         for event_name in events_names:
             self.events.pop(event_name, None)
 
-    def get_subscribers(self, event_name):
+    def get_subscribers(self, event_name: str) -> dict:
         return self.events[event_name]
 
-    def register(self, event_name, subscriber_name, subscriber_method=None):
+    def register(self, event_name: str, subscriber_name: str, subscriber_method=None):
         self.get_subscribers(event_name)[subscriber_name] = subscriber_method
 
-    def unregister(self, event_name, subscriber_name):
+    def unregister(self, event_name: str, subscriber_name: str):
         self.get_subscribers(event_name).pop(subscriber_name, None)
 
     def unregister_all(self):
         for event_name, subscriptions in self.events:
             subscriptions.clear()
 
-    def publish(self, event_name, *args, **kwargs):
+    def publish(self, event_name: str, *args, **kwargs):
         for subscriber_name, subscriber_method in self.get_subscribers(event_name).items():
             if subscriber_method is not None:
                 subscriber_method(*args, **kwargs)
