@@ -20,8 +20,16 @@ class ErrorAPI(Exception):
                     [prev_err.is_error, prev_err.is_warning, prev_err.error_msg, prev_err.error_src]
 
     def __str__(self):
-        return f'Error Object:\n\tError: {self.is_error}\n\tWarning: {self.is_warning}\n\tMessage: {self.error_msg}' \
-               f'\n\tSource: {self.error_src}'
+        if self.is_error:
+            err_str = f'Error:\n\tMessage: {self.error_msg}\n\tSource:  {self.error_src}'
+
+        elif self.is_warning:
+            err_str = f'Warning:\n\tMessage: {self.error_msg}\n\tSource:  {self.error_src}'
+
+        else:
+            err_str = 'No error'
+
+        return err_str
 
 
 if __name__ == '__main__':

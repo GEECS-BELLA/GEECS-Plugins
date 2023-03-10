@@ -19,4 +19,3 @@ class GeecsDevice:
 
 if __name__ == '__main__':
     my_dev = GeecsDevice('U_ESP_JetXYZ', debug=True)
-    my_dev.
