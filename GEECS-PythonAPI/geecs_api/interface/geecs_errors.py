@@ -28,7 +28,7 @@ class ErrorAPI(Exception):
 
     def clear(self):
         self.error_msg = self.error_src = ''
-        self.is_error =self.is_warning = False
+        self.is_error = self.is_warning = False
 
     def __str__(self):
         if self.is_error:

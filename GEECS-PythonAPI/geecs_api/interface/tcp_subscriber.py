@@ -3,18 +3,20 @@ import select
 import struct
 import queue
 import threading
+from datetime import datetime as dtime
 import geecs_api.interface.message_handling as mh
-from geecs_api.interface.geecs_errors import ErrorAPI
+from geecs_api.interface.geecs_errors import ErrorAPI, api_error
 from geecs_api.interface.event_handler import EventHandler
 
 
 class TcpSubscriber:
     def __init__(self, dev_name=''):
         self.device = dev_name
+        self.event_name = 'TCP Message'
 
         # initialize publisher
-        self.publisher = EventHandler(['TCP Message'])
-        self.publisher.register('TCP Message', 'TCP subscriber', mh.async_msg_handler)
+        self.publisher = EventHandler([self.event_name])
+        self.publisher.register(self.event_name, 'TCP subscriber', mh.async_msg_handler)
 
         # FIFO queue of messages
         self.queue_msgs = queue.Queue()
@@ -34,14 +36,13 @@ class TcpSubscriber:
             self.sock = None
 
     def __del__(self):
-        self.publisher.unregister('TCP Message', 'TCP subscriber')
+        self.publisher.unregister(self.event_name, 'TCP subscriber')
         mh.flush_queue(self.queue_msgs)
         self.close_sock()
 
-    def connect(self, ipv4: tuple[str, int] = ('', -1), err_in=ErrorAPI()) -> tuple[bool, ErrorAPI]:
+    def connect(self, ipv4: tuple[str, int] = ('', -1)) -> bool:
         """ Connects to "host/IP" on port "port". """
 
-        err = ErrorAPI()
         try:
             self.sock.connect(ipv4)
             self.host = ipv4[0]
@@ -49,12 +50,12 @@ class TcpSubscriber:
             self.connected = True
 
         except Exception:
-            err = ErrorAPI('Failed to connect TCP client', 'TcpSubscriber class, method "connect"')
+            api_error.error('Failed to connect TCP client', 'TcpSubscriber class, method "connect"')
             self.host = ''
             self.port = -1
             self.connected = False
 
-        return self.connected, err.merge_with_previous(err_in)
+        return self.connected
 
     def is_connected(self) -> bool:  # , timeout_sec=0.1):
         # try:
@@ -79,8 +80,21 @@ class TcpSubscriber:
             self.port = -1
             self.connected = False
 
-    def subscribe(self, var: str, err_in=ErrorAPI()) -> tuple[bool, ErrorAPI]:
-        err = ErrorAPI()
+    def register_handler(self, subscriber: str = '', callback=None) -> bool:
+        if callback is not None and subscriber.strip():
+            self.publisher.register(self.event_name, subscriber, callback)
+            return True
+        else:
+            return False
+
+    def unregister_handler(self, subscriber: str = '') -> bool:
+        if subscriber.strip():
+            self.publisher.unregister(self.event_name, subscriber)
+            return True
+        else:
+            return False
+
+    def subscribe(self, var: str) -> bool:
         subscribed = False
 
         if self.connected:
@@ -92,11 +106,11 @@ class TcpSubscriber:
                 subscribed = True
 
             except Exception:
-                err = ErrorAPI(f'Failed to subscribe to variable "{var}"', 'TcpSubscriber class, method "subscribe"')
+                api_error.error(f'Failed to subscribe to variable "{var}"', 'TcpSubscriber class, method "subscribe"')
         else:
-            err = ErrorAPI('Cannot subscribe, not connected', 'TcpSubscriber class, method "subscribe"', warning=True)
+            api_error.warning('Cannot subscribe, not connected', 'TcpSubscriber class, method "subscribe"')
 
-        return subscribed, err.merge_with_previous(err_in)
+        return subscribed
 
     def unsubscribe(self):
         self.unsubscribe_event.set()
@@ -104,11 +118,12 @@ class TcpSubscriber:
     def async_listener(self):
         """ Listens for and parses messages. """
 
-        self.sock.settimeout(1.0)
+        self.sock.settimeout(0.5)
 
         # read messages
+        err = ErrorAPI()  # no error object
         while True:
-            err = ErrorAPI()
+            err.clear()
             ready = select.select([self.sock], [], [], 0.005)
 
             if ready[0]:
@@ -117,11 +132,10 @@ class TcpSubscriber:
                 except socket.timeout:
                     continue
                 except Exception:
-                    err = ErrorAPI('Failed to read TCP header bytes', 'TcpSubscriber class, method "async_listener"')
+                    err.error('Failed to read TCP header bytes', 'TcpSubscriber class, method "async_listener"')
                     continue
 
                 this_msg = ''
-                received = False
                 while True:
                     try:
                         chunk = self.sock.recv(msg_len)
@@ -130,18 +144,22 @@ class TcpSubscriber:
                     except socket.timeout:
                         pass
                     except Exception:
-                        err = ErrorAPI('Failed to read TCP message bytes',
-                                       'TcpSubscriber class, method "async_listener"')
+                        err.error('Failed to read TCP message bytes', 'TcpSubscriber class, method "async_listener"')
                         pass
 
                     received = len(this_msg) == msg_len
                     if received:
                         break
                     if self.unsubscribe_event.wait(0.):
+                        self.unsubscribe_event.clear()
                         return
 
                 if received:
-                    this_msg = this_msg[:line_breaks[0][0]]  # without the end character(s)
+                    stamp = dtime.now().__str__()
+                    net_msg = mh.NetworkMessage(tag=self.device, stamp=stamp, msg=this_msg, err=err)
+                    mh.broadcast_msg(net_msg, self.notifier, self.queue_msgs, self.publisher, self.event_name)
+                    api_error.merge(err.error_msg, err.error_src, err.is_warning)
 
             if self.unsubscribe_event.wait(0.):
+                self.unsubscribe_event.clear()
                 return

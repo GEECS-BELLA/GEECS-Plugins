@@ -48,7 +48,6 @@ class GeecsDatabase:
         db_cursor = None
         dev_ip = ''
         dev_port = 0
-        err = ErrorAPI()
 
         try:
             db = mysql.connector.connect(
@@ -66,7 +65,7 @@ class GeecsDatabase:
             dev_port = int(db_result[1])
 
         except Exception as ex:
-            err = ErrorAPI(str(ex), 'GeecsDatabase class, static method "find_device"')
+            api_error.error(str(ex), 'GeecsDatabase class, static method "find_device"')
 
         finally:
             try:
@@ -74,7 +73,7 @@ class GeecsDatabase:
             except Exception:
                 pass
 
-        return dev_ip, dev_port, err
+        return dev_ip, dev_port
 
 
 if __name__ == '__main__':
@@ -83,8 +82,9 @@ if __name__ == '__main__':
     print('User:\n\t' + GeecsDatabase.username)
     print('Password:\n\t' + GeecsDatabase.password)
 
-    device_ip, device_port, error = GeecsDatabase.find_device('U_ESP_JetXYZ')
-    print(error)
+    api_error.clear()
+    device_ip, device_port = GeecsDatabase.find_device('U_ESP_JetXYZ')
+    print(api_error)
 
     if device_ip:
         print('Device:\n\t' + device_ip + f', {device_port}')

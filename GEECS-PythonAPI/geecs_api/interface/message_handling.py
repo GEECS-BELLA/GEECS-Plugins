@@ -1,27 +1,54 @@
 import queue
 import inspect
+import threading
 from typing import Optional
-from geecs_api.interface.geecs_errors import ErrorAPI
+from geecs_api.interface.geecs_errors import ErrorAPI, api_error
+from geecs_api.interface.event_handler import EventHandler
 
 
-def next_msg(a_queue: queue.Queue, err_msg: Optional[tuple[str, str]] = None,
-             block=False, timeout: Optional[float] = None) -> tuple[str, ErrorAPI]:
-    err = ErrorAPI()
+class NetworkMessage:
+    def __init__(self, tag: str = '', stamp: str = '', msg: str = '', err: ErrorAPI = ErrorAPI()):
+        self.tag = tag
+        self.stamp = stamp
+        self.msg = msg
+        self.err = err
 
+
+def broadcast_msg(net_msg: NetworkMessage,
+                  notifier: Optional[threading.Condition] = None,
+                  queue_msgs: Optional[queue.Queue] = None,
+                  publisher: Optional[EventHandler] = None,
+                  event_name: str = ''):
+    """ Queue, notify & publish message """
+
+    if notifier:
+        notifier.acquire()
+
+    if queue_msgs:
+        queue_msgs.put(net_msg)
+
+    if notifier:
+        notifier.notify_all()
+
+    if publisher and event_name.strip():
+        publisher.publish(event_name, net_msg)
+
+    if notifier:
+        notifier.release()
+
+
+def next_msg(a_queue: queue.Queue, block=False, timeout: Optional[float] = None) -> NetworkMessage:
     try:
-        tag, msg, err = a_queue.get(block=block, timeout=timeout)
+        net_msg: NetworkMessage = a_queue.get(block=block, timeout=timeout)
         a_queue.task_done()
     except queue.Empty:
-        msg = ''
-    except Exception:
-        msg = ''
-        if err_msg:
-            err = ErrorAPI(err_msg[0], err_msg[1])
-        else:
-            err = ErrorAPI('Failed to dequeue next message',
-                           f'method "{inspect.stack()[1].function}" calling "next_msg"')
+        net_msg = NetworkMessage()
+    except Exception as ex:
+        net_msg = NetworkMessage()
+        api_error.error('Failed to dequeue next message\n' + str(ex),
+                        f'Method "{inspect.stack()[1].function}" calling "next_msg"')
 
-    return msg, err
+    return net_msg
 
 
 def flush_queue(a_queue: queue.Queue) -> list:
@@ -30,7 +57,7 @@ def flush_queue(a_queue: queue.Queue) -> list:
     try:
         while not a_queue.empty():
             try:
-                this_element = a_queue.get(block=False)
+                this_element: NetworkMessage = a_queue.get(block=False)
                 flushed_msgs.append(this_element)
                 a_queue.task_done()
             except Exception:
@@ -44,24 +71,18 @@ def flush_queue(a_queue: queue.Queue) -> list:
     return flushed_msgs
 
 
-def async_msg_handler(message: tuple[any, str, ErrorAPI], a_queue: Optional[queue.Queue] = None):
+def async_msg_handler(message: NetworkMessage, a_queue: Optional[queue.Queue] = None):
     try:
-        cmd_tag, udp_msg, error = message
         if a_queue:
             next_msg(a_queue)  # tmp (to be handled by device) Queue.get() call to dequeue message
 
-        if error.is_error:
-            err_str = f'Error:\n\tDescription: {error.error_msg}\n\tSource: {error.error_src}'
-        elif error.is_warning:
-            err_str = f'Warning:\n\tDescription: {error.error_msg}\n\tSource: {error.error_src}'
+        if message.err.is_error or message.err.is_warning:
+            print(message.err)
+        elif message.stamp:
+            print(f'Asynchronous UDP response to "{message.tag}" at {message.stamp}:\n\t{message.msg}')
         else:
-            err_str = ''
-
-        if err_str:
-            print(err_str)
-        else:
-            print(f'Asynchronous UDP response to "{cmd_tag}":\n\t{udp_msg}')
+            print(f'Asynchronous UDP response to "{message.tag}" (no timestamp):\n\t{message.msg}')
 
     except Exception as ex:
-        err = ErrorAPI(str(ex), 'UdpServer class, method "async_msg_handler"')
+        err = ErrorAPI(str(ex), 'Module message_handling, method "async_msg_handler"')
         print(err)
