@@ -79,9 +79,9 @@ def async_msg_handler(message: NetworkMessage, a_queue: Optional[queue.Queue] = 
         if message.err.is_error or message.err.is_warning:
             print(message.err)
         elif message.stamp:
-            print(f'Asynchronous UDP response to "{message.tag}" at {message.stamp}:\n\t{message.msg}')
+            print(f'Asynchronous UDP response to "{message.tag}":\n\t{message.stamp}\n\t{message.msg}')
         else:
-            print(f'Asynchronous UDP response to "{message.tag}" (no timestamp):\n\t{message.msg}')
+            print(f'Asynchronous UDP response to "{message.tag}":\n\tno timestamp\n\t{message.msg}')
 
     except Exception as ex:
         err = ErrorAPI(str(ex), 'Module message_handling, method "async_msg_handler"')

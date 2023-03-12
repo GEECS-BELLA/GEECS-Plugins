@@ -46,8 +46,8 @@ class GeecsDatabase:
     @staticmethod
     def find_device(dev_name=''):
         db_cursor = None
-        dev_ip = ''
-        dev_port = 0
+        dev_ip: str = ''
+        dev_port: int = 0
 
         try:
             db = mysql.connector.connect(
@@ -65,7 +65,7 @@ class GeecsDatabase:
             dev_port = int(db_result[1])
 
         except Exception as ex:
-            api_error.error(str(ex), 'GeecsDatabase class, static method "find_device"')
+            api_error.error(str(ex), f'GeecsDatabase class, static method "find_device({dev_name})"')
 
         finally:
             try:

@@ -94,7 +94,7 @@ class UdpHandler:
         else:
             return False
 
-    @staticmethod
+    @staticmethod  # placeholder, will be moved to system class, 2 levels up
     def send_preset(preset=''):
         MCAST_GRP = '234.5.6.8'
         MCAST_PORT = 58432
