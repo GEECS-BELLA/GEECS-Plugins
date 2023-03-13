@@ -36,9 +36,12 @@ class TcpSubscriber:
             self.sock = None
 
     def __del__(self):
-        self.publisher.unregister(self.event_name, 'TCP subscriber')
-        mh.flush_queue(self.queue_msgs)
-        self.close_sock()
+        try:
+            self.publisher.unregister(self.event_name, 'TCP subscriber')
+            mh.flush_queue(self.queue_msgs)
+            self.close_sock()
+        except Exception:
+            pass
 
     def connect(self, ipv4: tuple[str, int] = ('', -1)) -> bool:
         """ Connects to "host/IP" on port "port". """
@@ -95,6 +98,7 @@ class TcpSubscriber:
             return False
 
     def subscribe(self, var: str) -> bool:
+        """ Subscribe to all variables listed in comma-separated string (e.g. 'varA,varB') """
         subscribed = False
 
         if self.connected:
@@ -103,6 +107,9 @@ class TcpSubscriber:
                 subscription_len = len(subscription_str)
                 size_pack = struct.pack('>i', subscription_len)
                 self.sock.sendall(size_pack + subscription_str)
+
+                listen_thread = threading.Thread(target=self.async_listener)
+                listen_thread.start()
                 subscribed = True
 
             except Exception:

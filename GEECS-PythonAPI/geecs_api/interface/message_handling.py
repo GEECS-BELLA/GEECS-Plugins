@@ -22,19 +22,19 @@ def broadcast_msg(net_msg: NetworkMessage,
     """ Queue, notify & publish message """
 
     if notifier:
-        notifier.acquire()
+        with notifier:
+            if queue_msgs:
+                queue_msgs.put(net_msg)
 
-    if queue_msgs:
-        queue_msgs.put(net_msg)
+            notifier.notify_all()
 
-    if notifier:
-        notifier.notify_all()
-
-    if publisher and event_name.strip():
-        publisher.publish(event_name, net_msg)
-
-    if notifier:
-        notifier.release()
+            if publisher and event_name.strip():
+                publisher.publish(event_name, net_msg)
+    else:
+        if queue_msgs:
+            queue_msgs.put(net_msg)
+        if publisher and event_name.strip():
+            publisher.publish(event_name, net_msg)
 
 
 def next_msg(a_queue: queue.Queue, block=False, timeout: Optional[float] = None) -> NetworkMessage:

@@ -35,7 +35,10 @@ class UdpHandler:
             self.port_cmd = self.port_exe = -1
 
     def __del__(self):
-        self.close_sock_cmd()
+        try:
+            self.close_sock_cmd()
+        except Exception:
+            pass
 
     def close_sock_cmd(self):
         """ Closes the socket. """
@@ -145,9 +148,12 @@ class UdpServer:
             self.bounded = False
 
     def __del__(self):
-        self.publisher.unregister(self.event_name, 'UDP handler')
-        mh.flush_queue(self.queue_msgs)
-        self.close_sock_exe()
+        try:
+            self.publisher.unregister(self.event_name, 'UDP handler')
+            mh.flush_queue(self.queue_msgs)
+            self.close_sock_exe()
+        except Exception:
+            pass
 
     def close_sock_exe(self):
         """ Closes the socket. """
@@ -162,7 +168,7 @@ class UdpServer:
             self.port = -1
             self.bounded = False
 
-    def listen(self, cmd_tag: str, ready_timeout_sec=15.0) -> str:
+    def listen(self, cmd_tag: str, ready_timeout_sec=5.0) -> str:
         """ Listens for messages. """
 
         # receive message
@@ -192,16 +198,16 @@ class UdpServer:
 
         return geecs_ans
 
-    def wait_for_exe(self, cmd_tag: str, timeout_sec: Optional[float] = None, sync=False):
+    def wait_for_exe(self, cmd_tag: str, ready_timeout_sec: Optional[float] = None, sync=False):
         """ Waits for a UDP response (typ. command executed), in a separate thread by default. """
 
         try:
             if sync:
-                geecs_ans, err = self.listen(cmd_tag, ready_timeout_sec=timeout_sec)
+                geecs_ans, _ = self.listen(cmd_tag, ready_timeout_sec=ready_timeout_sec)
                 print(f'Synchronous UDP response:\n\t{geecs_ans}')
             else:
                 listen_thread = threading.Thread(target=self.listen,
-                                                 args=(cmd_tag, timeout_sec))
+                                                 args=(cmd_tag, ready_timeout_sec))
                 listen_thread.start()
 
         except Exception:
