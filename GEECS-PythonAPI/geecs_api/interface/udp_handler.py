@@ -1,6 +1,7 @@
 import socket
 import select
 import queue
+import re
 import threading
 from datetime import datetime as dtime
 from typing import Optional
@@ -10,7 +11,7 @@ from geecs_api.interface.event_handler import EventHandler
 
 
 class UdpHandler:
-    def __init__(self):
+    def __init__(self, reg_default_handler: bool = False):
         """ Creates a UDP socket and binds it. """
 
         self.buffer_size = 1024
@@ -29,7 +30,7 @@ class UdpHandler:
             self.bounded_cmd = True
 
             # create UDP server for commands execution confirmation ("slow response")
-            self.cmd_checker = UdpServer(port=self.port_exe)
+            self.cmd_checker = UdpServer(port=self.port_exe, reg_default_handler=reg_default_handler)
 
         except Exception:
             self.port_cmd = self.port_exe = -1
@@ -79,7 +80,7 @@ class UdpHandler:
                 api_error.warning('Socket not ready to receive', 'UdpHandler class, method "receive"')
 
         except Exception:
-            api_error.error('Failed to read UDP message', 'UdpHandler class, method "receive"')
+            api_error.error('Failed to read UDP acknowledge message', 'UdpHandler class, method "receive"')
 
         return accepted
 
@@ -97,36 +98,14 @@ class UdpHandler:
         else:
             return False
 
-    @staticmethod  # placeholder, will be moved to system class, 2 levels up
-    def send_preset(preset=''):
-        MCAST_GRP = '234.5.6.8'
-        MCAST_PORT = 58432
-        MULTICAST_TTL = 4
-
-        sock = None
-
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, MULTICAST_TTL)
-            sock.sendto(f'preset>>{preset}>>{socket.gethostbyname(socket.gethostname())}'.encode(),
-                        (MCAST_GRP, MCAST_PORT))
-
-        except Exception:
-            api_error.error(f'Failed to send preset "{preset}"', 'UdpHandler class, method "send_preset"')
-
-        finally:
-            try:
-                sock.close()
-            except Exception:
-                pass
-
 
 class UdpServer:
-    def __init__(self, port: int = -1):
+    def __init__(self, port: int = -1, reg_default_handler: bool = False):
         # initialize publisher
         self.event_name = 'UDP Message'
         self.publisher = EventHandler([self.event_name])
-        self.publisher.register(self.event_name, 'UDP handler', mh.async_msg_handler)
+        if reg_default_handler:
+            self.publisher.register(self.event_name, 'UDP handler', mh.async_msg_handler)
 
         # FIFO queue of messages
         self.queue_msgs = queue.Queue()
@@ -179,7 +158,8 @@ class UdpServer:
             ready = select.select([self.sock], [], [], ready_timeout_sec)
             if ready[0]:
                 geecs_str = self.sock.recvfrom(self.buffer_size)
-                geecs_ans = (geecs_str[0].decode('ascii')).split(">>")[-2]
+                # geecs_ans = (geecs_str[0].decode('ascii')).split(">>")[-2]
+                geecs_ans = geecs_str[0].decode('ascii')
                 stamp = dtime.now().__str__()
             else:
                 err.warning('Socket not ready to receive', 'UdpServer class, method "listen"')

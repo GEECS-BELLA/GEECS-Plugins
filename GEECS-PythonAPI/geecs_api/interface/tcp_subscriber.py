@@ -10,13 +10,14 @@ from geecs_api.interface.event_handler import EventHandler
 
 
 class TcpSubscriber:
-    def __init__(self, dev_name=''):
+    def __init__(self, dev_name: str = '', reg_default_handler: bool = False):
         self.device = dev_name
         self.event_name = 'TCP Message'
 
         # initialize publisher
         self.publisher = EventHandler([self.event_name])
-        self.publisher.register(self.event_name, 'TCP subscriber', mh.async_msg_handler)
+        if reg_default_handler:
+            self.publisher.register(self.event_name, 'TCP subscriber', mh.async_msg_handler)
 
         # FIFO queue of messages
         self.queue_msgs = queue.Queue()
@@ -131,7 +132,10 @@ class TcpSubscriber:
         err = ErrorAPI()  # no error object
         while True:
             err.clear()
-            ready = select.select([self.sock], [], [], 0.005)
+            try:
+                ready = select.select([self.sock], [], [], 0.005)
+            except Exception:
+                break
 
             if ready[0]:
                 try:

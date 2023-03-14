@@ -1,7 +1,8 @@
 import os
+from typing import Any
 import configparser
 import mysql.connector
-from geecs_api.interface.geecs_errors import *
+from geecs_api.interface.geecs_errors import api_error
 import tkinter as tk
 from tkinter import filedialog
 
@@ -42,6 +43,75 @@ def find_database():
 
 class GeecsDatabase:
     name, ipv4, username, password = find_database()
+
+    @staticmethod
+    def find_experiment_variables(exp_name: str = 'Undulator') -> dict[str, dict[str, dict[str, Any]]]:
+        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
+
+        db = mysql.connector.connect(
+            host=GeecsDatabase.ipv4,
+            user=GeecsDatabase.username,
+            password=GeecsDatabase.password,
+            database=GeecsDatabase.name)
+
+        db_cursor = db.cursor(dictionary=True)
+        cmd_str = """
+            SELECT * FROM
+                -- subquery that returns devicename, variablename, and source table where the defaultvalue,
+                -- min, max, etc. should come from
+                (
+                    SELECT devicename, variablename, MAX(precedence_sourcetable) AS precedence_sourcetable
+                    FROM
+                    (
+                        (
+                        SELECT `name` AS variablename, device AS devicename,
+                        '2_variable' AS precedence_sourcetable FROM variable
+                        )
+                    UNION
+                        (
+                        SELECT devicetype_variable.name AS variablename, device.name AS devicename,
+                        '1_devicetype_variable' AS precedence_sourcetable
+                        FROM devicetype_variable JOIN device ON devicetype_variable.devicetype = device.devicetype
+                        )
+                    ) AS variable_device_from_both_tables GROUP BY devicename, variablename
+                ) AS max_precedence
+                -- subquery containing defaultvalue, min, max, etc from both tables. the correct version,
+                -- by precedence, is selected through the join.
+                LEFT JOIN
+                (
+                    (
+                    SELECT variable.name AS variablename, variable.device AS devicename,
+                    '2_variable' AS precedence_sourcetable, defaultvalue, `min`, `max`, stepsize, units,
+                    choice_id, tolerance, alias, default_experiment
+                    FROM variable JOIN device ON variable.device = device.name -- to pull default_experiment
+                    )
+                UNION
+                    (
+                    SELECT devicetype_variable.name AS variablename, device.name AS devicename,
+                    '1_devicetype_variable' AS precedence_sourcetable, defaultvalue, `min`, `max`, stepsize, units,
+                    choice_id, tolerance, alias, default_experiment
+                    FROM devicetype_variable JOIN device ON devicetype_variable.devicetype = device.devicetype
+                    )
+                ) AS variable_device_parameters_from_both_tables 
+                USING (variablename, devicename, precedence_sourcetable) 
+                -- Get datatype
+                LEFT JOIN (SELECT id AS choice_id, choices FROM choice) AS datatype USING (choice_id)
+                -- Now filter for device, experiment
+            WHERE default_experiment = %s;
+        """
+
+        db_cursor.execute(cmd_str, (exp_name,))
+        rows = db_cursor.fetchall()
+
+        exp_vars: dict[str, dict[str, dict[str, Any]]] = {}
+        while rows:
+            row = rows.pop()
+            if row['devicename'] in exp_vars:
+                exp_vars[row['devicename']][row['variablename']] = row
+            else:
+                exp_vars[row['devicename']] = {row['variablename']: row}
+
+        return exp_vars
 
     @staticmethod
     def find_device(dev_name=''):

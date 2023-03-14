@@ -29,12 +29,12 @@ def broadcast_msg(net_msg: NetworkMessage,
             notifier.notify_all()
 
             if publisher and event_name.strip():
-                publisher.publish(event_name, net_msg)
+                publisher.publish(event_name, net_msg, queue_msgs)
     else:
         if queue_msgs:
             queue_msgs.put(net_msg)
         if publisher and event_name.strip():
-            publisher.publish(event_name, net_msg)
+            publisher.publish(event_name, net_msg, queue_msgs)
 
 
 def next_msg(a_queue: queue.Queue, block=False, timeout: Optional[float] = None) -> NetworkMessage:
