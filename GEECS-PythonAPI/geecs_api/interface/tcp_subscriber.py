@@ -1,32 +1,27 @@
 import socket
 import select
 import struct
-import queue
-import threading
+from queue import Queue
+from threading import Thread, Condition, Event
+from typing import Optional
 from datetime import datetime as dtime
+import geecs_api.devices as gd
 import geecs_api.interface.message_handling as mh
 from geecs_api.interface.geecs_errors import ErrorAPI, api_error
-from geecs_api.interface.event_handler import EventHandler
 
 
 class TcpSubscriber:
-    def __init__(self, dev_name: str = '', reg_default_handler: bool = False):
-        self.device = dev_name
-        self.event_name = 'TCP Message'
-
-        # initialize publisher
-        self.publisher = EventHandler([self.event_name])
-        if reg_default_handler:
-            self.publisher.register(self.event_name, 'TCP subscriber', mh.async_msg_handler)
+    def __init__(self):
+        self.owner: Optional[gd.GeecsDevice] = None
 
         # FIFO queue of messages
-        self.queue_msgs = queue.Queue()
+        self.queue_msgs = Queue()
 
         # message notifier
-        self.notifier = threading.Condition()
+        self.notifier = Condition()
 
         # initialize socket
-        self.unsubscribe_event = threading.Event()
+        self.unsubscribe_event = Event()
         self.host = ''
         self.port = -1
         self.connected = False
@@ -38,7 +33,6 @@ class TcpSubscriber:
 
     def __del__(self):
         try:
-            self.publisher.unregister(self.event_name, 'TCP subscriber')
             mh.flush_queue(self.queue_msgs)
             self.close_sock()
         except Exception:
@@ -61,13 +55,7 @@ class TcpSubscriber:
 
         return self.connected
 
-    def is_connected(self) -> bool:  # , timeout_sec=0.1):
-        # try:
-        #     ready = select.select([self.sock], [], [], timeout_sec)
-        #     connected = ready[0]
-        # except Exception:
-        #     connected = False
-
+    def is_connected(self) -> bool:
         return self.connected
 
     def close_sock(self):
@@ -84,37 +72,34 @@ class TcpSubscriber:
             self.port = -1
             self.connected = False
 
-    def register_handler(self, subscriber: str = '', callback=None) -> bool:
-        if callback is not None and subscriber.strip():
-            self.publisher.register(self.event_name, subscriber, callback)
+    def register_handler(self, subscriber: gd.GeecsDevice) -> bool:
+        if subscriber.is_valid():
+            self.owner = subscriber
             return True
         else:
             return False
 
-    def unregister_handler(self, subscriber: str = '') -> bool:
-        if subscriber.strip():
-            self.publisher.unregister(self.event_name, subscriber)
-            return True
-        else:
-            return False
+    def unregister_handler(self):
+        self.owner = None
 
-    def subscribe(self, var: str) -> bool:
+    def subscribe(self, cmd: str) -> bool:
         """ Subscribe to all variables listed in comma-separated string (e.g. 'varA,varB') """
         subscribed = False
 
         if self.connected:
             try:
-                subscription_str = bytes(f'Wait>>{var}', 'ascii')
+                subscription_str = bytes(f'Wait>>{cmd}', 'ascii')
                 subscription_len = len(subscription_str)
                 size_pack = struct.pack('>i', subscription_len)
                 self.sock.sendall(size_pack + subscription_str)
 
-                listen_thread = threading.Thread(target=self.async_listener)
-                listen_thread.start()
+                var_thread = Thread(target=self.async_listener)
+                var_thread.start()
                 subscribed = True
 
             except Exception:
-                api_error.error(f'Failed to subscribe to variable "{var}"', 'TcpSubscriber class, method "subscribe"')
+                api_error.error(f'Failed to subscribe to variable(s) "{cmd}"',
+                                'TcpSubscriber class, method "subscribe"')
         else:
             api_error.warning('Cannot subscribe, not connected', 'TcpSubscriber class, method "subscribe"')
 
@@ -167,8 +152,13 @@ class TcpSubscriber:
 
                 if received:
                     stamp = dtime.now().__str__()
-                    net_msg = mh.NetworkMessage(tag=self.device, stamp=stamp, msg=this_msg, err=err)
-                    mh.broadcast_msg(net_msg, self.notifier, self.queue_msgs, self.publisher, self.event_name)
+                    net_msg = mh.NetworkMessage(tag=self.owner.dev_name, stamp=stamp, msg=this_msg, err=err)
+                    if self.owner:
+                        try:
+                            self.owner.handle_subscription(net_msg, self.notifier, self.queue_msgs)
+                        except Exception:
+                            err.error('Failed to handle TCP subscription',
+                                      'TcpSubscriber class, method "async_listener"')
                     api_error.merge(err.error_msg, err.error_src, err.is_warning)
 
             if self.unsubscribe_event.wait(0.):

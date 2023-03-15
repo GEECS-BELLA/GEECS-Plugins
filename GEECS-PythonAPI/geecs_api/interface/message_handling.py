@@ -14,29 +14,6 @@ class NetworkMessage:
         self.err = err
 
 
-def broadcast_msg(net_msg: NetworkMessage,
-                  notifier: Optional[threading.Condition] = None,
-                  queue_msgs: Optional[queue.Queue] = None,
-                  publisher: Optional[EventHandler] = None,
-                  event_name: str = ''):
-    """ Queue, notify & publish message """
-
-    if notifier:
-        with notifier:
-            if queue_msgs:
-                queue_msgs.put(net_msg)
-
-            notifier.notify_all()
-
-            if publisher and event_name.strip():
-                publisher.publish(event_name, net_msg, queue_msgs)
-    else:
-        if queue_msgs:
-            queue_msgs.put(net_msg)
-        if publisher and event_name.strip():
-            publisher.publish(event_name, net_msg, queue_msgs)
-
-
 def next_msg(a_queue: queue.Queue, block=False, timeout: Optional[float] = None) -> NetworkMessage:
     try:
         net_msg: NetworkMessage = a_queue.get(block=block, timeout=timeout)
@@ -71,6 +48,7 @@ def flush_queue(a_queue: queue.Queue) -> list:
     return flushed_msgs
 
 
+# Legacy functions
 def async_msg_handler(message: NetworkMessage, a_queue: Optional[queue.Queue] = None):
     try:
         if a_queue:
@@ -86,3 +64,26 @@ def async_msg_handler(message: NetworkMessage, a_queue: Optional[queue.Queue] = 
     except Exception as ex:
         err = ErrorAPI(str(ex), 'Module message_handling, method "async_msg_handler"')
         print(err)
+
+
+def broadcast_msg(net_msg: NetworkMessage,
+                  notifier: Optional[threading.Condition] = None,
+                  queue_msgs: Optional[queue.Queue] = None,
+                  publisher: Optional[EventHandler] = None,
+                  event_name: str = ''):
+    """ Queue, notify & publish message """
+
+    if notifier:
+        with notifier:
+            if queue_msgs:
+                queue_msgs.put(net_msg)
+
+            notifier.notify_all()
+
+            if publisher and event_name.strip():
+                publisher.publish(event_name, net_msg, queue_msgs)
+    else:
+        if queue_msgs:
+            queue_msgs.put(net_msg)
+        if publisher and event_name.strip():
+            publisher.publish(event_name, net_msg, queue_msgs)
