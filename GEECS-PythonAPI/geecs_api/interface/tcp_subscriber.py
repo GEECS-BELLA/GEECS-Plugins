@@ -117,10 +117,21 @@ class TcpSubscriber:
         err = ErrorAPI()  # no error object
         while True:
             err.clear()
+            ready = False
+            msg_len = 0
+
             try:
-                ready = select.select([self.sock], [], [], 0.005)
-            except Exception:
-                break
+                ready = select.select([self.sock], [], [], 0.05)
+            except socket.timeout:
+                continue
+            except Exception as ex:
+                api_error.error(str(ex), 'TcpSubscriber class, method "async_listener"')
+                return
+            finally:
+                if self.unsubscribe_event.wait(0.):
+                    self.unsubscribe_event.clear()
+                    api_error.merge(err.error_msg, err.error_src, err.is_warning)
+                    return
 
             if ready[0]:
                 try:
@@ -128,39 +139,48 @@ class TcpSubscriber:
                 except socket.timeout:
                     continue
                 except Exception:
-                    err.error('Failed to read TCP header bytes', 'TcpSubscriber class, method "async_listener"')
-                    continue
-
-                this_msg = ''
-                while True:
-                    try:
-                        chunk = self.sock.recv(msg_len)
-                        if chunk:
-                            this_msg += chunk.decode('ascii')
-                    except socket.timeout:
-                        pass
-                    except Exception:
-                        err.error('Failed to read TCP message bytes', 'TcpSubscriber class, method "async_listener"')
-                        pass
-
-                    received = len(this_msg) == msg_len
-                    if received:
-                        break
+                    api_error.error('Failed to read TCP header bytes', 'TcpSubscriber class, method "async_listener"')
+                    return
+                finally:
                     if self.unsubscribe_event.wait(0.):
                         self.unsubscribe_event.clear()
+                        api_error.merge(err.error_msg, err.error_src, err.is_warning)
                         return
 
-                if received:
-                    stamp = dtime.now().__str__()
-                    net_msg = mh.NetworkMessage(tag=self.owner.dev_name, stamp=stamp, msg=this_msg, err=err)
-                    if self.owner:
+                if msg_len > 0:
+                    this_msg = ''
+                    while True:
                         try:
-                            self.owner.handle_subscription(net_msg, self.notifier, self.queue_msgs)
+                            chunk = self.sock.recv(msg_len)
+                            if chunk:
+                                this_msg += chunk.decode('ascii')
+                        except socket.timeout:
+                            pass
                         except Exception:
-                            err.error('Failed to handle TCP subscription',
-                                      'TcpSubscriber class, method "async_listener"')
-                    api_error.merge(err.error_msg, err.error_src, err.is_warning)
+                            api_error.error('Failed to read TCP message bytes',
+                                            'TcpSubscriber class, method "async_listener"')
+                            return
+
+                        received = (len(this_msg) == msg_len)
+                        if received:
+                            break
+                        if self.unsubscribe_event.wait(0.):
+                            self.unsubscribe_event.clear()
+                            api_error.merge(err.error_msg, err.error_src, err.is_warning)
+                            return
+
+                    if received:
+                        stamp = dtime.now().__str__()
+                        net_msg = mh.NetworkMessage(tag=self.owner.dev_name, stamp=stamp, msg=this_msg, err=err)
+                        if self.owner:
+                            try:
+                                self.owner._handle_subscription(net_msg, self.notifier, self.queue_msgs)
+                            except Exception:
+                                api_error.error('Failed to handle TCP subscription',
+                                                'TcpSubscriber class, method "async_listener"')
+                                return
 
             if self.unsubscribe_event.wait(0.):
                 self.unsubscribe_event.clear()
+                api_error.merge(err.error_msg, err.error_src, err.is_warning)
                 return

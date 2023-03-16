@@ -2,7 +2,7 @@ import re
 import time
 import socket
 from queue import Queue
-from threading import Thread, Condition
+from threading import Thread, Condition, Event
 from typing import Optional, Any
 from datetime import datetime as dtime
 import geecs_api.interface as gi
@@ -10,7 +10,7 @@ import geecs_api.interface.message_handling as mh
 from geecs_api.interface.geecs_errors import ErrorAPI, api_error
 
 
-class GeecsDevice:  # add listing of all vars available in __init__
+class GeecsDevice:
     def __init__(self, name=''):
         self.dev_name: str = name
         self.dev_tcp: Optional[gi.TcpSubscriber] = None
@@ -118,10 +118,27 @@ class GeecsDevice:  # add listing of all vars available in __init__
 
         return var_name
 
-    def _execute(self, variable: str, value: Optional[float] = None, attempts_max: int = 5, sync=False) \
-            -> tuple[bool, Optional[Thread]]:
+    def set(self, variable: str, value: float, exec_timeout: float = 120.0,
+            attempts_max: int = 5, sync=False) -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+        return self._execute(variable, value, exec_timeout, attempts_max, sync)
+
+    def get(self, variable: str, exec_timeout: float = 5.0,
+            attempts_max: int = 5, sync=False) -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+        return self._execute(variable, None, exec_timeout, attempts_max, sync)
+
+    def wait_for_all_cmds(self, timeout: Optional[float] = None) -> bool:
+        return self.dev_udp.cmd_checker.wait_for_all(timeout)
+
+    def wait_for_last_cmd(self, timeout: Optional[float] = None) -> bool:
+        return self.dev_udp.cmd_checker.wait_for_last(timeout)
+
+    def wait_for(self, thread: Thread, timeout: Optional[float] = None) -> bool:
+        return self.dev_udp.cmd_checker.wait_for(thread, timeout)
+
+    def _execute(self, variable: str, value: Optional[float] = None, exec_timeout: float = 10.0,
+                 attempts_max: int = 5, sync=False) -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         if api_error.is_error:
-            return False, None
+            return False, '', (None, None)
 
         if value:
             cmd_str = f'set{variable}>>{value:.6f}'
@@ -133,17 +150,17 @@ class GeecsDevice:  # add listing of all vars available in __init__
         if not self.is_valid():
             api_error.warning(f'Failed to execute "{cmd_label}"',
                               f'GeecsDevice "{self.dev_name}" not connected')
-            return False, None
+            return False, '', (None, None)
 
         executed = False
-        async_thread: Optional[Thread] = None
+        async_thread: tuple[Optional[Thread], Optional[Event]] = (None, None)
 
         try:
             accepted = False
             for _ in range(attempts_max):
                 sent = self.dev_udp.send_cmd(ipv4=(self.dev_ip, self.dev_port), msg=cmd_str)
                 if sent:
-                    accepted = self.dev_udp.ack_cmd(ready_timeout_sec=5.0)
+                    accepted = self.dev_udp.ack_cmd(timeout=5.0)
                 if accepted or api_error.is_error:
                     break
 
@@ -151,33 +168,19 @@ class GeecsDevice:  # add listing of all vars available in __init__
                 stamp = re.sub(r'[\s.:]', '-', dtime.now().__str__())
                 cmd_label += f' @ {stamp}'
                 async_thread = \
-                    self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, ready_timeout_sec=120.0, sync=sync)
+                    self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
                 executed = True
 
         except Exception as ex:
             api_error.error(str(ex), f'GeecsDevice "{self.dev_name}", method "{cmd_label}"')
 
-        return executed, async_thread
+        return executed, cmd_label, async_thread
 
-    def set(self, variable: str, value: float, attempts_max: int = 5, sync=False) -> bool:
-        done, _ = self._execute(variable, value, attempts_max, sync)
-        return done
-
-    def get(self, variable: str, attempts_max: int = 5, sync=False) -> bool:
-        done, _ = self._execute(variable, None, attempts_max, sync)
-        return done
-
-    def wait_for_all_cmds(self, timeout: Optional[float] = None) -> bool:
-        return self.dev_udp.cmd_checker.wait_for_all(timeout)
-
-    def wait_for_last_cmd(self, timeout: Optional[float] = None) -> bool:
-        return self.dev_udp.cmd_checker.wait_for_last(timeout)
-
-    def handle_subscription(self, net_msg: mh.NetworkMessage,
-                            notifier: Optional[Condition] = None,
-                            queue_msgs: Optional[Queue] = None):
+    def _handle_subscription(self, net_msg: mh.NetworkMessage,
+                             notifier: Optional[Condition] = None,
+                             queue_msgs: Optional[Queue] = None):
         try:
-            dev_name, shot_nb, dict_vals = GeecsDevice.subscription_parser(net_msg.msg)
+            dev_name, shot_nb, dict_vals = GeecsDevice._subscription_parser(net_msg.msg)
 
             if net_msg.err.is_error or net_msg.err.is_warning:
                 print(net_msg.err)
@@ -197,11 +200,11 @@ class GeecsDevice:  # add listing of all vars available in __init__
             err = ErrorAPI(str(ex), 'Class GeecsDevice, method "subscription_handler"')
             print(err)
 
-    def handle_response(self, net_msg: mh.NetworkMessage,
-                        notifier: Optional[Condition] = None,
-                        queue_msgs: Optional[Queue] = None):
+    def _handle_response(self, net_msg: mh.NetworkMessage,
+                         notifier: Optional[Condition] = None,
+                         queue_msgs: Optional[Queue] = None):
         try:
-            dev_name, cmd_received, dev_val, err_status = GeecsDevice.response_parser(net_msg.msg)
+            dev_name, cmd_received, dev_val, err_status = GeecsDevice._response_parser(net_msg.msg)
 
             if net_msg.err.is_error or net_msg.err.is_warning:
                 print(net_msg.err)
@@ -223,7 +226,7 @@ class GeecsDevice:  # add listing of all vars available in __init__
             print(err)
 
     @staticmethod
-    def subscription_parser(msg: str = '') -> tuple[str, int, dict[str, float]]:
+    def _subscription_parser(msg: str = '') -> tuple[str, int, dict[str, float]]:
         """ General parser to be called when messages are received. """
 
         # msg = 'U_S2V>>0>>Current nval, -0.000080 nvar, Voltage nval,0.002420 nvar,'
@@ -238,7 +241,7 @@ class GeecsDevice:  # add listing of all vars available in __init__
         return dev_name, shot_nb, dict_vals
 
     @staticmethod
-    def response_parser(msg: str = ''):
+    def _response_parser(msg: str = '') -> tuple[str, str, str, str]:
         """ General parser to be called when messages are received. """
 
         # Examples:
@@ -294,7 +297,7 @@ if __name__ == '__main__':
 
     # dev.get(var_y, sync=False)
     # dev.set(var_x, 7.6, sync=False)
-    dev.set(var_y, -22.0, sync=False)
+    _, _, exe_thread = dev.set(var_y, -22.0, sync=False)
     print('main thread not blocked!')
 
     # dev.subscribe_var_values([var_x, var_y])
@@ -303,7 +306,10 @@ if __name__ == '__main__':
     # dev.unsubscribe_var_values()
     # time.sleep(1.0)
 
-    # dev.wait_for_all_cmds(120.0)
-    is_done = dev.wait_for_last_cmd(120.0)  # add event to kill thread(s) and method "stop_thread"
+    if exe_thread[0]:
+        is_done = dev.wait_for(exe_thread[0], 120.0)
+    else:
+        is_done = dev.wait_for_all_cmds(120.0)
+        # is_done = dev.wait_for_last_cmd(120.0)  # add event to kill thread(s) and method "stop_thread"
     print(f'thread terminated: {is_done}')
     print(api_error)

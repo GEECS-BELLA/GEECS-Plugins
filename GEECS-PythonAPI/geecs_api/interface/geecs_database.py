@@ -82,14 +82,14 @@ class GeecsDatabase:
                     (
                     SELECT variable.name AS variablename, variable.device AS devicename,
                     '2_variable' AS precedence_sourcetable, defaultvalue, `min`, `max`, stepsize, units,
-                    choice_id, tolerance, alias, default_experiment
+                    choice_id, tolerance, alias, default_experiment, GUIexe_default 
                     FROM variable JOIN device ON variable.device = device.name -- to pull default_experiment
                     )
                 UNION
                     (
                     SELECT devicetype_variable.name AS variablename, device.name AS devicename,
                     '1_devicetype_variable' AS precedence_sourcetable, defaultvalue, `min`, `max`, stepsize, units,
-                    choice_id, tolerance, alias, default_experiment
+                    choice_id, tolerance, alias, default_experiment, GUIexe_default 
                     FROM devicetype_variable JOIN device ON devicetype_variable.devicetype = device.devicetype
                     )
                 ) AS variable_device_parameters_from_both_tables 
