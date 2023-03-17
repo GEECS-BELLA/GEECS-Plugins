@@ -1,18 +1,21 @@
+from __future__ import annotations
 import socket
 import select
 import struct
 from queue import Queue
 from threading import Thread, Condition, Event
-from typing import Optional
+from typing import TYPE_CHECKING
 from datetime import datetime as dtime
-import geecs_api.devices as gd
+if TYPE_CHECKING:
+    from geecs_api.devices import GeecsDevice
 import geecs_api.interface.message_handling as mh
 from geecs_api.interface.geecs_errors import ErrorAPI, api_error
 
 
 class TcpSubscriber:
-    def __init__(self):
-        self.owner: Optional[gd.GeecsDevice] = None
+    def __init__(self, owner: GeecsDevice):
+        self.owner: GeecsDevice = owner
+        self.subscribed = False
 
         # FIFO queue of messages
         self.queue_msgs = Queue()
@@ -31,8 +34,9 @@ class TcpSubscriber:
         except Exception:
             self.sock = None
 
-    def __del__(self):
+    def cleanup(self):
         try:
+            self.unsubscribe()
             mh.flush_queue(self.queue_msgs)
             self.close_sock()
         except Exception:
@@ -72,15 +76,12 @@ class TcpSubscriber:
             self.port = -1
             self.connected = False
 
-    def register_handler(self, subscriber: gd.GeecsDevice) -> bool:
-        if subscriber.is_valid():
-            self.owner = subscriber
-            return True
-        else:
-            return False
+    def register_handler(self) -> bool:
+        self.subscribed = self.owner.is_valid()
+        return self.subscribed
 
     def unregister_handler(self):
-        self.owner = None
+        self.subscribed = False
 
     def subscribe(self, cmd: str) -> bool:
         """ Subscribe to all variables listed in comma-separated string (e.g. 'varA,varB') """
@@ -171,10 +172,10 @@ class TcpSubscriber:
 
                     if received:
                         stamp = dtime.now().__str__()
-                        net_msg = mh.NetworkMessage(tag=self.owner.dev_name, stamp=stamp, msg=this_msg, err=err)
-                        if self.owner:
+                        if self.subscribed:
                             try:
-                                self.owner._handle_subscription(net_msg, self.notifier, self.queue_msgs)
+                                net_msg = mh.NetworkMessage(tag=self.owner.dev_name, stamp=stamp, msg=this_msg, err=err)
+                                self.owner.handle_subscription(net_msg, self.notifier, self.queue_msgs)
                             except Exception:
                                 api_error.error('Failed to handle TCP subscription',
                                                 'TcpSubscriber class, method "async_listener"')

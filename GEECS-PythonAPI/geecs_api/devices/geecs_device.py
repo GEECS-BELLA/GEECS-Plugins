@@ -5,16 +5,15 @@ from queue import Queue
 from threading import Thread, Condition, Event
 from typing import Optional, Any
 from datetime import datetime as dtime
-import geecs_api.interface as gi
 import geecs_api.interface.message_handling as mh
-from geecs_api.interface.geecs_errors import ErrorAPI, api_error
+from geecs_api.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorAPI, api_error
 
 
 class GeecsDevice:
     def __init__(self, name=''):
         self.dev_name: str = name
-        self.dev_tcp: Optional[gi.TcpSubscriber] = None
-        self.dev_udp: gi.UdpHandler = gi.UdpHandler()
+        self.dev_tcp: Optional[TcpSubscriber] = None
+        self.dev_udp: UdpHandler = UdpHandler(owner=self)
         self.dev_ip: str = ''
         self.dev_port: int = 0
         self.dev_vars = {}
@@ -23,23 +22,23 @@ class GeecsDevice:
         self.state = {}
 
         if self.dev_name:
-            self.dev_ip, self.dev_port = gi.GeecsDatabase.find_device(self.dev_name)
+            self.dev_ip, self.dev_port = GeecsDatabase.find_device(self.dev_name)
             if self.is_valid():
-                print(f'Device "{self.dev_name}" found: {self.dev_ip}, {self.dev_port}')
-
+                # print(f'Device "{self.dev_name}" found: {self.dev_ip}, {self.dev_port}')
                 try:
-                    self.dev_tcp = gi.TcpSubscriber()
+                    self.dev_tcp = TcpSubscriber(owner=self)
                     self.connect_var_listener()
                 except Exception:
                     api_error.error('Failed creating TCP subscriber', 'GeecsDevice class, method "__init__"')
             else:
-                print(f'Device "{self.dev_name}" not found')
+                # print(f'Device "{self.dev_name}" not found')
+                api_error.warning(f'Device "{self.dev_name}" not found', 'GeecsDevice class, method "__init__"')
 
-    def __del__(self):
+    def cleanup(self):
         try:
-            self.dev_udp.__del__()
+            self.dev_udp.cleanup()
             if self.dev_tcp:
-                self.dev_tcp.__del__()
+                self.dev_tcp.cleanup()
 
         except Exception:
             pass
@@ -58,22 +57,18 @@ class GeecsDevice:
         return self.dev_tcp and self.dev_tcp.is_connected()
 
     def register_var_listener_handler(self):
-        return self.dev_tcp.register_handler(subscriber=self)
+        return self.dev_tcp.register_handler()
 
     def unregister_var_listener_handler(self):
         return self.dev_tcp.unregister_handler()
 
     def register_cmd_executed_handler(self):
-        return self.dev_udp.register_handler(subscriber=self)
+        return self.dev_udp.register_handler()
 
     def unregister_cmd_executed_handler(self):
         return self.dev_udp.unregister_handler()
 
-    def subscribe_var_values(self, variables: Optional[list[str]] = None):
-        # if variables is None:
-        #     # list and subscribe to all variables for this device
-        #     if self.dev_vars:
-
+    def subscribe_var_values(self, variables: Optional[list[str]] = None) -> bool:
         subscribed = False
         if variables:
             try:
@@ -91,7 +86,7 @@ class GeecsDevice:
             -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, dict[str, Any]]]]:
         try:
             if exp_vars is None:
-                exp_vars = gi.GeecsDatabase.find_experiment_variables(exp_name)
+                exp_vars = GeecsDatabase.find_experiment_variables(exp_name)
 
             self.dev_vars = exp_vars[self.dev_name]
 
@@ -176,33 +171,9 @@ class GeecsDevice:
 
         return executed, cmd_label, async_thread
 
-    def _handle_subscription(self, net_msg: mh.NetworkMessage,
-                             notifier: Optional[Condition] = None,
-                             queue_msgs: Optional[Queue] = None):
-        try:
-            dev_name, shot_nb, dict_vals = GeecsDevice._subscription_parser(net_msg.msg)
-
-            if net_msg.err.is_error or net_msg.err.is_warning:
-                print(net_msg.err)
-
-            if not net_msg.stamp:
-                net_msg.stamp = 'no timestamp'
-
-            msg_str = f'Subscription message:\n\tStamp: {net_msg.stamp}\n\tDevice: {dev_name}\n\tShot: {shot_nb}'
-            for var, val in dict_vals.items():
-                if var in self.dev_vars:
-                    msg_str += f'\n\t{self.dev_vars[var]["alias"]}: {val}'
-                else:
-                    msg_str += f'\n\t{var}: {val}'
-            print(msg_str)
-
-        except Exception as ex:
-            err = ErrorAPI(str(ex), 'Class GeecsDevice, method "subscription_handler"')
-            print(err)
-
-    def _handle_response(self, net_msg: mh.NetworkMessage,
-                         notifier: Optional[Condition] = None,
-                         queue_msgs: Optional[Queue] = None):
+    def handle_response(self, net_msg: mh.NetworkMessage,
+                        notifier: Optional[Condition] = None,
+                        queue_msgs: Optional[Queue] = None):
         try:
             dev_name, cmd_received, dev_val, err_status = GeecsDevice._response_parser(net_msg.msg)
 
@@ -219,6 +190,30 @@ class GeecsDevice:
             if dev_val:
                 msg_str += f'\n\tValue: {dev_val}'
 
+            print(msg_str)
+
+        except Exception as ex:
+            err = ErrorAPI(str(ex), 'Class GeecsDevice, method "subscription_handler"')
+            print(err)
+
+    def handle_subscription(self, net_msg: mh.NetworkMessage,
+                            notifier: Optional[Condition] = None,
+                            queue_msgs: Optional[Queue] = None):
+        try:
+            dev_name, shot_nb, dict_vals = GeecsDevice._subscription_parser(net_msg.msg)
+
+            if net_msg.err.is_error or net_msg.err.is_warning:
+                print(net_msg.err)
+
+            if not net_msg.stamp:
+                net_msg.stamp = 'no timestamp'
+
+            msg_str = f'Subscription message:\n\tStamp: {net_msg.stamp}\n\tDevice: {dev_name}\n\tShot: {shot_nb}'
+            for var, val in dict_vals.items():
+                if var in self.dev_vars:
+                    msg_str += f'\n\t{self.dev_vars[var]["alias"]}: {val}'
+                else:
+                    msg_str += f'\n\t{var}: {val}'
             print(msg_str)
 
         except Exception as ex:
@@ -283,7 +278,7 @@ class GeecsDevice:
 if __name__ == '__main__':
     api_error.clear()
 
-    devs = gi.GeecsDatabase.find_experiment_variables('Undulator')
+    devs = GeecsDatabase.find_experiment_variables('Undulator')
     # _dev_name = 'U_ESP_JetXYZ'
     _dev_name = 'U_Hexapod'
     dev = GeecsDevice(_dev_name)
@@ -310,6 +305,6 @@ if __name__ == '__main__':
         is_done = dev.wait_for(exe_thread[0], 120.0)
     else:
         is_done = dev.wait_for_all_cmds(120.0)
-        # is_done = dev.wait_for_last_cmd(120.0)  # add event to kill thread(s) and method "stop_thread"
+        # is_done = dev.wait_for_last_cmd(120.0)
     print(f'thread terminated: {is_done}')
     print(api_error)

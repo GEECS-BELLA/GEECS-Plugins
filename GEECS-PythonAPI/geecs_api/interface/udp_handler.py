@@ -1,17 +1,21 @@
+from __future__ import annotations
+
+import math
 import socket
 import time
 import select
 from queue import Queue
 from threading import Thread, Condition, Event
 from datetime import datetime as dtime
-from typing import Optional
-import geecs_api.devices as gd
+from typing import Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    from geecs_api.devices import GeecsDevice
 import geecs_api.interface.message_handling as mh
-from geecs_api.interface.geecs_errors import ErrorAPI, api_error
+from geecs_api.interface.geecs_errors import api_error
 
 
 class UdpHandler:
-    def __init__(self):
+    def __init__(self, owner: GeecsDevice):
         """ Creates a UDP socket and binds it. """
 
         self.buffer_size = 1024
@@ -30,12 +34,12 @@ class UdpHandler:
             self.bounded_cmd = True
 
             # create UDP server for commands execution confirmation ("slow response")
-            self.cmd_checker = UdpServer(port=self.port_exe)
+            self.cmd_checker = UdpServer(owner=owner, port=self.port_exe)
 
         except Exception:
             self.port_cmd = self.port_exe = -1
 
-    def __del__(self):
+    def cleanup(self):
         try:
             self.close_sock_cmd()
         except Exception:
@@ -84,20 +88,18 @@ class UdpHandler:
 
         return accepted
 
-    def register_handler(self, subscriber: gd.GeecsDevice) -> bool:
-        if subscriber.is_valid():
-            self.cmd_checker.owner = subscriber
-            return True
-        else:
-            return False
+    def register_handler(self) -> bool:
+        self.cmd_checker.subscribed = self.cmd_checker.owner.is_valid()
+        return self.cmd_checker.subscribed
 
     def unregister_handler(self):
-        self.cmd_checker.owner = None
+        self.cmd_checker.subscribed = False
 
 
 class UdpServer:
-    def __init__(self, port: int = -1):
-        self.owner: Optional[gd.GeecsDevice] = None
+    def __init__(self, owner: GeecsDevice, port: int = -1):
+        self.owner: GeecsDevice = owner
+        self.subscribed = False
         self.threads: list[(Thread, Event)] = []
 
         # FIFO queue of messages
@@ -119,8 +121,9 @@ class UdpServer:
             self.port = -1
             self.bounded = False
 
-    def __del__(self):
+    def cleanup(self):
         try:
+            self.stop_waiting_for_all()
             mh.flush_queue(self.queue_msgs)
             self.close_sock_exe()
         except Exception:
@@ -184,13 +187,17 @@ class UdpServer:
         if thread.is_alive():
             stop.set()
 
-    def listen(self, cmd_tag: str, stop_event: Optional[Event] = None, timeout: float = 1.0) -> str:
+    def listen(self, cmd_tag: str, stop_event: Optional[Event] = None, timeout: Optional[float] = 1.0) -> str:
         """ Listens for command-executed messages. """
 
         # receive message
         geecs_ans = stamp = ''
         t0 = time.monotonic()
-        eff_timeout = min(0.2, timeout / 10.0)  # to check on stop_event periodically
+        if timeout is None:
+            timeout = math.inf
+            eff_timeout = 0.2
+        else:
+            eff_timeout = min(0.2, timeout / 10.0)  # to check on stop_event periodically
 
         while True:
             try:
@@ -218,9 +225,9 @@ class UdpServer:
         # queue, notify & publish message
         try:
             net_msg = mh.NetworkMessage(tag=cmd_tag, stamp=stamp, msg=geecs_ans)
-            if self.owner:
+            if self.subscribed:
                 try:
-                    self.owner._handle_response(net_msg, self.notifier, self.queue_msgs)
+                    self.owner.handle_response(net_msg, self.notifier, self.queue_msgs)
                 except Exception:
                     api_error.error('Failed to handle TCP subscription',
                                     'TcpSubscriber class, method "async_listener"')
@@ -230,7 +237,7 @@ class UdpServer:
 
         return geecs_ans
 
-    def wait_for_exe(self, cmd_tag: str, timeout: float = 5.0, sync: bool = False)\
+    def wait_for_exe(self, cmd_tag: str, timeout: Optional[float] = 5.0, sync: bool = False)\
             -> tuple[Optional[Thread], Optional[Event]]:
         """ Waits for a UDP response (typ. command executed), in a separate thread by default. """
 
@@ -240,8 +247,7 @@ class UdpServer:
 
         try:
             if sync:
-                geecs_ans, _ = self.listen(cmd_tag, timeout=timeout)
-                print(f'Synchronous UDP response:\n\t{geecs_ans}')
+                self.listen(cmd_tag, timeout=timeout)
             else:
                 stop_event = Event()
                 exe_thread = Thread(target=self.listen,
@@ -250,6 +256,6 @@ class UdpServer:
                 self.threads.append((exe_thread, stop_event))
 
         except Exception:
-            api_error.error('Failed waiting for command execution', 'UdpServer class, method "wait_for_cmd"')
+            api_error.error('Failed waiting for command execution', 'UdpServer class, method "wait_for_exe"')
 
         return exe_thread, stop_event
