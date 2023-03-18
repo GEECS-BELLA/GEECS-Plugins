@@ -45,15 +45,32 @@ class GeecsDatabase:
     name, ipv4, username, password = find_database()
 
     @staticmethod
-    def find_experiment_variables(exp_name: str = 'Undulator') -> dict[str, dict[str, dict[str, Any]]]:
-        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
-
+    def _get_db():
         db = mysql.connector.connect(
             host=GeecsDatabase.ipv4,
             user=GeecsDatabase.username,
             password=GeecsDatabase.password,
             database=GeecsDatabase.name)
+        return db
 
+    @staticmethod
+    def _close_db(db, db_cursor):
+        try:
+            db_cursor.close()
+        except Exception:
+            pass
+
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+    @staticmethod
+    def find_experiment_variables(exp_name: str = 'Undulator') -> dict[str, dict[str, dict[str, Any]]]:
+        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
+
+        db = GeecsDatabase._get_db()
         db_cursor = db.cursor(dictionary=True)
         cmd_str = """
             SELECT * FROM
@@ -111,22 +128,19 @@ class GeecsDatabase:
             else:
                 exp_vars[row['devicename']] = {row['variablename']: row}
 
+        GeecsDatabase._close_db(db, db_cursor)
         return exp_vars
 
     @staticmethod
     def find_device(dev_name=''):
-        db_cursor = None
+        db_cursor = db = None
         dev_ip: str = ''
         dev_port: int = 0
 
         try:
-            db = mysql.connector.connect(
-                host=GeecsDatabase.ipv4,
-                user=GeecsDatabase.username,
-                password=GeecsDatabase.password)
-
             selectors = ["ipaddress", "commport"]
 
+            db = GeecsDatabase._get_db()
             db_cursor = db.cursor()
             db_cursor.execute(f'SELECT {",".join(selectors)} FROM {GeecsDatabase.name}.device WHERE name=%s;',
                               (dev_name,))
@@ -137,13 +151,27 @@ class GeecsDatabase:
         except Exception as ex:
             api_error.error(str(ex), f'GeecsDatabase class, static method "find_device({dev_name})"')
 
-        finally:
-            try:
-                db_cursor.close()
-            except Exception:
-                pass
-
+        GeecsDatabase._close_db(db, db_cursor)
         return dev_ip, dev_port
+
+    @staticmethod
+    def find_experiment_guis(exp_name: str = 'Undulator'):
+        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
+
+        db = GeecsDatabase._get_db()
+        db_cursor = db.cursor(dictionary=True)
+        cmd_str = 'SELECT `name` , `path` FROM commongui WHERE experiment = %s;'
+
+        db_cursor.execute(cmd_str, (exp_name,))
+        rows = db_cursor.fetchall()
+
+        exp_guis: dict[str, str] = {}
+        while rows:
+            row = rows.pop()
+            exp_guis[row['name']] = row['path']
+
+        GeecsDatabase._close_db(db, db_cursor)
+        return exp_guis
 
 
 if __name__ == '__main__':
@@ -153,6 +181,7 @@ if __name__ == '__main__':
     print('Password:\n\t' + GeecsDatabase.password)
 
     api_error.clear()
+    exp_guis = GeecsDatabase.find_experiment_guis()
     device_ip, device_port = GeecsDatabase.find_device('U_ESP_JetXYZ')
     print(api_error)
 

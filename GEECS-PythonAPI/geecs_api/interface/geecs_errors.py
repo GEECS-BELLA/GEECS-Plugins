@@ -17,7 +17,10 @@ class ErrorAPI(Exception):
         is_error = not warning and bool(message)
         is_warning = warning and bool(message)
 
-        if not self.is_error and (self.is_error or is_error or not self.is_warning):
+        if is_error or is_warning:  # temporary until basic error handler is written
+            print(ErrorAPI._print_str(message, source, is_warning, is_error))
+
+        if not self.is_error and (is_error or not self.is_warning):
             self.is_error, self.is_warning, self.error_msg, self.error_src = [is_error, is_warning, message, source]
 
     def error(self, message='', source=''):
@@ -30,17 +33,21 @@ class ErrorAPI(Exception):
         self.error_msg = self.error_src = ''
         self.is_error = self.is_warning = False
 
-    def __str__(self):
-        if self.is_error:
-            err_str = f'Error:\n\tMessage: {self.error_msg}\n\tSource:  {self.error_src}'
+    @staticmethod
+    def _print_str(message='', source='', warning=False, error=False):
+        if error:
+            err_str = f'Error:\n\tMessage: {message}\n\tSource:  {source}'
 
-        elif self.is_warning:
-            err_str = f'Warning:\n\tMessage: {self.error_msg}\n\tSource:  {self.error_src}'
+        elif warning:
+            err_str = f'Warning:\n\tMessage: {message}\n\tSource:  {source}'
 
         else:
             err_str = 'No error'
 
         return err_str
+
+    def __str__(self):
+        return ErrorAPI._print_str(self.error_msg, self.error_src, self.is_warning, self.is_error)
 
 
 # define global
@@ -51,12 +58,9 @@ if __name__ == '__main__':
     print(api_error)
 
     api_error.warning('initial', 'main')
-    print(api_error)
-
     api_error.error('my error', 'sub')
-    print(api_error)
 
-    # api_error.clear()
+    api_error.clear()
 
+    api_error.warning('initial', 'main')
     api_error.error('my further error', 'sub')
-    print(api_error)

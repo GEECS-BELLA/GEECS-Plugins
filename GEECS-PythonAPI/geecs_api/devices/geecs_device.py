@@ -16,10 +16,13 @@ class GeecsDevice:
         self.dev_udp: UdpHandler = UdpHandler(owner=self)
         self.dev_ip: str = ''
         self.dev_port: int = 0
-        self.dev_vars = {}
 
-        self.config = {}
-        self.state = {}
+        self.dev_vars = {}
+        self.var_names = {}
+        self.var_aliases = {}
+
+        self.sets = {}
+        self.gets = {}
 
         if self.dev_name:
             self.dev_ip, self.dev_port = GeecsDatabase.find_device(self.dev_name)
@@ -70,6 +73,10 @@ class GeecsDevice:
 
     def subscribe_var_values(self, variables: Optional[list[str]] = None) -> bool:
         subscribed = False
+
+        if variables is None:
+            variables = [var[0] for var in self.var_names.values()]
+
         if variables:
             try:
                 subscribed = self.dev_tcp.subscribe(','.join(variables))
@@ -112,6 +119,13 @@ class GeecsDevice:
             var_name = alias
 
         return var_name
+
+    def get_var_dicts(self, aliases: list[str]):
+        self.var_names: dict[int, tuple[str, str]] = \
+            {index: (self.find_var_by_alias(aliases[index]), aliases[index]) for index in range(len(aliases))}
+
+        self.var_aliases: dict[str, tuple[str, int]] = \
+            {self.find_var_by_alias(aliases[index]): (aliases[index], index) for index in range(len(aliases))}
 
     def set(self, variable: str, value: float, exec_timeout: float = 120.0,
             attempts_max: int = 5, sync=False) -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
@@ -173,7 +187,7 @@ class GeecsDevice:
 
     def handle_response(self, net_msg: mh.NetworkMessage,
                         notifier: Optional[Condition] = None,
-                        queue_msgs: Optional[Queue] = None):
+                        queue_msgs: Optional[Queue] = None) -> tuple[str, str, str, str]:
         try:
             dev_name, cmd_received, dev_val, err_status = GeecsDevice._response_parser(net_msg.msg)
 
@@ -183,42 +197,50 @@ class GeecsDevice:
             if err_status:
                 print(api_error)
 
-            if not net_msg.stamp:
-                net_msg.stamp = 'no timestamp'
+            if dev_name != self.dev_name:
+                warn = ErrorAPI('Mismatch in device name', f'Class {self.__class__}, method "handle_response"')
+                print(warn)
 
-            msg_str = f'Command message:\n\tStamp: {net_msg.stamp}\n\tDevice: {dev_name}\n\tCommand: {cmd_received}'
-            if dev_val:
-                msg_str += f'\n\tValue: {dev_val}'
-
-            print(msg_str)
+            # if not net_msg.stamp:
+            #     net_msg.stamp = 'no timestamp'
+            #
+            # msg_str = f'Command message:\n\tStamp: {net_msg.stamp}\n\tDevice: {dev_name}\n\tCommand: {cmd_received}'
+            # if dev_val:
+            #     msg_str += f'\n\tValue: {dev_val}'
+            #
+            # print(msg_str)
+            return dev_name, cmd_received, dev_val, err_status
 
         except Exception as ex:
             err = ErrorAPI(str(ex), 'Class GeecsDevice, method "subscription_handler"')
             print(err)
+            return '', '', '', ''
 
     def handle_subscription(self, net_msg: mh.NetworkMessage,
                             notifier: Optional[Condition] = None,
-                            queue_msgs: Optional[Queue] = None):
+                            queue_msgs: Optional[Queue] = None) -> tuple[str, int, dict[str, float]]:
         try:
             dev_name, shot_nb, dict_vals = GeecsDevice._subscription_parser(net_msg.msg)
 
             if net_msg.err.is_error or net_msg.err.is_warning:
                 print(net_msg.err)
 
-            if not net_msg.stamp:
-                net_msg.stamp = 'no timestamp'
-
-            msg_str = f'Subscription message:\n\tStamp: {net_msg.stamp}\n\tDevice: {dev_name}\n\tShot: {shot_nb}'
-            for var, val in dict_vals.items():
-                if var in self.dev_vars:
-                    msg_str += f'\n\t{self.dev_vars[var]["alias"]}: {val}'
-                else:
-                    msg_str += f'\n\t{var}: {val}'
-            print(msg_str)
+            # if not net_msg.stamp:
+            #     net_msg.stamp = 'no timestamp'
+            #
+            # msg_str = f'Subscription message:\n\tStamp: {net_msg.stamp}\n\tDevice: {dev_name}\n\tShot: {shot_nb}'
+            # for var, val in dict_vals.items():
+            #     if var in self.dev_vars:
+            #         msg_str += f'\n\t{self.dev_vars[var]["alias"]}: {val}'
+            #     else:
+            #         msg_str += f'\n\t{var}: {val}'
+            # print(msg_str)
+            return dev_name, shot_nb, dict_vals
 
         except Exception as ex:
             err = ErrorAPI(str(ex), 'Class GeecsDevice, method "subscription_handler"')
             print(err)
+            return '', 0, {}
 
     @staticmethod
     def _subscription_parser(msg: str = '') -> tuple[str, int, dict[str, float]]:
@@ -292,7 +314,7 @@ if __name__ == '__main__':
 
     # dev.get(var_y, sync=False)
     # dev.set(var_x, 7.6, sync=False)
-    _, _, exe_thread = dev.set(var_y, -22.0, sync=False)
+    _, _, exe_thread = dev.set(var_y, -10.0, sync=False)
     print('main thread not blocked!')
 
     # dev.subscribe_var_values([var_x, var_y])

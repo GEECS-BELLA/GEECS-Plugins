@@ -5,8 +5,11 @@ from geecs_api.interface import GeecsDatabase
 
 class HtuExp:
     def __init__(self):
-        self.exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
-        self.jet = HTU.GasJet(self.exp_devs)
+        self.exp_name = 'Undulator'
+        self.exp_devs = GeecsDatabase.find_experiment_variables(self.exp_name)
+        self.exp_guis = GeecsDatabase.find_experiment_guis(self.exp_name)
+
+        self.jet = HTU.GasJetStage(self.exp_devs)
 
         self.devs = {
             'jet': self.jet
@@ -25,7 +28,7 @@ if __name__ == '__main__':
     htu.jet.subscribe_var_values()
 
     time.sleep(1.0)
-    print(f'Jet state:\n\t{htu.devs["jet"].state}')
-    print(f'Jet setpoints:\n\t{htu.devs["jet"].config}')
+    print(f'Jet state:\n\t{htu.devs["jet"].gets}')
+    print(f'Jet config:\n\t{htu.devs["jet"].sets}')
 
     htu.cleanup()
