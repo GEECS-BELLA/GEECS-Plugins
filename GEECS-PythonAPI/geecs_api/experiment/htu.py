@@ -1,34 +1,37 @@
 import time
 from geecs_api.devices import HTU
-from geecs_api.interface import GeecsDatabase
+from geecs_api.experiment import Experiment
 
 
-class HtuExp:
+class HtuExp(Experiment):
+    # Singleton
+    def __new__(cls, *args, **kwargs):
+        if not hasattr(cls, 'instance'):
+            cls.instance = super(HtuExp, cls).__new__(cls)
+            cls.instance.__initialized = False
+        return cls.instance
+
     def __init__(self):
-        self.exp_name = 'Undulator'
-        self.exp_devs = GeecsDatabase.find_experiment_variables(self.exp_name)
-        self.exp_guis = GeecsDatabase.find_experiment_guis(self.exp_name)
+        # Singleton
+        if self.__initialized:
+            return
+        self.__initialized = True
+        super().__init__('Undulator')
 
-        self.jet = HTU.GasJetStage(self.exp_devs)
+        # Devices
+        self.jet = HTU.GasJet(self.exp_devs)
 
         self.devs = {
             'jet': self.jet
         }
 
-    def cleanup(self):
-        for dev in self.devs.values():
-            try:
-                dev.cleanup()
-            except Exception:
-                pass
-
 
 if __name__ == '__main__':
     htu = HtuExp()
-    htu.jet.subscribe_var_values()
+    htu.jet.stage.subscribe_var_values()
 
     time.sleep(1.0)
-    print(f'Jet state:\n\t{htu.devs["jet"].gets}')
-    print(f'Jet config:\n\t{htu.devs["jet"].sets}')
+    print(f'Jet state:\n\t{htu.devs["jet"].stage.gets}')
+    print(f'Jet config:\n\t{htu.devs["jet"].stage.sets}')
 
     htu.cleanup()

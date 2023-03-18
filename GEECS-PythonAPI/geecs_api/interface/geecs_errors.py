@@ -19,6 +19,7 @@ class ErrorAPI(Exception):
 
         if is_error or is_warning:  # temporary until basic error handler is written
             print(ErrorAPI._print_str(message, source, is_warning, is_error))
+            self.clear()
 
         if not self.is_error and (is_error or not self.is_warning):
             self.is_error, self.is_warning, self.error_msg, self.error_src = [is_error, is_warning, message, source]

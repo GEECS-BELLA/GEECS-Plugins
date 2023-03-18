@@ -1,1 +1,1 @@
-from geecs_api.devices.HTU.gas_jet.gas_jet_stage import GasJetStage
+from geecs_api.devices.HTU.gas_jet.gas_jet import GasJet

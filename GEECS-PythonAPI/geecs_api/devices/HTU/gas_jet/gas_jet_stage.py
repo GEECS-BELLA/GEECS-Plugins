@@ -10,19 +10,16 @@ from geecs_api.interface import GeecsDatabase, ErrorAPI, api_error
 
 class GasJetStage(GeecsDevice):
     # Singleton
-    __instance = None
-
     def __new__(cls, *args, **kwargs):
-        if cls.__instance is None:
-            cls.__instance = super(GasJetStage, cls).__new__(cls)
-            cls.__instance.__initialized = False
-        return cls.__instance
+        if not hasattr(cls, 'instance'):
+            cls.instance = super(GasJetStage, cls).__new__(cls)
+            cls.instance.__initialized = False
+        return cls.instance
 
     def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]]):
         if self.__initialized:
             return
         self.__initialized = True
-
         super().__init__('U_ESP_JetXYZ')
 
         self.list_variables(exp_vars)
@@ -133,7 +130,7 @@ if __name__ == '__main__':
     # retrieve currently known positions
     try:
         print(f'Jet state:\n\t{jet.gets}')
-        print(f'Jet setpoints:\n\t{jet.sets}')
+        print(f'Jet config:\n\t{jet.sets}')
     except Exception as e:
         api_error.error(str(e), 'Demo code for gas jet')
         pass
@@ -162,7 +159,7 @@ if __name__ == '__main__':
     time.sleep(1.0)
     try:
         print(f'Jet state:\n\t{jet.gets}')
-        print(f'Jet setpoints:\n\t{jet.sets}')
+        print(f'Jet config:\n\t{jet.sets}')
     except Exception as e:
         api_error.error(str(e), 'Demo code for gas jet')
         pass

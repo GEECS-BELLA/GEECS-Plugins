@@ -1,6 +1,5 @@
 import re
 import time
-import socket
 from queue import Queue
 from threading import Thread, Condition, Event
 from typing import Optional, Any
@@ -12,8 +11,14 @@ from geecs_api.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorA
 class GeecsDevice:
     def __init__(self, name=''):
         self.dev_name: str = name
+
         self.dev_tcp: Optional[TcpSubscriber] = None
-        self.dev_udp: UdpHandler = UdpHandler(owner=self)
+        self.dev_udp: Optional[UdpHandler]
+        if self.dev_name:
+            self.dev_udp = UdpHandler(owner=self)
+        else:
+            self.dev_udp = None
+
         self.dev_ip: str = ''
         self.dev_port: int = 0
 
@@ -38,13 +43,11 @@ class GeecsDevice:
                 api_error.warning(f'Device "{self.dev_name}" not found', 'GeecsDevice class, method "__init__"')
 
     def cleanup(self):
-        try:
+        if self.dev_udp:
             self.dev_udp.cleanup()
-            if self.dev_tcp:
-                self.dev_tcp.cleanup()
 
-        except Exception:
-            pass
+        if self.dev_tcp:
+            self.dev_tcp.cleanup()
 
     def is_valid(self):
         return self.dev_name and self.dev_ip and self.dev_port > 0
@@ -272,29 +275,6 @@ class GeecsDevice:
             api_error.error(err_msg, f'Failed to execute command "{cmd_received}", error originated in control system')
 
         return dev_name, cmd_received, dev_val, err_status
-
-    @staticmethod  # placeholder, will be moved to system class, 2 levels up
-    def send_preset(preset=''):
-        MCAST_GRP = '234.5.6.8'
-        MCAST_PORT = 58432
-        MULTICAST_TTL = 4
-
-        sock = None
-
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, MULTICAST_TTL)
-            sock.sendto(f'preset>>{preset}>>{socket.gethostbyname(socket.gethostname())}'.encode(),
-                        (MCAST_GRP, MCAST_PORT))
-
-        except Exception:
-            api_error.error(f'Failed to send preset "{preset}"', 'UdpHandler class, method "send_preset"')
-
-        finally:
-            try:
-                sock.close()
-            except Exception:
-                pass
 
 
 if __name__ == '__main__':
