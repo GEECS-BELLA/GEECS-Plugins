@@ -1,11 +1,9 @@
 from __future__ import annotations
 import time
-from queue import Queue
 from typing import Optional, Any
-from threading import Thread, Condition, Event
-import geecs_api.interface.message_handling as mh
+from threading import Thread, Event
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.interface import GeecsDatabase, ErrorAPI, api_error
+from geecs_api.interface import GeecsDatabase, api_error
 
 
 class GasJetPressure(GeecsDevice):
@@ -23,94 +21,33 @@ class GasJetPressure(GeecsDevice):
             return
         self.__initialized = True
 
-        super().__init__('U_HP_Daq')
+        super().__init__('U_HP_Daq', exp_vars)
 
-        self.list_variables(exp_vars)
-        aliases = ['',
-                   '']
+        aliases = ['PressureControlVoltage',
+                   'trigger']
         self.get_var_dicts(aliases)
+        self.var_pressure = self.var_names.get(0)[0]
+        self.var_trigger = self.var_names.get(1)[0]
 
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
-    def handle_response(self, net_msg: mh.NetworkMessage,
-                        notifier: Optional[Condition] = None,
-                        queue_msgs: Optional[Queue] = None) -> tuple[str, str, str, str]:
-        try:
-            dev_name, cmd_received, dev_val, err_status = super().handle_response(net_msg, notifier, queue_msgs)
-
-            if dev_name == self.dev_name and dev_val and cmd_received[:3] == 'get':
-                var_alias = self.var_aliases[cmd_received[3:]][0]
-                self.gets[var_alias] = float(dev_val)
-                print(f'{var_alias} = {float(dev_val)}')
-
-            if dev_name == self.dev_name and dev_val and cmd_received[:3] == 'set':
-                var_alias = self.var_aliases[cmd_received[3:]][0]
-                self.sets[var_alias] = float(dev_val)
-                print(f'{var_alias} set to {float(dev_val)}')
-
-            return dev_name, cmd_received, dev_val, err_status
-
-        except Exception as ex:
-            err = ErrorAPI(str(ex), f'Class {self.__class__}, method "handle_response"')
-            print(err)
-
-    def handle_subscription(self, net_msg: mh.NetworkMessage,
-                            notifier: Optional[Condition] = None,
-                            queue_msgs: Optional[Queue] = None) -> tuple[str, int, dict[str, float]]:
-        try:
-            dev_name, shot_nb, dict_vals = super().handle_subscription(net_msg, notifier, queue_msgs)
-
-            if dev_name == self.dev_name and dict_vals:
-                for var, val in dict_vals.items():
-                    if var in self.var_aliases:
-                        var_alias = self.var_aliases[var][0]
-                        self.gets[var_alias] = float(val)
-
-            return dev_name, shot_nb, dict_vals
-
-        except Exception as ex:
-            err = ErrorAPI(str(ex), 'Class GeecsDevice, method "subscription_handler"')
-            print(err)
-            return '', 0, {}
-
-    def get_axis_var_name(self, axis: int):
-        if axis < 0 or axis > 2:
-            return ''
-        else:
-            return self.var_names.get(axis)[0]
-
-    def get_axis_var_alias(self, axis: int):
-        if axis < 0 or axis > 2:
-            return ''
-        else:
-            return self.var_names.get(axis)[1]
-
-    def get_position(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
+    def get_pressure(self, exec_timeout: float = 2.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        if isinstance(axis, str):
-            if len(axis) == 1:
-                axis = ord(axis.upper()) - ord('X')
-            else:
-                axis = -1
+        return self.get(self.var_pressure, exec_timeout=exec_timeout, sync=sync)
 
-        if axis < 0 or axis > 2:
-            return False, '', (None, None)
-
-        return self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
-
-    def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 2.0, sync=True) \
+    def set_pressure(self, value: float, exec_timeout: float = 10.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        if isinstance(axis, str):
-            if len(axis) == 1:
-                axis = ord(axis.upper()) - ord('X')
-            else:
-                axis = -1
+        return self.set(self.var_pressure, value=value, exec_timeout=exec_timeout, sync=sync)
 
-        if axis < 0 or axis > 2:
-            return False, '', (None, None)
+    def get_trigger(self, exec_timeout: float = 2.0, sync=True) \
+            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+        return self.get(self.var_trigger, exec_timeout=exec_timeout, sync=sync)
 
-        return self.set(self.get_axis_var_name(axis), value=value, exec_timeout=exec_timeout, sync=sync)
+    def set_trigger(self, value: bool, exec_timeout: float = 2.0, sync=True) \
+            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+        value = 'on' if value else 'off'
+        return self.set(self.var_trigger, value=value, exec_timeout=exec_timeout, sync=sync)
 
 
 if __name__ == '__main__':
@@ -129,8 +66,8 @@ if __name__ == '__main__':
 
     # retrieve currently known positions
     try:
-        print(f'Pressure state:\n\t{jet_pressure.gets}')
-        print(f'Pressure config:\n\t{jet_pressure.sets}')
+        print(f'Pressure state:\n\t{jet_pressure.state}')
+        print(f'Pressure config:\n\t{jet_pressure.setpoints}')
     except Exception as e:
         api_error.error(str(e), 'Demo code for gas jet')
         pass

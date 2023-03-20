@@ -9,12 +9,14 @@ from geecs_api.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorA
 
 
 class GeecsDevice:
-    def __init__(self, name=''):
-        self.dev_name: str = name
+    def __init__(self, name: str, exp_vars: Optional[dict[str, dict[str, dict[str, Any]]]], virtual=False):
+        self.__dev_name: str = name.strip()  # cannot be changed after initialization
+        self.__dev_virtual = virtual or not self.__dev_name
+        self.__class_name = re.search(r'\w+\'>$', str(self.__class__))[0][:-2]
 
         self.dev_tcp: Optional[TcpSubscriber] = None
         self.dev_udp: Optional[UdpHandler]
-        if self.dev_name:
+        if not self.__dev_virtual:
             self.dev_udp = UdpHandler(owner=self)
         else:
             self.dev_udp = None
@@ -26,11 +28,11 @@ class GeecsDevice:
         self.var_names = {}
         self.var_aliases = {}
 
-        self.sets = {}
-        self.gets = {}
+        self.setpoints = {}
+        self.state = {}
 
-        if self.dev_name:
-            self.dev_ip, self.dev_port = GeecsDatabase.find_device(self.dev_name)
+        if not self.__dev_virtual:
+            self.dev_ip, self.dev_port = GeecsDatabase.find_device(self.__dev_name)
             if self.is_valid():
                 # print(f'Device "{self.dev_name}" found: {self.dev_ip}, {self.dev_port}')
                 try:
@@ -39,8 +41,12 @@ class GeecsDevice:
                 except Exception:
                     api_error.error('Failed creating TCP subscriber', 'GeecsDevice class, method "__init__"')
             else:
-                # print(f'Device "{self.dev_name}" not found')
-                api_error.warning(f'Device "{self.dev_name}" not found', 'GeecsDevice class, method "__init__"')
+                api_error.warning(f'Device "{self.__dev_name}" not found', 'GeecsDevice class, method "__init__"')
+
+            self.list_variables(exp_vars)
+
+    def get_name(self):
+        return self.__dev_name
 
     def cleanup(self):
         if self.dev_udp:
@@ -50,26 +56,26 @@ class GeecsDevice:
             self.dev_tcp.cleanup()
 
     def is_valid(self):
-        return self.dev_name and self.dev_ip and self.dev_port > 0
+        return not self.__dev_virtual and self.dev_ip and self.dev_port > 0
 
     def connect_var_listener(self):
-        if not self.is_var_listener_connected():
+        if self.is_valid() and not self.is_var_listener_connected():
             self.dev_tcp.connect((self.dev_ip, self.dev_port))
 
             if not self.dev_tcp.is_connected():
-                api_error.warning('Failed to connect TCP subscriber', f'GeecsDevice "{self.dev_name}"')
+                api_error.warning('Failed to connect TCP subscriber', f'GeecsDevice "{self.__dev_name}"')
 
     def is_var_listener_connected(self):
         return self.dev_tcp and self.dev_tcp.is_connected()
 
     def register_var_listener_handler(self):
-        return self.dev_tcp.register_handler()
+        return self.dev_tcp.register_handler()  # happens only if is_valid()
 
     def unregister_var_listener_handler(self):
         return self.dev_tcp.unregister_handler()
 
     def register_cmd_executed_handler(self):
-        return self.dev_udp.register_handler()
+        return self.dev_udp.register_handler()  # happens only if is_valid()
 
     def unregister_cmd_executed_handler(self):
         return self.dev_udp.unregister_handler()
@@ -77,10 +83,10 @@ class GeecsDevice:
     def subscribe_var_values(self, variables: Optional[list[str]] = None) -> bool:
         subscribed = False
 
-        if variables is None:
+        if self.is_valid() and variables is None:
             variables = [var[0] for var in self.var_names.values()]
 
-        if variables:
+        if self.is_valid() and variables:
             try:
                 subscribed = self.dev_tcp.subscribe(','.join(variables))
             except Exception as ex:
@@ -89,7 +95,8 @@ class GeecsDevice:
         return subscribed
 
     def unsubscribe_var_values(self):
-        self.dev_tcp.unsubscribe()
+        if self.is_var_listener_connected():
+            self.dev_tcp.unsubscribe()
 
     def list_variables(self, exp_vars: Optional[dict[str, dict[str, dict[str, Any]]]] = None,
                        exp_name: str = 'Undulator') \
@@ -98,7 +105,7 @@ class GeecsDevice:
             if exp_vars is None:
                 exp_vars = GeecsDatabase.find_experiment_variables(exp_name)
 
-            self.dev_vars = exp_vars[self.dev_name]
+            self.dev_vars = exp_vars[self.__dev_name]
 
         except Exception:
             self.dev_vars = {}
@@ -130,7 +137,7 @@ class GeecsDevice:
         self.var_aliases: dict[str, tuple[str, int]] = \
             {self.find_var_by_alias(aliases[index]): (aliases[index], index) for index in range(len(aliases))}
 
-    def set(self, variable: str, value: float, exec_timeout: float = 120.0,
+    def set(self, variable: str, value, exec_timeout: float = 120.0,
             attempts_max: int = 5, sync=False) -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         return self._execute(variable, value, exec_timeout, attempts_max, sync)
 
@@ -147,21 +154,24 @@ class GeecsDevice:
     def wait_for(self, thread: Thread, timeout: Optional[float] = None) -> bool:
         return self.dev_udp.cmd_checker.wait_for(thread, timeout)
 
-    def _execute(self, variable: str, value: Optional[float] = None, exec_timeout: float = 10.0,
+    def _execute(self, variable: str, value, exec_timeout: float = 10.0,
                  attempts_max: int = 5, sync=False) -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         if api_error.is_error:
             return False, '', (None, None)
 
-        if value:
+        if isinstance(value, float):
             cmd_str = f'set{variable}>>{value:.6f}'
             cmd_label = f'set({variable}, {value:.6f})'
+        elif isinstance(value, str):
+            cmd_str = f'set{variable}>>{value}'
+            cmd_label = f'set({variable}, {value})'
         else:
             cmd_str = f'get{variable}>>'
             cmd_label = f'get({variable})'
 
         if not self.is_valid():
             api_error.warning(f'Failed to execute "{cmd_label}"',
-                              f'GeecsDevice "{self.dev_name}" not connected')
+                              f'GeecsDevice "{self.__dev_name}" not connected')
             return False, '', (None, None)
 
         executed = False
@@ -184,7 +194,7 @@ class GeecsDevice:
                 executed = True
 
         except Exception as ex:
-            api_error.error(str(ex), f'GeecsDevice "{self.dev_name}", method "{cmd_label}"')
+            api_error.error(str(ex), f'GeecsDevice "{self.__dev_name}", method "{cmd_label}"')
 
         return executed, cmd_label, async_thread
 
@@ -200,9 +210,26 @@ class GeecsDevice:
             if err_status:
                 print(api_error)
 
-            if dev_name != self.dev_name:
-                warn = ErrorAPI('Mismatch in device name', f'Class {self.__class__}, method "handle_response"')
+            if dev_name != self.__dev_name:
+                warn = ErrorAPI('Mismatch in device name', f'Class {self.__class_name}, method "handle_response"')
                 print(warn)
+
+            try:
+                dev_val = float(dev_val)
+            except Exception:
+                pass
+
+            if dev_name == self.get_name() and cmd_received[:3] == 'get':
+                var_alias = self.var_aliases[cmd_received[3:]][0]
+                self.state[var_alias] = dev_val
+                dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
+                print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} = {dev_val}')
+
+            if dev_name == self.get_name() and cmd_received[:3] == 'set':
+                var_alias = self.var_aliases[cmd_received[3:]][0]
+                self.setpoints[var_alias] = dev_val
+                dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
+                print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} set to {dev_val}')
 
             # if not net_msg.stamp:
             #     net_msg.stamp = 'no timestamp'
@@ -215,7 +242,7 @@ class GeecsDevice:
             return dev_name, cmd_received, dev_val, err_status
 
         except Exception as ex:
-            err = ErrorAPI(str(ex), 'Class GeecsDevice, method "subscription_handler"')
+            err = ErrorAPI(str(ex), f'Class {self.__class_name}, method "subscription_handler"')
             print(err)
             return '', '', '', ''
 
@@ -238,10 +265,17 @@ class GeecsDevice:
             #     else:
             #         msg_str += f'\n\t{var}: {val}'
             # print(msg_str)
+
+            if dev_name == self.get_name() and dict_vals:
+                for var, val in dict_vals.items():
+                    if var in self.var_aliases:
+                        var_alias = self.var_aliases[var][0]
+                        self.state[var_alias] = val
+
             return dev_name, shot_nb, dict_vals
 
         except Exception as ex:
-            err = ErrorAPI(str(ex), 'Class GeecsDevice, method "subscription_handler"')
+            err = ErrorAPI(str(ex), f'Class {self.__class_name}, method "subscription_handler"')
             print(err)
             return '', 0, {}
 
@@ -255,8 +289,18 @@ class GeecsDevice:
         dev_name = blocks[0]
         shot_nb = int(blocks[1])
         vars_vals = pattern.findall(blocks[-1])
-        dict_vals = {vars_vals[i].split(',')[0][:-5].strip(): float(vars_vals[i].split(',')[1][:-5])
-                     for i in range(len(vars_vals))}
+        dict_vals = {}
+
+        for i in range(len(vars_vals)):
+            try:
+                value = float(vars_vals[i].split(',')[1][:-5])
+            except Exception:
+                value = vars_vals[i].split(',')[1][:-5]
+
+            dict_vals[vars_vals[i].split(',')[0][:-5].strip()] = value
+
+        # dict_vals = {vars_vals[i].split(',')[0][:-5].strip(): float(vars_vals[i].split(',')[1][:-5])
+        #              for i in range(len(vars_vals))}
 
         return dev_name, shot_nb, dict_vals
 
@@ -283,8 +327,8 @@ if __name__ == '__main__':
     devs = GeecsDatabase.find_experiment_variables('Undulator')
     # _dev_name = 'U_ESP_JetXYZ'
     _dev_name = 'U_Hexapod'
-    dev = GeecsDevice(_dev_name)
-    dev.list_variables(devs)
+    dev = GeecsDevice(_dev_name, devs)
+    # dev.list_variables(devs)
     dev.register_var_listener_handler()
     dev.register_cmd_executed_handler()
 

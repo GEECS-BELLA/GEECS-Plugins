@@ -18,9 +18,7 @@ class GasJet(GeecsDevice):
             return
         self.__initialized = True
 
-        super().__init__('')  # virtual device
-        self.dev_name = 'gas_jet'
-
+        super().__init__('gas_jet', None, virtual=True)
         self.stage = GasJetStage(exp_vars)
         self.pressure = GasJetPressure(exp_vars)
 
@@ -44,16 +42,16 @@ if __name__ == '__main__':
 
     # retrieve currently known positions
     try:
-        print(f'Jet state:\n\t{jet.stage.gets}')
-        print(f'Jet config:\n\t{jet.stage.sets}')
+        print(f'Jet state:\n\t{jet.stage.state}')
+        print(f'Jet config:\n\t{jet.stage.setpoints}')
     except Exception as e:
         api_error.error(str(e), 'Demo code for gas jet')
         pass
 
     # set X-position
     x_alias = jet.stage.get_axis_var_alias(0)
-    if x_alias in jet.gets:
-        new_pos = round(10 * (jet.stage.gets[x_alias] + 0.0)) / 10.
+    if x_alias in jet.state:
+        new_pos = round(10 * (jet.stage.state[x_alias] + 0.0)) / 10.
         is_set, _, exe_thread = jet.stage.set_position(0, new_pos, sync=False)
         print(f'Position set @ {new_pos}: {is_set}')
         print('Main thread not blocked!')
@@ -72,8 +70,8 @@ if __name__ == '__main__':
     # retrieve currently known positions
     time.sleep(1.0)
     try:
-        print(f'Jet state:\n\t{jet.gets}')
-        print(f'Jet config:\n\t{jet.sets}')
+        print(f'Jet state:\n\t{jet.stage.state}')
+        print(f'Jet config:\n\t{jet.stage.setpoints}')
     except Exception as e:
         api_error.error(str(e), 'Demo code for gas jet')
         pass

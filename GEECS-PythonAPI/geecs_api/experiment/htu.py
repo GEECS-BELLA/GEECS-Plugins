@@ -16,10 +16,13 @@ class HtuExp(Experiment):
         if self.__initialized:
             return
         self.__initialized = True
+
         super().__init__('Undulator')
 
         # Devices
         self.jet = HTU.GasJet(self.exp_devs)
+        self.jet.stage.subscribe_var_values()
+        self.jet.pressure.subscribe_var_values()
 
         self.devs = {
             'jet': self.jet
@@ -28,10 +31,17 @@ class HtuExp(Experiment):
 
 if __name__ == '__main__':
     htu = HtuExp()
-    htu.jet.stage.subscribe_var_values()
+
+    # htu.jet.stage.set_position('X', 7.6)
+    # htu.jet.pressure.set_pressure(0.)
+    # htu.jet.pressure.set_trigger(False)
+    htu.jet.pressure.get_trigger()
 
     time.sleep(1.0)
-    print(f'Jet state:\n\t{htu.devs["jet"].stage.gets}')
-    print(f'Jet config:\n\t{htu.devs["jet"].stage.sets}')
+    print(f'Stage state:\n\t{htu.jet.stage.state}')
+    print(f'Pressure state:\n\t{htu.jet.pressure.state}')
+
+    print(f'Stage setpoints:\n\t{htu.jet.stage.setpoints}')
+    print(f'Pressure setpoints:\n\t{htu.jet.pressure.setpoints}')
 
     htu.cleanup()

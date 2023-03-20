@@ -174,7 +174,8 @@ class TcpSubscriber:
                         stamp = dtime.now().__str__()
                         if self.subscribed:
                             try:
-                                net_msg = mh.NetworkMessage(tag=self.owner.dev_name, stamp=stamp, msg=this_msg, err=err)
+                                net_msg = mh.NetworkMessage(tag=self.owner.get_name(),
+                                                            stamp=stamp, msg=this_msg, err=err)
                                 self.owner.handle_subscription(net_msg, self.notifier, self.queue_msgs)
                             except Exception:
                                 api_error.error('Failed to handle TCP subscription',
