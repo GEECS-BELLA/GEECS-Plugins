@@ -1,3 +1,4 @@
+import time
 from typing import Any
 from geecs_api.devices.geecs_device import GeecsDevice
 from . import LaserCompressor
@@ -32,3 +33,15 @@ if __name__ == '__main__':
 
     # list experiment devices and variables
     exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
+
+    # create a laser
+    laser = Laser(exp_devs)
+
+    # retrieve currently known compressor positions and setpoints
+    time.sleep(1.0)
+    try:
+        print(f'Compressor state:\n\t{laser.compressor.state}')
+        print(f'Compressor config:\n\t{laser.compressor.setpoints}')
+    except Exception as e:
+        api_error.error(str(e), 'Demo code for laser')
+        pass
