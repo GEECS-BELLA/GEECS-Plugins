@@ -1,1 +1,2 @@
-from geecs_api.devices.HTU.gas_jet.gas_jet import GasJet
+from .gas_jet.gas_jet import GasJet
+from .laser.laser import Laser

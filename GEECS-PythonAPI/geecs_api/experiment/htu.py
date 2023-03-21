@@ -1,5 +1,5 @@
 import time
-from geecs_api.devices import HTU
+from geecs_api.devices.HTU import GasJet, Laser
 from geecs_api.experiment import Experiment
 
 
@@ -20,12 +20,12 @@ class HtuExp(Experiment):
         super().__init__('Undulator')
 
         # Devices
-        self.jet = HTU.GasJet(self.exp_devs)
-        self.jet.stage.subscribe_var_values()
-        self.jet.pressure.subscribe_var_values()
+        self.jet = GasJet(self.exp_devs)
+        self.laser = Laser(self.exp_devs)
 
         self.devs = {
-            'jet': self.jet
+            'jet': self.jet,
+            'laser': self.laser
         }
 
 
@@ -34,14 +34,18 @@ if __name__ == '__main__':
 
     # htu.jet.stage.set_position('X', 7.6)
     # htu.jet.pressure.set_pressure(0.)
-    # htu.jet.pressure.set_trigger(False)
-    htu.jet.pressure.get_trigger()
+    # htu.jet.trigger.set_status(False)
+    # htu.jet.blade.set_depth(-17.)
+
+    htu.laser.compressor.get_separation()
 
     time.sleep(1.0)
-    print(f'Stage state:\n\t{htu.jet.stage.state}')
-    print(f'Pressure state:\n\t{htu.jet.pressure.state}')
+    print(f'Compressor state:\n\t{htu.laser.compressor.state}')
+    # print(f'Stage state:\n\t{htu.jet.stage.state}')
+    # print(f'Pressure state:\n\t{htu.jet.pressure.state}')
+    # print(f'Trigger state:\n\t{htu.jet.trigger.state}')
+    # print(f'Blade state:\n\t{htu.jet.blade.state}')
 
-    print(f'Stage setpoints:\n\t{htu.jet.stage.setpoints}')
-    print(f'Pressure setpoints:\n\t{htu.jet.pressure.setpoints}')
+    # print(f'Stage setpoints:\n\t{htu.jet.stage.setpoints}')
 
     htu.cleanup()

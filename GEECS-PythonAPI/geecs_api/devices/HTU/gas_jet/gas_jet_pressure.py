@@ -23,11 +23,9 @@ class GasJetPressure(GeecsDevice):
 
         super().__init__('U_HP_Daq', exp_vars)
 
-        aliases = ['PressureControlVoltage',
-                   'trigger']
+        aliases = ['PressureControlVoltage']
         self.get_var_dicts(aliases)
         self.var_pressure = self.var_names.get(0)[0]
-        self.var_trigger = self.var_names.get(1)[0]
 
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
@@ -39,15 +37,6 @@ class GasJetPressure(GeecsDevice):
     def set_pressure(self, value: float, exec_timeout: float = 10.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         return self.set(self.var_pressure, value=value, exec_timeout=exec_timeout, sync=sync)
-
-    def get_trigger(self, exec_timeout: float = 2.0, sync=True) \
-            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        return self.get(self.var_trigger, exec_timeout=exec_timeout, sync=sync)
-
-    def set_trigger(self, value: bool, exec_timeout: float = 2.0, sync=True) \
-            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        value = 'on' if value else 'off'
-        return self.set(self.var_trigger, value=value, exec_timeout=exec_timeout, sync=sync)
 
 
 if __name__ == '__main__':

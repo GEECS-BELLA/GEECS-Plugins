@@ -1,7 +1,7 @@
 import time
 from typing import Any
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.gas_jet import GasJetStage, GasJetPressure
+from . import GasJetStage, GasJetPressure, GasJetTrigger, GasJetBlade
 from geecs_api.interface import GeecsDatabase, api_error
 
 
@@ -21,10 +21,19 @@ class GasJet(GeecsDevice):
         super().__init__('gas_jet', None, virtual=True)
         self.stage = GasJetStage(exp_vars)
         self.pressure = GasJetPressure(exp_vars)
+        self.trigger = GasJetTrigger(exp_vars)
+        self.blade = GasJetBlade(exp_vars)
+
+        self.stage.subscribe_var_values()
+        self.pressure.subscribe_var_values()
+        self.trigger.subscribe_var_values()
+        self.blade.subscribe_var_values()
 
     def cleanup(self):
         self.stage.cleanup()
         self.pressure.cleanup()
+        self.trigger.cleanup()
+        self.blade.cleanup()
 
 
 if __name__ == '__main__':
