@@ -1,5 +1,5 @@
 import re
-import time
+import inspect
 from queue import Queue
 from threading import Thread, Condition, Event
 from typing import Optional, Any
@@ -214,19 +214,16 @@ class GeecsDevice:
                 warn = ErrorAPI('Mismatch in device name', f'Class {self.__class_name}, method "handle_response"')
                 print(warn)
 
-            try:
-                dev_val = float(dev_val)
-            except Exception:
-                pass
-
             if dev_name == self.get_name() and cmd_received[:3] == 'get':
                 var_alias = self.var_aliases[cmd_received[3:]][0]
+                dev_val = self.interpret_value(var_alias, dev_val)
                 self.state[var_alias] = dev_val
                 dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
                 print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} = {dev_val}')
 
             if dev_name == self.get_name() and cmd_received[:3] == 'set':
                 var_alias = self.var_aliases[cmd_received[3:]][0]
+                dev_val = self.interpret_value(var_alias, dev_val)
                 self.setpoints[var_alias] = dev_val
                 dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
                 print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} set to {dev_val}')
@@ -242,13 +239,13 @@ class GeecsDevice:
             return dev_name, cmd_received, dev_val, err_status
 
         except Exception as ex:
-            err = ErrorAPI(str(ex), f'Class {self.__class_name}, method "subscription_handler"')
+            err = ErrorAPI(str(ex), f'Class {self.__class_name}, method "{inspect.stack()[0][3]}"')
             print(err)
             return '', '', '', ''
 
     def handle_subscription(self, net_msg: mh.NetworkMessage,
                             notifier: Optional[Condition] = None,
-                            queue_msgs: Optional[Queue] = None) -> tuple[str, int, dict[str, float]]:
+                            queue_msgs: Optional[Queue] = None) -> tuple[str, int, dict[str, str]]:
         try:
             dev_name, shot_nb, dict_vals = GeecsDevice._subscription_parser(net_msg.msg)
 
@@ -269,18 +266,21 @@ class GeecsDevice:
             if dev_name == self.get_name() and dict_vals:
                 for var, val in dict_vals.items():
                     if var in self.var_aliases:
-                        var_alias = self.var_aliases[var][0]
-                        self.state[var_alias] = val
+                        var_alias: str = self.var_aliases[var][0]
+                        self.state[var_alias] = self.interpret_value(var_alias, val)
 
             return dev_name, shot_nb, dict_vals
 
         except Exception as ex:
-            err = ErrorAPI(str(ex), f'Class {self.__class_name}, method "subscription_handler"')
+            err = ErrorAPI(str(ex), f'Class {self.__class_name}, method "{inspect.stack()[0][3]}"')
             print(err)
             return '', 0, {}
 
+    def interpret_value(self, var_alias: str, val_string: str) -> Any:
+        return float(val_string)
+
     @staticmethod
-    def _subscription_parser(msg: str = '') -> tuple[str, int, dict[str, float]]:
+    def _subscription_parser(msg: str = '') -> tuple[str, int, dict[str, str]]:
         """ General parser to be called when messages are received. """
 
         # msg = 'U_S2V>>0>>Current nval, -0.000080 nvar, Voltage nval,0.002420 nvar,'
@@ -289,18 +289,9 @@ class GeecsDevice:
         dev_name = blocks[0]
         shot_nb = int(blocks[1])
         vars_vals = pattern.findall(blocks[-1])
-        dict_vals = {}
 
-        for i in range(len(vars_vals)):
-            try:
-                value = float(vars_vals[i].split(',')[1][:-5])
-            except Exception:
-                value = vars_vals[i].split(',')[1][:-5]
-
-            dict_vals[vars_vals[i].split(',')[0][:-5].strip()] = value
-
-        # dict_vals = {vars_vals[i].split(',')[0][:-5].strip(): float(vars_vals[i].split(',')[1][:-5])
-        #              for i in range(len(vars_vals))}
+        dict_vals = {vars_vals[i].split(',')[0][:-5].strip(): vars_vals[i].split(',')[1][:-5]
+                     for i in range(len(vars_vals))}
 
         return dev_name, shot_nb, dict_vals
 
@@ -319,6 +310,21 @@ class GeecsDevice:
             api_error.error(err_msg, f'Failed to execute command "{cmd_received}", error originated in control system')
 
         return dev_name, cmd_received, dev_val, err_status
+
+    def coerce_float(self, var_name: str, method: str, value: float, span: list[Optional[float]]) -> float:
+        try:
+            if span[0] and value < span[0]:
+                api_error.warning(f'{var_name} value coerced from {value} to {span[0]}',
+                                  f'Class {self.__class_name}, method "{method}"')
+                value = span[0]
+            if span[1] and value > span[1]:
+                api_error.warning(f'{var_name} value coerced from {value} to {span[1]}',
+                                  f'Class {self.__class_name}, method "{method}"')
+                value = span[1]
+        except Exception:
+            api_error.error('Failed to coerce value')
+
+        return value
 
 
 if __name__ == '__main__':

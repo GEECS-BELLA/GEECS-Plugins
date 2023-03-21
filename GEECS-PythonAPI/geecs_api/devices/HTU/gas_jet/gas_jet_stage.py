@@ -1,5 +1,6 @@
 from __future__ import annotations
 import time
+import inspect
 from typing import Optional, Any
 from threading import Thread, Event
 from geecs_api.devices.geecs_device import GeecsDevice
@@ -18,7 +19,12 @@ class GasJetStage(GeecsDevice):
         if self.__initialized:
             return
         self.__initialized = True
+
         super().__init__('U_ESP_JetXYZ', exp_vars)
+
+        self.__spans = [[None, None],
+                        [None, -8.0],
+                        [None, None]]
 
         aliases = ['Jet_X (mm)',
                    'Jet_Y (mm)',
@@ -64,7 +70,10 @@ class GasJetStage(GeecsDevice):
         if axis < 0 or axis > 2:
             return False, '', (None, None)
 
-        return self.set(self.get_axis_var_name(axis), value=value, exec_timeout=exec_timeout, sync=sync)
+        var_name = self.get_axis_var_alias(axis)
+        value = self.coerce_float(var_name, inspect.stack()[0][3], value, self.__spans[axis])
+
+        return self.set(var_name, value=value, exec_timeout=exec_timeout, sync=sync)
 
 
 if __name__ == '__main__':

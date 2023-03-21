@@ -1,4 +1,3 @@
-import time
 from typing import Any
 from geecs_api.devices.geecs_device import GeecsDevice
 from . import LaserCompressor
@@ -19,6 +18,7 @@ class Laser(GeecsDevice):
         self.__initialized = True
 
         super().__init__('laser', None, virtual=True)
+
         self.compressor = LaserCompressor(exp_vars)
 
         self.compressor.subscribe_var_values()

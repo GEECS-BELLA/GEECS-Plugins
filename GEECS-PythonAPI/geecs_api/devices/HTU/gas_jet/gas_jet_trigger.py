@@ -34,6 +34,12 @@ class GasJetTrigger(GeecsDevice):
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
+    def interpret_value(self, var_alias: str, val_string: str) -> Any:
+        if var_alias == self.var_names.get(0)[1]:  # status
+            return float(val_string) > 2.5
+        else:  # start or duration
+            return float(val_string)
+
     def get_status(self, exec_timeout: float = 2.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         return self.get(self.var_trigger, exec_timeout=exec_timeout, sync=sync)

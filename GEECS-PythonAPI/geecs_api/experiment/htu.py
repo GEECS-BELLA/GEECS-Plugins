@@ -20,12 +20,12 @@ class HtuExp(Experiment):
         super().__init__('Undulator')
 
         # Devices
-        self.jet = GasJet(self.exp_devs)
         self.laser = Laser(self.exp_devs)
+        self.jet = GasJet(self.exp_devs)
 
         self.devs = {
-            'jet': self.jet,
-            'laser': self.laser
+            'laser': self.laser,
+            'jet': self.jet
         }
 
 

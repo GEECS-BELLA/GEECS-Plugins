@@ -1,5 +1,6 @@
 from __future__ import annotations
 import time
+import inspect
 from typing import Optional, Any
 from threading import Thread, Event
 from geecs_api.devices.geecs_device import GeecsDevice
@@ -23,6 +24,8 @@ class GasJetPressure(GeecsDevice):
 
         super().__init__('U_HP_Daq', exp_vars)
 
+        self.__spans = [[0.0, 400.]]
+
         aliases = ['PressureControlVoltage']
         self.get_var_dicts(aliases)
         self.var_pressure = self.var_names.get(0)[0]
@@ -30,12 +33,19 @@ class GasJetPressure(GeecsDevice):
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
+    def interpret_value(self, var_alias: str, val_string: str) -> Any:
+        if var_alias == self.var_names.get(0)[1]:  # pressure
+            return 100. * float(val_string)
+        else:
+            return val_string
+
     def get_pressure(self, exec_timeout: float = 2.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         return self.get(self.var_pressure, exec_timeout=exec_timeout, sync=sync)
 
     def set_pressure(self, value: float, exec_timeout: float = 10.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+        value = self.coerce_float(self.var_pressure, inspect.stack()[0][3], value, self.__spans[0]) / 100.
         return self.set(self.var_pressure, value=value, exec_timeout=exec_timeout, sync=sync)
 
 

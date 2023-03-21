@@ -30,10 +30,6 @@ class LaserCompressor(GeecsDevice):
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
-    def get_separation(self, exec_timeout: float = 2.0, sync=True) \
-            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        return self.get(self.var_separation, exec_timeout=exec_timeout, sync=sync)
-
     def get_angle_1(self, exec_timeout: float = 2.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         return self.get(self.var_angle_1, exec_timeout=exec_timeout, sync=sync)
@@ -41,6 +37,10 @@ class LaserCompressor(GeecsDevice):
     def get_angle_2(self, exec_timeout: float = 2.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         return self.get(self.var_angle_2, exec_timeout=exec_timeout, sync=sync)
+
+    def get_separation(self, exec_timeout: float = 2.0, sync=True) \
+            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+        return self.get(self.var_separation, exec_timeout=exec_timeout, sync=sync)
 
     def set_separation(self, value: float, exec_timeout: float = 10.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
