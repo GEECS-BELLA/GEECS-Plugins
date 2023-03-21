@@ -22,8 +22,8 @@ class GasJetStage(GeecsDevice):
 
         super().__init__('U_ESP_JetXYZ', exp_vars)
 
-        self.__spans = [[None, None],
-                        [None, -8.0],
+        self.__spans = [[None, None],  # [min, max]
+                        [-8.0, None],
                         [None, None]]
 
         aliases = ['Jet_X (mm)',
@@ -70,10 +70,10 @@ class GasJetStage(GeecsDevice):
         if axis < 0 or axis > 2:
             return False, '', (None, None)
 
-        var_name = self.get_axis_var_alias(axis)
-        value = self.coerce_float(var_name, inspect.stack()[0][3], value, self.__spans[axis])
+        var_alias = self.get_axis_var_alias(axis)
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__spans[axis])
 
-        return self.set(var_name, value=value, exec_timeout=exec_timeout, sync=sync)
+        return self.set(self.get_axis_var_name(axis), value=value, exec_timeout=exec_timeout, sync=sync)
 
 
 if __name__ == '__main__':
@@ -88,46 +88,12 @@ if __name__ == '__main__':
     print(f'Only one jet: {jet is other_jet}')
     print(f'Variables subscription: {jet.subscribe_var_values()}')
 
-    # get X-position
+    # set position
     time.sleep(1.0)
-    # jet.get_position('X', sync=True)
+    print(f'Jet state: {jet.state}')
+    # jet.get_position('Y', sync=True)
+    jet.set_position('Y', jet.state[jet.get_axis_var_alias(1)])
 
-    # retrieve currently known positions
-    try:
-        print(f'Jet state:\n\t{jet.state}')
-        print(f'Jet config:\n\t{jet.setpoints}')
-    except Exception as e:
-        api_error.error(str(e), 'Demo code for gas jet')
-        pass
-
-    # set X-position
-    x_alias = jet.get_axis_var_alias(0)
-    if x_alias in jet.state:
-        new_pos = round(10 * (jet.state[x_alias] - 0.1)) / 10.
-        is_set, _, exe_thread = jet.set_position(0, new_pos, sync=False)
-        print(f'Position set @ {new_pos}: {is_set}')
-        print('Main thread not blocked!')
-    else:
-        is_set = False
-        exe_thread = (None, None)
-
-    # sync
-    if exe_thread[0]:
-        is_done = jet.wait_for(exe_thread[0], 120.0)
-    else:
-        is_done = jet.wait_for_all_cmds(120.0)
-        # is_done = dev.wait_for_last_cmd(120.0)
-    print(f'Thread terminated: {is_done}')
-
-    # retrieve currently known positions
-    # jet.get_position('X', sync=True)
-    time.sleep(1.0)
-    try:
-        print(f'Jet state:\n\t{jet.state}')
-        print(f'Jet config:\n\t{jet.setpoints}')
-    except Exception as e:
-        api_error.error(str(e), 'Demo code for gas jet')
-        pass
-
+    print(f'Jet state: {jet.state}')
     jet.cleanup()
     print(api_error)

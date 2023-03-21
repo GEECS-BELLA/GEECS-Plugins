@@ -59,11 +59,8 @@ if __name__ == '__main__':
     jet_pressure = GasJetPressure(exp_devs)
     print(f'Variables subscription: {jet_pressure.subscribe_var_values()}')
 
-    # get X-position
-    time.sleep(1.0)
-    # jet.get_position('X', sync=True)
-
     # retrieve currently known positions
+    time.sleep(1.0)
     try:
         print(f'Pressure state:\n\t{jet_pressure.state}')
         print(f'Pressure config:\n\t{jet_pressure.setpoints}')

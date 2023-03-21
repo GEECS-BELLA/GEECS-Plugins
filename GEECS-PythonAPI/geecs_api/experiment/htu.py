@@ -32,19 +32,19 @@ class HtuExp(Experiment):
 if __name__ == '__main__':
     htu = HtuExp()
 
-    # htu.jet.stage.set_position('X', 7.6)
-    # htu.jet.pressure.set_pressure(0.)
-    # htu.jet.trigger.set_status(False)
-    # htu.jet.blade.set_depth(-17.)
-
-    htu.laser.compressor.get_separation()
+    time.sleep(1.0)
+    # htu.jet.stage.set_position('X', 7.5)
+    # htu.jet.pressure.set_pressure(290.)
+    # htu.jet.trigger.run(False)
+    # htu.jet.blade.set_depth(-17.1)
+    # htu.laser.compressor.get_separation()
 
     time.sleep(1.0)
     print(f'Compressor state:\n\t{htu.laser.compressor.state}')
-    # print(f'Stage state:\n\t{htu.jet.stage.state}')
-    # print(f'Pressure state:\n\t{htu.jet.pressure.state}')
-    # print(f'Trigger state:\n\t{htu.jet.trigger.state}')
-    # print(f'Blade state:\n\t{htu.jet.blade.state}')
+    print(f'Stage state:\n\t{htu.jet.stage.state}')
+    print(f'Pressure state:\n\t{htu.jet.pressure.state}')
+    print(f'Trigger state:\n\t{htu.jet.trigger.state}')
+    print(f'Blade state:\n\t{htu.jet.blade.state}')
 
     # print(f'Stage setpoints:\n\t{htu.jet.stage.setpoints}')
 

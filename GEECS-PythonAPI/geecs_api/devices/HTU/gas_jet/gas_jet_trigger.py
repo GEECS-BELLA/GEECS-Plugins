@@ -1,5 +1,4 @@
 from __future__ import annotations
-import time
 from typing import Optional, Any
 from threading import Thread, Event
 from geecs_api.devices.geecs_device import GeecsDevice
@@ -40,11 +39,11 @@ class GasJetTrigger(GeecsDevice):
         else:  # start or duration
             return float(val_string)
 
-    def get_status(self, exec_timeout: float = 2.0, sync=True) \
+    def is_running(self, exec_timeout: float = 2.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         return self.get(self.var_trigger, exec_timeout=exec_timeout, sync=sync)
 
-    def set_status(self, value: bool, exec_timeout: float = 10.0, sync=True) \
+    def run(self, value: bool, exec_timeout: float = 10.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         value = 4.0 if value else 0.5
         return self.set(self.var_trigger, value=value, exec_timeout=exec_timeout, sync=sync)

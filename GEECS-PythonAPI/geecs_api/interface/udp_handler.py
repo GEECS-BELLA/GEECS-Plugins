@@ -229,8 +229,7 @@ class UdpServer:
                 try:
                     self.owner.handle_response(net_msg, self.notifier, self.queue_msgs)
                 except Exception:
-                    api_error.error('Failed to handle TCP subscription',
-                                    'TcpSubscriber class, method "async_listener"')
+                    api_error.error('Failed to handle UDP response', 'UdpServer class, method "listen"')
 
         except Exception:
             api_error.error('Failed to publish UDP message', 'UdpServer class, method "listen"')

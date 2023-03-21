@@ -207,9 +207,6 @@ class GeecsDevice:
             if net_msg.err.is_error or net_msg.err.is_warning:
                 print(net_msg.err)
 
-            if err_status:
-                print(api_error)
-
             if dev_name != self.__dev_name:
                 warn = ErrorAPI('Mismatch in device name', f'Class {self.__class_name}, method "handle_response"')
                 print(warn)
@@ -228,14 +225,6 @@ class GeecsDevice:
                 dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
                 print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} set to {dev_val}')
 
-            # if not net_msg.stamp:
-            #     net_msg.stamp = 'no timestamp'
-            #
-            # msg_str = f'Command message:\n\tStamp: {net_msg.stamp}\n\tDevice: {dev_name}\n\tCommand: {cmd_received}'
-            # if dev_val:
-            #     msg_str += f'\n\tValue: {dev_val}'
-            #
-            # print(msg_str)
             return dev_name, cmd_received, dev_val, err_status
 
         except Exception as ex:
@@ -251,17 +240,6 @@ class GeecsDevice:
 
             if net_msg.err.is_error or net_msg.err.is_warning:
                 print(net_msg.err)
-
-            # if not net_msg.stamp:
-            #     net_msg.stamp = 'no timestamp'
-            #
-            # msg_str = f'Subscription message:\n\tStamp: {net_msg.stamp}\n\tDevice: {dev_name}\n\tShot: {shot_nb}'
-            # for var, val in dict_vals.items():
-            #     if var in self.dev_vars:
-            #         msg_str += f'\n\t{self.dev_vars[var]["alias"]}: {val}'
-            #     else:
-            #         msg_str += f'\n\t{var}: {val}'
-            # print(msg_str)
 
             if dev_name == self.get_name() and dict_vals:
                 for var, val in dict_vals.items():
