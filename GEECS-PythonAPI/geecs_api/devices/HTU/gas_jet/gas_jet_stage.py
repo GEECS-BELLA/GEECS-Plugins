@@ -55,7 +55,7 @@ class GasJetStage(GeecsDevice):
 
         return self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
 
-    def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 10.0, sync=True) \
+    def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 30.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         if isinstance(axis, str):
             if len(axis) == 1:

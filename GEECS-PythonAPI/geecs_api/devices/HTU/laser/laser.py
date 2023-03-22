@@ -1,7 +1,10 @@
 import time
 from typing import Any
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.laser.laser_compressor import LaserCompressor
+from . import LaserCompressor
+from .seed import Seed
+from .pump import Pump
+# from geecs_api.devices.HTU.laser.laser_compressor import LaserCompressor
 from geecs_api.interface import GeecsDatabase, api_error
 
 
@@ -21,11 +24,16 @@ class Laser(GeecsDevice):
         super().__init__('laser', None, virtual=True)
 
         self.compressor = LaserCompressor(exp_vars)
+        self.seed_laser = Seed(exp_vars)
+        self.pump_laser = Pump(exp_vars)
 
         self.compressor.subscribe_var_values()
+        self.pump_laser.subscribe_var_values()
 
     def cleanup(self):
         self.compressor.cleanup()
+        self.seed_laser.cleanup()
+        self.pump_laser.cleanup()
 
 
 if __name__ == '__main__':

@@ -165,6 +165,9 @@ class GeecsDevice:
         elif isinstance(value, str):
             cmd_str = f'set{variable}>>{value}'
             cmd_label = f'set({variable}, {value})'
+        elif isinstance(value, bool):
+            cmd_str = f'set{variable}>>{int(value)}'
+            cmd_label = f'set({variable}, {value})'
         else:
             cmd_str = f'get{variable}>>'
             cmd_label = f'get({variable})'

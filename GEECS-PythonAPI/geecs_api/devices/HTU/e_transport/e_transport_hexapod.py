@@ -41,7 +41,7 @@ class TransportHexapod(GeecsDevice):
 
         return self.get(self.var_names_by_index.get(axis)[0], exec_timeout=exec_timeout, sync=sync)
 
-    def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 2.0, sync=True) \
+    def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 60.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
         if len(axis) == 1:
             axis = ord(axis.upper()) - ord('X')
@@ -64,7 +64,7 @@ if __name__ == '__main__':
     # list experiment devices and variables
     exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
 
-    # create laser compressor object
+    # create object
     hexapod = TransportHexapod(exp_devs)
     print(f'Variables subscription: {hexapod.subscribe_var_values()}')
 
@@ -77,5 +77,6 @@ if __name__ == '__main__':
         api_error.error(str(e), 'Demo code')
         pass
 
+    # close
     hexapod.cleanup()
     print(api_error)
