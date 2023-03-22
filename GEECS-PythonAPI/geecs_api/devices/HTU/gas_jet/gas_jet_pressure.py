@@ -24,7 +24,7 @@ class GasJetPressure(GeecsDevice):
 
         super().__init__('U_HP_Daq', exp_vars)
 
-        self.__spans = [[0.0, 400.]]
+        self.__spans = [[0.0, 800.]]
 
         aliases = ['PressureControlVoltage']
         self.get_var_dicts(aliases)

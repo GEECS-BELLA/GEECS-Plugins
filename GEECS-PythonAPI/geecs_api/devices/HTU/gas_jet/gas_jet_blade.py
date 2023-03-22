@@ -17,7 +17,10 @@ class GasJetBlade(GeecsDevice):
         if self.__initialized:
             return
         self.__initialized = True
+
         super().__init__('U_ModeImagerESP', exp_vars)
+
+        self.__spans = [[-17.5, -16.]]
 
         aliases = ['JetBlade']
         self.get_var_dicts(aliases)

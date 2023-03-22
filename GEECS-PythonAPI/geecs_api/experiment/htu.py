@@ -33,7 +33,7 @@ if __name__ == '__main__':
     htu = HtuExp()
 
     time.sleep(1.0)
-    # htu.jet.stage.set_position('X', 7.5)
+    htu.jet.stage.set_position('X', 7.5)
     # htu.jet.pressure.set_pressure(290.)
     # htu.jet.trigger.run(False)
     # htu.jet.blade.set_depth(-17.1)

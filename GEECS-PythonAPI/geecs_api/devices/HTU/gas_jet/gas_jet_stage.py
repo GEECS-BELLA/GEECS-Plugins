@@ -22,9 +22,9 @@ class GasJetStage(GeecsDevice):
 
         super().__init__('U_ESP_JetXYZ', exp_vars)
 
-        self.__spans = [[None, None],  # [min, max]
-                        [-8.0, None],
-                        [None, None]]
+        self.__spans = [(2., 10.),  # [min, max]
+                        (-8., -1.),
+                        (0., 25.)]
 
         aliases = ['Jet_X (mm)',
                    'Jet_Y (mm)',

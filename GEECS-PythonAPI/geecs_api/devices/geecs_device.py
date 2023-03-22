@@ -289,7 +289,8 @@ class GeecsDevice:
 
         return dev_name, cmd_received, dev_val, err_status
 
-    def coerce_float(self, var_name: str, method: str, value: float, span: list[Optional[float]]) -> float:
+    def coerce_float(self, var_name: str, method: str, value: float,
+                     span: tuple[Optional[float], Optional[float]]) -> float:
         try:
             if span[0] and value < span[0]:
                 api_error.warning(f'{var_name} value coerced from {value} to {span[0]}',
