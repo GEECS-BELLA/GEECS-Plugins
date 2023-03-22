@@ -21,17 +21,13 @@ class LaserCompressor(GeecsDevice):
         self.__initialized = True
         super().__init__('U_CompAerotech', exp_vars)
 
-        self.__spans = [[40000., 46000.],
-                        [None, None],
-                        [None, None]]
-
-        aliases = ['Grating separation (um)',
-                   'Grating1 angle',
-                   'Grating2 angle']
-        self.get_var_dicts(aliases)
-        self.var_separation = self.var_names.get(0)[0]
-        self.var_angle_1 = self.var_names.get(1)[0]
-        self.var_angle_2 = self.var_names.get(2)[0]
+        self.__variables = {'Grating separation (um)': (40000., 46000.),
+                            'Grating1 angle': (None, None),
+                            'Grating2 angle': (None, None)}
+        self.get_var_dicts(tuple(self.__variables.keys()))
+        self.var_separation = self.var_names_by_index.get(0)[0]
+        self.var_angle_1 = self.var_names_by_index.get(1)[0]
+        self.var_angle_2 = self.var_names_by_index.get(2)[0]
 
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
@@ -50,8 +46,8 @@ class LaserCompressor(GeecsDevice):
 
     def set_separation(self, value: float, exec_timeout: float = 10.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        value = self.coerce_float(self.var_aliases[self.var_separation][0],
-                                  inspect.stack()[0][3], value, self.__spans[0])
+        var_alias = self.var_aliases_by_name[self.var_separation][0]
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
         return self.set(self.var_separation, value=value, exec_timeout=exec_timeout, sync=sync)
 
 

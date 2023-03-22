@@ -22,19 +22,19 @@ class GasJetTrigger(GeecsDevice):
 
         super().__init__('U_DG645_ShotControl', exp_vars)
 
-        aliases = ['Amplitude.Ch AB',
-                   'Delay.Ch A',
-                   'Delay.Ch B']
-        self.get_var_dicts(aliases)
-        self.var_trigger = self.var_names.get(0)[0]
-        self.var_start_time = self.var_names.get(1)[0]
-        self.var_duration = self.var_names.get(2)[0]
+        self.__variables = {'Amplitude.Ch AB': (None, None),
+                            'Delay.Ch A': (None, None),
+                            'Delay.Ch B': (None, None)}
+        self.get_var_dicts(tuple(self.__variables.keys()))
+        self.var_trigger = self.var_names_by_index.get(0)[0]
+        self.var_start_time = self.var_names_by_index.get(1)[0]
+        self.var_duration = self.var_names_by_index.get(2)[0]
 
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
     def interpret_value(self, var_alias: str, val_string: str) -> Any:
-        if var_alias == self.var_names.get(0)[1]:  # status
+        if var_alias == self.var_names_by_index.get(0)[1]:  # status
             return float(val_string) > 2.5
         else:  # start or duration
             return float(val_string)

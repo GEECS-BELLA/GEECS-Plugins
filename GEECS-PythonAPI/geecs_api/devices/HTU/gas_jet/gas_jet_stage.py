@@ -22,14 +22,10 @@ class GasJetStage(GeecsDevice):
 
         super().__init__('U_ESP_JetXYZ', exp_vars)
 
-        self.__spans = [(2., 10.),  # [min, max]
-                        (-8., -1.),
-                        (0., 25.)]
-
-        aliases = ['Jet_X (mm)',
-                   'Jet_Y (mm)',
-                   'Jet_Z (mm)']
-        self.get_var_dicts(aliases)
+        self.__variables = {'Jet_X (mm)': (2., 10.),  # [min, max]
+                            'Jet_Y (mm)': (-8., -1.),
+                            'Jet_Z (mm)': (0., 25.)}
+        self.get_var_dicts(tuple(self.__variables.keys()))
 
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
@@ -38,13 +34,13 @@ class GasJetStage(GeecsDevice):
         if axis < 0 or axis > 2:
             return ''
         else:
-            return self.var_names.get(axis)[0]
+            return self.var_names_by_index.get(axis)[0]
 
     def get_axis_var_alias(self, axis: int):
         if axis < 0 or axis > 2:
             return ''
         else:
-            return self.var_names.get(axis)[1]
+            return self.var_names_by_index.get(axis)[1]
 
     def get_position(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
@@ -71,7 +67,7 @@ class GasJetStage(GeecsDevice):
             return False, '', (None, None)
 
         var_alias = self.get_axis_var_alias(axis)
-        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__spans[axis])
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
 
         return self.set(self.get_axis_var_name(axis), value=value, exec_timeout=exec_timeout, sync=sync)
 

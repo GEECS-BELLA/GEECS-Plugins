@@ -25,8 +25,8 @@ class GeecsDevice:
         self.dev_port: int = 0
 
         self.dev_vars = {}
-        self.var_names = {}
-        self.var_aliases = {}
+        self.var_names_by_index = {}
+        self.var_aliases_by_name = {}
 
         self.setpoints = {}
         self.state = {}
@@ -84,7 +84,7 @@ class GeecsDevice:
         subscribed = False
 
         if self.is_valid() and variables is None:
-            variables = [var[0] for var in self.var_names.values()]
+            variables = [var[0] for var in self.var_names_by_index.values()]
 
         if self.is_valid() and variables:
             try:
@@ -130,11 +130,11 @@ class GeecsDevice:
 
         return var_name
 
-    def get_var_dicts(self, aliases: list[str]):
-        self.var_names: dict[int, tuple[str, str]] = \
+    def get_var_dicts(self, aliases: tuple[str]):
+        self.var_names_by_index: dict[int, tuple[str, str]] = \
             {index: (self.find_var_by_alias(aliases[index]), aliases[index]) for index in range(len(aliases))}
 
-        self.var_aliases: dict[str, tuple[str, int]] = \
+        self.var_aliases_by_name: dict[str, tuple[str, int]] = \
             {self.find_var_by_alias(aliases[index]): (aliases[index], index) for index in range(len(aliases))}
 
     def set(self, variable: str, value, exec_timeout: float = 120.0,
@@ -212,14 +212,14 @@ class GeecsDevice:
                 print(warn)
 
             if dev_name == self.get_name() and cmd_received[:3] == 'get':
-                var_alias = self.var_aliases[cmd_received[3:]][0]
+                var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
                 dev_val = self.interpret_value(var_alias, dev_val)
                 self.state[var_alias] = dev_val
                 dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
                 print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} = {dev_val}')
 
             if dev_name == self.get_name() and cmd_received[:3] == 'set':
-                var_alias = self.var_aliases[cmd_received[3:]][0]
+                var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
                 dev_val = self.interpret_value(var_alias, dev_val)
                 self.setpoints[var_alias] = dev_val
                 dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
@@ -243,8 +243,8 @@ class GeecsDevice:
 
             if dev_name == self.get_name() and dict_vals:
                 for var, val in dict_vals.items():
-                    if var in self.var_aliases:
-                        var_alias: str = self.var_aliases[var][0]
+                    if var in self.var_aliases_by_name:
+                        var_alias: str = self.var_aliases_by_name[var][0]
                         self.state[var_alias] = self.interpret_value(var_alias, val)
 
             return dev_name, shot_nb, dict_vals

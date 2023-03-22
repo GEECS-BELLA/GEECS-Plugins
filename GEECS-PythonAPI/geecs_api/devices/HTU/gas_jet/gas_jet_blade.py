@@ -1,4 +1,5 @@
 from __future__ import annotations
+import inspect
 from typing import Optional, Any
 from threading import Thread, Event
 from geecs_api.devices.geecs_device import GeecsDevice
@@ -20,11 +21,9 @@ class GasJetBlade(GeecsDevice):
 
         super().__init__('U_ModeImagerESP', exp_vars)
 
-        self.__spans = [[-17.5, -16.]]
-
-        aliases = ['JetBlade']
-        self.get_var_dicts(aliases)
-        self.var_depth = self.var_names.get(0)[0]
+        self.__variables = {'JetBlade': (-17.5, -16.)}
+        self.get_var_dicts(tuple(self.__variables.keys()))
+        self.var_depth = self.var_names_by_index.get(0)[0]
 
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
@@ -35,6 +34,8 @@ class GasJetBlade(GeecsDevice):
 
     def set_depth(self, value: float, exec_timeout: float = 10.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+        var_alias = self.var_aliases_by_name[self.var_depth][0]
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
         return self.set(self.var_depth, value=value, exec_timeout=exec_timeout, sync=sync)
 
 

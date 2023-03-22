@@ -1,3 +1,6 @@
+from typing import Optional
+
+
 class ErrorAPI(Exception):
 
     def __init__(self, message='', source='', warning=False):
@@ -17,12 +20,13 @@ class ErrorAPI(Exception):
         is_error = not warning and bool(message)
         is_warning = warning and bool(message)
 
-        if is_error or is_warning:  # temporary until basic error handler is written
-            print(ErrorAPI._print_str(message, source, is_warning, is_error))
-            self.clear()
-
         if not self.is_error and (is_error or not self.is_warning):
             self.is_error, self.is_warning, self.error_msg, self.error_src = [is_error, is_warning, message, source]
+
+        if is_error or is_warning:
+            self.error_handler((message, source, is_warning, is_error))
+        else:
+            self.error_handler(None)
 
     def error(self, message='', source=''):
         self.merge(message=message, source=source, warning=False)
@@ -33,6 +37,13 @@ class ErrorAPI(Exception):
     def clear(self):
         self.error_msg = self.error_src = ''
         self.is_error = self.is_warning = False
+
+    def error_handler(self, new_error: Optional[tuple[str, str, bool, bool]] = None):
+        if new_error:
+            print(ErrorAPI._print_str(new_error[0], new_error[1], new_error[2], new_error[3]))
+        elif self.is_error or self.is_warning:
+            print(ErrorAPI._print_str(self.error_msg, self.error_src, self.is_warning, self.is_error))
+        self.clear()
 
     @staticmethod
     def _print_str(message='', source='', warning=False, error=False):

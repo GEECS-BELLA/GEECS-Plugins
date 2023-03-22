@@ -24,17 +24,15 @@ class GasJetPressure(GeecsDevice):
 
         super().__init__('U_HP_Daq', exp_vars)
 
-        self.__spans = [[0.0, 800.]]
-
-        aliases = ['PressureControlVoltage']
-        self.get_var_dicts(aliases)
-        self.var_pressure = self.var_names.get(0)[0]
+        self.__variables = {'PressureControlVoltage': (0.0, 800.)}
+        self.get_var_dicts(tuple(self.__variables.keys()))
+        self.var_pressure = self.var_names_by_index.get(0)[0]
 
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
     def interpret_value(self, var_alias: str, val_string: str) -> Any:
-        if var_alias == self.var_names.get(0)[1]:  # pressure
+        if var_alias == self.var_names_by_index.get(0)[1]:  # pressure
             return 100. * float(val_string)
         else:
             return val_string
@@ -45,7 +43,8 @@ class GasJetPressure(GeecsDevice):
 
     def set_pressure(self, value: float, exec_timeout: float = 10.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        value = self.coerce_float(self.var_pressure, inspect.stack()[0][3], value, self.__spans[0]) / 100.
+        var_alias = self.var_aliases_by_name[self.var_pressure][0]
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias]) / 100.
         return self.set(self.var_pressure, value=value, exec_timeout=exec_timeout, sync=sync)
 
 
