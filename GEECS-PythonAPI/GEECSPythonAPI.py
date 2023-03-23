@@ -356,4 +356,10 @@ class OptimizationControl(GEECSDevice):
             else:
                 print("out of bounds")
                 
+    def xopt_get(self,):
+        val=float(self.get_and_wait_udp(self.variable,value))
+        return val
+                
+    
+                
     
