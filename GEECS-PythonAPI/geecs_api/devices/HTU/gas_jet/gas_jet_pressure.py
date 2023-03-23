@@ -1,8 +1,9 @@
 from __future__ import annotations
 import time
 import inspect
-from typing import Optional, Any
+from typing import Optional, Any, Union
 from threading import Thread, Event
+from geecs_api.api_defs import *
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
@@ -24,7 +25,7 @@ class GasJetPressure(GeecsDevice):
 
         super().__init__('U_HP_Daq', exp_vars)
 
-        self.__variables = {'PressureControlVoltage': (0.0, 800.)}
+        self.__variables = {VarAlias('PressureControlVoltage'): (0.0, 800.)}
         self.get_var_dicts(tuple(self.__variables.keys()))
         self.var_pressure = self.var_names_by_index.get(0)[0]
 
@@ -35,11 +36,17 @@ class GasJetPressure(GeecsDevice):
         if var_alias == self.var_names_by_index.get(0)[1]:  # pressure
             return 100. * float(val_string)
         else:
-            return val_string
+            return -1.
+
+    def state_psi(self) -> float:
+        return self.state[self.var_aliases_by_name[self.var_pressure][0]]
 
     def get_pressure(self, exec_timeout: float = 2.0, sync=True) \
-            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        return self.get(self.var_pressure, exec_timeout=exec_timeout, sync=sync)
+            -> Union[float, tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]]:
+        if sync:
+            return self.state_psi()
+        else:
+            return self.get(self.var_pressure, exec_timeout=exec_timeout, sync=sync)
 
     def set_pressure(self, value: float, exec_timeout: float = 10.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
