@@ -1,5 +1,5 @@
 import time
-from typing import Any
+# from typing import Any
 from geecs_api.api_defs import *
 from geecs_api.devices.geecs_device import GeecsDevice
 from . import GasJetStage, GasJetPressure, GasJetTrigger, GasJetBlade
