@@ -75,6 +75,23 @@ class GEECSDevice:
         self.tcp_client=client
         return client
     
+    def create_udp_client(self):
+        self.udp_fast = socket.socket(socket.AF_INET, # Internet
+                            socket.SOCK_DGRAM) # UDP
+        self.udp_fast.settimeout(5)
+        # get the port number used for the UDP command
+        self.udp_fast.bind(('', 0))
+        info = self.udp_fast.getsockname()[1]
+
+
+        self.udp_slow = socket.socket(socket.AF_INET, # Internet
+                            socket.SOCK_DGRAM) # UDP
+        self.udp_slow.settimeout(6)
+
+        self.udp_slow.bind(('', info+1))
+        print(info)
+
+    
     def database_lookup(self):
         mydb = mysql.connector.connect(
         host = self.database_ip,
@@ -109,6 +126,7 @@ class GEECSDevice:
     def device_initialize(self):
         self.find_database()
         self.database_lookup()
+        self.create_udp_client()
         
     def tcp_close_client(self):
         self.tcp_client.close()
@@ -118,11 +136,7 @@ class GEECSDevice:
         command_accepted=False
         timedout=False
         valid_command = False
-        if 'port_bind' in kwargs:
-            port_bind=kwargs['port_bind']
-        else:
-            port_bind=True
-            
+
         timeout=30
         t0=time.monotonic()
         
@@ -152,19 +166,18 @@ class GEECSDevice:
         
         while not command_accepted and not timedout and valid_command:
 
-            #create socket for UDP command
-            sock = socket.socket(socket.AF_INET, # Internet
-                                socket.SOCK_DGRAM) # UDP
-            sock.settimeout(15)
-            # get the port number used for the UDP command
-            sock.bind(('', 0))
-            info = sock.getsockname()[1]
-
             #send message
             bufferSize = 1024
-            sock.sendto(MESSAGE, (self.ip, self.tcp_port))
+            max_tries=3
+            for i in range(max_tries):
+                try:
+                    self.udp_fast.sendto(MESSAGE, (self.ip, self.tcp_port))
+                    msgFromServer = self.udp_fast.recvfrom(bufferSize)
+                    break
+                except Exception:
+                    print('udp command not received')
+                    continue
 
-            msgFromServer = sock.recvfrom(bufferSize)
 
             t1=time.monotonic()
             if t1-t0>timeout:
@@ -174,49 +187,38 @@ class GEECSDevice:
             resp=(msgFromServer[0].decode('ascii')).split(">>")[-1]
             if resp=='accepted':
                 command_accepted=True
-                print(f"{command_string} command accepted")
+                #print(f"{command_string} command accepted")
             else:
                 #print("command rejected")
                 pass
                 
-            time.sleep(0.05)
-            
-            sock.close()
+            time.sleep(0.25)
 
-        if command_accepted and port_bind:
-            self.slow_UDP_socket = socket.socket(socket.AF_INET, # Internet
-                                socket.SOCK_DGRAM) # UDP
-            self.slow_UDP_socket.settimeout(30)
-            # to get socket port?
-            self.slow_UDP_socket.bind(('', info+1))
-
+        if command_accepted:
             if kwargs['wait_for_response']:
-                self.read_slow_UDP()
+                self.read_slow_udp()
 
     
-    def read_slow_UDP(self):
+    def read_slow_udp(self):
         bufferSize = 1024
-        msgFromServer = self.slow_UDP_socket.recvfrom(bufferSize)
+        max_tries=3
+        for i in range(max_tries):
+            try:
+                msgFromServer = self.udp_slow.recvfrom(bufferSize)
+                break
+            except Exception:
+                print('udp command not received')
+                continue
+
         msgSlow = "Message from Server {} ".format(msgFromServer[0])
         self.last_slow_udp=msgFromServer[0]
-        self.slow_UDP_socket.close()
         return self.last_slow_udp.decode('ascii').split(">>")[-2]
 
     def get_only_udp(self,var_name,**kwargs):
-        if 'port_bind' in kwargs:
-            port_bind=kwargs['port_bind']
-        else:
-            port_bind=True
-        self.command('get',var_name, port_bind=port_bind, wait_for_response=False)
-#         print(self.last_slow_udp)
-#         return self.last_slow_udp.decode('ascii').split(">>")[-2]
+        self.command('get',var_name, wait_for_response=False)
 
     def set_only_udp(self,var_name,value, **kwargs):
-        if 'port_bind' in kwargs:
-            port_bind=kwargs['port_bind']
-        else:
-            port_bind=True
-        self.command('set',var_name,value=value, port_bind=port_bind, wait_for_response=False)
+        self.command('set',var_name,value=value, wait_for_response=False)
 
     def get_and_wait_udp(self,var_name):
         self.command('get',var_name, wait_for_response=True)
