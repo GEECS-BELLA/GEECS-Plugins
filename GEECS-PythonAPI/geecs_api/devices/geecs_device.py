@@ -4,6 +4,7 @@ from queue import Queue
 from threading import Thread, Condition, Event
 from typing import Optional, Any
 from datetime import datetime as dtime
+from geecs_api.api_defs import *
 import geecs_api.interface.message_handling as mh
 from geecs_api.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorAPI, api_error
 
@@ -47,6 +48,9 @@ class GeecsDevice:
 
     def get_name(self):
         return self.__dev_name
+
+    def get_class(self):
+        return self.__class_name
 
     def cleanup(self):
         if self.dev_udp:
@@ -112,7 +116,7 @@ class GeecsDevice:
 
         return self.dev_vars, exp_vars
 
-    def find_var_by_alias(self, alias: str = '') -> str:
+    def find_var_by_alias(self, alias: VarAlias = VarAlias('')) -> str:
         if not self.dev_vars:
             self.list_variables()
 
@@ -126,11 +130,11 @@ class GeecsDevice:
                 break
 
         if not var_name and alias in self.dev_vars:
-            var_name = alias
+            var_name = str(alias)
 
         return var_name
 
-    def get_var_dicts(self, aliases: tuple[str]):
+    def get_var_dicts(self, aliases: tuple[VarAlias]):
         self.var_names_by_index: dict[int, tuple[str, str]] = \
             {index: (self.find_var_by_alias(aliases[index]), aliases[index]) for index in range(len(aliases))}
 
@@ -250,6 +254,7 @@ class GeecsDevice:
                         var_alias: str = self.var_aliases_by_name[var][0]
                         self.state[var_alias] = self.interpret_value(var_alias, val)
 
+            # print(f'State: {self.state}')
             return dev_name, shot_nb, dict_vals
 
         except Exception as ex:
@@ -320,9 +325,9 @@ if __name__ == '__main__':
     dev.register_var_listener_handler()
     dev.register_cmd_executed_handler()
 
-    # var_x = dev.find_var_by_alias('Jet_X (mm)')
-    # var_y = dev.find_var_by_alias('Jet_Y (mm)')
-    var_y = dev.find_var_by_alias('ypos')
+    # var_x = dev.find_var_by_alias(VarAlias('Jet_X (mm)'))
+    # var_y = dev.find_var_by_alias(VarAlias('Jet_Y (mm)'))
+    var_y = dev.find_var_by_alias(VarAlias('ypos'))
 
     # dev.get(var_y, sync=False)
     # dev.set(var_x, 7.6, sync=False)

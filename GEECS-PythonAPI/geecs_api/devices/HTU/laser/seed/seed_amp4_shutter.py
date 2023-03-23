@@ -1,5 +1,6 @@
 from __future__ import annotations
 import time
+import inspect
 from typing import Optional, Any
 from threading import Thread, Event
 from geecs_api.devices.geecs_device import GeecsDevice
@@ -20,7 +21,7 @@ class SeedAmp4Shutter(GeecsDevice):
         self.__initialized = True
         super().__init__('U_1Wire_148', exp_vars)
 
-        self.__variables = {'Amp4': (None, None)}
+        self.__variables = {'Revo-North Shutter': (None, None)}
         self.get_var_dicts(tuple(self.__variables.keys()))
         self.var_amp4 = self.var_names_by_index.get(0)[0]
 
@@ -28,18 +29,62 @@ class SeedAmp4Shutter(GeecsDevice):
         self.register_var_listener_handler()
 
     def interpret_value(self, var_alias: str, val_string: str) -> Any:
-        if var_alias == self.var_amp4:
-            return bool(val_string)
+        if val_string.lower() == 'inserted':
+            value = True
+        elif val_string.lower() == 'removed':
+            value = False
         else:
-            return val_string
+            value = None
+        return value
 
-    def is_inserted(self, exec_timeout: float = 2.0, sync=True) \
+    def is_inserted(self, exec_timeout: float = 2.0) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        return self.get(self.var_amp4, exec_timeout=exec_timeout, sync=sync)
+        return self.get(self.var_amp4, exec_timeout=exec_timeout, sync=True)
 
-    def insert(self, value: bool, exec_timeout: float = 10.0, sync=True) \
+    def _set_shutter(self, value: bool, exec_timeout: float = 10.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        return self.set(self.var_amp4, value, exec_timeout=exec_timeout, sync=sync)
+        val_str = 'Inserted' if value else 'Removed'
+        return self.set(self.var_amp4, val_str, exec_timeout=exec_timeout, sync=sync)
+
+    def insert(self, exec_timeout: float = 10.0) -> bool:
+        t0 = time.monotonic()
+        while True:
+            self._set_shutter(True, exec_timeout, sync=True)
+            self.is_inserted()
+
+            amp4_state = self.state[self.var_aliases_by_name[self.var_amp4][0]]
+            shutter_in = False
+            if amp4_state is not None and amp4_state:
+                shutter_in = True
+                break
+            elif time.monotonic() - t0 >= exec_timeout:
+                api_error.error(f'Command "{self.get_name()}.{inspect.stack()[0][3]}" timed out',
+                                f'{self.get_class()} class')
+                break
+            else:
+                time.sleep(2.0)
+
+        return shutter_in
+
+    def remove(self, exec_timeout: float = 10.0) -> bool:
+        t0 = time.monotonic()
+        while True:
+            self._set_shutter(False, exec_timeout, sync=True)
+            self.is_inserted()
+
+            amp4_state = self.state[self.var_aliases_by_name[self.var_amp4][0]]
+            shutter_out = False
+            if amp4_state is not None and not amp4_state:
+                shutter_out = True
+                break
+            elif time.monotonic() - t0 >= exec_timeout:
+                api_error.error(f'Command "{self.get_name()}.{inspect.stack()[0][3]}" timed out',
+                                f'{self.get_class()} class')
+                break
+            else:
+                time.sleep(2.0)
+
+        return shutter_out
 
 
 if __name__ == '__main__':
@@ -53,6 +98,7 @@ if __name__ == '__main__':
     print(f'Variables subscription: {shutter.subscribe_var_values()}')
 
     # retrieve currently known positions
+    shutter.is_inserted()
     time.sleep(1.)
     try:
         print(f'State:\n\t{shutter.state}')

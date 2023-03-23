@@ -173,6 +173,19 @@ class GeecsDatabase:
         GeecsDatabase._close_db(db, db_cursor)
         return exp_guis
 
+    @staticmethod
+    def search_dict(haystack: dict, needle: str, path="/") -> list[tuple[str, str]]:
+        search_results = []
+        for k, v in haystack.items():
+            if v is None:
+                continue
+            elif isinstance(v, dict):
+                GeecsDatabase.search_dict(v, needle, path + k + '/')
+            elif needle in v.lower():
+                search_results.append((path + k, v))
+
+        return search_results
+
 
 if __name__ == '__main__':
     print('Name:\n\t' + GeecsDatabase.name)
@@ -181,7 +194,7 @@ if __name__ == '__main__':
     print('Password:\n\t' + GeecsDatabase.password)
 
     api_error.clear()
-    exp_guis = GeecsDatabase.find_experiment_guis()
+    _exp_guis = GeecsDatabase.find_experiment_guis()
     device_ip, device_port = GeecsDatabase.find_device('U_ESP_JetXYZ')
     print(api_error)
 

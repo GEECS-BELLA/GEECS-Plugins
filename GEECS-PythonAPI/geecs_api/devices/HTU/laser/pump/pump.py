@@ -4,7 +4,7 @@ import inspect
 from typing import Optional, Any
 from threading import Thread, Event
 from geecs_api.devices.geecs_device import GeecsDevice
-from .pump_shutters import PumpShutters
+from geecs_api.devices.HTU.laser.pump.pump_shutters import PumpShutters
 from geecs_api.interface import GeecsDatabase, api_error
 
 
@@ -57,18 +57,31 @@ if __name__ == '__main__':
     exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
 
     # create object
-    shutter = PumpShutters(exp_devs)
-    print(f'Variables subscription: {shutter.subscribe_var_values()}')
+    pump = Pump(exp_devs)
+    print(f'Variables subscription: {pump.subscribe_var_values()}')
 
-    # retrieve currently known positions
+    # retrieve current state and configuration
     time.sleep(1.)
     try:
-        print(f'State:\n\t{shutter.state}')
-        print(f'Setpoints:\n\t{shutter.setpoints}')
+        print(f'State:\n\t{pump.state}')
+        print(f'Setpoints:\n\t{pump.setpoints}')
+    except Exception as e:
+        api_error.error(str(e), 'Demo code')
+        pass
+
+    # test accessor and set
+    pump.get_lamp_timing()
+    pump.set_lamp_timing(670)
+
+    # check state and configuration again
+    time.sleep(1.)
+    try:
+        print(f'State:\n\t{pump.state}')
+        print(f'Setpoints:\n\t{pump.setpoints}')
     except Exception as e:
         api_error.error(str(e), 'Demo code')
         pass
 
     # close
-    shutter.cleanup()
+    pump.cleanup()
     print(api_error)

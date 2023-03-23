@@ -1,5 +1,4 @@
 from __future__ import annotations
-import time
 from typing import Optional, Any
 from threading import Thread, Event
 from geecs_api.devices.geecs_device import GeecsDevice
@@ -20,39 +19,59 @@ class PumpShutters(GeecsDevice):
         self.__initialized = True
         super().__init__('U_1Wire_148', exp_vars)
 
-        self.__variables = {'shut_north': (None, None),
-                            'shut_north_1': (None, None),
-                            'shut_north_2': (None, None),
-                            'shut_north_3': (None, None),
-                            'shut_south': (None, None),
-                            'shut_south_1': (None, None),
-                            'shut_south_2': (None, None),
-                            'shut_south_3': (None, None)}
+        self.__variables = {'Gaia Stop North Position': (None, None),
+                            'Gaia Beamblock 2-North Shutter': (None, None),
+                            'Gaia Beamblock 3-North Position': (None, None),
+                            'Gaia Beamblock 4-North Position': (None, None),
+                            'Gaia Stop South Position': (None, None),
+                            'Gaia Beamblock 2-South Shutter': (None, None),
+                            'Gaia Beamblock 3-South Position': (None, None),
+                            'Gaia Beamblock 4-South Position': (None, None)}
         self.get_var_dicts(tuple(self.__variables.keys()))
 
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
     def interpret_value(self, var_alias: str, val_string: str) -> Any:
-        return bool(val_string)
+        if val_string.lower() == 'inserted':
+            value = True
+        elif val_string.lower() == 'removed':
+            value = False
+        else:
+            value = None
+        return value
 
-    def is_inserted(self, side: str, index: int, exec_timeout: float = 2.0, sync=True) \
+    def is_inserted(self, index: int, side: str, exec_timeout: float = 2.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        if index < 1 or index > 4 or (side.lower() != 'north' and side.lower() != 'south'):
+        if (not isinstance(index, int)) \
+                or (index < 1 or index > 4) \
+                or (side.lower() != 'north' and side.lower() != 'south'):
             return False, '', (None, None)
 
-        name_index: int = index if side.lower() == 'north' else 4 + index
+        name_index: int = index - 1 if side.lower() == 'north' else (4 + index - 1)
         var_name = self.var_names_by_index.get(name_index)[0]
         return self.get(var_name, exec_timeout=exec_timeout, sync=sync)
 
-    def insert(self, side: str, index: int, value: bool, exec_timeout: float = 10.0, sync=True) \
+    def _set_shutter(self, index: int, side: str, value: bool, exec_timeout: float = 10.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        if index < 1 or index > 4 or (side.lower() != 'north' and side.lower() != 'south'):
+        if (not isinstance(index, int)) \
+                or (index < 1 or index > 4) \
+                or (side.lower() != 'north' and side.lower() != 'south'):
             return False, '', (None, None)
 
-        name_index: int = index if side.lower() == 'north' else 4 + index
+        name_index: int = index - 1 if side.lower() == 'north' else (4 + index - 1)
         var_name = self.var_names_by_index.get(name_index)[0]
-        return self.set(var_name, value, exec_timeout=exec_timeout, sync=sync)
+
+        val_str = 'Inserted' if value else 'Removed'
+        return self.set(var_name, val_str, exec_timeout=exec_timeout, sync=sync)
+
+    def insert(self, index: int, side: str = 'North', exec_timeout: float = 10.0, sync=True) \
+            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+        return self._set_shutter(index, side, True, exec_timeout, sync)
+
+    def remove(self, index: int, side: str = 'North', exec_timeout: float = 10.0, sync=True) \
+            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+        return self._set_shutter(index, side, False, exec_timeout, sync)
 
 
 if __name__ == '__main__':
@@ -62,18 +81,9 @@ if __name__ == '__main__':
     exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
 
     # create object
-    shutter = PumpShutters(exp_devs)
-    print(f'Variables subscription: {shutter.subscribe_var_values()}')
-
-    # retrieve currently known positions
-    time.sleep(1.)
-    try:
-        print(f'State:\n\t{shutter.state}')
-        print(f'Setpoints:\n\t{shutter.setpoints}')
-    except Exception as e:
-        api_error.error(str(e), 'Demo code')
-        pass
+    shutters = PumpShutters(exp_devs)
+    print(f'Variables subscription: {shutters.subscribe_var_values()}')
 
     # close
-    shutter.cleanup()
+    shutters.cleanup()
     print(api_error)

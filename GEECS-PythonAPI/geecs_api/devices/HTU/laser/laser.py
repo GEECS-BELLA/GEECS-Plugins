@@ -4,7 +4,6 @@ from geecs_api.devices.geecs_device import GeecsDevice
 from . import LaserCompressor
 from .seed import Seed
 from .pump import Pump
-# from geecs_api.devices.HTU.laser.laser_compressor import LaserCompressor
 from geecs_api.interface import GeecsDatabase, api_error
 
 

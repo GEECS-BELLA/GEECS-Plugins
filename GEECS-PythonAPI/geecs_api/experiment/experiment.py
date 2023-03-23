@@ -1,4 +1,3 @@
-import time
 import socket
 from geecs_api.devices import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error

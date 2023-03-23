@@ -43,10 +43,11 @@ class TransportHexapod(GeecsDevice):
 
     def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 60.0, sync=True) \
             -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        if len(axis) == 1:
-            axis = ord(axis.upper()) - ord('X')
-        else:
-            axis = -1
+        if isinstance(axis, str):
+            if len(axis) == 1:
+                axis = ord(axis.upper()) - ord('X')
+            else:
+                axis = -1
 
         if axis < 0 or axis > 2:
             return False, '', (None, None)
@@ -56,6 +57,16 @@ class TransportHexapod(GeecsDevice):
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
 
         return self.set(var_name, value, exec_timeout=exec_timeout, sync=sync)
+
+    def move_in(self, exec_timeout: float = 60.0, sync=True) \
+            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+        axis = 1
+        return self.set_position(axis, 17.5, exec_timeout=exec_timeout, sync=sync)
+
+    def move_out(self, exec_timeout: float = 60.0, sync=True) \
+            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+        axis = 1
+        return self.set_position(axis, -22., exec_timeout=exec_timeout, sync=sync)
 
 
 if __name__ == '__main__':
