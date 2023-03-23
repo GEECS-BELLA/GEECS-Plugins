@@ -26,11 +26,11 @@ class GeecsDevice:
         self.dev_port: int = 0
 
         self.dev_vars = {}
-        self.var_names_by_index = {}
-        self.var_aliases_by_name = {}
+        self.var_names_by_index: dict[int, tuple[str, VarAlias]] = {}
+        self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = {}
 
-        self.setpoints = {}
-        self.state = {}
+        self.setpoints: dict[VarAlias, Any] = {}
+        self.state: dict[VarAlias, Any] = {}
 
         if not self.__dev_virtual:
             self.dev_ip, self.dev_port = GeecsDatabase.find_device(self.__dev_name)
@@ -102,9 +102,9 @@ class GeecsDevice:
         if self.is_var_listener_connected():
             self.dev_tcp.unsubscribe()
 
-    def list_variables(self, exp_vars: Optional[dict[str, dict[str, dict[str, Any]]]] = None,
+    def list_variables(self, exp_vars: Optional[ExpDict] = None,
                        exp_name: str = 'Undulator') \
-            -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, dict[str, Any]]]]:
+            -> tuple[VarDict, ExpDict]:
         try:
             if exp_vars is None:
                 exp_vars = GeecsDatabase.find_experiment_variables(exp_name)
@@ -134,19 +134,25 @@ class GeecsDevice:
 
         return var_name
 
-    def get_var_dicts(self, aliases: tuple[VarAlias]):
-        self.var_names_by_index: dict[int, tuple[str, str]] = \
+    def build_var_dicts(self, aliases: tuple[VarAlias]):
+        self.var_names_by_index: dict[int, tuple[str, VarAlias]] = \
             {index: (self.find_var_by_alias(aliases[index]), aliases[index]) for index in range(len(aliases))}
 
-        self.var_aliases_by_name: dict[str, tuple[str, int]] = \
+        self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = \
             {self.find_var_by_alias(aliases[index]): (aliases[index], index) for index in range(len(aliases))}
 
-    def set(self, variable: str, value, exec_timeout: float = 120.0,
-            attempts_max: int = 5, sync=False) -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+    def state_value(self, var_name: str) -> Any:
+        var_alias: VarAlias = self.var_aliases_by_name[var_name][0]
+
+        if var_alias in self.state:
+            return self.state[var_alias]
+        else:
+            return None
+
+    def set(self, variable: str, value, exec_timeout: float = 120.0, attempts_max: int = 5, sync=True) -> AsyncResult:
         return self._execute(variable, value, exec_timeout, attempts_max, sync)
 
-    def get(self, variable: str, exec_timeout: float = 5.0,
-            attempts_max: int = 5, sync=False) -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+    def get(self, variable: str, exec_timeout: float = 5.0, attempts_max: int = 5, sync=True) -> AsyncResult:
         return self._execute(variable, None, exec_timeout, attempts_max, sync)
 
     def wait_for_all_cmds(self, timeout: Optional[float] = None) -> bool:
@@ -159,7 +165,7 @@ class GeecsDevice:
         return self.dev_udp.cmd_checker.wait_for(thread, timeout)
 
     def _execute(self, variable: str, value, exec_timeout: float = 10.0,
-                 attempts_max: int = 5, sync=False) -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+                 attempts_max: int = 5, sync=True) -> AsyncResult:
         if api_error.is_error:
             return False, '', (None, None)
 
@@ -207,7 +213,7 @@ class GeecsDevice:
 
     def handle_response(self, net_msg: mh.NetworkMessage,
                         notifier: Optional[Condition] = None,
-                        queue_msgs: Optional[Queue] = None) -> tuple[str, str, str, str]:
+                        queue_msgs: Optional[Queue] = None) -> tuple[str, str, str, bool]:
         try:
             dev_name, cmd_received, dev_val, err_status = GeecsDevice._response_parser(net_msg.msg)
 
@@ -218,14 +224,14 @@ class GeecsDevice:
                 warn = ErrorAPI('Mismatch in device name', f'Class {self.__class_name}, method "handle_response"')
                 print(warn)
 
-            if dev_name == self.get_name() and cmd_received[:3] == 'get':
+            if dev_name == self.get_name() and not err_status and cmd_received[:3] == 'get':
                 var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
                 dev_val = self.interpret_value(var_alias, dev_val)
                 self.state[var_alias] = dev_val
                 dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
                 print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} = {dev_val}')
 
-            if dev_name == self.get_name() and cmd_received[:3] == 'set':
+            if dev_name == self.get_name() and not err_status and cmd_received[:3] == 'set':
                 var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
                 dev_val = self.interpret_value(var_alias, dev_val)
                 self.setpoints[var_alias] = dev_val
@@ -237,7 +243,7 @@ class GeecsDevice:
         except Exception as ex:
             err = ErrorAPI(str(ex), f'Class {self.__class_name}, method "{inspect.stack()[0][3]}"')
             print(err)
-            return '', '', '', ''
+            return '', '', '', True
 
     def handle_subscription(self, net_msg: mh.NetworkMessage,
                             notifier: Optional[Condition] = None,
@@ -251,7 +257,7 @@ class GeecsDevice:
             if dev_name == self.get_name() and dict_vals:
                 for var, val in dict_vals.items():
                     if var in self.var_aliases_by_name:
-                        var_alias: str = self.var_aliases_by_name[var][0]
+                        var_alias: VarAlias = self.var_aliases_by_name[var][0]
                         self.state[var_alias] = self.interpret_value(var_alias, val)
 
             # print(f'State: {self.state}')
@@ -262,7 +268,7 @@ class GeecsDevice:
             print(err)
             return '', 0, {}
 
-    def interpret_value(self, var_alias: str, val_string: str) -> Any:
+    def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         return float(val_string)
 
     @staticmethod
@@ -282,7 +288,7 @@ class GeecsDevice:
         return dev_name, shot_nb, dict_vals
 
     @staticmethod
-    def _response_parser(msg: str = '') -> tuple[str, str, str, str]:
+    def _response_parser(msg: str = '') -> tuple[str, str, str, bool]:
         """ General parser to be called when messages are received. """
 
         # Examples:
@@ -297,15 +303,15 @@ class GeecsDevice:
 
         return dev_name, cmd_received, dev_val, err_status
 
-    def coerce_float(self, var_name: str, method: str, value: float,
+    def coerce_float(self, var_alias: VarAlias, method: str, value: float,
                      span: tuple[Optional[float], Optional[float]]) -> float:
         try:
             if span[0] and value < span[0]:
-                api_error.warning(f'{var_name} value coerced from {value} to {span[0]}',
+                api_error.warning(f'{var_alias} value coerced from {value} to {span[0]}',
                                   f'Class {self.__class_name}, method "{method}"')
                 value = span[0]
             if span[1] and value > span[1]:
-                api_error.warning(f'{var_name} value coerced from {value} to {span[1]}',
+                api_error.warning(f'{var_alias} value coerced from {value} to {span[1]}',
                                   f'Class {self.__class_name}, method "{method}"')
                 value = span[1]
         except Exception:

@@ -1,4 +1,5 @@
-import time
+# import time
+from geecs_api.api_defs import *
 from geecs_api.devices.HTU import GasJet, Laser, Transport
 from geecs_api.experiment import Experiment
 
@@ -30,30 +31,30 @@ class HtuExp(Experiment):
             'e_transport': self.e_transport
         }
 
-    def shutdown(self):
-        pressure = self.jet.pressure.get_pressure(exec_timeout=30, sync=False)
-        if pressure[0]:
-            print('we good')
-        # self.jet.pressure.set_pressure(0., exec_timeout=30, sync=False)
-        # self.jet.stage.set_position('Y', -5., exec_timeout=30, sync=False)
-        #
-        # self.laser.seed_laser.amp4_shutter.insert(exec_timeout=30)
-        #
-        # self.laser.pump_laser.set_lamp_timing(700., exec_timeout=30, sync=False)
-        # self.laser.pump_laser.shutters.insert('North', 1, exec_timeout=30, sync=True)
-        # self.laser.pump_laser.shutters.insert('South', 1, exec_timeout=30, sync=True)
-        # self.laser.pump_laser.shutters.insert('North', 2, exec_timeout=30, sync=True)
-        # self.laser.pump_laser.shutters.insert('South', 2, exec_timeout=30, sync=True)
-        # self.laser.pump_laser.shutters.insert('North', 3, exec_timeout=30, sync=True)
-        # self.laser.pump_laser.shutters.insert('South', 3, exec_timeout=30, sync=True)
-        # self.laser.pump_laser.shutters.insert('North', 4, exec_timeout=30, sync=True)
-        # self.laser.pump_laser.shutters.insert('South', 4, exec_timeout=30, sync=True)
-        #
-        # self.e_transport.hexapod.move_out(exec_timeout=120, sync=True)
+    def shutdown(self) -> bool:
+        exec_async(self.jet.pressure.set_pressure, args=(0., 30))
+        exec_async(self.jet.stage.set_position, ('Y', -5., 30))
 
-        # is_pressure_zero = abs(self.jet.pressure.state_psi()) < 0.1
+        is_amp4_in = self.laser.seed_laser.amp4_shutter.insert(exec_timeout=30)
 
-        # y_position = self.jet.stage.state[self.jet.stage.var_aliases_by_name[][0]]
+        exec_async(self.laser.pump_laser.set_lamp_timing, (700., 30))
+
+        is_gaia_in = self.laser.pump_laser.shutters.insert('North', 1, exec_timeout=30)
+        is_gaia_in &= self.laser.pump_laser.shutters.insert('South', 1, exec_timeout=30)
+        is_gaia_in &= self.laser.pump_laser.shutters.insert('North', 2, exec_timeout=30)
+        is_gaia_in &= self.laser.pump_laser.shutters.insert('South', 2, exec_timeout=30)
+        is_gaia_in &= self.laser.pump_laser.shutters.insert('North', 3, exec_timeout=30)
+        is_gaia_in &= self.laser.pump_laser.shutters.insert('South', 3, exec_timeout=30)
+        is_gaia_in &= self.laser.pump_laser.shutters.insert('North', 4, exec_timeout=30)
+        is_gaia_in &= self.laser.pump_laser.shutters.insert('South', 4, exec_timeout=30)
+
+        is_hexapod_out = self.e_transport.hexapod.move_out(exec_timeout=120)
+
+        is_pressure_zero = abs(self.jet.pressure.state_psi()) < 0.1
+        is_jet_out = abs(self.jet.stage.state_y() + 5.) < 0.01
+        is_lamp_timing_off = abs(self.laser.pump_laser.state_lamp_timing() - 700.) < 1
+
+        return is_pressure_zero and is_jet_out and is_amp4_in and is_lamp_timing_off and is_gaia_in and is_hexapod_out
 
 
 if __name__ == '__main__':

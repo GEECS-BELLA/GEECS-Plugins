@@ -3,6 +3,7 @@ import time
 import inspect
 from typing import Optional, Any
 from threading import Thread, Event
+from geecs_api.api_defs import *
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
@@ -21,28 +22,50 @@ class TransportHexapod(GeecsDevice):
         self.__initialized = True
         super().__init__('U_Hexapod', exp_vars)
 
-        self.__variables = {'xpos': (-10., 10.),  # [mm]
-                            'ypos': (-25., 25.),
-                            'zpos': (-10., 10.)}
-        self.get_var_dicts(tuple(self.__variables.keys()))
+        self.__variables = {VarAlias('xpos'): (-10., 10.),  # [mm]
+                            VarAlias('ypos'): (-25., 25.),
+                            VarAlias('zpos'): (-10., 10.)}
+        self.build_var_dicts(tuple(self.__variables.keys()))
 
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
+    def get_axis_var_name(self, axis: int) -> str:
+        if axis < 0 or axis > 2:
+            return ''
+        else:
+            return self.var_names_by_index.get(axis)[0]
+
+    def state_x(self) -> Optional[float]:
+        return self.state_value(self.get_axis_var_name(0))
+
+    def state_y(self) -> Optional[float]:
+        return self.state_value(self.get_axis_var_name(1))
+
+    def state_z(self) -> Optional[float]:
+        return self.state_value(self.get_axis_var_name(2))
+
     def get_position(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
-            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+            -> Union[Optional[float], AsyncResult]:
         if len(axis) == 1:
             axis = ord(axis.upper()) - ord('X')
         else:
             axis = -1
 
         if axis < 0 or axis > 2:
-            return False, '', (None, None)
+            if sync:
+                return None
+            else:
+                return False, '', (None, None)
 
-        return self.get(self.var_names_by_index.get(axis)[0], exec_timeout=exec_timeout, sync=sync)
+        ret = self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
+        if sync:
+            return self.state_value(self.get_axis_var_name(axis))
+        else:
+            return ret
 
     def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 60.0, sync=True) \
-            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
+            -> Union[Optional[float], AsyncResult]:
         if isinstance(axis, str):
             if len(axis) == 1:
                 axis = ord(axis.upper()) - ord('X')
@@ -50,23 +73,26 @@ class TransportHexapod(GeecsDevice):
                 axis = -1
 
         if axis < 0 or axis > 2:
-            return False, '', (None, None)
+            if sync:
+                return None
+            else:
+                return False, '', (None, None)
 
-        var_name = self.var_names_by_index.get(axis)[0]
+        var_name = self.get_axis_var_name(axis)
         var_alias = self.var_aliases_by_name[var_name][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
 
-        return self.set(var_name, value, exec_timeout=exec_timeout, sync=sync)
+        ret = self.set(var_name, value, exec_timeout=exec_timeout, sync=sync)
+        if sync:
+            return self.state_value(self.get_axis_var_name(axis))
+        else:
+            return ret
 
-    def move_in(self, exec_timeout: float = 60.0, sync=True) \
-            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        axis = 1
-        return self.set_position(axis, 17.5, exec_timeout=exec_timeout, sync=sync)
+    def move_in(self, exec_timeout: float = 60.0, sync=True) -> Union[Optional[float], AsyncResult]:
+        return self.set_position(axis=1, value=17.5, exec_timeout=exec_timeout, sync=sync)
 
-    def move_out(self, exec_timeout: float = 60.0, sync=True) \
-            -> tuple[bool, str, tuple[Optional[Thread], Optional[Event]]]:
-        axis = 1
-        return self.set_position(axis, -22., exec_timeout=exec_timeout, sync=sync)
+    def move_out(self, exec_timeout: float = 60.0, sync=True) -> Union[Optional[float], AsyncResult]:
+        return self.set_position(axis=1, value=-22., exec_timeout=exec_timeout, sync=sync)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 import time
 from typing import Any
+from geecs_api.api_defs import *
 from geecs_api.devices.geecs_device import GeecsDevice
 from . import GasJetStage, GasJetPressure, GasJetTrigger, GasJetBlade
 from geecs_api.interface import GeecsDatabase, api_error
@@ -61,7 +62,8 @@ if __name__ == '__main__':
     x_alias = jet.stage.get_axis_var_alias(0)
     if x_alias in jet.state:
         new_pos = round(10 * (jet.stage.state[x_alias] + 0.0)) / 10.
-        is_set, _, exe_thread = jet.stage.set_position(0, new_pos, sync=False)
+        is_set, _, exe_thread = exec_async(jet.stage.set_position, args=(0, new_pos))
+        # is_set, _, exe_thread = jet.stage.set_position(0, new_pos, sync=False)
         print(f'Position set @ {new_pos}: {is_set}')
         print('Main thread not blocked!')
     else:
