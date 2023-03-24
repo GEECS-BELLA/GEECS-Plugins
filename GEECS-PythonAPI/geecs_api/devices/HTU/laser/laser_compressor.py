@@ -1,9 +1,8 @@
 from __future__ import annotations
 import time
 import inspect
-from typing import Optional, Any
-from threading import Thread, Event
-from geecs_api.api_defs import *
+from typing import Optional, Any, Union
+from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
@@ -89,7 +88,6 @@ if __name__ == '__main__':
     compressor.get_angle_1()
     compressor.get_angle_2()
     compressor.get_separation(sync=True)
-    compressor.set_separation(compressor.state.get(0))
 
     # retrieve currently known positions
     try:

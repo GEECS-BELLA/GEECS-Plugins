@@ -6,30 +6,27 @@ from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
 
-class Quads(GeecsDevice):
-    # Singleton
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, 'instance'):
-            cls.instance = super(Quads, cls).__new__(cls)
-            cls.instance.__initialized = False
-        return cls.instance
+class ChicaneMagnetSupply(GeecsDevice):
+    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]], index: int = 1, direction: str = 'Vertical'):
+        if index < 1 or index > 4:
+            raise ValueError(f'Index {index} out of bound [1-4]')
 
-    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]]):
-        if self.__initialized:
-            return
-        self.__initialized = True
+        if direction.lower() == 'horizontal':
+            mc_name = f'U_S{index}H'
+            self.is_horizontal = True
+            self.is_vertical = False
+        elif direction.lower() == 'vertical':
+            mc_name = f'U_S{index}V'
+            self.is_horizontal = False
+            self.is_vertical = True
+        else:
+            raise ValueError(f'Direction "{direction}" not recognized ["Horizontal", "Vertical"]')
 
-        super().__init__('U_EMQTripletBipolar', exp_vars)
+        super().__init__(mc_name, exp_vars)
 
-        self.__variables = {VarAlias('Current_Limit.Ch1'): (-10., 10.),
-                            VarAlias('Current_Limit.Ch2'): (-10., 10.),
-                            VarAlias('Current_Limit.Ch3'): (-10., 10.),
-                            VarAlias('Voltage_Limit.Ch1'): (0., 12.),
-                            VarAlias('Voltage_Limit.Ch2'): (0., 12.),
-                            VarAlias('Voltage_Limit.Ch3'): (0., 12.),
-                            VarAlias('Voltage.Ch1'): (0., 12.),
-                            VarAlias('Voltage.Ch2'): (0., 12.),
-                            VarAlias('Voltage.Ch3'): (0., 12.)}
+        self.__variables = {VarAlias('Current'): (-5., -5.),
+                            VarAlias('Enable_Output'): (None, None),
+                            VarAlias('Voltage'): (-10., 10.)}
         self.build_var_dicts(tuple(self.__variables.keys()))
         self.var_depth = self.var_names_by_index.get(0)[0]
 

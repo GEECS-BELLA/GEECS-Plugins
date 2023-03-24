@@ -6,30 +6,24 @@ from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
 
-class Quads(GeecsDevice):
-    # Singleton
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, 'instance'):
-            cls.instance = super(Quads, cls).__new__(cls)
-            cls.instance.__initialized = False
-        return cls.instance
+class ChicaneMagnetSupply(GeecsDevice):
+    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]], pair: str = 'Outer'):
+        if pair.lower() == 'inner':
+            mc_name = 'U_ChicaneInner'
+            self.is_inner = True
+            self.is_outer = False
+        elif pair.lower() == 'outer':
+            mc_name = 'U_ChicaneOuter'
+            self.is_inner = False
+            self.is_outer = True
+        else:
+            raise Exception.args
 
-    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]]):
-        if self.__initialized:
-            return
-        self.__initialized = True
+        super().__init__(mc_name, exp_vars)
 
-        super().__init__('U_EMQTripletBipolar', exp_vars)
-
-        self.__variables = {VarAlias('Current_Limit.Ch1'): (-10., 10.),
-                            VarAlias('Current_Limit.Ch2'): (-10., 10.),
-                            VarAlias('Current_Limit.Ch3'): (-10., 10.),
-                            VarAlias('Voltage_Limit.Ch1'): (0., 12.),
-                            VarAlias('Voltage_Limit.Ch2'): (0., 12.),
-                            VarAlias('Voltage_Limit.Ch3'): (0., 12.),
-                            VarAlias('Voltage.Ch1'): (0., 12.),
-                            VarAlias('Voltage.Ch2'): (0., 12.),
-                            VarAlias('Voltage.Ch3'): (0., 12.)}
+        self.__variables = {VarAlias('Current'): (-6., -6.),
+                            VarAlias('Enable_Output'): (None, None),
+                            VarAlias('Voltage'): (0., 12.)}
         self.build_var_dicts(tuple(self.__variables.keys()))
         self.var_depth = self.var_names_by_index.get(0)[0]
 

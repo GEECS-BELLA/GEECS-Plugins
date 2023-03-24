@@ -1,6 +1,6 @@
 import time
-# from typing import Any
-from geecs_api.api_defs import *
+from typing import Any
+from geecs_api.api_defs import exec_async
 from geecs_api.devices.geecs_device import GeecsDevice
 from . import GasJetStage, GasJetPressure, GasJetTrigger, GasJetBlade
 from geecs_api.interface import GeecsDatabase, api_error
@@ -52,8 +52,8 @@ if __name__ == '__main__':
 
     # retrieve currently known positions
     try:
-        print(f'Jet state:\n\t{jet.stage.state}')
-        print(f'Jet config:\n\t{jet.stage.setpoints}')
+        print(f'State:\n\t{jet.stage.state}')
+        print(f'Config:\n\t{jet.stage.setpoints}')
     except Exception as e:
         api_error.error(str(e), 'Demo code for gas jet')
         pass
@@ -72,7 +72,7 @@ if __name__ == '__main__':
 
     # sync
     if exe_thread[0]:
-        is_done = jet.stage.wait_for(exe_thread[0], 120.0)
+        is_done = jet.stage.wait_for_cmd(exe_thread[0], 120.0)
     else:
         is_done = jet.stage.wait_for_all_cmds(120.0)
         # is_done = jet.stage.wait_for_last_cmd(120.0)

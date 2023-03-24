@@ -1,7 +1,6 @@
 from __future__ import annotations
-from typing import Optional, Any
-from threading import Thread, Event
-from geecs_api.api_defs import *
+from typing import Optional, Any, Union
+from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
@@ -57,13 +56,11 @@ class PumpShutters(GeecsDevice):
                 or (side.lower() != 'north' and side.lower() != 'south'):
             return False, '', (None, None)
 
-        name_index: int = index - 1 if side.lower() == 'north' else (4 + index - 1)
-        var_name = self.var_names_by_index.get(name_index)[0]
-
+        ret = self.get(self._get_var_name(index, side), exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_shutter(index, side)
         else:
-            return self.get(var_name, exec_timeout=exec_timeout, sync=sync)
+            return ret
 
     def _set_shutter(self, index: int, side: str, value: bool, exec_timeout: float = 10.0, sync=True) -> AsyncResult:
         if (not isinstance(index, int)) \
@@ -101,6 +98,8 @@ if __name__ == '__main__':
     # create object
     shutters = PumpShutters(exp_devs)
     print(f'Variables subscription: {shutters.subscribe_var_values()}')
+
+    print(f'North-1 inserted: {shutters.is_inserted(1, "North")}')
 
     # close
     shutters.cleanup()

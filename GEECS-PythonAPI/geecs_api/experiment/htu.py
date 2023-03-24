@@ -1,5 +1,5 @@
 # import time
-from geecs_api.api_defs import *
+from geecs_api.api_defs import exec_async
 from geecs_api.devices.HTU import GasJet, Laser, Transport
 from geecs_api.experiment import Experiment
 

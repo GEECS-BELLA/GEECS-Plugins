@@ -1,9 +1,8 @@
 from __future__ import annotations
 import time
 import inspect
-# from typing import Optional, Any
-# from threading import Thread, Event
-from geecs_api.api_defs import *
+from typing import Optional, Any, Union
+from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 

@@ -4,7 +4,7 @@ from queue import Queue
 from threading import Thread, Condition, Event
 from typing import Optional, Any
 from datetime import datetime as dtime
-from geecs_api.api_defs import *
+from geecs_api.api_defs import VarDict, ExpDict, VarAlias, AsyncResult, ThreadInfo
 import geecs_api.interface.message_handling as mh
 from geecs_api.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorAPI, api_error
 
@@ -31,6 +31,7 @@ class GeecsDevice:
 
         self.setpoints: dict[VarAlias, Any] = {}
         self.state: dict[VarAlias, Any] = {}
+        self.queue_cmds = Queue()
 
         if not self.__dev_virtual:
             self.dev_ip, self.dev_port = GeecsDatabase.find_device(self.__dev_name)
@@ -46,12 +47,6 @@ class GeecsDevice:
 
             self.list_variables(exp_vars)
 
-    def get_name(self):
-        return self.__dev_name
-
-    def get_class(self):
-        return self.__class_name
-
     def cleanup(self):
         if self.dev_udp:
             self.dev_udp.cleanup()
@@ -62,6 +57,14 @@ class GeecsDevice:
     def is_valid(self):
         return not self.__dev_virtual and self.dev_ip and self.dev_port > 0
 
+    # Accessors
+    def get_name(self):
+        return self.__dev_name
+
+    def get_class(self):
+        return self.__class_name
+
+    # Registrations
     def connect_var_listener(self):
         if self.is_valid() and not self.is_var_listener_connected():
             self.dev_tcp.connect((self.dev_ip, self.dev_port))
@@ -102,6 +105,7 @@ class GeecsDevice:
         if self.is_var_listener_connected():
             self.dev_tcp.unsubscribe()
 
+    # Variables
     def list_variables(self, exp_vars: Optional[ExpDict] = None,
                        exp_name: str = 'Undulator') \
             -> tuple[VarDict, ExpDict]:
@@ -149,20 +153,15 @@ class GeecsDevice:
         else:
             return None
 
+    # Operations
     def set(self, variable: str, value, exec_timeout: float = 120.0, attempts_max: int = 5, sync=True) -> AsyncResult:
         return self._execute(variable, value, exec_timeout, attempts_max, sync)
 
     def get(self, variable: str, exec_timeout: float = 5.0, attempts_max: int = 5, sync=True) -> AsyncResult:
         return self._execute(variable, None, exec_timeout, attempts_max, sync)
 
-    def wait_for_all_cmds(self, timeout: Optional[float] = None) -> bool:
-        return self.dev_udp.cmd_checker.wait_for_all(timeout)
-
-    def wait_for_last_cmd(self, timeout: Optional[float] = None) -> bool:
-        return self.dev_udp.cmd_checker.wait_for_last(timeout)
-
-    def wait_for(self, thread: Thread, timeout: Optional[float] = None) -> bool:
-        return self.dev_udp.cmd_checker.wait_for(thread, timeout)
+    def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
+        return float(val_string)
 
     def _execute(self, variable: str, value, exec_timeout: float = 10.0,
                  attempts_max: int = 5, sync=True) -> AsyncResult:
@@ -188,7 +187,7 @@ class GeecsDevice:
             return False, '', (None, None)
 
         executed = False
-        async_thread: tuple[Optional[Thread], Optional[Event]] = (None, None)
+        async_thread: ThreadInfo = (None, None)
 
         try:
             accepted = False
@@ -202,8 +201,9 @@ class GeecsDevice:
             if accepted:
                 stamp = re.sub(r'[\s.:]', '-', dtime.now().__str__())
                 cmd_label += f' @ {stamp}'
-                async_thread = \
-                    self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
+                if exec_timeout > 0:
+                    async_thread = \
+                        self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
                 executed = True
 
         except Exception as ex:
@@ -268,9 +268,6 @@ class GeecsDevice:
             print(err)
             return '', 0, {}
 
-    def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
-        return float(val_string)
-
     @staticmethod
     def _subscription_parser(msg: str = '') -> tuple[str, int, dict[str, str]]:
         """ General parser to be called when messages are received. """
@@ -319,6 +316,19 @@ class GeecsDevice:
 
         return value
 
+    # Synchronization
+    def wait_for_all_cmds(self, timeout: Optional[float] = None) -> bool:
+        return self.dev_udp.cmd_checker.wait_for_all_cmds(timeout)
+
+    def wait_for_cmd(self, thread: Thread, timeout: Optional[float] = None) -> bool:
+        return self.dev_udp.cmd_checker.wait_for_cmd(thread, timeout)
+
+    def stop_waiting_for_all_cmds(self):
+        self.dev_udp.cmd_checker.stop_waiting_for_all_cmds()
+
+    def stop_waiting_for_cmd(self, thread: Thread, stop: Event):
+        self.dev_udp.cmd_checker.stop_waiting_for_cmd(thread, stop)
+
 
 if __name__ == '__main__':
     api_error.clear()
@@ -347,7 +357,7 @@ if __name__ == '__main__':
     # time.sleep(1.0)
 
     if exe_thread[0]:
-        is_done = dev.wait_for(exe_thread[0], 120.0)
+        is_done = dev.wait_for_cmd(exe_thread[0], 120.0)
     else:
         is_done = dev.wait_for_all_cmds(120.0)
         # is_done = dev.wait_for_last_cmd(120.0)

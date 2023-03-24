@@ -1,6 +1,8 @@
 import socket
+from typing import Optional
 from geecs_api.devices import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
+from geecs_api.interface.udp_handler import UdpServer
 
 
 class Experiment:
@@ -17,9 +19,14 @@ class Experiment:
             except Exception:
                 pass
 
-    @staticmethod
-    def send_preset(preset: str):
-        if preset:
+    def wait_for_all_devices(self, timeout: Optional[float] = None) -> bool:
+        if self.devs:
+            return UdpServer.wait_for_all_devices(timeout)
+        else:
+            return True
+
+    def send_preset(self, preset: str):
+        if self.devs and preset:
             MCAST_GRP = '234.5.6.8'
             MCAST_PORT = 58432
             MULTICAST_TTL = 4
