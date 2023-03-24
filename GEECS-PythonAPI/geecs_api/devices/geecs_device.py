@@ -1,7 +1,9 @@
+import queue
 import re
 import inspect
+import time
 from queue import Queue
-from threading import Thread, Condition, Event
+from threading import Thread, Condition, Event, Lock
 from typing import Optional, Any
 from datetime import datetime as dtime
 from geecs_api.api_defs import VarDict, ExpDict, VarAlias, AsyncResult, ThreadInfo
@@ -10,8 +12,12 @@ from geecs_api.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorA
 
 
 class GeecsDevice:
+    # Static
+    threads_lists_access = Lock()
+    all_threads: list[ThreadInfo] = []
+
     def __init__(self, name: str, exp_vars: Optional[dict[str, dict[str, dict[str, Any]]]], virtual=False):
-        self.__dev_name: str = name.strip()  # cannot be changed after initialization
+        self.__dev_name: str = name.strip()
         self.__dev_virtual = virtual or not self.__dev_name
         self.__class_name = re.search(r'\w+\'>$', str(self.__class__))[0][:-2]
 
@@ -32,6 +38,7 @@ class GeecsDevice:
         self.setpoints: dict[VarAlias, Any] = {}
         self.state: dict[VarAlias, Any] = {}
         self.queue_cmds = Queue()
+        self.own_threads: list[(Thread, Event)] = []
 
         if not self.__dev_virtual:
             self.dev_ip, self.dev_port = GeecsDatabase.find_device(self.__dev_name)
@@ -48,6 +55,8 @@ class GeecsDevice:
             self.list_variables(exp_vars)
 
     def cleanup(self):
+        self.stop_waiting_for_all_cmds()
+
         if self.dev_udp:
             self.dev_udp.cleanup()
 
@@ -58,6 +67,7 @@ class GeecsDevice:
         return not self.__dev_virtual and self.dev_ip and self.dev_port > 0
 
     # Accessors
+    # -----------------------------------------------------------------------------------------------------------
     def get_name(self):
         return self.__dev_name
 
@@ -65,6 +75,7 @@ class GeecsDevice:
         return self.__class_name
 
     # Registrations
+    # -----------------------------------------------------------------------------------------------------------
     def connect_var_listener(self):
         if self.is_valid() and not self.is_var_listener_connected():
             self.dev_tcp.connect((self.dev_ip, self.dev_port))
@@ -106,6 +117,7 @@ class GeecsDevice:
             self.dev_tcp.unsubscribe()
 
     # Variables
+    # -----------------------------------------------------------------------------------------------------------
     def list_variables(self, exp_vars: Optional[ExpDict] = None,
                        exp_name: str = 'Undulator') \
             -> tuple[VarDict, ExpDict]:
@@ -154,16 +166,19 @@ class GeecsDevice:
             return None
 
     # Operations
-    def set(self, variable: str, value, exec_timeout: float = 120.0, attempts_max: int = 5, sync=True) -> AsyncResult:
+    # -----------------------------------------------------------------------------------------------------------
+    def set(self, variable: str, value, exec_timeout: Optional[float] = 120.0, attempts_max: int = 5, sync=True)\
+            -> AsyncResult:
         return self._execute(variable, value, exec_timeout, attempts_max, sync)
 
-    def get(self, variable: str, exec_timeout: float = 5.0, attempts_max: int = 5, sync=True) -> AsyncResult:
+    def get(self, variable: str, exec_timeout: Optional[float] = 5.0, attempts_max: int = 5, sync=True)\
+            -> AsyncResult:
         return self._execute(variable, None, exec_timeout, attempts_max, sync)
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         return float(val_string)
 
-    def _execute(self, variable: str, value, exec_timeout: float = 10.0,
+    def _execute(self, variable: str, value, exec_timeout: Optional[float] = 10.0,
                  attempts_max: int = 5, sync=True) -> AsyncResult:
         if api_error.is_error:
             return False, '', (None, None)
@@ -186,30 +201,70 @@ class GeecsDevice:
                               f'GeecsDevice "{self.__dev_name}" not connected')
             return False, '', (None, None)
 
-        executed = False
-        async_thread: ThreadInfo = (None, None)
+        stamp = re.sub(r'[\s.:]', '-', dtime.now().__str__())
+        cmd_label += f' @ {stamp}'
+        queued: bool = False
 
+        self._cleanup_threads()
+
+        if sync:
+            self.wait_for_all_cmds(timeout=120.)
+
+            with GeecsDevice.threads_lists_access:
+                self.process_command(cmd_str, cmd_label, thread_info=(None, None), attempts_max=attempts_max)
+                self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
+
+        elif exec_timeout > 0:
+            with GeecsDevice.threads_lists_access:
+                # create listening thread (only)
+                async_thread: ThreadInfo = \
+                    self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
+
+                # if nothing running and no commands in queue
+                if (not self.own_threads) and self.queue_cmds.empty():
+                    self.process_command(cmd_str, cmd_label, thread_info=async_thread, attempts_max=attempts_max)
+                else:
+                    self.queue_cmds.put((cmd_str, cmd_label, async_thread, attempts_max))
+                    queued = True
+
+        return queued, cmd_label, async_thread
+
+    def dequeue_command(self):
+        self._cleanup_threads()
+
+        with GeecsDevice.threads_lists_access:
+            # if nothing running and commands in queue
+            if (not self.own_threads) and (not self.queue_cmds.empty()):
+                try:
+                    cmd_str, cmd_label, async_thread, attempts_max = self.queue_cmds.get_nowait()
+                    self.process_command(cmd_str, cmd_label, thread_info=async_thread, attempts_max=attempts_max)
+                except queue.Empty:
+                    pass
+
+    def process_command(self, cmd_str: str, cmd_label: str,
+                        thread_info: ThreadInfo = (None, None), attempts_max: int = 5):
+        accepted = False
         try:
-            accepted = False
             for _ in range(attempts_max):
                 sent = self.dev_udp.send_cmd(ipv4=(self.dev_ip, self.dev_port), msg=cmd_str)
                 if sent:
                     accepted = self.dev_udp.ack_cmd(timeout=5.0)
+                else:
+                    time.sleep(0.1)
+                    continue
+
                 if accepted or api_error.is_error:
                     break
-
-            if accepted:
-                stamp = re.sub(r'[\s.:]', '-', dtime.now().__str__())
-                cmd_label += f' @ {stamp}'
-                if exec_timeout > 0:
-                    async_thread = \
-                        self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
-                executed = True
+                else:
+                    time.sleep(0.1)
 
         except Exception as ex:
             api_error.error(str(ex), f'GeecsDevice "{self.__dev_name}", method "{cmd_label}"')
 
-        return executed, cmd_label, async_thread
+        if accepted and (thread_info[0] is not None):
+            thread_info[0].start()
+            self.own_threads.append(thread_info)
+            GeecsDevice.all_threads.append(thread_info)
 
     def handle_response(self, net_msg: mh.NetworkMessage,
                         notifier: Optional[Condition] = None,
@@ -317,17 +372,74 @@ class GeecsDevice:
         return value
 
     # Synchronization
-    def wait_for_all_cmds(self, timeout: Optional[float] = None) -> bool:
-        return self.dev_udp.cmd_checker.wait_for_all_cmds(timeout)
+    # -----------------------------------------------------------------------------------------------------------
+    @staticmethod
+    def cleanup_threads():
+        with GeecsDevice.threads_lists_access:
+            for it in range(len(GeecsDevice.all_threads)):
+                if not GeecsDevice.all_threads[-1 - it][0].is_alive():
+                    GeecsDevice.all_threads.pop(-1 - it)
 
-    def wait_for_cmd(self, thread: Thread, timeout: Optional[float] = None) -> bool:
-        return self.dev_udp.cmd_checker.wait_for_cmd(thread, timeout)
+    def _cleanup_threads(self):
+        with GeecsDevice.threads_lists_access:
+            for it in range(len(self.own_threads)):
+                if not self.own_threads[-1 - it][0].is_alive():
+                    self.own_threads.pop(-1 - it)
+
+            for it in range(len(GeecsDevice.all_threads)):
+                if not GeecsDevice.all_threads[-1 - it][0].is_alive():
+                    GeecsDevice.all_threads.pop(-1 - it)
+
+    @staticmethod
+    def wait_for_all_devices(timeout: Optional[float] = None):
+        GeecsDevice.cleanup_threads()
+        any_alive = False
+
+        with GeecsDevice.threads_lists_access:
+            for thread in GeecsDevice.all_threads:
+                thread[0].join(timeout)
+                any_alive |= thread[0].is_alive()
+
+        return not any_alive
+
+    @staticmethod
+    def stop_waiting_for_all_devices():
+        GeecsDevice.cleanup_threads()
+
+        with GeecsDevice.threads_lists_access:
+            for thread in GeecsDevice.all_threads:
+                thread[1].set()
+
+    def wait_for_all_cmds(self, timeout: Optional[float] = None) -> bool:
+        self._cleanup_threads()
+        any_alive = False
+
+        with GeecsDevice.threads_lists_access:
+            for thread in self.own_threads:
+                thread[0].join(timeout)
+                any_alive |= thread[0].is_alive()
+
+        return not any_alive
 
     def stop_waiting_for_all_cmds(self):
-        self.dev_udp.cmd_checker.stop_waiting_for_all_cmds()
+        self._cleanup_threads()
+
+        with GeecsDevice.threads_lists_access:
+            for thread in self.own_threads:
+                thread[1].set()
+
+    def wait_for_cmd(self, thread: Thread, timeout: Optional[float] = None):
+        with GeecsDevice.threads_lists_access:
+            if self.is_valid() and thread.is_alive():
+                thread.join(timeout)
+
+            alive = thread.is_alive()
+
+        return not alive
 
     def stop_waiting_for_cmd(self, thread: Thread, stop: Event):
-        self.dev_udp.cmd_checker.stop_waiting_for_cmd(thread, stop)
+        if self.is_valid() and thread.is_alive():
+            stop.set()
 
 
 if __name__ == '__main__':

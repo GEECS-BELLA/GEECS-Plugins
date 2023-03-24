@@ -1,11 +1,10 @@
 from __future__ import annotations
-
 import math
 import socket
 import time
 import select
 from queue import Queue
-from threading import Thread, Condition, Event, Lock
+from threading import Thread, Condition, Event
 from datetime import datetime as dtime
 from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
@@ -98,34 +97,9 @@ class UdpHandler:
 
 
 class UdpServer:
-    # Static
-    threads_lists_access = Lock()
-    all_threads: list[(Thread, Event)] = []  # need to be owned and managed by GeecsDevice
-
-    @staticmethod
-    def cleanup_threads():
-        with UdpServer.threads_lists_access:
-            for it in range(len(UdpServer.all_threads)):
-                if not UdpServer.all_threads[-1 - it][0].is_alive():
-                    UdpServer.all_threads.pop(-1 - it)
-
-    @staticmethod
-    def wait_for_all_devices(timeout: Optional[float] = None):
-        UdpServer.cleanup_threads()
-        any_alive = False
-
-        with UdpServer.threads_lists_access:
-            for thread in UdpServer.all_threads:
-                thread[0].join(timeout)
-                any_alive |= thread[0].is_alive()
-
-        return not any_alive
-
-    # Object
     def __init__(self, owner: GeecsDevice, port: int = -1):
         self.owner: GeecsDevice = owner
         self.subscribed = False
-        self.own_threads: list[(Thread, Event)] = []  # need to be owned and managed by GeecsDevice
 
         # FIFO queue of messages
         self.queue_msgs = Queue()
@@ -148,7 +122,6 @@ class UdpServer:
 
     def cleanup(self):
         try:
-            self.stop_waiting_for_all_cmds()
             mh.flush_queue(self.queue_msgs)
             self.close_sock_exe()
         except Exception:
@@ -166,47 +139,6 @@ class UdpServer:
             self.sock = None
             self.port = -1
             self.bounded = False
-
-    def _cleanup_threads(self):
-        with UdpServer.threads_lists_access:
-            for it in range(len(self.own_threads)):
-                if not self.own_threads[-1 - it][0].is_alive():
-                    self.own_threads.pop(-1 - it)
-
-            for it in range(len(UdpServer.all_threads)):
-                if not UdpServer.all_threads[-1 - it][0].is_alive():
-                    UdpServer.all_threads.pop(-1 - it)
-
-    def wait_for_all_cmds(self, timeout: Optional[float] = None) -> bool:
-        self._cleanup_threads()
-        any_alive = False
-
-        with UdpServer.threads_lists_access.acquire:
-            for thread in self.own_threads:
-                thread[0].join(timeout)
-                any_alive |= thread[0].is_alive()
-
-        return not any_alive
-
-    def stop_waiting_for_all_cmds(self):
-        self._cleanup_threads()
-
-        with UdpServer.threads_lists_access:
-            for thread in self.own_threads:
-                thread[1].set()
-
-    def wait_for_cmd(self, thread: Thread, timeout: Optional[float] = None):
-        with UdpServer.threads_lists_access:
-            if self.owner.is_valid() and thread.is_alive():
-                thread.join(timeout)
-
-            alive = thread.is_alive()
-
-        return not alive
-
-    def stop_waiting_for_cmd(self, thread: Thread, stop: Event):
-        if self.owner.is_valid() and thread.is_alive():
-            stop.set()
 
     def listen(self, cmd_tag: str, stop_event: Optional[Event] = None, timeout: Optional[float] = 1.0) -> str:
         """ Listens for command-executed messages. """
@@ -255,6 +187,9 @@ class UdpServer:
         except Exception:
             api_error.error('Failed to publish UDP message', 'UdpServer class, method "listen"')
 
+        check_next_thread = Thread(target=self.owner.dequeue_command, args=())
+        check_next_thread.start()
+
         return geecs_ans
 
     def wait_for_exe(self, cmd_tag: str, timeout: Optional[float] = 5.0, sync: bool = False) -> ThreadInfo:
@@ -262,25 +197,20 @@ class UdpServer:
 
         exe_thread: Optional[Thread] = None
         stop_event: Optional[Event] = None
-        self._cleanup_threads()
 
         try:
             if sync:
                 self.listen(cmd_tag, timeout=timeout)
             else:
-                self.launch_thread(cmd_tag, timeout)
+                exe_thread, stop_event = self.create_thread(cmd_tag, timeout)
 
         except Exception:
             api_error.error('Failed waiting for command execution', 'UdpServer class, method "wait_for_exe"')
 
         return exe_thread, stop_event
 
-    def launch_thread(self, cmd_tag: str, timeout: Optional[float] = 5.0):
-        with UdpServer.threads_lists_access:
-            stop_event = Event()
-            exe_thread = Thread(target=self.listen,
-                                args=(cmd_tag, stop_event, timeout))
-            exe_thread.start()  # to be done GeecsDevice
-
-            self.own_threads.append((exe_thread, stop_event))
-            UdpServer.all_threads.append((exe_thread, stop_event))
+    def create_thread(self, cmd_tag: str, timeout: Optional[float] = 5.0) -> ThreadInfo:
+        stop_event = Event()
+        exe_thread = Thread(target=self.listen,
+                            args=(cmd_tag, stop_event, timeout))
+        return exe_thread, stop_event
