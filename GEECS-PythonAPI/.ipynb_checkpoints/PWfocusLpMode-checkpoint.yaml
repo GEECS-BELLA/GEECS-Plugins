@@ -1,42 +1,18 @@
 control_variables: #tag: [device_name, variable_name, min_value, max_value]
-  exposure: 
-    device_name: CAM-2BL-ProbeM6M7
-    device_variable: exposure
-    range: [ 0.00003, .001]
-    ipaddress: 0.0.0.0
-    port: 9999
-    busy: 0
-    newDataFlag: 0
-    tcp_client: 'na'
-    actual_value: 0.0
+  heatx: 
+    device_name: MCD-HEAT-ESP0
+    device_variable: Position.Axis 2
+    range: [ 0.7930, 0.7970]
     set: True
     set_value: 0.0
-    proximal_lengthscale: 0.001
+    proximal_lengthscale: 1
     objective: False
   Charge: 
     device_name: CAM-PL1-LPMode
-    device_variable: MaxCounts
-    ipaddress: 0.0.0.0
-    port: 9999
-    busy: 0
-    newDataFlag: 0
-    tcp_client: 'na'
-    actual_value: 0.0
-    method: 'MAXIMIZE'
+    device_variable: centroidx
     objective: True
     set: False
-objective_variables: #tag: [device_name, variable_name, min_value, max_value]
-  Charge: 
-    device_name: CAM-2BL-ProbeM6M7
-    device_variable: MaxCounts
-    range: [ 0, 1000.0]
-    ipaddress: 0.0.0.0
-    port: 9999
-    busy: 0
-    newDataFlag: 0
-    tcp_client: 'na'
-    actual_value: 0.0
-    method: 'MAXIMIZE'
+
 database:
   name: loasis
   port: 3306

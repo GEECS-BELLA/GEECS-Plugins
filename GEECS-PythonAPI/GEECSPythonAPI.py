@@ -358,10 +358,18 @@ class OptimizationControl(GEECSDevice):
             else:
                 print("out of bounds")
                 
-    def xopt_get(self,):
-        val=float(self.get_and_wait_udp(self.variable,value))
+    def xopt_get_udp(self):
+        val=float(self.get_and_wait_udp(self.variable))
         return val
                 
     
-                
+                  
+    def xopt_get(self):
+        self.create_tcp_subscribing_client(self.variable)
+        time.sleep(.5)
+        val=float(self.get_tcp_nonblocking())
+        
+        self.tcp_close_client()
+        return val
+                              
     
