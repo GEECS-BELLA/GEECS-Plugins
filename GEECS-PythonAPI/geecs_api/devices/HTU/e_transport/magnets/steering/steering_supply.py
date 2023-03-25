@@ -6,7 +6,7 @@ from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
 
-class ChicaneMagnetSupply(GeecsDevice):
+class SteeringSupply(GeecsDevice):
     def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]], index: int = 1, direction: str = 'Vertical'):
         if index < 1 or index > 4:
             raise ValueError(f'Index {index} out of bound [1-4]')
@@ -24,32 +24,64 @@ class ChicaneMagnetSupply(GeecsDevice):
 
         super().__init__(mc_name, exp_vars)
 
-        self.__variables = {VarAlias('Current'): (-5., -5.),
+        self.__variables = {VarAlias('Current'): (-5., 5.),
                             VarAlias('Enable_Output'): (None, None),
-                            VarAlias('Voltage'): (-10., 10.)}
+                            VarAlias('Voltage'): (0., 10.)}
         self.build_var_dicts(tuple(self.__variables.keys()))
-        self.var_depth = self.var_names_by_index.get(0)[0]
+        self.var_current = self.var_names_by_index.get(0)[0]
+        self.var_enable = self.var_names_by_index.get(1)[0]
+        self.var_voltage = self.var_names_by_index.get(2)[0]
 
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
-    def state_depth(self) -> Optional[float]:
-        return self.state_value(self.var_depth)
+    def state_current(self) -> Optional[float]:
+        return self.state_value(self.var_current)
 
-    def get_depth(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
-        ret = self.get(self.var_depth, exec_timeout=exec_timeout, sync=sync)
+    def state_enable(self) -> Optional[float]:
+        return self.state_value(self.var_enable)
+
+    def state_voltage(self) -> Optional[float]:
+        return self.state_value(self.var_voltage)
+
+    def get_current(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
+        ret = self.get(self.var_current, exec_timeout=exec_timeout, sync=sync)
         if sync:
-            return self.state_depth()
+            return self.state_current()
         else:
             return ret
 
-    def set_depth(self, value: float, exec_timeout: float = 10.0, sync=True) -> Union[Optional[float], AsyncResult]:
-        var_alias = self.var_aliases_by_name[self.var_depth][0]
+    def set_current(self, value: float, exec_timeout: float = 10.0, sync=True) -> Union[Optional[float], AsyncResult]:
+        var_alias = self.var_aliases_by_name[self.var_current][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
 
-        ret = self.set(self.var_depth, value=value, exec_timeout=exec_timeout, sync=sync)
+        ret = self.set(self.var_current, value=value, exec_timeout=exec_timeout, sync=sync)
         if sync:
-            return self.state_depth()
+            return self.state_current()
+        else:
+            return ret
+
+    def is_enabled(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
+        ret = self.get(self.var_enable, exec_timeout=exec_timeout, sync=sync)
+        if sync:
+            return self.state_enable()
+        else:
+            return ret
+
+    def enable(self, value: float, exec_timeout: float = 10.0, sync=True) -> Union[Optional[float], AsyncResult]:
+        var_alias = self.var_aliases_by_name[self.var_enable][0]
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
+
+        ret = self.set(self.var_enable, value=value, exec_timeout=exec_timeout, sync=sync)
+        if sync:
+            return self.state_enable()
+        else:
+            return ret
+
+    def get_voltage(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
+        ret = self.get(self.var_voltage, exec_timeout=exec_timeout, sync=sync)
+        if sync:
+            return self.state_voltage()
         else:
             return ret
 

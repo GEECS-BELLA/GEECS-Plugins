@@ -27,11 +27,21 @@ class Quads(GeecsDevice):
                             VarAlias('Voltage_Limit.Ch1'): (0., 12.),
                             VarAlias('Voltage_Limit.Ch2'): (0., 12.),
                             VarAlias('Voltage_Limit.Ch3'): (0., 12.),
+                            VarAlias('Enable_Output.Ch1'): (None, None),
+                            VarAlias('Enable_Output.Ch2'): (None, None),
+                            VarAlias('Enable_Output.Ch3'): (None, None),
+                            VarAlias('Current.Ch1'): (0., 12.),
+                            VarAlias('Current.Ch2'): (0., 12.),
+                            VarAlias('Current.Ch3'): (0., 12.),
                             VarAlias('Voltage.Ch1'): (0., 12.),
                             VarAlias('Voltage.Ch2'): (0., 12.),
                             VarAlias('Voltage.Ch3'): (0., 12.)}
         self.build_var_dicts(tuple(self.__variables.keys()))
-        self.var_depth = self.var_names_by_index.get(0)[0]
+        self.vars_current_lim = (self.var_names_by_index.get(i)[0] for i in range(0, 3))
+        self.vars_voltage_lim = (self.var_names_by_index.get(i)[0] for i in range(3, 6))
+        self.vars_enable = (self.var_names_by_index.get(i)[0] for i in range(6, 9))
+        self.vars_current = (self.var_names_by_index.get(i)[0] for i in range(9, 12))
+        self.vars_voltage = (self.var_names_by_index.get(i)[0] for i in range(12, 15))
 
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()

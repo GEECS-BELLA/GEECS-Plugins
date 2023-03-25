@@ -2,8 +2,7 @@ from __future__ import annotations
 import socket
 import select
 import struct
-from queue import Queue
-from threading import Thread, Condition, Event
+from threading import Thread, Event
 from typing import TYPE_CHECKING
 from datetime import datetime as dtime
 if TYPE_CHECKING:
@@ -16,12 +15,6 @@ class TcpSubscriber:
     def __init__(self, owner: GeecsDevice):
         self.owner: GeecsDevice = owner
         self.subscribed = False
-
-        # FIFO queue of messages
-        self.queue_msgs = Queue()
-
-        # message notifier
-        self.notifier = Condition()
 
         # initialize socket
         self.unsubscribe_event = Event()
@@ -37,7 +30,6 @@ class TcpSubscriber:
     def cleanup(self):
         try:
             self.unsubscribe()
-            mh.flush_queue(self.queue_msgs)
             self.close_sock()
         except Exception:
             pass
@@ -52,7 +44,8 @@ class TcpSubscriber:
             self.connected = True
 
         except Exception:
-            api_error.error('Failed to connect TCP client', 'TcpSubscriber class, method "connect"')
+            api_error.error(f'Failed to connect TCP client ({self.owner.get_name()})',
+                            'TcpSubscriber class, method "connect"')
             self.host = ''
             self.port = -1
             self.connected = False
@@ -176,7 +169,7 @@ class TcpSubscriber:
                             try:
                                 net_msg = mh.NetworkMessage(tag=self.owner.get_name(),
                                                             stamp=stamp, msg=this_msg, err=err)
-                                self.owner.handle_subscription(net_msg, self.notifier, self.queue_msgs)
+                                self.owner.handle_subscription(net_msg)
                             except Exception:
                                 api_error.error('Failed to handle TCP subscription',
                                                 'TcpSubscriber class, method "async_listener"')

@@ -101,12 +101,6 @@ class UdpServer:
         self.owner: GeecsDevice = owner
         self.subscribed = False
 
-        # FIFO queue of messages
-        self.queue_msgs = Queue()
-
-        # message notifier
-        self.notifier = Condition()
-
         # initialize socket
         self.buffer_size = 1024
         self.port = port
@@ -122,7 +116,6 @@ class UdpServer:
 
     def cleanup(self):
         try:
-            mh.flush_queue(self.queue_msgs)
             self.close_sock_exe()
         except Exception:
             pass
@@ -180,7 +173,7 @@ class UdpServer:
             net_msg = mh.NetworkMessage(tag=cmd_tag, stamp=stamp, msg=geecs_ans)
             if self.subscribed:
                 try:
-                    self.owner.handle_response(net_msg, self.notifier, self.queue_msgs)
+                    self.owner.handle_response(net_msg)
                 except Exception:
                     api_error.error('Failed to handle UDP response', 'UdpServer class, method "listen"')
 

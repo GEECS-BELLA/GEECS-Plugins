@@ -23,16 +23,16 @@ class Laser(GeecsDevice):
         super().__init__('laser', None, virtual=True)
 
         self.compressor = LaserCompressor(exp_vars)
-        self.seed_laser = Seed(exp_vars)
-        self.pump_laser = Pump(exp_vars)
+        self.seed = Seed(exp_vars)
+        self.pump = Pump(exp_vars)
 
         self.compressor.subscribe_var_values()
-        self.pump_laser.subscribe_var_values()
+        self.pump.subscribe_var_values()
 
     def cleanup(self):
         self.compressor.cleanup()
-        self.seed_laser.cleanup()
-        self.pump_laser.cleanup()
+        self.seed.cleanup()
+        self.pump.cleanup()
 
 
 if __name__ == '__main__':
@@ -47,8 +47,8 @@ if __name__ == '__main__':
     # retrieve currently known compressor positions and setpoints
     time.sleep(1.0)
     try:
-        print(f'Compressor state:\n\t{laser.compressor.state}')
-        print(f'Compressor config:\n\t{laser.compressor.setpoints}')
+        print(f'State:\n\t{laser.compressor.state}')
+        print(f'Config:\n\t{laser.compressor.setpoints}')
     except Exception as e:
-        api_error.error(str(e), 'Demo code for laser')
+        api_error.error(str(e), 'Demo code')
         pass

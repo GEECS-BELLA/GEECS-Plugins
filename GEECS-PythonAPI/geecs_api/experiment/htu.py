@@ -35,24 +35,24 @@ class HtuExp(Experiment):
         exec_async(self.jet.pressure.set_pressure, args=(0., 30))
         exec_async(self.jet.stage.set_position, ('Y', -5., 30))
 
-        is_amp4_in = self.laser.seed_laser.amp4_shutter.insert(exec_timeout=30)
+        is_amp4_in = self.laser.seed.amp4_shutter.insert(exec_timeout=30)
 
-        exec_async(self.laser.pump_laser.set_lamp_timing, (700., 30))
+        exec_async(self.laser.pump.set_lamp_timing, (700., 30))
 
-        is_gaia_in = self.laser.pump_laser.shutters.insert('North', 1, exec_timeout=30)
-        is_gaia_in &= self.laser.pump_laser.shutters.insert('South', 1, exec_timeout=30)
-        is_gaia_in &= self.laser.pump_laser.shutters.insert('North', 2, exec_timeout=30)
-        is_gaia_in &= self.laser.pump_laser.shutters.insert('South', 2, exec_timeout=30)
-        is_gaia_in &= self.laser.pump_laser.shutters.insert('North', 3, exec_timeout=30)
-        is_gaia_in &= self.laser.pump_laser.shutters.insert('South', 3, exec_timeout=30)
-        is_gaia_in &= self.laser.pump_laser.shutters.insert('North', 4, exec_timeout=30)
-        is_gaia_in &= self.laser.pump_laser.shutters.insert('South', 4, exec_timeout=30)
+        is_gaia_in = self.laser.pump.shutters.insert('North', 1, exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert('South', 1, exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert('North', 2, exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert('South', 2, exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert('North', 3, exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert('South', 3, exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert('North', 4, exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert('South', 4, exec_timeout=30)
 
         is_hexapod_out = self.e_transport.hexapod.move_out(exec_timeout=120)
 
         is_pressure_zero = abs(self.jet.pressure.state_psi()) < 0.1
         is_jet_out = abs(self.jet.stage.state_y() + 5.) < 0.01
-        is_lamp_timing_off = abs(self.laser.pump_laser.state_lamp_timing() - 700.) < 1
+        is_lamp_timing_off = abs(self.laser.pump.state_lamp_timing() - 700.) < 1
 
         return is_pressure_zero and is_jet_out and is_amp4_in and is_lamp_timing_off and is_gaia_in and is_hexapod_out
 
@@ -60,8 +60,9 @@ class HtuExp(Experiment):
 if __name__ == '__main__':
     htu = HtuExp()
 
-    htu.laser.seed_laser.amp4_shutter.insert(exec_timeout=30)
-    # htu.laser.seed_laser.amp4_shutter.remove(exec_timeout=30)
+    # htu.laser.seed.amp4_shutter.insert(exec_timeout=30)
+    # htu.laser.seed.amp4_shutter.remove(exec_timeout=30)
+    htu.laser.pump.shutters.remove(3, 'South')
 
     # time.sleep(1.0)
     # htu.jet.stage.set_position('X', 7.5)

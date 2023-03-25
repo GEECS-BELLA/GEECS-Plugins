@@ -13,14 +13,16 @@ from geecs_api.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorA
 
 class GeecsDevice:
     # Static
-    threads_lists_access = Lock()
+    threads_lock = Lock()
     all_threads: list[ThreadInfo] = []
 
     def __init__(self, name: str, exp_vars: Optional[dict[str, dict[str, dict[str, Any]]]], virtual=False):
+        # Static properties
         self.__dev_name: str = name.strip()
         self.__dev_virtual = virtual or not self.__dev_name
         self.__class_name = re.search(r'\w+\'>$', str(self.__class__))[0][:-2]
 
+        # Communications
         self.dev_tcp: Optional[TcpSubscriber] = None
         self.dev_udp: Optional[UdpHandler]
         if not self.__dev_virtual:
@@ -31,14 +33,25 @@ class GeecsDevice:
         self.dev_ip: str = ''
         self.dev_port: int = 0
 
+        # Variables
         self.dev_vars = {}
         self.var_names_by_index: dict[int, tuple[str, VarAlias]] = {}
         self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = {}
 
         self.setpoints: dict[VarAlias, Any] = {}
         self.state: dict[VarAlias, Any] = {}
+
+        # Message handling
         self.queue_cmds = Queue()
         self.own_threads: list[(Thread, Event)] = []
+
+        self.notify_on_udp = False
+        self.queue_udp_msgs = Queue()
+        self.notifier_udp_msgs = Condition()
+
+        self.notify_on_tcp = False
+        self.queue_tcp_msgs = Queue()
+        self.notifier_tcp_msgs = Condition()
 
         if not self.__dev_virtual:
             self.dev_ip, self.dev_port = GeecsDatabase.find_device(self.__dev_name)
@@ -55,6 +68,9 @@ class GeecsDevice:
             self.list_variables(exp_vars)
 
     def cleanup(self):
+        mh.flush_queue(self.queue_udp_msgs)
+        mh.flush_queue(self.queue_tcp_msgs)
+
         self.stop_waiting_for_all_cmds()
 
         if self.dev_udp:
@@ -203,19 +219,21 @@ class GeecsDevice:
 
         stamp = re.sub(r'[\s.:]', '-', dtime.now().__str__())
         cmd_label += f' @ {stamp}'
+
         queued: bool = False
+        async_thread: ThreadInfo = (None, None)
 
         self._cleanup_threads()
 
         if sync:
             self.wait_for_all_cmds(timeout=120.)
 
-            with GeecsDevice.threads_lists_access:
+            with GeecsDevice.threads_lock:
                 self.process_command(cmd_str, cmd_label, thread_info=(None, None), attempts_max=attempts_max)
                 self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
 
         elif exec_timeout > 0:
-            with GeecsDevice.threads_lists_access:
+            with GeecsDevice.threads_lock:
                 # create listening thread (only)
                 async_thread: ThreadInfo = \
                     self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
@@ -232,7 +250,7 @@ class GeecsDevice:
     def dequeue_command(self):
         self._cleanup_threads()
 
-        with GeecsDevice.threads_lists_access:
+        with GeecsDevice.threads_lock:
             # if nothing running and commands in queue
             if (not self.own_threads) and (not self.queue_cmds.empty()):
                 try:
@@ -266,12 +284,16 @@ class GeecsDevice:
             self.own_threads.append(thread_info)
             GeecsDevice.all_threads.append(thread_info)
 
-    def handle_response(self, net_msg: mh.NetworkMessage,
-                        notifier: Optional[Condition] = None,
-                        queue_msgs: Optional[Queue] = None) -> tuple[str, str, str, bool]:
+    def handle_response(self, net_msg: mh.NetworkMessage) -> tuple[str, str, str, bool]:
         try:
             dev_name, cmd_received, dev_val, err_status = GeecsDevice._response_parser(net_msg.msg)
 
+            # Queue & notify
+            if self.notify_on_udp:
+                self.queue_udp_msgs.put((dev_name, cmd_received, dev_val, err_status))
+                self.notifier_udp_msgs.notify_all()
+
+            # Error handling
             if net_msg.err.is_error or net_msg.err.is_warning:
                 print(net_msg.err)
 
@@ -279,6 +301,7 @@ class GeecsDevice:
                 warn = ErrorAPI('Mismatch in device name', f'Class {self.__class_name}, method "handle_response"')
                 print(warn)
 
+            # Update dictionaries
             if dev_name == self.get_name() and not err_status and cmd_received[:3] == 'get':
                 var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
                 dev_val = self.interpret_value(var_alias, dev_val)
@@ -300,15 +323,20 @@ class GeecsDevice:
             print(err)
             return '', '', '', True
 
-    def handle_subscription(self, net_msg: mh.NetworkMessage,
-                            notifier: Optional[Condition] = None,
-                            queue_msgs: Optional[Queue] = None) -> tuple[str, int, dict[str, str]]:
+    def handle_subscription(self, net_msg: mh.NetworkMessage) -> tuple[str, int, dict[str, str]]:
         try:
             dev_name, shot_nb, dict_vals = GeecsDevice._subscription_parser(net_msg.msg)
 
+            # Queue & notify
+            if self.notify_on_tcp:
+                self.queue_tcp_msgs.put((dev_name, shot_nb, dict_vals))
+                self.notifier_tcp_msgs.notify_all()
+
+            # Error handling
             if net_msg.err.is_error or net_msg.err.is_warning:
                 print(net_msg.err)
 
+            # Update dictionaries
             if dev_name == self.get_name() and dict_vals:
                 for var, val in dict_vals.items():
                     if var in self.var_aliases_by_name:
@@ -375,13 +403,13 @@ class GeecsDevice:
     # -----------------------------------------------------------------------------------------------------------
     @staticmethod
     def cleanup_threads():
-        with GeecsDevice.threads_lists_access:
+        with GeecsDevice.threads_lock:
             for it in range(len(GeecsDevice.all_threads)):
                 if not GeecsDevice.all_threads[-1 - it][0].is_alive():
                     GeecsDevice.all_threads.pop(-1 - it)
 
     def _cleanup_threads(self):
-        with GeecsDevice.threads_lists_access:
+        with GeecsDevice.threads_lock:
             for it in range(len(self.own_threads)):
                 if not self.own_threads[-1 - it][0].is_alive():
                     self.own_threads.pop(-1 - it)
@@ -395,7 +423,7 @@ class GeecsDevice:
         GeecsDevice.cleanup_threads()
         any_alive = False
 
-        with GeecsDevice.threads_lists_access:
+        with GeecsDevice.threads_lock:
             for thread in GeecsDevice.all_threads:
                 thread[0].join(timeout)
                 any_alive |= thread[0].is_alive()
@@ -406,7 +434,7 @@ class GeecsDevice:
     def stop_waiting_for_all_devices():
         GeecsDevice.cleanup_threads()
 
-        with GeecsDevice.threads_lists_access:
+        with GeecsDevice.threads_lock:
             for thread in GeecsDevice.all_threads:
                 thread[1].set()
 
@@ -414,7 +442,7 @@ class GeecsDevice:
         self._cleanup_threads()
         any_alive = False
 
-        with GeecsDevice.threads_lists_access:
+        with GeecsDevice.threads_lock:
             for thread in self.own_threads:
                 thread[0].join(timeout)
                 any_alive |= thread[0].is_alive()
@@ -424,12 +452,12 @@ class GeecsDevice:
     def stop_waiting_for_all_cmds(self):
         self._cleanup_threads()
 
-        with GeecsDevice.threads_lists_access:
+        with GeecsDevice.threads_lock:
             for thread in self.own_threads:
                 thread[1].set()
 
     def wait_for_cmd(self, thread: Thread, timeout: Optional[float] = None):
-        with GeecsDevice.threads_lists_access:
+        with GeecsDevice.threads_lock:
             if self.is_valid() and thread.is_alive():
                 thread.join(timeout)
 
