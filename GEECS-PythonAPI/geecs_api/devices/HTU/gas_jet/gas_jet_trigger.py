@@ -32,9 +32,9 @@ class GasJetTrigger(GeecsDevice):
         self.register_var_listener_handler()
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
-        if var_alias == self.var_names_by_index.get(0)[1]:  # status
+        if var_alias == self.var_aliases_by_name[self.var_trigger][0]:  # status
             return float(val_string) > 2.5
-        else:  # start or duration
+        else:  # start, duration
             return float(val_string)
 
     def state_trigger(self) -> Optional[bool]:

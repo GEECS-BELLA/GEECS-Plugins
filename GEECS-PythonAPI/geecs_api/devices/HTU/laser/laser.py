@@ -27,7 +27,9 @@ class Laser(GeecsDevice):
         self.pump = Pump(exp_vars)
 
         self.compressor.subscribe_var_values()
+        self.seed.amp4_shutter.subscribe_var_values()
         self.pump.subscribe_var_values()
+        self.pump.shutters.subscribe_var_values()
 
     def cleanup(self):
         self.compressor.cleanup()

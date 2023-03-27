@@ -66,8 +66,8 @@ if __name__ == '__main__':
     # retrieve currently known positions
     time.sleep(1.0)
     try:
-        print(f'Pressure state:\n\t{jet_pressure.state}')
-        print(f'Pressure config:\n\t{jet_pressure.setpoints}')
+        print(f'State:\n\t{jet_pressure.state}')
+        print(f'Config:\n\t{jet_pressure.setpoints}')
     except Exception as e:
         api_error.error(str(e), 'Demo code for gas jet')
         pass

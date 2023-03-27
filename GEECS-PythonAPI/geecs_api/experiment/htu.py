@@ -1,4 +1,3 @@
-# import time
 from geecs_api.api_defs import exec_async
 from geecs_api.devices.HTU import GasJet, Laser, Transport
 from geecs_api.experiment import Experiment
@@ -23,13 +22,13 @@ class HtuExp(Experiment):
         # Devices
         self.laser = Laser(self.exp_devs)
         self.jet = GasJet(self.exp_devs)
-        self.e_transport = Transport(self.exp_devs)
+        self.transport = Transport(self.exp_devs)
 
         self.devs = {
             'laser': self.laser,
             'jet': self.jet,
-            'e_transport': self.e_transport
-        }
+            'transport': self.transport
+        }  # handy to manipulate devices by batch
 
     def shutdown(self) -> bool:
         exec_async(self.jet.pressure.set_pressure, args=(0., 30))
@@ -48,7 +47,7 @@ class HtuExp(Experiment):
         is_gaia_in &= self.laser.pump.shutters.insert('North', 4, exec_timeout=30)
         is_gaia_in &= self.laser.pump.shutters.insert('South', 4, exec_timeout=30)
 
-        is_hexapod_out = self.e_transport.hexapod.move_out(exec_timeout=120)
+        is_hexapod_out = self.transport.hexapod.move_out(exec_timeout=120)
 
         is_pressure_zero = abs(self.jet.pressure.state_psi()) < 0.1
         is_jet_out = abs(self.jet.stage.state_y() + 5.) < 0.01
@@ -60,28 +59,6 @@ class HtuExp(Experiment):
 if __name__ == '__main__':
     htu = HtuExp()
 
-    # htu.laser.seed.amp4_shutter.insert(exec_timeout=30)
-    # htu.laser.seed.amp4_shutter.remove(exec_timeout=30)
-    htu.laser.pump.shutters.remove(3, 'South')
-
-    # time.sleep(1.0)
-    # htu.jet.stage.set_position('X', 7.5)
-    # htu.jet.pressure.set_pressure(290.)
-    # htu.jet.trigger.run(False)
-    # htu.jet.blade.set_depth(-17.1)
-    # htu.laser.compressor.get_separation()
-
-    # time.sleep(1.0)
-    # print(f'Stage state:\n\t{htu.jet.stage.state}')
-    # print(f'Pressure state:\n\t{htu.jet.pressure.state}')
-    # print(f'Trigger state:\n\t{htu.jet.trigger.state}')
-    # print(f'Blade state:\n\t{htu.jet.blade.state}')
-    # print(f'Compressor state:\n\t{htu.laser.compressor.state}')
-    # print(f'Seed shutter (Amp4) state:\n\t{htu.laser.seed_laser.amp4_shutter.state}')
-    # print(f'Pump laser state:\n\t{htu.laser.pump_laser.state}')
-    # print(f'Pump shutters state:\n\t{htu.laser.pump_laser.shutters.state}')
-    # print(f'Hexapod state:\n\t{htu.e_transport.hexapod.state}')
-
-    # print(f'Stage setpoints:\n\t{htu.jet.stage.setpoints}')
+    # htu.transport.steer_1.horizontal.set_current(0.1)
 
     htu.cleanup()

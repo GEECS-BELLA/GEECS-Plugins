@@ -30,7 +30,6 @@ class Pump(GeecsDevice):
         self.register_var_listener_handler()
 
         self.shutters = PumpShutters(exp_vars)
-        self.shutters.subscribe_var_values()
 
     def cleanup(self):
         self.shutters.cleanup()
@@ -58,40 +57,3 @@ class Pump(GeecsDevice):
             return self.state_lamp_timing()
         else:
             return ret
-
-
-if __name__ == '__main__':
-    api_error.clear()
-
-    # list experiment devices and variables
-    exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
-
-    # create object
-    pump = Pump(exp_devs)
-    print(f'Variables subscription: {pump.subscribe_var_values()}')
-
-    # retrieve current state and configuration
-    time.sleep(1.)
-    try:
-        print(f'State:\n\t{pump.state}')
-        print(f'Setpoints:\n\t{pump.setpoints}')
-    except Exception as e:
-        api_error.error(str(e), 'Demo code')
-        pass
-
-    # test accessor and set
-    pump.get_lamp_timing()
-    pump.set_lamp_timing(670)
-
-    # check state and configuration again
-    time.sleep(1.)
-    try:
-        print(f'State:\n\t{pump.state}')
-        print(f'Setpoints:\n\t{pump.setpoints}')
-    except Exception as e:
-        api_error.error(str(e), 'Demo code')
-        pass
-
-    # close
-    pump.cleanup()
-    print(api_error)

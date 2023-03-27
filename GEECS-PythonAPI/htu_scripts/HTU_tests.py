@@ -7,7 +7,7 @@ htu = HtuExp()
 
 # do something/nothing
 # htu.laser.pump_laser.shutters.insert(1, 'North', sync=True)
-# htu.e_transport.hexapod.set_position('Y', 15., exec_timeout=120, sync=True)
+# htu.transport.hexapod.set_position('Y', 15., exec_timeout=120, sync=True)
 
 time.sleep(1)
 htu.shutdown()

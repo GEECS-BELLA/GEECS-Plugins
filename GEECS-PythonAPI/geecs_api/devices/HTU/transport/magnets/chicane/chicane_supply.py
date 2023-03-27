@@ -3,7 +3,6 @@ import inspect
 from typing import Optional, Any, Union
 from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.interface import GeecsDatabase, api_error
 
 
 class ChicaneSupply(GeecsDevice):
@@ -17,7 +16,7 @@ class ChicaneSupply(GeecsDevice):
             self.is_inner = False
             self.is_outer = True
         else:
-            raise Exception.args
+            raise ValueError(f'Pair: "{pair}" not recognized ["Inner", "Outer"]')
 
         super().__init__(mc_name, exp_vars)
 
@@ -32,10 +31,16 @@ class ChicaneSupply(GeecsDevice):
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
+    def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
+        if var_alias == self.var_aliases_by_name[self.var_enable][0]:  # status
+            return float(val_string) > 2.5
+        else:  # current, voltage
+            return float(val_string)
+
     def state_current(self) -> Optional[float]:
         return self.state_value(self.var_current)
 
-    def state_enable(self) -> Optional[float]:
+    def state_enable(self) -> Optional[bool]:
         return self.state_value(self.var_enable)
 
     def state_voltage(self) -> Optional[float]:
@@ -58,32 +63,23 @@ class ChicaneSupply(GeecsDevice):
         else:
             return ret
 
-    def is_enabled(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
+    def is_enabled(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[bool], AsyncResult]:
         ret = self.get(self.var_enable, exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_enable()
         else:
             return ret
 
-    def enable(self, value: float, exec_timeout: float = 10.0, sync=True) -> Union[Optional[float], AsyncResult]:
-        var_alias = self.var_aliases_by_name[self.var_enable][0]
-        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
-
+    def enable(self, value: bool, exec_timeout: float = 10.0, sync=True) -> Union[Optional[bool], AsyncResult]:
+        value = 4.0 if value else 0.5
         ret = self.set(self.var_enable, value=value, exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_enable()
         else:
             return ret
 
-    def disable(self, value: float, exec_timeout: float = 10.0, sync=True) -> Union[Optional[float], AsyncResult]:
-        var_alias = self.var_aliases_by_name[self.var_enable][0]
-        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
-
-        ret = self.set(self.var_enable, value=value, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_enable()
-        else:
-            return ret
+    def disable(self, exec_timeout: float = 10.0, sync=True) -> Union[Optional[bool], AsyncResult]:
+        return self.enable(False, exec_timeout=exec_timeout, sync=sync)
 
     def get_voltage(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
         ret = self.get(self.var_voltage, exec_timeout=exec_timeout, sync=sync)
@@ -91,13 +87,3 @@ class ChicaneSupply(GeecsDevice):
             return self.state_voltage()
         else:
             return ret
-
-
-if __name__ == '__main__':
-    api_error.clear()
-
-    # list experiment devices and variables
-    exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
-
-    # create gas jet object
-    supply = ChicaneSupply(exp_devs)

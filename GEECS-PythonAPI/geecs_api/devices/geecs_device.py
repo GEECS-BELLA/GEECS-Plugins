@@ -402,7 +402,7 @@ class GeecsDevice:
     # Synchronization
     # -----------------------------------------------------------------------------------------------------------
     @staticmethod
-    def cleanup_threads():
+    def cleanup_all_threads():
         with GeecsDevice.threads_lock:
             for it in range(len(GeecsDevice.all_threads)):
                 if not GeecsDevice.all_threads[-1 - it][0].is_alive():
@@ -420,19 +420,19 @@ class GeecsDevice:
 
     @staticmethod
     def wait_for_all_devices(timeout: Optional[float] = None):
-        GeecsDevice.cleanup_threads()
-        any_alive = False
+        GeecsDevice.cleanup_all_threads()
+        synced = True
 
         with GeecsDevice.threads_lock:
             for thread in GeecsDevice.all_threads:
                 thread[0].join(timeout)
-                any_alive |= thread[0].is_alive()
+                synced &= thread[0].is_alive()
 
-        return not any_alive
+        return synced
 
     @staticmethod
     def stop_waiting_for_all_devices():
-        GeecsDevice.cleanup_threads()
+        GeecsDevice.cleanup_all_threads()
 
         with GeecsDevice.threads_lock:
             for thread in GeecsDevice.all_threads:
@@ -468,38 +468,3 @@ class GeecsDevice:
     def stop_waiting_for_cmd(self, thread: Thread, stop: Event):
         if self.is_valid() and thread.is_alive():
             stop.set()
-
-
-if __name__ == '__main__':
-    api_error.clear()
-
-    devs = GeecsDatabase.find_experiment_variables('Undulator')
-    # _dev_name = 'U_ESP_JetXYZ'
-    _dev_name = 'U_Hexapod'
-    dev = GeecsDevice(_dev_name, devs)
-    # dev.list_variables(devs)
-    dev.register_var_listener_handler()
-    dev.register_cmd_executed_handler()
-
-    # var_x = dev.find_var_by_alias(VarAlias('Jet_X (mm)'))
-    # var_y = dev.find_var_by_alias(VarAlias('Jet_Y (mm)'))
-    var_y = dev.find_var_by_alias(VarAlias('ypos'))
-
-    # dev.get(var_y, sync=False)
-    # dev.set(var_x, 7.6, sync=False)
-    _, _, exe_thread = dev.set(var_y, -10.0, sync=False)
-    print('main thread not blocked!')
-
-    # dev.subscribe_var_values([var_x, var_y])
-    # dev.subscribe_var_values([var_y])
-    # time.sleep(1.0)
-    # dev.unsubscribe_var_values()
-    # time.sleep(1.0)
-
-    if exe_thread[0]:
-        is_done = dev.wait_for_cmd(exe_thread[0], 120.0)
-    else:
-        is_done = dev.wait_for_all_cmds(120.0)
-        # is_done = dev.wait_for_last_cmd(120.0)
-    print(f'thread terminated: {is_done}')
-    print(api_error)

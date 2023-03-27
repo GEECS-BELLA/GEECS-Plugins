@@ -20,10 +20,11 @@ class Experiment:
                 pass
 
     def wait_for_all_devices(self, timeout: Optional[float] = None) -> bool:
-        if self.devs:
-            return UdpServer.wait_for_all_devices(timeout)
-        else:
-            return True
+        synced = True
+        for dev in self.devs.values():
+            synced &= dev.wait_for_all_devices(timeout)
+
+        return synced
 
     def send_preset(self, preset: str):
         if self.devs and preset:
