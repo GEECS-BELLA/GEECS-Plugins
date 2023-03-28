@@ -269,18 +269,33 @@ class PhasicsImageAnalyzer:
             #     ]
             # ) * 2*np.pi * self.GRATING_CAMERA_DISTANCE
 
-            finite_difference_coefficients = [((-1, 0), (-2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_y / 2).m_as('')),
-                                              ((0, -1), (-2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_x / 2).m_as('')),
-                                              ((0, 1),  ( 2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_x / 2).m_as('')),
-                                              ((1, 0),  ( 2*np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_y / 2).m_as('')),
-                                             ]
+            g_x = (2*np.pi * self.GRATING_CAMERA_DISTANCE.m_as('m') * center.nu_x.m_as('m^-1'))
+            g_y = (2*np.pi * self.GRATING_CAMERA_DISTANCE.m_as('m') * center.nu_y.m_as('m^-1'))
+            
+            for i in range(0, self.shape[0]):
+                for j in range(0, self.shape[1]):
+                    row_ind.extend([m, m])
+                    if j == 0:
+                        col_ind.extend([to_flattened_index(i, j), to_flattened_index(i, j + 1)])
+                        data.extend([-g_x, g_x])
+                    elif j == self.shape[1] - 1:
+                        col_ind.extend([to_flattened_index(i, j - 1), to_flattened_index(i, j)])
+                        data.extend([-g_x, g_x])
+                    else:
+                        col_ind.extend([to_flattened_index(i, j - 1), to_flattened_index(i, j + 1)])
+                        data.extend([-g_x / 2 , g_x / 2])
 
-            for i in range(1, self.shape[0] - 1):
-                for j in range(1, self.shape[1] - 1):
-                    for (di, dj), coeff in finite_difference_coefficients:
-                        data.append(coeff)
-                        row_ind.append(m)
-                        col_ind.append(to_flattened_index(i + di, j + dj))
+                    row_ind.extend([m, m])
+                    if i == 0:
+                        col_ind.extend([to_flattened_index(i, j), to_flattened_index(i + 1, j)])
+                        data.extend([-g_y, g_y])
+                    elif i == self.shape[0] - 1:
+                        col_ind.extend([to_flattened_index(i - 1, j), to_flattened_index(i, j)])
+                        data.extend([-g_y, g_y])
+                    else:
+                        col_ind.extend([to_flattened_index(i - 1, j), to_flattened_index(i + 1, j)])
+                        data.extend([-g_y / 2 , g_y / 2])
+
                     b.append(phase_gradient_map[i, j])
                     m += 1
 
@@ -293,7 +308,7 @@ class PhasicsImageAnalyzer:
             col_ind.append(j)
         b.append(0.0)
 
-        A = csr_matrix((data, (row_ind, col_ind)), shape=(len(self.phase_gradient_maps) * (self.shape[0] - 2) * (self.shape[1] - 2) + 1, 
+        A = csr_matrix((data, (row_ind, col_ind)), shape=(len(self.phase_gradient_maps) * self.shape[0] * self.shape[1] + 1, 
                                                           self.shape[0] * self.shape[1]
                                                          )
                       )
