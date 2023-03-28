@@ -42,6 +42,19 @@ class GasJetStage(GeecsDevice):
         else:
             return self.var_names_by_index.get(axis)[1]
 
+    def check_axis(self, axis: Optional[str, int]) -> bool:
+        if isinstance(axis, str):
+            if len(axis) == 1:
+                axis = ord(axis.upper()) - ord('X')
+            else:
+                axis = -1
+
+        out_of_bound = axis < 0 or axis > 2
+        if out_of_bound:
+            api_error.error(f'Object cannot be instantiated, axis {axis} out of bound [0-2] or ["X", "Y", "Z"]',
+                            f'Class "{self.get_class()}", method "{inspect.stack()[1][3]}"')
+        return out_of_bound
+
     def state_x(self) -> Optional[float]:
         return self.state_value(self.get_axis_var_name(0))
 
@@ -94,6 +107,9 @@ class GasJetStage(GeecsDevice):
         else:
             return ret
 
+    # def rough_scan(self, axis: Optional[str, int], start_value: float, end_value: float,
+    #                step_size: float = 0.25, dwell_time: float = 2.0):
+
 
 if __name__ == '__main__':
     api_error.clear()
@@ -110,8 +126,8 @@ if __name__ == '__main__':
     # set position
     time.sleep(1.0)
     print(f'Jet state: {jet.state}')
-    # jet.get_position('Y', sync=True)
-    jet.set_position('Y', jet.state[jet.get_axis_var_alias(1)])
+    jet.get_position(4, sync=True)
+    # jet.set_position('Y', jet.state[jet.get_axis_var_alias(1)])
 
     print(f'Jet state: {jet.state}')
     jet.cleanup()

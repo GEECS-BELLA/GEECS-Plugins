@@ -2,7 +2,7 @@ from __future__ import annotations
 import inspect
 from typing import Optional, Any, Union
 from geecs_api.api_defs import VarAlias, AsyncResult
-from geecs_api.devices.geecs_device import GeecsDevice
+from geecs_api.devices.geecs_device import GeecsDevice, api_error
 
 
 class ChicaneSupply(GeecsDevice):
@@ -16,7 +16,9 @@ class ChicaneSupply(GeecsDevice):
             self.is_inner = False
             self.is_outer = True
         else:
-            raise ValueError(f'Pair: "{pair}" not recognized ["Inner", "Outer"]')
+            api_error.error(f'Object cannot be instantiated, pair: "{pair}" not recognized ["Inner", "Outer"]',
+                            f'Class "{self.get_class()}", method "{inspect.stack()[0][3]}"')
+            return
 
         super().__init__(mc_name, exp_vars)
 

@@ -22,15 +22,15 @@ class HtuExp(Experiment):
         # Devices
         self.laser = Laser(self.exp_devs)
         self.jet = GasJet(self.exp_devs)
-        # self.transport = Transport(self.exp_devs)
+        self.transport = Transport(self.exp_devs)
         self.diagnostics = Diagnostics(self.exp_devs)
 
         self.devs = {
             'laser': self.laser,
             'jet': self.jet,
-            'diagnostics': self.diagnostics}#,
-            # 'transport': self.transport
-        # }  # handy to manipulate devices by batch
+            'diagnostics': self.diagnostics,
+            'transport': self.transport
+        }  # handy to manipulate devices by batch
 
     def shutdown(self) -> bool:
         exec_async(self.jet.pressure.set_pressure, args=(0., 30))

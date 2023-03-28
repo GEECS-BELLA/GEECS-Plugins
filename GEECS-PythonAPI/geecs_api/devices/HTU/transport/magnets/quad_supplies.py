@@ -2,12 +2,7 @@ from __future__ import annotations
 import inspect
 from typing import Optional, Any, Union
 from geecs_api.api_defs import VarAlias, AsyncResult
-from geecs_api.devices.geecs_device import GeecsDevice
-
-
-def check_index(index: int):
-    if index < 1 or index > 3:
-        raise ValueError(f'Index {index} out of bound [1-3]')
+from geecs_api.devices.geecs_device import GeecsDevice, api_error
 
 
 class Quads(GeecsDevice):
@@ -59,30 +54,50 @@ class Quads(GeecsDevice):
         else:  # current, voltage
             return float(val_string)
 
+    def check_index(self, index: int) -> bool:
+        out_of_bound = index < 1 or index > 3
+        if out_of_bound:
+            api_error.error(f'Object cannot be instantiated, index {index} out of bound [1-4]',
+                            f'Class "{self.get_class()}", method "{inspect.stack()[1][3]}"')
+        return out_of_bound
+
     def state_current_limit(self, index: int) -> Optional[float]:
-        check_index(index)
-        return self.state_value(self.vars_current_lim[index - 1])
+        if self.check_index(index):
+            return None
+        else:
+            return self.state_value(self.vars_current_lim[index - 1])
 
     def state_voltage_limit(self, index: int) -> Optional[float]:
-        check_index(index)
-        return self.state_value(self.vars_voltage_lim[index - 1])
+        if self.check_index(index):
+            return None
+        else:
+            return self.state_value(self.vars_voltage_lim[index - 1])
 
     def state_enable(self, index: int) -> Optional[bool]:
-        check_index(index)
-        return self.state_value(self.vars_enable[index - 1])
+        if self.check_index(index):
+            return None
+        else:
+            return self.state_value(self.vars_enable[index - 1])
 
     def state_current(self, index: int) -> Optional[float]:
-        check_index(index)
-        return self.state_value(self.vars_current[index - 1])
+        if self.check_index(index):
+            return None
+        else:
+            return self.state_value(self.vars_current[index - 1])
 
     def state_voltage(self, index: int) -> Optional[float]:
-        check_index(index)
-        return self.state_value(self.vars_voltage[index - 1])
+        if self.check_index(index):
+            return None
+        else:
+            return self.state_value(self.vars_voltage[index - 1])
 
     def get_current_limit(self, index: int, exec_timeout: float = 2.0, sync=True)\
             -> Union[Optional[float], AsyncResult]:
-        check_index(index)
-        ret = self.get(self.vars_current_lim[index-1], exec_timeout=exec_timeout, sync=sync)
+        if self.check_index(index):
+            ret = (False, '', (None, None))
+        else:
+            ret = self.get(self.vars_current_lim[index-1], exec_timeout=exec_timeout, sync=sync)
+
         if sync:
             return self.state_current_limit(index)
         else:
@@ -90,19 +105,24 @@ class Quads(GeecsDevice):
 
     def set_current_limit(self, index: int, value: float, exec_timeout: float = 10.0, sync=True)\
             -> Union[Optional[float], AsyncResult]:
-        check_index(index)
-        var_alias = self.var_aliases_by_name[self.vars_current_lim[index-1]][0]
-        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
+        if self.check_index(index):
+            ret = (False, '', (None, None))
+        else:
+            var_alias = self.var_aliases_by_name[self.vars_current_lim[index-1]][0]
+            value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
+            ret = self.set(self.vars_current_lim[index-1], value=value, exec_timeout=exec_timeout, sync=sync)
 
-        ret = self.set(self.vars_current_lim[index-1], value=value, exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_current_limit(index)
         else:
             return ret
 
     def is_enabled(self, index: int, exec_timeout: float = 2.0, sync=True) -> Union[Optional[bool], AsyncResult]:
-        check_index(index)
-        ret = self.get(self.vars_enable[index-1], exec_timeout=exec_timeout, sync=sync)
+        if self.check_index(index):
+            ret = (False, '', (None, None))
+        else:
+            ret = self.get(self.vars_enable[index-1], exec_timeout=exec_timeout, sync=sync)
+
         if sync:
             return self.state_enable(index)
         else:
@@ -110,9 +130,12 @@ class Quads(GeecsDevice):
 
     def enable(self, index: int, value: bool, exec_timeout: float = 10.0, sync=True)\
             -> Union[Optional[bool], AsyncResult]:
-        check_index(index)
-        value = 'on' if value else 'off'
-        ret = self.set(self.vars_enable[index-1], value=value, exec_timeout=exec_timeout, sync=sync)
+        if self.check_index(index):
+            ret = (False, '', (None, None))
+        else:
+            value = 'on' if value else 'off'
+            ret = self.set(self.vars_enable[index-1], value=value, exec_timeout=exec_timeout, sync=sync)
+
         if sync:
             return self.state_enable(index)
         else:
@@ -122,16 +145,22 @@ class Quads(GeecsDevice):
         return self.enable(index, False, exec_timeout=exec_timeout, sync=sync)
 
     def get_current(self, index: int, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
-        check_index(index)
-        ret = self.get(self.vars_current[index-1], exec_timeout=exec_timeout, sync=sync)
+        if self.check_index(index):
+            ret = (False, '', (None, None))
+        else:
+            ret = self.get(self.vars_current[index-1], exec_timeout=exec_timeout, sync=sync)
+
         if sync:
             return self.state_current(index)
         else:
             return ret
 
     def get_voltage(self, index: int, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
-        check_index(index)
-        ret = self.get(self.vars_voltage[index-1], exec_timeout=exec_timeout, sync=sync)
+        if self.check_index(index):
+            ret = (False, '', (None, None))
+        else:
+            ret = self.get(self.vars_voltage[index-1], exec_timeout=exec_timeout, sync=sync)
+
         if sync:
             return self.state_voltage(index)
         else:

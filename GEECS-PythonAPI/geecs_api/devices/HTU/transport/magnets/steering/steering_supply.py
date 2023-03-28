@@ -9,7 +9,9 @@ from geecs_api.interface import GeecsDatabase, api_error
 class SteeringSupply(GeecsDevice):
     def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]], index: int = 1, direction: str = 'Vertical'):
         if index < 1 or index > 4:
-            raise ValueError(f'Index {index} out of bound [1-4]')
+            api_error.error(f'Object cannot be instantiated, index {index} out of bound [1-4]',
+                            f'Class "{self.get_class()}", method "{inspect.stack()[0][3]}"')
+            return
 
         if direction.lower() == 'horizontal':
             mc_name = f'U_S{index}H'
@@ -20,7 +22,10 @@ class SteeringSupply(GeecsDevice):
             self.is_horizontal = False
             self.is_vertical = True
         else:
-            raise ValueError(f'Direction "{direction}" not recognized ["Horizontal", "Vertical"]')
+            api_error.error(f'Object cannot be instantiated, direction "{direction}" '
+                            f'not recognized ["Horizontal", "Vertical"]',
+                            f'Class "{self.get_class()}", method "{inspect.stack()[0][3]}"')
+            return
 
         super().__init__(mc_name, exp_vars)
 
