@@ -1,10 +1,8 @@
-import time
 from typing import Any
 from geecs_api.devices.geecs_device import GeecsDevice
-from . import LaserCompressor
+from . import LaserCompressor, LaserDump
 from .seed import Seed
 from .pump import Pump
-from geecs_api.interface import GeecsDatabase, api_error
 
 
 class Laser(GeecsDevice):
@@ -25,6 +23,7 @@ class Laser(GeecsDevice):
         self.compressor = LaserCompressor(exp_vars)
         self.seed = Seed(exp_vars)
         self.pump = Pump(exp_vars)
+        self.dump = LaserDump(exp_vars)
 
         self.compressor.subscribe_var_values()
         self.seed.amp4_shutter.subscribe_var_values()
@@ -35,22 +34,3 @@ class Laser(GeecsDevice):
         self.compressor.cleanup()
         self.seed.cleanup()
         self.pump.cleanup()
-
-
-if __name__ == '__main__':
-    api_error.clear()
-
-    # list experiment devices and variables
-    exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
-
-    # create a laser
-    laser = Laser(exp_devs)
-
-    # retrieve currently known compressor positions and setpoints
-    time.sleep(1.0)
-    try:
-        print(f'State:\n\t{laser.compressor.state}')
-        print(f'Config:\n\t{laser.compressor.setpoints}')
-    except Exception as e:
-        api_error.error(str(e), 'Demo code')
-        pass

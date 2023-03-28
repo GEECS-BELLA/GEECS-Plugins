@@ -1,3 +1,4 @@
-from .gas_jet.gas_jet import GasJet
-from .laser.laser import Laser
-from .transport.transport import Transport
+from .gas_jet import GasJet
+from .laser import Laser
+from .transport import Transport
+from .diagnostics import Diagnostics

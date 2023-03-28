@@ -55,7 +55,7 @@ class Quads(GeecsDevice):
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         if var_alias in self.aliases_enable:  # status
-            return float(val_string) > 2.5
+            return val_string.lower() == 'on'
         else:  # current, voltage
             return float(val_string)
 
@@ -111,7 +111,7 @@ class Quads(GeecsDevice):
     def enable(self, index: int, value: bool, exec_timeout: float = 10.0, sync=True)\
             -> Union[Optional[bool], AsyncResult]:
         check_index(index)
-        value = 4.0 if value else 0.5
+        value = 'on' if value else 'off'
         ret = self.set(self.vars_enable[index-1], value=value, exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_enable(index)

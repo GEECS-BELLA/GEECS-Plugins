@@ -1,10 +1,8 @@
 from __future__ import annotations
-import time
 import inspect
 from typing import Optional, Any, Union
 from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.interface import GeecsDatabase, api_error
 
 
 class LaserCompressor(GeecsDevice):
@@ -71,34 +69,3 @@ class LaserCompressor(GeecsDevice):
             return self.state_separation()
         else:
             return ret
-
-
-if __name__ == '__main__':
-    api_error.clear()
-
-    # list experiment devices and variables
-    exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
-
-    # create laser compressor object
-    compressor = LaserCompressor(exp_devs)
-    print(f'Variables subscription: {compressor.subscribe_var_values()}')
-
-    # test accessors
-    time.sleep(1.0)
-    compressor.get_angle_1()
-    compressor.get_angle_2()
-    compressor.get_separation(sync=True)
-
-    # retrieve currently known positions
-    try:
-        print(f'Compressor state:\n\t{compressor.state}')
-        print(f'Compressor setpoints:\n\t{compressor.setpoints}')
-    except Exception as e:
-        api_error.error(str(e), 'Demo code for laser compressor')
-        pass
-
-    # test set function with coercion
-    # compressor.set_separation()
-
-    compressor.cleanup()
-    print(api_error)

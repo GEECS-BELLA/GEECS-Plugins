@@ -1,14 +1,14 @@
 from __future__ import annotations
 from typing import Any
 from geecs_api.devices.geecs_device import GeecsDevice
-from .seed_amp4_shutter import SeedAmp4Shutter
+from . import BeamDiagnostics
 
 
-class Seed(GeecsDevice):
+class Diagnostics(GeecsDevice):
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
-            cls.instance = super(Seed, cls).__new__(cls)
+            cls.instance = super(Diagnostics, cls).__new__(cls)
             cls.instance.__initialized = False
         return cls.instance
 
@@ -16,9 +16,9 @@ class Seed(GeecsDevice):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('seed', None, virtual=True)
+        super().__init__('diagnostics', None, virtual=True)
 
-        self.amp4_shutter = SeedAmp4Shutter(exp_vars)
+        self.e_beam = BeamDiagnostics(exp_vars)
 
     def cleanup(self):
-        self.amp4_shutter.cleanup()
+        self.e_beam.cleanup()

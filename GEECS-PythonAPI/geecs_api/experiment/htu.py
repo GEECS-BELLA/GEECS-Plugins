@@ -1,5 +1,5 @@
 from geecs_api.api_defs import exec_async
-from geecs_api.devices.HTU import GasJet, Laser, Transport
+from geecs_api.devices.HTU import Laser, GasJet, Transport, Diagnostics
 from geecs_api.experiment import Experiment
 
 
@@ -22,13 +22,15 @@ class HtuExp(Experiment):
         # Devices
         self.laser = Laser(self.exp_devs)
         self.jet = GasJet(self.exp_devs)
-        self.transport = Transport(self.exp_devs)
+        # self.transport = Transport(self.exp_devs)
+        self.diagnostics = Diagnostics(self.exp_devs)
 
         self.devs = {
             'laser': self.laser,
             'jet': self.jet,
-            'transport': self.transport
-        }  # handy to manipulate devices by batch
+            'diagnostics': self.diagnostics}#,
+            # 'transport': self.transport
+        # }  # handy to manipulate devices by batch
 
     def shutdown(self) -> bool:
         exec_async(self.jet.pressure.set_pressure, args=(0., 30))
@@ -58,7 +60,4 @@ class HtuExp(Experiment):
 
 if __name__ == '__main__':
     htu = HtuExp()
-
-    # htu.transport.steer_1.horizontal.set_current(0.1)
-
     htu.cleanup()

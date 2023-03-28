@@ -6,17 +6,15 @@ from geecs_api.experiment import HtuExp
 htu = HtuExp()
 
 # do something/nothing
+# htu.jet.stage.set_position('Y', -5.5)
 # htu.laser.pump_laser.shutters.insert(1, 'North', sync=True)
 # htu.transport.hexapod.set_position('Y', 15., exec_timeout=120, sync=True)
 
 time.sleep(1)
-htu.shutdown()
+# htu.shutdown()
 
 # display some states
-print(f'Shutter state:\n\t{htu.laser.pump.shutters.state}')
 print(f'Stage state:\n\t{htu.jet.stage.state}')
-# print(f'Pressure state:\n\t{htu.jet.pressure.state}')
-# print(f'Seed shutter (Amp4) state:\n\t{htu.laser.seed_laser.amp4_shutter.state}')
-# print(f'Pump shutters state:\n\t{htu.laser.pump_laser.shutters.state}')
 
+# cleanup connections
 htu.cleanup()
