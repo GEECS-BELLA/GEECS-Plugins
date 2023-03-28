@@ -1,0 +1,23 @@
+control_variables: #tag: [device_name, variable_name, min_value, max_value]
+  heatx: 
+    device_name: MCD-HEAT-ESP0
+    device_variable: Position.Axis 2
+    range: [ 0.7930, 0.7970]
+    set: True
+    set_value: 0.0
+    proximal_lengthscale: 1
+    objective: False
+  Charge: 
+    device_name: CAM-PL1-LPMode
+    device_variable: centroidx
+    objective: True
+    set: False
+
+database:
+  name: loasis
+  port: 3306
+  ipaddress: 192.168.13.23
+  user: loasis
+  password: dat+l0sim
+optimization_parameters:
+  shots_per_step: 15

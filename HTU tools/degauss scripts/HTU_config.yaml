@@ -352,7 +352,7 @@ control_variables: #tag: [device_name, variable_name, min_value, max_value]
   Enable.ChicaneOuter: 
     device_name: U_ChicaneOuter
     device_variable: Enable_Output
-    range: [ 0.0, 12.0]
+    range: [ -6.0, 6.0]
     ipaddress: 0.0.0.0
     port: 9999
     busy: 0
@@ -366,7 +366,7 @@ control_variables: #tag: [device_name, variable_name, min_value, max_value]
   Current.ChicaneOuter: 
     device_name: U_ChicaneOuter
     device_variable: Current
-    range: [ -5.0, 5.0]
+    range: [ -6.0, 6.0]
     ipaddress: 0.0.0.0
     port: 9999
     busy: 0
@@ -394,7 +394,7 @@ control_variables: #tag: [device_name, variable_name, min_value, max_value]
   Current.ChicaneInner: 
     device_name: U_ChicaneInner
     device_variable: Current
-    range: [ -5.0, 5.0]
+    range: [ -6.0, 6.0]
     ipaddress: 0.0.0.0
     port: 9999
     busy: 0
