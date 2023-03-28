@@ -300,12 +300,11 @@ class PhasicsImageAnalyzer:
                     m += 1
 
         # The least squares loss is invariant under adding a constant to the entire phase map, so add a row to the list of 
-        # equations requiring that the mean of the whole map is 0. 
+        # equations requiring that the upper left pixel's phase = 0
 
-        for j in range(self.shape[0] * self.shape[1]):
-            data.append(1.0)
-            row_ind.append(m)
-            col_ind.append(j)
+        data.append(1.0)
+        row_ind.append(m)
+        col_ind.append(to_flattened_index(0, 0))
         b.append(0.0)
 
         A = csr_matrix((data, (row_ind, col_ind)), shape=(len(self.phase_gradient_maps) * self.shape[0] * self.shape[1] + 1, 
