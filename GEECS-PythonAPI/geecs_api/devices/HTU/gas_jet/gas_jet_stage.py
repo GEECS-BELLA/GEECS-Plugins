@@ -66,19 +66,11 @@ class GasJetStage(GeecsDevice):
 
     def get_position(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
             -> Union[Optional[float], AsyncResult]:
-        if isinstance(axis, str):
-            if len(axis) == 1:
-                axis = ord(axis.upper()) - ord('X')
-            else:
-                axis = -1
+        if self.check_axis(axis):
+            ret = (False, '', (None, None))
+        else:
+            ret = self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
 
-        if axis < 0 or axis > 2:
-            if sync:
-                return None
-            else:
-                return False, '', (None, None)
-
-        ret = self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_value(self.get_axis_var_name(axis))
         else:
@@ -86,29 +78,25 @@ class GasJetStage(GeecsDevice):
 
     def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 30.0, sync=True) \
             -> Union[Optional[float], AsyncResult]:
-        if isinstance(axis, str):
-            if len(axis) == 1:
-                axis = ord(axis.upper()) - ord('X')
-            else:
-                axis = -1
+        if self.check_axis(axis):
+            ret = (False, '', (None, None))
+        else:
+            var_alias = self.get_axis_var_alias(axis)
+            value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
+            ret = self.set(self.get_axis_var_name(axis), value=value, exec_timeout=exec_timeout, sync=sync)
 
-        if axis < 0 or axis > 2:
-            if sync:
-                return None
-            else:
-                return False, '', (None, None)
-
-        var_alias = self.get_axis_var_alias(axis)
-        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
-
-        ret = self.set(self.get_axis_var_name(axis), value=value, exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_value(self.get_axis_var_name(axis))
         else:
             return ret
 
-    # def rough_scan(self, axis: Optional[str, int], start_value: float, end_value: float,
-    #                step_size: float = 0.25, dwell_time: float = 2.0):
+    def rough_scan(self, axis: Optional[str, int], start_value: float, end_value: float,
+                   step_size: float = 0.25, dwell_time: float = 2.0, round_trip: bool = False):
+        return
+
+    def data_scan(self, axis: Optional[str, int], start_value: float, end_value: float,
+                  step_size: float = 0.10, dwell_shots: int = 10):
+        return
 
 
 if __name__ == '__main__':
