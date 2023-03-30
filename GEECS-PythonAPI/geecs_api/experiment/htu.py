@@ -40,14 +40,14 @@ class HtuExp(Experiment):
 
         exec_async(self.laser.pump.set_lamp_timing, (700., 30))
 
-        is_gaia_in = self.laser.pump.shutters.insert('North', 1, exec_timeout=30)
-        is_gaia_in &= self.laser.pump.shutters.insert('South', 1, exec_timeout=30)
-        is_gaia_in &= self.laser.pump.shutters.insert('North', 2, exec_timeout=30)
-        is_gaia_in &= self.laser.pump.shutters.insert('South', 2, exec_timeout=30)
-        is_gaia_in &= self.laser.pump.shutters.insert('North', 3, exec_timeout=30)
-        is_gaia_in &= self.laser.pump.shutters.insert('South', 3, exec_timeout=30)
-        is_gaia_in &= self.laser.pump.shutters.insert('North', 4, exec_timeout=30)
-        is_gaia_in &= self.laser.pump.shutters.insert('South', 4, exec_timeout=30)
+        is_gaia_in = self.laser.pump.shutters.insert(1, 'North', exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert(1, 'South', exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert(2, 'North', exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert(2, 'South', exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert(3, 'North', exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert(3, 'South', exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert(4, 'North', exec_timeout=30)
+        is_gaia_in &= self.laser.pump.shutters.insert(4, 'South', exec_timeout=30)
 
         is_hexapod_out = self.transport.hexapod.move_out(exec_timeout=120)
 

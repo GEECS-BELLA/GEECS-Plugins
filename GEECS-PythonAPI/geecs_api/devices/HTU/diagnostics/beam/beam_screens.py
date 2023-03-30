@@ -27,6 +27,13 @@ class BeamScreens(GeecsDevice):
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
+    def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
+        if var_alias in [self.var_aliases_by_name[self.var_TC_phosphor][0],
+                         self.var_aliases_by_name[self.var_DC_phosphor][0]]:  # phosphors
+            return val_string.lower() == 'on'
+        else:
+            return float(val_string)
+
     def state_TC_phosphor(self) -> Optional[bool]:
         return self.state_value(self.var_TC_phosphor)
 

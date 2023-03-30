@@ -411,12 +411,18 @@ class GeecsDevice:
     def _cleanup_threads(self):
         with GeecsDevice.threads_lock:
             for it in range(len(self.own_threads)):
-                if not self.own_threads[-1 - it][0].is_alive():
-                    self.own_threads.pop(-1 - it)
+                try:
+                    if not self.own_threads[-1 - it][0].is_alive():
+                        self.own_threads.pop(-1 - it)
+                except Exception:
+                    continue
 
             for it in range(len(GeecsDevice.all_threads)):
-                if not GeecsDevice.all_threads[-1 - it][0].is_alive():
-                    GeecsDevice.all_threads.pop(-1 - it)
+                try:
+                    if not GeecsDevice.all_threads[-1 - it][0].is_alive():
+                        GeecsDevice.all_threads.pop(-1 - it)
+                except Exception:
+                    continue
 
     @staticmethod
     def wait_for_all_devices(timeout: Optional[float] = None):

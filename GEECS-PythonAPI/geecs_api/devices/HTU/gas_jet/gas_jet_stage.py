@@ -1,6 +1,7 @@
 from __future__ import annotations
 import time
 import inspect
+import numpy as np
 from typing import Optional, Any, Union
 from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
@@ -42,7 +43,7 @@ class GasJetStage(GeecsDevice):
         else:
             return self.var_names_by_index.get(axis)[1]
 
-    def check_axis(self, axis: Optional[str, int]) -> bool:
+    def is_axis_out_of_bound(self, axis: Optional[str, int]) -> tuple[bool, int]:
         if isinstance(axis, str):
             if len(axis) == 1:
                 axis = ord(axis.upper()) - ord('X')
@@ -51,9 +52,9 @@ class GasJetStage(GeecsDevice):
 
         out_of_bound = axis < 0 or axis > 2
         if out_of_bound:
-            api_error.error(f'Object cannot be instantiated, axis {axis} out of bound [0-2] or ["X", "Y", "Z"]',
+            api_error.error(f'Axis {axis} out of bound [0-2] or ["X", "Y", "Z"]',
                             f'Class "{self.get_class()}", method "{inspect.stack()[1][3]}"')
-        return out_of_bound
+        return out_of_bound, axis
 
     def state_x(self) -> Optional[float]:
         return self.state_value(self.get_axis_var_name(0))
@@ -66,33 +67,51 @@ class GasJetStage(GeecsDevice):
 
     def get_position(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
             -> Union[Optional[float], AsyncResult]:
-        if self.check_axis(axis):
-            ret = (False, '', (None, None))
+        out_of_bound, axis = self.is_axis_out_of_bound(axis)
+        if out_of_bound:
+            if sync:
+                return None
+            else:
+                return False, '', (None, None)
         else:
             ret = self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
-
-        if sync:
-            return self.state_value(self.get_axis_var_name(axis))
-        else:
-            return ret
+            if sync:
+                return self.state_value(self.get_axis_var_name(axis))
+            else:
+                return ret
 
     def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 30.0, sync=True) \
             -> Union[Optional[float], AsyncResult]:
-        if self.check_axis(axis):
-            ret = (False, '', (None, None))
+        out_of_bound, axis = self.is_axis_out_of_bound(axis)
+        if out_of_bound:
+            if sync:
+                return None
+            else:
+                return False, '', (None, None)
         else:
             var_alias = self.get_axis_var_alias(axis)
             value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
             ret = self.set(self.get_axis_var_name(axis), value=value, exec_timeout=exec_timeout, sync=sync)
-
-        if sync:
-            return self.state_value(self.get_axis_var_name(axis))
-        else:
-            return ret
+            if sync:
+                return self.state_value(self.get_axis_var_name(axis))
+            else:
+                return ret
 
     def rough_scan(self, axis: Optional[str, int], start_value: float, end_value: float,
-                   step_size: float = 0.25, dwell_time: float = 2.0, round_trip: bool = False):
-        return
+                   step_size: float = 0.25, dwell_time: float = 2.0, report: bool = False):
+        out_of_bound, axis = self.is_axis_out_of_bound(axis)
+
+        if not out_of_bound:
+            var_alias = self.get_axis_var_alias(axis)
+            start_value = self.coerce_float(var_alias, inspect.stack()[0][3], start_value, self.__variables[var_alias])
+            end_value = self.coerce_float(var_alias, inspect.stack()[0][3], end_value, self.__variables[var_alias])
+            var_values = np.arange(start_value, end_value + step_size, step_size)
+
+            for value in var_values:
+                if report:
+                    print(f'Moving to {chr(ord("X") + axis)} = {value:.3f}')
+                self.set_position(axis, value)
+                time.sleep(dwell_time)
 
     def data_scan(self, axis: Optional[str, int], start_value: float, end_value: float,
                   step_size: float = 0.10, dwell_shots: int = 10):
