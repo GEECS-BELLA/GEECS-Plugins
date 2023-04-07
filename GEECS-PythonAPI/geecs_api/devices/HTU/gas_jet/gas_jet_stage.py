@@ -105,6 +105,10 @@ class GasJetStage(GeecsDevice):
             var_alias = self.get_axis_var_alias(axis)
             start_value = self.coerce_float(var_alias, inspect.stack()[0][3], start_value, self.__variables[var_alias])
             end_value = self.coerce_float(var_alias, inspect.stack()[0][3], end_value, self.__variables[var_alias])
+            if end_value < start_value:
+                step_size = -abs(step_size)
+            else:
+                step_size = abs(step_size)
             var_values = np.arange(start_value, end_value + step_size, step_size)
 
             for value in var_values:
