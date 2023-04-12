@@ -12,6 +12,8 @@ from typing import Optional, TYPE_CHECKING, Annotated
 
 from itertools import product
 
+import warnings
+
 import numpy as np
 
 from scipy.sparse import csr_array
@@ -351,10 +353,6 @@ class PhasicsImageAnalyzer:
         # calculate FTs of phase gradient maps
         G = [np.fft.fftshift(np.fft.fft2(pgm)) for pgm in self.phase_gradient_maps]
 
-        # Solve for FT(W)_e, the estimate of the FT of the phase map.
-        W_ft = (-1j/(2*np.pi) * sum(u * g for u, g in zip(U, G)) 
-                              / sum(np.square(u) for u in U)
-               )
 
         # W_ft is a Quantity array, which complicates the inversion. 
         # For now, just take the magnitude.
@@ -369,6 +367,15 @@ class PhasicsImageAnalyzer:
         assert np.isnan(W_ft[0, 0])
         # setting it to 0 ensures that the mean of the phase map is 0. 
         W_ft[0, 0] = 0.0
+        # Solve for FT(W)_e, the estimate of the FT of the wavefront.
+        # suppress divide by 0 error (if centers have integer row and column, 
+        # their corresponding u will have a 0.0)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', "invalid value encountered in divide")
+            
+            W_ft = (-1j/(2*np.pi) * sum(u * g for u, g in zip(U, G)) 
+                                  / sum(np.square(u) for u in U)
+                   )
         
         W = np.fft.ifft2(W_ft)
     
