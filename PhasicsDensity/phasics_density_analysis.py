@@ -202,34 +202,34 @@ class PhasicsImageAnalyzer:
         return self.diffraction_spot_IMGs
     
     
-    def _reconstruct_phase_gradient_maps_from_cropped_centered_diffraction_FTs(self) -> list[np.ndarray]:
+    def _reconstruct_wavefront_gradients_from_cropped_centered_diffraction_FTs(self) -> list[np.ndarray]:
         """ Calculate the angle (argument) of the inverse FT of a diffraction 
             spot image.
             
-            For Baffou reconstruction method, the phase gradient in a specific
-            direction is in the argument of the inverse FT. 
+            The wavefront gradient in a specific direction is in the argument 
+            of the inverse FT. 
         
+            In particular, these wavefront gradient maps represent
+                nu . grad(W),
+            where W is the wavefront, i.e. relative optical distance (in [length] 
+            units)
+            
+            Returns
+            -------
+            wavefront_gradient_maps : list of Quantity np.ndarray
+                has units [length]**-1
+
         """
 
-        self.phase_gradient_maps = [unwrap_phase(np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m))))
+        self.wavefront_gradients = [unwrap_phase(np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m))))
+                                    / (2 * np.pi * self.GRATING_CAMERA_DISTANCE)
                                     for IMG in self.diffraction_spot_IMGs
                                    ] 
 
-        return self.phase_gradient_maps
+        return self.wavefront_gradients
 
 
-    def _rotate_phase_gradient_maps(self) -> list[np.ndarray]:
-        """ Rotates the phase gradient maps 
-        
-        
 
-        Returns
-        -------
-        None.
-
-        """
-    
-    
     def _integrate_gradient_maps(self) -> np.ndarray:
         """ Calculates the phase map from gradients in different directions.
         
@@ -240,7 +240,7 @@ class PhasicsImageAnalyzer:
 
         Returns
         -------
-        phase map : np.ndarray
+        wavefront : np.ndarray
 
         """
         
@@ -261,7 +261,7 @@ class PhasicsImageAnalyzer:
         def to_flattened_index(i, j):
             return i * self.shape[1] + j
 
-        for center, phase_gradient_map in zip(self.diffraction_spot_centers, self.phase_gradient_maps):
+        for center, wavefront_gradient in zip(self.diffraction_spot_centers, self.wavefront_gradients):
             # finite_difference_coefficients = np.array(
             #     [[ 0.0,               -center.nu_y / 2,       0.0       ],
             #      [ -center.nu_x / 2,         0.0       center.nu_x / 2  ],
@@ -296,7 +296,7 @@ class PhasicsImageAnalyzer:
                         col_ind.extend([to_flattened_index(i - 1, j), to_flattened_index(i + 1, j)])
                         data.extend([-g_y / 2 , g_y / 2])
 
-                    b.append(phase_gradient_map[i, j])
+                    b.append(wg[i, j])
                     m += 1
 
         # The least squares loss is invariant under adding a constant to the entire phase map, so add a row to the list of 
@@ -315,13 +315,13 @@ class PhasicsImageAnalyzer:
                       )
 
         # solve the linear equation in the least squares sense.
-        self.phase_map = lsqr(A, b)[0].reshape(self.shape)
+        self.wavefront = Q_(lsqr(A, b)[0].reshape(self.shape), 'm')
 
-        return self.phase_map
+        return self.wavefront
 
     
-    def _reconstruct_phase_map_FT_from_gradient_FTs(self):
-        """ Fit phase map whose FT best corresponds to its gradient FTs
+    def _reconstruct_wavefront_FT_from_gradient_FTs(self):
+        """ Fit wavefront whose FT best corresponds to its gradient FTs
         
         From the method in 
             Velghe, Sabrina, Jérôme Primot, Nicolas Guérineau, Mathieu Cohen, 
@@ -330,12 +330,12 @@ class PhasicsImageAnalyzer:
             Optics Letters 30, no. 3 (February 1, 2005): 245. 
             https://doi.org/10.1364/OL.30.000245.
 
-        This method solves for FT(W), where W is the phase map, by minimizing
-        the error between each gradient phase map FT G_j and the gradient of W
+        This method solves for FT(W), where W is the wavefront, by minimizing
+        the error between each gradient wavefront FT G_j and the gradient of W
         in the Fourier domain, 2*pi*i*u_j*W, where u_j is the conjugate of 
         the spatial coordinate. 
         
-        The phase map is then simply the inverse FT of the best fit.
+        The wavefront is then simply the inverse FT of the best fit.
 
         """
         
@@ -376,7 +376,7 @@ class PhasicsImageAnalyzer:
     
 
     
-    def calculate_phase_map(self, img: np.ndarray) -> np.ndarray:
+    def calculate_wavefront(self, img: np.ndarray) -> np.ndarray:
         """ Analyze cropped Phasics quadriwave shearing image
         
         Takes a cropped image and runs the full algorithm on it to obtain the
@@ -407,17 +407,23 @@ class PhasicsImageAnalyzer:
         # get cropped and centered FTs of each diffraction spot
         self._crop_and_center_diffraction_spots()
 
-        self._reconstruct_phase_gradient_maps_from_cropped_centered_diffraction_FTs()
+        self._reconstruct_wavefront_gradients_from_cropped_centered_diffraction_FTs()
 
-        # reconstruct phase map from diffraction spot FTs
+        # reconstruct wavefront from diffraction spot FTs
         if self.reconstruction_method == 'baffou':
             W = self._integrate_gradient_maps()
 
         elif self.reconstruction_method == 'velghe':
-            W = self._reconstruct_phase_map_FT_from_gradient_FTs()
+            W = self._reconstruct_wavefront_FT_from_gradient_FTs()
 
         else:
             raise ValueError(f"Unknown reconstruction method: {self.reconstruction_method}")
 
         return W
+
+
+    def calculate_phase_map(self, img: np.ndarray, wavelength=Q_(800, 'nm')):
+        self.calculate_wavefront(img)
+        phase_map = Q_(2 * np.pi, 'radian') * self.wavefront / wavelength
+        return phase_map.to_base_units()
 
