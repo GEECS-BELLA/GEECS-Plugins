@@ -49,7 +49,7 @@ class PhasicsImageAnalyzer:
     """
 
     CAMERA_RESOLUTION = Q_(4 * 4.74, 'micrometer')
-    GRATING_CAMERA_DISTANCE = Q_(1.0, 'centimeter')  # this is a wild guess
+    GRATING_CAMERA_DISTANCE = Q_(13.39, 'millimeter')
     
     def __init__(self,
                  reconstruction_method = 'baffou',
