@@ -14,7 +14,7 @@ from itertools import product
 
 import numpy as np
 
-from scipy.sparse import csc_matrix, csr_matrix
+from scipy.sparse import csr_array
 from scipy.sparse.linalg import lsqr
 
 from skimage.restoration import unwrap_phase
@@ -307,9 +307,11 @@ class PhasicsImageAnalyzer:
         col_ind.append(to_flattened_index(0, 0))
         b.append(0.0)
 
-        A = csr_matrix((data, (row_ind, col_ind)), shape=(len(self.phase_gradient_maps) * self.shape[0] * self.shape[1] + 1, 
-                                                          self.shape[0] * self.shape[1]
-                                                         )
+        A = csr_array((data, 
+                       (row_ind, col_ind)
+                      ), shape=(len(self.wavefront_gradients) * self.shape[0] * self.shape[1] + 1, 
+                                self.shape[0] * self.shape[1]
+                               )
                       )
 
         # solve the linear equation in the least squares sense.
