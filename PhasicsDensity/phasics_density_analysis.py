@@ -269,11 +269,12 @@ class PhasicsImageAnalyzer:
             #      [ -center.nu_x / 2,         0.0       center.nu_x / 2  ],
             #      [ 0.0                 center.nu_y / 2,       0.0       ]
             #     ]
-            # ) * 2*np.pi * self.GRATING_CAMERA_DISTANCE
+            # ) / self.CAMERA_RESOLUTION
 
-            g_x = (2*np.pi * self.GRATING_CAMERA_DISTANCE.m_as('m') * center.nu_x.m_as('m^-1'))
-            g_y = (2*np.pi * self.GRATING_CAMERA_DISTANCE.m_as('m') * center.nu_y.m_as('m^-1'))
-            
+            g_x = (center.nu_x / self.CAMERA_RESOLUTION).m_as('m^-2')
+            g_y = (center.nu_y / self.CAMERA_RESOLUTION).m_as('m^-2')
+            wg = wavefront_gradient.m_as('m^-1')
+
             for i in range(0, self.shape[0]):
                 for j in range(0, self.shape[1]):
                     row_ind.extend([m, m])
@@ -301,10 +302,11 @@ class PhasicsImageAnalyzer:
                     b.append(wg[i, j])
                     m += 1
 
+
         # The least squares loss is invariant under adding a constant to the entire phase map, so add a row to the list of 
         # equations requiring that the upper left pixel's phase = 0
 
-        data.append(1.0)
+        data.append(np.sqrt(g_x**2 + g_y**2))  # the coefficient doesn't matter, but it's good if it's in the same order of magnitude as the rest of the coefficients 
         row_ind.append(m)
         col_ind.append(to_flattened_index(0, 0))
         b.append(0.0)
@@ -345,28 +347,17 @@ class PhasicsImageAnalyzer:
         # coordinates in the fourier domain, and v is the vector of the 
         # gradient in the spatial domain.
         NU_X, NU_Y = np.meshgrid(self.freq_x, self.freq_y)
-        U = [  NU_X * 2 * np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_x 
-             + NU_Y * 2 * np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_y
+        U = [  NU_X * center.nu_x + NU_Y * center.nu_y
              for center in self.diffraction_spot_centers
             ]
 
-        # calculate FTs of phase gradient maps
-        G = [np.fft.fftshift(np.fft.fft2(pgm)) for pgm in self.phase_gradient_maps]
+        # calculate FTs of wavefront gradient maps
+        # G will have units of [length]^-1
+        @ureg.wraps('=A', '=A')
+        def fft2_with_shift_ua(wgm):
+            return np.fft.fftshift(np.fft.fft2(wgm))
+        G = [fft2_with_shift_ua(wgm) for wgm in self.wavefront_gradients]
 
-
-        # W_ft is a Quantity array, which complicates the inversion. 
-        # For now, just take the magnitude.
-        # TODO: account for units.
-        W_ft = W_ft.m
-        # W_ft has axes -Ny..Ny x -Ny..Ny. For the ifft2, shift it back to 
-        # 0..2*Ny x 0..2*Ny
-        W_ft = np.fft.ifftshift(W_ft)
-        # after shifting, the value corresponding to freq_x = freq_y = 0 should
-        # be at 0, 0, and its value should be NaN because of the division by 
-        # zero in estimating W_ft. 
-        assert np.isnan(W_ft[0, 0])
-        # setting it to 0 ensures that the mean of the phase map is 0. 
-        W_ft[0, 0] = 0.0
         # Solve for FT(W)_e, the estimate of the FT of the wavefront.
         # suppress divide by 0 error (if centers have integer row and column, 
         # their corresponding u will have a 0.0)
@@ -376,10 +367,28 @@ class PhasicsImageAnalyzer:
             W_ft = (-1j/(2*np.pi) * sum(u * g for u, g in zip(U, G)) 
                                   / sum(np.square(u) for u in U)
                    )
+
+        @ureg.wraps('=A', '=A')
+        def ifft2_with_shift_mean_zero_ua(W_ft):
+            # W_ft has axes -Ny..Ny x -Ny..Ny. For the ifft2, shift it back to 
+            # 0..2*Ny x 0..2*Ny
+            W_ft = np.fft.ifftshift(W_ft)
+            # after shifting, the value corresponding to freq_x = freq_y = 0 should
+            # be at 0, 0, and its value should be NaN because of the division by 
+            # zero in estimating W_ft. 
+            assert np.isnan(W_ft[0, 0])
+            # setting it to 0 ensures that the mean of the phase map is 0. 
+            W_ft[0, 0] = 0.0
+            
+            W = np.fft.ifft2(W_ft)
+            
+            return W.real
         
-        W = np.fft.ifft2(W_ft)
-    
-        return W.real
+        W = ifft2_with_shift_mean_zero_ua(W_ft)
+        
+        self.wavefront = W.to('nm')
+
+        return self.wavefront
     
 
     
