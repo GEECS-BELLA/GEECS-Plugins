@@ -98,8 +98,25 @@ class PhasicsImageAnalyzer:
         def nu_y(self) -> SpatialFrequencyQuantity:
             return self.parent.freq_y[self.row]
     
-    def new_center(self, row: int, column: int):
-        return self.Center(self, row, column)
+    def new_center(self, row: int = None, column: int = None,
+                         nu_x: Quantity = None, nu_y: Quantity = None,
+                   ):
+        """ Create new diffraction spot center. Either row and column, or 
+            nu_x and nu_y (as Quantities) have to be given.
+        
+        """
+        # indices of diffraction spot explicitly given
+        if row is not None and column is not None:
+            return self.Center(self, row, column)
+        
+        elif nu_x is not None and nu_y is not None:
+            row = np.argmin(np.abs(self.freq_y - nu_y))
+            column = np.argmin(np.abs(self.freq_x - nu_x))
+            return self.Center(self, row, column)
+        
+        else:
+            raise ValueError("Either row and column, or nu_x and nu_y have to be given.")
+
     
     def _fourier_transform(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """ Takes the fourier transform of an image and shifts it.
@@ -125,9 +142,10 @@ class PhasicsImageAnalyzer:
     def _locate_diffraction_spots(self) -> list[tuple[int, int]]:
         """ Find centers of diffraction spot in Fourier-transformed QWLSI image
         
-        Right now, just returns the centers for the HTU GasJet image cropped to [:600, 600:]
+        Right now, just returns the centers for the HTU GasJet image
         
-        TODO: generalize this.
+        TODO: currently centers are at integer row and column. Allowing 
+        fractional row and column would be more accurate. 
 
         Parameters
         ----------
@@ -140,12 +158,13 @@ class PhasicsImageAnalyzer:
             list of row/column indices to diffraction spot centers in image
 
         """
-        self.diffraction_spot_centers = [self.new_center(504, 589), 
-                                         self.new_center(375, 715), 
-                                         self.new_center(246, 841), 
-                                         self.new_center(171, 626)
+
+        self.diffraction_spot_centers = [self.new_center(nu_x=Q_(4.69409, 'mm^-1'), nu_y=Q_(17.932489, 'mm^-1')),
+                                         self.new_center(nu_x=Q_(11.33966, 'mm^-1'), nu_y=Q_(6.592827, 'mm^-1')),
+                                         self.new_center(nu_x=Q_(17.985232, 'mm^-1'), nu_y=Q_(-4.746835, 'mm^-1')),
+                                         self.new_center(nu_x=Q_(6.645570, 'mm^-1'), nu_y=Q_(-11.33966, 'mm^-1')),
                                         ]
-        
+
         return self.diffraction_spot_centers
     
     def _set_diffraction_spot_crop_radius(self) -> SpatialFrequencyQuantity:
