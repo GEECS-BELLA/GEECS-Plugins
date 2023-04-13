@@ -48,8 +48,8 @@ class PhasicsImageAnalyzer:
 
     """
 
-    CAMERA_RESOLUTION = Q_(4 * 4.74, 'micrometer')
-    GRATING_CAMERA_DISTANCE = Q_(13.39, 'millimeter')
+    CAMERA_RESOLUTION = Q_(4.74, 'micrometer')
+    GRATING_CAMERA_DISTANCE = Q_(0.841, 'millimeter')
     
     def __init__(self,
                  reconstruction_method = 'baffou',
@@ -159,10 +159,10 @@ class PhasicsImageAnalyzer:
 
         """
 
-        self.diffraction_spot_centers = [self.new_center(nu_x=Q_(4.69409, 'mm^-1'), nu_y=Q_(17.932489, 'mm^-1')),
-                                         self.new_center(nu_x=Q_(11.33966, 'mm^-1'), nu_y=Q_(6.592827, 'mm^-1')),
-                                         self.new_center(nu_x=Q_(17.985232, 'mm^-1'), nu_y=Q_(-4.746835, 'mm^-1')),
-                                         self.new_center(nu_x=Q_(6.645570, 'mm^-1'), nu_y=Q_(-11.33966, 'mm^-1')),
+        self.diffraction_spot_centers = [self.new_center(nu_x=Q_(18.776371, 'mm^-1'), nu_y=Q_(71.729958, 'mm^-1')),
+                                         self.new_center(nu_x=Q_(45.358649, 'mm^-1'), nu_y=Q_(26.371308, 'mm^-1')),
+                                         self.new_center(nu_x=Q_(71.940928, 'mm^-1'), nu_y=Q_(-18.987342, 'mm^-1')),
+                                         self.new_center(nu_x=Q_(26.582278, 'mm^-1'), nu_y=Q_(-45.358650, 'mm^-1')),
                                         ]
 
         return self.diffraction_spot_centers
