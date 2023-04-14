@@ -12,9 +12,11 @@ from typing import Optional, TYPE_CHECKING, Annotated
 
 from itertools import product
 
+import warnings
+
 import numpy as np
 
-from scipy.sparse import csc_matrix, csr_matrix
+from scipy.sparse import csr_array
 from scipy.sparse.linalg import lsqr
 
 from skimage.restoration import unwrap_phase
@@ -46,8 +48,8 @@ class PhasicsImageAnalyzer:
 
     """
 
-    CAMERA_RESOLUTION = Q_(4 * 4.74, 'micrometer')
-    GRATING_CAMERA_DISTANCE = Q_(1.0, 'centimeter')  # this is a wild guess
+    CAMERA_RESOLUTION = Q_(4.74, 'micrometer')
+    GRATING_CAMERA_DISTANCE = Q_(0.841, 'millimeter')
     
     def __init__(self,
                  reconstruction_method = 'baffou',
@@ -96,8 +98,25 @@ class PhasicsImageAnalyzer:
         def nu_y(self) -> SpatialFrequencyQuantity:
             return self.parent.freq_y[self.row]
     
-    def new_center(self, row: int, column: int):
-        return self.Center(self, row, column)
+    def new_center(self, row: int = None, column: int = None,
+                         nu_x: Quantity = None, nu_y: Quantity = None,
+                   ):
+        """ Create new diffraction spot center. Either row and column, or 
+            nu_x and nu_y (as Quantities) have to be given.
+        
+        """
+        # indices of diffraction spot explicitly given
+        if row is not None and column is not None:
+            return self.Center(self, row, column)
+        
+        elif nu_x is not None and nu_y is not None:
+            row = np.argmin(np.abs(self.freq_y - nu_y))
+            column = np.argmin(np.abs(self.freq_x - nu_x))
+            return self.Center(self, row, column)
+        
+        else:
+            raise ValueError("Either row and column, or nu_x and nu_y have to be given.")
+
     
     def _fourier_transform(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """ Takes the fourier transform of an image and shifts it.
@@ -123,9 +142,10 @@ class PhasicsImageAnalyzer:
     def _locate_diffraction_spots(self) -> list[tuple[int, int]]:
         """ Find centers of diffraction spot in Fourier-transformed QWLSI image
         
-        Right now, just returns the centers for the HTU GasJet image cropped to [:600, 600:]
+        Right now, just returns the centers for the HTU GasJet image
         
-        TODO: generalize this.
+        TODO: currently centers are at integer row and column. Allowing 
+        fractional row and column would be more accurate. 
 
         Parameters
         ----------
@@ -138,12 +158,13 @@ class PhasicsImageAnalyzer:
             list of row/column indices to diffraction spot centers in image
 
         """
-        self.diffraction_spot_centers = [self.new_center(504, 589), 
-                                         self.new_center(375, 715), 
-                                         self.new_center(246, 841), 
-                                         self.new_center(171, 626)
+
+        self.diffraction_spot_centers = [self.new_center(nu_x=Q_(18.776371, 'mm^-1'), nu_y=Q_(71.729958, 'mm^-1')),
+                                         self.new_center(nu_x=Q_(45.358649, 'mm^-1'), nu_y=Q_(26.371308, 'mm^-1')),
+                                         self.new_center(nu_x=Q_(71.940928, 'mm^-1'), nu_y=Q_(-18.987342, 'mm^-1')),
+                                         self.new_center(nu_x=Q_(26.582278, 'mm^-1'), nu_y=Q_(-45.358650, 'mm^-1')),
                                         ]
-        
+
         return self.diffraction_spot_centers
     
     def _set_diffraction_spot_crop_radius(self) -> SpatialFrequencyQuantity:
@@ -202,34 +223,34 @@ class PhasicsImageAnalyzer:
         return self.diffraction_spot_IMGs
     
     
-    def _reconstruct_phase_gradient_maps_from_cropped_centered_diffraction_FTs(self) -> list[np.ndarray]:
+    def _reconstruct_wavefront_gradients_from_cropped_centered_diffraction_FTs(self) -> list[np.ndarray]:
         """ Calculate the angle (argument) of the inverse FT of a diffraction 
             spot image.
             
-            For Baffou reconstruction method, the phase gradient in a specific
-            direction is in the argument of the inverse FT. 
+            The wavefront gradient in a specific direction is in the argument 
+            of the inverse FT. 
         
+            In particular, these wavefront gradient maps represent
+                nu . grad(W),
+            where W is the wavefront, i.e. relative optical distance (in [length] 
+            units)
+            
+            Returns
+            -------
+            wavefront_gradient_maps : list of Quantity np.ndarray
+                has units [length]**-1
+
         """
 
-        self.phase_gradient_maps = [unwrap_phase(np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m))))
+        self.wavefront_gradients = [unwrap_phase(np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m))))
+                                    / (2 * np.pi * self.GRATING_CAMERA_DISTANCE)
                                     for IMG in self.diffraction_spot_IMGs
                                    ] 
 
-        return self.phase_gradient_maps
+        return self.wavefront_gradients
 
 
-    def _rotate_phase_gradient_maps(self) -> list[np.ndarray]:
-        """ Rotates the phase gradient maps 
-        
-        
 
-        Returns
-        -------
-        None.
-
-        """
-    
-    
     def _integrate_gradient_maps(self) -> np.ndarray:
         """ Calculates the phase map from gradients in different directions.
         
@@ -240,7 +261,7 @@ class PhasicsImageAnalyzer:
 
         Returns
         -------
-        phase map : np.ndarray
+        wavefront : np.ndarray
 
         """
         
@@ -261,17 +282,18 @@ class PhasicsImageAnalyzer:
         def to_flattened_index(i, j):
             return i * self.shape[1] + j
 
-        for center, phase_gradient_map in zip(self.diffraction_spot_centers, self.phase_gradient_maps):
+        for center, wavefront_gradient in zip(self.diffraction_spot_centers, self.wavefront_gradients):
             # finite_difference_coefficients = np.array(
             #     [[ 0.0,               -center.nu_y / 2,       0.0       ],
             #      [ -center.nu_x / 2,         0.0       center.nu_x / 2  ],
             #      [ 0.0                 center.nu_y / 2,       0.0       ]
             #     ]
-            # ) * 2*np.pi * self.GRATING_CAMERA_DISTANCE
+            # ) / self.CAMERA_RESOLUTION
 
-            g_x = (2*np.pi * self.GRATING_CAMERA_DISTANCE.m_as('m') * center.nu_x.m_as('m^-1'))
-            g_y = (2*np.pi * self.GRATING_CAMERA_DISTANCE.m_as('m') * center.nu_y.m_as('m^-1'))
-            
+            g_x = (center.nu_x / self.CAMERA_RESOLUTION).m_as('m^-2')
+            g_y = (center.nu_y / self.CAMERA_RESOLUTION).m_as('m^-2')
+            wg = wavefront_gradient.m_as('m^-1')
+
             for i in range(0, self.shape[0]):
                 for j in range(0, self.shape[1]):
                     row_ind.extend([m, m])
@@ -296,30 +318,33 @@ class PhasicsImageAnalyzer:
                         col_ind.extend([to_flattened_index(i - 1, j), to_flattened_index(i + 1, j)])
                         data.extend([-g_y / 2 , g_y / 2])
 
-                    b.append(phase_gradient_map[i, j])
+                    b.append(wg[i, j])
                     m += 1
+
 
         # The least squares loss is invariant under adding a constant to the entire phase map, so add a row to the list of 
         # equations requiring that the upper left pixel's phase = 0
 
-        data.append(1.0)
+        data.append(np.sqrt(g_x**2 + g_y**2))  # the coefficient doesn't matter, but it's good if it's in the same order of magnitude as the rest of the coefficients 
         row_ind.append(m)
         col_ind.append(to_flattened_index(0, 0))
         b.append(0.0)
 
-        A = csr_matrix((data, (row_ind, col_ind)), shape=(len(self.phase_gradient_maps) * self.shape[0] * self.shape[1] + 1, 
-                                                          self.shape[0] * self.shape[1]
-                                                         )
+        A = csr_array((data, 
+                       (row_ind, col_ind)
+                      ), shape=(len(self.wavefront_gradients) * self.shape[0] * self.shape[1] + 1, 
+                                self.shape[0] * self.shape[1]
+                               )
                       )
 
         # solve the linear equation in the least squares sense.
-        self.phase_map = lsqr(A, b)[0].reshape(self.shape)
+        self.wavefront = Q_(lsqr(A, b)[0].reshape(self.shape), 'm')
 
-        return self.phase_map
+        return self.wavefront
 
     
-    def _reconstruct_phase_map_FT_from_gradient_FTs(self):
-        """ Fit phase map whose FT best corresponds to its gradient FTs
+    def _reconstruct_wavefront_FT_from_gradient_FTs(self):
+        """ Fit wavefront whose FT best corresponds to its gradient FTs
         
         From the method in 
             Velghe, Sabrina, Jérôme Primot, Nicolas Guérineau, Mathieu Cohen, 
@@ -328,12 +353,12 @@ class PhasicsImageAnalyzer:
             Optics Letters 30, no. 3 (February 1, 2005): 245. 
             https://doi.org/10.1364/OL.30.000245.
 
-        This method solves for FT(W), where W is the phase map, by minimizing
-        the error between each gradient phase map FT G_j and the gradient of W
+        This method solves for FT(W), where W is the wavefront, by minimizing
+        the error between each gradient wavefront FT G_j and the gradient of W
         in the Fourier domain, 2*pi*i*u_j*W, where u_j is the conjugate of 
         the spatial coordinate. 
         
-        The phase map is then simply the inverse FT of the best fit.
+        The wavefront is then simply the inverse FT of the best fit.
 
         """
         
@@ -341,40 +366,52 @@ class PhasicsImageAnalyzer:
         # coordinates in the fourier domain, and v is the vector of the 
         # gradient in the spatial domain.
         NU_X, NU_Y = np.meshgrid(self.freq_x, self.freq_y)
-        U = [  NU_X * 2 * np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_x 
-             + NU_Y * 2 * np.pi * self.GRATING_CAMERA_DISTANCE * center.nu_y
+        U = [  NU_X * center.nu_x + NU_Y * center.nu_y
              for center in self.diffraction_spot_centers
             ]
 
-        # calculate FTs of phase gradient maps
-        G = [np.fft.fftshift(np.fft.fft2(pgm)) for pgm in self.phase_gradient_maps]
+        # calculate FTs of wavefront gradient maps
+        # G will have units of [length]^-1
+        @ureg.wraps('=A', '=A')
+        def fft2_with_shift_ua(wgm):
+            return np.fft.fftshift(np.fft.fft2(wgm))
+        G = [fft2_with_shift_ua(wgm) for wgm in self.wavefront_gradients]
 
-        # Solve for FT(W)_e, the estimate of the FT of the phase map.
-        W_ft = (-1j/(2*np.pi) * sum(u * g for u, g in zip(U, G)) 
-                              / sum(np.square(u) for u in U)
-               )
+        # Solve for FT(W)_e, the estimate of the FT of the wavefront.
+        # suppress divide by 0 error (if centers have integer row and column, 
+        # their corresponding u will have a 0.0)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', "invalid value encountered in divide")
+            
+            W_ft = (-1j/(2*np.pi) * sum(u * g for u, g in zip(U, G)) 
+                                  / sum(np.square(u) for u in U)
+                   )
 
-        # W_ft is a Quantity array, which complicates the inversion. 
-        # For now, just take the magnitude.
-        # TODO: account for units.
-        W_ft = W_ft.m
-        # W_ft has axes -Ny..Ny x -Ny..Ny. For the ifft2, shift it back to 
-        # 0..2*Ny x 0..2*Ny
-        W_ft = np.fft.ifftshift(W_ft)
-        # after shifting, the value corresponding to freq_x = freq_y = 0 should
-        # be at 0, 0, and its value should be NaN because of the division by 
-        # zero in estimating W_ft. 
-        assert np.isnan(W_ft[0, 0])
-        # setting it to 0 ensures that the mean of the phase map is 0. 
-        W_ft[0, 0] = 0.0
+        @ureg.wraps('=A', '=A')
+        def ifft2_with_shift_mean_zero_ua(W_ft):
+            # W_ft has axes -Ny..Ny x -Ny..Ny. For the ifft2, shift it back to 
+            # 0..2*Ny x 0..2*Ny
+            W_ft = np.fft.ifftshift(W_ft)
+            # after shifting, the value corresponding to freq_x = freq_y = 0 should
+            # be at 0, 0, and its value should be NaN because of the division by 
+            # zero in estimating W_ft. 
+            assert np.isnan(W_ft[0, 0])
+            # setting it to 0 ensures that the mean of the phase map is 0. 
+            W_ft[0, 0] = 0.0
+            
+            W = np.fft.ifft2(W_ft)
+            
+            return W.real
         
-        W = np.fft.ifft2(W_ft)
-    
-        return W.real
+        W = ifft2_with_shift_mean_zero_ua(W_ft)
+        
+        self.wavefront = W.to('nm')
+
+        return self.wavefront
     
 
     
-    def calculate_phase_map(self, img: np.ndarray) -> np.ndarray:
+    def calculate_wavefront(self, img: np.ndarray) -> np.ndarray:
         """ Analyze cropped Phasics quadriwave shearing image
         
         Takes a cropped image and runs the full algorithm on it to obtain the
@@ -405,17 +442,23 @@ class PhasicsImageAnalyzer:
         # get cropped and centered FTs of each diffraction spot
         self._crop_and_center_diffraction_spots()
 
-        self._reconstruct_phase_gradient_maps_from_cropped_centered_diffraction_FTs()
+        self._reconstruct_wavefront_gradients_from_cropped_centered_diffraction_FTs()
 
-        # reconstruct phase map from diffraction spot FTs
+        # reconstruct wavefront from diffraction spot FTs
         if self.reconstruction_method == 'baffou':
             W = self._integrate_gradient_maps()
 
         elif self.reconstruction_method == 'velghe':
-            W = self._reconstruct_phase_map_FT_from_gradient_FTs()
+            W = self._reconstruct_wavefront_FT_from_gradient_FTs()
 
         else:
             raise ValueError(f"Unknown reconstruction method: {self.reconstruction_method}")
 
         return W
+
+
+    def calculate_phase_map(self, img: np.ndarray, wavelength=Q_(800, 'nm')):
+        self.calculate_wavefront(img)
+        phase_map = Q_(2 * np.pi, 'radian') * self.wavefront / wavelength
+        return phase_map.to_base_units()
 
