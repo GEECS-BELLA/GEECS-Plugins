@@ -4,7 +4,7 @@ import inspect
 import time
 from queue import Queue
 from threading import Thread, Condition, Event, Lock
-from typing import Optional, Any
+from typing import Optional, Any, Union
 from datetime import datetime as dtime
 from geecs_api.api_defs import VarDict, ExpDict, VarAlias, AsyncResult, ThreadInfo
 import geecs_api.interface.message_handling as mh
@@ -40,6 +40,7 @@ class GeecsDevice:
 
         self.setpoints: dict[VarAlias, Any] = {}
         self.state: dict[VarAlias, Any] = {}
+        self.generic_vars = ['device status', 'device error', 'device preset']
 
         # Message handling
         self.queue_cmds = Queue()
@@ -120,6 +121,8 @@ class GeecsDevice:
         if self.is_valid() and variables is None:
             variables = [var[0] for var in self.var_names_by_index.values()]
 
+        variables = self.generic_vars + variables
+
         if self.is_valid() and variables:
             try:
                 subscribed = self.dev_tcp.subscribe(','.join(variables))
@@ -174,7 +177,12 @@ class GeecsDevice:
             {self.find_var_by_alias(aliases[index]): (aliases[index], index) for index in range(len(aliases))}
 
     def state_value(self, var_name: str) -> Any:
-        var_alias: VarAlias = self.var_aliases_by_name[var_name][0]
+        var_alias: VarAlias
+
+        if var_name in self.generic_vars:
+            var_alias = VarAlias(var_name)
+        else:
+            var_alias = self.var_aliases_by_name[var_name][0]
 
         if var_alias in self.state:
             return self.state[var_alias]
@@ -191,8 +199,19 @@ class GeecsDevice:
             -> AsyncResult:
         return self._execute(variable, None, exec_timeout, attempts_max, sync)
 
+    def get_status(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
+        ret = self.get('device status', exec_timeout=exec_timeout, sync=sync)
+        if sync:
+            return self.state_value('device status')
+        else:
+            return ret
+
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         return float(val_string)
+
+    def interpret_generic_variables(self, var: str, val: str):
+        # ['device status', 'device error', 'device preset']
+        self.state[VarAlias(var)] = val
 
     def _execute(self, variable: str, value, exec_timeout: Optional[float] = 10.0,
                  attempts_max: int = 5, sync=True) -> AsyncResult:
@@ -303,18 +322,32 @@ class GeecsDevice:
 
             # Update dictionaries
             if dev_name == self.get_name() and not err_status and cmd_received[:3] == 'get':
-                var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
-                dev_val = self.interpret_value(var_alias, dev_val)
-                self.state[var_alias] = dev_val
-                dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
-                print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} = {dev_val}')
+                var_alias = VarAlias('')
+
+                if cmd_received[3:] in self.generic_vars:
+                    self.interpret_generic_variables(cmd_received[3:], dev_val)
+                    var_alias = VarAlias(cmd_received[3:])
+
+                if cmd_received[3:] in self.var_aliases_by_name:
+                    var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
+                    dev_val = self.interpret_value(var_alias, dev_val)
+                    self.state[var_alias] = dev_val
+
+                if var_alias:
+                    dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
+                    print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} = {dev_val}')
 
             if dev_name == self.get_name() and not err_status and cmd_received[:3] == 'set':
-                var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
-                dev_val = self.interpret_value(var_alias, dev_val)
-                self.setpoints[var_alias] = dev_val
-                dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
-                print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} set to {dev_val}')
+                var_alias = VarAlias('')
+
+                if cmd_received[3:] in self.var_aliases_by_name:
+                    var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
+                    dev_val = self.interpret_value(var_alias, dev_val)
+                    self.setpoints[var_alias] = dev_val
+
+                if var_alias:
+                    dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
+                    print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} set to {dev_val}')
 
             return dev_name, cmd_received, dev_val, err_status
 
@@ -339,11 +372,13 @@ class GeecsDevice:
             # Update dictionaries
             if dev_name == self.get_name() and dict_vals:
                 for var, val in dict_vals.items():
+                    if var in self.generic_vars:
+                        self.interpret_generic_variables(var, val)
+
                     if var in self.var_aliases_by_name:
                         var_alias: VarAlias = self.var_aliases_by_name[var][0]
                         self.state[var_alias] = self.interpret_value(var_alias, val)
 
-            # print(f'State: {self.state}')
             return dev_name, shot_nb, dict_vals
 
         except Exception as ex:

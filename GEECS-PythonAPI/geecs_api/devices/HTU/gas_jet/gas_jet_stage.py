@@ -130,14 +130,15 @@ if __name__ == '__main__':
 
     # create gas jet object
     jet = GasJetStage(exp_devs)
-    other_jet = GasJetStage(exp_devs)
-    print(f'Only one jet: {jet is other_jet}')
+    # other_jet = GasJetStage(exp_devs)
+    # print(f'Only one jet: {jet is other_jet}')
     print(f'Variables subscription: {jet.subscribe_var_values()}')
 
     # set position
     time.sleep(1.0)
-    print(f'Jet state: {jet.state}')
-    jet.get_position(4, sync=True)
+    # print(f'Jet state: {jet.state}')
+    # print(f'Status: {jet.get_status(sync=True)}')
+    # jet.get_position(4, sync=True)
     # jet.set_position('Y', jet.state[jet.get_axis_var_alias(1)])
 
     print(f'Jet state: {jet.state}')

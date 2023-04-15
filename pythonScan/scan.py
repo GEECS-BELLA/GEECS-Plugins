@@ -11,6 +11,7 @@ import csv
 #from multiprocessing import Process
 import multiprocessing
 
+
 def info(title):
     print(title)
     print('module name:', __name__)
@@ -22,82 +23,83 @@ def client_factory(ip, port, var):
     print('in the client factory for device: ',var)
     client=socket.socket(socket.AF_INET, socket.SOCK_STREAM);
     client.connect((str(ip),int(port)))
-    #client.setblocking(0)
-    subcriptionstring = bytes('Wait>>'+str(var),'ascii')
-    #get length of subscription message
-    SubcriptionCmdLength = len(subcriptionstring)
-    #Flatten the length of the subscription message length
-    sizepack = struct.pack('>i', SubcriptionCmdLength)
-    #Send the size of the message followed by the message
-    client.sendall( sizepack + subcriptionstring)
+    # client.setblocking(0)
+    subscription_string = bytes('Wait>>'+str(var),'ascii')
+    # get length of subscription message
+    subscription_cmd_length = len(subscription_string)
+    # Flatten the length of the subscription message length
+    size_pack = struct.pack('>i', subscription_cmd_length)
+    # Send the size of the message followed by the message
+    client.sendall( size_pack + subscription_string)
     return client
-    
 
 
 # simple access fcn
-def get1(pvClient):    
-    #info('function get1')
-    index = pvdictClients[pvClient]
-    if pvBusy[index]==0: #trying to check out a socket so that when a process calls to get the value, you don't have multiple attempts to read/clear the buffer
-        #print("socket was clear when requested")
-        pvBusy[index]=1
-        if index == 1000000: #skipping
-            #print('objective function')
+def get1(pv_client):
+    # info('function get1')
+    index = pvdictClients[pv_client]
+    if pvBusy[index] == 0:  # trying to check out a socket so that when a process calls to get the value,
+        # you don't have multiple attempts to read/clear the buffer
+        # print("socket was clear when requested")
+        pvBusy[index] = 1
+
+        if index == 1000000:  # skipping
+            # print('objective function')
             f(x)
             if hasattr(y, '__iter__'):
                 return y[0]
             else:
                 return y
         else:
-            client=pvClients[index]
-            #print("got client: ",client)
-            dt=0
-            iter=0
-            while dt<0.001:
-                iter=iter+1
-                t0=time.monotonic()
-                ready=select.select([client],[],[],.002 ) #last arguement is timeout in seconds
-                #print(ready)
+            client = pvClients[index]
+            # print("got client: ",client)
+            dt = 0
+            iter = 0
+            while dt < 0.001:
+                iter = iter+1
+                t0 = time.monotonic()
+                ready = select.select([client], [], [], .002 )  # last arguement is timeout in seconds
+                # print(ready)
                 if ready[0]:
-                    size = struct.unpack('>i', client.recv(4))[0]  # Extract the msg size from four bytes - mind the encoding
+                    size = struct.unpack('>i', client.recv(4))[0]  # Extract the msg size from four bytes
+                    # - mind the encoding
                     str_data = client.recv(size)
-                    geecs=str_data.decode('ascii').split(",")
-                    #print(geecs)
-                    geecs=geecs[-2].split(" ")[0]
-                    #print(geecs)
-                    if len(geecs)==0:
-                        geecs="nan"
-                    if geecs=='on':
-                        geecs=1
-                    if geecs=='off':
-                        geecs=0
+                    geecs = str_data.decode('ascii').split(",")
+                    # print(geecs)
+                    geecs = geecs[-2].split(" ")[0]
+                    # print(geecs)
+                    if len(geecs) == 0:
+                        geecs = "nan"
+                    if geecs == 'on':
+                        geecs = 1
+                    if geecs == 'off':
+                        geecs = 0
                     print(gotValues[index])
-                    #print(geecs)
-                    if type(geecs) ==  str:
+                    # print(geecs)
+                    if type(geecs) == str:
                         if any(c.isalpha() for c in geecs):
-                            geecs=0
-                    gotValues[index]=geecs
+                            geecs = 0
+                    gotValues[index] = geecs
                     print(gotValues[index])
-                    newDataFlags[index]=1
-                    #print("chewing through TCP buffer. Device value: ",geecs)
+                    newDataFlags[index] = 1
+                    # print("chewing through TCP buffer. Device value: ",geecs)
                 else:
-                    #print("Buffer cleared")
-                    if iter==1:
-                        geecs=gotValues[index]
-                        newDataFlags[index]=0
-                t1=time.monotonic()
-                dt=t1-t0
-            pvBusy[index]=0 #release the socket
-            #print("socket released")
+                    # print("Buffer cleared")
+                    if iter == 1:
+                        geecs = gotValues[index]
+                        newDataFlags[index] = 0
+                t1 = time.monotonic()
+                dt = t1-t0
+            pvBusy[index] = 0  # release the socket
+            # print("socket released")
     else:
         print("socket was busy when requested")
-        geecs=gotValues[index] 
-        newDataFlags[index]=0
-        pvBusy[index]=0
-        print("new data: ",newDataFlags[index])
-    #print("in get1 gotvalue ans index "+str(gotValues[index])+' '+str(index))
+        geecs = gotValues[index]
+        newDataFlags[index] = 0
+        pvBusy[index] = 0
+        print("new data: ", newDataFlags[index])
+    # print("in get1 gotvalue ans index "+str(gotValues[index])+' '+str(index))
     return geecs
-
 
 
 #look for the database info in the COnfigurations.INI file
@@ -107,6 +109,7 @@ dbitems=[]
 for row in userDataRead:
     if len(row)>0:
         dbitems.append(row[0])
+
 
 #locate the database portion of the configurations file. could be smarter and 
 #pasrse the info based on name rather than index...
@@ -208,6 +211,7 @@ pvBusy=np.array([])
 pvDeviceNames=np.array([])
 pvDeviceEnabled=np.array([])
 #make a list of subscribed devices
+
 for i in range(len(devIDs)):
     if devSubBool[i]=='yes':
         query=mycursor.execute("SELECT "+selectorString2+" FROM "+dbName+".expt_device where id="+'"' + str(devIDs[i]) + '"'+";")
