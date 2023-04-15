@@ -1,5 +1,7 @@
+import os
 import socket
 from typing import Optional
+import numpy.typing as npt
 from geecs_api.devices import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
@@ -10,6 +12,10 @@ class Experiment:
         self.exp_devs = GeecsDatabase.find_experiment_variables(self.exp_name)
         self.exp_guis = GeecsDatabase.find_experiment_guis(self.exp_name)
         self.devs: dict[str, GeecsDevice] = {}
+
+        self.geecs_appdata_path = os.path.join(os.getenv('LOCALAPPDATA'), 'GEECS')
+        if not os.path.exists(self.geecs_appdata_path):
+            os.makedirs(self.geecs_appdata_path)
 
     def cleanup(self):
         for dev in self.devs.values():
@@ -46,3 +52,18 @@ class Experiment:
                     sock.close()
                 except Exception:
                     pass
+
+    def write_scan_file(self, devices: list[str], variables: list[str],
+                        values_by_row: npt.ArrayLike, shots_per_step: int):
+        file_path = os.path.join(self.geecs_appdata_path, 'geecs_scan.txt')
+        scan_number = 1
+
+        with open(file_path, 'w+') as f:
+            f.write(f'[Scan{scan_number}]\n')
+            f.write('Device = "' + ','.join(devices) + '"\n')
+            f.write('Variable = "' + ','.join(variables) + '"\n')
+            f.write('Values:#shots = "')
+
+            for col in range(len(variables)):
+                f.write(f'({str(list(values_by_row[:, col]))[1:-1]}):{shots_per_step}|')
+            f.write('"')

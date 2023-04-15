@@ -1,5 +1,5 @@
 from threading import Thread, Event
-from typing import Optional, Any
+from typing import Optional, Any, TypedDict
 
 
 VarDict = dict[str, dict[str, Any]]

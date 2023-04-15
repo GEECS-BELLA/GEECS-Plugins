@@ -118,8 +118,23 @@ class GasJetStage(GeecsDevice):
                 time.sleep(dwell_time)
 
     def data_scan(self, axis: Optional[str, int], start_value: float, end_value: float,
-                  step_size: float = 0.10, dwell_shots: int = 10):
-        return
+                  step_size: float = 0.10, dwell_shots: int = 10, report: bool = False):
+        out_of_bound, axis = self.is_axis_out_of_bound(axis)
+
+        if not out_of_bound:
+            var_alias = self.get_axis_var_alias(axis)
+            start_value = self.coerce_float(var_alias, inspect.stack()[0][3], start_value, self.__variables[var_alias])
+            end_value = self.coerce_float(var_alias, inspect.stack()[0][3], end_value, self.__variables[var_alias])
+            if end_value < start_value:
+                step_size = -abs(step_size)
+            else:
+                step_size = abs(step_size)
+            var_values = np.arange(start_value, end_value + step_size, step_size)
+
+            for value in var_values:
+                if report:
+                    print(f'Moving to {chr(ord("X") + axis)} = {value:.3f}')
+                self.set_position(axis, value)
 
 
 if __name__ == '__main__':
