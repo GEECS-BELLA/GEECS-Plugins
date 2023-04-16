@@ -79,7 +79,7 @@ class UdpHandler:
             if ready[0]:
                 geecs_str = self.sock_cmd.recv(self.buffer_size)
                 geecs_ans = (geecs_str.decode('ascii')).split(">>")[-1]
-                accepted = (geecs_ans == 'accepted')
+                accepted = (geecs_ans == 'accepted') or (geecs_ans == 'ok')
             else:
                 api_error.warning('Socket not ready to receive', 'UdpHandler class, method "ack_cmd"')
 

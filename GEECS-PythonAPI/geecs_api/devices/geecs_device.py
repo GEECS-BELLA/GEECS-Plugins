@@ -2,7 +2,10 @@ import queue
 import re
 import inspect
 import time
+import os
+import numpy as np
 from queue import Queue
+import numpy.typing as npt
 from threading import Thread, Condition, Event, Lock
 from typing import Optional, Any, Union
 from datetime import datetime as dtime
@@ -15,6 +18,8 @@ class GeecsDevice:
     # Static
     threads_lock = Lock()
     all_threads: list[ThreadInfo] = []
+    appdata_path = os.path.join(os.getenv('LOCALAPPDATA'), 'GEECS')
+    scan_file_path = os.path.join(appdata_path, 'geecs_scan.txt')
 
     def __init__(self, name: str, exp_vars: Optional[dict[str, dict[str, dict[str, Any]]]], virtual=False):
         # Static properties
@@ -67,6 +72,9 @@ class GeecsDevice:
                 api_error.warning(f'Device "{self.__dev_name}" not found', 'GeecsDevice class, method "__init__"')
 
             self.list_variables(exp_vars)
+
+        if not os.path.exists(GeecsDevice.appdata_path):
+            os.makedirs(GeecsDevice.appdata_path)
 
     def cleanup(self):
         mh.flush_queue(self.queue_udp_msgs)
@@ -199,6 +207,9 @@ class GeecsDevice:
             -> AsyncResult:
         return self._execute(variable, None, exec_timeout, attempts_max, sync)
 
+    def start_scan(self):
+        self._execute('scan', None, 0.0, sync=False)
+
     def get_status(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
         ret = self.get('device status', exec_timeout=exec_timeout, sync=sync)
         if sync:
@@ -218,18 +229,24 @@ class GeecsDevice:
         if api_error.is_error:
             return False, '', (None, None)
 
-        if isinstance(value, float):
-            cmd_str = f'set{variable}>>{value:.6f}'
-            cmd_label = f'set({variable}, {value:.6f})'
-        elif isinstance(value, str):
-            cmd_str = f'set{variable}>>{value}'
-            cmd_label = f'set({variable}, {value})'
-        elif isinstance(value, bool):
-            cmd_str = f'set{variable}>>{int(value)}'
-            cmd_label = f'set({variable}, {value})'
+        scan = (variable == 'scan')
+
+        if scan:
+            cmd_str = f'StartScan>>{GeecsDevice.scan_file_path}'
+            cmd_label = 'scan'
         else:
-            cmd_str = f'get{variable}>>'
-            cmd_label = f'get({variable})'
+            if isinstance(value, float):
+                cmd_str = f'set{variable}>>{value:.6f}'
+                cmd_label = f'set({variable}, {value:.6f})'
+            elif isinstance(value, str):
+                cmd_str = f'set{variable}>>{value}'
+                cmd_label = f'set({variable}, {value})'
+            elif isinstance(value, bool):
+                cmd_str = f'set{variable}>>{int(value)}'
+                cmd_label = f'set({variable}, {value})'
+            else:
+                cmd_str = f'get{variable}>>'
+                cmd_label = f'get({variable})'
 
         if not self.is_valid():
             api_error.warning(f'Failed to execute "{cmd_label}"',
@@ -244,12 +261,13 @@ class GeecsDevice:
 
         self._cleanup_threads()
 
-        if sync:
+        if sync or scan:
             self.wait_for_all_cmds(timeout=120.)
 
             with GeecsDevice.threads_lock:
                 self.process_command(cmd_str, cmd_label, thread_info=(None, None), attempts_max=attempts_max)
-                self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
+                if not scan:
+                    self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
 
         elif exec_timeout > 0:
             with GeecsDevice.threads_lock:
@@ -433,6 +451,31 @@ class GeecsDevice:
             api_error.error('Failed to coerce value')
 
         return value
+
+    def scan_values(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
+                    spans:  dict[VarAlias, tuple[float, float]]) -> npt.ArrayLike:
+        start_value = self.coerce_float(var_alias, inspect.stack()[0][3], start_value, spans[var_alias])
+        end_value = self.coerce_float(var_alias, inspect.stack()[0][3], end_value, spans[var_alias])
+        if end_value < start_value:
+            step_size = -abs(step_size)
+        else:
+            step_size = abs(step_size)
+        return np.arange(start_value, end_value + step_size, step_size)
+
+    @staticmethod
+    def write_scan_file(devices: list[str], variables: list[str],
+                        values_by_row: npt.ArrayLike, shots_per_step: int = 10):
+        scan_number = 1
+
+        with open(GeecsDevice.scan_file_path, 'w+') as f:
+            f.write(f'[Scan{scan_number}]\n')
+            f.write('Device = "' + ','.join(devices) + '"\n')
+            f.write('Variable = "' + ','.join(variables) + '"\n')
+            f.write('Values:#shots = "')
+
+            for col in range(len(variables)):
+                f.write(f'({str(list(values_by_row[:, col]))[1:-1]}):{shots_per_step}|')
+            f.write('"')
 
     # Synchronization
     # -----------------------------------------------------------------------------------------------------------

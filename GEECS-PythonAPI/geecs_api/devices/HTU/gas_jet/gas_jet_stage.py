@@ -103,13 +103,7 @@ class GasJetStage(GeecsDevice):
 
         if not out_of_bound:
             var_alias = self.get_axis_var_alias(axis)
-            start_value = self.coerce_float(var_alias, inspect.stack()[0][3], start_value, self.__variables[var_alias])
-            end_value = self.coerce_float(var_alias, inspect.stack()[0][3], end_value, self.__variables[var_alias])
-            if end_value < start_value:
-                step_size = -abs(step_size)
-            else:
-                step_size = abs(step_size)
-            var_values = np.arange(start_value, end_value + step_size, step_size)
+            var_values = self.scan_values(var_alias, start_value, end_value, step_size, self.__variables)
 
             for value in var_values:
                 if report:
@@ -117,24 +111,16 @@ class GasJetStage(GeecsDevice):
                 self.set_position(axis, value)
                 time.sleep(dwell_time)
 
-    def data_scan(self, axis: Optional[str, int], start_value: float, end_value: float,
-                  step_size: float = 0.10, dwell_shots: int = 10, report: bool = False):
+    def scan(self, axis: Optional[str, int], start_value: float, end_value: float,
+             step_size: float = 0.10, shots_per_step: int = 10):
         out_of_bound, axis = self.is_axis_out_of_bound(axis)
 
         if not out_of_bound:
             var_alias = self.get_axis_var_alias(axis)
-            start_value = self.coerce_float(var_alias, inspect.stack()[0][3], start_value, self.__variables[var_alias])
-            end_value = self.coerce_float(var_alias, inspect.stack()[0][3], end_value, self.__variables[var_alias])
-            if end_value < start_value:
-                step_size = -abs(step_size)
-            else:
-                step_size = abs(step_size)
-            var_values = np.arange(start_value, end_value + step_size, step_size)
+            var_values = self.scan_values(var_alias, start_value, end_value, step_size, self.__variables)
 
-            for value in var_values:
-                if report:
-                    print(f'Moving to {chr(ord("X") + axis)} = {value:.3f}')
-                self.set_position(axis, value)
+            self.write_scan_file(self.get_name(), [self.get_axis_var_name(axis)], [var_values], shots_per_step)
+            self.start_scan()
 
 
 if __name__ == '__main__':
