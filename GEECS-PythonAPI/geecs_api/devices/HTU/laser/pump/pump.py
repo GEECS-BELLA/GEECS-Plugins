@@ -16,11 +16,11 @@ class Pump(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]]):
+    def __init__(self, exp_info: dict[str, Any]):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('U_1HzShiftedBox', exp_vars)
+        super().__init__('U_1HzShiftedBox', exp_info)
 
         self.__variables = {VarAlias('gaia lamp timing'): (600., 750.)}  # us
         self.build_var_dicts(tuple(self.__variables.keys()))
@@ -29,7 +29,7 @@ class Pump(GeecsDevice):
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
-        self.shutters = PumpShutters(exp_vars)
+        self.shutters = PumpShutters(exp_info)
 
     def cleanup(self):
         self.shutters.cleanup()

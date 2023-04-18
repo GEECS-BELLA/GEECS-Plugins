@@ -13,18 +13,18 @@ class Transport(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]]):
+    def __init__(self, exp_info: dict[str, Any]):
         if self.__initialized:
             return
         self.__initialized = True
         super().__init__('transport', None, virtual=True)
 
-        self.hexapod = TransportHexapod(exp_vars)
-        self.chicane = Chicane(exp_vars)
-        self.steer_1 = Steering(exp_vars, 1)
-        self.steer_2 = Steering(exp_vars, 2)
-        self.steer_3 = Steering(exp_vars, 3)
-        self.steer_4 = Steering(exp_vars, 4)
+        self.hexapod = TransportHexapod(exp_info)
+        self.chicane = Chicane(exp_info)
+        self.steer_1 = Steering(exp_info, 1)
+        self.steer_2 = Steering(exp_info, 2)
+        self.steer_3 = Steering(exp_info, 3)
+        self.steer_4 = Steering(exp_info, 4)
 
         self.hexapod.subscribe_var_values()
         self.chicane.inner_supply.subscribe_var_values()

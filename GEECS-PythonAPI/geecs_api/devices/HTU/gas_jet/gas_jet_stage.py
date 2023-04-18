@@ -1,7 +1,6 @@
 from __future__ import annotations
 import time
 import inspect
-import numpy as np
 from typing import Optional, Any, Union
 from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
@@ -16,12 +15,12 @@ class GasJetStage(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]]):
+    def __init__(self, exp_info: dict[str, Any]):
         if self.__initialized:
             return
         self.__initialized = True
 
-        super().__init__('U_ESP_JetXYZ', exp_vars)
+        super().__init__('U_ESP_JetXYZ', exp_info)
 
         self.__variables = {VarAlias('Jet_X (mm)'): (2., 10.),  # [min, max]
                             VarAlias('Jet_Y (mm)'): (-8., -1.),
@@ -103,7 +102,7 @@ class GasJetStage(GeecsDevice):
 
         if not out_of_bound:
             var_alias = self.get_axis_var_alias(axis)
-            var_values = self.scan_values(var_alias, start_value, end_value, step_size, self.__variables)
+            var_values = self._scan_values(var_alias, start_value, end_value, step_size, self.__variables)
 
             for value in var_values:
                 if report:
@@ -112,36 +111,42 @@ class GasJetStage(GeecsDevice):
                 time.sleep(dwell_time)
 
     def scan(self, axis: Optional[str, int], start_value: float, end_value: float,
-             step_size: float = 0.10, shots_per_step: int = 10):
+             step_size: float = 0.10, shots_per_step: int = 10, timeout: float = 300.) -> tuple[bool, bool]:
         out_of_bound, axis = self.is_axis_out_of_bound(axis)
 
         if not out_of_bound:
             var_alias = self.get_axis_var_alias(axis)
-            var_values = self.scan_values(var_alias, start_value, end_value, step_size, self.__variables)
+            var_values = self._scan_values(var_alias, start_value, end_value, step_size, self.__variables)
 
-            self.write_scan_file(self.get_name(), [self.get_axis_var_name(axis)], [var_values], shots_per_step)
-            self.start_scan()
+            self._write_scan_file(self.get_name(), self.get_axis_var_name(axis), var_values, shots_per_step)
+            return self._start_scan(timeout=timeout)
+        else:
+            return False, False
 
 
 if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
+    # exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
+    exp_name = 'Undulator'
+    _exp_info: dict[str, Any] = {'devices': GeecsDatabase.find_experiment_variables(exp_name),
+                                 'guis': GeecsDatabase.find_experiment_guis(exp_name),
+                                 'mc_port': GeecsDatabase.find_slow_port(exp_name)}
 
     # create gas jet object
-    jet = GasJetStage(exp_devs)
-    # other_jet = GasJetStage(exp_devs)
-    # print(f'Only one jet: {jet is other_jet}')
+    jet = GasJetStage(_exp_info)
     print(f'Variables subscription: {jet.subscribe_var_values()}')
 
-    # set position
-    time.sleep(1.0)
-    # print(f'Jet state: {jet.state}')
-    # print(f'Status: {jet.get_status(sync=True)}')
-    # jet.get_position(4, sync=True)
-    # jet.set_position('Y', jet.state[jet.get_axis_var_alias(1)])
-
+    # initial state
+    time.sleep(1.)
     print(f'Jet state: {jet.state}')
+
+    # scan z-axis
+    scan_accepted, scan_timed_out = jet.scan('Z', 10., 11., 0.5, 2, timeout=60.)
+    print(f'Scan accepted: {scan_accepted}')
+    if scan_accepted:
+        print(f'Scan timed out: {scan_timed_out}')
+
     jet.cleanup()
     print(api_error)

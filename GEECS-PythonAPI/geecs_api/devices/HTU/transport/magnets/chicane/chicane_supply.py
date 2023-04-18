@@ -6,7 +6,7 @@ from geecs_api.devices.geecs_device import GeecsDevice, api_error
 
 
 class ChicaneSupply(GeecsDevice):
-    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]], pair: str = 'Outer'):
+    def __init__(self, exp_info: dict[str, Any], pair: str = 'Outer'):
         if pair.lower() == 'inner':
             mc_name = 'U_ChicaneInner'
             self.is_inner = True
@@ -20,7 +20,7 @@ class ChicaneSupply(GeecsDevice):
                             f'Class "{self.get_class()}", method "{inspect.stack()[0][3]}"')
             return
 
-        super().__init__(mc_name, exp_vars)
+        super().__init__(mc_name, exp_info)
 
         self.__variables = {VarAlias('Current'): (-6., 6.),
                             VarAlias('Enable_Output'): (None, None),

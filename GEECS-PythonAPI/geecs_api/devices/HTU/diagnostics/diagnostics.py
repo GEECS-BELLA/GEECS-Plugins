@@ -12,13 +12,13 @@ class Diagnostics(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]]):
+    def __init__(self, exp_info: dict[str, Any]):
         if self.__initialized:
             return
         self.__initialized = True
         super().__init__('diagnostics', None, virtual=True)
 
-        self.e_beam = BeamDiagnostics(exp_vars)
+        self.e_beam = BeamDiagnostics(exp_info)
 
     def cleanup(self):
         self.e_beam.cleanup()

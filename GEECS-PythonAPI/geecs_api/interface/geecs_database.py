@@ -174,6 +174,21 @@ class GeecsDatabase:
         return exp_guis
 
     @staticmethod
+    def find_slow_port(exp_name: str = 'Undulator'):
+        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
+
+        db = GeecsDatabase._get_db()
+        db_cursor = db.cursor(dictionary=True)
+        cmd_str = 'SELECT MCUDPLocalPortSlow FROM loasis.expt WHERE name = %s;'
+
+        db_cursor.execute(cmd_str, (exp_name,))
+        db_result = db_cursor.fetchone()
+        slow_port = int(db_result.popitem()[1])
+
+        GeecsDatabase._close_db(db, db_cursor)
+        return slow_port
+
+    @staticmethod
     def search_dict(haystack: dict, needle: str, path="/") -> list[tuple[str, str]]:
         search_results = []
         for k, v in haystack.items():
@@ -196,6 +211,8 @@ if __name__ == '__main__':
     api_error.clear()
     _exp_guis = GeecsDatabase.find_experiment_guis()
     device_ip, device_port = GeecsDatabase.find_device('U_ESP_JetXYZ')
+    mc_port = GeecsDatabase.find_slow_port()
+    print(f'Slow MC port: {mc_port}')
     print(api_error)
 
     if device_ip:

@@ -21,13 +21,15 @@ class GeecsDevice:
     appdata_path = os.path.join(os.getenv('LOCALAPPDATA'), 'GEECS')
     scan_file_path = os.path.join(appdata_path, 'geecs_scan.txt')
 
-    def __init__(self, name: str, exp_vars: Optional[dict[str, dict[str, dict[str, Any]]]], virtual=False):
+    def __init__(self, name: str, exp_info: Optional[dict[str, Any]], virtual=False):
+
         # Static properties
         self.__dev_name: str = name.strip()
         self.__dev_virtual = virtual or not self.__dev_name
         self.__class_name = re.search(r'\w+\'>$', str(self.__class__))[0][:-2]
 
         # Communications
+        self.mc_port: int = exp_info['mc_port']
         self.dev_tcp: Optional[TcpSubscriber] = None
         self.dev_udp: Optional[UdpHandler]
         if not self.__dev_virtual:
@@ -71,7 +73,7 @@ class GeecsDevice:
             else:
                 api_error.warning(f'Device "{self.__dev_name}" not found', 'GeecsDevice class, method "__init__"')
 
-            self.list_variables(exp_vars)
+            self.list_variables(exp_info['devices'])
 
         if not os.path.exists(GeecsDevice.appdata_path):
             os.makedirs(GeecsDevice.appdata_path)
@@ -145,19 +147,19 @@ class GeecsDevice:
 
     # Variables
     # -----------------------------------------------------------------------------------------------------------
-    def list_variables(self, exp_vars: Optional[ExpDict] = None,
+    def list_variables(self, exp_devs: Optional[ExpDict] = None,
                        exp_name: str = 'Undulator') \
             -> tuple[VarDict, ExpDict]:
         try:
-            if exp_vars is None:
-                exp_vars = GeecsDatabase.find_experiment_variables(exp_name)
+            if exp_devs is None:
+                exp_devs = GeecsDatabase.find_experiment_variables(exp_name)
 
-            self.dev_vars = exp_vars[self.__dev_name]
+            self.dev_vars = exp_devs[self.__dev_name]
 
         except Exception:
             self.dev_vars = {}
 
-        return self.dev_vars, exp_vars
+        return self.dev_vars, exp_devs
 
     def find_var_by_alias(self, alias: VarAlias = VarAlias('')) -> str:
         if not self.dev_vars:
@@ -207,8 +209,19 @@ class GeecsDevice:
             -> AsyncResult:
         return self._execute(variable, None, exec_timeout, attempts_max, sync)
 
-    def start_scan(self):
-        self._execute('scan', None, 0.0, sync=False)
+    def _start_scan(self, timeout: float = 300.) -> tuple[bool, bool]:
+        cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
+        accepted = self.dev_udp.send_scan_cmd(cmd)
+
+        time.sleep(30.)  # to enter info (won't be needed in the future, hopefully) and devices to enter scan mode
+        t0 = time.monotonic()
+        while True:
+            timed_out = (time.monotonic() - t0 > timeout)
+            if (self.state[VarAlias('device status')] == 'scan') or timed_out:
+                break
+            time.sleep(1.)
+
+        return accepted, timed_out
 
     def get_status(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
         ret = self.get('device status', exec_timeout=exec_timeout, sync=sync)
@@ -452,8 +465,8 @@ class GeecsDevice:
 
         return value
 
-    def scan_values(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
-                    spans:  dict[VarAlias, tuple[float, float]]) -> npt.ArrayLike:
+    def _scan_values(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
+                     spans:  dict[VarAlias, tuple[float, float]]) -> npt.ArrayLike:
         start_value = self.coerce_float(var_alias, inspect.stack()[0][3], start_value, spans[var_alias])
         end_value = self.coerce_float(var_alias, inspect.stack()[0][3], end_value, spans[var_alias])
         if end_value < start_value:
@@ -463,18 +476,29 @@ class GeecsDevice:
         return np.arange(start_value, end_value + step_size, step_size)
 
     @staticmethod
-    def write_scan_file(devices: list[str], variables: list[str],
-                        values_by_row: npt.ArrayLike, shots_per_step: int = 10):
+    def _write_scan_file(devices: Union[list[str], str], variables: Union[list[str], str],
+                         values_by_row: npt.ArrayLike, shots_per_step: int = 10):
         scan_number = 1
 
         with open(GeecsDevice.scan_file_path, 'w+') as f:
             f.write(f'[Scan{scan_number}]\n')
-            f.write('Device = "' + ','.join(devices) + '"\n')
-            f.write('Variable = "' + ','.join(variables) + '"\n')
+            if isinstance(devices, list):
+                f.write('Device = "' + ','.join(devices) + '"\n')
+            else:
+                f.write(f'Device = "{devices}"\n')
+
+            if isinstance(variables, list):
+                f.write('Variable = "' + ','.join(variables) + '"\n')
+            else:
+                f.write(f'Variable = "{variables}"\n')
             f.write('Values:#shots = "')
 
-            for col in range(len(variables)):
-                f.write(f'({str(list(values_by_row[:, col]))[1:-1]}):{shots_per_step}|')
+            if values_by_row.ndim > 1:
+                for col in range(values_by_row.shape[1]):
+                    f.write(f'({str(list(values_by_row[:, col]))[1:-1]}):{shots_per_step}|')
+            else:
+                for col in range(values_by_row.size):
+                    f.write(f'({values_by_row[col]}):{shots_per_step}|')
             f.write('"')
 
     # Synchronization

@@ -15,11 +15,11 @@ class TransportHexapod(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]]):
+    def __init__(self, exp_info: dict[str, Any]):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('U_Hexapod', exp_vars)
+        super().__init__('U_Hexapod', exp_info)
 
         self.__variables = {VarAlias('xpos'): (-10., 10.),  # [mm]
                             VarAlias('ypos'): (-25., 25.),

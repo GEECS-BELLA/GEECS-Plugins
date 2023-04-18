@@ -11,15 +11,15 @@ class Chicane(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]]):
+    def __init__(self, exp_info: dict[str, Any]):
         if self.__initialized:
             return
         self.__initialized = True
 
         super().__init__('chicane', None, virtual=True)
 
-        self.inner_supply = ChicaneSupply(exp_vars, 'Inner')
-        self.outer_supply = ChicaneSupply(exp_vars, 'Outer')
+        self.inner_supply = ChicaneSupply(exp_info, 'Inner')
+        self.outer_supply = ChicaneSupply(exp_info, 'Outer')
 
     def cleanup(self):
         self.inner_supply.cleanup()

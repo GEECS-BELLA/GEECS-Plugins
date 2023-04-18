@@ -3,8 +3,8 @@ import math
 import socket
 import time
 import select
-from queue import Queue
-from threading import Thread, Condition, Event
+import inspect
+from threading import Thread, Event
 from datetime import datetime as dtime
 from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
@@ -18,9 +18,10 @@ class UdpHandler:
     def __init__(self, owner: GeecsDevice):
         """ Creates a UDP socket and binds it. """
 
-        self.buffer_size = 1024
+        self.buffer_size: int = 1024
         self.sock_cmd = None
-        self.bounded_cmd = False
+        self.bounded_cmd: bool = False
+        self.mc_port: int = owner.mc_port
 
         try:
             # initialize socket out
@@ -66,25 +67,54 @@ class UdpHandler:
             self.sock_cmd.sendto(msg.encode('ascii'), ipv4)
             sent = True
         except Exception:
-            api_error.error('Failed to send UDP message', 'UdpHandler class, method "send"')
+            api_error.error('Failed to send UDP message', f'Class "UdpHandler", method "{inspect.stack()[0][3]}"')
 
         return sent
 
-    def ack_cmd(self, timeout: Optional[float] = 5.0) -> bool:
+    def ack_cmd(self, sock: Optional[socket] = None, timeout: Optional[float] = 5.0) -> bool:
         """ Listen for command acknowledgement. """
 
         accepted = False
+        if sock is None:
+            sock = self.sock_cmd
+
         try:
-            ready = select.select([self.sock_cmd], [], [], timeout)
+            ready = select.select([sock], [], [], timeout)
             if ready[0]:
-                geecs_str = self.sock_cmd.recv(self.buffer_size)
+                geecs_str = sock.recv(self.buffer_size)
                 geecs_ans = (geecs_str.decode('ascii')).split(">>")[-1]
                 accepted = (geecs_ans == 'accepted') or (geecs_ans == 'ok')
             else:
-                api_error.warning('Socket not ready to receive', 'UdpHandler class, method "ack_cmd"')
+                api_error.warning('Socket not ready to receive',
+                                  f'Class "UdpHandler", method "{inspect.stack()[0][3]}"')
 
         except Exception:
-            api_error.error('Failed to read UDP acknowledge message', 'UdpHandler class, method "ack_cmd"')
+            api_error.error('Failed to read UDP acknowledge message',
+                            f'Class "UdpHandler", method "{inspect.stack()[0][3]}"')
+
+        return accepted
+
+    def send_scan_cmd(self, cmd: str) -> bool:
+        accepted: bool = False
+        sock_mc = None
+
+        try:
+            sock_mc = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            sock_mc.settimeout(5.0)
+            sock_mc.bind(('localhost', 0))
+
+            sock_mc.sendto(cmd.encode('ascii'), ('localhost', self.mc_port + 2))
+            accepted = self.ack_cmd(sock=sock_mc, timeout=5.0)
+
+        except Exception as ex:
+            api_error.error(str(ex), f'Class "UdpHandler", method "{inspect.stack()[0][3]}"')
+
+        finally:
+            try:
+                if sock_mc:
+                    sock_mc.close()
+            except Exception:
+                pass
 
         return accepted
 

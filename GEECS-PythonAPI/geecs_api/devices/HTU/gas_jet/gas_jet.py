@@ -14,16 +14,16 @@ class GasJet(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]]):
+    def __init__(self, exp_info: dict[str, Any]):
         if self.__initialized:
             return
         self.__initialized = True
 
         super().__init__('gas_jet', None, virtual=True)
-        self.stage = GasJetStage(exp_vars)
-        self.pressure = GasJetPressure(exp_vars)
-        self.trigger = GasJetTrigger(exp_vars)
-        self.blade = GasJetBlade(exp_vars)
+        self.stage = GasJetStage(exp_info)
+        self.pressure = GasJetPressure(exp_info)
+        self.trigger = GasJetTrigger(exp_info)
+        self.blade = GasJetBlade(exp_info)
 
         self.stage.subscribe_var_values()
         self.pressure.subscribe_var_values()

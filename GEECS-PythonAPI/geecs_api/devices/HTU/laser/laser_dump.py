@@ -12,11 +12,11 @@ class LaserDump(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_vars: dict[str, dict[str, dict[str, Any]]]):
+    def __init__(self, exp_info: dict[str, Any]):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('U_PLC', exp_vars)
+        super().__init__('U_PLC', exp_info)
 
         self.__variables = {VarAlias('OAP -Chamber-Beam-Dump'): (None, None)}
         self.build_var_dicts(tuple(self.__variables.keys()))
