@@ -8,7 +8,7 @@ Created on Fri Feb  3 10:44:15 2023
 #%% init
 from __future__ import annotations
 
-from math import sqrt
+from math import sqrt, cos, sin, pi
 from typing import Optional, TYPE_CHECKING, Annotated
 
 from itertools import product
@@ -54,12 +54,32 @@ class PhasicsImageAnalyzer:
 
     CAMERA_RESOLUTION = Q_(4.74, 'micrometer')
     GRATING_CAMERA_DISTANCE = Q_(0.841, 'millimeter')
+    GRATING_PITCH = Q_(19.0505, 'micrometer')
+    CAMERA_TILT = Q_(0.529878, 'radians')
     
-    diffraction_spot_centers = [SpatialFrequencyCoordinates(Q_(18.776371, 'mm^-1'), Q_(71.729958, 'mm^-1')),
-                                SpatialFrequencyCoordinates(Q_(45.358649, 'mm^-1'), Q_(26.371308, 'mm^-1')),
-                                SpatialFrequencyCoordinates(Q_(71.940928, 'mm^-1'), Q_(-18.987342, 'mm^-1')),
-                                SpatialFrequencyCoordinates(Q_(26.582278, 'mm^-1'), Q_(-45.358650, 'mm^-1')),
-                               ]
+    @property
+    def diffraction_spot_centers(self):
+        """ Returns the 4 diffraction spot centers in the Fourier transform
+        
+        Besides the spot at the origin of the FT (which represents slow 
+        variations across the image), there are 8 1st order diffraction spots 
+        arranged in a square around the origin, tilted by CAMERA_TILT with 
+        half-width 1 / GRATING_PITCH
+
+        Somewhat arbitrarily, I've picked the spots to be
+        0. The top right corner, which is sqrt(2) / GRATING_PITCH away at 
+           CAMERA_TILT + 45deg 
+        1. The midpoint of the right edge of the square, at CAMERA_TILT
+        2. The lower right corner, again sqrt(2) / GRATING_PITCH away, at
+           CAMERA_TILT - 45deg
+        3. The midpoint of the bottom edge of the square, i.e. CAMERA_TILT - 90deg.
+
+        """
+        return [SpatialFrequencyCoordinates(distance_multiplier * 1 / self.GRATING_PITCH * cos(self.CAMERA_TILT + angle), 
+                                            distance_multiplier * 1 / self.GRATING_PITCH * sin(self.CAMERA_TILT + angle)
+                                           )
+                for distance_multiplier, angle in [(sqrt(2), pi/4), (1.0, 0.0), (sqrt(2), -pi/4), (1.0, -pi/2)]
+               ]
 
     def __init__(self,
                  reconstruction_method = 'baffou',
@@ -167,8 +187,8 @@ class PhasicsImageAnalyzer:
         """
         self.diffraction_spot_crop_radius = np.sqrt( 
             min((center2.nu_x - center1.nu_x)**2 + (center2.nu_y - center1.nu_y)**2
-                for center1, center2 in product(self.diffraction_spot_centers, self.diffraction_spot_centers)
-                if center1 is not center2
+                for (i1, center1), (i2, center2) in product(enumerate(self.diffraction_spot_centers), enumerate(self.diffraction_spot_centers))
+                if i1 != i2
                )
         ) / 2
         
