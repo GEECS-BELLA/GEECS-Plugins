@@ -74,14 +74,6 @@ class PhasicsImageAnalyzer:
         self.reconstruction_method = reconstruction_method
         self.diffraction_spot_crop_radius = diffraction_spot_crop_radius
     
-    def crop_image(self, img: np.ndarray) -> np.ndarray:
-        """ Crops for HTU Gasjet Phasics images
-        
-            Cuts out the jet blade. 
-        """
-        return img[:600, 600:]
-    
-    
     class Center:
         def __init__(self, parent: PhasicsImageAnalyzer, row: int, column: int):
             self.parent = parent
