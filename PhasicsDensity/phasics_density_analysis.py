@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 ureg = UnitRegistry()
 Q_ = ureg.Quantity
 
+from collections import namedtuple
+SpatialFrequencyCoordinates = namedtuple('SpatialFrequencyCoordinates', ['nu_x', 'nu_y'])
 
 #%% PhasicsImageAnalyzer class
 
@@ -51,6 +53,12 @@ class PhasicsImageAnalyzer:
     CAMERA_RESOLUTION = Q_(4.74, 'micrometer')
     GRATING_CAMERA_DISTANCE = Q_(0.841, 'millimeter')
     
+    diffraction_spot_centers = [SpatialFrequencyCoordinates(Q_(18.776371, 'mm^-1'), Q_(71.729958, 'mm^-1')),
+                                SpatialFrequencyCoordinates(Q_(45.358649, 'mm^-1'), Q_(26.371308, 'mm^-1')),
+                                SpatialFrequencyCoordinates(Q_(71.940928, 'mm^-1'), Q_(-18.987342, 'mm^-1')),
+                                SpatialFrequencyCoordinates(Q_(26.582278, 'mm^-1'), Q_(-45.358650, 'mm^-1')),
+                               ]
+
     def __init__(self,
                  reconstruction_method = 'baffou',
                  diffraction_spot_crop_radius: Optional[Quantity] = None
@@ -73,41 +81,6 @@ class PhasicsImageAnalyzer:
 
         self.reconstruction_method = reconstruction_method
         self.diffraction_spot_crop_radius = diffraction_spot_crop_radius
-    
-    class Center:
-        def __init__(self, parent: PhasicsImageAnalyzer, row: int, column: int):
-            self.parent = parent
-            self.row = row
-            self.column = column
-        
-        @property
-        def nu_x(self) -> SpatialFrequencyQuantity:
-            """ x coordinate of center, in [length]^-1
-            """
-            return self.parent.freq_x[self.column]
- 
-        @property
-        def nu_y(self) -> SpatialFrequencyQuantity:
-            return self.parent.freq_y[self.row]
-    
-    def new_center(self, row: int = None, column: int = None,
-                         nu_x: Quantity = None, nu_y: Quantity = None,
-                   ):
-        """ Create new diffraction spot center. Either row and column, or 
-            nu_x and nu_y (as Quantities) have to be given.
-        
-        """
-        # indices of diffraction spot explicitly given
-        if row is not None and column is not None:
-            return self.Center(self, row, column)
-        
-        elif nu_x is not None and nu_y is not None:
-            row = np.argmin(np.abs(self.freq_y - nu_y))
-            column = np.argmin(np.abs(self.freq_x - nu_x))
-            return self.Center(self, row, column)
-        
-        else:
-            raise ValueError("Either row and column, or nu_x and nu_y have to be given.")
 
     
     def _fourier_transform(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -180,7 +153,7 @@ class PhasicsImageAnalyzer:
         if self.diffraction_spot_crop_radius is None:
             self._set_diffraction_spot_crop_radius()
               
-        def _crop_and_center_diffraction_spot(center: self.Center) -> np.ndarray:
+        def _crop_and_center_diffraction_spot(center: SpatialFrequencyCoordinates) -> np.ndarray:
             """ Crop an area of freq space around diffraction spot center, and translate it
                 to the middle of the image.
             
@@ -188,8 +161,8 @@ class PhasicsImageAnalyzer:
             ----------
             IMG : np.ndarray
                 Fourier-transformed QWLSI image.
-            center : tuple[int, int]
-                row, column of diffraction spot center
+            center : SpatialFrequencyCoordinates
+                location of diffraction spot center
     
             Returns
             -------
