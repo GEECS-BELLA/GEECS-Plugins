@@ -8,6 +8,7 @@ Created on Fri Feb  3 10:44:15 2023
 #%% init
 from __future__ import annotations
 
+from math import sqrt
 from typing import Optional, TYPE_CHECKING, Annotated
 
 from itertools import product
@@ -105,34 +106,62 @@ class PhasicsImageAnalyzer:
         return self.IMG, self.freq_x, self.freq_y
     
     
-    def _locate_diffraction_spots(self) -> list[tuple[int, int]]:
-        """ Find centers of diffraction spot in Fourier-transformed QWLSI image
-        
-        Right now, just returns the centers for the HTU GasJet image
-        
-        TODO: currently centers are at integer row and column. Allowing 
-        fractional row and column would be more accurate. 
+    def locate_diffraction_spot(self, 
+                                center0: SpatialFrequencyCoordinates, 
+                                search_radius: SpatialFrequencyQuantity = Q_(1.2, 'mm^-1')
+                               ) -> SpatialFrequencyCoordinates:
+        """ Utility function to refine location of diffraction spot center
 
+        Uses 2D parabolic interpolation to find peak in the Fourier transform 
+        of the image saved in this instance, near a given center0
+        
         Parameters
         ----------
-        IMG : np.ndarray
-            Fourier-transformed image.
+        center0 : tuple[SpatialFrequencyQuantity, SpatialFrequencyQuantity]
+            x and y coordinates (not row, column) of approximate center
+        search_radius : SpatialFrequencyQuantity
+            how far around center0 to look for the maximum.
 
         Returns
         -------
-        list[tuple[int, int]]
-            list of row/column indices to diffraction spot centers in image
+        center : tuple[SpatialFrequencyQuantity, SpatialFrequencyQuantity]
+            x and y coordinates of refined center, in [length]^-1 units.
 
         """
 
-        self.diffraction_spot_centers = [self.new_center(nu_x=Q_(18.776371, 'mm^-1'), nu_y=Q_(71.729958, 'mm^-1')),
-                                         self.new_center(nu_x=Q_(45.358649, 'mm^-1'), nu_y=Q_(26.371308, 'mm^-1')),
-                                         self.new_center(nu_x=Q_(71.940928, 'mm^-1'), nu_y=Q_(-18.987342, 'mm^-1')),
-                                         self.new_center(nu_x=Q_(26.582278, 'mm^-1'), nu_y=Q_(-45.358650, 'mm^-1')),
-                                        ]
+        # first find the maximum value of IMG near center0
+        FREQ_X, FREQ_Y = np.meshgrid(self.freq_x, self.freq_y)
+        IMG_magn = np.abs(self.IMG)
+        Z = IMG_magn * (np.square(FREQ_X - center0.nu_x) + np.square(FREQ_Y - center0.nu_y) <= search_radius**2)
+        y0, x0 = np.unravel_index(np.argmax(Z.flatten()), Z.shape)
 
-        return self.diffraction_spot_centers
-    
+        # then use parabolic interpolation 1 pixel around x0, y0
+        # We fit a 2d quadratic function to the 9 pixels around and including
+        # x0, y0
+        #   f(dx, dy) = coeffs . (1, dx, dy, dx^2, dx*dy, dy^2)
+        # We construct matrix A where rows are (1, dx, dy, dx^2, dx*dy, dy^2) for 
+        # (dx, dy) = [(0, 0), (-1, 0), (+1, 0), (0, -1), (0, +1), (-1, -1), (-1, +1), (+1, -1), (+1, +1)]
+        # Furthermore, the matrix W is diag([1, 1, 1, 1, 1, 1/sqrt(2), 1/sqrt(2), 1/sqrt(2), 1/sqrt(2)]) 
+        # to downweight the corners of the 3x3 square.
+        # then to solve the least squares equation A . coeffs = z, with z the values
+        # of IMG at (x0 + dx, y0 + dy) for the above (dx, dy), we construct
+        # B = (A.T . W . A)^-1 . A.T . W
+        B = [[(15 + 2*sqrt(2))/31, (8 - sqrt(2))/31, (8 - sqrt(2))/31, (8 - sqrt(2))/31, (8 - sqrt(2))/31, (-8 + sqrt(2))/62, (-8 + sqrt(2))/62, (-8 + sqrt(2))/62, (-8 + sqrt(2))/62], [0, 1/2 - 1/sqrt(2), -1/2 + 1/sqrt(2), 0, 0, (-2 + sqrt(2))/4, (-2 + sqrt(2))/4, (2 - sqrt(2))/4, (2 - sqrt(2))/4], [0, 0, 0, 1/2 - 1/sqrt(2), -1/2 + 1/sqrt(2), (-2 + sqrt(2))/4, (2 - sqrt(2))/4, (-2 + sqrt(2))/4, (2 - sqrt(2))/4], [(-7 - 3*sqrt(2))/31, (7 + 3*sqrt(2))/62, (7 + 3*sqrt(2))/62, (3*(-8 + sqrt(2)))/62, (3*(-8 + sqrt(2)))/62, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124], [0, 0, 0, 0, 0, 1/4, -1/4, -1/4, 1/4], [(-7 - 3*sqrt(2))/31, (3*(-8 + sqrt(2)))/62, (3*(-8 + sqrt(2)))/62, (7 + 3*sqrt(2))/62, (7 + 3*sqrt(2))/62, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124]]
+        # and solve coeffs = B . z
+        z = [IMG_magn[y0 + dy, x0 + dx] 
+             for (dx, dy) in [(0, 0), (-1, 0), (+1, 0), (0, -1), (0, +1), (-1, -1), (-1, +1), (+1, -1), (+1, +1)]
+            ]
+        c_1, c_x, c_y, c_x2, c_xy, c_y2 = c = np.dot(B, z)
+        # finally, we solve df/ddx = 0 and df/ddy = 0
+        dx, dy = np.array([ c_xy * c_y - 2 * c_x * c_y2, 
+                            c_xy * c_x - 2 * c_y * c_x2
+                         ]) / (c_xy**2 - 4 * c_x2 * c_y2)
+
+        # and we return the spatial frequencies corresponding to x0 + dx and y0 + dy
+        return SpatialFrequencyCoordinates(np.interp(x0 + dx,  np.arange(len(self.freq_x)), self.freq_x),
+                                           np.interp(y0 + dy,  np.arange(len(self.freq_y)), self.freq_y),
+                                          ) 
+
     def _set_diffraction_spot_crop_radius(self) -> SpatialFrequencyQuantity:
         """ Calculate minimum distance between any two centers
         """
@@ -410,9 +439,6 @@ class PhasicsImageAnalyzer:
         self.img = img
         self.shape = img.shape
         self._fourier_transform()
-
-        # locate the 4 diffraction spots
-        self._locate_diffraction_spots()
 
         # get cropped and centered FTs of each diffraction spot
         self._crop_and_center_diffraction_spots()
