@@ -18,6 +18,7 @@ import numpy as np
 
 from scipy.sparse import csr_array
 from scipy.sparse.linalg import lsqr
+from scipy.interpolate import RegularGridInterpolator
 
 from skimage.restoration import unwrap_phase
 
@@ -172,22 +173,31 @@ class PhasicsImageAnalyzer:
     
             """
             
-            # np.roll won't work on a Quantity array, so create a unit-aware version
-            roll_ua = ureg.wraps('=A', ('=A', None, None))(np.roll)
-            
             NU_X, NU_Y = np.meshgrid(self.freq_x, self.freq_y)
             IMG_cropped = self.IMG * ((np.square(NU_X - center.nu_x) + np.square(NU_Y - center.nu_y)) < self.diffraction_spot_crop_radius**2)
-            IMG_recentered = roll_ua(IMG_cropped, (self.shape[0]//2 - center.row, self.shape[1]//2 - center.column), (0, 1))
-            return IMG_recentered
 
+            # RegularGridInterpolator will strip the units off the grid and values, 
+            # so make sure they are all handled correctly.
+            @ureg.wraps('=A', ('=A', '=B', '=B', '=B', '=B'))
+            def recenter_IMG_cropped_ua(IMG_cropped, freq_x, freq_y, nu_x, nu_y):
+                # create a interpolator of IMG_cropped on a coordinate system that has
+                # this diffraction spot center as its origin.
+                IMG_cropped_interpolator = RegularGridInterpolator((freq_x - nu_x, freq_y - nu_y), IMG_cropped.T, 
+                                                                   method='linear', bounds_error=False, fill_value=0.0
+                                                                  )
+                # evaluate the interpolator at self.freq_x x self.freq_y 
+                NU_X, NU_Y = np.meshgrid(freq_x, freq_y)
+                return IMG_cropped_interpolator(np.stack([NU_X.flatten(), NU_Y.flatten()], axis=1)).reshape(IMG_cropped.shape)
+
+            return recenter_IMG_cropped_ua(IMG_cropped, self.freq_x, self.freq_y, center.nu_x, center.nu_y)
 
         self.diffraction_spot_IMGs = [_crop_and_center_diffraction_spot(center)
                                       for center in self.diffraction_spot_centers
                                      ]
         
         return self.diffraction_spot_IMGs
-    
-    
+
+
     def _reconstruct_wavefront_gradients_from_cropped_centered_diffraction_FTs(self) -> list[np.ndarray]:
         """ Calculate the angle (argument) of the inverse FT of a diffraction 
             spot image.
