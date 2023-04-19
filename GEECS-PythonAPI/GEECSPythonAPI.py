@@ -150,8 +150,12 @@ class GEECSDevice:
                 try:
                     if 'value' in kwargs:
                         value=kwargs['value']
-                        MESSAGE = f"{command_string}{var}>>{value:.6f}".encode('ascii')
-                        valid_command = True
+                        if type(value)==str:
+                            MESSAGE = f"{command_string}{var}>>{value}".encode('ascii')
+                            valid_command = True
+                        else:
+                            MESSAGE = f"{command_string}{var}>>{value:.6f}".encode('ascii')
+                            valid_command = True
                     else:
                         raise UDPCommunicationError
 
