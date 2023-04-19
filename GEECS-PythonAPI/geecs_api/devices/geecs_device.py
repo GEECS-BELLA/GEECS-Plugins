@@ -29,7 +29,7 @@ class GeecsDevice:
         self.__class_name = re.search(r'\w+\'>$', str(self.__class__))[0][:-2]
 
         # Communications
-        self.mc_port: int = exp_info['mc_port']
+        self.mc_port: int = exp_info['MC_port']
         self.dev_tcp: Optional[TcpSubscriber] = None
         self.dev_udp: Optional[UdpHandler]
         if not self.__dev_virtual:
@@ -74,6 +74,9 @@ class GeecsDevice:
                 api_error.warning(f'Device "{self.__dev_name}" not found', 'GeecsDevice class, method "__init__"')
 
             self.list_variables(exp_info['devices'])
+
+        # Data
+        self.data_root_path = exp_info['data_path']
 
         if not os.path.exists(GeecsDevice.appdata_path):
             os.makedirs(GeecsDevice.appdata_path)
@@ -147,12 +150,11 @@ class GeecsDevice:
 
     # Variables
     # -----------------------------------------------------------------------------------------------------------
-    def list_variables(self, exp_devs: Optional[ExpDict] = None,
-                       exp_name: str = 'Undulator') \
-            -> tuple[VarDict, ExpDict]:
+    def list_variables(self, exp_devs: Optional[ExpDict] = None) -> tuple[VarDict, ExpDict]:
         try:
             if exp_devs is None:
-                exp_devs = GeecsDatabase.find_experiment_variables(exp_name)
+                exp_info = GeecsDatabase.collect_exp_info()
+                exp_devs = exp_info['devices']
 
             self.dev_vars = exp_devs[self.__dev_name]
 
@@ -213,7 +215,7 @@ class GeecsDevice:
         cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
         accepted = self.dev_udp.send_scan_cmd(cmd)
 
-        time.sleep(30.)  # to enter info (won't be needed in the future, hopefully) and devices to enter scan mode
+        time.sleep(20.)  # to enter info (won't be needed in the future, hopefully) and devices to enter scan mode
         t0 = time.monotonic()
         while True:
             timed_out = (time.monotonic() - t0 > timeout)

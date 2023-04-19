@@ -1,9 +1,11 @@
+from os import PathLike
 from threading import Thread, Event
-from typing import Optional, Any, TypedDict
+from typing import Optional, Any, Union
 
 
 VarDict = dict[str, dict[str, Any]]
 ExpDict = dict[str, dict[str, dict[str, Any]]]
+SysPath = Union[str, bytes, PathLike]
 ThreadInfo = tuple[Optional[Thread], Optional[Event]]
 AsyncResult = tuple[bool, str, ThreadInfo]
 

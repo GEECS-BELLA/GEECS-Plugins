@@ -93,10 +93,10 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
+    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create object
-    shutters = PumpShutters(exp_devs)
+    shutters = PumpShutters(_exp_info)
     print(f'Variables subscription: {shutters.subscribe_var_values()}')
 
     print(f'North-1 inserted: {shutters.is_inserted(1, "North")}')

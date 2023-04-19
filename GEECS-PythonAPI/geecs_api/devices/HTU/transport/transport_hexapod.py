@@ -98,10 +98,10 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
+    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create object
-    hexapod = TransportHexapod(exp_devs)
+    hexapod = TransportHexapod(_exp_info)
     print(f'Variables subscription: {hexapod.subscribe_var_values()}')
 
     # retrieve currently known positions

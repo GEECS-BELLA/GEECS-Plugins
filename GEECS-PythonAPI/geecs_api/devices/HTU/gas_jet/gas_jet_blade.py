@@ -3,7 +3,7 @@ import inspect
 from typing import Optional, Any, Union
 from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.interface import GeecsDatabase, api_error
+from geecs_api.interface import api_error
 
 
 class GasJetBlade(GeecsDevice):
@@ -53,6 +53,5 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
 
     # create gas jet object

@@ -2,6 +2,8 @@ import os
 from typing import Any
 import configparser
 import mysql.connector
+from typing import Union, Optional
+from geecs_api.api_defs import ExpDict, SysPath
 from geecs_api.interface.geecs_errors import api_error
 import tkinter as tk
 from tkinter import filedialog
@@ -67,11 +69,28 @@ class GeecsDatabase:
                 pass
 
     @staticmethod
-    def find_experiment_variables(exp_name: str = 'Undulator') -> dict[str, dict[str, dict[str, Any]]]:
-        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
-
+    def collect_exp_info(exp_name: str = 'Undulator')\
+            -> dict[str, Union[ExpDict, dict[str, SysPath], SysPath, int]]:
         db = GeecsDatabase._get_db()
         db_cursor = db.cursor(dictionary=True)
+
+        exp_devs = GeecsDatabase._find_exp_variables(db_cursor, exp_name)
+        exp_guis = GeecsDatabase._find_exp_guis(db_cursor, exp_name)
+        exp_path = GeecsDatabase._find_exp_data_path(db_cursor, exp_name)
+        mc_port = GeecsDatabase._find_mc_port(db_cursor, exp_name)
+
+        exp_info: dict[str, Any] = {'devices': exp_devs,
+                                    'GUIs': exp_guis,
+                                    'data_path': exp_path,
+                                    'MC_port': mc_port}
+
+        GeecsDatabase._close_db(db, db_cursor)
+        return exp_info
+
+    @staticmethod
+    def _find_exp_variables(db_cursor, exp_name: str = 'Undulator') -> ExpDict:
+        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
+
         cmd_str = """
             SELECT * FROM
                 -- subquery that returns devicename, variablename, and source table where the defaultvalue,
@@ -116,11 +135,10 @@ class GeecsDatabase:
                 -- Now filter for device, experiment
             WHERE default_experiment = %s;
         """
-
         db_cursor.execute(cmd_str, (exp_name,))
         rows = db_cursor.fetchall()
 
-        exp_vars: dict[str, dict[str, dict[str, Any]]] = {}
+        exp_vars: ExpDict = {}
         while rows:
             row = rows.pop()
             if row['devicename'] in exp_vars:
@@ -128,8 +146,50 @@ class GeecsDatabase:
             else:
                 exp_vars[row['devicename']] = {row['variablename']: row}
 
-        GeecsDatabase._close_db(db, db_cursor)
         return exp_vars
+
+    @staticmethod
+    def _find_exp_guis(db_cursor, exp_name: str = 'Undulator',
+                       git_base: Optional[Union[str, os.PathLike]] = None) -> dict[str, SysPath]:
+        """ Dictionary of (key) descriptive names with (values) executable paths. """
+
+        if git_base is None:
+            git_base = r'C:\GEECS\Developers Version\builds\Interface builds'
+
+        cmd_str = 'SELECT `name` , `path` FROM commongui WHERE experiment = %s;'
+        db_cursor.execute(cmd_str, (exp_name,))
+        rows = db_cursor.fetchall()
+
+        exp_guis: dict[str, SysPath] = {}
+        while rows:
+            row = rows.pop()
+            path: SysPath = os.path.join(git_base, row['path'][1:])
+            exp_guis[row['name']] = path
+
+        return exp_guis
+
+    @staticmethod
+    def _find_exp_data_path(db_cursor, exp_name: str = 'Undulator') -> SysPath:
+        """ Path to experiment's data root directory. """
+
+        cmd_str = f'SELECT RootPath FROM {GeecsDatabase.name}.expt WHERE name = %s;'
+
+        db_cursor.execute(cmd_str, (exp_name,))
+        db_result = db_cursor.fetchone()
+        data_path: SysPath = os.path.realpath(db_result.popitem()[1])
+
+        return data_path
+
+    @staticmethod
+    def _find_mc_port(db_cursor, exp_name: str = 'Undulator') -> int:
+        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
+
+        cmd_str = f'SELECT MCUDPLocalPortSlow FROM {GeecsDatabase.name}.expt WHERE name = %s;'
+        db_cursor.execute(cmd_str, (exp_name,))
+        db_result = db_cursor.fetchone()
+        mc_port = int(db_result.popitem()[1])
+
+        return mc_port
 
     @staticmethod
     def find_device(dev_name=''):
@@ -155,40 +215,6 @@ class GeecsDatabase:
         return dev_ip, dev_port
 
     @staticmethod
-    def find_experiment_guis(exp_name: str = 'Undulator'):
-        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
-
-        db = GeecsDatabase._get_db()
-        db_cursor = db.cursor(dictionary=True)
-        cmd_str = 'SELECT `name` , `path` FROM commongui WHERE experiment = %s;'
-
-        db_cursor.execute(cmd_str, (exp_name,))
-        rows = db_cursor.fetchall()
-
-        exp_guis: dict[str, str] = {}
-        while rows:
-            row = rows.pop()
-            exp_guis[row['name']] = row['path']
-
-        GeecsDatabase._close_db(db, db_cursor)
-        return exp_guis
-
-    @staticmethod
-    def find_slow_port(exp_name: str = 'Undulator'):
-        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
-
-        db = GeecsDatabase._get_db()
-        db_cursor = db.cursor(dictionary=True)
-        cmd_str = 'SELECT MCUDPLocalPortSlow FROM loasis.expt WHERE name = %s;'
-
-        db_cursor.execute(cmd_str, (exp_name,))
-        db_result = db_cursor.fetchone()
-        slow_port = int(db_result.popitem()[1])
-
-        GeecsDatabase._close_db(db, db_cursor)
-        return slow_port
-
-    @staticmethod
     def search_dict(haystack: dict, needle: str, path="/") -> list[tuple[str, str]]:
         search_results = []
         for k, v in haystack.items():
@@ -203,19 +229,18 @@ class GeecsDatabase:
 
 
 if __name__ == '__main__':
-    print('Name:\n\t' + GeecsDatabase.name)
-    print('IP:\n\t' + GeecsDatabase.ipv4)
-    print('User:\n\t' + GeecsDatabase.username)
-    print('Password:\n\t' + GeecsDatabase.password)
+    print('Name:\t\t' + GeecsDatabase.name)
+    print('IP:\t\t\t' + GeecsDatabase.ipv4)
+    print('User:\t\t' + GeecsDatabase.username)
+    print('Password:\t' + GeecsDatabase.password)
 
     api_error.clear()
-    _exp_guis = GeecsDatabase.find_experiment_guis()
+
+    _exp_info = GeecsDatabase.collect_exp_info()
     device_ip, device_port = GeecsDatabase.find_device('U_ESP_JetXYZ')
-    mc_port = GeecsDatabase.find_slow_port()
-    print(f'Slow MC port: {mc_port}')
     print(api_error)
 
     if device_ip:
-        print('Device:\n\t' + device_ip + f', {device_port}')
+        print('Device:\t' + device_ip + f', {device_port}')
     else:
         print('Device not found')

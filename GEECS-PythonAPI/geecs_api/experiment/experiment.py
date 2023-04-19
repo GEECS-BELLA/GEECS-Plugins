@@ -7,12 +7,8 @@ from geecs_api.interface import GeecsDatabase, api_error
 class Experiment:
     def __init__(self, name: str):
         self.exp_name: str = name
-        # self.exp_devs = GeecsDatabase.find_experiment_variables(self.exp_name)
-        # self.exp_guis = GeecsDatabase.find_experiment_guis(self.exp_name)
-        self.exp_info: dict[str, Any] = {'devices': GeecsDatabase.find_experiment_variables(self.exp_name),
-                                         'guis': GeecsDatabase.find_experiment_guis(self.exp_name),
-                                         'mc_port': GeecsDatabase.find_slow_port(self.exp_name)}
         self.devs: dict[str, GeecsDevice] = {}
+        self.exp_info = GeecsDatabase.collect_exp_info(self.exp_name)
 
     def cleanup(self):
         for dev in self.devs.values():

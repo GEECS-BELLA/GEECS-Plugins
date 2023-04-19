@@ -41,11 +41,11 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
+    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create gas jet object
-    jet = GasJet(exp_devs)
-    other_jet = GasJet(exp_devs)
+    jet = GasJet(_exp_info)
+    other_jet = GasJet(_exp_info)
     print(f'Only one jet: {jet is other_jet}')
     print(f'Stage subscription: {jet.stage.subscribe_var_values()}')
     # print(f'Pressure subscription: {jet.pressure.subscribe_var_values()}')

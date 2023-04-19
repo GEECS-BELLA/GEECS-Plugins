@@ -128,11 +128,7 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    # exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
-    exp_name = 'Undulator'
-    _exp_info: dict[str, Any] = {'devices': GeecsDatabase.find_experiment_variables(exp_name),
-                                 'guis': GeecsDatabase.find_experiment_guis(exp_name),
-                                 'mc_port': GeecsDatabase.find_slow_port(exp_name)}
+    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create gas jet object
     jet = GasJetStage(_exp_info)

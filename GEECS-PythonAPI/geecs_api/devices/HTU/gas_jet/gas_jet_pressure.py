@@ -57,10 +57,10 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
+    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create gas jet object
-    jet_pressure = GasJetPressure(exp_devs)
+    jet_pressure = GasJetPressure(_exp_info)
     print(f'Variables subscription: {jet_pressure.subscribe_var_values()}')
 
     # retrieve currently known positions

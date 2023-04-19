@@ -96,10 +96,10 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    exp_devs = GeecsDatabase.find_experiment_variables('Undulator')
+    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create object
-    shutter = SeedAmp4Shutter(exp_devs)
+    shutter = SeedAmp4Shutter(_exp_info)
     print(f'Variables subscription: {shutter.subscribe_var_values()}')
 
     # retrieve currently known positions
