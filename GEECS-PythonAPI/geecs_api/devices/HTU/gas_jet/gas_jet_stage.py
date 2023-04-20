@@ -1,8 +1,9 @@
 from __future__ import annotations
+import os
 import time
 import inspect
 from typing import Optional, Any, Union
-from geecs_api.api_defs import VarAlias, AsyncResult
+from geecs_api.api_defs import VarAlias, AsyncResult, SysPath
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
@@ -118,7 +119,7 @@ class GasJetStage(GeecsDevice):
             var_alias = self.get_axis_var_alias(axis)
             var_values = self._scan_values(var_alias, start_value, end_value, step_size, self.__variables)
 
-            self._write_scan_file(self.get_name(), self.get_axis_var_name(axis), var_values, shots_per_step)
+            self._write_1D_scan_file(self.get_name(), self.get_axis_var_name(axis), var_values, shots_per_step)
             return self._start_scan(timeout=timeout)
         else:
             return False, False

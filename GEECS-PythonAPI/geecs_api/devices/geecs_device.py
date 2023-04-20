@@ -9,7 +9,7 @@ import numpy.typing as npt
 from threading import Thread, Condition, Event, Lock
 from typing import Optional, Any, Union
 from datetime import datetime as dtime
-from geecs_api.api_defs import VarDict, ExpDict, VarAlias, AsyncResult, ThreadInfo
+from geecs_api.api_defs import VarDict, ExpDict, VarAlias, AsyncResult, ThreadInfo, SysPath
 import geecs_api.interface.message_handling as mh
 from geecs_api.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorAPI, api_error
 
@@ -215,13 +215,15 @@ class GeecsDevice:
         cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
         accepted = self.dev_udp.send_scan_cmd(cmd)
 
-        time.sleep(20.)  # to enter info (won't be needed in the future, hopefully) and devices to enter scan mode
-        t0 = time.monotonic()
-        while True:
-            timed_out = (time.monotonic() - t0 > timeout)
-            if (self.state[VarAlias('device status')] == 'scan') or timed_out:
-                break
-            time.sleep(1.)
+        timed_out = self.wait_for_scan_start(timeout=60.)
+
+        if not timed_out:
+            t0 = time.monotonic()
+            while True:
+                timed_out = (time.monotonic() - t0 > timeout)
+                if (self.state[VarAlias('device status')] == 'scan') or timed_out:
+                    break
+                time.sleep(1.)
 
         return accepted, timed_out
 
@@ -478,8 +480,8 @@ class GeecsDevice:
         return np.arange(start_value, end_value + step_size, step_size)
 
     @staticmethod
-    def _write_scan_file(devices: Union[list[str], str], variables: Union[list[str], str],
-                         values_by_row: npt.ArrayLike, shots_per_step: int = 10):
+    def _write_1D_scan_file(devices: Union[list[str], str], variables: Union[list[str], str],
+                            values_by_row: npt.ArrayLike, shots_per_step: int = 10):
         scan_number = 1
 
         with open(GeecsDevice.scan_file_path, 'w+') as f:
@@ -502,6 +504,47 @@ class GeecsDevice:
                 for col in range(values_by_row.size):
                     f.write(f'({values_by_row[col]}):{shots_per_step}|')
             f.write('"')
+
+    def today_data_folder(self) -> SysPath:
+        stamp = dtime.now()
+        date_folders = os.path.join(stamp.strftime('Y%Y'), stamp.strftime('%m-%B')[:6], stamp.strftime('%y_%m%d'))
+
+        return os.path.join(self.data_root_path, date_folders)
+
+    def last_scan_number(self) -> int:
+        data_folder: SysPath = self.today_data_folder()
+        if not os.path.isdir(os.path.join(data_folder, 'scans'))\
+                or not next(os.walk(os.path.join(data_folder, 'scans')))[1]:  # no 'scans' or no 'ScanXXX' folders
+            return -1
+
+        scan_folders: list[SysPath] = next(os.walk(os.path.join(data_folder, 'scans')))[1]
+        scan_folders = [x for x in scan_folders if re.match(r'^Scan(?P<scan>\d{3})$', x)]
+        if scan_folders:
+            return int(scan_folders[-1][-3:])
+        else:
+            return -1
+
+    def wait_for_scan_start(self, timeout: float = 60.) -> bool:
+        last_scan: int = self.last_scan_number()
+        data_folder: SysPath = self.today_data_folder()
+
+        if last_scan > 0:
+            next_folder = f'Scan{last_scan + 1:03d}'
+        else:
+            next_folder = 'Scan001'
+        next_folder = os.path.join(data_folder, 'scans', next_folder)
+
+        t0 = time.monotonic()
+        while True:
+            timed_out = (time.monotonic() - t0 > timeout)
+            if timed_out:
+                break
+
+            if os.path.isdir(next_folder) and next(os.walk(next_folder))[1]:
+                break
+            time.sleep(0.1)
+
+        return timed_out
 
     # Synchronization
     # -----------------------------------------------------------------------------------------------------------
