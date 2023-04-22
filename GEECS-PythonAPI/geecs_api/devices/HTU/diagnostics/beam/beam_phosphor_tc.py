@@ -4,11 +4,11 @@ from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
 
 
-class BeamScreens(GeecsDevice):
+class BeamPhosphorTC(GeecsDevice):
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
-            cls.instance = super(BeamScreens, cls).__new__(cls)
+            cls.instance = super(BeamPhosphorTC, cls).__new__(cls)
             cls.instance.__initialized = False
         return cls.instance
 

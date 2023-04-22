@@ -111,15 +111,19 @@ class GasJetStage(GeecsDevice):
                 self.set_position(axis, value)
                 time.sleep(dwell_time)
 
-    def scan(self, axis: Optional[str, int], start_value: float, end_value: float,
-             step_size: float = 0.10, shots_per_step: int = 10, timeout: float = 300.) -> tuple[bool, bool]:
+    def scan(self, axis: Optional[str, int], start_value: float, end_value: float, step_size: float = 0.10,
+             shots_per_step: int = 10, use_alias: bool = True, timeout: float = 60.) -> tuple[bool, bool]:
         out_of_bound, axis = self.is_axis_out_of_bound(axis)
 
         if not out_of_bound:
             var_alias = self.get_axis_var_alias(axis)
             var_values = self._scan_values(var_alias, start_value, end_value, step_size, self.__variables)
 
-            self._write_1D_scan_file(self.get_name(), self.get_axis_var_name(axis), var_values, shots_per_step)
+            if use_alias:
+                self._write_1D_scan_file(self.get_name(), var_alias, var_values, shots_per_step)
+            else:
+                self._write_1D_scan_file(self.get_name(), self.get_axis_var_name(axis), var_values, shots_per_step)
+
             return self._start_scan(timeout=timeout)
         else:
             return False, False
@@ -140,7 +144,7 @@ if __name__ == '__main__':
     print(f'Jet state: {jet.state}')
 
     # scan z-axis
-    scan_accepted, scan_timed_out = jet.scan('Z', 10., 11., 0.5, 2, timeout=60.)
+    scan_accepted, scan_timed_out = jet.scan('Z', 10., 11., 0.5, 2, use_alias=True, timeout=60.)
     print(f'Scan accepted: {scan_accepted}')
     if scan_accepted:
         print(f'Scan timed out: {scan_timed_out}')

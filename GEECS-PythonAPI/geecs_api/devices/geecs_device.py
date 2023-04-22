@@ -221,7 +221,7 @@ class GeecsDevice:
             t0 = time.monotonic()
             while True:
                 timed_out = (time.monotonic() - t0 > timeout)
-                if (self.state[VarAlias('device status')] == 'scan') or timed_out:
+                if (self.state[VarAlias('device status')] == 'no scan') or timed_out:
                     break
                 time.sleep(1.)
 
@@ -540,7 +540,7 @@ class GeecsDevice:
             if timed_out:
                 break
 
-            if os.path.isdir(next_folder) and next(os.walk(next_folder))[1]:
+            if os.path.isdir(next_folder) and next(os.walk(next_folder))[1]:  # add handling of no-camera in system
                 break
             time.sleep(0.1)
 
