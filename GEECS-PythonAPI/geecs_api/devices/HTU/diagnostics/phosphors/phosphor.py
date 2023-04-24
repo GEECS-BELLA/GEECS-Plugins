@@ -4,9 +4,9 @@ from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
 
 
-class ScreenPhosphor(GeecsDevice):
-    def __init__(self, exp_info: dict[str, Any], var_alias: VarAlias):
-        super().__init__('U_PLC', exp_info)
+class Phosphor(GeecsDevice):
+    def __init__(self, device_name: str, var_alias: VarAlias, exp_info: dict[str, Any]):
+        super().__init__(device_name, exp_info)
 
         self.var_alias = var_alias
         self.__variables = {self.var_alias: (None, None)}

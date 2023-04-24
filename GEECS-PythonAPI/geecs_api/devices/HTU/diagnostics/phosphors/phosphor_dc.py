@@ -1,14 +1,14 @@
 from __future__ import annotations
 from typing import Any
 from geecs_api.api_defs import VarAlias
-from .screen_phosphor import ScreenPhosphor
+from .phosphor import Phosphor
 
 
-class ScreenPhosphorDC(ScreenPhosphor):
+class PhosphorDC(Phosphor):
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
-            cls.instance = super(ScreenPhosphorDC, cls).__new__(cls)
+            cls.instance = super(PhosphorDC, cls).__new__(cls)
             cls.instance.__initialized = False
         return cls.instance
 
@@ -16,4 +16,4 @@ class ScreenPhosphorDC(ScreenPhosphor):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__(exp_info, VarAlias('DiagnosticsPhosphor'))
+        super().__init__('U_PLC', VarAlias('DiagnosticsPhosphor'), exp_info)
