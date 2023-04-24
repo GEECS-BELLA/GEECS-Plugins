@@ -1,10 +1,9 @@
 from __future__ import annotations
 import os
+import glob
 import cv2
-import time
-import shutil
-from typing import Any, Union
-from geecs_api.api_defs import VarAlias, AsyncResult, SysPath
+from typing import Any
+from geecs_api.api_defs import VarAlias, SysPath
 from geecs_api.devices.geecs_device import GeecsDevice
 
 
@@ -12,7 +11,7 @@ class Camera(GeecsDevice):
     def __init__(self, device_name: str, exp_info: dict[str, Any]):
         super().__init__(device_name, exp_info)
 
-        self.gui_path: SysPath = exp_info['GUIs'][device_name]
+        # self.gui_path: SysPath = exp_info['GUIs'][device_name]
 
         self.__variables = {VarAlias('BackgroundPath'): (None, None),
                             VarAlias('localsavingpath'): (None, None),
@@ -34,25 +33,45 @@ class Camera(GeecsDevice):
     def get_variables(self):
         return self.__variables
 
-    def save_background(self, exec_timeout: float = 10.0) -> Union[float, AsyncResult]:
-        # create & set saving directory
-        saving_path: SysPath = os.path.join(GeecsDevice.appdata_path, 'backgrounds')
-        if os.path.isdir(saving_path):
-            # add check with users pop-up
-            shutil.rmtree(saving_path, ignore_errors=True)
-        os.makedirs(saving_path)
+    def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
+        if var_alias in self.__variables.keys():
+            if (var_alias == VarAlias('BackgroundPath')) or (var_alias == VarAlias('localsavingpath')):
+                return val_string
+            else:
+                try:
+                    return float(val_string)
+                except Exception:
+                    return 0.
+        else:
+            return val_string
 
-        self.set(self.var_save_path, value=saving_path, exec_timeout=exec_timeout, sync=True)
-        saving_path = self.state[self.var_aliases_by_name[self.var_save_path][0]]
+    def save_background(self, exec_timeout: float = 10.0):
+        # background folder
+        next_scan_folder, _ = self.next_scan_folder()
+        bkg_folder: SysPath = os.path.join(next_scan_folder, f'{self.get_name()}_Background')
 
         # save images
-        self.set('save', value='on', exec_timeout=0., sync=False)
-        time.sleep(20.)
-        self.set('save', value='off', exec_timeout=0., sync=False)
+        self.run_no_scan(f'{self.get_name()}: background collection')
 
-    def remove_phosphor(self, exec_timeout: float = 10.0, sync=True) -> Union[float, AsyncResult]:
-        ret = self.set(self.var_name, value='off', exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_phosphor()
-        else:
-            return ret
+        # average image
+        saving_path: SysPath = os.path.join(next_scan_folder, self.get_name())
+
+        images = glob.glob(os.path.join(saving_path, '*.png'))
+        if images:
+            try:
+                avg_image = cv2.imread(images[0], cv2.IMREAD_GRAYSCALE)
+                if len(images) > 1:
+                    for it in range(len(images) - 1):
+                        image_data = cv2.imread(images[it + 1], cv2.IMREAD_GRAYSCALE)
+                        alpha = 1.0 / (it + 2)
+                        beta = 1.0 - alpha
+                        avg_image = cv2.addWeighted(image_data, alpha, avg_image, beta, 0.0)
+
+                if not os.path.isdir(bkg_folder):
+                    os.makedirs(bkg_folder)
+                bkg_filepath: SysPath = os.path.join(bkg_folder, 'avg_bkg.png')
+                cv2.imwrite(bkg_filepath, avg_image)
+                self.set(self.var_bkg_path, value=bkg_filepath, exec_timeout=exec_timeout, sync=True)
+
+            except Exception:
+                pass

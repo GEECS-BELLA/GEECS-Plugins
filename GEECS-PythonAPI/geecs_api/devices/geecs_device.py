@@ -29,11 +29,13 @@ class GeecsDevice:
         self.__class_name = re.search(r'\w+\'>$', str(self.__class__))[0][:-2]
 
         # Communications
-        self.mc_port: int = exp_info['MC_port']
         self.dev_tcp: Optional[TcpSubscriber] = None
         self.dev_udp: Optional[UdpHandler]
+        self.mc_port: int = 0
+
         if not self.__dev_virtual:
             self.dev_udp = UdpHandler(owner=self)
+            self.mc_port = exp_info['MC_port']
         else:
             self.dev_udp = None
 
@@ -76,7 +78,9 @@ class GeecsDevice:
             self.list_variables(exp_info['devices'])
 
         # Data
-        self.data_root_path = exp_info['data_path']
+        self.data_root_path: Optional[SysPath] = None
+        if not self.__dev_virtual:
+            self.data_root_path = exp_info['data_path']
 
         if not os.path.exists(GeecsDevice.appdata_path):
             os.makedirs(GeecsDevice.appdata_path)
@@ -211,8 +215,15 @@ class GeecsDevice:
             -> AsyncResult:
         return self._execute(variable, None, exec_timeout, attempts_max, sync)
 
-    def _start_scan(self, timeout: float = 300.) -> tuple[bool, bool]:
+    def _run_file_scan(self, timeout: float = 300.) -> tuple[bool, bool]:
         cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
+        return self._run_scan(cmd, timeout)
+
+    def run_no_scan(self, comment: str = 'no scan', timeout: float = 300.) -> tuple[bool, bool]:
+        cmd = f'ScanStart>>{comment}'
+        return self._run_scan(cmd, timeout)
+
+    def _run_scan(self, cmd: str, timeout: float = 300.) -> tuple[bool, bool]:
         accepted = self.dev_udp.send_scan_cmd(cmd)
 
         timed_out = self.wait_for_scan_start(timeout=60.)
@@ -524,7 +535,7 @@ class GeecsDevice:
         else:
             return -1
 
-    def wait_for_scan_start(self, timeout: float = 60.) -> bool:
+    def next_scan_folder(self) -> tuple[SysPath, int]:
         last_scan: int = self.last_scan_number()
         data_folder: SysPath = self.today_data_folder()
 
@@ -532,7 +543,11 @@ class GeecsDevice:
             next_folder = f'Scan{last_scan + 1:03d}'
         else:
             next_folder = 'Scan001'
-        next_folder = os.path.join(data_folder, 'scans', next_folder)
+
+        return os.path.join(data_folder, 'scans', next_folder), last_scan + 1
+
+    def wait_for_scan_start(self, timeout: float = 60.) -> bool:
+        next_folder, next_scan = self.next_scan_folder()
 
         t0 = time.monotonic()
         while True:
@@ -540,7 +555,9 @@ class GeecsDevice:
             if timed_out:
                 break
 
-            if os.path.isdir(next_folder) and next(os.walk(next_folder))[1]:  # add handling of no-camera in system
+            tdms_filepath = os.path.join(next_folder, f'Scan{next_scan:03d}.tdms')
+            if os.path.isdir(next_folder) and os.path.isfile(tdms_filepath) \
+                    and (self.state[VarAlias('device status')] == 'scan'):
                 break
             time.sleep(0.1)
 

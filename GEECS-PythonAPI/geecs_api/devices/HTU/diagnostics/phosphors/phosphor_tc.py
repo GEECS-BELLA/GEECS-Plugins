@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Any
 from geecs_api.api_defs import VarAlias
-from .phosphor import Phosphor
+from geecs_api.devices.HTU.diagnostics.phosphors.phosphor import Phosphor
 
 
 class PhosphorTC(Phosphor):

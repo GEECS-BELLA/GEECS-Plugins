@@ -1,14 +1,13 @@
 from __future__ import annotations
 from typing import Any
-from geecs_api.api_defs import VarAlias
-from geecs_api.devices.HTU.diagnostics.phosphors.phosphor import Phosphor
+from geecs_api.devices.HTU.diagnostics.cameras.camera import Camera
 
 
-class PhosphorDC(Phosphor):
+class CameraTC(Camera):
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
-            cls.instance = super(PhosphorDC, cls).__new__(cls)
+            cls.instance = super(CameraTC, cls).__new__(cls)
             cls.instance.__initialized = False
         return cls.instance
 
@@ -16,4 +15,4 @@ class PhosphorDC(Phosphor):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('U_PLC', VarAlias('DiagnosticsPhosphor'), exp_info)
+        super().__init__('UC_TC_Phosphor', exp_info)

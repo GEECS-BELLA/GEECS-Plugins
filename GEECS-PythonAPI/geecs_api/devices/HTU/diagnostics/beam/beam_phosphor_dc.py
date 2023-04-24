@@ -1,15 +1,15 @@
 from __future__ import annotations
 from typing import Any
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.diagnostics.cameras import CameraTC
-from geecs_api.devices.HTU.diagnostics.phosphors import PhosphorTC
+from geecs_api.devices.HTU.diagnostics.cameras import CameraDC
+from geecs_api.devices.HTU.diagnostics.phosphors import PhosphorDC
 
 
-class BeamPhosphorTC(GeecsDevice):
+class BeamPhosphorDC(GeecsDevice):
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
-            cls.instance = super(BeamPhosphorTC, cls).__new__(cls)
+            cls.instance = super(BeamPhosphorDC, cls).__new__(cls)
             cls.instance.__initialized = False
         return cls.instance
 
@@ -17,10 +17,10 @@ class BeamPhosphorTC(GeecsDevice):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('tc_phosphor', None, virtual=True)
+        super().__init__('dc_phosphor', None, virtual=True)
 
-        self.camera = CameraTC(exp_info)
-        self.screen = PhosphorTC(exp_info)
+        self.camera = CameraDC(exp_info)
+        self.screen = PhosphorDC(exp_info)
 
         self.camera.subscribe_var_values()
         self.screen.subscribe_var_values()

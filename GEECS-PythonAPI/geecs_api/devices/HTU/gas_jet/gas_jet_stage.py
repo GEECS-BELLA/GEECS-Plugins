@@ -124,7 +124,7 @@ class GasJetStage(GeecsDevice):
             else:
                 self._write_1D_scan_file(self.get_name(), self.get_axis_var_name(axis), var_values, shots_per_step)
 
-            return self._start_scan(timeout=timeout)
+            return self._run_file_scan(timeout=timeout)
         else:
             return False, False
 
@@ -144,10 +144,10 @@ if __name__ == '__main__':
     print(f'Jet state: {jet.state}')
 
     # scan z-axis
-    scan_accepted, scan_timed_out = jet.scan('Z', 10., 11., 0.5, 2, use_alias=True, timeout=60.)
-    print(f'Scan accepted: {scan_accepted}')
-    if scan_accepted:
-        print(f'Scan timed out: {scan_timed_out}')
+    # scan_accepted, scan_timed_out = jet.scan('Z', 10., 11., 0.5, 2, use_alias=True, timeout=60.)
+    # print(f'Scan accepted: {scan_accepted}')
+    # if scan_accepted:
+    #     print(f'Scan timed out: {scan_timed_out}')
 
     jet.cleanup()
     print(api_error)

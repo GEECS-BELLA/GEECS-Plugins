@@ -1,7 +1,8 @@
 from __future__ import annotations
 from typing import Any
 from geecs_api.devices.geecs_device import GeecsDevice
-from .beam_phosphor_tc import BeamPhosphorTC
+from geecs_api.devices.HTU.diagnostics.beam.beam_phosphor_dc import BeamPhosphorDC
+from geecs_api.devices.HTU.diagnostics.beam.beam_phosphor_tc import BeamPhosphorTC
 
 
 class BeamDiagnostics(GeecsDevice):
@@ -18,7 +19,9 @@ class BeamDiagnostics(GeecsDevice):
         self.__initialized = True
         super().__init__('beam_diagnostics', None, virtual=True)
 
-        self.screens = BeamPhosphorTC(exp_info)
+        self.dc_phosphor = BeamPhosphorDC(exp_info)
+        self.tc_phosphor = BeamPhosphorTC(exp_info)
 
     def cleanup(self):
-        self.screens.cleanup()
+        self.dc_phosphor.cleanup()
+        self.tc_phosphor.cleanup()

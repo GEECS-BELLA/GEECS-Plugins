@@ -6,7 +6,6 @@ from geecs_api.experiment import HtuExp
 htu = HtuExp()
 
 time.sleep(1)
-f'HTU shutdown: {htu.shutdown()}'
 
 # display some states
 print(f'Stage state:\n\t{htu.jet.stage.state}')
