@@ -30,7 +30,6 @@ if __name__ == '__main__':
     time.sleep(1.)
     print(f'State: {cam_dc.state}')
 
-    # cam_dc.start_no_scan()
-    cam_dc.save_background()
+    cam_dc.save_background(30.)
 
     cam_dc.cleanup()

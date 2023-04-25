@@ -34,8 +34,8 @@ class GeecsDevice:
         self.mc_port: int = 0
 
         if not self.__dev_virtual:
+            self.mc_port = exp_info['MC_port']  # needed to initialize dev_udp
             self.dev_udp = UdpHandler(owner=self)
-            self.mc_port = exp_info['MC_port']
         else:
             self.dev_udp = None
 
@@ -163,6 +163,9 @@ class GeecsDevice:
             self.dev_vars = exp_devs[self.__dev_name]
 
         except Exception:
+            if self.__dev_name not in exp_devs:
+                api_error.warning(f'Device "{self.__dev_name}" not found in database',
+                                  'GeecsDevice class, method "list_variables"')
             self.dev_vars = {}
 
         return self.dev_vars, exp_devs
@@ -557,7 +560,7 @@ class GeecsDevice:
 
             tdms_filepath = os.path.join(next_folder, f'Scan{next_scan:03d}.tdms')
             if os.path.isdir(next_folder) and os.path.isfile(tdms_filepath) \
-                    and (self.state[VarAlias('device status')] == 'scan'):
+                    and ('device status' in self.state) and (self.state[VarAlias('device status')] == 'scan'):
                 break
             time.sleep(0.1)
 
