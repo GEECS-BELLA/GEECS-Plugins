@@ -1,10 +1,12 @@
 from __future__ import annotations
 from typing import Any
 from geecs_api.api_defs import VarAlias
-from geecs_api.devices.HTU.diagnostics.phosphors.phosphor import Phosphor
+# from geecs_api.devices.HTU.diagnostics.phosphors.phosphor import Phosphor
+from geecs_api.devices.HTU.multi_channels import PlungersPLC
+from geecs_api.devices.HTU.diagnostics.phosphors.phosphor_multi import PhosphorMulti
 
 
-class PhosphorP1(Phosphor):
+class PhosphorP1(PhosphorMulti):
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
@@ -16,4 +18,5 @@ class PhosphorP1(Phosphor):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('U_PLC', VarAlias('Phosphor1'), exp_info)
+        # super().__init__('U_PLC', VarAlias('Phosphor1'), exp_info)
+        super().__init__('P1', VarAlias('Phosphor1'), PlungersPLC(exp_info))
