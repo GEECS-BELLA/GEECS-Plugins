@@ -25,6 +25,7 @@ class PlungersPLC(GeecsDevice):
                             VarAlias('DiagnosticsPhosphor'): (None, None),
                             VarAlias('Phosphor1'): (None, None),
                             VarAlias('TCPhosphor'): (None, None),
+                            VarAlias('Visa9Plunger'): (None, None),
                             VarAlias('OAP -Chamber-Beam-Dump'): (None, None)}
         self.build_var_dicts(tuple(self.__variables.keys()))
         self.var_trigger: str = self.var_names_by_index.get(0)[0]

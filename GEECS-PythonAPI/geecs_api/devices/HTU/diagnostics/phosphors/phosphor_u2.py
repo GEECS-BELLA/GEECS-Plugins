@@ -2,10 +2,10 @@ from __future__ import annotations
 from typing import Any
 from geecs_api.api_defs import VarAlias
 from geecs_api.devices.HTU.multi_channels import PlungersVISA
-from geecs_api.devices.HTU.diagnostics.phosphors.phosphor_multi import PhosphorMulti
+from geecs_api.devices.HTU.diagnostics.phosphors.phosphor import Phosphor
 
 
-class PhosphorU2(PhosphorMulti):
+class PhosphorU2(Phosphor):
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):

@@ -1,14 +1,23 @@
 import time
 from geecs_api.experiment import HtuExp
+from geecs_api.interface import GeecsDatabase
+from geecs_api.devices.HTU.diagnostics.phosphors import *
+from geecs_api.devices.HTU.diagnostics.beam import BeamDiagnostics
 
 
 # create experiment object
-htu = HtuExp()
+# htu = HtuExp()
+exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-time.sleep(1)
+# a1_phosphor = PhosphorA1(exp_info)
+# u9_phosphor = PhosphorU9(exp_info)
+e_beam = BeamDiagnostics(exp_info)
+time.sleep(.1)
 
-# display some states
-print(f'Stage state:\n\t{htu.jet.stage.state}')
+# do something
+e_beam.u9_phosphor.screen.is_phosphor_inserted()
 
 # cleanup connections
-htu.cleanup()
+e_beam.cleanup()
+for controller in e_beam.controllers:
+    controller.cleanup()
