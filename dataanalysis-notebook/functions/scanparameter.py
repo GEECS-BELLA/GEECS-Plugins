@@ -8,10 +8,12 @@ def get_info(dir_date, n_scan):
 
     #read configuration file
     scan_3d = '{0:03}'.format(n_scan)
-    file_config = dir_date + '\\scans\\Scan' + scan_3d + '\\ScanInfoScan' + scan_3d + '.ini'
+    #file_config = dir_date + '\\scans\\Scan' + scan_3d + '\\ScanInfoScan' + scan_3d + '.ini'
+    file_config = dir_date + '/scans/Scan' + scan_3d + '/ScanInfoScan' + scan_3d + '.ini'
+    print(file_config)
     config = ConfigParser()
     config_read = config.read(file_config)
-
+    print(config_read)
     #Strip "", get rid of unnecessary decimals
     for i in config['Scan Info'].keys():
         config['Scan Info'][i] = config['Scan Info'][i].strip('""')            

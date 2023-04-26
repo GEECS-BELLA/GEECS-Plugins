@@ -15,6 +15,7 @@ import select
 import os
 import sys
 import configparser
+import datetime
 
 # define Python user-defined exceptions
 class UDPCommunicationError(Exception):
@@ -150,8 +151,12 @@ class GEECSDevice:
                 try:
                     if 'value' in kwargs:
                         value=kwargs['value']
-                        MESSAGE = f"{command_string}{var}>>{value:.6f}".encode('ascii')
-                        valid_command = True
+                        if type(value)==str:
+                            MESSAGE = f"{command_string}{var}>>{value}".encode('ascii')
+                            valid_command = True
+                        else:
+                            MESSAGE = f"{command_string}{var}>>{value:.6f}".encode('ascii')
+                            valid_command = True
                     else:
                         raise UDPCommunicationError
 
@@ -372,4 +377,109 @@ class OptimizationControl(GEECSDevice):
         self.tcp_close_client()
         return val
                               
+    
+#%% GEECS device class
+class ExperimentControl:
+    """ .
+
+    General usage,NA
+              
+    Methods
+    -------
+    set()
+    get()
+
+    """
+    
+    def __init__(self,
+                 MC_IP = '192.168.7.203',
+                 MC_remote_port=61561
+                ):
+        """ 
+        Parameters
+        ----------
+
+        """
+        
+        self.MC_IP = MC_IP
+        self.MC_remote_port = MC_remote_port
+
+    #function to start a no scan, shot number determined by local MC. Currently hardcoded to use 7.203 computer
+    def start_no_scan(self,description):
+        mc_udp = socket.socket(socket.AF_INET, # Internet
+                            socket.SOCK_DGRAM) # UDP
+
+        mc_udp.settimeout(5)
+        # get the port number used for the UDP command
+        mc_udp.bind(('', 0))
+
+        info = mc_udp.getsockname()[1]
+        MESSAGE=('ScanStart>>'+description).encode('ascii')
+        mc_udp.sendto(MESSAGE, (self.MC_IP, self.MC_remote_port))
+        resp=mc_udp.recvfrom(1024)
+        print(resp)
+
+
+    def scan_search(self,scan_num):
+        dirs=self.define_data_directories()
+        return os.path.exists(dirs[0]+'Scan'+str(scan_num).rjust(3,'0'))
+
+    def scan_finished(self,scan_num):
+        dirs=self.define_data_directories()
+        return os.path.exists(dirs[1]+'s'+str(scan_num)+'.txt')
+
+
+
+    def check_scan_status(self,scan_num):
+        t0=time.monotonic()
+        while not self.scan_search(scan_num):
+            t1=time.monotonic()
+            print('waiting for Scan '+str(scan_num)+'to start')
+            time.sleep(5)
+            if t1-t0>60:
+                print('scan failed to start')
+                break
+        print('Scan '+str(scan_num)+' appears to be have started')
+        while not self.scan_finished(scan_num):
+            t2=time.monotonic()
+            print('waiting for '+str(scan_num)+' to finish')
+            time.sleep(5)
+            if t2-t1>300:
+                print('scan failed to finish properly')
+                break
+        print('Scan '+str(scan_num)+' appears to have finished')
+
+    def define_data_directories(self):    
+        #initialize some date and time stuff, define paths, look for last scan
+        current_time = datetime.datetime.now()
+
+        month_dict={1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun',7:'Jul',8:'Aug',9:'Sep',10:'Oct',11:'Nov',12:'Dec'}
+
+        month=month_dict[current_time.month]
+        monthNum=f'{current_time.month:02}'
+        yearLong=str(current_time.year)
+        yearShort=yearLong[-2:]
+        date=f'{current_time.day:02}'
+
+        #topDir='/Volumes/vol1/data/Undulator/Y'+yearLong+'/'+monthNum+'-'+month+'/'+yearShort+'_'+monthNum+date+'/'
+        top_dir='Z:\\data\\Undulator\\Y'+yearLong+'\\'+monthNum+'-'+month+'\\'+yearShort+'_'+monthNum+date+'\\'
+        analysis_dir=top_dir+'analysis\\'
+        scan_dir=top_dir+'scans\\'
+        return [scan_dir,analysis_dir]
+
+    def get_last_scan(self):
+        dirs=self.define_data_directories()
+        scan_dirs=os.listdir(dirs[0])
+        if len(scan_dirs)>0:
+            last_scan=int(scan_dirs[-1][-3:])
+        else:
+            last_scan=0
+        return last_scan
+
+    def run_scan(self,description):
+        current_scan_number=self.get_last_scan()+1
+        self.start_no_scan(description)
+        self.check_scan_status(current_scan_number)
+    
+
     
