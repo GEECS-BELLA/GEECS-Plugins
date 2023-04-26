@@ -36,13 +36,13 @@ class TransportHexapod(GeecsDevice):
             return self.var_names_by_index.get(axis)[0]
 
     def state_x(self) -> Optional[float]:
-        return self.state_value(self.get_axis_var_name(0))
+        return self._state_value(self.get_axis_var_name(0))
 
     def state_y(self) -> Optional[float]:
-        return self.state_value(self.get_axis_var_name(1))
+        return self._state_value(self.get_axis_var_name(1))
 
     def state_z(self) -> Optional[float]:
-        return self.state_value(self.get_axis_var_name(2))
+        return self._state_value(self.get_axis_var_name(2))
 
     def get_position(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
             -> Union[Optional[float], AsyncResult]:
@@ -59,7 +59,7 @@ class TransportHexapod(GeecsDevice):
 
         ret = self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
         if sync:
-            return self.state_value(self.get_axis_var_name(axis))
+            return self._state_value(self.get_axis_var_name(axis))
         else:
             return ret
 
@@ -83,7 +83,7 @@ class TransportHexapod(GeecsDevice):
 
         ret = self.set(var_name, value, exec_timeout=exec_timeout, sync=sync)
         if sync:
-            return self.state_value(self.get_axis_var_name(axis))
+            return self._state_value(self.get_axis_var_name(axis))
         else:
             return ret
 

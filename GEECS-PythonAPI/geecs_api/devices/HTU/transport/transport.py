@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Any
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.transport import TransportHexapod
+from geecs_api.devices.HTU.transport.transport_hexapod import TransportHexapod
 from geecs_api.devices.HTU.transport.magnets import Chicane, Steering
 
 
@@ -27,16 +27,11 @@ class Transport(GeecsDevice):
         self.steer_4 = Steering(exp_info, 4)
 
         self.hexapod.subscribe_var_values()
-        self.chicane.inner_supply.subscribe_var_values()
-        self.chicane.outer_supply.subscribe_var_values()
-        self.steer_1.horizontal.subscribe_var_values()
-        self.steer_1.vertical.subscribe_var_values()
-        self.steer_2.horizontal.subscribe_var_values()
-        self.steer_2.vertical.subscribe_var_values()
-        self.steer_3.horizontal.subscribe_var_values()
-        self.steer_3.vertical.subscribe_var_values()
-        self.steer_4.horizontal.subscribe_var_values()
-        self.steer_4.vertical.subscribe_var_values()
+        self.chicane.subscribe_var_values()
+        self.steer_1.subscribe_var_values()
+        self.steer_2.subscribe_var_values()
+        self.steer_3.subscribe_var_values()
+        self.steer_4.subscribe_var_values()
 
     def cleanup(self):
         self.hexapod.cleanup()

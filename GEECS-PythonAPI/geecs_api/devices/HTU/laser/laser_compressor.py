@@ -31,13 +31,13 @@ class LaserCompressor(GeecsDevice):
         self.register_var_listener_handler()
 
     def state_angle_1(self) -> Optional[float]:
-        return self.state_value(self.var_angle_1)
+        return self._state_value(self.var_angle_1)
 
     def state_angle_2(self) -> Optional[float]:
-        return self.state_value(self.var_angle_2)
+        return self._state_value(self.var_angle_2)
 
     def state_separation(self) -> Optional[float]:
-        return self.state_value(self.var_separation)
+        return self._state_value(self.var_separation)
 
     def get_angle_1(self, exec_timeout: float = 2.0, sync=True) -> Union[float, AsyncResult]:
         ret = self.get(self.var_angle_1, exec_timeout=exec_timeout, sync=sync)

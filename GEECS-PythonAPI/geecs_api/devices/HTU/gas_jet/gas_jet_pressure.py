@@ -33,7 +33,7 @@ class GasJetPressure(GeecsDevice):
         return 100. * float(val_string)
 
     def state_psi(self) -> Optional[float]:
-        return self.state_value(self.var_pressure)
+        return self._state_value(self.var_pressure)
 
     def get_pressure(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
         ret = self.get(self.var_pressure, exec_timeout=exec_timeout, sync=sync)

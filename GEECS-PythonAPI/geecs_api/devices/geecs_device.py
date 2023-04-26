@@ -195,7 +195,7 @@ class GeecsDevice:
         self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = \
             {self.find_var_by_alias(aliases[index]): (aliases[index], index) for index in range(len(aliases))}
 
-    def state_value(self, var_name: str) -> Any:
+    def _state_value(self, var_name: str) -> Any:
         var_alias: VarAlias
 
         if var_name in self.generic_vars:
@@ -244,7 +244,7 @@ class GeecsDevice:
     def get_status(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
         ret = self.get('device status', exec_timeout=exec_timeout, sync=sync)
         if sync:
-            return self.state_value('device status')
+            return self._state_value('device status')
         else:
             return ret
 

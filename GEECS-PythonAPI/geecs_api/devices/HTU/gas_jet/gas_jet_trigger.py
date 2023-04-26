@@ -38,13 +38,13 @@ class GasJetTrigger(GeecsDevice):
             return float(val_string)
 
     def state_trigger(self) -> Optional[bool]:
-        return self.state_value(self.var_trigger)
+        return self._state_value(self.var_trigger)
 
     def state_start_time(self) -> Optional[float]:
-        return self.state_value(self.var_start_time)
+        return self._state_value(self.var_start_time)
 
     def state_duration(self) -> Optional[float]:
-        return self.state_value(self.var_duration)
+        return self._state_value(self.var_duration)
 
     def is_running(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[bool], AsyncResult]:
         ret = self.get(self.var_trigger, exec_timeout=exec_timeout, sync=sync)

@@ -65,31 +65,31 @@ class Quads(GeecsDevice):
         if self.check_index(index):
             return None
         else:
-            return self.state_value(self.vars_current_lim[index - 1])
+            return self._state_value(self.vars_current_lim[index - 1])
 
     def state_voltage_limit(self, index: int) -> Optional[float]:
         if self.check_index(index):
             return None
         else:
-            return self.state_value(self.vars_voltage_lim[index - 1])
+            return self._state_value(self.vars_voltage_lim[index - 1])
 
     def state_enable(self, index: int) -> Optional[bool]:
         if self.check_index(index):
             return None
         else:
-            return self.state_value(self.vars_enable[index - 1])
+            return self._state_value(self.vars_enable[index - 1])
 
     def state_current(self, index: int) -> Optional[float]:
         if self.check_index(index):
             return None
         else:
-            return self.state_value(self.vars_current[index - 1])
+            return self._state_value(self.vars_current[index - 1])
 
     def state_voltage(self, index: int) -> Optional[float]:
         if self.check_index(index):
             return None
         else:
-            return self.state_value(self.vars_voltage[index - 1])
+            return self._state_value(self.vars_voltage[index - 1])
 
     def get_current_limit(self, index: int, exec_timeout: float = 2.0, sync=True)\
             -> Union[Optional[float], AsyncResult]:

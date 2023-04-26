@@ -18,7 +18,7 @@ class Phosphor(GeecsDevice):
         return True
 
     def state_phosphor(self) -> Optional[bool]:
-        return self.controller.state_value(self.var_name)
+        return self.controller._state_value(self.var_name)
 
     def is_phosphor_inserted(self, exec_timeout: float = 2.0, sync=True) -> Union[bool, AsyncResult]:
         ret = self.controller.get(self.var_name, exec_timeout=exec_timeout, sync=sync)

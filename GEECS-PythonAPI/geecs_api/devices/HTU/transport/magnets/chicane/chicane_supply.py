@@ -40,13 +40,13 @@ class ChicaneSupply(GeecsDevice):
             return float(val_string)
 
     def state_current(self) -> Optional[float]:
-        return self.state_value(self.var_current)
+        return self._state_value(self.var_current)
 
     def state_enable(self) -> Optional[bool]:
-        return self.state_value(self.var_enable)
+        return self._state_value(self.var_enable)
 
     def state_voltage(self) -> Optional[float]:
-        return self.state_value(self.var_voltage)
+        return self._state_value(self.var_voltage)
 
     def get_current(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
         ret = self.get(self.var_current, exec_timeout=exec_timeout, sync=sync)

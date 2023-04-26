@@ -43,7 +43,7 @@ class PumpShutters(GeecsDevice):
 
     def state_shutter(self, index: int, side: str = 'North') -> Optional[bool]:
         var_name: str = self._get_var_name(index, side)
-        return self.state_value(var_name)
+        return self._state_value(var_name)
 
     def _get_var_name(self, index: int, side: str):
         name_index: int = index - 1 if side.lower() == 'north' else (4 + index - 1)

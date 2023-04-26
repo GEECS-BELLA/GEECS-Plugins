@@ -1,7 +1,7 @@
 import inspect
-from typing import Any
+from typing import Any, Optional
 from geecs_api.devices.geecs_device import GeecsDevice, api_error
-from . import SteeringSupply
+from geecs_api.devices.HTU.transport.magnets.steering.steering_supply import SteeringSupply
 
 
 class Steering(GeecsDevice):
@@ -16,6 +16,22 @@ class Steering(GeecsDevice):
         self.horizontal = SteeringSupply(exp_info, index, 'Horizontal')
         self.vertical = SteeringSupply(exp_info, index, 'Vertical')
 
+    def subscribe_var_values(self, variables: Optional[list[str]] = None) -> bool:
+        self.horizontal.subscribe_var_values()
+        self.vertical.subscribe_var_values()
+
     def cleanup(self):
         self.horizontal.cleanup()
         self.vertical.cleanup()
+
+    def state_current(self) -> tuple[Optional[float], Optional[float]]:
+        return self.horizontal._state_value(self.horizontal.var_current),\
+            self.vertical._state_value(self.vertical.var_current)
+
+    def state_enable(self) -> tuple[Optional[bool], Optional[bool]]:
+        return self.horizontal._state_value(self.horizontal.var_enable),\
+            self.vertical._state_value(self.vertical.var_enable)
+
+    def state_voltage(self) -> tuple[Optional[float], Optional[float]]:
+        return self.horizontal._state_value(self.horizontal.var_voltage),\
+            self.vertical._state_value(self.vertical.var_voltage)

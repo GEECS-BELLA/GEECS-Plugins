@@ -29,7 +29,7 @@ class GasJetBlade(GeecsDevice):
         self.register_var_listener_handler()
 
     def state_depth(self) -> Optional[float]:
-        return self.state_value(self.var_depth)
+        return self._state_value(self.var_depth)
 
     def get_depth(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
         ret = self.get(self.var_depth, exec_timeout=exec_timeout, sync=sync)

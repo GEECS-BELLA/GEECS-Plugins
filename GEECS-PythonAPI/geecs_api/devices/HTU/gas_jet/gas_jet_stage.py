@@ -57,13 +57,13 @@ class GasJetStage(GeecsDevice):
         return out_of_bound, axis
 
     def state_x(self) -> Optional[float]:
-        return self.state_value(self.get_axis_var_name(0))
+        return self._state_value(self.get_axis_var_name(0))
 
     def state_y(self) -> Optional[float]:
-        return self.state_value(self.get_axis_var_name(1))
+        return self._state_value(self.get_axis_var_name(1))
 
     def state_z(self) -> Optional[float]:
-        return self.state_value(self.get_axis_var_name(2))
+        return self._state_value(self.get_axis_var_name(2))
 
     def get_position(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
             -> Union[Optional[float], AsyncResult]:
@@ -76,7 +76,7 @@ class GasJetStage(GeecsDevice):
         else:
             ret = self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
             if sync:
-                return self.state_value(self.get_axis_var_name(axis))
+                return self._state_value(self.get_axis_var_name(axis))
             else:
                 return ret
 
@@ -93,7 +93,7 @@ class GasJetStage(GeecsDevice):
             value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
             ret = self.set(self.get_axis_var_name(axis), value=value, exec_timeout=exec_timeout, sync=sync)
             if sync:
-                return self.state_value(self.get_axis_var_name(axis))
+                return self._state_value(self.get_axis_var_name(axis))
             else:
                 return ret
 

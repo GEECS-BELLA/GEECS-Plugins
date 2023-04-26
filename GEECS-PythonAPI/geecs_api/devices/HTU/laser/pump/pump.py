@@ -39,7 +39,7 @@ class Pump(GeecsDevice):
         return float(val_string) * 1e6
 
     def state_lamp_timing(self) -> Optional[float]:
-        return self.state_value(self.var_timing)
+        return self._state_value(self.var_timing)
 
     def get_lamp_timing(self, exec_timeout: float = 2.0, sync=True) -> Union[float, AsyncResult]:
         ret = self.get(self.var_timing, exec_timeout=exec_timeout, sync=sync)

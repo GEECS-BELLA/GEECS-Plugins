@@ -1,6 +1,6 @@
-from typing import Any
+from typing import Any, Optional
 from geecs_api.devices.geecs_device import GeecsDevice
-from . import ChicaneSupply
+from geecs_api.devices.HTU.transport.magnets.chicane.chicane_supply import ChicaneSupply
 
 
 class Chicane(GeecsDevice):
@@ -20,6 +20,10 @@ class Chicane(GeecsDevice):
 
         self.inner_supply = ChicaneSupply(exp_info, 'Inner')
         self.outer_supply = ChicaneSupply(exp_info, 'Outer')
+
+    def subscribe_var_values(self, variables: Optional[list[str]] = None) -> bool:
+        self.inner_supply.subscribe_var_values()
+        self.outer_supply.subscribe_var_values()
 
     def cleanup(self):
         self.inner_supply.cleanup()
