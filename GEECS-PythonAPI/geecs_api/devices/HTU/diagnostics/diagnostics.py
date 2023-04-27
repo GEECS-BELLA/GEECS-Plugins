@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.diagnostics.ebeam_phosphor import EBeamDiagnostics
+from geecs_api.devices.HTU.diagnostics.ebeam_diagnostics import EBeamDiagnostics
 
 
 class Diagnostics(GeecsDevice):

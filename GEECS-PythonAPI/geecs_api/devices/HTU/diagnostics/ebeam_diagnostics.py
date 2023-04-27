@@ -21,48 +21,28 @@ class EBeamDiagnostics(GeecsDevice):
 
         self.controllers: list[GeecsDevice] = [PlungersPLC(exp_info), PlungersVISA(exp_info)]
 
-        self.phosphors =\
+        self.phosphors: dict[str, EBeamPhosphor] =\
             {obj_name: EBeamPhosphor(camera_name=cam_name,
                                      plunger_controller=controller,
                                      plunger_name=plg_name,
                                      exp_info=exp_info,
                                      tcp_subscription=True)
              for obj_name, cam_name, controller, plg_name
-             in [('A1', 'UC_ALineEbeam1', self.controllers[0], 'ALine1 plunger'),
+             in [('TC', 'UC_TC_Phosphor', self.controllers[0], 'TCPhosphor'),
+                 ('DC', 'UC_DiagnosticsPhosphor', self.controllers[0], 'DiagnosticsPhosphor'),
+                 ('P1', 'UC_Phosphor1', self.controllers[0], 'Phosphor1'),
+                 ('A1', 'UC_ALineEbeam1', self.controllers[0], 'ALine1 plunger'),
                  ('A2', 'UC_ALineEBeam2', self.controllers[0], 'ALine2'),
-                 ('A3', 'UC_ALineEBeam3', self.controllers[0], 'Aline3')]}
-
-        self.a1_phosphor = BeamPhosphorA1(exp_info)
-        self.a2_phosphor = BeamPhosphorA2(exp_info)
-        self.a3_phosphor = BeamPhosphorA3(exp_info)
-        self.dc_phosphor = BeamPhosphorDC(exp_info)
-        self.p1_phosphor = BeamPhosphorP1(exp_info)
-        self.tc_phosphor = BeamPhosphorTC(exp_info)
-
-        self.u1_phosphor = BeamPhosphorU1(exp_info)
-        self.u2_phosphor = BeamPhosphorU2(exp_info)
-        self.u3_phosphor = BeamPhosphorU3(exp_info)
-        self.u4_phosphor = BeamPhosphorU4(exp_info)
-        self.u5_phosphor = BeamPhosphorU5(exp_info)
-        self.u6_phosphor = BeamPhosphorU6(exp_info)
-        self.u7_phosphor = BeamPhosphorU7(exp_info)
-        self.u8_phosphor = BeamPhosphorU8(exp_info)
-        self.u9_phosphor = BeamPhosphorU9(exp_info)
+                 ('A3', 'UC_ALineEBeam3', self.controllers[0], 'Aline3'),
+                 ('U1', 'UC_VisaEBeam1', self.controllers[1], 'VisaPlunger1'),
+                 ('U2', 'UC_VisaEBeam2', self.controllers[1], 'VisaPlunger2'),
+                 ('U3', 'UC_VisaEBeam3', self.controllers[1], 'VisaPlunger3'),
+                 ('U4', 'UC_VisaEBeam4', self.controllers[1], 'VisaPlunger4'),
+                 ('U5', 'UC_VisaEBeam5', self.controllers[1], 'VisaPlunger5'),
+                 ('U6', 'UC_VisaEBeam6', self.controllers[1], 'VisaPlunger6'),
+                 ('U7', 'UC_VisaEBeam7', self.controllers[1], 'VisaPlunger7'),
+                 ('U8', 'UC_VisaEBeam8', self.controllers[1], 'VisaPlunger8'),
+                 ('U9', 'UC_VisaEBeam9', self.controllers[0], 'Visa9Plunger')]}
 
     def cleanup(self):
-        self.a1_phosphor.cleanup()
-        self.a2_phosphor.cleanup()
-        self.a3_phosphor.cleanup()
-        self.dc_phosphor.cleanup()
-        self.p1_phosphor.cleanup()
-        self.tc_phosphor.cleanup()
-
-        self.u1_phosphor.cleanup()
-        self.u2_phosphor.cleanup()
-        self.u3_phosphor.cleanup()
-        self.u4_phosphor.cleanup()
-        self.u5_phosphor.cleanup()
-        self.u6_phosphor.cleanup()
-        self.u7_phosphor.cleanup()
-        self.u8_phosphor.cleanup()
-        self.u9_phosphor.cleanup()
+        [obj.cleanup() for obj in self.phosphors.values()]

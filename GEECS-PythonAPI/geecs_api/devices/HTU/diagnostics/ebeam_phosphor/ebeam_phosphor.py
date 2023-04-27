@@ -4,7 +4,7 @@ from geecs_api.api_defs import VarAlias
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 from geecs_api.devices.HTU.multi_channels import PlungersPLC
-from geecs_api.devices.HTU.diagnostics.ebeam_phosphor.cameras import Camera
+from geecs_api.devices.HTU.diagnostics.cameras import Camera
 from geecs_api.devices.HTU.diagnostics.ebeam_phosphor.phosphors import Phosphor
 
 
@@ -22,7 +22,7 @@ class EBeamPhosphor(GeecsDevice):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('ebeam_phosphor', None, virtual=True)
+        super().__init__('e_beam_phosphor', None, virtual=True)
 
         self.camera = Camera(camera_name, exp_info)
         self.screen = Phosphor(f'{plunger_controller.get_name()}_{plunger_name}',
