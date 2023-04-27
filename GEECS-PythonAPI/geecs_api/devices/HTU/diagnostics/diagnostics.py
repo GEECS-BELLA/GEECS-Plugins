@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.diagnostics.beam import BeamDiagnostics
+from geecs_api.devices.HTU.diagnostics.ebeam_phosphor import EBeamDiagnostics
 
 
 class Diagnostics(GeecsDevice):
@@ -19,7 +19,7 @@ class Diagnostics(GeecsDevice):
         self.__initialized = True
         super().__init__('diagnostics', None, virtual=True)
 
-        self.e_beam = BeamDiagnostics(exp_info)
+        self.e_beam = EBeamDiagnostics(exp_info)
 
     def cleanup(self):
         self.e_beam.cleanup()
@@ -27,6 +27,6 @@ class Diagnostics(GeecsDevice):
 
 if __name__ == '__main__':
     _exp_info = GeecsDatabase.collect_exp_info('Undulator')
-    e_beam = BeamDiagnostics(_exp_info)
+    e_beam = EBeamDiagnostics(_exp_info)
 
     e_beam.cleanup()

@@ -1,8 +1,6 @@
 import time
-from geecs_api.experiment import HtuExp
 from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.HTU.diagnostics.phosphors import *
-from geecs_api.devices.HTU.diagnostics.beam import BeamDiagnostics
+from geecs_api.devices.HTU.diagnostics.ebeam_phosphor import EBeamDiagnostics
 
 
 # create experiment object
@@ -11,7 +9,7 @@ exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
 # a1_phosphor = PhosphorA1(exp_info)
 # u9_phosphor = PhosphorU9(exp_info)
-e_beam = BeamDiagnostics(exp_info)
+e_beam = EBeamDiagnostics(exp_info)
 time.sleep(.1)
 
 # do something

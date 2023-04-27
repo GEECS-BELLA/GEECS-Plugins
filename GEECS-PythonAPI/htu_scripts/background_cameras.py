@@ -1,6 +1,6 @@
 import time
 from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.HTU.diagnostics.cameras import CameraTC, CameraDC, CameraP1, CameraA1, CameraA2, CameraA3
+from geecs_api.devices.HTU.diagnostics.ebeam_phosphor.cameras import CameraTC, CameraDC, CameraP1, CameraA1, CameraA2, CameraA3
 
 
 # create cameras
