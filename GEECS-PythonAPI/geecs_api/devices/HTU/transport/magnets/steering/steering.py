@@ -1,24 +1,25 @@
 import inspect
-from typing import Any, Optional
+from typing import Optional
 from geecs_api.devices.geecs_device import GeecsDevice, api_error
 from geecs_api.devices.HTU.transport.magnets.steering.steering_supply import SteeringSupply
 
 
 class Steering(GeecsDevice):
-    def __init__(self, exp_info: dict[str, Any], index: int = 1):
+    def __init__(self, index: int = 1):
         if index < 1 or index > 4:
             api_error.error(f'Object cannot be instantiated, index {index} out of bound [1-4]',
                             f'Class "{self.get_class()}", method "{inspect.stack()[0][3]}"')
             return
 
-        super().__init__(f'steering_{index}', None, virtual=True)
+        super().__init__(f'steering_{index}', virtual=True)
 
-        self.horizontal = SteeringSupply(exp_info, index, 'Horizontal')
-        self.vertical = SteeringSupply(exp_info, index, 'Vertical')
+        self.horizontal = SteeringSupply(index, 'Horizontal')
+        self.vertical = SteeringSupply(index, 'Vertical')
 
     def subscribe_var_values(self, variables: Optional[list[str]] = None) -> bool:
-        self.horizontal.subscribe_var_values()
-        self.vertical.subscribe_var_values()
+        sub = self.horizontal.subscribe_var_values()
+        sub &= self.vertical.subscribe_var_values()
+        return sub
 
     def cleanup(self):
         self.horizontal.cleanup()

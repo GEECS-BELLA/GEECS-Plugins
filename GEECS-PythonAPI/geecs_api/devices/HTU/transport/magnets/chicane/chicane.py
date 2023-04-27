@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Optional
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.transport.magnets.chicane.chicane_supply import ChicaneSupply
 
@@ -11,19 +11,20 @@ class Chicane(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
 
-        super().__init__('chicane', None, virtual=True)
+        super().__init__('chicane', virtual=True)
 
-        self.inner_supply = ChicaneSupply(exp_info, 'Inner')
-        self.outer_supply = ChicaneSupply(exp_info, 'Outer')
+        self.inner_supply = ChicaneSupply('Inner')
+        self.outer_supply = ChicaneSupply('Outer')
 
     def subscribe_var_values(self, variables: Optional[list[str]] = None) -> bool:
-        self.inner_supply.subscribe_var_values()
-        self.outer_supply.subscribe_var_values()
+        sub = self.inner_supply.subscribe_var_values()
+        sub &= self.outer_supply.subscribe_var_values()
+        return sub
 
     def cleanup(self):
         self.inner_supply.cleanup()

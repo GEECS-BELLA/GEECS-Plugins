@@ -1,5 +1,5 @@
 import socket
-from typing import Optional, Any
+from typing import Optional
 from geecs_api.devices import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
@@ -8,7 +8,7 @@ class Experiment:
     def __init__(self, name: str):
         self.exp_name: str = name
         self.devs: dict[str, GeecsDevice] = {}
-        self.exp_info = GeecsDatabase.collect_exp_info(self.exp_name)
+        GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(self.exp_name)
 
     def cleanup(self):
         for dev in self.devs.values():

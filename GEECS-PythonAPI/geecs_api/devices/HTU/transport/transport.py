@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Any
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.transport.transport_hexapod import TransportHexapod
 from geecs_api.devices.HTU.transport.magnets import Chicane, Steering
@@ -13,18 +12,18 @@ class Transport(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('transport', None, virtual=True)
+        super().__init__('transport', virtual=True)
 
-        self.hexapod = TransportHexapod(exp_info)
-        self.chicane = Chicane(exp_info)
-        self.steer_1 = Steering(exp_info, 1)
-        self.steer_2 = Steering(exp_info, 2)
-        self.steer_3 = Steering(exp_info, 3)
-        self.steer_4 = Steering(exp_info, 4)
+        self.hexapod = TransportHexapod()
+        self.chicane = Chicane()
+        self.steer_1 = Steering(1)
+        self.steer_2 = Steering(2)
+        self.steer_3 = Steering(3)
+        self.steer_4 = Steering(4)
 
         self.hexapod.subscribe_var_values()
         self.chicane.subscribe_var_values()

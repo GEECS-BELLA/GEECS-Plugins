@@ -7,7 +7,7 @@ from geecs_api.devices.geecs_device import GeecsDevice
 
 class Phosphor(GeecsDevice):
     def __init__(self, device_name: str, var_alias: VarAlias, controller: GeecsDevice):
-        super().__init__(device_name, None, virtual=True)
+        super().__init__(device_name, virtual=True)
         self.controller = controller
 
         self.var_alias: VarAlias = var_alias

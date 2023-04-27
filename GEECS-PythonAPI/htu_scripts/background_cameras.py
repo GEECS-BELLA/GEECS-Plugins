@@ -1,13 +1,14 @@
 import time
 from geecs_api.interface import GeecsDatabase
+from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
 
 
 # create cameras
-exp_info = GeecsDatabase.collect_exp_info('Undulator')
+GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
 cameras = \
-    [Camera(device_name=geecs_name, exp_info=exp_info)
+    [Camera(device_name=geecs_name)
      for geecs_name
      in ['UC_ALineEbeam1', 'UC_ALineEBeam2', 'UC_ALineEBeam3',
          'UC_TC_Phosphor', 'UC_DiagnosticsPhosphor', 'UC_Phosphor1',

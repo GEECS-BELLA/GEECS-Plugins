@@ -1,9 +1,8 @@
 from __future__ import annotations
-import os
 import time
 import inspect
-from typing import Optional, Any, Union
-from geecs_api.api_defs import VarAlias, AsyncResult, SysPath
+from typing import Optional, Union
+from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
@@ -16,12 +15,12 @@ class GasJetStage(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
 
-        super().__init__('U_ESP_JetXYZ', exp_info)
+        super().__init__('U_ESP_JetXYZ')
 
         self.__variables = {VarAlias('Jet_X (mm)'): (2., 10.),  # [min, max]
                             VarAlias('Jet_Y (mm)'): (-8., -1.),
@@ -133,10 +132,10 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create gas jet object
-    jet = GasJetStage(_exp_info)
+    jet = GasJetStage()
     print(f'Variables subscription: {jet.subscribe_var_values()}')
 
     # initial state

@@ -1,6 +1,6 @@
 from __future__ import annotations
 import inspect
-from typing import Optional, Any, Union
+from typing import Optional, Union
 from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
 
@@ -13,11 +13,11 @@ class LaserCompressor(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('U_CompAerotech', exp_info)
+        super().__init__('U_CompAerotech')
 
         self.__variables = {VarAlias('Grating separation (um)'): (40000., 46000.),
                             VarAlias('Grating1 angle'): (None, None),

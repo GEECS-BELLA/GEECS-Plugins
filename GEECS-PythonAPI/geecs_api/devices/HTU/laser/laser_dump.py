@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, Any, Union
+from typing import Optional, Union
 from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
 
@@ -12,11 +12,11 @@ class LaserDump(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('U_PLC', exp_info)
+        super().__init__('U_PLC')
 
         self.__variables = {VarAlias('OAP -Chamber-Beam-Dump'): (None, None)}
         self.build_var_dicts(tuple(self.__variables.keys()))

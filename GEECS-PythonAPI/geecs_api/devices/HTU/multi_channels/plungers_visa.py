@@ -12,12 +12,12 @@ class PlungersVISA(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
 
-        super().__init__('U_VisaPlungers', exp_info)
+        super().__init__('U_VisaPlungers')
 
         self.__variables = {VarAlias('VisaPlunger1'): (None, None),
                             VarAlias('VisaPlunger2'): (None, None),

@@ -13,11 +13,11 @@ class PumpShutters(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('U_1Wire_148', exp_info)
+        super().__init__('U_1Wire_148')
 
         self.__variables = {VarAlias('Gaia Stop North Position'): (None, None),
                             VarAlias('Gaia Beamblock 2-North Shutter'): (None, None),
@@ -93,10 +93,10 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create object
-    shutters = PumpShutters(_exp_info)
+    shutters = PumpShutters()
     print(f'Variables subscription: {shutters.subscribe_var_values()}')
 
     print(f'North-1 inserted: {shutters.is_inserted(1, "North")}')

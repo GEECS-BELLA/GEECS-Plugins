@@ -1,11 +1,9 @@
 from __future__ import annotations
-import time
 import inspect
 from typing import Optional, Any, Union
 from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.laser.pump.pump_shutters import PumpShutters
-from geecs_api.interface import GeecsDatabase, api_error
 
 
 class Pump(GeecsDevice):
@@ -16,11 +14,11 @@ class Pump(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('U_1HzShiftedBox', exp_info)
+        super().__init__('U_1HzShiftedBox')
 
         self.__variables = {VarAlias('gaia lamp timing'): (600., 750.)}  # us
         self.build_var_dicts(tuple(self.__variables.keys()))
@@ -29,7 +27,7 @@ class Pump(GeecsDevice):
         self.register_cmd_executed_handler()
         self.register_var_listener_handler()
 
-        self.shutters = PumpShutters(exp_info)
+        self.shutters = PumpShutters()
 
     def cleanup(self):
         self.shutters.cleanup()

@@ -15,11 +15,11 @@ class SeedAmp4Shutter(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('U_1Wire_148', exp_info)
+        super().__init__('U_1Wire_148')
 
         self.__variables = {VarAlias('Revo-North Shutter'): (None, None)}
         self.build_var_dicts(tuple(self.__variables.keys()))
@@ -96,10 +96,10 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create object
-    shutter = SeedAmp4Shutter(_exp_info)
+    shutter = SeedAmp4Shutter()
     print(f'Variables subscription: {shutter.subscribe_var_values()}')
 
     # retrieve currently known positions

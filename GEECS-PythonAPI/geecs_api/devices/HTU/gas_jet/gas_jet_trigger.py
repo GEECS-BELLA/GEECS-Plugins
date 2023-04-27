@@ -13,12 +13,12 @@ class GasJetTrigger(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
 
-        super().__init__('U_DG645_ShotControl', exp_info)
+        super().__init__('U_DG645_ShotControl')
 
         self.__variables = {VarAlias('Amplitude.Ch AB'): (None, None),
                             VarAlias('Delay.Ch A'): (None, None),
@@ -80,4 +80,4 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')

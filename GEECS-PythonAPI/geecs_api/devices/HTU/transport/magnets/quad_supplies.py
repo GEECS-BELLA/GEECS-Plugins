@@ -13,12 +13,12 @@ class Quads(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
 
-        super().__init__('U_EMQTripletBipolar', exp_info)
+        super().__init__('U_EMQTripletBipolar')
 
         self.__variables = {VarAlias('Current_Limit.Ch1'): (-10., 10.),
                             VarAlias('Current_Limit.Ch2'): (-10., 10.),

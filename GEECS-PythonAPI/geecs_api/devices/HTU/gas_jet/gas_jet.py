@@ -1,5 +1,4 @@
 import time
-from typing import Any
 from geecs_api.api_defs import exec_async
 from geecs_api.devices.geecs_device import GeecsDevice
 from . import GasJetStage, GasJetPressure, GasJetTrigger, GasJetBlade
@@ -14,16 +13,16 @@ class GasJet(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
 
-        super().__init__('gas_jet', None, virtual=True)
-        self.stage = GasJetStage(exp_info)
-        self.pressure = GasJetPressure(exp_info)
-        self.trigger = GasJetTrigger(exp_info)
-        self.blade = GasJetBlade(exp_info)
+        super().__init__('gas_jet', virtual=True)
+        self.stage = GasJetStage()
+        self.pressure = GasJetPressure()
+        self.trigger = GasJetTrigger()
+        self.blade = GasJetBlade()
 
         self.stage.subscribe_var_values()
         self.pressure.subscribe_var_values()
@@ -41,11 +40,11 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create gas jet object
-    jet = GasJet(_exp_info)
-    other_jet = GasJet(_exp_info)
+    jet = GasJet()
+    other_jet = GasJet()
     print(f'Only one jet: {jet is other_jet}')
     print(f'Stage subscription: {jet.stage.subscribe_var_values()}')
     # print(f'Pressure subscription: {jet.pressure.subscribe_var_values()}')

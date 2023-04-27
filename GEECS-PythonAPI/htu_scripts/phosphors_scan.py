@@ -1,5 +1,6 @@
 import time
 from geecs_api.interface import GeecsDatabase
+from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
 
 
@@ -7,8 +8,8 @@ from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
 delay = 1.0
 
 # initialization
-exp_info = GeecsDatabase.collect_exp_info('Undulator')
-e_beam_diagnostics = EBeamDiagnostics(exp_info)
+GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+e_beam_diagnostics = EBeamDiagnostics()
 labels = list(e_beam_diagnostics.phosphors.keys())
 
 # screens

@@ -15,12 +15,12 @@ class GasJetPressure(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
 
-        super().__init__('U_HP_Daq', exp_info)
+        super().__init__('U_HP_Daq')
 
         self.__variables = {VarAlias('PressureControlVoltage'): (0.0, 800.)}
         self.build_var_dicts(tuple(self.__variables.keys()))
@@ -57,10 +57,10 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create gas jet object
-    jet_pressure = GasJetPressure(_exp_info)
+    jet_pressure = GasJetPressure()
     print(f'Variables subscription: {jet_pressure.subscribe_var_values()}')
 
     # retrieve currently known positions

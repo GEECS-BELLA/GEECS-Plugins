@@ -1,7 +1,7 @@
 from __future__ import annotations
 import time
 import inspect
-from typing import Optional, Any, Union
+from typing import Optional, Union
 from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
@@ -15,11 +15,11 @@ class TransportHexapod(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('U_Hexapod', exp_info)
+        super().__init__('U_Hexapod')
 
         self.__variables = {VarAlias('xpos'): (-10., 10.),  # [mm]
                             VarAlias('ypos'): (-25., 25.),
@@ -98,10 +98,10 @@ if __name__ == '__main__':
     api_error.clear()
 
     # list experiment devices and variables
-    _exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create object
-    hexapod = TransportHexapod(_exp_info)
+    hexapod = TransportHexapod()
     print(f'Variables subscription: {hexapod.subscribe_var_values()}')
 
     # retrieve currently known positions

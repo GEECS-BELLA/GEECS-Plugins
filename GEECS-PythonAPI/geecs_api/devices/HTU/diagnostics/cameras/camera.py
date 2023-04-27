@@ -8,10 +8,10 @@ from geecs_api.devices.geecs_device import GeecsDevice
 
 
 class Camera(GeecsDevice):
-    def __init__(self, device_name: str, exp_info: dict[str, Any]):
-        super().__init__(device_name, exp_info)
+    def __init__(self, device_name: str):
+        super().__init__(device_name)
 
-        # self.gui_path: SysPath = exp_info['GUIs'][device_name]
+        # self.gui_path: SysPath = GeecsDevice.exp_info['GUIs'][device_name]
 
         self.__variables = {VarAlias('BackgroundPath'): (None, None),
                             VarAlias('localsavingpath'): (None, None),

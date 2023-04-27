@@ -20,8 +20,9 @@ class GeecsDevice:
     all_threads: list[ThreadInfo] = []
     appdata_path = os.path.join(os.getenv('LOCALAPPDATA'), 'GEECS')
     scan_file_path = os.path.join(appdata_path, 'geecs_scan.txt')
+    exp_info: dict[str, Any] = {}
 
-    def __init__(self, name: str, exp_info: Optional[dict[str, Any]], virtual=False):
+    def __init__(self, name: str, virtual=False):
 
         # Static properties
         self.__dev_name: str = name.strip()
@@ -32,9 +33,9 @@ class GeecsDevice:
         self.dev_tcp: Optional[TcpSubscriber] = None
         self.dev_udp: Optional[UdpHandler]
         self.mc_port: int = 0
+        self.mc_port = GeecsDevice.exp_info['MC_port']  # needed to initialize dev_udp
 
         if not self.__dev_virtual:
-            self.mc_port = exp_info['MC_port']  # needed to initialize dev_udp
             self.dev_udp = UdpHandler(owner=self)
         else:
             self.dev_udp = None
@@ -75,12 +76,10 @@ class GeecsDevice:
             else:
                 api_error.warning(f'Device "{self.__dev_name}" not found', 'GeecsDevice class, method "__init__"')
 
-            self.list_variables(exp_info['devices'])
+            self.list_variables(GeecsDevice.exp_info['devices'])
 
         # Data
-        self.data_root_path: Optional[SysPath] = None
-        if not self.__dev_virtual:
-            self.data_root_path = exp_info['data_path']
+        self.data_root_path: SysPath = GeecsDevice.exp_info['data_path']
 
         if not os.path.exists(GeecsDevice.appdata_path):
             os.makedirs(GeecsDevice.appdata_path)
@@ -157,8 +156,8 @@ class GeecsDevice:
     def list_variables(self, exp_devs: Optional[ExpDict] = None) -> tuple[VarDict, ExpDict]:
         try:
             if exp_devs is None:
-                exp_info = GeecsDatabase.collect_exp_info()
-                exp_devs = exp_info['devices']
+                GeecsDevice.exp_info = GeecsDatabase.collect_exp_info()
+                exp_devs = GeecsDevice.exp_info['devices']
 
             self.dev_vars = exp_devs[self.__dev_name]
 

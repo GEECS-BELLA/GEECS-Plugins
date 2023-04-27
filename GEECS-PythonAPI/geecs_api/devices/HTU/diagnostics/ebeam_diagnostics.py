@@ -13,19 +13,18 @@ class EBeamDiagnostics(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self, exp_info: dict[str, Any]):
+    def __init__(self):
         if self.__initialized:
             return
         self.__initialized = True
-        super().__init__('beam_diagnostics', None, virtual=True)
+        super().__init__('beam_diagnostics', virtual=True)
 
-        self.controllers: list[GeecsDevice] = [PlungersPLC(exp_info), PlungersVISA(exp_info)]
+        self.controllers: list[GeecsDevice] = [PlungersPLC(), PlungersVISA()]
 
         self.phosphors: dict[str, EBeamPhosphor] =\
             {obj_name: EBeamPhosphor(camera_name=cam_name,
                                      plunger_controller=controller,
                                      plunger_name=plg_name,
-                                     exp_info=exp_info,
                                      tcp_subscription=True)
              for obj_name, cam_name, controller, plg_name
              in [('TC', 'UC_TC_Phosphor', self.controllers[0], 'TCPhosphor'),

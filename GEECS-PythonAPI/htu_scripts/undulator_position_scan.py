@@ -1,6 +1,7 @@
 import numpy as np
 import win32api
 from geecs_api.interface import GeecsDatabase, api_error
+from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.transport.magnets import Steering
 
 
@@ -16,11 +17,9 @@ iv_init = 0
 
 
 # initialize steering magnets
-exp_info = GeecsDatabase.collect_exp_info('Undulator')
+GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-steering_magnets = [Steering(exp_info, 3),
-                    Steering(exp_info, 4)]
-
+steering_magnets = [Steering(3), Steering(4)]
 for sm in steering_magnets:
     sm.subscribe_var_values()
 
