@@ -14,23 +14,29 @@ labels = list(e_beam_diagnostics.phosphors.keys())
 # screens
 print(f'Screens shorthand labels: {str(labels)[1:-1]}')
 while True:
-    screen_1 = input('First screen: ')
-    if screen_1 in labels:
+    first_screen = input('First screen: ')
+    if first_screen in labels:
         break
 while True:
-    screen_2 = input('Last screen: ')
-    if screen_2 in labels:
+    last_screen = input('Last screen: ')
+    if last_screen in labels:
         break
 
-i1 = labels.index(screen_1)
-i2 = labels.index(screen_2)
+# first_screen = 'A1'
+# last_screen = 'A3'
+
+# first_screen = 'U1'
+# last_screen = 'U9'
+
+i1 = labels.index(first_screen)
+i2 = labels.index(last_screen)
 di = 1 if i2 >= i1 else -1
 
 # scan
 success = True
 for it in range(i1, i2, di):
-    if it > i1:
-        previous_screen = e_beam_diagnostics.phosphors[labels[it-1]].screen
+    if it != i1:
+        previous_screen = e_beam_diagnostics.phosphors[labels[it - di]].screen
         for _ in range(3):
             try:
                 previous_screen.remove_phosphor()
@@ -58,7 +64,7 @@ for it in range(i1, i2, di):
         break
 
     if success:
-        current_camera.run_no_scan(f'No scan with beam on "{labels[it]}" ({current_camera.get_name()})', timeout=300.)
+        current_camera.run_no_scan(f'No-scan with beam on "{labels[it]}" ({current_camera.get_name()})', timeout=300.)
 
 if not success:
     print('Scan failed')
