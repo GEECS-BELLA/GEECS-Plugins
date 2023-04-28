@@ -1,3 +1,9 @@
+from __future__ import annotations
+from typing import Optional, Any, Union, TYPE_CHECKING
+from geecs_api.api_defs import VarAlias
+if TYPE_CHECKING:
+    from geecs_api.api_defs import VarDict, ExpDict, AsyncResult, ThreadInfo, SysPath
+
 import queue
 import re
 import inspect
@@ -7,9 +13,7 @@ import numpy as np
 from queue import Queue
 import numpy.typing as npt
 from threading import Thread, Condition, Event, Lock
-from typing import Optional, Any, Union
 from datetime import datetime as dtime
-from geecs_api.api_defs import VarDict, ExpDict, VarAlias, AsyncResult, ThreadInfo, SysPath
 import geecs_api.interface.message_handling as mh
 from geecs_api.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorAPI, api_error
 
@@ -394,16 +398,15 @@ class GeecsDevice:
 
             # Update dictionaries
             if dev_name == self.get_name() and not err_status and cmd_received[:3] == 'get':
-                var_alias = VarAlias('')
-
                 if cmd_received[3:] in self.generic_vars:
                     self.interpret_generic_variables(cmd_received[3:], dev_val)
                     var_alias = VarAlias(cmd_received[3:])
 
-                if cmd_received[3:] in self.var_aliases_by_name:
+                elif cmd_received[3:] in self.var_aliases_by_name:
                     var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
                     dev_val = self.interpret_value(var_alias, dev_val)
                     self.state[var_alias] = dev_val
+
                 else:
                     var_alias = self.find_alias_by_var(cmd_received[3:])
                     try:
@@ -417,8 +420,6 @@ class GeecsDevice:
                     # print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} = {dev_val}')
 
             if dev_name == self.get_name() and not err_status and cmd_received[:3] == 'set':
-                var_alias = VarAlias('')
-
                 if cmd_received[3:] in self.var_aliases_by_name:
                     var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
                     dev_val = self.interpret_value(var_alias, dev_val)
