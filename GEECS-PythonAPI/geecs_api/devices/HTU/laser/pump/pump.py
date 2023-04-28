@@ -24,8 +24,8 @@ class Pump(GeecsDevice):
         self.build_var_dicts(tuple(self.__variables.keys()))
         self.var_timing: str = self.var_names_by_index.get(0)[0]
 
-        self.register_cmd_executed_handler()
-        self.register_var_listener_handler()
+        # self.register_cmd_executed_handler()
+        # self.register_var_listener_handler()
 
         self.shutters = PumpShutters()
 

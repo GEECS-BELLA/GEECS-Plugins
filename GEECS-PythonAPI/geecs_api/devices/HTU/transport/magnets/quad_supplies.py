@@ -45,8 +45,8 @@ class Quads(GeecsDevice):
 
         self.aliases_enable = [self.var_aliases_by_name[self.vars_enable[i]][0] for i in range(3)]
 
-        self.register_cmd_executed_handler()
-        self.register_var_listener_handler()
+        # self.register_cmd_executed_handler()
+        # self.register_var_listener_handler()
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         if var_alias in self.aliases_enable:  # status

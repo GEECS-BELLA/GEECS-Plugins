@@ -32,8 +32,8 @@ class PlungersPLC(GeecsDevice):
         self.var_start_time: str = self.var_names_by_index.get(1)[0]
         self.var_duration: str = self.var_names_by_index.get(2)[0]
 
-        self.register_cmd_executed_handler()
-        self.register_var_listener_handler()
+        # self.register_cmd_executed_handler()
+        # self.register_var_listener_handler()
         self.subscribe_var_values()
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:

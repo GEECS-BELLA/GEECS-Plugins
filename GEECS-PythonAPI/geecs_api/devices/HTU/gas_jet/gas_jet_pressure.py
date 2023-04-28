@@ -26,8 +26,8 @@ class GasJetPressure(GeecsDevice):
         self.build_var_dicts(tuple(self.__variables.keys()))
         self.var_pressure: str = self.var_names_by_index.get(0)[0]
 
-        self.register_cmd_executed_handler()
-        self.register_var_listener_handler()
+        # self.register_cmd_executed_handler()
+        # self.register_var_listener_handler()
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         return 100. * float(val_string)

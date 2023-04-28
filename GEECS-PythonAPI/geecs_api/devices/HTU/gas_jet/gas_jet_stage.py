@@ -27,8 +27,8 @@ class GasJetStage(GeecsDevice):
                             VarAlias('Jet_Z (mm)'): (0., 25.)}
         self.build_var_dicts(tuple(self.__variables.keys()))
 
-        self.register_cmd_executed_handler()
-        self.register_var_listener_handler()
+        # self.register_cmd_executed_handler()
+        # self.register_var_listener_handler()
 
     def get_axis_var_name(self, axis: int) -> str:
         if axis < 0 or axis > 2:

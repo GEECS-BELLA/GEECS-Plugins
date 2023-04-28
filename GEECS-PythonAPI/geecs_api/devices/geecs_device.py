@@ -22,7 +22,7 @@ class GeecsDevice:
     scan_file_path = os.path.join(appdata_path, 'geecs_scan.txt')
     exp_info: dict[str, Any] = {}
 
-    def __init__(self, name: str, virtual=False):
+    def __init__(self, name: str, virtual: bool = False):
 
         # Static properties
         self.__dev_name: str = name.strip()
@@ -66,11 +66,14 @@ class GeecsDevice:
 
         if not self.__dev_virtual:
             self.dev_ip, self.dev_port = GeecsDatabase.find_device(self.__dev_name)
+            self.register_cmd_executed_handler()
+
             if self.is_valid():
                 # print(f'Device "{self.dev_name}" found: {self.dev_ip}, {self.dev_port}')
                 try:
                     self.dev_tcp = TcpSubscriber(owner=self)
                     self.connect_var_listener()
+                    self.register_var_listener_handler()
                 except Exception:
                     api_error.error('Failed creating TCP subscriber', 'GeecsDevice class, method "__init__"')
             else:
@@ -135,7 +138,10 @@ class GeecsDevice:
         subscribed = False
 
         if self.is_valid() and variables is None:
-            variables = [var[0] for var in self.var_names_by_index.values()]
+            if self.var_names_by_index:
+                variables = [var[0] for var in self.var_names_by_index.values()]
+            else:
+                variables = list(self.dev_vars.keys())
 
         variables = self.generic_vars + variables
 
@@ -186,6 +192,24 @@ class GeecsDevice:
             var_name = str(alias)
 
         return var_name
+
+    def find_alias_by_var(self, var: str = '') -> VarAlias:
+        if not self.dev_vars:
+            self.list_variables()
+
+        if not self.dev_vars:
+            return VarAlias('')
+
+        var_alias = ''
+        for attributes in self.dev_vars.values():
+            if attributes['variablename'] == var:
+                var_alias = attributes['alias']
+                break
+
+        if not var_alias and var in self.dev_vars:
+            var_alias = var
+
+        return VarAlias(var_alias)
 
     def build_var_dicts(self, aliases: tuple[VarAlias]):
         self.var_names_by_index: dict[int, tuple[str, VarAlias]] = \
@@ -380,10 +404,17 @@ class GeecsDevice:
                     var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
                     dev_val = self.interpret_value(var_alias, dev_val)
                     self.state[var_alias] = dev_val
+                else:
+                    var_alias = self.find_alias_by_var(cmd_received[3:])
+                    try:
+                        dev_val = float(dev_val)
+                    except Exception:
+                        pass
+                    self.state[var_alias] = dev_val
 
                 if var_alias:
                     dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
-                    print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} = {dev_val}')
+                    # print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} = {dev_val}')
 
             if dev_name == self.get_name() and not err_status and cmd_received[:3] == 'set':
                 var_alias = VarAlias('')
@@ -392,10 +423,17 @@ class GeecsDevice:
                     var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
                     dev_val = self.interpret_value(var_alias, dev_val)
                     self.setpoints[var_alias] = dev_val
+                else:
+                    var_alias = self.find_alias_by_var(cmd_received[3:])
+                    try:
+                        dev_val = float(dev_val)
+                    except Exception:
+                        pass
+                    self.state[var_alias] = dev_val
 
                 if var_alias:
                     dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
-                    print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} set to {dev_val}')
+                    # print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} set to {dev_val}')
 
             return dev_name, cmd_received, dev_val, err_status
 
@@ -426,6 +464,13 @@ class GeecsDevice:
                     if var in self.var_aliases_by_name:
                         var_alias: VarAlias = self.var_aliases_by_name[var][0]
                         self.state[var_alias] = self.interpret_value(var_alias, val)
+                    else:
+                        var_alias = self.find_alias_by_var(var)
+                        try:
+                            val = float(val)
+                        except Exception:
+                            pass
+                        self.state[var_alias] = val
 
             return dev_name, shot_nb, dict_vals
 
@@ -640,3 +685,18 @@ class GeecsDevice:
     def stop_waiting_for_cmd(self, thread: Thread, stop: Event):
         if self.is_valid() and thread.is_alive():
             stop.set()
+
+
+if __name__ == '__main__':
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+
+    s3h = GeecsDevice('U_S3H')
+    # s3h.subscribe_var_values()
+    s3h.subscribe_var_values(['Current', 'Voltage'])
+
+    # s3h.get('Current')
+    # s3h.set('Current', -0.5)
+    time.sleep(1.)
+    print(f'State: {s3h.state}')
+
+    s3h.cleanup()

@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Any
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.multi_channels import PlungersPLC, PlungersVISA
 from geecs_api.devices.HTU.diagnostics.ebeam_phosphor import EBeamPhosphor
@@ -27,8 +26,7 @@ class EBeamDiagnostics(GeecsDevice):
                                      plunger_name=plg_name,
                                      tcp_subscription=True)
              for obj_name, cam_name, controller, plg_name
-             in [('TC', 'UC_TC_Phosphor', self.controllers[0], 'TCPhosphor'),
-                 ('DC', 'UC_DiagnosticsPhosphor', self.controllers[0], 'DiagnosticsPhosphor'),
+             in [('DP', 'UC_DiagnosticsPhosphor', self.controllers[0], 'DiagnosticsPhosphor'),
                  ('P1', 'UC_Phosphor1', self.controllers[0], 'Phosphor1'),
                  ('A1', 'UC_ALineEbeam1', self.controllers[0], 'ALine1 plunger'),
                  ('A2', 'UC_ALineEBeam2', self.controllers[0], 'ALine2'),

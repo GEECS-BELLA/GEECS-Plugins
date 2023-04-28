@@ -29,8 +29,8 @@ class PumpShutters(GeecsDevice):
                             VarAlias('Gaia Beamblock 4-South Position'): (None, None)}
         self.build_var_dicts(tuple(self.__variables.keys()))
 
-        self.register_cmd_executed_handler()
-        self.register_var_listener_handler()
+        # self.register_cmd_executed_handler()
+        # self.register_var_listener_handler()
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         if val_string.lower() == 'inserted':

@@ -9,18 +9,8 @@ from geecs_api.devices.HTU.diagnostics.ebeam_phosphor.phosphors import Phosphor
 
 class EBeamPhosphor(GeecsDevice):
     """ e-beam diagnostic made of a camera-phosphors plunger pair. """
-    # Singleton
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, 'instance'):
-            cls.instance = super(EBeamPhosphor, cls).__new__(cls)
-            cls.instance.__initialized = False
-        return cls.instance
-
     def __init__(self, camera_name: str, plunger_controller: GeecsDevice, plunger_name: str,
                  tcp_subscription: bool = True):
-        if self.__initialized:
-            return
-        self.__initialized = True
         super().__init__('e_beam_phosphor', virtual=True)
 
         self.camera = Camera(camera_name)

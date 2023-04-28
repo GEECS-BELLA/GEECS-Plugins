@@ -25,8 +25,8 @@ class GasJetBlade(GeecsDevice):
         self.build_var_dicts(tuple(self.__variables.keys()))
         self.var_depth = self.var_names_by_index.get(0)[0]
 
-        self.register_cmd_executed_handler()
-        self.register_var_listener_handler()
+        # self.register_cmd_executed_handler()
+        # self.register_var_listener_handler()
 
     def state_depth(self) -> Optional[float]:
         return self._state_value(self.var_depth)

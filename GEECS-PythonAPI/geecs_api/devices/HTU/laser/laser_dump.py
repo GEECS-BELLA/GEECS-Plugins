@@ -22,8 +22,8 @@ class LaserDump(GeecsDevice):
         self.build_var_dicts(tuple(self.__variables.keys()))
         self.var_dump: str = self.var_names_by_index.get(0)[0]
 
-        self.register_cmd_executed_handler()
-        self.register_var_listener_handler()
+        # self.register_cmd_executed_handler()
+        # self.register_var_listener_handler()
 
     def state_dump(self) -> Optional[bool]:
         return self._state_value(self.var_dump)

@@ -22,8 +22,8 @@ class Camera(GeecsDevice):
         self.var_save_path: str = self.var_names_by_index.get(1)[0]
         self.var_exposure: str = self.var_names_by_index.get(2)[0]
 
-        self.register_cmd_executed_handler()
-        self.register_var_listener_handler()
+        # self.register_cmd_executed_handler()
+        # self.register_var_listener_handler()
 
     def get_variables(self):
         return self.__variables

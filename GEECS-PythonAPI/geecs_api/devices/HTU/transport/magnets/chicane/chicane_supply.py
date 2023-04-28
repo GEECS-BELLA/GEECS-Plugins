@@ -30,8 +30,8 @@ class ChicaneSupply(GeecsDevice):
         self.var_enable = self.var_names_by_index.get(1)[0]
         self.var_voltage = self.var_names_by_index.get(2)[0]
 
-        self.register_cmd_executed_handler()
-        self.register_var_listener_handler()
+        # self.register_cmd_executed_handler()
+        # self.register_var_listener_handler()
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         if var_alias == self.var_aliases_by_name[self.var_enable][0]:  # status
