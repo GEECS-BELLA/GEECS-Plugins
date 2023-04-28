@@ -1,7 +1,6 @@
 import time
 import numpy as np
 import numpy.typing as npt
-import win32api
 from typing import Optional
 from geecs_api.interface import GeecsDatabase, api_error
 from geecs_api.devices.geecs_device import GeecsDevice
@@ -37,11 +36,10 @@ def undulator_position_scan(phosphors: Optional[tuple[EBeamDiagnostics, str, str
         print(f'\tV: {"enabled" if sm.vertical.state_enable() else "disabled"}' +
               f', I = {sm.base[1]:.3f}A, V = {sm.vertical.state_voltage()}V')
 
-    proceed = win32api.MessageBox(0, f'Do you want to proceed with the scan?',
-                                  'Deflection scan', 0x00001124)  # Details: microsoft MessageBox function
-
     # run scan
-    if proceed == 6:
+    proceed = input('Do you want to proceed with the scan?: ')
+
+    if proceed.lower() in ['y', 'yes']:
         for ih in range(len(h_vals)):
             if ih >= initial_indexes[0]:
                 for iv in range(len(v_vals)):
