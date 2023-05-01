@@ -53,7 +53,8 @@ def phosphors_scan(e_diagnostics: EBeamDiagnostics, first_screen: Optional[str] 
 
         # scan
         time.sleep(delay)
-        camera.run_no_scan(f'No-scan with beam on "{label}" ({camera.get_name()})', timeout=300.)
+        scan_description: str = f'No-scan with beam on "{label}" ({camera.get_name()})'
+        GeecsDevice.run_no_scan(monitoring_device=camera, comment=scan_description, timeout=300.)
 
         # retract
         for _ in range(3):
@@ -68,6 +69,8 @@ def phosphors_scan(e_diagnostics: EBeamDiagnostics, first_screen: Optional[str] 
             success = False
             break
 
+        # Update .ini file
+
     if not success:
         print('Scan failed')
 
@@ -78,15 +81,15 @@ if __name__ == '__main__':
 
     # initialization
     GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
-    e_beam_diagnostics = EBeamDiagnostics()
+    _e_diagnostics = EBeamDiagnostics()
 
     # scan
-    # phosphors_scan(e_beam_diagnostics, 'A1', 'A3', _delay)
-    e_beam_diagnostics.phosphors['A1'].screen.insert_phosphor()
+    # phosphors_scan(_e_diagnostics, 'A1', 'A3', _delay)
+    # _e_diagnostics.phosphors['DC'].screen.insert_phosphor()
+    # _e_diagnostics.phosphors['A3'].camera.save_local_background(n_images=15)
+
+    GeecsDevice.run_no_scan(monitoring_device=_e_diagnostics.phosphors['A1'].camera, comment='scan comment test')
 
     # cleanup connections
-    e_beam_diagnostics.cleanup()
-    [controller.cleanup() for controller in e_beam_diagnostics.controllers]
-
-
-
+    _e_diagnostics.cleanup()
+    [controller.cleanup() for controller in _e_diagnostics.controllers]

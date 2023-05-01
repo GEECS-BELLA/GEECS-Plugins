@@ -21,7 +21,7 @@ for cam in cameras:
 
 # collect backgrounds
 time.sleep(0.5)
-cameras[0].save_multiple_backgrounds(cameras, 30.)
+Camera.save_multiple_backgrounds(cameras, 30.)
 
 # cleanup connections
 for cam in cameras:

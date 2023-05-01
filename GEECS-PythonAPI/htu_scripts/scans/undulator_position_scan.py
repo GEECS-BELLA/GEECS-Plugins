@@ -6,7 +6,7 @@ from geecs_api.interface import GeecsDatabase, api_error
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.transport.magnets import Steering
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
-from htu_scripts.phosphors_scan import phosphors_scan
+from htu_scripts.scans.phosphors_scan import phosphors_scan
 
 
 def undulator_position_scan(phosphors: Optional[tuple[EBeamDiagnostics, str, str, float]], h_vals: npt.ArrayLike,
@@ -55,11 +55,14 @@ def undulator_position_scan(phosphors: Optional[tuple[EBeamDiagnostics, str, str
                             s4.vertical.set_current(v_curr[1])
 
                             if phosphors is None:
-                                s3.run_no_scan(f'S3-S4 2D scan: '
-                                               f'S3H = {h_curr[0]:.3f}A, '
-                                               f'S3V = {v_curr[0]:.3f}A, '
-                                               f'S4H = {h_curr[1]:.3f}A, '
-                                               f'S4V = {v_curr[1]:.3f}A', timeout=300.)
+                                GeecsDevice.run_no_scan(monitoring_device=s3,
+                                                        comment=
+                                                        f'S3-S4 2D scan: '
+                                                        f'S3H = {h_curr[0]:.3f}A, '
+                                                        f'S3V = {v_curr[0]:.3f}A, '
+                                                        f'S4H = {h_curr[1]:.3f}A, '
+                                                        f'S4V = {v_curr[1]:.3f}A',
+                                                        timeout=300.)
                             else:
                                 phosphors_scan(*phosphors)
 

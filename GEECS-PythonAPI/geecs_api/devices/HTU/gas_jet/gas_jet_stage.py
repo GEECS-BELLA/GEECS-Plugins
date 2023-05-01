@@ -123,7 +123,9 @@ class GasJetStage(GeecsDevice):
             else:
                 self._write_1D_scan_file(self.get_name(), self.get_axis_var_name(axis), var_values, shots_per_step)
 
-            return self._run_file_scan(timeout=timeout)
+            cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
+            comment = f'{var_alias} scan'
+            return self.process_scan(cmd, comment, timeout)
         else:
             return False, False
 
