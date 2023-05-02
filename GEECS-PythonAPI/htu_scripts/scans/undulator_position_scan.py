@@ -6,7 +6,7 @@ from geecs_api.interface import GeecsDatabase, api_error
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.transport.magnets import Steering
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
-from htu_scripts.scans.phosphors_scan import phosphors_scan
+from htu_scripts.scans.undulator_screens_scan import undulator_screens_scan
 
 
 def undulator_position_scan(phosphors: Optional[tuple[EBeamDiagnostics, str, str, float]], h_vals: npt.ArrayLike,
@@ -64,7 +64,7 @@ def undulator_position_scan(phosphors: Optional[tuple[EBeamDiagnostics, str, str
                                                         f'S4V = {v_curr[1]:.3f}A',
                                                         timeout=300.)
                             else:
-                                phosphors_scan(*phosphors)
+                                undulator_screens_scan(*phosphors)
 
                             time.sleep(delay)
                         except Exception as ex:

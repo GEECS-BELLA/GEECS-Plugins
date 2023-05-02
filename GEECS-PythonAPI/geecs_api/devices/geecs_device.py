@@ -263,10 +263,11 @@ class GeecsDevice:
         except Exception:
             pass
         finally:
-            try:
-                dev.cleanup()
-            except Exception:
-                pass
+            if monitoring_device is None:
+                try:
+                    dev.cleanup()
+                except Exception:
+                    pass
 
         return accepted, timed_out
 
@@ -280,6 +281,7 @@ class GeecsDevice:
         ini_found = False
 
         if accepted:
+            # wait for .ini file creation
             t0 = time.monotonic()
             while True:
                 timed_out = (time.monotonic() - t0 > 10.)
@@ -292,24 +294,46 @@ class GeecsDevice:
 
             if ini_found:
                 try:
+                    # make a copy and write content to it
                     shutil.copy2(ini_file_path, ini_file_path + '~')
 
                     destination = open(ini_file_path, 'w')
                     source = open(ini_file_path + '~', 'r')
 
+                    info_line_found = False
+                    par_line_found = False
                     for line in source:
                         if line.startswith('ScanStartInfo'):
                             destination.write(f'ScanStartInfo = "{comment}"\n')
+                            info_line_found = True
                         elif line.startswith('Scan Parameter'):
                             destination.write('Scan Parameter = "Shotnumber"\n')
+                            par_line_found = True
                         else:
                             destination.write(line)
 
                     source.close()
                     destination.close()
+
+                    #  add lines if missing
+                    if not info_line_found or not par_line_found:
+                        destination = open(ini_file_path, 'a')
+                        if not info_line_found:
+                            destination.write(f'ScanStartInfo = "{comment}"\n')
+                        if not par_line_found:
+                            destination.write('Scan Parameter = "Shotnumber"\n')
+                        destination.close()
+
                 except Exception as ex:
                     api_error.error(str(ex), f'Could not update "{ini_file_name}" with scan comment')
+                    try:
+                        # restore files
+                        os.remove(ini_file_path)
+                        shutil.move(ini_file_path + '~', ini_file_path)
+                    except Exception:
+                        pass
                 else:
+                    # remove original if successful
                     try:
                         os.remove(ini_file_path + "~")
                     except Exception:

@@ -23,7 +23,7 @@ class PlungersVISA(GeecsDevice):
                             VarAlias('VisaPlunger2'): (None, None),
                             VarAlias('VisaPlunger3'): (None, None),
                             VarAlias('VisaPlunger4'): (None, None),
-                            VarAlias('VisaPunger5'): (None, None),
+                            VarAlias('VisaPlunger5'): (None, None),
                             VarAlias('VisaPlunger6'): (None, None),
                             VarAlias('VisaPlunger7'): (None, None),
                             VarAlias('VisaPlunger8'): (None, None)}

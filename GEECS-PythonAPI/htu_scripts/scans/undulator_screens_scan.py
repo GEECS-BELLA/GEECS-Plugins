@@ -5,9 +5,9 @@ from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
 
 
-def phosphors_scan(e_diagnostics: EBeamDiagnostics, first_screen: Optional[str] = 'A1',
-                   last_screen: Optional[str] = 'A3', delay: float = 1.):
-    labels = list(e_diagnostics.phosphors.keys())
+def undulator_screens_scan(e_diagnostics: EBeamDiagnostics, first_screen: Optional[str] = 'A1',
+                           last_screen: Optional[str] = 'A3', delay: float = 1.):
+    labels = list(e_diagnostics.imagers.keys())
 
     # screens
     if first_screen is None or first_screen not in labels:
@@ -35,19 +35,19 @@ def phosphors_scan(e_diagnostics: EBeamDiagnostics, first_screen: Optional[str] 
     # scan
     success = True
     for label in scan_screens:
-        screen = e_diagnostics.phosphors[label].screen
-        camera = e_diagnostics.phosphors[label].camera
+        screen = e_diagnostics.imagers[label].screen
+        camera = e_diagnostics.imagers[label].camera
 
         # insert
         for _ in range(3):
             try:
-                screen.insert_phosphor()
-                if screen.is_phosphor_inserted():
+                screen.insert()
+                if screen.is_inserted():
                     break
             except Exception:
                 continue
 
-        if not screen.is_phosphor_inserted():
+        if not screen.is_inserted():
             success = False
             break
 
@@ -59,13 +59,13 @@ def phosphors_scan(e_diagnostics: EBeamDiagnostics, first_screen: Optional[str] 
         # retract
         for _ in range(3):
             try:
-                screen.remove_phosphor()
-                if not screen.is_phosphor_inserted():
+                screen.remove()
+                if not screen.is_inserted():
                     break
             except Exception:
                 continue
 
-        if screen.is_phosphor_inserted():
+        if screen.is_inserted():
             success = False
             break
 
@@ -85,10 +85,10 @@ if __name__ == '__main__':
 
     # scan
     # phosphors_scan(_e_diagnostics, 'A1', 'A3', _delay)
-    # _e_diagnostics.phosphors['DC'].screen.insert_phosphor()
-    # _e_diagnostics.phosphors['A3'].camera.save_local_background(n_images=15)
+    # _e_diagnostics.imagers['DC'].screen.insert_phosphor()
+    _e_diagnostics.imagers['U3'].camera.save_local_background(n_images=5)
 
-    GeecsDevice.run_no_scan(monitoring_device=_e_diagnostics.phosphors['A1'].camera, comment='scan comment test')
+    # GeecsDevice.run_no_scan(monitoring_device=_e_diagnostics.screens['A1'].camera, comment='scan comment test')
 
     # cleanup connections
     _e_diagnostics.cleanup()

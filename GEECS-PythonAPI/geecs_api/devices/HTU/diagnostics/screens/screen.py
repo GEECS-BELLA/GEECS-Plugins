@@ -5,7 +5,7 @@ from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice
 
 
-class Phosphor(GeecsDevice):
+class Screen(GeecsDevice):
     def __init__(self, device_name: str, var_alias: VarAlias, controller: GeecsDevice):
         super().__init__(device_name, virtual=True)
         self.controller = controller
@@ -17,26 +17,26 @@ class Phosphor(GeecsDevice):
     def subscribe_var_values(self, variables: Optional[list[str]] = None) -> bool:
         return True
 
-    def state_phosphor(self) -> Optional[bool]:
+    def state_screen(self) -> Optional[bool]:
         return self.controller._state_value(self.var_name)
 
-    def is_phosphor_inserted(self, exec_timeout: float = 2.0, sync=True) -> Union[bool, AsyncResult]:
+    def is_inserted(self, exec_timeout: float = 2.0, sync=True) -> Union[bool, AsyncResult]:
         ret = self.controller.get(self.var_name, exec_timeout=exec_timeout, sync=sync)
         if sync:
-            return self.state_phosphor()
+            return self.state_screen()
         else:
             return ret
 
-    def insert_phosphor(self, exec_timeout: float = 10.0, sync=True) -> Union[float, AsyncResult]:
+    def insert(self, exec_timeout: float = 10.0, sync=True) -> Union[float, AsyncResult]:
         ret = self.controller.set(self.var_name, value='on', exec_timeout=exec_timeout, sync=sync)
         if sync:
-            return self.state_phosphor()
+            return self.state_screen()
         else:
             return ret
 
-    def remove_phosphor(self, exec_timeout: float = 10.0, sync=True) -> Union[float, AsyncResult]:
+    def remove(self, exec_timeout: float = 10.0, sync=True) -> Union[float, AsyncResult]:
         ret = self.controller.set(self.var_name, value='off', exec_timeout=exec_timeout, sync=sync)
         if sync:
-            return self.state_phosphor()
+            return self.state_screen()
         else:
             return ret
