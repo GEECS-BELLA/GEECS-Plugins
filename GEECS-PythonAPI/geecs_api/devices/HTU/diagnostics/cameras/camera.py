@@ -125,12 +125,13 @@ class Camera(GeecsDevice):
 
         if images:
             try:
-                avg_image, data_type = ni.read_imaq_image(images[0], None)
+                avg_image = ni.read_imaq_image(images[0])
+                data_type: str = avg_image.dtype.name
                 avg_image = avg_image.astype('float64')
 
                 if len(images) > 1:
-                    for it in range(len(images) - 1):
-                        image_data, _ = ni.read_imaq_image(images[it + 1], data_type)
+                    for it, image_path in enumerate(images[1:]):
+                        image_data = ni.read_imaq_image(image_path)
                         image_data = image_data.astype('float64')
                         alpha = 1.0 / (it + 2)
                         beta = 1.0 - alpha

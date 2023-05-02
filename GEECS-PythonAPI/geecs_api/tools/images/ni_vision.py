@@ -1,20 +1,35 @@
 import os
-import re
+import png
 import cv2
+import numpy as np
 import numpy.typing as npt
 from typing import Optional
+from pathlib import Path
 from geecs_api.api_defs import SysPath
 
 
-def read_imaq_image(file_path: SysPath, data_type: Optional[str] = None) -> tuple[Optional[npt.ArrayLike], str]:
+def read_imaq_image(file_path: SysPath) -> Optional[npt.ArrayLike]:
     if not os.path.isfile(file_path):
-        return None, ''
+        return None
 
-    if not data_type:
-        image = cv2.imread(file_path, cv2.IMREAD_ANYDEPTH)  # retrieves bit-depth automatically
-        data_type: str = image.dtype.name
+    try:
+        png_header = read_png_header(file_path)
+        image = cv2.imread(file_path, cv2.IMREAD_ANYDEPTH)
 
-    n_bytes: int = int(float(re.search('[0-9]+$', data_type)[0]) / 8)
-    image = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE) / n_bytes
+        if Path(file_path).suffix.lower() == '.png':
+            data_bytes: int = image.dtype.itemsize
+            return np.right_shift(image, data_bytes * 8 - ord(png_header[b'sBIT']))
+        else:
+            return image
 
-    return image.astype(data_type), data_type
+    except Exception:
+        return None
+
+
+def read_png_header(file_path: SysPath) -> dict[bytes, bytes]:
+    try:
+        png_reader = png.Reader(file_path)
+        return {key: val for key, val in png_reader.chunks() if key != b'IDAT'}
+
+    except Exception:
+        return {}

@@ -86,7 +86,7 @@ if __name__ == '__main__':
     # scan
     # phosphors_scan(_e_diagnostics, 'A1', 'A3', _delay)
     # _e_diagnostics.imagers['DC'].screen.insert_phosphor()
-    _e_diagnostics.imagers['U3'].camera.save_local_background(n_images=5)
+    _e_diagnostics.imagers['A3'].camera.save_local_background(n_images=10)
 
     # GeecsDevice.run_no_scan(monitoring_device=_e_diagnostics.screens['A1'].camera, comment='scan comment test')
 
