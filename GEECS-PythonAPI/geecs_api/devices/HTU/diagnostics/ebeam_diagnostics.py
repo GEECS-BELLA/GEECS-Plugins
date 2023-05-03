@@ -2,6 +2,7 @@ from __future__ import annotations
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.multi_channels import PlungersPLC, PlungersVISA
 from geecs_api.devices.HTU.diagnostics.e_imager import EImager
+from geecs_api.devices.HTU.diagnostics import UndulatorStage
 
 
 class EBeamDiagnostics(GeecsDevice):
@@ -18,8 +19,8 @@ class EBeamDiagnostics(GeecsDevice):
         self.__initialized = True
         super().__init__('beam_diagnostics', virtual=True)
 
+        self.undulator_stage = UndulatorStage()
         self.controllers: list[GeecsDevice] = [PlungersPLC(), PlungersVISA()]
-
         self.imagers: dict[str, EImager] =\
             {obj_name: EImager(camera_name=cam_name,
                                plunger_controller=controller,
