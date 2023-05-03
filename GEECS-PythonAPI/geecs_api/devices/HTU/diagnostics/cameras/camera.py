@@ -17,6 +17,10 @@ class Camera(GeecsDevice):
 
         # self.gui_path: SysPath = GeecsDevice.exp_info['GUIs'][device_name]
 
+        self.bkg_folder: SysPath = os.path.join(self.data_root_path, 'backgrounds', f'{device_name}')
+        if not os.path.isdir(self.bkg_folder):
+            os.makedirs(self.bkg_folder)
+
         self.__variables = {VarAlias('BackgroundPath'): (None, None),
                             VarAlias('localsavingpath'): (None, None),
                             VarAlias('exposure'): (None, None),
@@ -25,9 +29,6 @@ class Camera(GeecsDevice):
         self.var_bkg_path: str = self.var_names_by_index.get(0)[0]
         self.var_save_path: str = self.var_names_by_index.get(1)[0]
         self.var_exposure: str = self.var_names_by_index.get(2)[0]
-
-        # self.register_cmd_executed_handler()
-        # self.register_var_listener_handler()
 
     def get_variables(self):
         return self.__variables
@@ -45,24 +46,20 @@ class Camera(GeecsDevice):
             return val_string
 
     def save_local_background(self, n_images: int = 15):
-        # background folders
-        avg_bkg_folder: SysPath = os.path.join(self.data_root_path, 'backgrounds', f'{self.get_name()}')
-        if not os.path.isdir(avg_bkg_folder):
-            os.makedirs(avg_bkg_folder)
-
-        bkg_imgs_folder: SysPath = os.path.join(avg_bkg_folder, 'tmp_images')
-        if os.path.isdir(bkg_imgs_folder):
-            shutil.rmtree(bkg_imgs_folder, ignore_errors=True)
+        # background images folder
+        source_path: SysPath = os.path.join(self.bkg_folder, 'tmp_images')
+        if os.path.isdir(source_path):
+            shutil.rmtree(source_path, ignore_errors=True)
         while True:
-            if not os.path.isdir(bkg_imgs_folder):
+            if not os.path.isdir(source_path):
                 break
-        os.makedirs(bkg_imgs_folder)
+        os.makedirs(source_path)
 
-        self.set(self.var_save_path, value=bkg_imgs_folder, exec_timeout=10., sync=True)
+        self.set(self.var_save_path, value=source_path, exec_timeout=10., sync=True)
 
         # file name
         stamp = dtime.now()
-        file_name = stamp.strftime('%y%m%d_%H%M') + f'_{self.get_name()}_x{n_images}_avg_bkg.png'
+        file_name = stamp.strftime('%y%m%d_%H%M') + f'_{self.get_name()}_x{n_images}_Local.png'
 
         # save images
         if n_images > 0:
@@ -73,53 +70,59 @@ class Camera(GeecsDevice):
             # wait to write files to disk
             t0 = time.monotonic()
             while True:
-                if time.monotonic() - t0 > 10. or len(next(os.walk(bkg_imgs_folder))[2]) >= n_images:
+                if time.monotonic() - t0 > 10. or len(next(os.walk(source_path))[2]) >= n_images:
                     break
 
         # average image
-        self.calculate_average_image(bkg_imgs_folder, avg_bkg_folder, file_name, n_images)
+        self.calculate_average_image(source_path, self.bkg_folder, file_name, n_images)
 
     def save_background(self, exec_timeout: float = 30.0):
-        # background folder
         next_scan_folder, _ = self.next_scan_folder()
+        scan_name = os.path.basename(next_scan_folder)
 
-        bkg_target_folder: SysPath = os.path.join(self.data_root_path, 'backgrounds', f'{self.get_name()}')
-        if not os.path.isdir(bkg_target_folder):
-            os.makedirs(bkg_target_folder)
-
+        # background file name
         stamp = dtime.now()
-        file_name = stamp.strftime('%y%m%d_%H%M') + f'_{self.get_name()}_avg_bkg.png'
+        file_name = stamp.strftime('%y%m%d_%H%M') + f'_{self.get_name()}_{scan_name}.png'
 
         # save images
-        GeecsDevice.run_no_scan(monitoring_device=self, comment=f'{self.get_name()}: background collection',
+        GeecsDevice.run_no_scan(monitoring_device=self,
+                                comment=f'{self.get_name()}: background collection',
                                 timeout=exec_timeout)
 
         # average image
-        bkg_source_path: SysPath = os.path.join(next_scan_folder, self.get_name())
-        self.calculate_average_image(bkg_source_path, bkg_target_folder, file_name)
+        source_path: SysPath = os.path.join(next_scan_folder, self.get_name())
+        self.calculate_average_image(images_folder=os.path.join(next_scan_folder,self.get_name()),
+                                     target_folder=self.bkg_folder,
+                                     file_name=file_name)
 
     @staticmethod
     def save_multiple_backgrounds(cameras: list[Camera], exec_timeout: float = 30.0):
         if not cameras:
             return
-
-        # background folders
         next_scan_folder, _ = cameras[0].next_scan_folder()
-        bkg_target_folders: list[SysPath] = [os.path.join(next_scan_folder, f'{cam.get_name()}_Background')
-                                             for cam in cameras]
+
+        # background file name
+        stamp = dtime.now()
+        file_stamp = stamp.strftime('%y%m%d_%H%M')
+        scan_name = os.path.basename(next_scan_folder)
 
         # save images
-        GeecsDevice.run_no_scan(monitoring_device=cameras[0], comment=', '.join([cam.get_name() for cam in cameras])
-                                + ': background collection', timeout=exec_timeout)
+        GeecsDevice.run_no_scan(monitoring_device=cameras[0],
+                                comment=', '.join([cam.get_name() for cam in cameras]) + ': background collection',
+                                timeout=exec_timeout)
 
-        # image averages
-        bkg_source_paths: list[SysPath] = [os.path.join(next_scan_folder, cam.get_name()) for cam in cameras]
-        for it in range(len(cameras)):
-            cameras[it].calculate_average_image(bkg_source_paths[it], bkg_target_folders[it])
+        # average images
+        for camera in cameras:
+            try:
+                camera.calculate_average_image(images_folder=os.path.join(next_scan_folder, camera.get_name()),
+                                               target_folder=camera.bkg_folder,
+                                               file_name=f'{file_stamp}_{camera.get_name()}_{scan_name}.png')
+            except Exception:
+                continue
 
-    def calculate_average_image(self, bkg_imgs_folder: SysPath, avg_bkg_folder: SysPath,
+    def calculate_average_image(self, images_folder: SysPath, target_folder: SysPath,
                                 file_name: str = 'avg_bkg.png', n_images: int = 0):
-        images = sorted(glob.glob(os.path.join(bkg_imgs_folder, '*.png')), key=lambda x: x[0].split('_')[-1][:-4])
+        images = sorted(glob.glob(os.path.join(images_folder, '*.png')), key=lambda x: x[0].split('_')[-1][:-4])
         if n_images > 0:
             images = images[-n_images:]
 
@@ -137,9 +140,9 @@ class Camera(GeecsDevice):
                         beta = 1.0 - alpha
                         avg_image = cv2.addWeighted(image_data, alpha, avg_image, beta, 0.0)
 
-                if not os.path.isdir(avg_bkg_folder):
-                    os.makedirs(avg_bkg_folder)
-                bkg_filepath: SysPath = os.path.join(avg_bkg_folder, file_name)
+                if not os.path.isdir(target_folder):
+                    os.makedirs(target_folder)
+                bkg_filepath: SysPath = os.path.join(target_folder, file_name)
 
                 cv2.imwrite(bkg_filepath, avg_image.round().astype(data_type))
                 time.sleep(1.)  # buffer to write file to disk
