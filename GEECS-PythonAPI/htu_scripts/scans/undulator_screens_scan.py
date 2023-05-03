@@ -1,13 +1,13 @@
-import time
 from typing import Optional
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
 
 
-def undulator_screens_scan(e_diagnostics: EBeamDiagnostics, first_screen: Optional[str] = 'A1',
-                           last_screen: Optional[str] = 'A3', delay: float = 1.):
-    labels = list(e_diagnostics.imagers.keys())
+def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
+                           first_screen: Optional[str] = 'A1',
+                           last_screen: Optional[str] = 'A3') -> tuple[bool, str, list[str]]:
+    labels: list[str] = list(e_diagnostics.imagers.keys())
 
     # screens
     if first_screen is None or first_screen not in labels:
@@ -23,18 +23,14 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics, first_screen: Option
             if last_screen in labels:
                 break
 
-    # first_screen = 'A1'
-    # last_screen = 'A3'
-    # first_screen = 'U1'
-    # last_screen = 'U9'
-
     i1 = labels.index(first_screen)
     i2 = labels.index(last_screen)
-    scan_screens = labels[i1:i2+1] if i2 > i1 else labels[i2:i1-1:-1]
+    scan_labels: list[str] = labels[i1:i2+1] if i2 > i1 else labels[i2:i1-1:-1]
+    label = scan_labels[0]
 
     # scan
     success = True
-    for label in scan_screens:
+    for label in scan_labels:
         screen = e_diagnostics.imagers[label].screen
         camera = e_diagnostics.imagers[label].camera
 
@@ -52,7 +48,6 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics, first_screen: Option
             break
 
         # scan
-        time.sleep(delay)
         scan_description: str = f'No-scan with beam on "{label}" ({camera.get_name()})'
         GeecsDevice.run_no_scan(monitoring_device=camera, comment=scan_description, timeout=300.)
 
@@ -69,10 +64,7 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics, first_screen: Option
             success = False
             break
 
-        # Update .ini file
-
-    if not success:
-        print('Scan failed')
+    return success, label, scan_labels
 
 
 if __name__ == '__main__':
@@ -84,8 +76,7 @@ if __name__ == '__main__':
     _e_diagnostics = EBeamDiagnostics()
 
     # scan
-    # phosphors_scan(_e_diagnostics, 'A1', 'A3', _delay)
-    # _e_diagnostics.imagers['DC'].screen.insert_phosphor()
+    # undulator_screens_scan(_e_diagnostics, 'A1', 'A3', _delay)
     _e_diagnostics.imagers['A3'].camera.save_local_background(n_images=10)
 
     # GeecsDevice.run_no_scan(monitoring_device=_e_diagnostics.screens['A1'].camera, comment='scan comment test')
