@@ -12,25 +12,25 @@ from htu_scripts.scans.undulator_screens_scan import undulator_screens_scan
 def undulator_position_scan(screens: Optional[tuple[EBeamDiagnostics, str, str]],
                             horizontal_offsets: npt.ArrayLike,
                             vertical_offsets: npt.ArrayLike,
-                            initial_currents_S3: Optional[npt.ArrayLike] = None,
-                            initial_currents_S4: Optional[npt.ArrayLike] = None,
+                            initial_currents_s3: Optional[npt.ArrayLike] = None,
+                            initial_currents_s4: Optional[npt.ArrayLike] = None,
                             initial_indexes: tuple[int, int] = (0, 0), delay: float = 1.):
     s3, s4 = steering_magnets = Steering(3), Steering(4)
 
     # initial states
-    if not initial_currents_S3:
+    if not initial_currents_s3:
         s3.horizontal.get_current()
         s3.vertical.get_current()
         s3.base = (s3.horizontal.state_current(), s3.vertical.state_current())
     else:
-        s3.base = initial_currents_S3
+        s3.base = initial_currents_s3
 
-    if not initial_currents_S4:
+    if not initial_currents_s4:
         s4.horizontal.get_current()
         s4.vertical.get_current()
         s4.base = (s4.horizontal.state_current(), s4.vertical.state_current())
     else:
-        s4.base = initial_currents_S4
+        s4.base = initial_currents_s4
 
     for sm in steering_magnets:
         sm.subscribe_var_values()

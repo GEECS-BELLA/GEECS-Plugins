@@ -79,7 +79,8 @@ class GeecsDatabase:
         exp_path = GeecsDatabase._find_exp_data_path(db_cursor, exp_name)
         mc_port = GeecsDatabase._find_mc_port(db_cursor, exp_name)
 
-        exp_info: dict[str, Any] = {'devices': exp_devs,
+        exp_info: dict[str, Any] = {'name': exp_name,
+                                    'devices': exp_devs,
                                     'GUIs': exp_guis,
                                     'data_path': exp_path,
                                     'MC_port': mc_port}
