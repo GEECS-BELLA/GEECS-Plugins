@@ -277,7 +277,10 @@ class GeecsDevice:
 
         # format ini file
         ini_file_name = f'ScanInfo{os.path.basename(next_folder)}.ini'
+        txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
+
         ini_file_path = os.path.join(next_folder, ini_file_name)
+        txt_file_path = os.path.join(next_folder, txt_file_name)
         ini_found = False
 
         if accepted:
@@ -340,18 +343,20 @@ class GeecsDevice:
                         pass
 
         # execution
-        if self.is_valid():
-            timed_out = self.wait_for_scan_start(next_folder, next_scan, timeout=60.)
+        timed_out = self.wait_for_scan_start(next_folder, next_scan, timeout=60.)
+        if not timed_out:
+            if not self.is_valid():
+                time.sleep(2.)  # buffer since cannot verify in 'scan' mode
 
-            if not timed_out:
-                t0 = time.monotonic()
-                while True:
-                    timed_out = (time.monotonic() - t0 > timeout)
-                    if (self.state[VarAlias('device status')] == 'no scan') or timed_out:
-                        break
-                    time.sleep(1.)
-        else:
-            timed_out = False
+            # wait for 'no scan' status (if valid device) or .txt file to be created = end of scan
+            t0 = time.monotonic()
+            while True:
+                timed_out = (time.monotonic() - t0 > timeout)
+                if os.path.isfile(txt_file_path) \
+                        or (self.is_valid() and self.state[VarAlias('device status')] == 'no scan') \
+                        or timed_out:
+                    break
+                time.sleep(1.)
 
         return accepted, timed_out
 
@@ -692,7 +697,8 @@ class GeecsDevice:
 
             tdms_filepath = os.path.join(next_folder, f'Scan{next_scan:03d}.tdms')
             if os.path.isdir(next_folder) and os.path.isfile(tdms_filepath) \
-                    and ('device status' in self.state) and (self.state[VarAlias('device status')] == 'scan'):
+                    and (not self.is_valid() or
+                         (('device status' in self.state) and (self.state[VarAlias('device status')] == 'scan'))):
                 break
             time.sleep(0.1)
 

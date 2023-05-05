@@ -1,8 +1,10 @@
 from __future__ import annotations
+import time
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.multi_channels import PlungersPLC, PlungersVISA
 from geecs_api.devices.HTU.diagnostics.e_imager import EImager
-from geecs_api.devices.HTU.diagnostics import UndulatorStage
+from geecs_api.interface import GeecsDatabase, api_error
+from geecs_api.devices.HTU.diagnostics.undulator_stage import UndulatorStage
 
 
 class EBeamDiagnostics(GeecsDevice):
@@ -42,5 +44,38 @@ class EBeamDiagnostics(GeecsDevice):
                  ('U8', 'UC_VisaEBeam8', self.controllers[1], 'VisaPlunger8'),
                  ('U9', 'UC_VisaEBeam9', self.controllers[0], 'Visa9Plunger')]}
 
+        self.undulator_stage.subscribe_var_values()
+        for imager in self.imagers.values():
+            imager.screen.subscribe_var_values()
+
     def cleanup(self):
         [obj.cleanup() for obj in self.imagers.values()]
+        self.undulator_stage.cleanup()
+
+    def remove_all_imagers(self) -> bool:
+        done: bool = False
+        for imager in self.imagers.values():
+            done &= imager.screen.remove(sync=True)
+        return done
+
+    def insert_all_imagers(self) -> bool:
+        done: bool = False
+        for imager in self.imagers.values():
+            done &= imager.screen.insert(sync=True)
+        return done
+
+
+if __name__ == '__main__':
+    api_error.clear()
+
+    # list experiment devices and variables
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+
+    # create object
+    e_diagnostics = EBeamDiagnostics()
+    time.sleep(1.)
+    print(f'State: {e_diagnostics.undulator_stage.state}')
+
+    # destroy object
+    e_diagnostics.cleanup()
+    [controller.cleanup() for controller in e_diagnostics.controllers]

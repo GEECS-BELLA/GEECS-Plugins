@@ -9,11 +9,11 @@ from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
 from htu_scripts.scans.undulator_screens_scan import undulator_screens_scan
 
 
-def undulator_position_scan(screens: Optional[tuple[EBeamDiagnostics, str, str]],
+def undulator_position_scan(screens: Optional[tuple[EBeamDiagnostics, str, str, str]],
                             horizontal_offsets: npt.ArrayLike,
                             vertical_offsets: npt.ArrayLike,
-                            initial_currents_s3: Optional[npt.ArrayLike] = None,
-                            initial_currents_s4: Optional[npt.ArrayLike] = None,
+                            initial_currents_s3: Optional[tuple[float, float]] = None,
+                            initial_currents_s4: Optional[tuple[float, float]] = None,
                             initial_indexes: tuple[int, int] = (0, 0), delay: float = 1.):
     s3, s4 = steering_magnets = Steering(3), Steering(4)
 
@@ -57,23 +57,28 @@ def undulator_position_scan(screens: Optional[tuple[EBeamDiagnostics, str, str]]
                         repeat_step = 'i'
                         while True:
                             try:
+                                print(f'__________________________________________\n'
+                                      f'Setting S3 = ({h_curr[0]:.3f}, {v_curr[0]:.3f}) A, '
+                                      f'S4 = ({h_curr[1]:.3f}, {v_curr[1]:.3f}) A')
                                 s3.horizontal.set_current(h_curr[0])
                                 s4.horizontal.set_current(h_curr[1])
 
                                 s3.vertical.set_current(v_curr[0])
                                 s4.vertical.set_current(v_curr[1])
 
+                                log_comment: str = f'S3-S4 2D scan: '\
+                                                   f'S3H = {h_curr[0]:.3f}A, '\
+                                                   f'S3V = {v_curr[0]:.3f}A, '\
+                                                   f'S4H = {h_curr[1]:.3f}A, '\
+                                                   f'S4V = {v_curr[1]:.3f}A'
                                 if screens is None:
-                                    GeecsDevice.run_no_scan(monitoring_device=s3,
-                                                            comment=f'S3-S4 2D scan: '
-                                                            f'S3H = {h_curr[0]:.3f}A, '
-                                                            f'S3V = {v_curr[0]:.3f}A, '
-                                                            f'S4H = {h_curr[1]:.3f}A, '
-                                                            f'S4V = {v_curr[1]:.3f}A',
-                                                            timeout=300.)
+                                    print('Starting no-scan...')
+                                    GeecsDevice.run_no_scan(monitoring_device=s3, comment=log_comment, timeout=300.)
                                     success = True
                                 else:
-                                    success, _, scan_screen_labels = undulator_screens_scan(*screens)
+                                    print(f'Starting screen scan ("{screens[1]}" to "{screens[2]}")...')
+                                    success, _, scan_screen_labels = undulator_screens_scan(*screens,
+                                                                                            log_comment=log_comment)
 
                                 time.sleep(delay)
 
@@ -104,6 +109,8 @@ def undulator_position_scan(screens: Optional[tuple[EBeamDiagnostics, str, str]]
             if repeat_step == 'c':
                 break
 
+        print('Scan done.')
+
     # cleanup connections
     for sm in steering_magnets:
         sm.cleanup()
@@ -112,8 +119,8 @@ def undulator_position_scan(screens: Optional[tuple[EBeamDiagnostics, str, str]]
 if __name__ == '__main__':
     # parameters
     _delay = 1.0
-    h_min, h_max, h_step = -0.1, 0.1, 0.1
-    v_min, v_max, v_step = -0.1, 0.1, 0.1
+    h_min, h_max, h_step = -0.1, 0.1, 0.2
+    v_min, v_max, v_step = -0.1, 0.1, 0.2
 
     _h_vals = np.linspace(h_min, h_max, round(1 + (h_max - h_min) / h_step))
     _v_vals = np.linspace(v_min, v_max, round(1 + (v_max - v_min) / v_step))
@@ -122,10 +129,17 @@ if __name__ == '__main__':
     # initialization
     GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
     e_beam_diagnostics = EBeamDiagnostics()
+    e_beam_diagnostics.remove_all_imagers()
 
     # scan
     # undulator_position_scan(None, _h_vals, _v_vals, _initial_indexes, _delay)
-    undulator_position_scan((e_beam_diagnostics, 'U2', 'U3'), _h_vals, _v_vals, _initial_indexes, _delay)
+    undulator_position_scan(screens=(e_beam_diagnostics, 'U1', 'U9', 'spectrum'),
+                            horizontal_offsets=_h_vals,
+                            vertical_offsets=_v_vals,
+                            initial_currents_s3=(0., 0.),
+                            initial_currents_s4=(0., 0.),
+                            initial_indexes=_initial_indexes,
+                            delay=_delay)
 
     # cleanup connections
     e_beam_diagnostics.cleanup()

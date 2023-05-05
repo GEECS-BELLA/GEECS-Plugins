@@ -6,10 +6,14 @@ from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
 
 def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
                            first_screen: Optional[str] = 'A1',
-                           last_screen: Optional[str] = 'A3') -> tuple[bool, str, list[str]]:
-    labels: list[str] = list(e_diagnostics.imagers.keys())
+                           last_screen: Optional[str] = 'A3',
+                           undulator_diagnostic: Optional[str] = 'spectrum',
+                           log_comment: str = '') -> tuple[bool, str, list[str]]:
+    if undulator_diagnostic not in e_diagnostics.undulator_stage.diagnostics:
+        return False, '', []
 
     # screens
+    labels: list[str] = list(e_diagnostics.imagers.keys())
     if first_screen is None or first_screen not in labels:
         print(f'Screens shorthand labels: {str(labels)[1:-1]}')
         while True:
@@ -35,6 +39,7 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
         camera = e_diagnostics.imagers[label].camera
 
         # insert
+        print(f'Inserting {screen.var_alias} ({screen.controller.get_name()})...')
         for _ in range(3):
             try:
                 screen.insert()
@@ -47,11 +52,29 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
             success = False
             break
 
+        # undulator stage
+        if label[0] == 'U':
+            station = int(label[1])
+            print(f'Moving undulator stage to station {station}, "{undulator_diagnostic}"...')
+            success = False
+            for _ in range(3):
+                try:
+                    if e_diagnostics.undulator_stage.set_position(station, undulator_diagnostic):
+                        break
+                except Exception:
+                    continue
+
+            if not success:
+                break
+
         # scan
-        scan_description: str = f'No-scan with beam on "{label}" ({camera.get_name()})'
-        GeecsDevice.run_no_scan(monitoring_device=camera, comment=scan_description, timeout=300.)
+        print(f'Starting no-scan (camera of interest: {camera.get_name()})...')
+        scan_comment: str = f'No-scan with beam on "{label}" ({camera.get_name()})'
+        scan_comment: str = f'{log_comment}. {scan_comment}' if log_comment else scan_comment
+        GeecsDevice.run_no_scan(monitoring_device=camera, comment=scan_comment, timeout=300.)
 
         # retract
+        print(f'Removing {screen.var_alias} ({screen.controller.get_name()})...')
         for _ in range(3):
             try:
                 screen.remove()
@@ -64,6 +87,7 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
             success = False
             break
 
+    print(f'Screen scan done. Success = {success}')
     return success, label, scan_labels
 
 
@@ -76,8 +100,8 @@ if __name__ == '__main__':
     _e_diagnostics = EBeamDiagnostics()
 
     # scan
-    # undulator_screens_scan(_e_diagnostics, 'A1', 'A3', _delay)
-    _e_diagnostics.imagers['A3'].camera.save_local_background(n_images=10)
+    undulator_screens_scan(_e_diagnostics, 'U1', 'U3', 'spectrum', 'Testing Velmex positioning')
+    # _e_diagnostics.imagers['A3'].camera.save_local_background(n_images=10)
 
     # GeecsDevice.run_no_scan(monitoring_device=_e_diagnostics.screens['A1'].camera, comment='scan comment test')
 
