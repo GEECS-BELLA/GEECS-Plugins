@@ -1,0 +1,49 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from typing import Optional, Any
+
+
+def show_one(image: np.ndarray,
+             size_factor: float = 1.,
+             x_lim: Optional[tuple[float, float]] = None,
+             y_lim: Optional[tuple[float, float]] = None,
+             colormap: Any = plt.cm.hot,
+             centroid_ij: Optional[tuple[int, int]] = None,
+             centroid_color: str = 'w.',
+             hide_ticks: bool = True,
+             show_colorbar: bool = True,
+             show_contours: bool = True,
+             contours: int = 5,
+             contours_colors: Any = 'black',
+             contours_labels: bool = True,
+             contours_fontsize: int = 8,
+             block_execution: bool = True):
+    plt.figure(figsize=(6.4 * size_factor, 4.8 * size_factor))
+    ax = plt.subplot(111)
+    im = ax.imshow(image, cmap=colormap, aspect='equal')
+
+    if x_lim:
+        ax.set_xlim(x_lim[0], x_lim[1])
+    if y_lim:
+        ax.set_ylim(y_lim[1], y_lim[0])
+
+    if show_contours:
+        contours = plt.contour(image, contours, colors=contours_colors)
+        if contours_labels:
+            plt.clabel(contours, inline=True, fontsize=contours_fontsize)
+
+    if hide_ticks:
+        plt.xticks([])
+        plt.yticks([])
+
+    if centroid_ij:
+        plt.plot(centroid_ij[1], centroid_ij[0], centroid_color)
+
+    if show_colorbar:
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes('right', size=0.2, pad=0.1)
+        plt.colorbar(im, cax=cax)
+
+    # plt.savefig('overlay_image.pdf', dpi=72)
+    plt.show(block=block_execution)

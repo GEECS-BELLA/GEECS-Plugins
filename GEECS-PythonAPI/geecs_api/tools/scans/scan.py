@@ -14,7 +14,10 @@ from geecs_api.tools.scans.utility import read_geecs_tdms
 class Scan:
     """ Represents a GEECS experiment scan """
 
-    def __init__(self, folder: Optional[SysPath] = None, tag: Optional[Union[int, tuple[int, int, int, int]]] = None):
+    def __init__(self,
+                 folder: Optional[SysPath] = None,
+                 tag: Optional[Union[int, tuple[int, int, int, int]]] = None,
+                 match_exp: bool = True):
         """
         Parameter(s)
         ----------
@@ -47,7 +50,7 @@ class Scan:
 
                 if info_str and os.path.isdir(folder):
                     exp_name: SysPath = os.path.basename(os.path.normpath(folder.split(info_str[0])[0]))
-                    self.__identified = (exp_name == GeecsDevice.exp_info['name'])
+                    self.__identified = not match_exp or (exp_name == GeecsDevice.exp_info['name'])
 
                     info_str = info_str[0].split(os.sep)
                     if self.__identified:

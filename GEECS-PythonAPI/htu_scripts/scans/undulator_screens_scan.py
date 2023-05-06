@@ -1,4 +1,5 @@
 from typing import Optional
+from geecs_api.api_defs import SysPath
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
@@ -8,33 +9,34 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
                            first_screen: Optional[str] = 'A1',
                            last_screen: Optional[str] = 'A3',
                            undulator_diagnostic: Optional[str] = 'spectrum',
-                           log_comment: str = '') -> tuple[bool, str, list[str]]:
+                           log_comment: str = '') -> tuple[bool, list[tuple[SysPath, int, str]], list[str], str]:
     if undulator_diagnostic not in e_diagnostics.undulator_stage.diagnostics:
-        return False, '', []
+        return False, [], [], ''
 
     # screens
-    labels: list[str] = list(e_diagnostics.imagers.keys())
-    if first_screen is None or first_screen not in labels:
-        print(f'Screens shorthand labels: {str(labels)[1:-1]}')
+    all_labels: list[str] = list(e_diagnostics.imagers.keys())
+    if first_screen is None or first_screen not in all_labels:
+        print(f'Screens shorthand labels: {str(all_labels)[1:-1]}')
         while True:
             first_screen = input('First screen: ')
-            if first_screen in labels:
+            if first_screen in all_labels:
                 break
 
-    if last_screen is None or last_screen not in labels:
+    if last_screen is None or last_screen not in all_labels:
         while True:
             last_screen = input('Last screen: ')
-            if last_screen in labels:
+            if last_screen in all_labels:
                 break
 
-    i1 = labels.index(first_screen)
-    i2 = labels.index(last_screen)
-    scan_labels: list[str] = labels[i1:i2+1] if i2 > i1 else labels[i2:i1-1:-1]
-    label = scan_labels[0]
+    i1 = all_labels.index(first_screen)
+    i2 = all_labels.index(last_screen)
+    used_labels: list[str] = all_labels[i1:i2+1] if i2 > i1 else all_labels[i2:i1-1:-1]
+    label = used_labels[0]
+    no_scans: list[tuple[SysPath, int, str]] = []
 
     # scan
     success = True
-    for label in scan_labels:
+    for label in used_labels:
         screen = e_diagnostics.imagers[label].screen
         camera = e_diagnostics.imagers[label].camera
 
@@ -71,7 +73,9 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
         print(f'Starting no-scan (camera of interest: {camera.get_name()})...')
         scan_comment: str = f'No-scan with beam on "{label}" ({camera.get_name()})'
         scan_comment: str = f'{log_comment}. {scan_comment}' if log_comment else scan_comment
-        GeecsDevice.run_no_scan(monitoring_device=camera, comment=scan_comment, timeout=300.)
+        scan_path, scan_number, _, _ = \
+            GeecsDevice.run_no_scan(monitoring_device=camera, comment=scan_comment, timeout=300.)
+        no_scans.append((scan_path, scan_number, camera.get_name()))
 
         # retract
         print(f'Removing {screen.var_alias} ({screen.controller.get_name()})...')
@@ -88,7 +92,7 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
             break
 
     print(f'Screen scan done. Success = {success}')
-    return success, label, scan_labels
+    return success, no_scans, used_labels, label
 
 
 if __name__ == '__main__':

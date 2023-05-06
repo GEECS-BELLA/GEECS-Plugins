@@ -1,3 +1,5 @@
+""" @author: Guillaume Plateau, TAU Systems """
+
 from __future__ import annotations
 from typing import Optional, Any, Union, TYPE_CHECKING
 from geecs_api.api_defs import VarAlias
@@ -248,9 +250,9 @@ class GeecsDevice:
     # currently necessity for "real" device to monitor scan status
     @staticmethod
     def run_no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
-                    timeout: float = 300.) -> tuple[bool, bool]:
+                    timeout: float = 300.) -> tuple[SysPath, int, bool, bool]:
         cmd = f'ScanStart>>{comment}'
-        accepted, timed_out = False, False
+        scan_path, scan_number, accepted, timed_out = '', 0, False, False
 
         if monitoring_device is None:
             dev = GeecsDevice('tmp', virtual=True)
@@ -259,7 +261,7 @@ class GeecsDevice:
             dev = monitoring_device
 
         try:
-            accepted, timed_out = dev.process_scan(cmd, comment, timeout)
+            scan_path, scan_number, accepted, timed_out = dev.process_scan(cmd, comment, timeout)
         except Exception:
             pass
         finally:
@@ -269,9 +271,10 @@ class GeecsDevice:
                 except Exception:
                     pass
 
-        return accepted, timed_out
+        return scan_path, scan_number, accepted, timed_out
 
-    def process_scan(self, cmd: str, comment: str = 'no scan', timeout: float = 300.) -> tuple[bool, bool]:
+    def process_scan(self, cmd: str, comment: str = 'no scan', timeout: float = 300.) \
+            -> tuple[SysPath, int, bool, bool]:
         next_folder, next_scan = self.next_scan_folder()
         accepted = self.dev_udp.send_scan_cmd(cmd)
 
@@ -358,7 +361,7 @@ class GeecsDevice:
                     break
                 time.sleep(1.)
 
-        return accepted, timed_out
+        return next_folder, next_scan, accepted, timed_out
 
     def get_status(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
         ret = self.get('device status', exec_timeout=exec_timeout, sync=sync)
