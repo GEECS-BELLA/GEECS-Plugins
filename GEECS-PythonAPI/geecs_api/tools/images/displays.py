@@ -9,8 +9,8 @@ def show_one(image: np.ndarray,
              x_lim: Optional[tuple[float, float]] = None,
              y_lim: Optional[tuple[float, float]] = None,
              colormap: Any = plt.cm.hot,
-             centroid_ij: Optional[tuple[int, int]] = None,
-             centroid_color: str = 'w.',
+             markers_ij: Optional[list[tuple[int, int]]] = None,
+             markers_color: str = 'w.',
              hide_ticks: bool = True,
              show_colorbar: bool = True,
              show_contours: bool = True,
@@ -37,8 +37,9 @@ def show_one(image: np.ndarray,
         plt.xticks([])
         plt.yticks([])
 
-    if centroid_ij:
-        plt.plot(centroid_ij[1], centroid_ij[0], centroid_color)
+    if markers_ij:
+        for marker in markers_ij:
+            plt.plot(marker[1], marker[0], markers_color)
 
     if show_colorbar:
         divider = make_axes_locatable(ax)
