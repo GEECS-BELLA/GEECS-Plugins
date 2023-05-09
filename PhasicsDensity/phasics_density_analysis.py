@@ -56,8 +56,8 @@ class PhasicsImageAnalyzer:
 
     CAMERA_RESOLUTION = Q_(4.74, 'micrometer')
     GRATING_CAMERA_DISTANCE = Q_(0.841, 'millimeter')
-    GRATING_PITCH = Q_(19.0505, 'micrometer')
-    CAMERA_TILT = Q_(0.529878, 'radians')
+    GRATING_PITCH = Q_(19.0402, 'micrometer')
+    CAMERA_TILT = Q_(0.529534, 'radians')
     
     @property
     def diffraction_spot_centers(self):
@@ -175,8 +175,8 @@ class PhasicsImageAnalyzer:
             ]
         c_1, c_x, c_y, c_x2, c_xy, c_y2 = c = np.dot(B, z)
         # finally, we solve df/ddx = 0 and df/ddy = 0
-        dx, dy = np.array([ c_xy * c_y - 2 * c_x * c_y2, 
-                            c_xy * c_x - 2 * c_y * c_x2
+        dx, dy = np.array([ 2 * c_x * c_y2 - c_xy * c_y,
+                            2 * c_y * c_x2 - c_xy * c_x 
                          ]) / (c_xy**2 - 4 * c_x2 * c_y2)
 
         # and we return the spatial frequencies corresponding to x0 + dx and y0 + dy
