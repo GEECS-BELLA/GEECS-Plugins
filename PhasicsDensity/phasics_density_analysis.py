@@ -54,8 +54,8 @@ class PhasicsImageAnalyzer:
 
     CAMERA_RESOLUTION = Q_(4.74, 'micrometer')
     GRATING_CAMERA_DISTANCE = Q_(0.841, 'millimeter')
-    GRATING_PITCH = Q_(19.0505, 'micrometer')
-    CAMERA_TILT = Q_(0.529878, 'radians')
+    GRATING_PITCH = Q_(19.0402, 'micrometer')
+    CAMERA_TILT = Q_(0.529534, 'radians')
     
     @property
     def diffraction_spot_centers(self):
