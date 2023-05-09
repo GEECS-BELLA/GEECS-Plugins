@@ -27,14 +27,14 @@ class Screen(GeecsDevice):
         else:
             return ret
 
-    def insert(self, exec_timeout: float = 10.0, sync=True) -> Union[float, AsyncResult]:
+    def insert(self, exec_timeout: float = 10.0, sync=True) -> Union[bool, AsyncResult]:
         ret = self.controller.set(self.var_name, value='on', exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_screen()
         else:
             return ret
 
-    def remove(self, exec_timeout: float = 10.0, sync=True) -> Union[float, AsyncResult]:
+    def remove(self, exec_timeout: float = 10.0, sync=True) -> Union[bool, AsyncResult]:
         ret = self.controller.set(self.var_name, value='off', exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_screen()

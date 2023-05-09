@@ -1,6 +1,8 @@
 import os
 import re
+import pandas as pd
 import calendar as cal
+import numpy.typing as npt
 from datetime import datetime as dtime
 from typing import Optional, Union
 from geecs_api.api_defs import SysPath
@@ -12,7 +14,10 @@ from geecs_api.tools.scans.utility import read_geecs_tdms
 class Scan:
     """ Represents a GEECS experiment scan """
 
-    def __init__(self, folder: Optional[SysPath] = None, tag: Optional[Union[int, tuple[int, int, int, int]]] = None):
+    def __init__(self,
+                 folder: Optional[SysPath] = None,
+                 tag: Optional[Union[int, tuple[int, int, int, int]]] = None,
+                 match_exp: bool = True):
         """
         Parameter(s)
         ----------
@@ -27,7 +32,7 @@ class Scan:
                 - scan number only, today's date is used
         """
 
-        self.identified = False
+        self.__identified = False
         self.__folder: Optional[SysPath] = None
         self.__tag: Optional[tuple[int, int, int, int]] = None
 
@@ -45,19 +50,20 @@ class Scan:
 
                 if info_str and os.path.isdir(folder):
                     exp_name: SysPath = os.path.basename(os.path.normpath(folder.split(info_str[0])[0]))
+                    self.__identified = not match_exp or (exp_name == GeecsDevice.exp_info['name'])
+
                     info_str = info_str[0].split(os.sep)
-                    self.__tag = (int(info_str[0][1:]),
-                                  int(info_str[1][:2]),
-                                  int(info_str[2][-2:]),
-                                  int(info_str[4][-3:]))
-                    self.identified = (exp_name == GeecsDevice.exp_info['name'])
-                    if self.identified:
+                    if self.__identified:
+                        self.__tag = (int(info_str[0][1:]),
+                                      int(info_str[1][:2]),
+                                      int(info_str[2][-2:]),
+                                      int(info_str[4][-3:]))
                         self.__folder = folder
 
             except Exception:
                 raise
 
-        if not self.identified and tag:
+        if not self.__identified and tag:
             if isinstance(tag, int):
                 stamp = dtime.now()
                 tag = (int(stamp.strftime('%Y')),
@@ -73,8 +79,8 @@ class Scan:
                                           f'{tag[1]:02d}-{cal.month_name[tag[1]][:3]}',
                                           f'{str(tag[0])[-2:]}_{tag[1]:02d}{tag[2]:02d}',
                                           'scans', f'Scan{tag[3]:03d}')
-                    self.identified = os.path.isdir(folder)
-                    if self.identified:
+                    self.__identified = os.path.isdir(folder)
+                    if self.__identified:
                         self.__tag = tag
                         self.__folder = folder
                     else:
@@ -83,7 +89,7 @@ class Scan:
                 except Exception:
                     raise
 
-        if not self.identified:
+        if not self.__identified:
             raise ValueError
 
         # folders & files
@@ -92,6 +98,8 @@ class Scan:
 
         # scalar data
         tdms_path = os.path.join(self.__folder, f'Scan{self.__tag[3]:03d}.tdms')
+        self.data_dict: dict[str, dict[str, npt.ArrayLike]]
+        self.data_frame: pd.DataFrame
         self.data_dict, self.data_frame = read_geecs_tdms(tdms_path)
 
     def get_folder(self):

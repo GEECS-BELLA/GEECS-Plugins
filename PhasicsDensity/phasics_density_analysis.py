@@ -29,6 +29,8 @@ if TYPE_CHECKING:
     SpatialFrequencyQuantity = Annotated[Quantity, '[length]**-1]']
     LengthQuantity = Annotated[Quantity, '[length]']
 
+import abel
+
 ureg = UnitRegistry()
 Q_ = ureg.Quantity
 
@@ -483,3 +485,48 @@ class PhasicsImageAnalyzer:
         phase_map = Q_(2 * np.pi, 'radian') * self.wavefront / wavelength
         return phase_map.to_base_units()
 
+    def calculate_density(self, wavefront: np.ndarray, wavelength=Q_(800, 'nm')) -> Annotated[Quantity, '[length]**-3]']:
+        """ Convert the wavefront into a density map, using equation for plasma refraction.
+
+        Parameters
+        ----------
+        wavefront : 2d array, units [length]
+            A wavefront, with [length] units, as produced by PhasicsImageAnalyzer.calculate_wavefront().
+            Should be background-subtracted, and baselined, i.e. wavefront should be 0 where there's no plasma
+        wavelength : [length] Quantity
+
+        Returns
+        -------
+        density : 2d array, units [length]^-3
+            Slice of the 3D (cylindrically symmetric) electron density profile. 
+            Note that because of the centering in the axis=0 direction, the number of rows may be one less 
+            than the given wavefront array.
+            The center row in this array (row = (numrows - 1) // 2) represents the cylinder axis.
+
+        """
+        # unit-aware version of abel.Transform()
+        @ureg.wraps('nm/pixel', 'nm')
+        def abel_transform_ua(wavefront):
+            return abel.Transform(
+                wavefront.T,   # transpose because the Abel inverse is done around axis = 0
+                direction='inverse',
+                method='onion_bordas',
+                origin='slice', center_options={'axes': 1},  # only center in the perpendicular-to-laser direction
+                symmetry_axis=0,  # assume above and below laser axis have a symmetric profile
+            ).transform.T  # transpose back
+
+        # a slice of the cylindrically symmetric optical path length disturbance profile
+        # As the optical path disturbance is given in nanometers, and this slice gives the contribution of one
+        # pixel's distance to the total wavefront shift, this is in units of [length]/[length], or dimensionless.
+        self.optical_path_change_per_distance = abel_transform_ua(wavefront) / (self.CAMERA_RESOLUTION/ureg.pixel)
+
+        # from https://www.ipp.mpg.de/2882460/anleitung.pdf:
+        #   phi = lambda*e^2/(4 pi c^2 e0 me) integrate(n(z) dz)
+        # with phi/2pi = wavefront/lambda, and C = e^2/(4 pi c^2 e0 me)
+        #   2pi/lambda * d(wavefront)/dz = C * lambda * density
+        #   density = 2pi/lambda^2 / C * d(wavefront)/dz
+
+        C = ureg.elementary_charge**2 / (4 *np.pi * ureg.speed_of_light**2 * ureg.vacuum_permittivity * ureg.electron_mass)
+        self.density = 2 * np.pi / wavelength**2 / C * self.optical_path_change_per_distance
+
+        return self.density

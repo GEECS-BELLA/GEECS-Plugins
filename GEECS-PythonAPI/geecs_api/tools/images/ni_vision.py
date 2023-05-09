@@ -2,13 +2,12 @@ import os
 import png
 import cv2
 import numpy as np
-import numpy.typing as npt
 from typing import Optional
 from pathlib import Path
 from geecs_api.api_defs import SysPath
 
 
-def read_imaq_image(file_path: SysPath) -> Optional[npt.ArrayLike]:
+def read_imaq_image(file_path: SysPath) -> Optional[np.ndarray]:
     if not os.path.isfile(file_path):
         return None
 

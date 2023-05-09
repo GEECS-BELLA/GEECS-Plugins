@@ -11,27 +11,22 @@ def read_geecs_tdms(file_path: SysPath) \
     file_extension: str = os.path.splitext(file_path)[1].lower()
 
     if os.path.isfile(file_path) and (file_extension == '.tdms'):
-        data_dict = {}
-
         with tdms.TdmsFile.open(file_path) as f_tdms:
-            # data_dict = {device_name: {variable.name.split(device_name)[1][1:]: variable[:].astype('float64')
-            #                            for variable in variables}
-            #              for device_name, variables
-            #              in [(group.name, group.channels()) for group in f_tdms.groups()]}
-            for device_name, variables in [(group.name, group.channels()) for group in f_tdms.groups()]:
-                dev_data_dict = {}
+            def convert_channel_to_float(channel: tdms.TdmsChannel):
+                try:
+                    return channel[:].astype('float64')
+                except ValueError:
+                    return channel[:]
 
-                for variable in variables:
-                    var_name = variable.name.split(device_name)[1][1:]
-                    try:
-                        dev_data_dict[var_name] = variable[:].astype('float64')
-                    except Exception:
-                        continue
+            data_dict = {device_name: {variable.name.split(device_name)[1][1:]: convert_channel_to_float(variable)
+                                       for variable in variables}
+                         for device_name, variables
+                         in [(group.name, group.channels()) for group in f_tdms.groups()]}
 
-                if dev_data_dict:
-                    data_dict[device_name] = dev_data_dict
+        data_frame: pd.DataFrame = pd.concat(map(pd.DataFrame, data_dict.values()),
+                                             keys=data_dict.keys(),
+                                             axis=1).set_index('Shotnumber')
 
-        data_frame: pd.DataFrame = pd.DataFrame(data_dict)
         return data_dict, data_frame
 
     else:

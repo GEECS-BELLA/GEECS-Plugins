@@ -1,3 +1,5 @@
+""" @author: Guillaume Plateau, TAU Systems """
+
 from __future__ import annotations
 from typing import Optional, Any, Union, TYPE_CHECKING
 from geecs_api.api_defs import VarAlias
@@ -248,9 +250,9 @@ class GeecsDevice:
     # currently necessity for "real" device to monitor scan status
     @staticmethod
     def run_no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
-                    timeout: float = 300.) -> tuple[bool, bool]:
+                    timeout: float = 300.) -> tuple[SysPath, int, bool, bool]:
         cmd = f'ScanStart>>{comment}'
-        accepted, timed_out = False, False
+        scan_path, scan_number, accepted, timed_out = '', 0, False, False
 
         if monitoring_device is None:
             dev = GeecsDevice('tmp', virtual=True)
@@ -259,7 +261,7 @@ class GeecsDevice:
             dev = monitoring_device
 
         try:
-            accepted, timed_out = dev.process_scan(cmd, comment, timeout)
+            scan_path, scan_number, accepted, timed_out = dev.process_scan(cmd, comment, timeout)
         except Exception:
             pass
         finally:
@@ -269,15 +271,19 @@ class GeecsDevice:
                 except Exception:
                     pass
 
-        return accepted, timed_out
+        return scan_path, scan_number, accepted, timed_out
 
-    def process_scan(self, cmd: str, comment: str = 'no scan', timeout: float = 300.) -> tuple[bool, bool]:
+    def process_scan(self, cmd: str, comment: str = 'no scan', timeout: float = 300.) \
+            -> tuple[SysPath, int, bool, bool]:
         next_folder, next_scan = self.next_scan_folder()
         accepted = self.dev_udp.send_scan_cmd(cmd)
 
         # format ini file
         ini_file_name = f'ScanInfo{os.path.basename(next_folder)}.ini'
+        txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
+
         ini_file_path = os.path.join(next_folder, ini_file_name)
+        txt_file_path = os.path.join(next_folder, txt_file_name)
         ini_found = False
 
         if accepted:
@@ -340,20 +346,22 @@ class GeecsDevice:
                         pass
 
         # execution
-        if self.is_valid():
-            timed_out = self.wait_for_scan_start(next_folder, next_scan, timeout=60.)
+        timed_out = self.wait_for_scan_start(next_folder, next_scan, timeout=60.)
+        if not timed_out:
+            if not self.is_valid():
+                time.sleep(2.)  # buffer since cannot verify in 'scan' mode
 
-            if not timed_out:
-                t0 = time.monotonic()
-                while True:
-                    timed_out = (time.monotonic() - t0 > timeout)
-                    if (self.state[VarAlias('device status')] == 'no scan') or timed_out:
-                        break
-                    time.sleep(1.)
-        else:
-            timed_out = False
+            # wait for 'no scan' status (if valid device) or .txt file to be created = end of scan
+            t0 = time.monotonic()
+            while True:
+                timed_out = (time.monotonic() - t0 > timeout)
+                if os.path.isfile(txt_file_path) \
+                        or (self.is_valid() and self.state[VarAlias('device status')] == 'no scan') \
+                        or timed_out:
+                    break
+                time.sleep(1.)
 
-        return accepted, timed_out
+        return next_folder, next_scan, accepted, timed_out
 
     def get_status(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
         ret = self.get('device status', exec_timeout=exec_timeout, sync=sync)
@@ -692,7 +700,8 @@ class GeecsDevice:
 
             tdms_filepath = os.path.join(next_folder, f'Scan{next_scan:03d}.tdms')
             if os.path.isdir(next_folder) and os.path.isfile(tdms_filepath) \
-                    and ('device status' in self.state) and (self.state[VarAlias('device status')] == 'scan'):
+                    and (not self.is_valid() or
+                         (('device status' in self.state) and (self.state[VarAlias('device status')] == 'scan'))):
                 break
             time.sleep(0.1)
 
