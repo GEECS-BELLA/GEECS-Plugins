@@ -173,8 +173,8 @@ class PhasicsImageAnalyzer:
             ]
         c_1, c_x, c_y, c_x2, c_xy, c_y2 = c = np.dot(B, z)
         # finally, we solve df/ddx = 0 and df/ddy = 0
-        dx, dy = np.array([ c_xy * c_y - 2 * c_x * c_y2, 
-                            c_xy * c_x - 2 * c_y * c_x2
+        dx, dy = np.array([ 2 * c_x * c_y2 - c_xy * c_y,
+                            2 * c_y * c_x2 - c_xy * c_x 
                          ]) / (c_xy**2 - 4 * c_x2 * c_y2)
 
         # and we return the spatial frequencies corresponding to x0 + dx and y0 + dy
