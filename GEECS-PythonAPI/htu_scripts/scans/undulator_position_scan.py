@@ -16,6 +16,16 @@ def undulator_position_scan(screens: Optional[tuple[EBeamDiagnostics, str, str, 
                             initial_currents_s3: Optional[tuple[float, float]] = None,
                             initial_currents_s4: Optional[tuple[float, float]] = None,
                             initial_indexes: tuple[int, int] = (0, 0), delay: float = 1.) -> list[dict[str, Any]]:
+    """
+    Output:
+    ====================
+    scans_info:
+        list of dict of
+        'S3H', 'S3V', 'S4H', 'S4V' currents,
+        'screens' labels used,
+        'scans' a list of tuple of scan_path (str), scan_number (int), camera device name (str)
+    """
+
     s3, s4 = steering_magnets = Steering(3), Steering(4)
     initial_currents = [initial_currents_s3, initial_currents_s4]
 
@@ -86,6 +96,18 @@ def set_position_and_run_screen_scan(s3: Steering, s4: Steering, h_curr, v_curr,
                                      screens: Optional[tuple[EBeamDiagnostics, str, str, str]],
                                      scans_info: list[dict[str, Any]],
                                      log_comment: str, delay: float) -> tuple[bool, list[dict[str, Any]], bool]:
+    """
+    Outputs:
+    ====================
+    success: bool
+    scans_info:
+        list of dict of
+        'S3H', 'S3V', 'S4H', 'S4V' currents,
+        'screens' labels used,
+        'scans' a list of tuple of scan_path (str), scan_number (int), camera device name (str)
+    cancel: bool
+    """
+
     success: bool = False
     screen_labels: list[str] = []
     no_scans: list[tuple[SysPath, int, str]] = []

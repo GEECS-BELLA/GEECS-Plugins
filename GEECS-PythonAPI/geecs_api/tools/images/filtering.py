@@ -9,8 +9,8 @@ def mad(x):
     return np.median(np.abs(x - np.median(x)))
 
 
-def get_mad_threshold(X: np.ndarray, mad_multiplier: float = 5.2):
-    return np.median(X) + mad_multiplier * mad(X)
+def get_mad_threshold(x: np.ndarray, mad_multiplier: float = 5.2):
+    return np.median(x) + mad_multiplier * mad(x)
 
 
 def clip_outliers(image: np.ndarray,

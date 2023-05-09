@@ -10,6 +10,15 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
                            last_screen: Optional[str] = 'A3',
                            undulator_diagnostic: Optional[str] = 'spectrum',
                            log_comment: str = '') -> tuple[bool, list[tuple[SysPath, int, str]], list[str], str]:
+    """
+    Outputs:
+    ====================
+    success:        bool
+    no_scans:       list of tuples of scan_path (str), scan_number (int), camera device name (str)
+    used_labels:    list of labels (list[str])
+    label:          last label used (useful if scan fails and needs to be rerun)
+    """
+
     if undulator_diagnostic not in e_diagnostics.undulator_stage.diagnostics:
         return False, [], [], ''
 

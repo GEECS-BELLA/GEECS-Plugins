@@ -67,7 +67,8 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
         guess_std = (x_data[-1] - x_data[0]) / 10.
     if guess_amplitude is None:
         guess_amplitude = np.max(y_data) - np.min(y_data)
-    guess = [np.min(y_data), guess_amplitude, guess_com, guess_std]
+    # guess = [np.min(y_data), guess_amplitude, guess_com, guess_std]
+    guess = [0, guess_amplitude, guess_com, guess_std]
 
     # noinspection PyTypeChecker
     return fit_distribution(x_data, y_data, fit_type='gaussian', guess=guess)
@@ -76,7 +77,7 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
 # noinspection PyArgumentList
 def find_spot(image: np.ndarray,
               hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 3,
-              gauss_filter: float = 5., com_threshold: float = 0.66) -> tuple[tuple[int, int], tuple[int, int]]:
+              gauss_filter: float = 5., com_threshold: float = 0.5) -> tuple[tuple[int, int], tuple[int, int]]:
     """
     Finds spot in an image
 
@@ -86,13 +87,16 @@ def find_spot(image: np.ndarray,
     com_threshold:  image threshold for center-of-mass calculation
     """
     # clip hot pixels
-    image = clip_hot_pixels(image, median_filter_size=hp_median, threshold_factor=hp_threshold)
+    if hp_median > 0:
+        image = clip_hot_pixels(image, median_filter_size=hp_median, threshold_factor=hp_threshold)
 
     # denoise
-    image = denoise(image, max_shifts=denoise_cycles)
+    if denoise_cycles > 0:
+        image = denoise(image, max_shifts=denoise_cycles)
 
     # gaussian filter
-    image = simg.gaussian_filter(image, sigma=gauss_filter)
+    if gauss_filter > 0:
+        image = simg.gaussian_filter(image, sigma=gauss_filter)
 
     # peak location
     i_max, j_max = np.where(image == image.max())

@@ -3,6 +3,7 @@ import re
 import pandas as pd
 import calendar as cal
 import numpy.typing as npt
+from pathlib import Path
 from datetime import datetime as dtime
 from typing import Optional, Union
 from geecs_api.api_defs import SysPath
@@ -96,6 +97,12 @@ class Scan:
         top_content = next(os.walk(self.__folder))
         self.files = {'devices': top_content[1], 'files': top_content[2]}
 
+        parts = list(Path(self.__folder).parts)
+        parts[-2] = 'analysis'
+        self.__analysis_folder = Path(*parts)
+        if not os.path.isdir(self.__analysis_folder):
+            os.makedirs(self.__analysis_folder)
+
         # scalar data
         tdms_path = os.path.join(self.__folder, f'Scan{self.__tag[3]:03d}.tdms')
         self.data_dict: dict[str, dict[str, npt.ArrayLike]]
@@ -107,6 +114,9 @@ class Scan:
 
     def get_tag(self):
         return self.__tag
+
+    def get_analysis_folder(self):
+        return self.__analysis_folder
 
 
 if __name__ == '__main__':
