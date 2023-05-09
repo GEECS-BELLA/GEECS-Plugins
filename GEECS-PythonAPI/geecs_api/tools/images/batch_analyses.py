@@ -42,25 +42,39 @@ def average_images(images_folder: SysPath, n_images: int = 0, file_extension: st
 
 def analyze_images(images_folder: SysPath, n_images: int = 0, file_extension: str = '.png', rotate_deg: int = 0,
                    hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 0,
-                   gauss_filter: float = 5., com_threshold: float = 0.5) -> list[dict[str, Any]]:
+                   gauss_filter: float = 5., com_threshold: float = 0.5) \
+        -> tuple[list[dict[str, Any]], Optional[np.ndarray]]:
     paths = list_images(images_folder, n_images, file_extension)
     analyses: list[dict[str, Any]] = []
+    avg_image: Optional[np.ndarray] = None
+    rot_90deg: int = int(round(rotate_deg / 90.))
 
     # run averaging
     if paths:
         try:
             with ProgressBar(max_value=len(paths)) as pb:
-                for image_path in paths:
-                    image = np.rot90(ni.read_imaq_image(image_path), int(rotate_deg / 90))
-                    analyses.append(spot_analysis(image.astype('float64'), hp_median, hp_threshold,
-                                                  denoise_cycles, gauss_filter, com_threshold))
-                    pb.increment()
+                avg_image = np.rot90(ni.read_imaq_image(paths[0]), rot_90deg)
+                avg_image = avg_image.astype('float64')
+                analyses.append(spot_analysis(avg_image, hp_median, hp_threshold,
+                                              denoise_cycles, gauss_filter, com_threshold))
+                pb.increment()
+
+                if len(paths) > 1:
+                    for it, image_path in enumerate(paths[1:]):
+                        image_data = np.rot90(ni.read_imaq_image(image_path), rot_90deg)
+                        image_data = image_data.astype('float64')
+                        analyses.append(spot_analysis(image_data, hp_median, hp_threshold,
+                                                      denoise_cycles, gauss_filter, com_threshold))
+                        alpha = 1.0 / (it + 2)
+                        beta = 1.0 - alpha
+                        avg_image = cv2.addWeighted(image_data, alpha, avg_image, beta, 0.0)
+                        pb.increment()
 
         except Exception as ex:
             api_error.error(str(ex), 'Failed to analyze image')
             pass
 
-    return analyses
+    return analyses, avg_image
 
 
 def summarize_image_analyses(analyses: list[dict[str, Any]]) -> dict[str, Union[float, npt.ArrayLike]]:

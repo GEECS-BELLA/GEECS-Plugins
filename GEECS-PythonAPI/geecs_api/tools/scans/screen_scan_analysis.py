@@ -1,45 +1,84 @@
 import os
 import numpy as np
+from pathlib import Path
+from typing import Optional
 from geecs_api.api_defs import SysPath
 from geecs_api.tools.scans.scan import Scan
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.tools.images.batch_analyses import average_images, analyze_images, summarize_image_analyses
+from geecs_api.tools.images.batch_analyses import analyze_images, summarize_image_analyses
 from geecs_api.tools.images.spot_analysis import spot_analysis, fwhm
 from geecs_api.tools.images.displays import show_one
 import matplotlib.pyplot as plt
+from tkinter import filedialog
 
 
 # no_scans = list of (scan path, scan number, camera name)
-def screen_scan_analysis(no_scans: list[tuple[SysPath, str]], screen_labels: list[str], rotate_deg: list[int]):
+def screen_scan_analysis(no_scans: list[tuple[SysPath, str]], screen_labels: list[str],
+                         rotate_deg: list[int], save_dir: Optional[SysPath] = None):
     scans: list[Scan] = []
+    target_deltas_mean: np.ndarray = np.empty((0, 2))  # Dx, Dy [pix]
+    target_deltas_std: np.ndarray = np.empty((0, 2))
+
     for no_scan, rot_deg in zip(no_scans, rotate_deg):
         # create Scan object
-        scan = Scan(folder=no_scan[0], match_exp=True)
+        scan = Scan(folder=no_scan[0], match_exp=False)  # tmp
         scan.screen_label = screen_labels[0]
         scan.camera = no_scan[1]
 
         # average/analyze camera images
         images_folder: SysPath = os.path.join(scan.get_folder(), scan.camera)
-        scan.avg_img = np.rot90(average_images(images_folder), int(rot_deg / 90))
-        scan.avg_img_analysis = spot_analysis(scan.avg_img.astype('float64'))
-        scan.analyses = analyze_images(images_folder, rotate_deg=rot_deg, hp_median=2, hp_threshold=3.,
-                                       denoise_cycles=0, gauss_filter=5., com_threshold=0.5)
+        scan.analyses, scan.avg_img = analyze_images(images_folder, rotate_deg=rot_deg, hp_median=2, hp_threshold=3.,
+                                                     denoise_cycles=0, gauss_filter=5., com_threshold=0.5)
         scan.analyses_summary = summarize_image_analyses(scan.analyses)
+        scan.avg_img_analysis = spot_analysis(scan.avg_img)
 
         # distance [pix] from target
+        scan.target_analysis = {}
         try:
-            scan.target = (float(GeecsDevice.exp_info['devices'][scan.camera]['Target.X']['defaultvalue']),
-                           float(GeecsDevice.exp_info['devices'][scan.camera]['Target.Y']['defaultvalue']))
+            scan.target_analysis['target'] = \
+                (float(GeecsDevice.exp_info['devices'][scan.camera]['Target.X']['defaultvalue']),
+                 float(GeecsDevice.exp_info['devices'][scan.camera]['Target.Y']['defaultvalue']))
         except Exception:
-            scan.target = (0., 0.)
-        scan.target_delta_pix = np.array(scan.avg_img_analysis['position_max']) - scan.target
+            scan.target_analysis['target'] = (0., 0.)
 
-        # plot
+        scan.target_analysis['avg_img_delta'] = \
+            np.array(scan.avg_img_analysis['position_max']) - np.array(scan.target_analysis['target'])
+        scan.target_analysis['scan_pos_max_delta'] = \
+            np.array(scan.analyses_summary['scan_pos_max']) - np.array(scan.target_analysis['target'])
+
+        if not target_deltas_mean:
+            target_deltas_mean = np.array([np.mean(scan.target_analysis['scan_pos_max_delta'], axis=0)])
+            target_deltas_std = np.array([np.std(scan.target_analysis['scan_pos_max_delta'], axis=0)])
+        else:
+            target_deltas_mean = np.append(target_deltas_mean,
+                                           np.array([np.mean(scan.target_analysis['scan_pos_max_delta'], axis=0)]))
+            target_deltas_std = np.append(target_deltas_std,
+                                          np.array([np.std(scan.target_analysis['scan_pos_max_delta'], axis=0)]))
+
+        # image plot
         plot_scan_image(scan, block_execution=False)
 
         # store scan
         scans.append(scan)
+
+    # plots
+    plt.figure()
+    plt.errorbar(np.arange(target_deltas_mean.shape[0]), target_deltas_mean[:, 0],
+                 yerr=target_deltas_std[:, 0], label=r'\Delta_x')
+    plt.errorbar(np.arange(target_deltas_mean.shape[0]), target_deltas_mean[:, 1],
+                 yerr=target_deltas_std[:, 1], label=r'\Delta_y')
+    plt.legend(loc='best')
+    plt.xlabel('Screen')
+    plt.ylabel('Target Offsets [pix]')
+    plt.show(block=False)
+
+    # save analysis
+    if not save_dir:
+        save_dir = filedialog.askdirectory(title='Save directory:')
+    if save_dir:
+        save_path = Path(save_dir) / f'target_offsets_{screen_labels[0]}-{screen_labels[-1]}.png'
+        plt.savefig(save_path, dpi=300)
 
 
 def plot_scan_image(scan: Scan, block_execution: bool = False):
@@ -57,7 +96,6 @@ def plot_scan_image(scan: Scan, block_execution: bool = False):
 
     x_lim = (round(left / 10.) * 10, round(right / 10.) * 10)
     y_lim = (round(top / 10.) * 10, round(bottom / 10.) * 10)
-    print(f'y_lim: {y_lim}')
 
     # centers distributions
     avg_img_pos_max = scan.avg_img_analysis['position_max']
@@ -101,10 +139,10 @@ def plot_scan_image(scan: Scan, block_execution: bool = False):
 
 
 if __name__ == '__main__':
-    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    # GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-    # base_path = r'C:\Users\GuillaumePlateau\Documents\LBL\Data'
-    base_path = r'Z:\data'
+    base_path = r'C:\Users\GuillaumePlateau\Documents\LBL\Data'
+    # base_path = r'Z:\data'
     _no_scan_27 = (base_path + r'\Undulator\Y2023\04-Apr\23_0418\scans\Scan027', 'UC_ALineEbeam1')
     _no_scan_28 = (base_path + r'\Undulator\Y2023\04-Apr\23_0418\scans\Scan028', 'UC_ALineEBeam2')
     _no_scan_29 = (base_path + r'\Undulator\Y2023\04-Apr\23_0418\scans\Scan029', 'UC_ALineEBeam3')
