@@ -9,3 +9,4 @@ LogMaker 4 GoogleDocs/source/frontpanel.png
 GEECS-PythonAPI/*.pyc
 GEECS-PythonAPI/*.xml
 PhasicsDensity/**/*.pyc
+*.pyc
