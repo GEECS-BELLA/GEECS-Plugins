@@ -63,10 +63,11 @@ class UndulatorStage(GeecsDevice):
         rail_pos = self.get_rail_position(exec_timeout, sync=True)
         return (self.pos_frame.stack() - rail_pos).abs().idxmin()
 
-    def set_position(self, station: int, diagnostic: str, exec_timeout: float = 2.0) -> bool:
+    def set_position(self, station: int, diagnostic: str, exec_timeout: float = 30.0) -> bool:
         """ Set the rail at the desired station and diagnostic position """
         if (diagnostic in self.diagnostics) and (station in self.pos_frame.index):
             rail_pos = self.pos_frame.loc[station, diagnostic]
+            print(f'rail: {rail_pos}')
             self.set_rail_position(rail_pos, exec_timeout, sync=True)
             return (station, diagnostic) == self.get_position()
         else:

@@ -70,19 +70,20 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
             break
 
         # undulator stage
-        if label[0] == 'U':
-            station = int(label[1])
-            print(f'Moving undulator stage to station {station}, "{undulator_diagnostic}"...')
-            success = False
-            for _ in range(3):
-                try:
-                    if e_diagnostics.undulator_stage.set_position(station, undulator_diagnostic):
-                        break
-                except Exception:
-                    continue
-
-            if not success:
-                break
+        # if label[0] == 'U':
+        #     station = int(label[1])
+        #     print(f'Moving undulator stage to station {station}, "{undulator_diagnostic}"...')
+        #     success = False
+        #     for _ in range(3):
+        #         try:
+        #             if e_diagnostics.undulator_stage.set_position(station, undulator_diagnostic):
+        #                 success = True
+        #                 break
+        #         except Exception:
+        #             continue
+        #
+        #     if not success:
+        #         break
 
         # scan/background
         if background:
@@ -137,11 +138,14 @@ if __name__ == '__main__':
     _e_diagnostics = EBeamDiagnostics()
 
     # scan
-    undulator_screens_scan(_e_diagnostics, 'U1', 'U3',
-                           undulator_diagnostic='spectrum',
-                           log_comment='Screen scan',
-                           background=True)
-
-    # cleanup connections
-    _e_diagnostics.cleanup()
-    [controller.cleanup() for controller in _e_diagnostics.controllers]
+    try:
+        undulator_screens_scan(_e_diagnostics, 'U7', 'U9',
+                               undulator_diagnostic='spectrum',
+                               log_comment='Screen scan',
+                               background=False)
+    except Exception:
+        pass
+    finally:
+        # cleanup connections
+        _e_diagnostics.cleanup()
+        [controller.cleanup() for controller in _e_diagnostics.controllers]

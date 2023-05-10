@@ -78,7 +78,7 @@ def analyze_images(images_folder: SysPath, n_images: int = 0, file_extension: st
 
 
 def summarize_image_analyses(analyses: list[dict[str, Any]]) -> dict[str, Union[float, npt.ArrayLike]]:
-    scan_pos_max = np.array([analysis['position_max'] for analysis in analyses])
+    scan_pos_max = np.array([analysis['position_max'] for analysis in analyses])  # handle None
     scan_pos_max_fwhm_x = np.array([fwhm(analysis['opt_x_max'][3]) for analysis in analyses])
     scan_pos_max_fwhm_y = np.array([fwhm(analysis['opt_y_max'][3]) for analysis in analyses])
 
