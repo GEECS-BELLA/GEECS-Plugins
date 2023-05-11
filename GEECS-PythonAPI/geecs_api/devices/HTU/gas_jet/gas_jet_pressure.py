@@ -72,5 +72,5 @@ if __name__ == '__main__':
         api_error.error(str(e), 'Demo code for gas jet')
         pass
 
-    jet_pressure.cleanup()
+    jet_pressure.close()
     print(api_error)

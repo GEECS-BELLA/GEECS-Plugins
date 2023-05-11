@@ -21,9 +21,9 @@ class EBeamPhosphor(GeecsDevice):
             self.camera.subscribe_var_values()
             self.screen.subscribe_var_values()
 
-    def cleanup(self):
-        self.camera.cleanup()
-        self.screen.cleanup()
+    def close(self):
+        self.camera.close()
+        self.screen.close()
 
 
 if __name__ == '__main__':
@@ -36,5 +36,10 @@ if __name__ == '__main__':
                                        plunger_name='ALine1 plunger',
                                        tcp_subscription=False)
 
+<<<<<<< Updated upstream:GEECS-PythonAPI/geecs_api/devices/HTU/diagnostics/ebeam_phosphor/ebeam_phosphor.py
     e_beam_phosphor_A1.cleanup()
     PLC.cleanup()
+=======
+    e_imager_A1.close()
+    PLC.close()
+>>>>>>> Stashed changes:GEECS-PythonAPI/geecs_api/devices/HTU/diagnostics/e_imager/e_imager.py
