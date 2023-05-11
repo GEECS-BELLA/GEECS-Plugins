@@ -29,7 +29,7 @@ class Laser(GeecsDevice):
         self.pump.subscribe_var_values()
         self.pump.shutters.subscribe_var_values()
 
-    def close(self):
-        self.compressor.close()
-        self.seed.close()
-        self.pump.close()
+    def cleanup(self):
+        self.compressor.cleanup()
+        self.seed.cleanup()
+        self.pump.cleanup()

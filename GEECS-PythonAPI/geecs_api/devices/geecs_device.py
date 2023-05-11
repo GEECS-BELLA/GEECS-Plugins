@@ -87,17 +87,17 @@ class GeecsDevice:
         if not os.path.exists(GeecsDevice.appdata_path):
             os.makedirs(GeecsDevice.appdata_path)
 
-    def close(self):
+    def cleanup(self):
         mh.flush_queue(self.queue_udp_msgs)
         mh.flush_queue(self.queue_tcp_msgs)
 
         self.stop_waiting_for_all_cmds()
 
         if self.dev_udp:
-            self.dev_udp.close()
+            self.dev_udp.cleanup()
 
         if self.dev_tcp:
-            self.dev_tcp.close()
+            self.dev_tcp.cleanup()
 
     def is_valid(self):
         return not self.__dev_virtual and self.dev_ip and self.dev_port > 0
@@ -249,32 +249,7 @@ class GeecsDevice:
         cmd = f'ScanStart>>{comment}'
         return self._run_scan(cmd, timeout)
 
-<<<<<<< Updated upstream
     def _run_scan(self, cmd: str, timeout: float = 300.) -> tuple[bool, bool]:
-=======
-        if monitoring_device is None:
-            dev = GeecsDevice('tmp', virtual=True)
-            dev.dev_udp = UdpHandler(owner=dev)
-        else:
-            dev = monitoring_device
-
-        try:
-            scan_path, scan_number, accepted, timed_out = dev.process_scan(cmd, comment, timeout)
-        except Exception:
-            pass
-        finally:
-            if monitoring_device is None:
-                try:
-                    dev.close()
-                except Exception:
-                    pass
-
-        return scan_path, scan_number, accepted, timed_out
-
-    def process_scan(self, cmd: str, comment: str = 'no scan', timeout: float = 300.) \
-            -> tuple[SysPath, int, bool, bool]:
-        next_folder, next_scan = self.next_scan_folder()
->>>>>>> Stashed changes
         accepted = self.dev_udp.send_scan_cmd(cmd)
 
         timed_out = self.wait_for_scan_start(timeout=60.)

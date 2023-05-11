@@ -102,5 +102,5 @@ if __name__ == '__main__':
     print(f'North-1 inserted: {shutters.is_inserted(1, "North")}')
 
     # close
-    shutters.close()
+    shutters.cleanup()
     print(api_error)

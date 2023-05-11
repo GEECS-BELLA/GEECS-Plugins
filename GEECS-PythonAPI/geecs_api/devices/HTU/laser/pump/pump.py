@@ -29,9 +29,9 @@ class Pump(GeecsDevice):
 
         self.shutters = PumpShutters()
 
-    def close(self):
-        self.shutters.close()
-        super().close()
+    def cleanup(self):
+        self.shutters.cleanup()
+        super().cleanup()
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         return float(val_string) * 1e6

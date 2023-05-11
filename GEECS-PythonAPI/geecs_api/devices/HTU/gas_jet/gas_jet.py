@@ -29,11 +29,11 @@ class GasJet(GeecsDevice):
         self.trigger.subscribe_var_values()
         self.blade.subscribe_var_values()
 
-    def close(self):
-        self.stage.close()
-        self.pressure.close()
-        self.trigger.close()
-        self.blade.close()
+    def cleanup(self):
+        self.stage.cleanup()
+        self.pressure.cleanup()
+        self.trigger.cleanup()
+        self.blade.cleanup()
 
 
 if __name__ == '__main__':
@@ -86,5 +86,5 @@ if __name__ == '__main__':
         api_error.error(str(e), 'Demo code for gas jet')
         pass
 
-    jet.close()
+    jet.cleanup()
     print(api_error)

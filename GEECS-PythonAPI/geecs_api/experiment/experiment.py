@@ -13,7 +13,7 @@ class Experiment:
     def cleanup(self):
         for dev in self.devs.values():
             try:
-                dev.close()
+                dev.cleanup()
             except Exception:
                 pass
 
