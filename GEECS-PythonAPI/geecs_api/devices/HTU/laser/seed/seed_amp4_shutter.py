@@ -113,5 +113,5 @@ if __name__ == '__main__':
         pass
 
     # close
-    shutter.cleanup()
+    shutter.close()
     print(api_error)

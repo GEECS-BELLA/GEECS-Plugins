@@ -21,9 +21,9 @@ class Steering(GeecsDevice):
         sub &= self.vertical.subscribe_var_values()
         return sub
 
-    def cleanup(self):
-        self.horizontal.cleanup()
-        self.vertical.cleanup()
+    def close(self):
+        self.horizontal.close()
+        self.vertical.close()
 
     def state_current(self) -> tuple[Optional[float], Optional[float]]:
         return self.horizontal._state_value(self.horizontal.var_current),\

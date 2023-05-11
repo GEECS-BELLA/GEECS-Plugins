@@ -150,5 +150,5 @@ if __name__ == '__main__':
     # if scan_accepted:
     #     print(f'Scan timed out: {scan_timed_out}')
 
-    jet.cleanup()
+    jet.close()
     print(api_error)

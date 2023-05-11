@@ -32,10 +32,10 @@ class Transport(GeecsDevice):
         self.steer_3.subscribe_var_values()
         self.steer_4.subscribe_var_values()
 
-    def cleanup(self):
-        self.hexapod.cleanup()
-        self.chicane.cleanup()
-        self.steer_1.cleanup()
-        self.steer_2.cleanup()
-        self.steer_3.cleanup()
-        self.steer_4.cleanup()
+    def close(self):
+        self.hexapod.close()
+        self.chicane.close()
+        self.steer_1.close()
+        self.steer_2.close()
+        self.steer_3.close()
+        self.steer_4.close()

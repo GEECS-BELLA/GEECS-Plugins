@@ -7,7 +7,8 @@ from geecs_api.api_defs import SysPath
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
-from geecs_api.tools.scans.screen_scan_analysis import screen_scan_analysis
+from htu_scripts.analysis.screen_scan_analysis import screen_scan_analysis
+from geecs_api.tools.interface.prompts import text_input
 
 
 def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
@@ -30,18 +31,16 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
 
     # screens
     all_labels: list[str] = list(e_diagnostics.imagers.keys())
+    labels_shown: bool = False
     if first_screen is None or first_screen not in all_labels:
         print(f'Screens shorthand labels: {str(all_labels)[1:-1]}')
-        while True:
-            first_screen = input('First screen: ')
-            if first_screen in all_labels:
-                break
+        labels_shown = True
+        first_screen = text_input('First screen: ', accepted_answers=all_labels)
 
     if last_screen is None or last_screen not in all_labels:
-        while True:
-            last_screen = input('Last screen: ')
-            if last_screen in all_labels:
-                break
+        if not labels_shown:
+            print(f'Screens shorthand labels: {str(all_labels)[1:-1]}')
+        last_screen = text_input('Last screen: ', accepted_answers=all_labels)
 
     i1 = all_labels.index(first_screen)
     i2 = all_labels.index(last_screen)
@@ -55,35 +54,36 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
         screen = e_diagnostics.imagers[label].screen
         camera = e_diagnostics.imagers[label].camera
 
-        # insert
+        # insert screen
         print(f'Inserting {screen.var_alias} ({screen.controller.get_name()})...')
-        for _ in range(3):
-            try:
-                screen.insert()
-                if screen.is_inserted():
+        while True:
+            screen.insert()
+            if screen.is_inserted():
+                break
+            else:
+                print(f'Failed to insert {screen.var_alias} ({screen.controller.get_name()})')
+                repeat = text_input(f'Try again? : ', accepted_answers=['y', 'yes', 'n', 'no'])
+                if repeat.lower()[0] == 'n':
+                    success = False
                     break
-            except Exception:
-                continue
 
-        if not screen.is_inserted():
-            success = False
+        # set undulator stage
+        if label[0] == 'U':
+            station = int(label[1])
+            print(f'Moving undulator stage to station {station}, "{undulator_diagnostic}"...')
+            while True:
+                if e_diagnostics.undulator_stage.set_position(station, undulator_diagnostic):
+                    break
+                else:
+                    print(f'Failed to move to station {station}, "{undulator_diagnostic}"')
+                    repeat = text_input(f'Try again? : ', accepted_answers=['y', 'yes', 'n', 'no'])
+                    if repeat.lower()[0] == 'n':
+                        success = False
+                        break
+
+        # check
+        if not success:
             break
-
-        # undulator stage
-        # if label[0] == 'U':
-        #     station = int(label[1])
-        #     print(f'Moving undulator stage to station {station}, "{undulator_diagnostic}"...')
-        #     success = False
-        #     for _ in range(3):
-        #         try:
-        #             if e_diagnostics.undulator_stage.set_position(station, undulator_diagnostic):
-        #                 success = True
-        #                 break
-        #         except Exception:
-        #             continue
-        #
-        #     if not success:
-        #         break
 
         # scan/background
         if background:
@@ -96,18 +96,21 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
                 GeecsDevice.run_no_scan(monitoring_device=camera, comment=scan_comment, timeout=300.)
             no_scans.append((scan_path, camera.get_name()))
 
-        # retract
+        # remove screen
         print(f'Removing {screen.var_alias} ({screen.controller.get_name()})...')
-        for _ in range(3):
-            try:
-                screen.remove()
-                if not screen.is_inserted():
+        while True:
+            screen.remove()
+            if not screen.is_inserted():
+                break
+            else:
+                print(f'Failed to remove {screen.var_alias} ({screen.controller.get_name()})')
+                repeat = text_input(f'Try again? : ', accepted_answers=['y', 'yes', 'n', 'no'])
+                if repeat.lower()[0] == 'n':
+                    success = False
                     break
-            except Exception:
-                continue
 
-        if screen.is_inserted():
-            success = False
+        # check
+        if not success:
             break
 
     print(f'Screen scan done. Success = {success}')
@@ -147,5 +150,5 @@ if __name__ == '__main__':
         pass
     finally:
         # cleanup connections
-        _e_diagnostics.cleanup()
-        [controller.cleanup() for controller in _e_diagnostics.controllers]
+        _e_diagnostics.close()
+        [controller.close() for controller in _e_diagnostics.controllers]

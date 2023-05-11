@@ -27,7 +27,7 @@ class TcpSubscriber:
         except Exception:
             self.sock = None
 
-    def cleanup(self):
+    def close(self):
         try:
             self.unsubscribe()
             self.close_sock()

@@ -9,7 +9,7 @@ from typing import Optional, Union
 from geecs_api.api_defs import SysPath
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.tools.scans.utility import read_geecs_tdms
+from geecs_api.tools.scans.tdms import read_geecs_tdms
 
 
 class Scan:

@@ -20,12 +20,12 @@ class Diagnostics(GeecsDevice):
 
         self.e_beam = EBeamDiagnostics()
 
-    def cleanup(self):
-        self.e_beam.cleanup()
+    def close(self):
+        self.e_beam.close()
 
 
 if __name__ == '__main__':
     GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
     e_beam = EBeamDiagnostics()
 
-    e_beam.cleanup()
+    e_beam.close()
