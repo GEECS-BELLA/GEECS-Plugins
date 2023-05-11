@@ -255,6 +255,7 @@ class GeecsDevice:
         scan_path, scan_number, accepted, timed_out = '', 0, False, False
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     def _run_scan(self, cmd: str, timeout: float = 300.) -> tuple[bool, bool]:
 =======
         if monitoring_device is None:
@@ -280,6 +281,9 @@ class GeecsDevice:
             -> tuple[SysPath, int, bool, bool]:
         next_folder, next_scan = self.next_scan_folder()
 >>>>>>> parent of 7a19ff8 (Merge branch 'htu-labview-python-bridge')
+=======
+    def _run_scan(self, cmd: str, timeout: float = 300.) -> tuple[bool, bool]:
+>>>>>>> parent of 4e1a7d3 (Lots of rearranging and cleaning to eventually merge with Reinier's approach. Added a bunch of image processing stuff)
         accepted = self.dev_udp.send_scan_cmd(cmd)
 
         # format ini file

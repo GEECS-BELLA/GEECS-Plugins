@@ -5,10 +5,13 @@ import shutil
 import cv2
 from typing import Any
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 from datetime import datetime as dtime
 from geecs_api.tools.images.batch_analyses import average_images
 >>>>>>> parent of 7a19ff8 (Merge branch 'htu-labview-python-bridge')
+=======
+>>>>>>> parent of 4e1a7d3 (Lots of rearranging and cleaning to eventually merge with Reinier's approach. Added a bunch of image processing stuff)
 from geecs_api.api_defs import VarAlias, SysPath
 from geecs_api.devices.geecs_device import GeecsDevice
 
@@ -47,6 +50,7 @@ class Camera(GeecsDevice):
         else:
             return val_string
 
+<<<<<<< HEAD
 <<<<<<< HEAD
     def save_background(self, exec_timeout: float = 30.0):
         # background folder
@@ -91,6 +95,10 @@ class Camera(GeecsDevice):
 
     def save_background(self, exec_timeout: float = 30.0, set_as_background: bool = True):
 >>>>>>> parent of 7a19ff8 (Merge branch 'htu-labview-python-bridge')
+=======
+    def save_background(self, exec_timeout: float = 30.0):
+        # background folder
+>>>>>>> parent of 4e1a7d3 (Lots of rearranging and cleaning to eventually merge with Reinier's approach. Added a bunch of image processing stuff)
         next_scan_folder, _ = self.next_scan_folder()
         scan_name = os.path.basename(next_scan_folder)
 
@@ -106,11 +114,16 @@ class Camera(GeecsDevice):
 
         # average image
 <<<<<<< HEAD
+<<<<<<< HEAD
         saving_path: SysPath = os.path.join(next_scan_folder, self.get_name())
         self._calculate_average_image(self, saving_path, bkg_folder)
 =======
         avg_image = average_images(images_folder=os.path.join(next_scan_folder, self.get_name()))
 >>>>>>> parent of 7a19ff8 (Merge branch 'htu-labview-python-bridge')
+=======
+        saving_path: SysPath = os.path.join(next_scan_folder, self.get_name())
+        self._calculate_average_image(self, saving_path, bkg_folder)
+>>>>>>> parent of 4e1a7d3 (Lots of rearranging and cleaning to eventually merge with Reinier's approach. Added a bunch of image processing stuff)
 
         if avg_image:
             cv2.imwrite(file_path, avg_image)
@@ -125,11 +138,15 @@ class Camera(GeecsDevice):
         next_scan_folder, _ = cameras[0].next_scan_folder()
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> parent of 4e1a7d3 (Lots of rearranging and cleaning to eventually merge with Reinier's approach. Added a bunch of image processing stuff)
                 if not os.path.isdir(bkg_folder):
                     os.makedirs(bkg_folder)
                 bkg_filepath: SysPath = os.path.join(bkg_folder, 'avg_bkg.png')
                 cv2.imwrite(bkg_filepath, avg_image)
                 camera.set(camera.var_bkg_path, value=bkg_filepath, exec_timeout=10., sync=True)
+<<<<<<< HEAD
 =======
         # background file name
         stamp = dtime.now()
@@ -155,6 +172,8 @@ class Camera(GeecsDevice):
                         time.sleep(1.)  # buffer to write file to disk
                         camera.set(camera.var_bkg_path, value=file_path, exec_timeout=10., sync=True)
 >>>>>>> parent of 7a19ff8 (Merge branch 'htu-labview-python-bridge')
+=======
+>>>>>>> parent of 4e1a7d3 (Lots of rearranging and cleaning to eventually merge with Reinier's approach. Added a bunch of image processing stuff)
 
             except Exception:
                 continue

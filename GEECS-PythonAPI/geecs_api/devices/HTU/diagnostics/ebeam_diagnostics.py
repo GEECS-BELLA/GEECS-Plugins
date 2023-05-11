@@ -45,6 +45,7 @@ class EBeamDiagnostics(GeecsDevice):
                  ('U9', 'UC_VisaEBeam9', self.controllers[0], 'Visa9Plunger')]}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     def cleanup(self):
         [obj.cleanup() for obj in self.phosphors.values()]
 =======
@@ -87,3 +88,7 @@ if __name__ == '__main__':
     e_diagnostics.cleanup()
     [controller.cleanup() for controller in e_diagnostics.controllers]
 >>>>>>> parent of 7a19ff8 (Merge branch 'htu-labview-python-bridge')
+=======
+    def cleanup(self):
+        [obj.cleanup() for obj in self.phosphors.values()]
+>>>>>>> parent of 4e1a7d3 (Lots of rearranging and cleaning to eventually merge with Reinier's approach. Added a bunch of image processing stuff)
