@@ -1,15 +1,21 @@
+""" @author: Guillaume Plateau, TAU Systems """
+
+from __future__ import annotations
+from typing import Optional, Any, Union, TYPE_CHECKING
+from geecs_api.api_defs import VarAlias
+if TYPE_CHECKING:
+    from geecs_api.api_defs import VarDict, ExpDict, AsyncResult, ThreadInfo, SysPath
 import queue
 import re
 import inspect
 import time
 import os
+import shutil
 import numpy as np
 from queue import Queue
 import numpy.typing as npt
 from threading import Thread, Condition, Event, Lock
-from typing import Optional, Any, Union
 from datetime import datetime as dtime
-from geecs_api.api_defs import VarDict, ExpDict, VarAlias, AsyncResult, ThreadInfo, SysPath
 import geecs_api.interface.message_handling as mh
 from geecs_api.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorAPI, api_error
 
@@ -241,28 +247,125 @@ class GeecsDevice:
             -> AsyncResult:
         return self._execute(variable, None, exec_timeout, attempts_max, sync)
 
-    def _run_file_scan(self, timeout: float = 300.) -> tuple[bool, bool]:
-        cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
-        return self._run_scan(cmd, timeout)
-
-    def run_no_scan(self, comment: str = 'no scan', timeout: float = 300.) -> tuple[bool, bool]:
+    # currently necessity for "real" device to monitor scan status
+    @staticmethod
+    def run_no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
+                    timeout: float = 300.) -> tuple[SysPath, int, bool, bool]:
         cmd = f'ScanStart>>{comment}'
-        return self._run_scan(cmd, timeout)
+        scan_path, scan_number, accepted, timed_out = '', 0, False, False
 
+<<<<<<< HEAD
     def _run_scan(self, cmd: str, timeout: float = 300.) -> tuple[bool, bool]:
+=======
+        if monitoring_device is None:
+            dev = GeecsDevice('tmp', virtual=True)
+            dev.dev_udp = UdpHandler(owner=dev)
+        else:
+            dev = monitoring_device
+
+        try:
+            scan_path, scan_number, accepted, timed_out = dev.process_scan(cmd, comment, timeout)
+        except Exception:
+            pass
+        finally:
+            if monitoring_device is None:
+                try:
+                    dev.cleanup()
+                except Exception:
+                    pass
+
+        return scan_path, scan_number, accepted, timed_out
+
+    def process_scan(self, cmd: str, comment: str = 'no scan', timeout: float = 300.) \
+            -> tuple[SysPath, int, bool, bool]:
+        next_folder, next_scan = self.next_scan_folder()
+>>>>>>> parent of 7a19ff8 (Merge branch 'htu-labview-python-bridge')
         accepted = self.dev_udp.send_scan_cmd(cmd)
 
-        timed_out = self.wait_for_scan_start(timeout=60.)
+        # format ini file
+        ini_file_name = f'ScanInfo{os.path.basename(next_folder)}.ini'
+        txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
 
+        ini_file_path = os.path.join(next_folder, ini_file_name)
+        txt_file_path = os.path.join(next_folder, txt_file_name)
+        ini_found = False
+
+        if accepted:
+            # wait for .ini file creation
+            t0 = time.monotonic()
+            while True:
+                timed_out = (time.monotonic() - t0 > 10.)
+                if timed_out:
+                    break
+
+                if os.path.isfile(ini_file_path):
+                    ini_found = True
+                    break
+
+            if ini_found:
+                try:
+                    # make a copy and write content to it
+                    shutil.copy2(ini_file_path, ini_file_path + '~')
+
+                    destination = open(ini_file_path, 'w')
+                    source = open(ini_file_path + '~', 'r')
+
+                    info_line_found = False
+                    par_line_found = False
+                    for line in source:
+                        if line.startswith('ScanStartInfo'):
+                            destination.write(f'ScanStartInfo = "{comment}"\n')
+                            info_line_found = True
+                        elif line.startswith('Scan Parameter'):
+                            destination.write('Scan Parameter = "Shotnumber"\n')
+                            par_line_found = True
+                        else:
+                            destination.write(line)
+
+                    source.close()
+                    destination.close()
+
+                    #  add lines if missing
+                    if not info_line_found or not par_line_found:
+                        destination = open(ini_file_path, 'a')
+                        if not info_line_found:
+                            destination.write(f'ScanStartInfo = "{comment}"\n')
+                        if not par_line_found:
+                            destination.write('Scan Parameter = "Shotnumber"\n')
+                        destination.close()
+
+                except Exception as ex:
+                    api_error.error(str(ex), f'Could not update "{ini_file_name}" with scan comment')
+                    try:
+                        # restore files
+                        os.remove(ini_file_path)
+                        shutil.move(ini_file_path + '~', ini_file_path)
+                    except Exception:
+                        pass
+                else:
+                    # remove original if successful
+                    try:
+                        os.remove(ini_file_path + "~")
+                    except Exception:
+                        pass
+
+        # execution
+        timed_out = self.wait_for_scan_start(next_folder, next_scan, timeout=60.)
         if not timed_out:
+            if not self.is_valid():
+                time.sleep(2.)  # buffer since cannot verify in 'scan' mode
+
+            # wait for 'no scan' status (if valid device) or .txt file to be created = end of scan
             t0 = time.monotonic()
             while True:
                 timed_out = (time.monotonic() - t0 > timeout)
-                if (self.state[VarAlias('device status')] == 'no scan') or timed_out:
+                if os.path.isfile(txt_file_path) \
+                        or (self.is_valid() and self.state[VarAlias('device status')] == 'no scan') \
+                        or timed_out:
                     break
                 time.sleep(1.)
 
-        return accepted, timed_out
+        return next_folder, next_scan, accepted, timed_out
 
     def get_status(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
         ret = self.get('device status', exec_timeout=exec_timeout, sync=sync)
@@ -289,12 +392,12 @@ class GeecsDevice:
             cmd_str = f'StartScan>>{GeecsDevice.scan_file_path}'
             cmd_label = 'scan'
         else:
-            if isinstance(value, float):
-                cmd_str = f'set{variable}>>{value:.6f}'
-                cmd_label = f'set({variable}, {value:.6f})'
-            elif isinstance(value, str):
+            if isinstance(value, (int, str)):
                 cmd_str = f'set{variable}>>{value}'
                 cmd_label = f'set({variable}, {value})'
+            elif isinstance(value, float):
+                cmd_str = f'set{variable}>>{value:.6f}'
+                cmd_label = f'set({variable}, {value:.6f})'
             elif isinstance(value, bool):
                 cmd_str = f'set{variable}>>{int(value)}'
                 cmd_label = f'set({variable}, {value})'
@@ -394,16 +497,15 @@ class GeecsDevice:
 
             # Update dictionaries
             if dev_name == self.get_name() and not err_status and cmd_received[:3] == 'get':
-                var_alias = VarAlias('')
-
                 if cmd_received[3:] in self.generic_vars:
                     self.interpret_generic_variables(cmd_received[3:], dev_val)
-                    var_alias = VarAlias(cmd_received[3:])
+                    # var_alias = VarAlias(cmd_received[3:])
 
-                if cmd_received[3:] in self.var_aliases_by_name:
+                elif cmd_received[3:] in self.var_aliases_by_name:
                     var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
                     dev_val = self.interpret_value(var_alias, dev_val)
                     self.state[var_alias] = dev_val
+
                 else:
                     var_alias = self.find_alias_by_var(cmd_received[3:])
                     try:
@@ -412,28 +514,28 @@ class GeecsDevice:
                         pass
                     self.state[var_alias] = dev_val
 
-                if var_alias:
-                    dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
-                    # print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} = {dev_val}')
+                # if var_alias:
+                #     dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
+                #     print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} = {dev_val}')
 
             if dev_name == self.get_name() and not err_status and cmd_received[:3] == 'set':
-                var_alias = VarAlias('')
-
                 if cmd_received[3:] in self.var_aliases_by_name:
                     var_alias = self.var_aliases_by_name[cmd_received[3:]][0]
                     dev_val = self.interpret_value(var_alias, dev_val)
                     self.setpoints[var_alias] = dev_val
+                    self.state[var_alias] = dev_val
                 else:
                     var_alias = self.find_alias_by_var(cmd_received[3:])
                     try:
                         dev_val = float(dev_val)
                     except Exception:
                         pass
+                    self.setpoints[var_alias] = dev_val
                     self.state[var_alias] = dev_val
 
-                if var_alias:
-                    dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
-                    # print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} set to {dev_val}')
+                # if var_alias:
+                #     dev_val = f'"{dev_val}"' if isinstance(dev_val, str) else dev_val
+                #     print(f'{self.__class_name} [{self.__dev_name}]: {var_alias} set to {dev_val}')
 
             return dev_name, cmd_received, dev_val, err_status
 
@@ -593,9 +695,7 @@ class GeecsDevice:
 
         return os.path.join(data_folder, 'scans', next_folder), last_scan + 1
 
-    def wait_for_scan_start(self, timeout: float = 60.) -> bool:
-        next_folder, next_scan = self.next_scan_folder()
-
+    def wait_for_scan_start(self, next_folder: SysPath, next_scan: int, timeout: float = 60.) -> bool:
         t0 = time.monotonic()
         while True:
             timed_out = (time.monotonic() - t0 > timeout)
@@ -604,7 +704,8 @@ class GeecsDevice:
 
             tdms_filepath = os.path.join(next_folder, f'Scan{next_scan:03d}.tdms')
             if os.path.isdir(next_folder) and os.path.isfile(tdms_filepath) \
-                    and ('device status' in self.state) and (self.state[VarAlias('device status')] == 'scan'):
+                    and (not self.is_valid() or
+                         (('device status' in self.state) and (self.state[VarAlias('device status')] == 'scan'))):
                 break
             time.sleep(0.1)
 
@@ -690,13 +791,15 @@ class GeecsDevice:
 if __name__ == '__main__':
     GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-    s3h = GeecsDevice('U_S3H')
+    # GeecsDevice.run_no_scan(comment='scan comment')
+
+    # s3h = GeecsDevice('U_S3H')
     # s3h.subscribe_var_values()
-    s3h.subscribe_var_values(['Current', 'Voltage'])
+    # s3h.subscribe_var_values(['Current', 'Voltage'])
 
     # s3h.get('Current')
     # s3h.set('Current', -0.5)
-    time.sleep(1.)
-    print(f'State: {s3h.state}')
+    # time.sleep(1.)
+    # print(f'State: {s3h.state}')
 
-    s3h.cleanup()
+    # s3h.cleanup()
