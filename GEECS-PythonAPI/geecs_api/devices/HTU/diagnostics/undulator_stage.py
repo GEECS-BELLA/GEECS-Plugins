@@ -89,4 +89,4 @@ if __name__ == '__main__':
     print(f'State: {undulator_stage.state}')
 
     # destroy object
-    undulator_stage.cleanup()
+    undulator_stage.close()
