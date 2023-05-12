@@ -31,6 +31,7 @@ class Scan:
               Allows working offline with local copy of the data, when specifying a folder
         experiment_base_path : SysPath
               Allows working offline with local copy of the data, when specifying a tag
+              e.g. experiment_base_path='C:/Users/GuillaumePlateau/Documents/LBL/Data/Undulator'
         """
 
         self.identified = False
