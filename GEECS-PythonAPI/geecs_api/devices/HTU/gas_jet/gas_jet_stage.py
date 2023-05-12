@@ -76,7 +76,7 @@ class GasJetStage(GeecsDevice):
             return self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
 
     def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 30.0, sync=True) \
-            -> Union[Optional[float], Optional[AsyncResult]]:
+            -> Optional[Union[float, AsyncResult]]:
         out_of_bound, axis = self.is_axis_out_of_bound(axis)
         if out_of_bound:
             if sync:
@@ -86,11 +86,7 @@ class GasJetStage(GeecsDevice):
         else:
             var_alias = self.get_axis_var_alias(axis)
             value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
-            ret = self.set(self.get_axis_var_name(axis), value=value, exec_timeout=exec_timeout, sync=sync)
-            if sync:
-                return self._state_value(self.get_axis_var_name(axis))
-            else:
-                return ret
+            return self.set(self.get_axis_var_name(axis), value=value, exec_timeout=exec_timeout, sync=sync)
 
     def rough_scan(self, axis: Optional[str, int], start_value: float, end_value: float,
                    step_size: float = 0.25, dwell_time: float = 2.0, report: bool = False):

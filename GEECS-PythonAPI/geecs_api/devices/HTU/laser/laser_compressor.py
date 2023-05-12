@@ -49,12 +49,7 @@ class LaserCompressor(GeecsDevice):
         return self.get(self.var_separation, exec_timeout=exec_timeout, sync=sync)
 
     def set_separation(self, value: float, exec_timeout: float = 10.0, sync=True) \
-            -> Union[float, Optional[AsyncResult]]:
+            -> Optional[Union[float, AsyncResult]]:
         var_alias = self.var_aliases_by_name[self.var_separation][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
-
-        ret = self.set(self.var_separation, value=value, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_separation()
-        else:
-            return ret
+        return self.set(self.var_separation, value=value, exec_timeout=exec_timeout, sync=sync)

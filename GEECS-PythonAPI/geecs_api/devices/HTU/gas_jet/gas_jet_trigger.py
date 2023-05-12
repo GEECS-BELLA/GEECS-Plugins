@@ -49,13 +49,9 @@ class GasJetTrigger(GeecsDevice):
     def is_running(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[bool, AsyncResult]]:
         return self.get(self.var_trigger, exec_timeout=exec_timeout, sync=sync)
 
-    def run(self, value: bool, exec_timeout: float = 10.0, sync=True) -> Union[Optional[bool], Optional[AsyncResult]]:
+    def run(self, value: bool, exec_timeout: float = 10.0, sync=True) -> Optional[Union[bool, AsyncResult]]:
         value = 4.0 if value else 0.5
-        ret = self.set(self.var_trigger, value=value, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_trigger()
-        else:
-            return ret
+        return self.set(self.var_trigger, value=value, exec_timeout=exec_timeout, sync=sync)
 
     def get_start_time(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[float, AsyncResult]]:
         return self.get(self.var_start_time, exec_timeout=exec_timeout, sync=sync)

@@ -243,12 +243,25 @@ class GeecsDevice:
 
     # Operations
     # -----------------------------------------------------------------------------------------------------------
-    def set(self, variable: str, value, exec_timeout: Optional[float] = 120.0, attempts_max: int = 5, sync=True)\
-            -> Optional[AsyncResult]:
-        return self._execute(variable, value, exec_timeout, attempts_max, sync)
+    def set(self, variable: str, value, exec_timeout: Optional[float] = 120.0, attempts_max: int = 5, sync=True) -> Any:
+        """
+        if sync=True (default), returns state value after execution
+        else, returns AsyncResult (tuple of "queued", "cmd_label", "async_thread")
+        """
+        ret = self._execute(variable, value, exec_timeout, attempts_max, sync)
+
+        if ret and sync:
+            return self._state_value(variable)
+        else:
+            return ret
 
     def get(self, variable: str, exec_timeout: Optional[float] = 5.0, attempts_max: int = 5, sync=True) -> Any:
+        """
+        if sync=True (default), returns updated state value
+        else, returns AsyncResult (tuple of "queued", "cmd_label", "async_thread")
+        """
         ret = self._execute(variable, None, exec_timeout, attempts_max, sync)
+
         if ret and sync:
             return self._state_value(variable)
         else:

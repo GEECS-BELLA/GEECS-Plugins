@@ -43,15 +43,11 @@ class UndulatorStage(GeecsDevice):
         return self.get(self.var_position, exec_timeout=exec_timeout, sync=sync)
 
     def set_rail_position(self, value: float, exec_timeout: float = 10.0, sync=True) \
-            -> Union[Optional[float], Optional[AsyncResult]]:
+            -> Optional[Union[float, AsyncResult]]:
         var_alias = self.var_aliases_by_name[self.var_position][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
 
-        ret = self.set(self.var_position, value=value, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_position()
-        else:
-            return ret
+        return self.set(self.var_position, value=value, exec_timeout=exec_timeout, sync=sync)
 
     def get_position(self, exec_timeout: float = 2.0) -> tuple[int, str]:
         """ Returns the estimated station and diagnostic position """

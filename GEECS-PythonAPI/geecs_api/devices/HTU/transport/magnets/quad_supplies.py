@@ -102,18 +102,16 @@ class Quads(GeecsDevice):
             return self.get(self.vars_current_lim[index-1], exec_timeout=exec_timeout, sync=sync)
 
     def set_current_limit(self, index: int, value: float, exec_timeout: float = 10.0, sync=True)\
-            -> Union[Optional[float], Optional[AsyncResult]]:
+            -> Optional[Union[float, AsyncResult]]:
         if self.is_index_out_of_bound(index):
-            ret = (False, '', (None, None))
+            if sync:
+                return None
+            else:
+                return False, '', (None, None)
         else:
             var_alias = self.var_aliases_by_name[self.vars_current_lim[index-1]][0]
             value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
-            ret = self.set(self.vars_current_lim[index-1], value=value, exec_timeout=exec_timeout, sync=sync)
-
-        if sync:
-            return self.state_current_limit(index)
-        else:
-            return ret
+            return self.set(self.vars_current_lim[index-1], value=value, exec_timeout=exec_timeout, sync=sync)
 
     def is_enabled(self, index: int, exec_timeout: float = 2.0, sync=True) -> Optional[Union[bool, AsyncResult]]:
         if self.is_index_out_of_bound(index):
@@ -124,18 +122,16 @@ class Quads(GeecsDevice):
         else:
             return self.get(self.vars_enable[index-1], exec_timeout=exec_timeout, sync=sync)
 
-    def enable(self, index: int, value: bool, exec_timeout: float = 10.0, sync=True)\
-            -> Union[Optional[bool], Optional[AsyncResult]]:
+    def enable(self, index: int, value: bool, exec_timeout: float = 10.0, sync=True) \
+            -> Optional[Union[bool, AsyncResult]]:
         if self.is_index_out_of_bound(index):
-            ret = (False, '', (None, None))
+            if sync:
+                return None
+            else:
+                return False, '', (None, None)
         else:
             value = 'on' if value else 'off'
-            ret = self.set(self.vars_enable[index-1], value=value, exec_timeout=exec_timeout, sync=sync)
-
-        if sync:
-            return self.state_enable(index)
-        else:
-            return ret
+            return self.set(self.vars_enable[index-1], value=value, exec_timeout=exec_timeout, sync=sync)
 
     def disable(self, index: int, exec_timeout: float = 10.0, sync=True) -> Union[Optional[bool], AsyncResult]:
         return self.enable(index, False, exec_timeout=exec_timeout, sync=sync)

@@ -40,12 +40,7 @@ class Pump(GeecsDevice):
         return self.get(self.var_timing, exec_timeout=exec_timeout, sync=sync)
 
     def set_lamp_timing(self, value: float, exec_timeout: float = 10.0, sync=True) \
-            -> Union[float, Optional[AsyncResult]]:
+            -> Optional[Union[float, AsyncResult]]:
         var_alias = self.var_aliases_by_name[self.var_timing][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias]) / 1e6
-
-        ret = self.set(self.var_timing, value=value, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_lamp_timing()
-        else:
-            return ret
+        return self.set(self.var_timing, value=value, exec_timeout=exec_timeout, sync=sync)

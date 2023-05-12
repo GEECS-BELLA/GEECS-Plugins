@@ -58,11 +58,14 @@ class PumpShutters(GeecsDevice):
         return self.get(self._get_var_name(index, side), exec_timeout=exec_timeout, sync=sync)
 
     def _set_shutter(self, index: int, side: str, value: bool, exec_timeout: float = 10.0, sync=True) \
-            -> Optional[AsyncResult]:
+            -> Optional[Union[bool, AsyncResult]]:
         if (not isinstance(index, int)) \
                 or (index < 1 or index > 4) \
                 or (side.lower() != 'north' and side.lower() != 'south'):
-            return False, '', (None, None)
+            if sync:
+                return None
+            else:
+                return False, '', (None, None)
 
         var_name = self._get_var_name(index, side)
         val_str = 'Inserted' if value else 'Removed'

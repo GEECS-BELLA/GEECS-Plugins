@@ -38,15 +38,10 @@ class GasJetPressure(GeecsDevice):
     def get_pressure(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[float, AsyncResult]]:
         return self.get(self.var_pressure, exec_timeout=exec_timeout, sync=sync)
 
-    def set_pressure(self, value: float, exec_timeout: float = 10.0, sync=True) -> Union[float, Optional[AsyncResult]]:
+    def set_pressure(self, value: float, exec_timeout: float = 10.0, sync=True) -> Optional[Union[float, AsyncResult]]:
         var_alias = self.var_aliases_by_name[self.var_pressure][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias]) / 100.
-
-        ret = self.set(self.var_pressure, value=value, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_psi()
-        else:
-            return ret
+        return self.set(self.var_pressure, value=value, exec_timeout=exec_timeout, sync=sync)
 
 
 if __name__ == '__main__':

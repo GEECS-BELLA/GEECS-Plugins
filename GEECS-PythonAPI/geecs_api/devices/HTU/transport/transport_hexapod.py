@@ -60,7 +60,7 @@ class TransportHexapod(GeecsDevice):
         return self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
 
     def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 60.0, sync=True) \
-            -> Union[Optional[float], Optional[AsyncResult]]:
+            -> Optional[Union[float, AsyncResult]]:
         if isinstance(axis, str):
             if len(axis) == 1:
                 axis = ord(axis.upper()) - ord('X')
@@ -77,16 +77,12 @@ class TransportHexapod(GeecsDevice):
         var_alias = self.var_aliases_by_name[var_name][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
 
-        ret = self.set(var_name, value, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self._state_value(self.get_axis_var_name(axis))
-        else:
-            return ret
+        return self.set(var_name, value, exec_timeout=exec_timeout, sync=sync)
 
-    def move_in(self, exec_timeout: float = 60.0, sync=True) -> Union[Optional[float], AsyncResult]:
+    def move_in(self, exec_timeout: float = 60.0, sync=True) -> Optional[Union[float, AsyncResult]]:
         return self.set_position(axis=1, value=17.5, exec_timeout=exec_timeout, sync=sync)
 
-    def move_out(self, exec_timeout: float = 60.0, sync=True) -> Union[Optional[float], AsyncResult]:
+    def move_out(self, exec_timeout: float = 60.0, sync=True) -> Optional[Union[float, AsyncResult]]:
         return self.set_position(axis=1, value=-22., exec_timeout=exec_timeout, sync=sync)
 
 

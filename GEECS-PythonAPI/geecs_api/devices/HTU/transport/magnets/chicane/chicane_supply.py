@@ -51,27 +51,17 @@ class ChicaneSupply(GeecsDevice):
     def get_current(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[float, AsyncResult]]:
         return self.get(self.var_current, exec_timeout=exec_timeout, sync=sync)
 
-    def set_current(self, value: float, exec_timeout: float = 10.0, sync=True) \
-            -> Union[Optional[float], Optional[AsyncResult]]:
+    def set_current(self, value: float, exec_timeout: float = 10.0, sync=True) -> Optional[Union[float, AsyncResult]]:
         var_alias = self.var_aliases_by_name[self.var_current][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
-
-        ret = self.set(self.var_current, value=value, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_current()
-        else:
-            return ret
+        return self.set(self.var_current, value=value, exec_timeout=exec_timeout, sync=sync)
 
     def is_enabled(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[bool, AsyncResult]]:
         return self.get(self.var_enable, exec_timeout=exec_timeout, sync=sync)
 
-    def enable(self, value: bool, exec_timeout: float = 10.0, sync=True) -> Union[Optional[bool], Optional[AsyncResult]]:
+    def enable(self, value: bool, exec_timeout: float = 10.0, sync=True) -> Optional[Union[bool, AsyncResult]]:
         value = 'on' if value else 'off'
-        ret = self.set(self.var_enable, value=value, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_enable()
-        else:
-            return ret
+        return self.set(self.var_enable, value=value, exec_timeout=exec_timeout, sync=sync)
 
     def disable(self, exec_timeout: float = 10.0, sync=True) -> Union[Optional[bool], Optional[AsyncResult]]:
         return self.enable(False, exec_timeout=exec_timeout, sync=sync)
