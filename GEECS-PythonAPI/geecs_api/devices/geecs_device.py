@@ -249,8 +249,8 @@ class GeecsDevice:
 
     @staticmethod
     def run_no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
-                    timeout: float = 300.) -> tuple[SysPath, int, bool, bool]:
-        cmd = f'ScanStart>>{comment}'
+                    shots: int = 10, timeout: float = 300.) -> tuple[SysPath, int, bool, bool]:
+        cmd = f'ScanStart>>{comment}>>{shots}'
         scan_path, scan_number, accepted, timed_out = '', 0, False, False
 
         if monitoring_device is None:
