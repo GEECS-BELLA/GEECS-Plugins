@@ -48,14 +48,15 @@ class ChicaneSupply(GeecsDevice):
     def state_voltage(self) -> Optional[float]:
         return self._state_value(self.var_voltage)
 
-    def get_current(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
+    def get_current(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], Optional[AsyncResult]]:
         ret = self.get(self.var_current, exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_current()
         else:
             return ret
 
-    def set_current(self, value: float, exec_timeout: float = 10.0, sync=True) -> Union[Optional[float], AsyncResult]:
+    def set_current(self, value: float, exec_timeout: float = 10.0, sync=True) \
+            -> Union[Optional[float], Optional[AsyncResult]]:
         var_alias = self.var_aliases_by_name[self.var_current][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
 
@@ -65,14 +66,14 @@ class ChicaneSupply(GeecsDevice):
         else:
             return ret
 
-    def is_enabled(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[bool], AsyncResult]:
+    def is_enabled(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[bool], Optional[AsyncResult]]:
         ret = self.get(self.var_enable, exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_enable()
         else:
             return ret
 
-    def enable(self, value: bool, exec_timeout: float = 10.0, sync=True) -> Union[Optional[bool], AsyncResult]:
+    def enable(self, value: bool, exec_timeout: float = 10.0, sync=True) -> Union[Optional[bool], Optional[AsyncResult]]:
         value = 'on' if value else 'off'
         ret = self.set(self.var_enable, value=value, exec_timeout=exec_timeout, sync=sync)
         if sync:
@@ -80,7 +81,7 @@ class ChicaneSupply(GeecsDevice):
         else:
             return ret
 
-    def disable(self, exec_timeout: float = 10.0, sync=True) -> Union[Optional[bool], AsyncResult]:
+    def disable(self, exec_timeout: float = 10.0, sync=True) -> Union[Optional[bool], Optional[AsyncResult]]:
         return self.enable(False, exec_timeout=exec_timeout, sync=sync)
 
     def get_voltage(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:

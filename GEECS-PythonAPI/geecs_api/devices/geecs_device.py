@@ -10,10 +10,10 @@ import re
 import inspect
 import time
 import os
-import shutil
 import numpy as np
 from queue import Queue
 import numpy.typing as npt
+from pathlib import Path
 from threading import Thread, Condition, Event, Lock
 from datetime import datetime as dtime
 import geecs_api.interface.message_handling as mh
@@ -24,8 +24,8 @@ class GeecsDevice:
     # Static
     threads_lock = Lock()
     all_threads: list[ThreadInfo] = []
-    appdata_path = os.path.join(os.getenv('LOCALAPPDATA'), 'GEECS')
-    scan_file_path = os.path.join(appdata_path, 'geecs_scan.txt')
+    appdata_path: Path = Path(os.getenv('LOCALAPPDATA')) / 'GEECS'
+    scan_file_path: Path = appdata_path / 'geecs_scan.txt'
     exp_info: dict[str, Any] = {}
 
     def __init__(self, name: str, virtual: bool = False):
@@ -90,7 +90,7 @@ class GeecsDevice:
         # Data
         self.data_root_path: SysPath = GeecsDevice.exp_info['data_path']
 
-        if not os.path.exists(GeecsDevice.appdata_path):
+        if not GeecsDevice.appdata_path.is_dir():
             os.makedirs(GeecsDevice.appdata_path)
 
     def close(self):
@@ -240,27 +240,176 @@ class GeecsDevice:
     # Operations
     # -----------------------------------------------------------------------------------------------------------
     def set(self, variable: str, value, exec_timeout: Optional[float] = 120.0, attempts_max: int = 5, sync=True)\
-            -> AsyncResult:
+            -> Optional[AsyncResult]:
         return self._execute(variable, value, exec_timeout, attempts_max, sync)
 
     def get(self, variable: str, exec_timeout: Optional[float] = 5.0, attempts_max: int = 5, sync=True)\
-            -> AsyncResult:
+            -> Optional[AsyncResult]:
         return self._execute(variable, None, exec_timeout, attempts_max, sync)
+
+    def _execute(self, variable: str, value, exec_timeout: Optional[float] = 10.0,
+                 attempts_max: int = 5, sync=True) -> Optional[AsyncResult]:
+        if api_error.is_error:
+            return None
+
+        if isinstance(value, (int, str)):
+            cmd_str = f'set{variable}>>{value}'
+            cmd_label = f'set({variable}, {value})'
+        elif isinstance(value, float):
+            cmd_str = f'set{variable}>>{value:.6f}'
+            cmd_label = f'set({variable}, {value:.6f})'
+        elif isinstance(value, bool):
+            cmd_str = f'set{variable}>>{int(value)}'
+            cmd_label = f'set({variable}, {value})'
+        else:
+            cmd_str = f'get{variable}>>'
+            cmd_label = f'get({variable})'
+
+        if not self.is_valid():
+            api_error.warning(f'Failed to execute "{cmd_label}"',
+                              f'GeecsDevice "{self.__dev_name}" not connected')
+            return None
+
+        stamp = re.sub(r'[\s.:]', '-', dtime.now().__str__())
+        cmd_label += f' @ {stamp}'
+
+        queued: bool = False
+        async_thread: ThreadInfo = (None, None)
+
+        self._cleanup_threads()
+
+        if sync:
+            self.wait_for_all_cmds(timeout=120.)
+
+            with GeecsDevice.threads_lock:
+                self._process_command(cmd_str, cmd_label, thread_info=(None, None), attempts_max=attempts_max)
+                self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
+
+        elif exec_timeout > 0:
+            with GeecsDevice.threads_lock:
+                # create listening thread (only)
+                async_thread: ThreadInfo = \
+                    self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
+
+                # if nothing running and no commands in queue
+                if (not self.own_threads) and self.queue_cmds.empty():
+                    self._process_command(cmd_str, cmd_label, thread_info=async_thread, attempts_max=attempts_max)
+                else:
+                    self.queue_cmds.put((cmd_str, cmd_label, async_thread, attempts_max))
+                    queued = True
+
+        return queued, cmd_label, async_thread
 
     @staticmethod
     def run_no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
                     shots: int = 10, timeout: float = 300.) -> tuple[SysPath, int, bool, bool]:
         cmd = f'ScanStart>>{comment}>>{shots}'
-        scan_path, scan_number, accepted, timed_out = '', 0, False, False
+        return GeecsDevice._process_scan(cmd, comment, monitoring_device, timeout)
 
+    @staticmethod
+    def run_file_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan', timeout: float = 300.):
+        cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
+        return GeecsDevice._process_scan(cmd, comment, monitoring_device, timeout)
+
+    @staticmethod
+    def _process_scan(cmd: str, comment: str = 'no scan', monitoring_device: Optional[GeecsDevice] = None,
+                      timeout: float = 300.) -> tuple[SysPath, int, bool, bool]:
         if monitoring_device is None:
             dev = GeecsDevice('tmp', virtual=True)
             dev.dev_udp = UdpHandler(owner=dev)
         else:
             dev = monitoring_device
 
+        next_folder, next_scan = dev.next_scan_folder()
+        accepted = timed_out = False
+
+        txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
+        txt_file_path = os.path.join(next_folder, txt_file_name)
+
         try:
-            scan_path, scan_number, accepted, timed_out = dev.process_scan(cmd, comment, timeout)
+            accepted = dev.dev_udp.send_scan_cmd(cmd)
+
+            # # format ini file
+            # ini_file_name = f'ScanInfo{os.path.basename(next_folder)}.ini'
+            # # txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
+            #
+            # ini_file_path = os.path.join(next_folder, ini_file_name)
+            # # txt_file_path = os.path.join(next_folder, txt_file_name)
+            # ini_found = False
+            #
+            # if accepted:
+            #     # wait for .ini file creation
+            #     t0 = time.monotonic()
+            #     while True:
+            #         timed_out = (time.monotonic() - t0 > 10.)
+            #         if timed_out:
+            #             break
+            #
+            #         if os.path.isfile(ini_file_path):
+            #             ini_found = True
+            #             break
+            #
+            #     if ini_found:
+            #         try:
+            #             # make a copy and write content to it
+            #             shutil.copy2(ini_file_path, ini_file_path + '~')
+            #
+            #             destination = open(ini_file_path, 'w')
+            #             source = open(ini_file_path + '~', 'r')
+            #
+            #             info_line_found = False
+            #             par_line_found = False
+            #             for line in source:
+            #                 if line.startswith('ScanStartInfo'):
+            #                     destination.write(f'ScanStartInfo = "{comment}"\n')
+            #                     info_line_found = True
+            #                 elif line.startswith('Scan Parameter'):
+            #                     destination.write('Scan Parameter = "Shotnumber"\n')
+            #                     par_line_found = True
+            #                 else:
+            #                     destination.write(line)
+            #
+            #             source.close()
+            #             destination.close()
+            #
+            #             #  add lines if missing
+            #             if not info_line_found or not par_line_found:
+            #                 destination = open(ini_file_path, 'a')
+            #                 if not info_line_found:
+            #                     destination.write(f'ScanStartInfo = "{comment}"\n')
+            #                 if not par_line_found:
+            #                     destination.write('Scan Parameter = "Shotnumber"\n')
+            #                 destination.close()
+            #
+            #         except Exception as ex:
+            #             api_error.error(str(ex), f'Could not update "{ini_file_name}" with scan comment')
+            #             try:
+            #                 # restore files
+            #                 os.remove(ini_file_path)
+            #                 shutil.move(ini_file_path + '~', ini_file_path)
+            #             except Exception:
+            #                 pass
+            #         else:
+            #             # remove original if successful
+            #             try:
+            #                 os.remove(ini_file_path + "~")
+            #             except Exception:
+            #                 pass
+
+            timed_out = dev.wait_for_scan_start(next_folder, next_scan, timeout=60.)
+            if not timed_out:
+                if not dev.is_valid():
+                    time.sleep(2.)  # buffer since cannot verify in 'scan' mode
+
+                # wait for 'no scan' status (if valid device) or .txt file to be created = end of scan
+                t0 = time.monotonic()
+                while True:
+                    timed_out = (time.monotonic() - t0 > timeout)
+                    if os.path.isfile(txt_file_path) \
+                            or (dev.is_valid() and dev.state[VarAlias('device status')] == 'no scan') \
+                            or timed_out:
+                        break
+                    time.sleep(1.)
         except Exception:
             pass
         finally:
@@ -270,99 +419,9 @@ class GeecsDevice:
                 except Exception:
                     pass
 
-        return scan_path, scan_number, accepted, timed_out
-
-    def process_scan(self, cmd: str, comment: str = 'no scan', timeout: float = 300.) \
-            -> tuple[SysPath, int, bool, bool]:
-        next_folder, next_scan = self.next_scan_folder()
-        accepted = self.dev_udp.send_scan_cmd(cmd)
-
-        # format ini file
-        ini_file_name = f'ScanInfo{os.path.basename(next_folder)}.ini'
-        txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
-
-        ini_file_path = os.path.join(next_folder, ini_file_name)
-        txt_file_path = os.path.join(next_folder, txt_file_name)
-        ini_found = False
-
-        if accepted:
-            # wait for .ini file creation
-            t0 = time.monotonic()
-            while True:
-                timed_out = (time.monotonic() - t0 > 10.)
-                if timed_out:
-                    break
-
-                if os.path.isfile(ini_file_path):
-                    ini_found = True
-                    break
-
-            if ini_found:
-                try:
-                    # make a copy and write content to it
-                    shutil.copy2(ini_file_path, ini_file_path + '~')
-
-                    destination = open(ini_file_path, 'w')
-                    source = open(ini_file_path + '~', 'r')
-
-                    info_line_found = False
-                    par_line_found = False
-                    for line in source:
-                        if line.startswith('ScanStartInfo'):
-                            destination.write(f'ScanStartInfo = "{comment}"\n')
-                            info_line_found = True
-                        elif line.startswith('Scan Parameter'):
-                            destination.write('Scan Parameter = "Shotnumber"\n')
-                            par_line_found = True
-                        else:
-                            destination.write(line)
-
-                    source.close()
-                    destination.close()
-
-                    #  add lines if missing
-                    if not info_line_found or not par_line_found:
-                        destination = open(ini_file_path, 'a')
-                        if not info_line_found:
-                            destination.write(f'ScanStartInfo = "{comment}"\n')
-                        if not par_line_found:
-                            destination.write('Scan Parameter = "Shotnumber"\n')
-                        destination.close()
-
-                except Exception as ex:
-                    api_error.error(str(ex), f'Could not update "{ini_file_name}" with scan comment')
-                    try:
-                        # restore files
-                        os.remove(ini_file_path)
-                        shutil.move(ini_file_path + '~', ini_file_path)
-                    except Exception:
-                        pass
-                else:
-                    # remove original if successful
-                    try:
-                        os.remove(ini_file_path + "~")
-                    except Exception:
-                        pass
-
-        # execution
-        timed_out = self.wait_for_scan_start(next_folder, next_scan, timeout=60.)
-        if not timed_out:
-            if not self.is_valid():
-                time.sleep(2.)  # buffer since cannot verify in 'scan' mode
-
-            # wait for 'no scan' status (if valid device) or .txt file to be created = end of scan
-            t0 = time.monotonic()
-            while True:
-                timed_out = (time.monotonic() - t0 > timeout)
-                if os.path.isfile(txt_file_path) \
-                        or (self.is_valid() and self.state[VarAlias('device status')] == 'no scan') \
-                        or timed_out:
-                    break
-                time.sleep(1.)
-
         return next_folder, next_scan, accepted, timed_out
 
-    def get_status(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
+    def get_status(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], Optional[AsyncResult]]:
         ret = self.get('device status', exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self._state_value('device status')
@@ -376,66 +435,6 @@ class GeecsDevice:
         # ['device status', 'device error', 'device preset']
         self.state[VarAlias(var)] = val
 
-    def _execute(self, variable: str, value, exec_timeout: Optional[float] = 10.0,
-                 attempts_max: int = 5, sync=True) -> AsyncResult:
-        if api_error.is_error:
-            return False, '', (None, None)
-
-        scan = (variable == 'scan')
-
-        if scan:
-            cmd_str = f'StartScan>>{GeecsDevice.scan_file_path}'
-            cmd_label = 'scan'
-        else:
-            if isinstance(value, (int, str)):
-                cmd_str = f'set{variable}>>{value}'
-                cmd_label = f'set({variable}, {value})'
-            elif isinstance(value, float):
-                cmd_str = f'set{variable}>>{value:.6f}'
-                cmd_label = f'set({variable}, {value:.6f})'
-            elif isinstance(value, bool):
-                cmd_str = f'set{variable}>>{int(value)}'
-                cmd_label = f'set({variable}, {value})'
-            else:
-                cmd_str = f'get{variable}>>'
-                cmd_label = f'get({variable})'
-
-        if not self.is_valid():
-            api_error.warning(f'Failed to execute "{cmd_label}"',
-                              f'GeecsDevice "{self.__dev_name}" not connected')
-            return False, '', (None, None)
-
-        stamp = re.sub(r'[\s.:]', '-', dtime.now().__str__())
-        cmd_label += f' @ {stamp}'
-
-        queued: bool = False
-        async_thread: ThreadInfo = (None, None)
-
-        self._cleanup_threads()
-
-        if sync or scan:
-            self.wait_for_all_cmds(timeout=120.)
-
-            with GeecsDevice.threads_lock:
-                self.process_command(cmd_str, cmd_label, thread_info=(None, None), attempts_max=attempts_max)
-                if not scan:
-                    self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
-
-        elif exec_timeout > 0:
-            with GeecsDevice.threads_lock:
-                # create listening thread (only)
-                async_thread: ThreadInfo = \
-                    self.dev_udp.cmd_checker.wait_for_exe(cmd_tag=cmd_label, timeout=exec_timeout, sync=sync)
-
-                # if nothing running and no commands in queue
-                if (not self.own_threads) and self.queue_cmds.empty():
-                    self.process_command(cmd_str, cmd_label, thread_info=async_thread, attempts_max=attempts_max)
-                else:
-                    self.queue_cmds.put((cmd_str, cmd_label, async_thread, attempts_max))
-                    queued = True
-
-        return queued, cmd_label, async_thread
-
     def dequeue_command(self):
         self._cleanup_threads()
 
@@ -444,12 +443,12 @@ class GeecsDevice:
             if (not self.own_threads) and (not self.queue_cmds.empty()):
                 try:
                     cmd_str, cmd_label, async_thread, attempts_max = self.queue_cmds.get_nowait()
-                    self.process_command(cmd_str, cmd_label, thread_info=async_thread, attempts_max=attempts_max)
+                    self._process_command(cmd_str, cmd_label, thread_info=async_thread, attempts_max=attempts_max)
                 except queue.Empty:
                     pass
 
-    def process_command(self, cmd_str: str, cmd_label: str,
-                        thread_info: ThreadInfo = (None, None), attempts_max: int = 5):
+    def _process_command(self, cmd_str: str, cmd_label: str,
+                         thread_info: ThreadInfo = (None, None), attempts_max: int = 5):
         accepted = False
         try:
             for _ in range(attempts_max):

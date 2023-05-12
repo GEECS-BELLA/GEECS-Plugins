@@ -31,14 +31,15 @@ class GasJetBlade(GeecsDevice):
     def state_depth(self) -> Optional[float]:
         return self._state_value(self.var_depth)
 
-    def get_depth(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
+    def get_depth(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], Optional[AsyncResult]]:
         ret = self.get(self.var_depth, exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_depth()
         else:
             return ret
 
-    def set_depth(self, value: float, exec_timeout: float = 10.0, sync=True) -> Union[Optional[float], AsyncResult]:
+    def set_depth(self, value: float, exec_timeout: float = 10.0, sync=True) \
+            -> Union[Optional[float], Optional[AsyncResult]]:
         var_alias = self.var_aliases_by_name[self.var_depth][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
 

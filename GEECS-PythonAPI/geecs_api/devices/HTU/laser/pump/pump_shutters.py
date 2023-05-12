@@ -50,7 +50,7 @@ class PumpShutters(GeecsDevice):
         return self.var_names_by_index.get(name_index)[0]
 
     def is_inserted(self, index: int, side: str, exec_timeout: float = 2.0, sync=True) \
-            -> Union[Optional[bool], AsyncResult]:
+            -> Union[Optional[bool], Optional[AsyncResult]]:
         if (not isinstance(index, int)) \
                 or (index < 1 or index > 4) \
                 or (side.lower() != 'north' and side.lower() != 'south'):
@@ -62,7 +62,8 @@ class PumpShutters(GeecsDevice):
         else:
             return ret
 
-    def _set_shutter(self, index: int, side: str, value: bool, exec_timeout: float = 10.0, sync=True) -> AsyncResult:
+    def _set_shutter(self, index: int, side: str, value: bool, exec_timeout: float = 10.0, sync=True) \
+            -> Optional[AsyncResult]:
         if (not isinstance(index, int)) \
                 or (index < 1 or index > 4) \
                 or (side.lower() != 'north' and side.lower() != 'south'):

@@ -65,7 +65,7 @@ class GasJetStage(GeecsDevice):
         return self._state_value(self.get_axis_var_name(2))
 
     def get_position(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
-            -> Union[Optional[float], AsyncResult]:
+            -> Union[Optional[float], Optional[AsyncResult]]:
         out_of_bound, axis = self.is_axis_out_of_bound(axis)
         if out_of_bound:
             if sync:
@@ -80,7 +80,7 @@ class GasJetStage(GeecsDevice):
                 return ret
 
     def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 30.0, sync=True) \
-            -> Union[Optional[float], AsyncResult]:
+            -> Union[Optional[float], Optional[AsyncResult]]:
         out_of_bound, axis = self.is_axis_out_of_bound(axis)
         if out_of_bound:
             if sync:
@@ -112,7 +112,7 @@ class GasJetStage(GeecsDevice):
 
     def scan(self, axis: Optional[str, int], start_value: float, end_value: float, step_size: float = 0.10,
              shots_per_step: int = 10, use_alias: bool = True, timeout: float = 60.) \
-            -> tuple[SysPath, int, bool, bool]:
+            -> Optional[tuple[SysPath, int, bool, bool]]:
         out_of_bound, axis = self.is_axis_out_of_bound(axis)
 
         if not out_of_bound:
@@ -124,11 +124,10 @@ class GasJetStage(GeecsDevice):
             else:
                 self._write_1D_scan_file(self.get_name(), self.get_axis_var_name(axis), var_values, shots_per_step)
 
-            cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
             comment = f'{var_alias} scan'
-            return self.process_scan(cmd, comment, timeout)
+            return GeecsDevice.run_file_scan(self, comment, timeout)
         else:
-            return '', -1, False, False
+            return None
 
 
 if __name__ == '__main__':

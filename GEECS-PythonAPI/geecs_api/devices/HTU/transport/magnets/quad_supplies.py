@@ -92,7 +92,7 @@ class Quads(GeecsDevice):
             return self._state_value(self.vars_voltage[index - 1])
 
     def get_current_limit(self, index: int, exec_timeout: float = 2.0, sync=True)\
-            -> Union[Optional[float], AsyncResult]:
+            -> Union[Optional[float], Optional[AsyncResult]]:
         if self.check_index(index):
             ret = (False, '', (None, None))
         else:
@@ -104,7 +104,7 @@ class Quads(GeecsDevice):
             return ret
 
     def set_current_limit(self, index: int, value: float, exec_timeout: float = 10.0, sync=True)\
-            -> Union[Optional[float], AsyncResult]:
+            -> Union[Optional[float], Optional[AsyncResult]]:
         if self.check_index(index):
             ret = (False, '', (None, None))
         else:
@@ -117,7 +117,8 @@ class Quads(GeecsDevice):
         else:
             return ret
 
-    def is_enabled(self, index: int, exec_timeout: float = 2.0, sync=True) -> Union[Optional[bool], AsyncResult]:
+    def is_enabled(self, index: int, exec_timeout: float = 2.0, sync=True) \
+            -> Union[Optional[bool], Optional[AsyncResult]]:
         if self.check_index(index):
             ret = (False, '', (None, None))
         else:
@@ -129,7 +130,7 @@ class Quads(GeecsDevice):
             return ret
 
     def enable(self, index: int, value: bool, exec_timeout: float = 10.0, sync=True)\
-            -> Union[Optional[bool], AsyncResult]:
+            -> Union[Optional[bool], Optional[AsyncResult]]:
         if self.check_index(index):
             ret = (False, '', (None, None))
         else:
@@ -144,7 +145,8 @@ class Quads(GeecsDevice):
     def disable(self, index: int, exec_timeout: float = 10.0, sync=True) -> Union[Optional[bool], AsyncResult]:
         return self.enable(index, False, exec_timeout=exec_timeout, sync=sync)
 
-    def get_current(self, index: int, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
+    def get_current(self, index: int, exec_timeout: float = 2.0, sync=True) \
+            -> Union[Optional[float], Optional[AsyncResult]]:
         if self.check_index(index):
             ret = (False, '', (None, None))
         else:
@@ -155,7 +157,8 @@ class Quads(GeecsDevice):
         else:
             return ret
 
-    def get_voltage(self, index: int, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], AsyncResult]:
+    def get_voltage(self, index: int, exec_timeout: float = 2.0, sync=True) \
+            -> Union[Optional[float], Optional[AsyncResult]]:
         if self.check_index(index):
             ret = (False, '', (None, None))
         else:

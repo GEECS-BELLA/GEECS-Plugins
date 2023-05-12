@@ -40,7 +40,7 @@ class UndulatorStage(GeecsDevice):
         return self._state_value(self.var_position)
 
     def get_rail_position(self, exec_timeout: float = 2.0, sync=True) \
-            -> Union[Optional[float], AsyncResult]:
+            -> Union[Optional[float], Optional[AsyncResult]]:
         ret = self.get(self.var_position, exec_timeout=exec_timeout, sync=sync)
         if sync:
             return self.state_position()
@@ -48,7 +48,7 @@ class UndulatorStage(GeecsDevice):
             return ret
 
     def set_rail_position(self, value: float, exec_timeout: float = 10.0, sync=True) \
-            -> Union[Optional[float], AsyncResult]:
+            -> Union[Optional[float], Optional[AsyncResult]]:
         var_alias = self.var_aliases_by_name[self.var_position][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
 
