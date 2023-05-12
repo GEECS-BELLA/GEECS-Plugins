@@ -3,7 +3,7 @@ import numpy as np
 import numpy.typing as npt
 from typing import Optional, Any
 from geecs_api.api_defs import SysPath
-from geecs_api.interface import GeecsDatabase, api_error
+from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.transport.magnets import Steering
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
@@ -85,9 +85,9 @@ def undulator_position_scan(screens: Optional[tuple[EBeamDiagnostics, str, str, 
     else:
         print('Scan aborted.')
 
-    # cleanup connections
+    # close connections
     for sm in steering_magnets:
-        sm.cleanup()
+        sm.close()
 
     return scans_info
 
@@ -189,6 +189,6 @@ if __name__ == '__main__':
                             initial_indexes=_initial_indexes,
                             delay=_delay)
 
-    # cleanup connections
-    e_beam_diagnostics.cleanup()
-    [controller.cleanup() for controller in e_beam_diagnostics.controllers]
+    # close connections
+    e_beam_diagnostics.close()
+    [controller.close() for controller in e_beam_diagnostics.controllers]

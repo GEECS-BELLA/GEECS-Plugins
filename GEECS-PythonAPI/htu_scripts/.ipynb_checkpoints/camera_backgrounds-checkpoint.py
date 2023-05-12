@@ -23,6 +23,6 @@ for cam in cameras:
 time.sleep(0.5)
 Camera.save_multiple_backgrounds(cameras, 30.)
 
-# cleanup connections
+# close connections
 for cam in cameras:
-    cam.cleanup()
+    cam.close()

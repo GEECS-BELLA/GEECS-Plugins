@@ -149,6 +149,6 @@ if __name__ == '__main__':
     except Exception:
         pass
     finally:
-        # cleanup connections
+        # close connections
         _e_diagnostics.close()
         [controller.close() for controller in _e_diagnostics.controllers]

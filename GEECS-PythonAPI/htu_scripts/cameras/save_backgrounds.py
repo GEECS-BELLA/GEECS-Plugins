@@ -28,5 +28,5 @@ else:
     Camera.save_multiple_backgrounds(cameras, exec_timeout=30.)
 
 
-# cleanup
+# close
 [cam.close() for cam in cameras]
