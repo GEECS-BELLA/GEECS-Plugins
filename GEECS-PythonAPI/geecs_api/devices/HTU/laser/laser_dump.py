@@ -28,12 +28,8 @@ class LaserDump(GeecsDevice):
     def state_dump(self) -> Optional[bool]:
         return self._state_value(self.var_dump)
 
-    def is_inserted(self, exec_timeout: float = 2.0, sync=True) -> Union[bool, Optional[AsyncResult]]:
-        ret = self.get(self.var_dump, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_dump()
-        else:
-            return ret
+    def is_inserted(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[bool, AsyncResult]]:
+        return self.get(self.var_dump, exec_timeout=exec_timeout, sync=sync)
 
     def insert(self, exec_timeout: float = 10.0, sync=True) -> Union[float, Optional[AsyncResult]]:
         ret = self.set(self.var_dump, value='on', exec_timeout=exec_timeout, sync=sync)

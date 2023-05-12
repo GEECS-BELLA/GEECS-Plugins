@@ -20,12 +20,8 @@ class Screen(GeecsDevice):
     def state_screen(self) -> Optional[bool]:
         return self.controller._state_value(self.var_name)
 
-    def is_inserted(self, exec_timeout: float = 2.0, sync=True) -> Union[bool, Optional[AsyncResult]]:
-        ret = self.controller.get(self.var_name, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_screen()
-        else:
-            return ret
+    def is_inserted(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[bool, AsyncResult]]:
+        return self.controller.get(self.var_name, exec_timeout=exec_timeout, sync=sync)
 
     def insert(self, exec_timeout: float = 10.0, sync=True) -> Union[bool, Optional[AsyncResult]]:
         ret = self.controller.set(self.var_name, value='on', exec_timeout=exec_timeout, sync=sync)

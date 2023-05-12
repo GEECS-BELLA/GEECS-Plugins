@@ -229,8 +229,12 @@ class GeecsDevice:
 
         if var_name in self.generic_vars:
             var_alias = VarAlias(var_name)
-        else:
+
+        elif var_name in self.var_aliases_by_name:
             var_alias = self.var_aliases_by_name[var_name][0]
+
+        else:
+            var_alias = self.find_alias_by_var(var_name)
 
         if var_alias in self.state:
             return self.state[var_alias]
@@ -243,9 +247,12 @@ class GeecsDevice:
             -> Optional[AsyncResult]:
         return self._execute(variable, value, exec_timeout, attempts_max, sync)
 
-    def get(self, variable: str, exec_timeout: Optional[float] = 5.0, attempts_max: int = 5, sync=True)\
-            -> Optional[AsyncResult]:
-        return self._execute(variable, None, exec_timeout, attempts_max, sync)
+    def get(self, variable: str, exec_timeout: Optional[float] = 5.0, attempts_max: int = 5, sync=True) -> Any:
+        ret = self._execute(variable, None, exec_timeout, attempts_max, sync)
+        if ret and sync:
+            return self._state_value(variable)
+        else:
+            return ret
 
     def _execute(self, variable: str, value, exec_timeout: Optional[float] = 10.0,
                  attempts_max: int = 5, sync=True) -> Optional[AsyncResult]:
@@ -421,12 +428,8 @@ class GeecsDevice:
 
         return next_folder, next_scan, accepted, timed_out
 
-    def get_status(self, exec_timeout: float = 2.0, sync=True) -> Union[Optional[float], Optional[AsyncResult]]:
-        ret = self.get('device status', exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self._state_value('device status')
-        else:
-            return ret
+    def get_status(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[float, AsyncResult]]:
+        return self.get('device status', exec_timeout=exec_timeout, sync=sync)
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         return float(val_string)

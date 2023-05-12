@@ -29,9 +29,6 @@ class PumpShutters(GeecsDevice):
                             VarAlias('Gaia Beamblock 4-South Position'): (None, None)}
         self.build_var_dicts(tuple(self.__variables.keys()))
 
-        # self.register_cmd_executed_handler()
-        # self.register_var_listener_handler()
-
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         if val_string.lower() == 'inserted':
             value = True
@@ -50,17 +47,15 @@ class PumpShutters(GeecsDevice):
         return self.var_names_by_index.get(name_index)[0]
 
     def is_inserted(self, index: int, side: str, exec_timeout: float = 2.0, sync=True) \
-            -> Union[Optional[bool], Optional[AsyncResult]]:
-        if (not isinstance(index, int)) \
-                or (index < 1 or index > 4) \
+            -> Optional[Union[bool, AsyncResult]]:
+        if not isinstance(index, int) or (index < 1 or index > 4) \
                 or (side.lower() != 'north' and side.lower() != 'south'):
-            return False, '', (None, None)
+            if sync:
+                return None
+            else:
+                return False, '', (None, None)
 
-        ret = self.get(self._get_var_name(index, side), exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_shutter(index, side)
-        else:
-            return ret
+        return self.get(self._get_var_name(index, side), exec_timeout=exec_timeout, sync=sync)
 
     def _set_shutter(self, index: int, side: str, value: bool, exec_timeout: float = 10.0, sync=True) \
             -> Optional[AsyncResult]:

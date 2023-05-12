@@ -20,18 +20,15 @@ class Pump(GeecsDevice):
         self.__initialized = True
         super().__init__('U_1HzShiftedBox')
 
-        self.__variables = {VarAlias('gaia lamp timing'): (600., 750.)}  # us
+        self.__variables = {VarAlias('gaia lamp timing'): (500., 750.)}  # us
         self.build_var_dicts(tuple(self.__variables.keys()))
         self.var_timing: str = self.var_names_by_index.get(0)[0]
 
-        # self.register_cmd_executed_handler()
-        # self.register_var_listener_handler()
-
         self.shutters = PumpShutters()
 
-    def cleanup(self):
+    def close(self):
         self.shutters.cleanup()
-        super().cleanup()
+        super().close()
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         return float(val_string) * 1e6
@@ -39,12 +36,8 @@ class Pump(GeecsDevice):
     def state_lamp_timing(self) -> Optional[float]:
         return self._state_value(self.var_timing)
 
-    def get_lamp_timing(self, exec_timeout: float = 2.0, sync=True) -> Union[float, Optional[AsyncResult]]:
-        ret = self.get(self.var_timing, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_lamp_timing()
-        else:
-            return ret
+    def get_lamp_timing(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[float, AsyncResult]]:
+        return self.get(self.var_timing, exec_timeout=exec_timeout, sync=sync)
 
     def set_lamp_timing(self, value: float, exec_timeout: float = 10.0, sync=True) \
             -> Union[float, Optional[AsyncResult]]:

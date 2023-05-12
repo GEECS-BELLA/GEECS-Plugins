@@ -45,7 +45,7 @@ class TransportHexapod(GeecsDevice):
         return self._state_value(self.get_axis_var_name(2))
 
     def get_position(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
-            -> Union[Optional[float], Optional[AsyncResult]]:
+            -> Optional[Union[float, AsyncResult]]:
         if len(axis) == 1:
             axis = ord(axis.upper()) - ord('X')
         else:
@@ -57,11 +57,7 @@ class TransportHexapod(GeecsDevice):
             else:
                 return False, '', (None, None)
 
-        ret = self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self._state_value(self.get_axis_var_name(axis))
-        else:
-            return ret
+        return self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
 
     def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 60.0, sync=True) \
             -> Union[Optional[float], Optional[AsyncResult]]:

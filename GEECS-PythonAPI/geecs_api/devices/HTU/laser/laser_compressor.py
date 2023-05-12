@@ -39,26 +39,14 @@ class LaserCompressor(GeecsDevice):
     def state_separation(self) -> Optional[float]:
         return self._state_value(self.var_separation)
 
-    def get_angle_1(self, exec_timeout: float = 2.0, sync=True) -> Union[float, Optional[AsyncResult]]:
-        ret = self.get(self.var_angle_1, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_angle_1()
-        else:
-            return ret
+    def get_angle_1(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[float, AsyncResult]]:
+        return self.get(self.var_angle_1, exec_timeout=exec_timeout, sync=sync)
 
-    def get_angle_2(self, exec_timeout: float = 2.0, sync=True) -> Union[float, Optional[AsyncResult]]:
-        ret = self.get(self.var_angle_2, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_angle_2()
-        else:
-            return ret
+    def get_angle_2(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[float, AsyncResult]]:
+        return self.get(self.var_angle_2, exec_timeout=exec_timeout, sync=sync)
 
     def get_separation(self, exec_timeout: float = 2.0, sync=True) -> Union[float, Optional[AsyncResult]]:
-        ret = self.get(self.var_separation, exec_timeout=exec_timeout, sync=sync)
-        if sync:
-            return self.state_separation()
-        else:
-            return ret
+        return self.get(self.var_separation, exec_timeout=exec_timeout, sync=sync)
 
     def set_separation(self, value: float, exec_timeout: float = 10.0, sync=True) \
             -> Union[float, Optional[AsyncResult]]:
