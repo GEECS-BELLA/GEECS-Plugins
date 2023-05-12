@@ -87,7 +87,7 @@ def undulator_position_scan(screens: Optional[tuple[EBeamDiagnostics, str, str, 
 
     # cleanup connections
     for sm in steering_magnets:
-        sm.close()
+        sm.cleanup()
 
     return scans_info
 
@@ -190,5 +190,5 @@ if __name__ == '__main__':
                             delay=_delay)
 
     # cleanup connections
-    e_beam_diagnostics.close()
-    [controller.close() for controller in e_beam_diagnostics.controllers]
+    e_beam_diagnostics.cleanup()
+    [controller.cleanup() for controller in e_beam_diagnostics.controllers]

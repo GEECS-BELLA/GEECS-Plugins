@@ -114,5 +114,5 @@ if __name__ == '__main__':
         pass
 
     # close
-    hexapod.close()
+    hexapod.cleanup()
     print(api_error)
