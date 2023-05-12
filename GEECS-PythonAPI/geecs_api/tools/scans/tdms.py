@@ -8,6 +8,7 @@ from geecs_api.api_defs import SysPath
 
 def read_geecs_tdms(file_path: SysPath) \
         -> tuple[Optional[dict[str, dict[str, npt.ArrayLike]]], Optional[pd.DataFrame]]:
+    file_path = str(file_path)
     file_extension: str = os.path.splitext(file_path)[1].lower()
 
     if os.path.isfile(file_path) and (file_extension == '.tdms'):
