@@ -1,7 +1,10 @@
 from __future__ import annotations
+import time
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.multi_channels import PlungersPLC, PlungersVISA
-from geecs_api.devices.HTU.diagnostics.ebeam_phosphor import EBeamPhosphor
+from geecs_api.devices.HTU.diagnostics.e_imager import EImager
+from geecs_api.interface import GeecsDatabase, api_error
+from geecs_api.devices.HTU.diagnostics.undulator_stage import UndulatorStage
 
 
 class EBeamDiagnostics(GeecsDevice):
@@ -18,15 +21,15 @@ class EBeamDiagnostics(GeecsDevice):
         self.__initialized = True
         super().__init__('beam_diagnostics', virtual=True)
 
+        self.undulator_stage = UndulatorStage()
         self.controllers: list[GeecsDevice] = [PlungersPLC(), PlungersVISA()]
-
-        self.phosphors: dict[str, EBeamPhosphor] =\
-            {obj_name: EBeamPhosphor(camera_name=cam_name,
-                                     plunger_controller=controller,
-                                     plunger_name=plg_name,
-                                     tcp_subscription=True)
+        self.imagers: dict[str, EImager] =\
+            {obj_name: EImager(camera_name=cam_name,
+                               plunger_controller=controller,
+                               plunger_name=plg_name,
+                               tcp_subscription=True)
              for obj_name, cam_name, controller, plg_name
-             in [('DP', 'UC_DiagnosticsPhosphor', self.controllers[0], 'DiagnosticsPhosphor'),
+             in [('DC', 'UC_DiagnosticsPhosphor', self.controllers[0], 'DiagnosticsPhosphor'),
                  ('P1', 'UC_Phosphor1', self.controllers[0], 'Phosphor1'),
                  ('A1', 'UC_ALineEbeam1', self.controllers[0], 'ALine1 plunger'),
                  ('A2', 'UC_ALineEBeam2', self.controllers[0], 'ALine2'),
@@ -41,10 +44,6 @@ class EBeamDiagnostics(GeecsDevice):
                  ('U8', 'UC_VisaEBeam8', self.controllers[1], 'VisaPlunger8'),
                  ('U9', 'UC_VisaEBeam9', self.controllers[0], 'Visa9Plunger')]}
 
-<<<<<<< Updated upstream
-    def cleanup(self):
-        [obj.cleanup() for obj in self.phosphors.values()]
-=======
         self.imagers['A1'].camera.rot_90 = 90
         self.imagers['A2'].camera.rot_90 = 90
 
@@ -83,4 +82,3 @@ if __name__ == '__main__':
     # destroy object
     e_diagnostics.close()
     [controller.close() for controller in e_diagnostics.controllers]
->>>>>>> Stashed changes

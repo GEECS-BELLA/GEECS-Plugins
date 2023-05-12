@@ -121,25 +121,25 @@ plt.show(block=True)
 # plt.figure()
 # plt.imshow(image, cmap='jet', vmin=0, vmax=np.mean(image))
 # plt.show(block=True)
-min_area = 100
-max_area = 1500
-image_number = 0
-
-for c in counts:
-    area = cv2.contourArea(c)
-
-    if min_area < area < max_area:
-        x, y, w, h = cv2.boundingRect(c)
-        ROI = image[y:y+h, x:x+w]
-        cv2.imwrite('ROI_{}.png'.format(image_number), ROI)
-        cv2.rectangle(image, (x, y), (x + w, y + h), (36, 255, 12), 2)
-        image_number += 1
-
-cv2.imshow('sharpen', sharpen)
-cv2.imshow('close', close)
-cv2.imshow('thresh', thresh)
-cv2.imshow('image', image)
-cv2.waitKey()
+# min_area = 100
+# max_area = 1500
+# image_number = 0
+#
+# for c in counts:
+#     area = cv2.contourArea(c)
+#
+#     if min_area < area < max_area:
+#         x, y, w, h = cv2.boundingRect(c)
+#         ROI = image[y:y+h, x:x+w]
+#         cv2.imwrite('ROI_{}.png'.format(image_number), ROI)
+#         cv2.rectangle(image, (x, y), (x + w, y + h), (36, 255, 12), 2)
+#         image_number += 1
+#
+# cv2.imshow('sharpen', sharpen)
+# cv2.imshow('close', close)
+# cv2.imshow('thresh', thresh)
+# cv2.imshow('image', image)
+# cv2.waitKey()
 
 def analyze_images(images_folder: SysPath, n_images: int = 0, file_extension: str = '.png', rotate_deg: int = 0,
                    screen_label: str = '', hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 0,

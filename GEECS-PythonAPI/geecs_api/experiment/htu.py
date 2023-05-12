@@ -62,4 +62,4 @@ class HtuExp(Experiment):
 
 if __name__ == '__main__':
     htu = HtuExp()
-    htu.cleanup()
+    htu.close()

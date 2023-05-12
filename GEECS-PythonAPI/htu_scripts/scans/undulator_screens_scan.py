@@ -8,7 +8,7 @@ from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
 from htu_scripts.analysis.screen_scan_analysis import screen_scan_analysis
-from geecs_api.tools.interface.prompts import text_input
+from geecs_api.tools.interfaces.prompts import text_input
 
 
 def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,

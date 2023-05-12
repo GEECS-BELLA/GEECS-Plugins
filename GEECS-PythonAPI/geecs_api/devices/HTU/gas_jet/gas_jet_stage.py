@@ -2,7 +2,7 @@ from __future__ import annotations
 import time
 import inspect
 from typing import Optional, Union
-from geecs_api.api_defs import VarAlias, AsyncResult
+from geecs_api.api_defs import VarAlias, AsyncResult, SysPath
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
@@ -111,7 +111,8 @@ class GasJetStage(GeecsDevice):
                 time.sleep(dwell_time)
 
     def scan(self, axis: Optional[str, int], start_value: float, end_value: float, step_size: float = 0.10,
-             shots_per_step: int = 10, use_alias: bool = True, timeout: float = 60.) -> tuple[bool, bool]:
+             shots_per_step: int = 10, use_alias: bool = True, timeout: float = 60.) \
+            -> tuple[SysPath, int, bool, bool]:
         out_of_bound, axis = self.is_axis_out_of_bound(axis)
 
         if not out_of_bound:
@@ -127,7 +128,7 @@ class GasJetStage(GeecsDevice):
             comment = f'{var_alias} scan'
             return self.process_scan(cmd, comment, timeout)
         else:
-            return False, False
+            return '', -1, False, False
 
 
 if __name__ == '__main__':

@@ -10,7 +10,7 @@ class Experiment:
         self.devs: dict[str, GeecsDevice] = {}
         GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(self.exp_name)
 
-    def cleanup(self):
+    def close(self):
         for dev in self.devs.values():
             try:
                 dev.close()
