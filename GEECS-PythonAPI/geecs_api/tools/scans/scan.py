@@ -11,7 +11,10 @@ from geecs_api.tools.scans.tdms import read_geecs_tdms
 class Scan:
     """ Represents a GEECS experiment scan """
 
-    def __init__(self, folder: Optional[SysPath] = None, tag: Optional[Union[int, tuple[int, int, int, int]]] = None):
+    def __init__(self, folder: Optional[SysPath] = None,
+                 tag: Optional[Union[int, tuple[int, int, int, int]]] = None,
+                 ignore_experiment_name: bool = False,
+                 experiment_base_path: Optional[SysPath] = None):
         """
         Parameter(s)
         ----------
@@ -20,10 +23,14 @@ class Scan:
 
         folder : Union[str, bytes, PathLike]
             Data folder containing the scan data, e.g. "Z:/data/Undulator/Y2023/05-May/23_0501/scans/Scan002".
-        info : Union[int, tuple[int, int, int, int]]
+        tag : Union[int, tuple[int, int, int, int]]
             Either of:
                 - Tuple with the scan identification information, e.g. (year, month, day, scan #) = (2023, 5, 1, 2)
                 - scan number only, today's date is used
+        ignore_experiment_name : bool
+              Allows working offline with local copy of the data, when specifying a folder
+        experiment_base_path : SysPath
+              Allows working offline with local copy of the data, when specifying a tag
         """
 
         self.identified = False
@@ -45,13 +52,13 @@ class Scan:
                    (not re.match(r"Scan\d{3,}", scan_folder_name)):
                     raise ValueError("Folder path does not appear to follow convention")
                 elif not folder.exists():
-                    ValueError("Folder does not exist")
+                    raise ValueError("Folder does not exist")
 
                 self.__tag_date = dtime.strptime(date_folder_name, "%y_%m%d").date()
                 self.__tag = \
                     (self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
 
-                self.identified = (exp_name == GeecsDevice.exp_info['name'])
+                self.identified = ignore_experiment_name or (exp_name == GeecsDevice.exp_info['name'])
                 if self.identified:
                     self.__folder = folder
 
@@ -65,7 +72,17 @@ class Scan:
 
             if isinstance(tag, tuple):
                 try:
-                    exp_path = Path(GeecsDevice.exp_info['data_path'])
+                    if experiment_base_path is None:
+                        exp_path = Path(GeecsDevice.exp_info['data_path'])
+                    else:
+                        exp_path = Path(experiment_base_path)
+
+                    if not exp_path.is_dir():
+                        raise ValueError("Experiment base folder does not exist")
+
+                    if self.__tag_date is None:
+                        self.__tag_date = date(tag[0], tag[1], tag[2])
+
                     folder = (exp_path /
                               self.__tag_date.strftime("Y%Y") /
                               self.__tag_date.strftime("%m-%b") /
@@ -113,10 +130,7 @@ if __name__ == '__main__':
 
     # scan_path = os.path.normpath(r'Z:\data\Undulator\Y2022\08-Aug\22_0819\scans\Scan008')
     scan_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\05-May\23_0509\scans\Scan008')
-    print(Path.exists(scan_path))
-    print(scan_path.exists())
-    print(os.path.isdir(scan_path))
 
-    # scan = Scan(folder=scan_path)
-    # scan = Scan(tag=(2023, 4, 27, 12))
+    # scan = Scan(folder=scan_path, ignore_experiment_name=True)
+    scan = Scan(tag=(2023, 5, 9, 8), experiment_base_path=r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator')
     print('Done')
