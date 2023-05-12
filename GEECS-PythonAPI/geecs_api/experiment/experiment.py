@@ -13,7 +13,7 @@ class Experiment:
     def close(self):
         for dev in self.devs.values():
             try:
-                dev.cleanup()
+                dev.close()
             except Exception:
                 pass
 

@@ -9,7 +9,7 @@ from typing import Optional, Union
 from geecs_api.api_defs import SysPath
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.tools.scans.utility import read_geecs_tdms
+from geecs_api.tools.scans.tdms import read_geecs_tdms
 
 
 class Scan:
@@ -120,9 +120,9 @@ class Scan:
 
 
 if __name__ == '__main__':
-    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    # GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # scan_path = os.path.normpath(r'Z:\data\Undulator\Y2022\08-Aug\22_0819\scans\Scan008')
     # scan = Scan(folder=scan_path)
-    scan = Scan(tag=(2023, 4, 27, 12))
+    # scan = Scan(tag=(2023, 4, 27, 12))
     print('Done')

@@ -2,7 +2,7 @@
 from os import PathLike
 from pathlib import Path
 from threading import Thread, Event
-from typing import Optional, Any, Union, TYPE_CHECKING
+from typing import Optional, Any, Union
 
 
 # if TYPE_CHECKING:
