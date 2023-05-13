@@ -16,7 +16,8 @@ from tkinter import filedialog
 
 # no_scans = list of (scan path, scan number, camera name)
 def screen_scan_analysis(no_scans: list[tuple[SysPath, str]], screen_labels: list[str],
-                         rotate_deg: list[int], save_dir: Optional[SysPath] = None) \
+                         rotate_deg: list[int], save_dir: Optional[SysPath] = None,
+                         ignore_experiment_name: bool = False) \
         -> tuple[list[Scan], np.ndarray, np.ndarray, np.ndarray]:
     scans: list[Scan] = []
     target_deltas_mean: np.ndarray = np.zeros((len(no_scans), 2))  # Dx, Dy [pix]
@@ -31,7 +32,7 @@ def screen_scan_analysis(no_scans: list[tuple[SysPath, str]], screen_labels: lis
 
     for it, (no_scan, rot_deg, label) in enumerate(zip(no_scans, rotate_deg, screen_labels)):
         # create Scan object
-        scan = Scan(folder=no_scan[0], match_exp=False)
+        scan = Scan(folder=no_scan[0], ignore_experiment_name=ignore_experiment_name)
         scan.screen_label = label
         scan.camera = no_scan[1]
 
@@ -193,5 +194,5 @@ if __name__ == '__main__':
                  for tag in _tags]
     _labels = [tag[5] for tag in _tags]
     _rotations = [tag[6] for tag in _tags]
-    screen_scan_analysis(_no_scans, _labels, rotate_deg=_rotations)
+    screen_scan_analysis(_no_scans, _labels, rotate_deg=_rotations, ignore_experiment_name=(str(base_path)[0] == 'C'))
     print('done')

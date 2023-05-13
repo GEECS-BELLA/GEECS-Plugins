@@ -14,8 +14,30 @@ from geecs_api.api_defs import SysPath
 from geecs_api.tools.images.batches import list_images, average_images
 from geecs_api.devices.geecs_device import api_error
 import geecs_api.tools.images.ni_vision as ni
+from geecs_api.tools.scans.scan import Scan
+from geecs_api.devices.HTU.diagnostics.cameras import Camera
 from geecs_api.tools.images.filtering import clip_hot_pixels
 from htu_scripts.analysis.spot_analysis import spot_analysis, fwhm
+
+
+class UndulatorImage:
+    def __init__(self, scan: Scan, label: str, camera: Union[Camera, str]):
+        self.scan: Scan = scan
+        self.camera_label: str = label
+
+        if isinstance(camera, Camera):
+            self.camera_name: str = camera.get_name()
+            self.camera_roi: Optional[np.ndarray] = camera.roi
+        elif isinstance(camera, str) and (camera in Camera.ROIs):
+            self.camera_name = camera
+            self.camera_roi = np.array(Camera.ROIs[camera])
+        else:
+            self.camera_roi = None
+
+        self.image_folder: SysPath = self.scan.get_folder() / self.camera_name
+        self.image_analyses: Optional[list[dict[str, Any]]] = None
+        self.average_image: Optional[np.ndarray] = None
+        self.target_analysis: Optional[dict[str, tuple[np.ndarray, np.ndarray]]] = None
 
 
 def analyze_images(images_folder: SysPath, n_images: int = 0, file_extension: str = '.png', rotate_deg: int = 0,

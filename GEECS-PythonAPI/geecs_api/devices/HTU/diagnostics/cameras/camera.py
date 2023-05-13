@@ -5,12 +5,30 @@ import shutil
 import cv2
 from typing import Any
 from datetime import datetime as dtime
+
+import numpy as np
+
 from geecs_api.tools.images.batches import average_images
 from geecs_api.api_defs import VarAlias, SysPath
 from geecs_api.devices.geecs_device import GeecsDevice
 
 
 class Camera(GeecsDevice):
+    # ROIs with [left, bottom, right, top]
+    ROIs = {'UC_ALineEbeam1': [319, 204, 777, 701],
+            'UC_ALineEBeam2': [499, 261, 843, 656],
+            'UC_ALineEBeam3': [256, 274, 528, 546],
+            'UC_VisaEBeam1': [377, 0, 708, 252],
+            'UC_VisaEBeam2': [100, 164, 434, 400],
+            'UC_VisaEBeam3': [137, 185, 477, 469],
+            'UC_VisaEBeam4': [192, 263, 541, 508],
+            'UC_VisaEBeam5': [106, 167, 450, 427],
+            'UC_VisaEBeam6': [147, 167, 500, 406],
+            'UC_VisaEBeam7': [128, 140, 462, 490],
+            'UC_VisaEBeam8': [111, 206, 401, 466],
+            'UC_VisaEBeam9': [670, 341, 1141, 628],
+            'UC_UndulatorRad2': [1420, 600, 2360, 1170]}
+
     def __init__(self, device_name: str):
         super().__init__(device_name)
 
@@ -28,6 +46,11 @@ class Camera(GeecsDevice):
         self.var_bkg_path: str = self.var_names_by_index.get(0)[0]
         self.var_save_path: str = self.var_names_by_index.get(1)[0]
         self.var_exposure: str = self.var_names_by_index.get(2)[0]
+
+        if self.get_name() in Camera.ROIs:
+            self.roi = np.array(Camera.ROIs[self.get_name()])
+        else:
+            self.roi = None
 
     def get_variables(self):
         return self.__variables
