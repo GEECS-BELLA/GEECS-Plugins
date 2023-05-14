@@ -14,20 +14,20 @@ from geecs_api.devices.geecs_device import GeecsDevice
 
 
 class Camera(GeecsDevice):
-    # ROIs with [left, bottom, right, top]
-    ROIs = {'UC_ALineEbeam1': [319, 204, 777, 701],
-            'UC_ALineEBeam2': [499, 261, 843, 656],
-            'UC_ALineEBeam3': [256, 274, 528, 546],
-            'UC_VisaEBeam1': [377, 0, 708, 252],
-            'UC_VisaEBeam2': [100, 164, 434, 400],
-            'UC_VisaEBeam3': [137, 185, 477, 469],
-            'UC_VisaEBeam4': [192, 263, 541, 508],
-            'UC_VisaEBeam5': [106, 167, 450, 427],
-            'UC_VisaEBeam6': [147, 167, 500, 406],
-            'UC_VisaEBeam7': [128, 140, 462, 490],
-            'UC_VisaEBeam8': [111, 206, 401, 466],
-            'UC_VisaEBeam9': [670, 341, 1141, 628],
-            'UC_UndulatorRad2': [1420, 600, 2360, 1170]}
+    # ROIs with [left, right, top, bottom] (x_lim = [:1], y_lim = [-2:])
+    ROIs = {'UC_ALineEbeam1': [204, 777, 319, 701],
+            'UC_ALineEBeam2': [261, 843, 499, 656],
+            'UC_ALineEBeam3': [274, 528, 256, 546],
+            'UC_VisaEBeam1': [0, 708, 377, 252],
+            'UC_VisaEBeam2': [164, 434, 100, 400],
+            'UC_VisaEBeam3': [185, 477, 137, 469],
+            'UC_VisaEBeam4': [263, 541, 192, 508],
+            'UC_VisaEBeam5': [167, 450, 106, 427],
+            'UC_VisaEBeam6': [167, 500, 147, 406],
+            'UC_VisaEBeam7': [125, 462, 130, 490],
+            'UC_VisaEBeam8': [206, 401, 111, 466],
+            'UC_VisaEBeam9': [341, 1141, 670, 628],
+            'UC_UndulatorRad2': [600, 2360, 1420, 1170]}
 
     def __init__(self, device_name: str):
         super().__init__(device_name)
@@ -51,6 +51,12 @@ class Camera(GeecsDevice):
             self.roi = np.array(Camera.ROIs[self.get_name()])
         else:
             self.roi = None
+
+        self.label = Camera.label_from_name(self.get_name())
+        if self.label in ['A1', 'A2']:
+            self.rot_90: int = 90
+        else:
+            self.rot_90 = 0
 
     def get_variables(self):
         return self.__variables
@@ -127,6 +133,29 @@ class Camera(GeecsDevice):
             if set_as_background:
                 time.sleep(1.)  # buffer to write file to disk
                 self.set(self.var_bkg_path, value=file_path, exec_timeout=10., sync=True)
+
+    @staticmethod
+    def label_from_name(name: str):
+        if name[3] == 'A':
+            return f'A{name[-1]}'
+        elif name[3] == 'V':
+            return f'U{name[-1]}'
+        elif name[3] == 'U':
+            return name[-4:]
+        elif name[3] == 'D':
+            return 'DC'
+        elif name[3] == 'P':
+            return 'P1'
+        else:
+            return name
+
+    @staticmethod
+    def name_from_label(label: str):
+        labels = [Camera.label_from_name(name) for name in Camera.ROIs.keys()]
+        if label in labels:
+            return list(Camera.ROIs.keys())[labels.index(label)]
+        else:
+            return label
 
     @staticmethod
     def save_multiple_backgrounds(cameras: list[Camera], exec_timeout: float = 30.0, set_as_background: bool = True):

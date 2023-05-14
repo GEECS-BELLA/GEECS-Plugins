@@ -4,7 +4,7 @@ import os
 import numpy as np
 from typing import Optional, Any
 import scipy.ndimage as simg
-from geecs_api.tools.images.filtering import clip_hot_pixels, denoise
+from geecs_api.tools.images.filtering import clip_hot_pixels, denoise, filter_image
 from geecs_api.tools.distributions.fit_utility import fit_distribution
 
 
@@ -74,7 +74,6 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
     return fit_distribution(x_data, y_data, fit_type='gaussian', guess=guess)
 
 
-# noinspection PyArgumentList
 def find_spot(image: np.ndarray,
               hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 3,
               gauss_filter: float = 5., com_threshold: float = 0.5) -> tuple[tuple[int, int], tuple[int, int]]:
@@ -86,31 +85,10 @@ def find_spot(image: np.ndarray,
     gauss_filter:   gaussian filter size
     com_threshold:  image threshold for center-of-mass calculation
     """
-    # clip hot pixels
-    if hp_median > 0:
-        image = clip_hot_pixels(image, median_filter_size=hp_median, threshold_factor=hp_threshold)
+    filter_dict = filter_image(image, hp_median, hp_threshold, denoise_cycles, gauss_filter, com_threshold)
+    i_com, j_com = simg.center_of_mass(filter_dict['image_thresholded'])
 
-    # denoise
-    if denoise_cycles > 0:
-        image = denoise(image, max_shifts=denoise_cycles)
-
-    # gaussian filter
-    if gauss_filter > 0:
-        image = simg.gaussian_filter(image, sigma=gauss_filter)
-
-    # peak location
-    i_max, j_max = np.where(image == image.max())
-    i_max, j_max = i_max[0].item(), j_max[0].item()
-
-    # center of mass of thresholded image
-    val_max = image[i_max, j_max]
-    binary = image > (com_threshold * val_max)
-    binary = binary.astype(float)
-    img_thr = image * binary
-
-    i_com, j_com = simg.center_of_mass(img_thr)
-
-    return (int(round(i_com)), int(round(j_com))), (int(i_max), int(j_max))
+    return (int(round(i_com)), int(round(j_com))), filter_dict['peak']
 
 
 if __name__ == "__main__":

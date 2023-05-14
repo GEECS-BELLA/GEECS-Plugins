@@ -1,4 +1,6 @@
 import numpy as np
+import scipy.ndimage as simg
+from typing import Any
 from scipy.ndimage import median_filter
 from skimage.restoration import denoise_wavelet, cycle_spin
 
@@ -53,3 +55,54 @@ def clip_hot_pixels(image: np.ndarray, median_filter_size: int = 2, threshold_fa
 
 def denoise(image: np.ndarray, max_shifts: int = 3):
     return cycle_spin(image, func=denoise_wavelet, max_shifts=max_shifts)
+
+
+def filter_image(image: np.ndarray,
+                 hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 3,
+                 gauss_filter: float = 5., com_threshold: float = 0.5) -> dict[str, Any]:
+    """
+    Applies a basic set of filters to an image
+
+    hp_median:      hot pixels median filter size
+    hp_threshold:   hot pixels threshold in # of sta. dev. of the median deviation
+    gauss_filter:   gaussian filter size
+    com_threshold:  image threshold for center-of-mass calculation
+    """
+    # clip hot pixels
+    if hp_median > 0:
+        image_clipped = clip_hot_pixels(image, median_filter_size=hp_median, threshold_factor=hp_threshold)
+    else:
+        image_clipped: np.ndarray = image.copy()
+
+    # denoise
+    if denoise_cycles > 0:
+        image_denoised = denoise(image_clipped, max_shifts=denoise_cycles)
+    else:
+        image_denoised: np.ndarray = image_clipped.copy()
+
+    # gaussian filter
+    if gauss_filter > 0:
+        image_blurred = simg.gaussian_filter(image, sigma=gauss_filter)
+    else:
+        image_blurred: np.ndarray = image_denoised.copy()
+
+    # thresholding
+    if com_threshold > 0:
+        # peak location
+        i_max, j_max = np.where(image_blurred == image_blurred.max(initial=0))
+        i_max, j_max = i_max[0].item(), j_max[0].item()
+
+        # center of mass of thresholded image
+        val_max = image_blurred[i_max, j_max]
+        binary = image_blurred > (com_threshold * val_max)
+        image_thresholded = image_blurred * binary.astype(float)
+    else:
+        i_max, j_max = -1
+        image_thresholded: np.ndarray = image_blurred.copy()
+
+    return {'image_raw': image,
+            'image_clipped': image_clipped,
+            'image_denoised': image_denoised,
+            'image_blurred': image_blurred,
+            'image_thresholded': image_thresholded,
+            'position_peak': (int(i_max), int(j_max))}

@@ -38,6 +38,7 @@ class Scan:
         self.__folder: Optional[Path] = None
         self.__tag: Optional[tuple[int, int, int, int]] = None
         self.__tag_date: Optional[date] = None
+        self.__analysis_folder: Optional[Path] = None
 
         if folder:
             try:
@@ -116,13 +117,13 @@ class Scan:
         tdms_path = self.__folder / f'Scan{self.__tag[3]:03d}.tdms'
         self.data_dict, self.data_frame = read_geecs_tdms(tdms_path)
 
-    def get_folder(self):
+    def get_folder(self) -> Optional[Path]:
         return self.__folder
 
-    def get_tag(self):
+    def get_tag(self) -> Optional[tuple[int, int, int, int]]:
         return self.__tag
 
-    def get_analysis_folder(self):
+    def get_analysis_folder(self) -> Optional[Path]:
         return self.__analysis_folder
 
 

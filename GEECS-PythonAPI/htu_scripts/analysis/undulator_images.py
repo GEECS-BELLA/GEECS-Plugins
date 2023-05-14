@@ -1,80 +1,256 @@
 import cv2
+import re
 import numpy as np
 import numpy.typing as npt
 import scipy.ndimage as simg
 from skimage.segmentation import clear_border
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
-from skimage.color import label2rgb
+from skimage.transform import hough_ellipse
+from skimage.feature import canny
+from skimage.draw import ellipse_perimeter
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from progressbar import ProgressBar
 from typing import Optional, Any, Union
 from geecs_api.api_defs import SysPath
-from geecs_api.tools.images.batches import list_images, average_images
+from geecs_api.tools.images.batches import list_images
 from geecs_api.devices.geecs_device import api_error
 import geecs_api.tools.images.ni_vision as ni
 from geecs_api.tools.scans.scan import Scan
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
-from geecs_api.tools.images.filtering import clip_hot_pixels
+from geecs_api.tools.images.filtering import clip_hot_pixels, filter_image
 from htu_scripts.analysis.spot_analysis import spot_analysis, fwhm
+from geecs_api.tools.images.displays import show_one
 
 
-class UndulatorImage:
-    def __init__(self, scan: Scan, label: str, camera: Union[Camera, str]):
+class HtuImages:
+    def __init__(self, scan: Scan, camera: Union[int, Camera, str], angle: Optional[int] = None):
+        """
+        Container for data analysis of a set of images collected at an undulator station.
+
+        scan (Scan object): analysis object for the relevant scan
+        camera (int | Camera | str), either of:
+            - station number (1-9)
+            - Camera object
+            - GEECS device name of the relevant camera
+            - relevant screen shorthand label (U1 - U9)
+        angle (int): rotation angle to apply (multiples of +/-90 deg only). Ignored if camera object is provided.
+        """
+
         self.scan: Scan = scan
-        self.camera_label: str = label
+        self.camera: Optional[Camera] = None
+        if angle is None:
+            self.camera_r90: int = 0
+        else:
+            self.camera_r90: int = int(round(angle / 90.))
 
         if isinstance(camera, Camera):
+            self.camera = camera
             self.camera_name: str = camera.get_name()
             self.camera_roi: Optional[np.ndarray] = camera.roi
+            self.camera_r90 = camera.rot_90
         elif isinstance(camera, str) and (camera in Camera.ROIs):
             self.camera_name = camera
             self.camera_roi = np.array(Camera.ROIs[camera])
+        elif isinstance(camera, str) and re.match(r'(U[1-9]|A[1-3]|Rad2)', camera):
+            self.camera_name = Camera.name_from_label(camera)
+            self.camera_roi = np.array(Camera.ROIs[self.camera_name])
+        elif isinstance(camera, int) and (1 <= camera <= 9):
+            self.camera_name = Camera.name_from_label(f'U{camera}')
+            self.camera_roi = np.array(Camera.ROIs[self.camera_name])
         else:
+            self.camera_name = camera
             self.camera_roi = None
+
+        self.camera_label: str = Camera.label_from_name(self.camera_name)
 
         self.image_folder: SysPath = self.scan.get_folder() / self.camera_name
         self.image_analyses: Optional[list[dict[str, Any]]] = None
         self.average_image: Optional[np.ndarray] = None
+        self.average_analysis: Optional[dict[str, Any]] = None
         self.target_analysis: Optional[dict[str, tuple[np.ndarray, np.ndarray]]] = None
 
+    @staticmethod
+    def find_roi(image: np.ndarray, threshold: Optional[float] = None, display_factor: float = 1.):
+        roi = None
+        roi_box = np.array([0, image.shape[1] - 1, 0, image.shape[0]])
 
-def analyze_images(images_folder: SysPath, n_images: int = 0, file_extension: str = '.png', rotate_deg: int = 0,
-                   screen_label: str = '', hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 0,
-                   gauss_filter: float = 5., com_threshold: float = 0.5) \
-        -> tuple[list[dict[str, Any]], Optional[np.ndarray]]:
-    paths = list_images(images_folder, n_images, file_extension)
-    analyses: list[dict[str, Any]] = []
-    avg_image: Optional[np.ndarray] = None
-    rot_90deg: int = int(round(rotate_deg / 90.))
-
-    # run analysis
-    if paths:
         try:
-            with ProgressBar(max_value=len(paths)) as pb:
-                avg_image = np.rot90(ni.read_imaq_image(paths[0]), rot_90deg)
-                avg_image = avg_image.astype('float64')
-                analyses.append(spot_analysis(avg_image, hp_median, hp_threshold,
-                                              denoise_cycles, gauss_filter, com_threshold))
-                pb.increment()
+            # filter and smooth
+            blur = clip_hot_pixels(image, median_filter_size=2, threshold_factor=3)
+            blur = simg.gaussian_filter(blur, sigma=5.)
 
-                if len(paths) > 1:
-                    for it, image_path in enumerate(paths[1:]):
-                        image_data = np.rot90(ni.read_imaq_image(image_path), rot_90deg)
-                        image_data = image_data.astype('float64')
-                        analyses.append(spot_analysis(image_data, hp_median, hp_threshold,
-                                                      denoise_cycles, gauss_filter, com_threshold))
-                        alpha = 1.0 / (it + 2)
-                        beta = 1.0 - alpha
-                        avg_image = cv2.addWeighted(image_data, alpha, avg_image, beta, 0.0)
-                        pb.increment()
+            # threshold
+            if threshold is None:
+                counts, bins = np.histogram(blur, bins=10)
+                threshold = bins[np.where(counts == np.max(counts))[0][0] + 1]
+            bw = closing(blur > threshold, square(3))
 
-        except Exception as ex:
-            api_error.error(str(ex), 'Failed to analyze image')
+            # remove artifacts connected to image border
+            cleared = clear_border(bw)
+            # cleared = bw
+
+            # label image regions
+            label_image = label(cleared)
+            areas = [box.area for box in regionprops(label_image)]
+            roi = regionprops(label_image)[areas.index(max(areas))]
+            roi_box = roi.bbox
+
+        except Exception:
             pass
 
-    return analyses, avg_image
+        finally:
+            if display_factor > 0:
+                fig, ax = plt.subplots(figsize=(6.4 * display_factor, 4.8 * display_factor))
+                ax.imshow(image)
+                rect = mpatches.Rectangle((roi_box[1], roi_box[0]), roi_box[3] - roi_box[1], roi_box[2] - roi_box[0],
+                                          fill=False, edgecolor='red', linewidth=2)
+                ax.add_patch(rect)
+                ax.set_axis_off()
+                plt.tight_layout()
+                plt.show(block=True)
+
+        return roi_box, roi
+
+    def read_image_as_float(self, image_path: SysPath) -> np.ndarray:
+        image = ni.read_imaq_image(image_path)
+        if isinstance(self.camera_roi, np.ndarray) and (self.camera_roi.size >= 4):
+            image = image[self.camera_roi[-2]:self.camera_roi[-1], self.camera_roi[0]:self.camera_roi[1]]
+        image = np.rot90(image, self.camera_r90)
+        return image.astype('float64')
+
+    def analyze_images(self, n_images: int = 0, hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 0,
+                       gauss_filter: float = 5., com_threshold: float = 0.5, plots: bool = False):
+        paths = list_images(self.image_folder, n_images, '.png')
+        analyses: list[dict[str, Any]] = []
+
+        # run analysis
+        if paths:
+            try:
+                with ProgressBar(max_value=len(paths)) as pb:
+                    # analyze one at a time until valid image found to initialize average
+                    for skipped, image_path in enumerate(paths):
+                        analysis = self.analyze_image(image_path, hp_median, hp_threshold, denoise_cycles,
+                                                      gauss_filter, com_threshold, plots)
+                        analyses.append(analysis)
+
+                        if analysis['is_valid']:
+                            avg_image: np.ndarray = analysis['image_raw'].copy()
+                            break
+
+                    pb.increment()
+
+                    if len(paths) > (skipped + 1):
+                        for it, image_path in enumerate(paths[skipped+1:]):
+                            analysis = self.analyze_image(image_path, hp_median, hp_threshold, denoise_cycles,
+                                                          gauss_filter, com_threshold, plots)
+
+                            # average
+                            if analysis['is_valid']:
+                                alpha = 1.0 / (it + 2)
+                                beta = 1.0 - alpha
+                                avg_image = cv2.addWeighted(analysis['image_raw'], alpha, avg_image, beta, 0.0)
+
+                            # collect
+                            analyses.append(analysis)
+                            pb.increment()
+
+                self.average_analysis = self.analyze_image(avg_image, hp_median, hp_threshold, denoise_cycles,
+                                                           gauss_filter, com_threshold, plots)
+                self.image_analyses = analyses
+                self.average_image = avg_image
+
+            except Exception as ex:
+                api_error.error(str(ex), 'Failed to analyze image')
+                pass
+
+    def analyze_image(self, image: Union[SysPath, np.ndarray], hp_median: int = 2, hp_threshold: float = 3.,
+                      denoise_cycles: int = 0, gauss_filter: float = 5., com_threshold: float = 0.5,
+                      plots: bool = False) -> dict[str, Any]:
+        # raw mage
+        if isinstance(image, SysPath):
+            image_raw = self.read_image_as_float(image)
+        else:
+            image_raw = image
+
+        if plots:
+            plt.figure(figsize=(2.4, 1.8))
+            plt.imshow(image_raw)
+            plt.show(block=False)
+
+        # initial filtering
+        analysis = filter_image(image_raw, hp_median, hp_threshold, denoise_cycles, gauss_filter, com_threshold)
+
+        # check image (contrast)
+        counts, bins = np.histogram(analysis['image_denoised'],
+                                    bins=2 * int(np.std(analysis['image_blurred'])))
+        analysis['bkg_level']: float = bins[np.where(counts == np.max(counts))[0][0]]
+        analysis['is_valid']: bool = np.std(bins) > analysis['bkg_level']
+
+        # stop if low-contrast image
+        if not analysis['is_valid']:
+            return analysis
+
+        try:
+            # beam edges
+            image_edges: np.ndarray = canny(analysis['image_thresholded'], sigma=3)
+            image_edges = closing(image_edges.astype(float), square(3))
+            image_edges = clear_border(image_edges)
+            analysis['image_edges'] = image_edges
+            if plots:
+                plt.figure(figsize=(1.6, 1.2))
+                plt.imshow(image_edges)
+                plt.show(block=False)
+
+            # boxed image
+            bw = closing(analysis['image_blurred'] > 0.5 * np.max(analysis['image_blurred']), square(3))
+            cleared = clear_border(bw)
+            label_image = label(cleared)
+            areas = [box.area for box in regionprops(label_image)]
+            roi = regionprops(label_image)[areas.index(max(areas))]
+            analysis['roi'] = np.array([roi.bbox[1], roi.bbox[3], roi.bbox[0], roi.bbox[2]])  # left, right, top, bottom
+
+            image_boxed = image_raw.copy()
+            image_boxed[roi.bbox[0]:roi.bbox[2], roi.bbox[1]] = np.max(image_raw)  # left edge
+            image_boxed[roi.bbox[0]:roi.bbox[2], roi.bbox[3]] = np.max(image_raw)  # right edge
+            image_boxed[roi.bbox[0], roi.bbox[1]:roi.bbox[3]] = np.max(image_raw)  # top edge
+            image_boxed[roi.bbox[2], roi.bbox[1]:roi.bbox[3] + 1] = np.max(image_raw)  # bottom edge
+            pos_box = np.array([(roi.bbox[0] + roi.bbox[2]) / 2., (roi.bbox[1] + roi.bbox[3]) / 2.])
+            pos_box = np.round(pos_box).astype(int)
+            analysis['position_box'] = pos_box  # i, j
+
+            if plots:
+                plt.figure(figsize=(1.6, 1.2))
+                plt.imshow(image_boxed)
+                plt.plot(pos_box[1], pos_box[0], 'k.')
+                plt.show(block=False)
+
+            # ellipse fit (min_size: min of major axis, max_size: max of minor axis)
+            h_ellipse = hough_ellipse(image_edges, min_size=20, max_size=60, accuracy=10)
+            h_ellipse.sort(order='accumulator')
+            best = list(h_ellipse[-1])
+            yc, xc, a, b = (int(round(x)) for x in best[1:5])
+            ellipse = (yc, xc, a, b, best[5])
+            analysis['ellipse'] = ellipse  # (i, j, major, minor, orientation)
+
+            cy, cx = ellipse_perimeter(*ellipse)
+            pos_ellipse = np.array([yc, xc])
+            analysis['position_box'] = pos_ellipse  # i, j
+
+            image_ellipse = image_raw.copy()
+            image_ellipse[cy, cx] = np.max(image_raw)
+
+            if plots:
+                plt.figure(figsize=(1.6, 1.2))
+                plt.imshow(image_ellipse)
+                plt.plot(pos_ellipse[1], pos_ellipse[0], 'k.')
+                plt.show(block=True)
+
+        except Exception:
+            pass
+
+        return analysis
 
 
 def summarize_image_analyses(analyses: list[dict[str, Any]]) -> dict[str, Union[float, npt.ArrayLike]]:
@@ -120,54 +296,25 @@ def summarize_image_analyses(analyses: list[dict[str, Any]]) -> dict[str, Union[
             'std_pos_com_fwhm_y': std_pos_com_fwhm_y}
 
 
-def find_roi(image: np.ndarray, threshold: Optional[float] = None, display: bool = False):
-    roi = None
-    roi_box = np.array([0, image.shape[1] - 1, 0, image.shape[0]])
-
-    try:
-        # filter and smooth
-        blur = clip_hot_pixels(image, median_filter_size=2, threshold_factor=3)
-        blur = simg.gaussian_filter(blur, sigma=5.)
-
-        # threshold
-        if threshold is None:
-            counts, bins = np.histogram(blur, bins=10)
-            threshold = bins[np.where(counts == np.max(counts))[0][0] + 1]
-        bw = closing(blur > threshold, square(3))
-
-        # remove artifacts connected to image border
-        cleared = clear_border(bw)
-        # cleared = bw
-
-        # label image regions
-        label_image = label(cleared)
-        areas = [box.area for box in regionprops(label_image)]
-        roi = regionprops(label_image)[areas.index(max(areas))]
-        roi_box = roi.bbox
-
-    except Exception:
-        pass
-
-    finally:
-        if display:
-            fig, ax = plt.subplots(figsize=(6.4, 4.8))
-            ax.imshow(image)
-            rect = mpatches.Rectangle((roi_box[1], roi_box[0]), roi_box[3] - roi_box[1], roi_box[2] - roi_box[0],
-                                      fill=False, edgecolor='red', linewidth=2)
-            ax.add_patch(rect)
-            ax.set_axis_off()
-            plt.tight_layout()
-            plt.show(block=True)
-
-    return roi_box, roi
-
-
 if __name__ == '__main__':
-    folder = r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\05-May\23_0509\scans\Scan030\UC_VisaEBeam9'
+    _folder = r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\05-May\23_0509\scans\Scan028'
 
-    _image, _ = average_images(folder)
-    find_roi(_image, None, True)
+    _scan = Scan(_folder, ignore_experiment_name=True)
+    images = HtuImages(_scan, 'U7', angle=0)
+    images.analyze_images(hp_median=2, hp_threshold=3., denoise_cycles=0,
+                          gauss_filter=5., com_threshold=0.5, plots=True)
 
-    # plt.figure()
-    # plt.imshow(_image)
+    plt.figure(figsize=(3.2, 2.4))
+    plt.imshow(images.average_image)
+    plt.show(block=True)
+
+    # plt.ion()
+    # ax, _ = show_one(images.average_image, size_factor=1., colormap='hot', hide_ticks=False, show_colorbar=True,
+    #                  show_contours=True, contours=2, contours_colors='w', contours_labels=False,
+    #                  show=False, block_execution=False)
+    # if not ax.yaxis_inverted():
+    #     ax.invert_yaxis()
     # plt.show(block=True)
+
+    # _image, _ = average_images(folder)
+    # HtuImages.find_roi(_image, None, display_factor=0.5)
