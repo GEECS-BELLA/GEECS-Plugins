@@ -6,9 +6,6 @@ from progressbar import ProgressBar
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from pathlib import Path
-from skimage.feature import canny
-from skimage import data
-from skimage.filters import threshold_otsu
 from skimage.segmentation import clear_border
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
@@ -19,7 +16,7 @@ from geecs_api.tools.images.batches import list_images, average_images
 from geecs_api.devices.geecs_device import api_error
 import geecs_api.tools.images.ni_vision as ni
 from geecs_api.tools.images.filtering import clip_hot_pixels
-from htu_scripts.analysis.spot_analysis import spot_analysis, fwhm
+from geecs_api.tools.images.spot import spot_analysis, fwhm
 
 # base_path = Path(r'Z:\data')
 base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')

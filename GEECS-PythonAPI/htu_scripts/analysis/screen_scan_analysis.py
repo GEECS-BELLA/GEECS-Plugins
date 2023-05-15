@@ -6,9 +6,8 @@ from pathlib import Path
 from typing import Optional
 from geecs_api.api_defs import SysPath
 from geecs_api.tools.scans.scan import Scan
-from geecs_api.devices.geecs_device import GeecsDevice
-from htu_scripts.analysis.undulator_images import analyze_images, summarize_image_analyses
-from htu_scripts.analysis.spot_analysis import spot_analysis, fwhm
+from htu_scripts.analysis.undulator_no_scan import analyze_images, summarize_image_analyses
+from geecs_api.tools.images.spot import spot_analysis, fwhm
 from geecs_api.tools.images.displays import show_one
 import matplotlib.pyplot as plt
 from tkinter import filedialog
@@ -98,30 +97,6 @@ def screen_scan_analysis(no_scans: list[tuple[SysPath, str]], screen_labels: lis
         plt.savefig(save_path, dpi=300)
 
     return scans, target_deltas_mean, target_deltas_std, target_deltas_avg_imgs
-
-
-def target_analysis(scan: Scan) -> tuple[Scan, np.ndarray, np.ndarray]:
-    scan.target_analysis = {}
-    try:
-        scan.target_calibration = \
-            float(GeecsDevice.exp_info['devices'][scan.camera]['SpatialCalibration']['defaultvalue'])
-        scan.target_analysis['target'] = \
-            (float(GeecsDevice.exp_info['devices'][scan.camera]['Target.Y']['defaultvalue']),
-             float(GeecsDevice.exp_info['devices'][scan.camera]['Target.X']['defaultvalue']))
-    except Exception:
-        scan.target_calibration = 1.
-        scan.target_analysis['target'] = (0., 0.)
-
-    scan.target_analysis['avg_img_delta'] = \
-        (np.array(scan.avg_img_analysis['position_max']) - np.array(scan.target_analysis['target'])) \
-        * scan.target_calibration / 1000.
-    scan.target_analysis['scan_pos_max_delta'] = \
-        (np.array(scan.analyses_summary['scan_pos_max']) - np.array(scan.target_analysis['target'])) \
-        * scan.target_calibration / 1000.
-
-    target_deltas_mean = np.array([np.mean(scan.target_analysis['scan_pos_max_delta'], axis=0)])
-    target_deltas_std = np.array([np.std(scan.target_analysis['scan_pos_max_delta'], axis=0)])
-    return scan, target_deltas_mean, target_deltas_std
 
 
 def plot_scan_image(scan: Scan, block_execution: bool = False):

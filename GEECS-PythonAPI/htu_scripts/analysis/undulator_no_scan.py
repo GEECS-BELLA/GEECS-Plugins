@@ -3,14 +3,12 @@ import re
 import math
 import numpy as np
 import screeninfo
-import numpy.typing as npt
 import scipy.ndimage as simg
 from skimage.segmentation import clear_border
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
 from skimage.transform import hough_ellipse
 from skimage.feature import canny
-from skimage.draw import ellipse_perimeter
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from progressbar import ProgressBar
@@ -20,13 +18,13 @@ from geecs_api.tools.images.batches import list_images
 from geecs_api.devices.geecs_device import api_error
 import geecs_api.tools.images.ni_vision as ni
 from geecs_api.tools.scans.scan import Scan
+from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
 from geecs_api.tools.images.filtering import clip_hot_pixels, filter_image
-from htu_scripts.analysis.spot_analysis import spot_analysis, fwhm
-from geecs_api.tools.images.displays import show_one
+from geecs_api.tools.images.spot import spot_analysis, fwhm
 
 
-class HtuImages:
+class UndulatorNoScan:
     fig_size = (int(round(screeninfo.get_monitors()[0].width / 540. * 10) / 10),
                 int(round(screeninfo.get_monitors()[0].height / 450. * 10) / 10))
 
@@ -74,7 +72,8 @@ class HtuImages:
         self.image_analyses: Optional[list[dict[str, Any]]] = None
         self.average_image: Optional[np.ndarray] = None
         self.average_analysis: Optional[dict[str, Any]] = None
-        self.target_analysis: Optional[dict[str, tuple[np.ndarray, np.ndarray]]] = None
+        self.analyses_summary: Optional[dict[str, Union[float, np.ndarray]]] = None
+        self.target_analysis: Optional[dict[str, Union[float, np.ndarray]]] = None
 
     @staticmethod
     def find_roi(image: np.ndarray, threshold: Optional[float] = None, plots: bool = False):
@@ -107,7 +106,7 @@ class HtuImages:
 
         finally:
             if plots:
-                fig, ax = plt.subplots(figsize=HtuImages.fig_size)
+                fig, ax = plt.subplots(figsize=UndulatorNoScan.fig_size)
                 ax.imshow(image)
                 rect = mpatches.Rectangle((roi_box[1], roi_box[0]), roi_box[3] - roi_box[1], roi_box[2] - roi_box[0],
                                           fill=False, edgecolor='red', linewidth=2)
@@ -128,6 +127,7 @@ class HtuImages:
     def analyze_images(self, n_images: int = 0, hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 0,
                        gauss_filter: float = 5., com_threshold: float = 0.5, plots: bool = False):
         paths = list_images(self.image_folder, n_images, '.png')
+        paths = paths[24:]  # tmp
         analyses: list[dict[str, Any]] = []
 
         # run analysis
@@ -194,6 +194,7 @@ class HtuImages:
 
                 self.image_analyses = analyses
                 self.average_image = avg_image
+                # self.analyses_summary = self.summarize_image_analyses()
 
             except Exception as ex:
                 api_error.error(str(ex), 'Failed to analyze image')
@@ -209,7 +210,7 @@ class HtuImages:
             image_raw = self.read_image_as_float(image)
 
         if plots:
-            plt.figure(figsize=HtuImages.fig_size)
+            plt.figure(figsize=UndulatorNoScan.fig_size)
             plt.imshow(image_raw)
             plt.show(block=False)
 
@@ -233,7 +234,7 @@ class HtuImages:
             image_edges = clear_border(image_edges)
             analysis['image_edges'] = image_edges
             if plots:
-                plt.figure(figsize=HtuImages.fig_size)
+                plt.figure(figsize=UndulatorNoScan.fig_size)
                 plt.imshow(image_edges)
                 plt.show(block=False)
 
@@ -250,7 +251,7 @@ class HtuImages:
             analysis['position_box'] = pos_box  # i, j
 
             if plots:
-                plt.figure(figsize=HtuImages.fig_size)
+                plt.figure(figsize=UndulatorNoScan.fig_size)
                 plt.imshow(image_raw)
                 plt.plot(roi.bbox[1] * np.ones((roi.bbox[2] - roi.bbox[0] + 1)),
                          np.arange(roi.bbox[0], roi.bbox[2] + 1), '-r')  # left edge
@@ -278,7 +279,7 @@ class HtuImages:
             if plots:
                 ell = mpatches.Ellipse(xy=(xc, yc), width=2*ellipse[3], height=2*ellipse[2],
                                        angle=math.degrees(ellipse[4]))
-                plt.figure(figsize=HtuImages.fig_size)
+                plt.figure(figsize=UndulatorNoScan.fig_size)
                 plt.imshow(image_raw)
                 plt.gca().add_artist(ell)
                 ell.set_alpha(1)
@@ -293,59 +294,102 @@ class HtuImages:
 
         return analysis
 
+    # make private
+    # add distance to box/ellipse centers
+    def target_analysis(self) -> dict[str, Union[float, np.ndarray]]:
+        target_analysis = {}
+        try:
+            target_analysis['target_um_pix'] = \
+                float(GeecsDevice.exp_info['devices'][self.camera_name]['SpatialCalibration']['defaultvalue'])
+            target_analysis['target_xy'] = \
+                (float(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue']),
+                 float(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue']))
+        except Exception:
+            target_analysis['target_um_pix'] = 1.
+            target_analysis['target_xy'] = (0., 0.)
 
-def summarize_image_analyses(analyses: list[dict[str, Any]]) -> dict[str, Union[float, npt.ArrayLike]]:
-    scan_pos_max = np.array([analysis['position_max'] for analysis in analyses if analysis is not None])
-    scan_pos_max_fwhm_x = np.array([fwhm(analysis['opt_x_max'][3]) for analysis in analyses if analysis is not None])
-    scan_pos_max_fwhm_y = np.array([fwhm(analysis['opt_y_max'][3]) for analysis in analyses if analysis is not None])
+        # from max
+        target_analysis['avg_img_max_delta'] = \
+            (np.array(self.average_analysis['position_max']) - np.array(target_analysis['target'])) \
+            * target_analysis['target_um_pix'] / 1000.
+        target_analysis['scan_pos_max_delta'] = \
+            (np.array(self.analyses_summary['scan_pos_max']) - np.array(target_analysis['target'])) \
+            * target_analysis['target_um_pix'] / 1000.
+        target_analysis['target_deltas_max_mean'] = np.array([np.mean(target_analysis['scan_pos_max_delta'], axis=0)])
+        target_analysis['target_deltas_max_std'] = np.array([np.std(target_analysis['scan_pos_max_delta'], axis=0)])
 
-    scan_pos_com = np.array([analysis['position_com'] for analysis in analyses if analysis is not None])
-    scan_pos_com_fwhm_x = np.array([fwhm(analysis['opt_x_com'][3]) for analysis in analyses if analysis is not None])
-    scan_pos_com_fwhm_y = np.array([fwhm(analysis['opt_y_com'][3]) for analysis in analyses if analysis is not None])
+        # from CoM
+        target_analysis['avg_img_com_delta'] = \
+            (np.array(self.average_analysis['position_com']) - np.array(target_analysis['target'])) \
+            * target_analysis['target_um_pix'] / 1000.
+        target_analysis['scan_pos_com_delta'] = \
+            (np.array(self.analyses_summary['scan_pos_com']) - np.array(target_analysis['target'])) \
+            * target_analysis['target_um_pix'] / 1000.
+        target_analysis['target_deltas_com_mean'] = np.array([np.mean(target_analysis['scan_pos_com_delta'], axis=0)])
+        target_analysis['target_deltas_com_std'] = np.array([np.std(target_analysis['scan_pos_com_delta'], axis=0)])
 
-    mean_pos_max = np.mean(scan_pos_max, axis=0)
-    mean_pos_max_fwhm_x = np.mean(scan_pos_max_fwhm_x)
-    mean_pos_max_fwhm_y = np.mean(scan_pos_max_fwhm_y)
-    std_pos_max = np.std(scan_pos_max, axis=0)
-    std_pos_max_fwhm_x = np.std(scan_pos_max_fwhm_x)
-    std_pos_max_fwhm_y = np.std(scan_pos_max_fwhm_y)
+        return target_analysis
 
-    mean_pos_com = np.mean(scan_pos_com, axis=0)
-    mean_pos_com_fwhm_x = np.mean(scan_pos_com_fwhm_x)
-    mean_pos_com_fwhm_y = np.mean(scan_pos_com_fwhm_y)
-    std_pos_com = np.std(scan_pos_com, axis=0)
-    std_pos_com_fwhm_x = np.std(scan_pos_com_fwhm_x)
-    std_pos_com_fwhm_y = np.std(scan_pos_com_fwhm_y)
+    # make private
+    # add width/height of box mean/std; same for ellipse
+    def summarize_image_analyses(self) -> dict[str, Union[float, np.ndarray]]:
+        scan_pos_max = np.array([analysis['position_max'] for analysis in self.image_analyses
+                                 if analysis is not None and 'position_max' in analysis])
+        scan_pos_max_fwhm_x = np.array([fwhm(analysis['opt_x_max'][3]) for analysis in self.image_analyses
+                                        if analysis is not None and 'opt_x_max' in analysis])
+        scan_pos_max_fwhm_y = np.array([fwhm(analysis['opt_y_max'][3]) for analysis in self.image_analyses
+                                        if analysis is not None and 'opt_y_max' in analysis])
 
-    return {'scan_pos_max': scan_pos_max,
-            'scan_pos_max_fwhm_x': scan_pos_max_fwhm_x,
-            'scan_pos_max_fwhm_y': scan_pos_max_fwhm_y,
-            'scan_pos_com': scan_pos_com,
-            'scan_pos_com_fwhm_x': scan_pos_com_fwhm_x,
-            'scan_pos_com_fwhm_y': scan_pos_com_fwhm_y,
-            'mean_pos_max': mean_pos_max,
-            'mean_pos_max_fwhm_x': mean_pos_max_fwhm_x,
-            'mean_pos_max_fwhm_y': mean_pos_max_fwhm_y,
-            'std_pos_max': std_pos_max,
-            'std_pos_max_fwhm_x': std_pos_max_fwhm_x,
-            'std_pos_max_fwhm_y': std_pos_max_fwhm_y,
-            'mean_pos_com': mean_pos_com,
-            'mean_pos_com_fwhm_x': mean_pos_com_fwhm_x,
-            'mean_pos_com_fwhm_y': mean_pos_com_fwhm_y,
-            'std_pos_com': std_pos_com,
-            'std_pos_com_fwhm_x': std_pos_com_fwhm_x,
-            'std_pos_com_fwhm_y': std_pos_com_fwhm_y}
+        scan_pos_com = np.array([analysis['position_com'] for analysis in self.image_analyses
+                                 if analysis is not None and 'position_com' in analysis])
+        scan_pos_com_fwhm_x = np.array([fwhm(analysis['opt_x_com'][3]) for analysis in self.image_analyses
+                                        if analysis is not None and 'opt_x_com' in analysis])
+        scan_pos_com_fwhm_y = np.array([fwhm(analysis['opt_y_com'][3]) for analysis in self.image_analyses
+                                        if analysis is not None and 'opt_y_com' in analysis])
+
+        mean_pos_max = np.mean(scan_pos_max, axis=0)
+        mean_pos_max_fwhm_x = np.mean(scan_pos_max_fwhm_x)
+        mean_pos_max_fwhm_y = np.mean(scan_pos_max_fwhm_y)
+        std_pos_max = np.std(scan_pos_max, axis=0)
+        std_pos_max_fwhm_x = np.std(scan_pos_max_fwhm_x)
+        std_pos_max_fwhm_y = np.std(scan_pos_max_fwhm_y)
+
+        mean_pos_com = np.mean(scan_pos_com, axis=0)
+        mean_pos_com_fwhm_x = np.mean(scan_pos_com_fwhm_x)
+        mean_pos_com_fwhm_y = np.mean(scan_pos_com_fwhm_y)
+        std_pos_com = np.std(scan_pos_com, axis=0)
+        std_pos_com_fwhm_x = np.std(scan_pos_com_fwhm_x)
+        std_pos_com_fwhm_y = np.std(scan_pos_com_fwhm_y)
+
+        return {'scan_pos_max': scan_pos_max,
+                'scan_pos_max_fwhm_x': scan_pos_max_fwhm_x,
+                'scan_pos_max_fwhm_y': scan_pos_max_fwhm_y,
+                'scan_pos_com': scan_pos_com,
+                'scan_pos_com_fwhm_x': scan_pos_com_fwhm_x,
+                'scan_pos_com_fwhm_y': scan_pos_com_fwhm_y,
+                'mean_pos_max': mean_pos_max,
+                'mean_pos_max_fwhm_x': mean_pos_max_fwhm_x,
+                'mean_pos_max_fwhm_y': mean_pos_max_fwhm_y,
+                'std_pos_max': std_pos_max,
+                'std_pos_max_fwhm_x': std_pos_max_fwhm_x,
+                'std_pos_max_fwhm_y': std_pos_max_fwhm_y,
+                'mean_pos_com': mean_pos_com,
+                'mean_pos_com_fwhm_x': mean_pos_com_fwhm_x,
+                'mean_pos_com_fwhm_y': mean_pos_com_fwhm_y,
+                'std_pos_com': std_pos_com,
+                'std_pos_com_fwhm_x': std_pos_com_fwhm_x,
+                'std_pos_com_fwhm_y': std_pos_com_fwhm_y}
 
 
 if __name__ == '__main__':
     _folder = r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\05-May\23_0509\scans\Scan028'
 
     _scan = Scan(_folder, ignore_experiment_name=True)
-    images = HtuImages(_scan, 'U7', angle=0)
+    images = UndulatorNoScan(_scan, 'U7', angle=0)
     images.analyze_images(hp_median=2, hp_threshold=3., denoise_cycles=0,
                           gauss_filter=5., com_threshold=0.5, plots=True)
 
-    plt.figure(figsize=HtuImages.fig_size)
+    plt.figure(figsize=UndulatorNoScan.fig_size)
     plt.imshow(images.average_image)
     plt.show(block=True)
 
