@@ -1,6 +1,8 @@
 import cv2
 import re
+import math
 import numpy as np
+import screeninfo
 import numpy.typing as npt
 import scipy.ndimage as simg
 from skimage.segmentation import clear_border
@@ -25,6 +27,9 @@ from geecs_api.tools.images.displays import show_one
 
 
 class HtuImages:
+    fig_size = (int(round(screeninfo.get_monitors()[0].width / 540. * 10) / 10),
+                int(round(screeninfo.get_monitors()[0].height / 450. * 10) / 10))
+
     def __init__(self, scan: Scan, camera: Union[int, Camera, str], angle: Optional[int] = None):
         """
         Container for data analysis of a set of images collected at an undulator station.
@@ -72,7 +77,7 @@ class HtuImages:
         self.target_analysis: Optional[dict[str, tuple[np.ndarray, np.ndarray]]] = None
 
     @staticmethod
-    def find_roi(image: np.ndarray, threshold: Optional[float] = None, display_factor: float = 1.):
+    def find_roi(image: np.ndarray, threshold: Optional[float] = None, plots: bool = False):
         roi = None
         roi_box = np.array([0, image.shape[1] - 1, 0, image.shape[0]])
 
@@ -101,8 +106,8 @@ class HtuImages:
             pass
 
         finally:
-            if display_factor > 0:
-                fig, ax = plt.subplots(figsize=(6.4 * display_factor, 4.8 * display_factor))
+            if plots:
+                fig, ax = plt.subplots(figsize=HtuImages.fig_size)
                 ax.imshow(image)
                 rect = mpatches.Rectangle((roi_box[1], roi_box[0]), roi_box[3] - roi_box[1], roi_box[2] - roi_box[0],
                                           fill=False, edgecolor='red', linewidth=2)
@@ -133,21 +138,40 @@ class HtuImages:
                     for skipped, image_path in enumerate(paths):
                         analysis = self.analyze_image(image_path, hp_median, hp_threshold, denoise_cycles,
                                                       gauss_filter, com_threshold, plots)
-                        analyses.append(analysis)
 
                         if analysis['is_valid']:
+                            # profiles
+                            pos_max: tuple[int, int] = analysis['position_max']
+                            pos_com: tuple[int, int] = analysis['position_com']
+                            profiles = spot_analysis(analysis['image_raw'], [(pos_max[0], pos_max[1], 'max'),
+                                                                             (pos_com[0], pos_com[1], 'com')])
+                            for k, v in profiles.items():
+                                analysis[k] = v
+
+                            # average
                             avg_image: np.ndarray = analysis['image_raw'].copy()
+
                             break
 
+                    analyses.append(analysis)
                     pb.increment()
 
+                    # analyze the rest of the images
                     if len(paths) > (skipped + 1):
                         for it, image_path in enumerate(paths[skipped+1:]):
                             analysis = self.analyze_image(image_path, hp_median, hp_threshold, denoise_cycles,
                                                           gauss_filter, com_threshold, plots)
 
-                            # average
                             if analysis['is_valid']:
+                                # profiles
+                                pos_max: tuple[int, int] = analysis['position_max']
+                                pos_com: tuple[int, int] = analysis['position_com']
+                                profiles = spot_analysis(analysis['image_raw'], [(pos_max[0], pos_max[1], 'max'),
+                                                                                 (pos_com[0], pos_com[1], 'com')])
+                                for k, v in profiles.items():
+                                    analysis[k] = v
+
+                                # average
                                 alpha = 1.0 / (it + 2)
                                 beta = 1.0 - alpha
                                 avg_image = cv2.addWeighted(analysis['image_raw'], alpha, avg_image, beta, 0.0)
@@ -156,8 +180,18 @@ class HtuImages:
                             analyses.append(analysis)
                             pb.increment()
 
+                # analyze the average image
                 self.average_analysis = self.analyze_image(avg_image, hp_median, hp_threshold, denoise_cycles,
                                                            gauss_filter, com_threshold, plots)
+                if self.average_analysis['is_valid']:
+                    # profiles
+                    pos_max: tuple[int, int] = self.average_analysis['position_max']
+                    pos_com: tuple[int, int] = self.average_analysis['position_com']
+                    profiles = spot_analysis(self.average_analysis['image_raw'], [(pos_max[0], pos_max[1], 'max'),
+                                                                                  (pos_com[0], pos_com[1], 'com')])
+                    for k, v in profiles.items():
+                        self.average_analysis[k] = v
+
                 self.image_analyses = analyses
                 self.average_image = avg_image
 
@@ -169,13 +203,13 @@ class HtuImages:
                       denoise_cycles: int = 0, gauss_filter: float = 5., com_threshold: float = 0.5,
                       plots: bool = False) -> dict[str, Any]:
         # raw mage
-        if isinstance(image, SysPath):
-            image_raw = self.read_image_as_float(image)
-        else:
+        if isinstance(image, np.ndarray):
             image_raw = image
+        else:
+            image_raw = self.read_image_as_float(image)
 
         if plots:
-            plt.figure(figsize=(2.4, 1.8))
+            plt.figure(figsize=HtuImages.fig_size)
             plt.imshow(image_raw)
             plt.show(block=False)
 
@@ -184,7 +218,7 @@ class HtuImages:
 
         # check image (contrast)
         counts, bins = np.histogram(analysis['image_denoised'],
-                                    bins=2 * int(np.std(analysis['image_blurred'])))
+                                    bins=max(10, 2 * int(np.std(analysis['image_blurred']))))
         analysis['bkg_level']: float = bins[np.where(counts == np.max(counts))[0][0]]
         analysis['is_valid']: bool = np.std(bins) > analysis['bkg_level']
 
@@ -199,7 +233,7 @@ class HtuImages:
             image_edges = clear_border(image_edges)
             analysis['image_edges'] = image_edges
             if plots:
-                plt.figure(figsize=(1.6, 1.2))
+                plt.figure(figsize=HtuImages.fig_size)
                 plt.imshow(image_edges)
                 plt.show(block=False)
 
@@ -211,39 +245,46 @@ class HtuImages:
             roi = regionprops(label_image)[areas.index(max(areas))]
             analysis['roi'] = np.array([roi.bbox[1], roi.bbox[3], roi.bbox[0], roi.bbox[2]])  # left, right, top, bottom
 
-            image_boxed = image_raw.copy()
-            image_boxed[roi.bbox[0]:roi.bbox[2], roi.bbox[1]] = np.max(image_raw)  # left edge
-            image_boxed[roi.bbox[0]:roi.bbox[2], roi.bbox[3]] = np.max(image_raw)  # right edge
-            image_boxed[roi.bbox[0], roi.bbox[1]:roi.bbox[3]] = np.max(image_raw)  # top edge
-            image_boxed[roi.bbox[2], roi.bbox[1]:roi.bbox[3] + 1] = np.max(image_raw)  # bottom edge
             pos_box = np.array([(roi.bbox[0] + roi.bbox[2]) / 2., (roi.bbox[1] + roi.bbox[3]) / 2.])
             pos_box = np.round(pos_box).astype(int)
             analysis['position_box'] = pos_box  # i, j
 
             if plots:
-                plt.figure(figsize=(1.6, 1.2))
-                plt.imshow(image_boxed)
+                plt.figure(figsize=HtuImages.fig_size)
+                plt.imshow(image_raw)
+                plt.plot(roi.bbox[1] * np.ones((roi.bbox[2] - roi.bbox[0] + 1)),
+                         np.arange(roi.bbox[0], roi.bbox[2] + 1), '-r')  # left edge
+                plt.plot(roi.bbox[3] * np.ones((roi.bbox[2] - roi.bbox[0] + 1)),
+                         np.arange(roi.bbox[0], roi.bbox[2] + 1), '-r')  # right edge
+                plt.plot(np.arange(roi.bbox[1], roi.bbox[3] + 1),
+                         roi.bbox[0] * np.ones((roi.bbox[3] - roi.bbox[1] + 1)), '-r')  # top edge
+                plt.plot(np.arange(roi.bbox[1], roi.bbox[3] + 1),
+                         roi.bbox[2] * np.ones((roi.bbox[3] - roi.bbox[1] + 1)), '-r')  # bottom edge
                 plt.plot(pos_box[1], pos_box[0], 'k.')
                 plt.show(block=False)
 
             # ellipse fit (min_size: min of major axis, max_size: max of minor axis)
-            h_ellipse = hough_ellipse(image_edges, min_size=20, max_size=60, accuracy=10)
+            h_ellipse = hough_ellipse(image_edges, min_size=10, max_size=60, accuracy=8)
             h_ellipse.sort(order='accumulator')
             best = list(h_ellipse[-1])
             yc, xc, a, b = (int(round(x)) for x in best[1:5])
             ellipse = (yc, xc, a, b, best[5])
             analysis['ellipse'] = ellipse  # (i, j, major, minor, orientation)
 
-            cy, cx = ellipse_perimeter(*ellipse)
+            # cy, cx = ellipse_perimeter(*ellipse)
             pos_ellipse = np.array([yc, xc])
             analysis['position_box'] = pos_ellipse  # i, j
 
-            image_ellipse = image_raw.copy()
-            image_ellipse[cy, cx] = np.max(image_raw)
-
             if plots:
-                plt.figure(figsize=(1.6, 1.2))
-                plt.imshow(image_ellipse)
+                ell = mpatches.Ellipse(xy=(xc, yc), width=2*ellipse[3], height=2*ellipse[2],
+                                       angle=math.degrees(ellipse[4]))
+                plt.figure(figsize=HtuImages.fig_size)
+                plt.imshow(image_raw)
+                plt.gca().add_artist(ell)
+                ell.set_alpha(1)
+                ell.set_edgecolor('r')
+                # noinspection PyArgumentList
+                ell.set_fill(False)
                 plt.plot(pos_ellipse[1], pos_ellipse[0], 'k.')
                 plt.show(block=True)
 
@@ -304,7 +345,7 @@ if __name__ == '__main__':
     images.analyze_images(hp_median=2, hp_threshold=3., denoise_cycles=0,
                           gauss_filter=5., com_threshold=0.5, plots=True)
 
-    plt.figure(figsize=(3.2, 2.4))
+    plt.figure(figsize=HtuImages.fig_size)
     plt.imshow(images.average_image)
     plt.show(block=True)
 

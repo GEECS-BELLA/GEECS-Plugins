@@ -96,13 +96,20 @@ def filter_image(image: np.ndarray,
         val_max = image_blurred[i_max, j_max]
         binary = image_blurred > (com_threshold * val_max)
         image_thresholded = image_blurred * binary.astype(float)
+        i_com, j_com = simg.center_of_mass(image_thresholded)
     else:
-        i_max, j_max = -1
+        i_max, j_max, i_com, j_com = -1
         image_thresholded: np.ndarray = image_blurred.copy()
 
-    return {'image_raw': image,
+    return {'hp_median': hp_median,
+            'hp_threshold': hp_threshold,
+            'denoise_cycles': denoise_cycles,
+            'gauss_filter': gauss_filter,
+            'com_threshold': com_threshold,
+            'image_raw': image,
             'image_clipped': image_clipped,
             'image_denoised': image_denoised,
             'image_blurred': image_blurred,
             'image_thresholded': image_thresholded,
-            'position_peak': (int(i_max), int(j_max))}
+            'position_max': (int(i_max), int(j_max)),
+            'position_com': (int(i_com), int(j_com))}

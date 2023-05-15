@@ -3,11 +3,9 @@ import os
 import time
 import shutil
 import cv2
+import numpy as np
 from typing import Any
 from datetime import datetime as dtime
-
-import numpy as np
-
 from geecs_api.tools.images.batches import average_images
 from geecs_api.api_defs import VarAlias, SysPath
 from geecs_api.devices.geecs_device import GeecsDevice

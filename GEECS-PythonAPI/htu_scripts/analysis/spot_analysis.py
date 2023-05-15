@@ -4,7 +4,7 @@ import os
 import numpy as np
 from typing import Optional, Any
 import scipy.ndimage as simg
-from geecs_api.tools.images.filtering import clip_hot_pixels, denoise, filter_image
+from geecs_api.tools.images.filtering import filter_image
 from geecs_api.tools.distributions.fit_utility import fit_distribution
 
 
@@ -12,29 +12,22 @@ def fwhm(sd):
     return 2 * np.sqrt(2 * np.log(2)) * sd
 
 
-def spot_analysis(image: np.ndarray,
-                  hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 3,
-                  gauss_filter: float = 5., com_threshold: float = 0.5) -> Optional[dict[str, Any]]:
-    """ @author: Guillaume Plateau, TAU Systems """
+def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]]) -> Optional[dict[str, Any]]:
+    """
+    Runs Gaussian fits at a given list of positions (e.g. peak vs. center-of-mass)
+
+    image: numpy array
+    positions: list of tuples of (i, j, label)
+    """
     analysis: Optional[dict[str, Any]]
 
     try:
         analysis = {}
 
-        # find spot
-        pos_com, pos_max = find_spot(image, hp_median, hp_threshold, denoise_cycles, gauss_filter, com_threshold)
-        analysis['hp_median'] = hp_median
-        analysis['hp_threshold'] = hp_threshold
-        analysis['denoise_cycles'] = denoise_cycles
-        analysis['gauss_filter'] = gauss_filter
-        analysis['com_threshold'] = com_threshold
-        analysis['position_com'] = pos_com
-        analysis['position_max'] = pos_max
-
-        for pos, name in [(pos_com, 'com'), (pos_max, 'max')]:
+        for pos_i, pos_j, name in positions:
             axis_x = np.arange(image.shape[1])
-            data_x = image[pos[0], :]
-            opt_x, fit_x = profile_fit(axis_x, data_x, pos[0], image[pos])
+            data_x = image[pos_i, :]
+            opt_x, fit_x = profile_fit(axis_x, data_x, pos_i, image[pos_i, pos_j])
 
             analysis[f'axis_x_{name}'] = axis_x
             analysis[f'data_x_{name}'] = data_x
@@ -42,8 +35,8 @@ def spot_analysis(image: np.ndarray,
             analysis[f'fit_x_{name}'] = fit_x
 
             axis_y = np.arange(image.shape[0])
-            data_y = image[:, pos[1]]
-            opt_y, fit_y = profile_fit(axis_y, data_y, pos[1], image[pos])
+            data_y = image[:, pos_j]
+            opt_y, fit_y = profile_fit(axis_y, data_y, pos_j, image[pos_i, pos_j])
 
             analysis[f'axis_y_{name}'] = axis_y
             analysis[f'data_y_{name}'] = data_y
@@ -67,7 +60,6 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
         guess_std = (x_data[-1] - x_data[0]) / 10.
     if guess_amplitude is None:
         guess_amplitude = np.max(y_data) - np.min(y_data)
-    # guess = [np.min(y_data), guess_amplitude, guess_com, guess_std]
     guess = [0, guess_amplitude, guess_com, guess_std]
 
     # noinspection PyTypeChecker
@@ -86,9 +78,8 @@ def find_spot(image: np.ndarray,
     com_threshold:  image threshold for center-of-mass calculation
     """
     filter_dict = filter_image(image, hp_median, hp_threshold, denoise_cycles, gauss_filter, com_threshold)
-    i_com, j_com = simg.center_of_mass(filter_dict['image_thresholded'])
 
-    return (int(round(i_com)), int(round(j_com))), filter_dict['peak']
+    return filter_dict['position_com'], filter_dict['position_max']
 
 
 if __name__ == "__main__":
