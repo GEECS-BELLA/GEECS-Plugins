@@ -128,7 +128,7 @@ class UndulatorNoScan:
     def analyze_images(self, n_images: int = 0, hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 0,
                        gauss_filter: float = 5., com_threshold: float = 0.5, plots: bool = False):
         paths = list_images(self.image_folder, n_images, '.png')
-        paths = paths[24:]  # tmp
+        paths = paths[24:27]  # tmp
         analyses: list[dict[str, Any]] = []
 
         # run analysis
@@ -138,47 +138,11 @@ class UndulatorNoScan:
                     # analyze one at a time until valid image found to initialize average
                     for skipped, image_path in enumerate(paths):
                         analysis = self.analyze_image(image_path, hp_median, hp_threshold, denoise_cycles,
-                                                      gauss_filter, com_threshold, plots, block=False)
+                                                      gauss_filter, com_threshold, plots=plots, block=False)
 
                         if analysis['is_valid']:
-                            # profiles
-                            pos_max: tuple[int, int] = analysis['position_max']
-                            pos_com: tuple[int, int] = analysis['position_com']
-                            profiles = spot_analysis(analysis['image_raw'], [(pos_max[0], pos_max[1], 'max'),
-                                                                             (pos_com[0], pos_com[1], 'com')])
-                            if plots:
-                                profiles_fig_size = (UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1])
-                                _, axs = plt.subplots(ncols=3, nrows=2, figsize=profiles_fig_size,
-                                                      sharex='col', sharey='col')
-                                axs[0, 0].imshow(analysis['image_raw'], label='max')
-                                axs[0, 0].axvline(pos_max[1], color='r', linestyle='--', linewidth=0.5)
-                                axs[0, 0].axhline(pos_max[0], color='r', linestyle='--', linewidth=0.5)
-                                axs[0, 0].plot(pos_max[1], pos_max[0], '.k', markersize=2)
-                                axs[0, 0].text(loc='upper left')
-                                axs[0, 1].plot(profiles['axis_x_max'], profiles['data_x_max'], 'b-')
-                                axs[0, 1].plot(profiles['axis_x_max'], profiles['fit_x_max'], 'm-', label='f(x)')
-                                axs[0, 1].legend(loc='best')
-                                axs[0, 2].plot(profiles['axis_y_max'], profiles['data_y_max'], 'b-')
-                                axs[0, 2].plot(profiles['axis_y_max'], profiles['fit_y_max'], 'm-', label='f(y)')
-                                axs[0, 2].legend(loc='best')
-
-                                axs[1, 0].imshow(analysis['image_raw'])
-                                axs[1, 0].axvline(pos_com[1], color='r', linestyle='--', linewidth=0.5)
-                                axs[1, 0].axhline(pos_com[0], color='r', linestyle='--', linewidth=0.5)
-                                axs[1, 0].plot(pos_com[1], pos_com[0], '.k', markersize=2)
-                                axs[1, 1].plot(profiles['axis_x_com'], profiles['data_x_com'], 'b-')
-                                axs[1, 1].plot(profiles['axis_x_com'], profiles['fit_x_com'], 'm-', label='f(x)')
-                                axs[1, 1].legend(loc='best')
-                                axs[1, 2].plot(profiles['axis_y_com'], profiles['data_y_com'], 'b-')
-                                axs[1, 2].plot(profiles['axis_y_com'], profiles['fit_y_com'], 'm-', label='f(y)')
-                                axs[1, 2].legend(loc='best')
-                                plt.show(block=True)
-                            for k, v in profiles.items():
-                                analysis[k] = v
-
-                            # average
+                            analysis = UndulatorNoScan.profiles_analysis(analysis, plots=plots, block=True)
                             avg_image: np.ndarray = analysis['image_raw'].copy()
-
                             break
 
                     analyses.append(analysis)
@@ -188,16 +152,11 @@ class UndulatorNoScan:
                     if len(paths) > (skipped + 1):
                         for it, image_path in enumerate(paths[skipped+1:]):
                             analysis = self.analyze_image(image_path, hp_median, hp_threshold, denoise_cycles,
-                                                          gauss_filter, com_threshold, plots)
+                                                          gauss_filter, com_threshold, plots=plots)
 
                             if analysis['is_valid']:
                                 # profiles
-                                pos_max: tuple[int, int] = analysis['position_max']
-                                pos_com: tuple[int, int] = analysis['position_com']
-                                profiles = spot_analysis(analysis['image_raw'], [(pos_max[0], pos_max[1], 'max'),
-                                                                                 (pos_com[0], pos_com[1], 'com')])
-                                for k, v in profiles.items():
-                                    analysis[k] = v
+                                analysis = UndulatorNoScan.profiles_analysis(analysis, plots=plots, block=True)
 
                                 # average
                                 alpha = 1.0 / (it + 2)
@@ -210,15 +169,10 @@ class UndulatorNoScan:
 
                 # analyze the average image
                 self.average_analysis = self.analyze_image(avg_image, hp_median, hp_threshold, denoise_cycles,
-                                                           gauss_filter, com_threshold, plots)
+                                                           gauss_filter, com_threshold, plots=plots)
                 if self.average_analysis['is_valid']:
-                    # profiles
-                    pos_max: tuple[int, int] = self.average_analysis['position_max']
-                    pos_com: tuple[int, int] = self.average_analysis['position_com']
-                    profiles = spot_analysis(self.average_analysis['image_raw'], [(pos_max[0], pos_max[1], 'max'),
-                                                                                  (pos_com[0], pos_com[1], 'com')])
-                    for k, v in profiles.items():
-                        self.average_analysis[k] = v
+                    self.average_analysis = \
+                        UndulatorNoScan.profiles_analysis(self.average_analysis, plots=plots, block=True)
 
                 self.image_analyses = analyses
                 self.average_image = avg_image
@@ -230,7 +184,7 @@ class UndulatorNoScan:
 
     def analyze_image(self, image: Union[SysPath, np.ndarray], hp_median: int = 2, hp_threshold: float = 3.,
                       denoise_cycles: int = 0, gauss_filter: float = 5., com_threshold: float = 0.5,
-                      plots: bool = False, block: bool = True) -> dict[str, Any]:
+                      skip_ellipse: bool = True, plots: bool = False, block: bool = True) -> dict[str, Any]:
         # raw mage
         if isinstance(image, np.ndarray):
             image_raw = image
@@ -276,7 +230,7 @@ class UndulatorNoScan:
 
             pos_box = np.array([(roi.bbox[0] + roi.bbox[2]) / 2., (roi.bbox[1] + roi.bbox[3]) / 2.])
             pos_box = np.round(pos_box).astype(int)
-            analysis['position_box'] = pos_box  # i, j
+            analysis['position_box'] = tuple(pos_box)  # i, j
 
             if plots:
                 plt.figure(figsize=UndulatorNoScan.fig_size)
@@ -293,29 +247,30 @@ class UndulatorNoScan:
                 plt.show(block=False)
 
             # ellipse fit (min_size: min of major axis, max_size: max of minor axis)
-            h_ellipse = hough_ellipse(image_edges, min_size=10, max_size=60, accuracy=8)
-            h_ellipse.sort(order='accumulator')
-            best = list(h_ellipse[-1])
-            yc, xc, a, b = (int(round(x)) for x in best[1:5])
-            ellipse = (yc, xc, a, b, best[5])
-            analysis['ellipse'] = ellipse  # (i, j, major, minor, orientation)
+            if not skip_ellipse:
+                h_ellipse = hough_ellipse(image_edges, min_size=10, max_size=60, accuracy=8)
+                h_ellipse.sort(order='accumulator')
+                best = list(h_ellipse[-1])
+                yc, xc, a, b = (int(round(x)) for x in best[1:5])
+                ellipse = (yc, xc, a, b, best[5])
+                analysis['ellipse'] = ellipse  # (i, j, major, minor, orientation)
 
-            # cy, cx = ellipse_perimeter(*ellipse)
-            pos_ellipse = np.array([yc, xc])
-            analysis['position_box'] = pos_ellipse  # i, j
+                # cy, cx = ellipse_perimeter(*ellipse)
+                pos_ellipse = np.array([yc, xc])
+                analysis['position_ellipse'] = tuple(pos_ellipse)  # i, j
 
-            if plots:
-                ell = mpatches.Ellipse(xy=(xc, yc), width=2*ellipse[3], height=2*ellipse[2],
-                                       angle=math.degrees(ellipse[4]))
-                plt.figure(figsize=UndulatorNoScan.fig_size)
-                plt.imshow(image_raw)
-                plt.gca().add_artist(ell)
-                ell.set_alpha(1)
-                ell.set_edgecolor('r')
-                # noinspection PyArgumentList
-                ell.set_fill(False)
-                plt.plot(pos_ellipse[1], pos_ellipse[0], 'k.')
-                plt.show(block=block)
+                if plots:
+                    ell = mpatches.Ellipse(xy=(xc, yc), width=2*ellipse[3], height=2*ellipse[2],
+                                           angle=math.degrees(ellipse[4]))
+                    plt.figure(figsize=UndulatorNoScan.fig_size)
+                    plt.imshow(image_raw)
+                    plt.gca().add_artist(ell)
+                    ell.set_alpha(1)
+                    ell.set_edgecolor('r')
+                    # noinspection PyArgumentList
+                    ell.set_fill(False)
+                    plt.plot(pos_ellipse[1], pos_ellipse[0], 'k.')
+                    plt.show(block=block)
 
         except Exception:
             pass
@@ -408,17 +363,71 @@ class UndulatorNoScan:
                 'std_pos_com_fwhm_x': std_pos_com_fwhm_x,
                 'std_pos_com_fwhm_y': std_pos_com_fwhm_y}
 
+    @staticmethod
+    def profiles_analysis(analysis: dict[str, Any], plots: bool = True, block: bool = False) -> dict[str, Any]:
+        profiles = {}
+        try:
+            pos_max: tuple[int, int] = analysis['position_max']
+            pos_com: tuple[int, int] = analysis['position_com']
+            pos_box: tuple[int, int] = analysis['position_box']
+            if 'position_ellipse' in analysis:
+                pos_ell: tuple[int, int] = analysis['position_ellipse']
+            else:
+                pos_ell = (0, 0)
+
+            positions = [(pos_max[0], pos_max[1], 'max'),
+                         (pos_com[0], pos_com[1], 'com'),
+                         (pos_box[0], pos_box[1], 'box')]
+            if 'position_ellipse' in analysis:
+                positions.append((pos_ell[0], pos_ell[1], 'ell'))
+
+            labels = ['maximum', 'center of mass', 'box', 'ellipse']
+
+            profiles = spot_analysis(analysis['image_raw'], positions,
+                                     x_window=(analysis['roi'][0], analysis['roi'][1]),
+                                     y_window=(analysis['roi'][2], analysis['roi'][3]))
+
+            if plots and profiles is not None:
+                profiles_fig_size = (UndulatorNoScan.fig_size[0] * 2,
+                                     UndulatorNoScan.fig_size[1] * math.ceil(len(positions)/2.5))
+                _, axs = plt.subplots(ncols=3, nrows=len(positions), figsize=profiles_fig_size,
+                                      sharex='col', sharey='col')
+                for it, pos in enumerate(positions):
+                    axs[it, 0].imshow(analysis['image_raw'])
+                    axs[it, 0].axvline(pos[1], color='r', linestyle='--', linewidth=0.5)
+                    axs[it, 0].axhline(pos[0], color='r', linestyle='--', linewidth=0.5)
+                    axs[it, 0].plot(pos[1], pos[0], '.k', markersize=2)
+                    axs[it, 0].set_ylabel(labels[it])
+                    # axs[it, 0].text(5, 5, 'maximum', bbox={'facecolor': 'white', 'pad': 2})
+                    axs[it, 1].plot(profiles[f'axis_x_{pos[2]}'], profiles[f'data_x_{pos[2]}'], 'b-', label='data')
+                    axs[it, 1].plot(profiles[f'axis_x_{pos[2]}'], profiles[f'fit_x_{pos[2]}'], 'm-', label='fit')
+                    axs[it, 1].legend(loc='best')
+                    axs[it, 2].plot(profiles[f'axis_y_{pos[2]}'], profiles[f'data_y_{pos[2]}'], 'b-', label='data')
+                    axs[it, 2].plot(profiles[f'axis_y_{pos[2]}'], profiles[f'fit_y_{pos[2]}'], 'm-', label='fit')
+                    axs[it, 2].legend(loc='best')
+
+                plt.show(block=block)
+
+        except Exception as ex:
+            print(ex)
+            pass
+
+        for k, v in profiles.items():
+            analysis[k] = v
+
+        return analysis
+
 
 if __name__ == '__main__':
-    # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    _base = Path(r'Z:\data')
+    _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    # _base = Path(r'Z:\data')
     _folder = _base / r'Undulator\Y2023\05-May\23_0509\scans\Scan028'
 
     _scan = Scan(_folder, ignore_experiment_name=True)
     images = UndulatorNoScan(_scan, 'U7', angle=0)
     images.analyze_images(hp_median=2, hp_threshold=3., denoise_cycles=0,
                           gauss_filter=5., com_threshold=0.5, plots=True)
-
+    print('done')
     # plt.figure(figsize=UndulatorNoScan.fig_size)
     # plt.imshow(images.average_image)
     # plt.show(block=True)
