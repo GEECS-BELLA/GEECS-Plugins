@@ -4,20 +4,32 @@ import numpy as np
 import scipy.optimize as sopt
 
 
-def fit_distribution(x_data: np.ndarray, y_data: np.ndarray, fit_type='linear', guess=None):
+def fit_distribution(x_data: np.ndarray, y_data: np.ndarray, fit_type='linear', guess=None, bounds=None):
+    """
+    fit_type: 'linear', 'root', 'gaussian'
+    """
     fit: np.ndarray = y_data
     opt = None
 
     if fit_type == 'linear':
-        opt = sopt.curve_fit(linear_fit, x_data, y_data, p0=guess)
+        if bounds:
+            opt = sopt.curve_fit(linear_fit, x_data, y_data, p0=guess, bounds=bounds)
+        else:
+            opt = sopt.curve_fit(linear_fit, x_data, y_data, p0=guess)
         fit = linear_fit(x_data, *opt[0])
 
     if fit_type == 'root':
-        opt = sopt.curve_fit(root_fit, x_data, y_data, p0=guess)
+        if bounds:
+            opt = sopt.curve_fit(root_fit, x_data, y_data, p0=guess, bounds=bounds)
+        else:
+            opt = sopt.curve_fit(root_fit, x_data, y_data, p0=guess)
         fit = root_fit(x_data, *opt[0])
 
     if fit_type == 'gaussian':
-        opt = sopt.curve_fit(gaussian_fit, x_data, y_data, p0=guess)
+        if bounds:
+            opt = sopt.curve_fit(gaussian_fit, x_data, y_data, p0=guess, bounds=bounds)
+        else:
+            opt = sopt.curve_fit(gaussian_fit, x_data, y_data, p0=guess)
         fit = gaussian_fit(x_data, *opt[0])
 
     return opt, fit

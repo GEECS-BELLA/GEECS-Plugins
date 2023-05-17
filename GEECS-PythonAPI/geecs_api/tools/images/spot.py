@@ -32,11 +32,13 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
             if x_window:
                 axis_x = np.arange(x_window[0], x_window[1] + 1)
                 data_x = image[pos_i, x_window[0]:x_window[1]+1]
-                opt_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
+                # opt_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
+                opt_x, fit_x = profile_fit(axis_x, data_x)
             else:
                 axis_x = np.arange(image.shape[1])
                 data_x = image[pos_i, :]
-                opt_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
+                # opt_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
+                opt_x, fit_x = profile_fit(axis_x, data_x)
 
             analysis[f'axis_x_{name}'] = axis_x
             analysis[f'data_x_{name}'] = data_x
@@ -46,11 +48,13 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
             if y_window:
                 axis_y = np.arange(y_window[0], y_window[1] + 1)
                 data_y = image[y_window[0]:y_window[1]+1, pos_j]
-                opt_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
+                # opt_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
+                opt_y, fit_y = profile_fit(axis_y, data_y)
             else:
                 axis_y = np.arange(image.shape[0])
                 data_y = image[:, pos_j]
-                opt_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
+                # opt_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
+                opt_y, fit_y = profile_fit(axis_y, data_y)
 
             analysis[f'axis_y_{name}'] = axis_y
             analysis[f'data_y_{name}'] = data_y
@@ -79,7 +83,7 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
         left = np.where(left == np.min(left))[0][0]
         right = np.abs(smoothed[int(guess_center)-x_data[0]:] - 0.66 * np.max(smoothed))
         right = np.where(right == np.min(right))[0][-1]
-        guess_fwhm = right + int(guess_center) - left - x_data[0]
+        guess_fwhm = max(right + int(guess_center) - left - x_data[0], len(y_data) / 10)
 
     guess_std = guess_fwhm / (2 * math.sqrt(2 * math.log(2.)))
 
@@ -90,9 +94,11 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
         guess_background = np.min(y_data)
 
     guess = [guess_background, guess_amplitude, guess_center, guess_std]
+    bounds = (np.array([-guess_background, 0.5 * guess_amplitude, x_data[0], 0.1 * guess_std]),
+              np.array([np.max(y_data), 2 * guess_amplitude, x_data[-1], 10 * guess_std]))
 
     # noinspection PyTypeChecker
-    return fit_distribution(x_data, y_data, fit_type='gaussian', guess=guess)
+    return fit_distribution(x_data, y_data, fit_type='gaussian', guess=guess, bounds=bounds)
 
 
 def find_spot(image: np.ndarray,

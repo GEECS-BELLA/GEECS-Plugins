@@ -5,7 +5,7 @@ from typing import Optional, Any, Union
 
 
 def show_one(image: np.ndarray,
-             size_factor: float = 1.,
+             figure_size: tuple[float, float] = (6.4, 4.8),
              x_lim: Optional[tuple[float, float]] = None,
              y_lim: Optional[tuple[float, float]] = None,
              colormap: Any = plt.cm.hot,
@@ -21,7 +21,7 @@ def show_one(image: np.ndarray,
              contours_fontsize: int = 8,
              show: bool = True,
              block_execution: bool = True):
-    plt.figure(figsize=(6.4 * size_factor, 4.8 * size_factor))
+    plt.figure(figsize=figure_size)
     ax = plt.subplot(111)
     im = ax.imshow(image, cmap=colormap, aspect='equal', origin='upper')
 
