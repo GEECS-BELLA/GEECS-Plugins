@@ -32,13 +32,13 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
             if x_window:
                 axis_x = np.arange(x_window[0], x_window[1] + 1)
                 data_x = image[pos_i, x_window[0]:x_window[1]+1]
-                # opt_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
-                opt_x, fit_x = profile_fit(axis_x, data_x)
+                opt_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
+                # opt_x, fit_x = profile_fit(axis_x, data_x)
             else:
                 axis_x = np.arange(image.shape[1])
                 data_x = image[pos_i, :]
-                # opt_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
-                opt_x, fit_x = profile_fit(axis_x, data_x)
+                opt_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
+                # opt_x, fit_x = profile_fit(axis_x, data_x)
 
             analysis[f'axis_x_{name}'] = axis_x
             analysis[f'data_x_{name}'] = data_x
@@ -48,13 +48,13 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
             if y_window:
                 axis_y = np.arange(y_window[0], y_window[1] + 1)
                 data_y = image[y_window[0]:y_window[1]+1, pos_j]
-                # opt_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
-                opt_y, fit_y = profile_fit(axis_y, data_y)
+                opt_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
+                # opt_y, fit_y = profile_fit(axis_y, data_y)
             else:
                 axis_y = np.arange(image.shape[0])
                 data_y = image[:, pos_j]
-                # opt_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
-                opt_y, fit_y = profile_fit(axis_y, data_y)
+                opt_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
+                # opt_y, fit_y = profile_fit(axis_y, data_y)
 
             analysis[f'axis_y_{name}'] = axis_y
             analysis[f'data_y_{name}'] = data_y

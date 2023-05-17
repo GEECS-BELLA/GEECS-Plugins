@@ -1,11 +1,11 @@
 import cv2
+import os
 import re
 import math
 import numpy as np
 import screeninfo
 from pathlib import Path
 import scipy.ndimage as simg
-from skimage import color, img_as_ubyte
 from skimage.segmentation import clear_border
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
@@ -24,7 +24,6 @@ from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
 from geecs_api.tools.images.filtering import clip_hot_pixels, filter_image
 from geecs_api.tools.images.spot import spot_analysis, fwhm
-from geecs_api.tools.images.displays import show_one
 
 
 class UndulatorNoScan:
@@ -129,9 +128,10 @@ class UndulatorNoScan:
 
     def analyze_images(self, n_images: int = 0, contrast: float = 2, hp_median: int = 2, hp_threshold: float = 3.,
                        denoise_cycles: int = 0, gauss_filter: float = 5., com_threshold: float = 0.5,
-                       plots: bool = False, save_dir: Optional[Path] = None):
+                       plots: bool = False, save_dir: Optional[Path] = None, skip_ellipse: bool = True):
         paths = list_images(self.image_folder, n_images, '.png')
-        paths = paths[24:27]  # tmp
+        # paths = paths[24:27]  # tmp
+        paths = paths[:3]  # tmp
         analyses: list[dict[str, Any]] = []
 
         # run analysis
@@ -140,12 +140,14 @@ class UndulatorNoScan:
                 with ProgressBar(max_value=len(paths)) as pb:
                     # analyze one at a time until valid image found to initialize average
                     for skipped, image_path in enumerate(paths):
-                        analysis = self.analyze_image(image_path, contrast, hp_median, hp_threshold, denoise_cycles,
-                                                      gauss_filter, com_threshold, skip_ellipse=True)
+                        analysis = self._analyze_image(image_path, contrast, hp_median, hp_threshold, denoise_cycles,
+                                                       gauss_filter, com_threshold, skip_ellipse)
+                        analysis['image_path'] = image_path
 
                         if analysis['is_valid']:
-                            analysis = UndulatorNoScan.profiles_analysis(analysis, plots=plots, block=False)
-                            UndulatorNoScan.plot_save_image_analysis(analysis)
+                            analysis = UndulatorNoScan.profiles_analysis(analysis)
+                            if plots:
+                                self.plot_save_image_analysis(analysis, block=True)
                             avg_image: np.ndarray = analysis['image_raw'].copy()
                             break
 
@@ -155,12 +157,15 @@ class UndulatorNoScan:
                     # analyze the rest of the images
                     if len(paths) > (skipped + 1):
                         for it, image_path in enumerate(paths[skipped+1:]):
-                            analysis = self.analyze_image(image_path, contrast, hp_median, hp_threshold, denoise_cycles,
-                                                          gauss_filter, com_threshold, skip_ellipse=True)
+                            analysis = self._analyze_image(image_path, contrast, hp_median, hp_threshold,
+                                                           denoise_cycles, gauss_filter, com_threshold, skip_ellipse)
+                            analysis['image_path'] = image_path
 
                             if analysis['is_valid']:
                                 # profiles
-                                analysis = UndulatorNoScan.profiles_analysis(analysis, plots=plots, block=False)
+                                analysis = UndulatorNoScan.profiles_analysis(analysis)
+                                if plots:
+                                    self.plot_save_image_analysis(analysis, block=True)
 
                                 # average
                                 alpha = 1.0 / (it + 2)
@@ -172,11 +177,13 @@ class UndulatorNoScan:
                             pb.increment()
 
                 # analyze the average image
-                self.average_analysis = self.analyze_image(avg_image, contrast, hp_median, hp_threshold, denoise_cycles,
-                                                           gauss_filter, com_threshold, skip_ellipse=True)
+                self.average_analysis = self._analyze_image(avg_image, contrast, hp_median, hp_threshold,
+                                                            denoise_cycles, gauss_filter, com_threshold, skip_ellipse)
                 if self.average_analysis['is_valid']:
                     self.average_analysis = \
-                        UndulatorNoScan.profiles_analysis(self.average_analysis, plots=plots, block=True)
+                        UndulatorNoScan.profiles_analysis(self.average_analysis)
+                    if plots:
+                        self.plot_save_image_analysis(self.average_analysis, block=True)
 
                 self.image_analyses = analyses
                 self.average_image = avg_image
@@ -187,85 +194,15 @@ class UndulatorNoScan:
                 api_error.error(str(ex), 'Failed to analyze image')
                 pass
 
-    @staticmethod
-    def plot_save_image_analysis(analysis: dict[str, Any]):
-        fig = plt.figure(figsize=(UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1]))
-        grid = plt.GridSpec(2, 4, hspace=0.3, wspace=0.3)
-        ax_i = fig.add_subplot(grid[:, :2])
-        ax_x = fig.add_subplot(grid[0, 2:])
-        ax_y = fig.add_subplot(grid[1, 2:], sharey=ax_x)
-
-        # raw image
-        edges = np.where(analysis['image_edges'] != 0)
-        ax_i.imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper')
-        ax_i.scatter(edges[1], edges[0], s=1, c='w', alpha=0.2)
-
-        # roi box
-        roi_color = '--m'
-        ax_i.plot(analysis['roi'][0] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
-                  np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=0.5)  # left
-        ax_i.plot(analysis['roi'][1] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
-                  np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=0.5)  # right
-        ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
-                  analysis['roi'][2] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
-                  roi_color, linewidth=0.5)  # top
-        ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
-                  analysis['roi'][3] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
-                  roi_color, linewidth=0.5)  # bottom
-
-        # max
-        ax_i.axvline(analysis['position_max'][1], color='gray', linestyle='--', linewidth=0.5)
-        ax_i.axhline(analysis['position_max'][0], color='gray', linestyle='--', linewidth=0.5)
-        ax_i.plot(analysis['position_max'][1], analysis['position_max'][0], 'k.', markersize=2)
-
-        # lineouts
-        ax_x.plot(analysis['axis_x_max'], analysis['data_x_max'], 'b-', label='data')
-        ax_x.plot(analysis['axis_x_max'], analysis['fit_x_max'], 'm-',
-                  label=rf'$FWHM: {fwhm(analysis["opt_x_max"][3]):.1f}$')
-        ax_x.legend(loc='best')
-
-        ax_y.plot(analysis['axis_y_max'], analysis['data_y_max'], 'b-', label='data')
-        ax_y.plot(analysis['axis_y_max'], analysis['fit_y_max'], 'm-',
-                  label=rf'$FWHM: {fwhm(analysis["opt_y_max"][3]):.1f}$')
-        ax_y.legend(loc='best')
-
-        plt.show(block=True)
-
-        #
-        # ax, _ = show_one(analysis['image_raw'], figure_size=UndulatorNoScan.fig_size, colormap='hot',
-        #                  markers_ij=scan.analyses_summary['scan_pos_max'],
-        #                  markers_color='c.', hide_ticks=False, show_colorbar=True,
-        #                  show_contours=True, contours=2, contours_colors='w', contours_labels=True,
-        #                  show=True, block_execution=False)
-        #
-        #
-        # ax.scatter(avg_img_pos_max[1], avg_img_pos_max[0], c='k')
-        # ax.plot(x_pos, x_counts_plot, '-c')
-        # ax.plot(y_counts_plot, y_pos, '-c')
-        # if not ax.yaxis_inverted():
-        #     ax.invert_yaxis()
-        # plt.show(block=block_execution)
-        #
-        # plt.figure(figsize=UndulatorNoScan.fig_size)
-        # plt.imshow(analysis['image_raw'])
-        # plt.show(block=False)
-        # if isinstance(save_dir, Path) and save_dir.is_dir():
-
-    def analyze_image(self, image: Union[SysPath, np.ndarray], contrast: float = 2,
-                      hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 0,
-                      gauss_filter: float = 5., com_threshold: float = 0.5,
-                      skip_ellipse: bool = True) -> dict[str, Any]:
+    def _analyze_image(self, image: Union[SysPath, np.ndarray], contrast: float = 2,
+                       hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 0,
+                       gauss_filter: float = 5., com_threshold: float = 0.5,
+                       skip_ellipse: bool = True) -> dict[str, Any]:
         # raw mage
         if isinstance(image, np.ndarray):
             image_raw = image
         else:
             image_raw = self.read_image_as_float(image)
-
-        # if plots:
-            # plt.figure(figsize=UndulatorNoScan.fig_size)
-            # plt.imshow(image_raw)
-            # plt.show(block=False)
-            # if isinstance(save_dir, Path) and save_dir.is_dir():
 
         # initial filtering
         analysis = filter_image(image_raw, hp_median, hp_threshold, denoise_cycles, gauss_filter, com_threshold)
@@ -312,24 +249,6 @@ class UndulatorNoScan:
             image_edges[:analysis['roi'][2], :] = 0
             image_edges[analysis['roi'][3]+1:, :] = 0
             analysis['image_edges'] = image_edges
-            # if plots:
-            #     plt.figure(figsize=UndulatorNoScan.fig_size)
-            #     plt.imshow(image_edges)
-            #     plt.show(block=False)
-            #
-            # if plots:
-            #     plt.figure(figsize=UndulatorNoScan.fig_size)
-            #     plt.imshow(image_raw)
-            #     plt.plot(roi.bbox[1] * np.ones((roi.bbox[2] - roi.bbox[0] + 1)),
-            #              np.arange(roi.bbox[0], roi.bbox[2] + 1), '-r')  # left edge
-            #     plt.plot(roi.bbox[3] * np.ones((roi.bbox[2] - roi.bbox[0] + 1)),
-            #              np.arange(roi.bbox[0], roi.bbox[2] + 1), '-r')  # right edge
-            #     plt.plot(np.arange(roi.bbox[1], roi.bbox[3] + 1),
-            #              roi.bbox[0] * np.ones((roi.bbox[3] - roi.bbox[1] + 1)), '-r')  # top edge
-            #     plt.plot(np.arange(roi.bbox[1], roi.bbox[3] + 1),
-            #              roi.bbox[2] * np.ones((roi.bbox[3] - roi.bbox[1] + 1)), '-r')  # bottom edge
-            #     plt.plot(pos_box[1], pos_box[0], 'k.')
-            #     plt.show(block=False)
 
             # ellipse fit (min_size: min of major axis, max_size: max of minor axis)
             if not skip_ellipse:
@@ -344,26 +263,11 @@ class UndulatorNoScan:
                 pos_ellipse = np.array([yc, xc])
                 analysis['position_ellipse'] = tuple(pos_ellipse)  # i, j
 
-                # if plots:
-                #     ell = mpatches.Ellipse(xy=(xc, yc), width=2*ellipse[3], height=2*ellipse[2],
-                #                            angle=math.degrees(ellipse[4]))
-                #     plt.figure(figsize=UndulatorNoScan.fig_size)
-                #     plt.imshow(image_raw)
-                #     plt.gca().add_artist(ell)
-                #     ell.set_alpha(1)
-                #     ell.set_edgecolor('r')
-                #     # noinspection PyArgumentList
-                #     ell.set_fill(False)
-                #     plt.plot(pos_ellipse[1], pos_ellipse[0], 'k.')
-                #     plt.show(block=block)
-
         except Exception:
             pass
 
         return analysis
 
-    # make private
-    # add distance to box/ellipse centers
     def _target_analysis(self) -> dict[str, Any]:
         positions = ['max', 'com', 'box', 'ellipse']
         target_analysis: dict[str, Any] = {}
@@ -425,8 +329,7 @@ class UndulatorNoScan:
         return summary
 
     @staticmethod
-    def profiles_analysis(analysis: dict[str, Any], plots: bool = True, block: bool = False) -> dict[str, Any]:
-        profiles = {}
+    def profiles_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
         try:
             pos_max: tuple[int, int] = analysis['position_max']
             pos_com: tuple[int, int] = analysis['position_com']
@@ -448,58 +351,127 @@ class UndulatorNoScan:
                                      x_window=(analysis['roi'][0], analysis['roi'][1]),
                                      y_window=(analysis['roi'][2], analysis['roi'][3]))
 
-            if plots and profiles is not None:
-                profiles_fig_size = (UndulatorNoScan.fig_size[0] * 1.5,
-                                     UndulatorNoScan.fig_size[1] * math.ceil(len(positions)/3))
-                _, axs = plt.subplots(ncols=3, nrows=len(positions), figsize=profiles_fig_size,
-                                      sharex='col', sharey='col')
-                for it, pos in enumerate(positions):
-                    axs[it, 0].imshow(analysis['image_raw'])
-                    axs[it, 0].axvline(pos[1], color='r', linestyle='--', linewidth=0.5)
-                    axs[it, 0].axhline(pos[0], color='r', linestyle='--', linewidth=0.5)
-                    axs[it, 0].plot(pos[1], pos[0], '.k', markersize=2)
-                    axs[it, 0].set_ylabel(labels[it])
-                    axs[it, 1].plot(profiles[f'axis_x_{pos[2]}'], profiles[f'data_x_{pos[2]}'], 'b-', label='data')
-                    axs[it, 1].plot(profiles[f'axis_x_{pos[2]}'], profiles[f'fit_x_{pos[2]}'], 'm-', label='fit(x)')
-                    axs[it, 1].legend(loc='best')
-                    axs[it, 2].plot(profiles[f'axis_y_{pos[2]}'], profiles[f'data_y_{pos[2]}'], 'b-', label='data')
-                    axs[it, 2].plot(profiles[f'axis_y_{pos[2]}'], profiles[f'fit_y_{pos[2]}'], 'm-', label='fit(y)')
-                    axs[it, 2].legend(loc='best')
+            for k, v in profiles.items():
+                analysis[k] = v
 
+            analysis['positions'] = positions
+            analysis['positions_labels'] = labels
+
+        except Exception as ex:
+            print(ex)
+            pass
+
+        return analysis
+
+    def plot_save_image_analysis(self, analysis: dict[str, Any], block: bool = False):
+        try:
+            image_path: Path = Path(analysis['image_path'])
+            camera_folder: str = image_path.parts[-2]
+            shot_name: str = image_path.name.split(".")[0].split("_")[-1]
+            save_folder: Path = Path(self.scan.get_analysis_folder()) / camera_folder
+            if not save_folder.is_dir():
+                os.makedirs(save_folder)
+
+            fig = plt.figure(figsize=(UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1]))
+            grid = plt.GridSpec(2, 4, hspace=0.3, wspace=0.3)
+            ax_i = fig.add_subplot(grid[:, :2])
+            ax_x = fig.add_subplot(grid[0, 2:])
+            ax_y = fig.add_subplot(grid[1, 2:], sharey=ax_x)
+
+            # raw image
+            edges = np.where(analysis['image_edges'] != 0)
+            ax_i.imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper')
+            ax_i.scatter(edges[1], edges[0], s=0.3, c='b', alpha=0.3)
+
+            # roi box
+            roi_color = '--y'
+            roi_line = 0.66
+            ax_i.plot(analysis['roi'][0] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
+                      np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)  # left
+            ax_i.plot(analysis['roi'][1] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
+                      np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)  # right
+            ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
+                      analysis['roi'][2] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
+                      roi_color, linewidth=roi_line)  # top
+            ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
+                      analysis['roi'][3] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
+                      roi_color, linewidth=roi_line)  # bottom
+
+            # ellipse
+            if 'ellipse' in analysis:
+                ell = mpatches.Ellipse(xy=(analysis['ellipse'][1], analysis['ellipse'][0]),
+                                       width=2*analysis['ellipse'][3], height=2*analysis['ellipse'][2],
+                                       angle=math.degrees(analysis['ellipse'][4]))
+                ax_i.add_artist(ell)
+                ell.set_alpha(0.66)
+                ell.set_edgecolor('g')
+                ell.set_linewidth(1)
+                # noinspection PyArgumentList
+                ell.set_fill(False)
+                # ax_i.plot(analysis['position_ellipse'][1], analysis['position_ellipse'][0], 'k.', markersize=2)
+
+            # max
+            ax_i.axvline(analysis['position_max'][1], color='gray', linestyle='--', linewidth=0.5)
+            ax_i.axhline(analysis['position_max'][0], color='gray', linestyle='--', linewidth=0.5)
+            ax_i.plot(analysis['position_max'][1], analysis['position_max'][0], 'k.', markersize=3)
+            if ax_i.xaxis_inverted():
+                ax_i.invert_xaxis()
+            if not ax_i.yaxis_inverted():
+                ax_i.invert_yaxis()
+
+            # lineouts
+            ax_x.plot(analysis['axis_x_max'], analysis['data_x_max'], 'b-', label='data')
+            ax_x.plot(analysis['axis_x_max'], analysis['fit_x_max'], 'm-',
+                      label=f'FWHM: {fwhm(analysis["opt_x_max"][3]):.1f}')
+            ax_x.legend(loc='best', prop={'size': 8})
+
+            ax_y.plot(analysis['axis_y_max'], analysis['data_y_max'], 'b-', label='data')
+            ax_y.plot(analysis['axis_y_max'], analysis['fit_y_max'], 'm-',
+                      label=f'FWHM: {fwhm(analysis["opt_y_max"][3]):.1f}')
+            ax_y.legend(loc='best', prop={'size': 8})
+
+            # plot & save
+            file_name: str = f'max_profiles_{shot_name}.png'
+            image_path: Path = save_folder / file_name
+            plt.savefig(image_path, dpi=300)
+            plt.show(block=False)
+
+            # ___________________________________________
+            if 'positions' in analysis:
+                profiles_fig_size = (UndulatorNoScan.fig_size[0] * 1.5,
+                                     UndulatorNoScan.fig_size[1] * math.ceil(len(analysis['positions']) / 3))
+                _, axs = plt.subplots(ncols=3, nrows=len(analysis['positions']), figsize=profiles_fig_size,
+                                      sharex='col', sharey='col')
+                for it, pos in enumerate(analysis['positions']):
+                    axs[it, 0].imshow(analysis['image_raw'])
+                    axs[it, 0].axvline(pos[1], color='r', linestyle='--', linewidth=1)
+                    axs[it, 0].axhline(pos[0], color='r', linestyle='--', linewidth=1)
+                    axs[it, 0].plot(pos[1], pos[0], '.k', markersize=2)
+                    axs[it, 0].set_ylabel(analysis['positions_labels'][it])
+                    axs[it, 1].plot(analysis[f'axis_x_{pos[2]}'], analysis[f'data_x_{pos[2]}'], 'b-', label='data')
+                    axs[it, 1].plot(analysis[f'axis_x_{pos[2]}'], analysis[f'fit_x_{pos[2]}'], 'm-', label='fit(x)')
+                    axs[it, 1].legend(loc='best', prop={'size': 8})
+                    axs[it, 2].plot(analysis[f'axis_y_{pos[2]}'], analysis[f'data_y_{pos[2]}'], 'b-', label='data')
+                    axs[it, 2].plot(analysis[f'axis_y_{pos[2]}'], analysis[f'fit_y_{pos[2]}'], 'm-', label='fit(y)')
+                    axs[it, 2].legend(loc='best', prop={'size': 8})
+
+                file_name: str = f'all_profiles_{shot_name}.png'
+                image_path: Path = save_folder / file_name
+                plt.savefig(image_path, dpi=300)
                 plt.show(block=block)
 
         except Exception as ex:
             print(ex)
             pass
 
-        for k, v in profiles.items():
-            analysis[k] = v
-
-        return analysis
-
 
 if __name__ == '__main__':
-    # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    _base = Path(r'Z:\data')
+    _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    # _base = Path(r'Z:\data')
     _folder = _base / r'Undulator\Y2023\05-May\23_0509\scans\Scan028'
 
     _scan = Scan(_folder, ignore_experiment_name=True)
     images = UndulatorNoScan(_scan, 'U7', angle=0)
-    images.analyze_images(contrast=2., hp_median=2, hp_threshold=3., denoise_cycles=0,
-                          gauss_filter=5., com_threshold=0.66, plots=True)
+    images.analyze_images(contrast=1, hp_median=2, hp_threshold=3., denoise_cycles=0,
+                          gauss_filter=5., com_threshold=0.66, plots=True, skip_ellipse=True)
     print('done')
-
-    # plt.figure(figsize=UndulatorNoScan.fig_size)
-    # plt.imshow(images.average_image)
-    # plt.show(block=True)
-
-    # plt.ion()
-    # ax, _ = show_one(images.average_image, size_factor=1., colormap='hot', hide_ticks=False, show_colorbar=True,
-    #                  show_contours=True, contours=2, contours_colors='w', contours_labels=False,
-    #                  show=False, block_execution=False)
-    # if not ax.yaxis_inverted():
-    #     ax.invert_yaxis()
-    # plt.show(block=True)
-
-    # _image, _ = average_images(folder)
-    # HtuImages.find_roi(_image, None, display_factor=0.5)
