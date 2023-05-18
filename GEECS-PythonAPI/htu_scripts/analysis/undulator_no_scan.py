@@ -137,8 +137,9 @@ class UndulatorNoScan:
                        denoise_cycles: int = 0, gauss_filter: float = 5., com_threshold: float = 0.5,
                        plots: bool = False, bkg_image: Optional[Path] = None, skip_ellipse: bool = True):
         paths = list_images(self.image_folder, n_images, '.png')
-        paths = paths[-5:]  # tmp
-        # paths = paths[:3]  # tmp
+        # paths = paths[-5:]  # tmp
+        # paths = paths[25:30]  # tmp
+        skipped_files = []
         analyses: list[dict[str, Any]] = []
 
         # run analysis
@@ -157,7 +158,7 @@ class UndulatorNoScan:
                                 self.plot_save_image_analysis(analysis, block=False)
                             avg_image: np.ndarray = analysis['image_raw'].copy()
                         else:
-                            print(f'Skipping: {Path(image_path).name}')
+                            skipped_files.append(Path(image_path).name)
 
                         analyses.append(analysis)
                         pb.increment()
@@ -183,27 +184,36 @@ class UndulatorNoScan:
                                 beta = 1.0 - alpha
                                 avg_image = cv2.addWeighted(analysis['image_raw'], alpha, avg_image, beta, 0.0)
                             else:
-                                print(f'Skipping: {Path(image_path).name}')
+                                skipped_files.append(Path(image_path).name)
 
                             # collect
                             analyses.append(analysis)
                             pb.increment()
 
+                # report skipped files
+                print(f'Skipped:')
+                for file in skipped_files:
+                    print(f'\t{file}')
+
                 # analyze the average image
                 self.average_analysis = self._analyze_image(avg_image, bkg_image, contrast, hp_median, hp_threshold,
                                                             denoise_cycles, gauss_filter, com_threshold, skip_ellipse)
-                if self.average_analysis['is_valid']:
+                try:
                     self.average_analysis = \
                         UndulatorNoScan.profiles_analysis(self.average_analysis)
                     if plots:
                         self.plot_save_image_analysis(self.average_analysis, tag='average_image', block=True)
+                except Exception as ex:
+                    api_error.error(str(ex), 'Failed to analyze average image')
 
                 self.image_analyses = analyses
                 self.average_image = avg_image
                 self.analyses_summary = self._summarize_image_analyses()
                 self.analyses_summary['targets'] = self._target_analysis()
+                print(f'Figures saved in:\n\t{self.save_folder}')
 
-                save_py(file_path=self.save_folder.parent / 'profiles_analysis',
+                export_file_path: Path = self.save_folder.parent / 'profiles_analysis'
+                save_py(file_path=export_file_path,
                         data={'scan': self.scan,
                               'camera_r90': self.camera_r90,
                               'camera_name': self.camera_name,
@@ -215,6 +225,7 @@ class UndulatorNoScan:
                               'analyses_summary': self.analyses_summary if self.analyses_summary is not None else {},
                               'average_image': self.average_image if self.average_image is not None else {},
                               'average_analysis': self.average_analysis if self.average_analysis is not None else {}})
+                print(f'Data exported to:\n\t{export_file_path}.dat')
 
             except Exception as ex:
                 api_error.error(str(ex), 'Failed to analyze image')
@@ -245,23 +256,55 @@ class UndulatorNoScan:
             # beam edges
             image_edges: np.ndarray = canny(analysis['image_thresholded'], sigma=3)
             image_edges = closing(image_edges.astype(float), square(3))
-            image_edges = clear_border(image_edges)
+            # image_edges = clear_border(image_edges)
+
+            # edges_binary = image_edges.astype('uint8') * 255
+            # contours = cv2.findContours(edges_binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            # hierarchy = contours[1] if len(contours) == 2 else contours[2]
+            # contours = contours[0] if len(contours) == 2 else contours[1]
+            # hierarchy = hierarchy[0]
+            #
+            # count = 0
+            # result = edges_binary.copy()
+            # result = cv2.merge([result, result, result])
+            # for component in zip(contours, hierarchy):
+            #     cntr = component[0]
+            #     hier = component[1]
+            #     # discard outermost no parent contours and keep innermost no child contours
+            #     # hier = indices for next, previous, child, parent
+            #     # no parent or no child indicated by negative values
+            #     if (hier[3] > -1) & (hier[2] < 0):
+            #         count = count + 1
+            #         cv2.drawContours(result, [cntr], 0, (0, 0, 255), 2)
 
             # boxed image
-            bw = closing(analysis['image_blurred'] > 0.5 * np.max(analysis['image_blurred']), square(3))
-            # cleared = clear_border(bw)
-            # label_image = label(cleared)
-            label_image = label(bw)
+            label_image = label(image_edges)
             areas = [box.area for box in regionprops(label_image)]
             roi = regionprops(label_image)[areas.index(max(areas))]
 
+            gain_factor: float = 0.2
             roi = np.array([roi.bbox[1], roi.bbox[3], roi.bbox[0], roi.bbox[2]])  # left, right, top, bottom
-            width_gain = int(round((roi[1] - roi[0]) * 0.1))
-            width_gain = min(min(roi[0], width_gain), min(image_edges.shape[1] - 1 - roi[1], width_gain))
-            height_gain = int(round((roi[3] - roi[2]) * 0.1))
-            height_gain = min(min(roi[2], height_gain), min(image_edges.shape[0] - 1 - roi[3], height_gain))
-            analysis['roi'] = np.array([roi[0] - width_gain, roi[1] + width_gain,
-                                        roi[2] - height_gain, roi[3] + height_gain])
+
+            width_gain = int(round((roi[1] - roi[0]) * gain_factor))
+            left_gain = min(roi[0], width_gain)
+            right_gain = min(image_edges.shape[1] - 1 - roi[1], width_gain)
+
+            height_gain = int(round((roi[3] - roi[2]) * gain_factor))
+            top_gain = min(roi[2], height_gain)
+            bottom_gain = min(image_edges.shape[0] - 1 - roi[3], height_gain)
+
+            gain_pixels = max(left_gain, right_gain, top_gain, bottom_gain)
+            left_gain = min(roi[0], gain_pixels)
+            right_gain = min(image_edges.shape[1] - 1 - roi[1], gain_pixels)
+            top_gain = min(roi[2], gain_pixels)
+            bottom_gain = min(image_edges.shape[0] - 1 - roi[3], gain_pixels)
+
+            analysis['roi'] = np.array([roi[0] - left_gain, roi[1] + right_gain,
+                                        roi[2] - top_gain, roi[3] + bottom_gain])
+            analysis['box_left_gain'] = left_gain
+            analysis['box_right_gain'] = right_gain
+            analysis['box_top_gain'] = top_gain
+            analysis['box_bottom_gain'] = bottom_gain
 
             pos_box = np.array([(analysis['roi'][2] + analysis['roi'][3]) / 2.,
                                 (analysis['roi'][0] + analysis['roi'][1]) / 2.])
@@ -335,7 +378,7 @@ class UndulatorNoScan:
             scan_pos_fwhm_y = []
 
             for analysis in self.image_analyses:
-                if analysis is not None and analysis['is_valid'] and f'position_{pos}' in analysis:
+                if analysis is not None and analysis['is_valid'] and f'opt_x_{pos}' in analysis:
                     scan_pos.append(analysis[f'position_{pos}'])
                     scan_pos_fwhm_x.append(fwhm(analysis[f'opt_x_{pos}'][3]))
                     scan_pos_fwhm_y.append(fwhm(analysis[f'opt_y_{pos}'][3]))
@@ -370,8 +413,9 @@ class UndulatorNoScan:
                                      x_window=(analysis['roi'][0], analysis['roi'][1]),
                                      y_window=(analysis['roi'][2], analysis['roi'][3]))
 
-            for k, v in profiles.items():
-                analysis[k] = v
+            if profiles:
+                for k, v in profiles.items():
+                    analysis[k] = v
 
             analysis['positions'] = positions
             analysis['positions_labels'] = labels
@@ -383,7 +427,7 @@ class UndulatorNoScan:
         return analysis
 
     @staticmethod
-    def is_image_valid(analysis: dict[str, Any], contrast: float = 2) -> dict[str, Any]:
+    def is_image_valid(analysis: dict[str, Any], contrast: float = 2.) -> dict[str, Any]:
         counts, bins = np.histogram(analysis['image_denoised'],
                                     bins=max(10, 2 * int(np.std(analysis['image_blurred']))))
         analysis['image_hist'] = (counts, bins)
@@ -399,81 +443,85 @@ class UndulatorNoScan:
                 image_path: Path = Path(analysis['image_path'])
                 tag = image_path.name.split(".")[0].split("_")[-1]
 
-            fig = plt.figure(figsize=(UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1]))
-            grid = plt.GridSpec(2, 4, hspace=0.3, wspace=0.3)
-            ax_i = fig.add_subplot(grid[:, :2])
-            ax_x = fig.add_subplot(grid[0, 2:])
-            ax_y = fig.add_subplot(grid[1, 2:], sharey=ax_x)
+            if 'axis_x_max' in analysis:
+                fig = plt.figure(figsize=(UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1]))
+                grid = plt.GridSpec(2, 4, hspace=0.3, wspace=0.3)
+                ax_i = fig.add_subplot(grid[:, :2])
+                ax_x = fig.add_subplot(grid[0, 2:])
+                ax_y = fig.add_subplot(grid[1, 2:], sharey=ax_x)
 
-            # raw image
-            edges = np.where(analysis['image_edges'] != 0)
-            ax_i.imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper')
-            ax_i.scatter(edges[1], edges[0], s=0.3, c='b', alpha=0.2)
+                # raw image
+                edges = np.where(analysis['image_edges'] != 0)
+                ax_i.imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper')
+                ax_i.scatter(edges[1], edges[0], s=0.3, c='b', alpha=0.2)
 
-            # roi box
-            roi_color = '--y'
-            roi_line = 0.66
-            ax_i.plot(analysis['roi'][0] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
-                      np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)  # left
-            ax_i.plot(analysis['roi'][1] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
-                      np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)  # right
-            ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
-                      analysis['roi'][2] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
-                      roi_color, linewidth=roi_line)  # top
-            ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
-                      analysis['roi'][3] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
-                      roi_color, linewidth=roi_line)  # bottom
+                # roi box
+                roi_color = '--y'
+                roi_line = 0.66
+                ax_i.plot(analysis['roi'][0] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
+                          np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)  # left
+                ax_i.plot(analysis['roi'][1] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
+                          np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)  # right
+                ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
+                          analysis['roi'][2] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
+                          roi_color, linewidth=roi_line)  # top
+                ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
+                          analysis['roi'][3] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
+                          roi_color, linewidth=roi_line)  # bottom
 
-            # ellipse
-            if 'ellipse' in analysis:
-                ell = mpatches.Ellipse(xy=(analysis['ellipse'][1], analysis['ellipse'][0]),
-                                       width=2*analysis['ellipse'][3], height=2*analysis['ellipse'][2],
-                                       angle=math.degrees(analysis['ellipse'][4]))
-                ax_i.add_artist(ell)
-                ell.set_alpha(0.66)
-                ell.set_edgecolor('g')
-                ell.set_linewidth(1)
-                # noinspection PyArgumentList
-                ell.set_fill(False)
-                # ax_i.plot(analysis['position_ellipse'][1], analysis['position_ellipse'][0], 'k.', markersize=2)
+                # ellipse
+                if 'ellipse' in analysis:
+                    ell = mpatches.Ellipse(xy=(analysis['ellipse'][1], analysis['ellipse'][0]),
+                                           width=2*analysis['ellipse'][3], height=2*analysis['ellipse'][2],
+                                           angle=math.degrees(analysis['ellipse'][4]))
+                    ax_i.add_artist(ell)
+                    ell.set_alpha(0.66)
+                    ell.set_edgecolor('g')
+                    ell.set_linewidth(1)
+                    # noinspection PyArgumentList
+                    ell.set_fill(False)
 
-            # max
-            ax_i.axvline(analysis['position_max'][1], color='gray', linestyle='--', linewidth=0.5)
-            ax_i.axhline(analysis['position_max'][0], color='gray', linestyle='--', linewidth=0.5)
-            ax_i.plot(analysis['position_max'][1], analysis['position_max'][0], 'k.', markersize=3)
-            if ax_i.xaxis_inverted():
-                ax_i.invert_xaxis()
-            if not ax_i.yaxis_inverted():
-                ax_i.invert_yaxis()
+                # max
+                ax_i.axvline(analysis['position_max'][1], color='gray', linestyle='--', linewidth=0.5)
+                ax_i.axhline(analysis['position_max'][0], color='gray', linestyle='--', linewidth=0.5)
+                ax_i.plot(analysis['position_max'][1], analysis['position_max'][0], 'k.', markersize=3)
+                if ax_i.xaxis_inverted():
+                    ax_i.invert_xaxis()
+                if not ax_i.yaxis_inverted():
+                    ax_i.invert_yaxis()
 
-            # lineouts
-            ax_x.plot(analysis['axis_x_max'], analysis['data_x_max'], 'b-', label='data (x)')
-            ax_x.plot(analysis['axis_x_max'], analysis['fit_x_max'], 'm-',
-                      label=f'FWHM: {fwhm(analysis["opt_x_max"][3]):.1f}')
-            ax_x.legend(loc='best', prop={'size': 8})
+                # lineouts
+                ax_x.plot(analysis['axis_x_max'], analysis['data_x_max'], 'b-', label='data (x)')
+                ax_x.plot(analysis['axis_x_max'], analysis['fit_x_max'], 'm-',
+                          label=f'FWHM: {fwhm(analysis["opt_x_max"][3]):.1f}')
+                ax_x.legend(loc='best', prop={'size': 8})
 
-            ax_y.plot(analysis['axis_y_max'], analysis['data_y_max'], 'b-', label='data (y)')
-            ax_y.plot(analysis['axis_y_max'], analysis['fit_y_max'], 'm-',
-                      label=f'FWHM: {fwhm(analysis["opt_y_max"][3]):.1f}')
-            ax_y.legend(loc='best', prop={'size': 8})
+                ax_y.plot(analysis['axis_y_max'], analysis['data_y_max'], 'b-', label='data (y)')
+                ax_y.plot(analysis['axis_y_max'], analysis['fit_y_max'], 'm-',
+                          label=f'FWHM: {fwhm(analysis["opt_y_max"][3]):.1f}')
+                ax_y.legend(loc='best', prop={'size': 8})
 
-            # plot & save
-            file_name: str = f'max_profiles_{tag}.png'
-            image_path: Path = self.save_folder / file_name
-            plt.savefig(image_path, dpi=300)
-            plt.show(block=False)
-            plt.close(fig)
+                # plot & save
+                file_name: str = f'max_profiles_{tag}.png'
+                image_path: Path = self.save_folder / file_name
+                plt.savefig(image_path, dpi=300)
+                if block:
+                    plt.show(block=block)
+                try:
+                    plt.close(fig)
+                except Exception:
+                    pass
 
             # ___________________________________________
-            if 'positions' in analysis:
+            if 'positions' in analysis and 'axis_x_max' in analysis:
                 profiles_fig_size = (UndulatorNoScan.fig_size[0] * 1.5,
                                      UndulatorNoScan.fig_size[1] * math.ceil(len(analysis['positions']) / 3))
                 fig, axs = plt.subplots(ncols=3, nrows=len(analysis['positions']), figsize=profiles_fig_size,
                                         sharex='col', sharey='col')
                 for it, pos in enumerate(analysis['positions']):
                     axs[it, 0].imshow(analysis['image_raw'])
-                    axs[it, 0].axvline(pos[1], color='r', linestyle='--', linewidth=1.5)
-                    axs[it, 0].axhline(pos[0], color='r', linestyle='--', linewidth=1.5)
+                    axs[it, 0].axvline(pos[1], color='r', linestyle='--', linewidth=0.5)
+                    axs[it, 0].axhline(pos[0], color='r', linestyle='--', linewidth=0.5)
                     axs[it, 0].plot(pos[1], pos[0], '.k', markersize=2)
                     axs[it, 0].set_ylabel(analysis['positions_labels'][it])
                     axs[it, 1].plot(analysis[f'axis_x_{pos[2]}'], analysis[f'data_x_{pos[2]}'], 'b-', label='data')
@@ -486,21 +534,25 @@ class UndulatorNoScan:
                 file_name: str = f'all_profiles_{tag}.png'
                 image_path: Path = self.save_folder / file_name
                 plt.savefig(image_path, dpi=300)
-                plt.show(block=block)
-                plt.close(fig)
+                if block:
+                    plt.show(block=block)
+                try:
+                    plt.close(fig)
+                except Exception:
+                    pass
 
         except Exception as ex:
-            print(ex)
+            api_error.error(str(ex), f'Failed to plot analysis for {Path(analysis["image_path"]).name}')
             pass
 
 
 if __name__ == '__main__':
-    _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    # _base = Path(r'Z:\data')
-    _folder = _base / r'Undulator\Y2023\05-May\23_0509\scans\Scan028'
+    # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    _base = Path(r'Z:\data')
+    _folder = _base / r'Undulator\Y2023\05-May\23_0509\scans\Scan022'
 
     _scan = Scan(_folder, ignore_experiment_name=True)
-    images = UndulatorNoScan(_scan, 'U7', angle=0)
+    images = UndulatorNoScan(_scan, 'U1', angle=0)
     images.analyze_images(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0,
                           gauss_filter=5., com_threshold=0.66, plots=True, skip_ellipse=True)
     print('done')

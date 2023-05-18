@@ -16,7 +16,7 @@ class Camera(GeecsDevice):
     ROIs = {'UC_ALineEbeam1': [204, 777, 319, 701],
             'UC_ALineEBeam2': [261, 843, 499, 656],
             'UC_ALineEBeam3': [274, 528, 256, 546],
-            'UC_VisaEBeam1': [0, 708, 377, 252],
+            'UC_VisaEBeam1': [105, 708, 252, 377],
             'UC_VisaEBeam2': [164, 434, 100, 400],
             'UC_VisaEBeam3': [185, 477, 137, 469],
             'UC_VisaEBeam4': [263, 541, 192, 508],
@@ -24,7 +24,7 @@ class Camera(GeecsDevice):
             'UC_VisaEBeam6': [167, 500, 147, 406],
             'UC_VisaEBeam7': [125, 462, 130, 490],
             'UC_VisaEBeam8': [206, 401, 111, 466],
-            'UC_VisaEBeam9': [341, 1141, 670, 628],
+            'UC_VisaEBeam9': [341, 1141, 628, 670],
             'UC_UndulatorRad2': [600, 2360, 1420, 1170]}
 
     def __init__(self, device_name: str):
