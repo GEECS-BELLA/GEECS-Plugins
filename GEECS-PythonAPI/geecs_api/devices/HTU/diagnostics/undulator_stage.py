@@ -59,8 +59,8 @@ class UndulatorStage(GeecsDevice):
         if (diagnostic in self.diagnostics) and (station in self.pos_frame.index):
             rail_pos = self.pos_frame.loc[station, diagnostic]
             print(f'rail: {rail_pos}')
-            self.set_rail_position(rail_pos, exec_timeout, sync=True)
-            return (station, diagnostic) == self.get_position()
+            set_pos = self.set_rail_position(rail_pos, exec_timeout, sync=True)
+            return (station, diagnostic) == (self.pos_frame.stack() - set_pos).abs().idxmin()
         else:
             api_error.error(f'Invalid undulator stage position ({station}, {diagnostic})',
                             f'Class "{self.get_class()}", method "{inspect.stack()[0][3]}"')

@@ -1,14 +1,13 @@
 import os
-import numpy as np
-from threading import Thread
 from pathlib import Path
-from typing import Optional
-from geecs_api.api_defs import SysPath
+from typing import Optional, Union
 from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice
+from geecs_api.devices.geecs_device import GeecsDevice, api_error
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
 from htu_scripts.analysis.screen_scan_analysis import screen_scan_analysis
+from htu_scripts.analysis.undulator_no_scan import UndulatorNoScan
 from geecs_api.tools.interfaces.prompts import text_input
+from geecs_api.tools.scans.scan import Scan
 
 
 def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
@@ -16,18 +15,18 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
                            last_screen: Optional[str] = 'A3',
                            undulator_diagnostic: Optional[str] = 'spectrum',
                            log_comment: str = '',
-                           background: bool = False) -> tuple[bool, list[tuple[SysPath, str]], list[str], str]:
+                           backgrounds: int = 0) -> dict[str, tuple[Union[Path, str], Union[Path, str]]]:
     """
     Outputs:
     ====================
-    success:        bool
-    no_scans:       list of tuples of scan_path (str), scan_number (int), camera device name (str)
-    used_labels:    list of labels (list[str])
-    label:          last label used (useful if scan fails and needs to be rerun)
+    image_analysis_files:   dict of label (key) and tuple of two Path (value)
+                            to the resulting analyses at each screen, and to the no-scan data path
     """
 
+    image_analysis_files: dict[str, tuple[Union[Path, str], Union[Path, str]]] = {}
+
     if undulator_diagnostic not in e_diagnostics.undulator_stage.diagnostics:
-        return False, [], [], ''
+        return image_analysis_files
 
     # screens
     all_labels: list[str] = list(e_diagnostics.imagers.keys())
@@ -45,8 +44,6 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
     i1 = all_labels.index(first_screen)
     i2 = all_labels.index(last_screen)
     used_labels: list[str] = all_labels[i1:i2+1] if i2 > i1 else all_labels[i2:i1-1:-1]
-    label = used_labels[0]
-    no_scans: list[tuple[SysPath, str]] = []
 
     # scan
     success = True
@@ -83,18 +80,20 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
 
         # check
         if not success:
-            break
+            image_analysis_files[label] = ('', '')
+            break  # for loop
 
         # scan/background
-        if background:
-            camera.save_local_background(n_images=50)
-        else:
-            print(f'Starting no-scan (camera of interest: {camera.get_name()})...')
-            scan_comment: str = f'No-scan with beam on "{label}" ({camera.get_name()})'
-            scan_comment: str = f'{log_comment}. {scan_comment}' if log_comment else scan_comment
-            scan_path, _, _, _ = \
-                GeecsDevice.run_no_scan(monitoring_device=camera, comment=scan_comment, timeout=300.)
-            no_scans.append((scan_path, camera.get_name()))
+        if backgrounds > 0:
+            print(f'Collecting {backgrounds} background images...')
+            camera.save_local_background(n_images=backgrounds)
+            print(f'Background saved:\n\t')
+
+        print(f'Starting no-scan (camera of interest: {camera.get_name()})...')
+        scan_comment: str = f'No-scan with beam on "{label}" ({camera.get_name()})'
+        scan_comment: str = f'{log_comment}. {scan_comment}' if log_comment else scan_comment
+        scan_path, _, _, _ = \
+            GeecsDevice.run_no_scan(monitoring_device=camera, comment=scan_comment, timeout=300.)
 
         # remove screen
         print(f'Removing {screen.var_alias} ({screen.controller.get_name()})...')
@@ -111,28 +110,59 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
 
         # check
         if not success:
-            break
+            image_analysis_files[label] = ('', '')
+            break  # for loop
 
-    print(f'Screen scan done. Success = {success}')
+        # analysis
+        scan_path = Path(scan_path)
+        no_scan = Scan(scan_path, ignore_experiment_name=False)
+        no_scan_images = UndulatorNoScan(no_scan, camera)
+        analysis_file: Path = no_scan_images.save_folder.parent / 'profiles_analysis.dat'
+        contrast = 1.333
+        while True:
+            try:
+                no_scan_images.analyze_images(contrast=contrast, hp_median=2, hp_threshold=3., denoise_cycles=0,
+                                              gauss_filter=5., com_threshold=0.66, plots=True,
+                                              bkg_image=Path(camera.state_background_path()), skip_ellipse=True)
+            except Exception as ex:
+                api_error(str(ex), f'Failed to analyze {scan_path.name}')
+                pass
 
-    # analyze scan asynchronously
-    if success and not background:
-        rotations = np.zeros((len(used_labels),))
-        for it, label in enumerate(used_labels):
-            if hasattr(e_diagnostics.imagers[label].camera, 'rot_90'):
-                rotations[it] = e_diagnostics.imagers[label].camera.rot_90
-        last_scan_name = Path(no_scans[-1][0]).parts[-1]
-        first_scan_name = Path(no_scans[0][0]).parts[-1]
-        save_folder = list(Path(no_scans[-1][0]).parts)[:-3]
-        save_folder = Path(*save_folder) / 'analysis' / f'{first_scan_name}-{last_scan_name[-3:]} ' \
-                                                        f'({used_labels[0]}-{used_labels[-1]})'
-        if not os.path.isdir(save_folder):
+            repeat = text_input(f'Repeat analysis (adjust contrast)? : ', accepted_answers=['y', 'yes', 'n', 'no'])
+            if repeat.lower()[0] == 'n':
+                break
+            else:
+                while True:
+                    try:
+                        contrast = float(text_input(f'New contrast value (old: {contrast:.3f}) : '))
+                        break
+                    except Exception:
+                        print('Contrast value must be a positive number (e.g. 1.3)')
+                        continue
+        keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
+                          accepted_answers=['y', 'yes', 'n', 'no'])
+        if keep.lower()[0] == 'y':
+            image_analysis_files[label] = (analysis_file, scan_path)
+        else:
+            image_analysis_files[label] = ('', scan_path)
+
+    # analyze scan overall
+    print(f'Screen scan done. Processing analyses...')
+    if image_analysis_files:
+        save_folder = ''
+        first_scan: str = 'Scan'
+        for label in used_labels:
+            if label in image_analysis_files and image_analysis_files[label][0]:
+                first_scan = image_analysis_files[label][1].parts[-1]
+                save_folder = list(image_analysis_files[label][1].parts)[:-3]
+                break
+        save_folder = Path(*save_folder) / 'analysis' / f'{first_scan} - Screens {used_labels[0]}-{used_labels[-1]}'
+        if not save_folder.is_dir():
             os.makedirs(save_folder)
-        analysis_thread = Thread(target=screen_scan_analysis,
-                                 args=(no_scans, used_labels, list(rotations), save_folder))
-        analysis_thread.start()
 
-    return success, no_scans, used_labels, label
+        screen_scan_analysis(image_analysis_files, used_labels, save_dir=save_folder)
+
+    return image_analysis_files
 
 
 if __name__ == '__main__':
@@ -142,10 +172,10 @@ if __name__ == '__main__':
 
     # scan
     try:
-        undulator_screens_scan(_e_diagnostics, 'U7', 'U9',
+        undulator_screens_scan(_e_diagnostics, 'U1', 'U9',
                                undulator_diagnostic='spectrum',
                                log_comment='Screen scan',
-                               background=False)
+                               backgrounds=10)
     except Exception:
         pass
     finally:

@@ -39,7 +39,8 @@ def save_py(file_path: Optional[Path] = None, data: Optional[dict[str, Any]] = N
                 continue
 
 
-def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = None):
+def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = None, as_dict: bool = False) \
+        -> Optional[dict[str, Any]]:
     if file_path and not re.search(r'\.[^\.]+$', str(file_path)):
         file_path = Path(f'{file_path}.dat')
 
@@ -50,18 +51,29 @@ def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = N
                                                title='Open a Python shelf:')
 
     if not file_path:
-        return
+        return None
     else:
         file_path = os.path.normpath(file_path)
         file_path = re.split(r'\.[^\.]+$', str(file_path))[0]
 
+    data = {}
     with shelve.open(file_path, 'r') as shelve_file:
         for key, value in shelve_file.items():
             if variables:
                 if key in variables:
-                    globals()[key] = value
+                    if as_dict:
+                        data[key] = value
+                    else:
+                        globals()[key] = value
+            elif as_dict:
+                data[key] = value
             else:
                 globals()[key] = value
+
+    if as_dict:
+        return data
+    else:
+        return None
 
 
 def save_mat(file_path: Optional[Path] = None, data: Optional[dict[str, Any]] = None):

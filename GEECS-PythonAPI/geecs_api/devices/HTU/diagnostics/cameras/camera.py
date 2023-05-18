@@ -5,6 +5,7 @@ import shutil
 import cv2
 import numpy as np
 from typing import Any
+from pathlib import Path
 from datetime import datetime as dtime
 from geecs_api.tools.images.batches import average_images
 from geecs_api.api_defs import VarAlias, SysPath
@@ -58,6 +59,9 @@ class Camera(GeecsDevice):
 
     def get_variables(self):
         return self.__variables
+
+    def state_background_path(self) -> Path:
+        return Path(self._state_value(self.var_bkg_path))
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         if var_alias in self.__variables.keys():
