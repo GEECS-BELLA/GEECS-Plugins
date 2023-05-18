@@ -9,13 +9,14 @@ Created on Fri Feb  3 10:44:15 2023
 from __future__ import annotations
 
 from math import sqrt, cos, sin, pi
-from typing import Optional, TYPE_CHECKING, Annotated
+from typing import Optional, TYPE_CHECKING, Annotated, Any, Generic
 
 from itertools import product
 
 import warnings
 
 import numpy as np
+from numpy.typing import NDArray
 
 from scipy.sparse import csr_array
 from scipy.sparse.linalg import lsqr
@@ -24,15 +25,14 @@ from scipy.interpolate import RegularGridInterpolator
 from skimage.restoration import unwrap_phase
 
 from pint import UnitRegistry
+ureg = UnitRegistry()
+Q_ = ureg.Quantity
 if TYPE_CHECKING:
     from pint import Quantity
     SpatialFrequencyQuantity = Annotated[Quantity, '[length]**-1]']
     LengthQuantity = Annotated[Quantity, '[length]']
 
 import abel
-
-ureg = UnitRegistry()
-Q_ = ureg.Quantity
 
 from collections import namedtuple
 SpatialFrequencyCoordinates = namedtuple('SpatialFrequencyCoordinates', ['nu_x', 'nu_y'])
@@ -107,7 +107,7 @@ class PhasicsImageAnalyzer:
         self.diffraction_spot_crop_radius = diffraction_spot_crop_radius
 
     
-    def _fourier_transform(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _fourier_transform(self) -> tuple[NDArray[np.complex_], Quantity, Quantity]:
         """ Takes the fourier transform of an image and shifts it.
 
         Returns
@@ -199,13 +199,13 @@ class PhasicsImageAnalyzer:
 
 
     
-    def _crop_and_center_diffraction_spots(self) -> list[np.ndarray]:
+    def _crop_and_center_diffraction_spots(self) -> list[NDArray]:
 
         # if diffraction spot crop radius not given, infer it
         if self.diffraction_spot_crop_radius is None:
             self._set_diffraction_spot_crop_radius()
               
-        def _crop_and_center_diffraction_spot(center: SpatialFrequencyCoordinates) -> np.ndarray:
+        def _crop_and_center_diffraction_spot(center: SpatialFrequencyCoordinates) -> NDArray:
             """ Crop an area of freq space around diffraction spot center, and translate it
                 to the middle of the image.
             
@@ -249,7 +249,7 @@ class PhasicsImageAnalyzer:
         return self.diffraction_spot_IMGs
 
 
-    def _reconstruct_wavefront_gradients_from_cropped_centered_diffraction_FTs(self) -> list[np.ndarray]:
+    def _reconstruct_wavefront_gradients_from_cropped_centered_diffraction_FTs(self) -> list[NDArray]:
         """ Calculate the angle (argument) of the inverse FT of a diffraction 
             spot image.
             
@@ -450,8 +450,8 @@ class PhasicsImageAnalyzer:
 
         Returns
         -------
-        phase map : np.ndarray
-            reconstructed phase in radians.
+        wavefront : np.ndarray
+            reconstructed wavefront in [length] units.
 
         """
 
@@ -511,7 +511,7 @@ class PhasicsImageAnalyzer:
                 wavefront.T,   # transpose because the Abel inverse is done around axis = 0
                 direction='inverse',
                 method='onion_bordas',
-                origin='slice', center_options={'axes': 1},  # only center in the perpendicular-to-laser direction
+                origin='convolution', center_options={'axes': 1},  # only center in the perpendicular-to-laser direction
                 symmetry_axis=0,  # assume above and below laser axis have a symmetric profile
             ).transform.T  # transpose back
 
