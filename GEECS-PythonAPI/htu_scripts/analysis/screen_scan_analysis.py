@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import calendar as cal
 from pathlib import Path
@@ -13,23 +14,14 @@ from geecs_api.devices.HTU.diagnostics.cameras.camera import Camera
 from htu_scripts.analysis.undulator_no_scan import UndulatorNoScan
 import matplotlib.pyplot as plt
 from tkinter import filedialog
+from progressbar import ProgressBar
 
 
-# no_scans = dict of tuples (analysis file paths, scan paths)
 def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path, str]]], screen_labels: list[str],
                          save_dir: Optional[SysPath] = None):
-    # target_deltas_avg_imgs: np.ndarray = np.zeros((len(screen_labels), 2))
-    # target_deltas_avg_imgs[:] = np.nan
-    # target_deltas_mean: np.ndarray = np.zeros((len(screen_labels), 2))  # Dx, Dy [mm]
-    # target_deltas_mean[:] = np.nan
-    # target_deltas_std: np.ndarray = np.zeros((len(screen_labels), 2))
-    # target_deltas_std[:] = np.nan
-    #
-    # beam_fwhm_mean: np.ndarray = np.zeros((len(screen_labels), 2))  # Dx, Dy [mm]
-    # beam_fwhm_mean[:] = np.nan
-    # beam_fwhm_std: np.ndarray = np.zeros((len(screen_labels), 2))
-    # beam_fwhm_std[:] = np.nan
-
+    """
+    no_scans = dict of tuples (analysis file paths, scan data directory paths)
+    """
     beam_analysis: dict[str, Any] = {}
 
     # save analysis
@@ -40,43 +32,59 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
 
     analysis_files: list[Path] = []
     scan_paths: list[Path] = []
-    pos_labels: list[str] = []
+    pos_short_names: list[str] = []
+    pos_long_names: list[str] = []
 
-    for it, (analysis_file, scan_path) in enumerate(no_scans):
-        if not analysis_file.is_file():
-            continue
+    with ProgressBar(max_value=len(no_scans)) as pb:
+        for it, (analysis_file, scan_path) in enumerate(no_scans.values()):
+            if not analysis_file.is_file():
+                continue
 
-        analysis_files.append(analysis_file)
-        scan_paths.append(scan_path)
+            analysis_files.append(analysis_file)
+            scan_paths.append(scan_path)
 
-        analysis = load_py(analysis_file, as_dict=True)
+            analysis = load_py(analysis_file, as_dict=True)
 
-        # noinspection PyUnboundLocalVariable
-        label = Camera.label_from_name(analysis['camera_name'])
-        index = screen_labels.index(label)
-        targets: dict[str, Any] = analysis['analyses_summary']['targets']
+            # noinspection PyUnboundLocalVariable
+            label = Camera.label_from_name(analysis['camera_name'])
+            index = screen_labels.index(label)
+            summary: dict[str, Any] = analysis['analyses_summary']
+            targets: dict[str, Any] = summary['targets']
 
-        if not pos_labels:
-            for im_analysis in analysis['image_analyses']:
-                if 'positions' in im_analysis:
-                    positions = im_analysis['positions']
-                    pos_labels = [pos[-1] for pos in positions]
-                    break
+            if not pos_short_names:
+                for im_analysis in analysis['image_analyses']:
+                    if 'positions' in im_analysis:
+                        pos_short_names = [pos[-1] for pos in im_analysis['positions']]
+                        pos_long_names = [pos for pos in im_analysis['positions_labels']]
+                        break
 
-        for pos in pos_labels:
-            if f'{pos}_deltas_avg_imgs' not in beam_analysis:
-                tmp = np.zeros((len(screen_labels), 2))
-                tmp[:] = np.nan
-                beam_analysis[f'{pos}_deltas_avg_imgs'] = tmp  # Dx, Dy [mm]
-                beam_analysis[f'{pos}_deltas_means'] = tmp
-                beam_analysis[f'{pos}_deltas_stds'] = tmp
+            for pos in pos_short_names:
+                if f'{pos}_deltas_avg_imgs' not in beam_analysis:
+                    tmp = np.zeros((len(screen_labels), 2))
+                    tmp[:] = np.nan
+                    beam_analysis[f'{pos}_deltas_avg_imgs'] = tmp.copy()  # Dx, Dy [mm]
+                    beam_analysis[f'{pos}_deltas_means'] = tmp.copy()
+                    beam_analysis[f'{pos}_deltas_stds'] = tmp.copy()
+                    beam_analysis[f'{pos}_fwhm_means'] = tmp.copy()
+                    beam_analysis[f'{pos}_fwhm_stds'] = tmp.copy()
 
-            if targets and (f'avg_img_{pos}_delta' in targets):
-                beam_analysis[f'{pos}_deltas_avg_imgs'][index, :] = targets[f'avg_img_{pos}_delta']
-                beam_analysis[f'{pos}_deltas_means'] = targets[f'target_deltas_{pos}_mean']
-                beam_analysis[f'{pos}_deltas_stds'] = targets[f'target_deltas_{pos}_std']
+                if targets and (f'avg_img_{pos}_delta' in targets):
+                    beam_analysis[f'{pos}_deltas_avg_imgs'][index, :] = targets[f'avg_img_{pos}_delta']
+                    beam_analysis[f'{pos}_deltas_means'][index, :] = targets[f'target_deltas_{pos}_mean']
+                    beam_analysis[f'{pos}_deltas_stds'][index, :] = targets[f'target_deltas_{pos}_std']
+
+                if summary and (f'mean_pos_{pos}_fwhm_x' in summary):
+                    beam_analysis[f'{pos}_fwhm_means'][index, 1] = summary[f'mean_pos_{pos}_fwhm_x']
+                    beam_analysis[f'{pos}_fwhm_means'][index, 0] = summary[f'mean_pos_{pos}_fwhm_y']
+                    beam_analysis[f'{pos}_fwhm_stds'][index, 1] = summary[f'std_pos_{pos}_fwhm_x']
+                    beam_analysis[f'{pos}_fwhm_stds'][index, 0] = summary[f'std_pos_{pos}_fwhm_y']
+
+            pb.increment()
 
     if save_dir:
+        if not save_dir.is_dir():
+            os.makedirs(save_dir)
+
         export_file_path: Path = save_dir / 'beam_analysis'
         save_py(file_path=export_file_path,
                 data={'screen_labels': screen_labels,
@@ -87,29 +95,71 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
 
     x_axis = np.arange(1, len(screen_labels) + 1, dtype='int')
 
-    fig, axs = plt.subplots(ncols=len(pos_labels), nrows=2,
-                            figsize=(UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1]),
-                            sharex='all', sharey='all')
-    for it, pos in enumerate(pos_labels):
-        axs[0, it].fill_between(x_axis,
-                                beam_analysis[f'{pos}_deltas_means'][:, 1] - beam_analysis[f'{pos}_deltas_stds'][:, 1],
-                                beam_analysis[f'{pos}_deltas_means'][:, 1] + beam_analysis[f'{pos}_deltas_stds'][:, 1],
-                                label='Dx [mm]', color='m')
-        axs[0, it].plot(x_axis, beam_analysis[f'{pos}_deltas_avg_imgs'][:, 1], 'ob-', label='Dx <img> [mm]')
+    fig, axs = plt.subplots(ncols=len(pos_short_names), nrows=4,
+                            figsize=(UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1] * 1.5),
+                            sharex='col', sharey='row')
+    for it, pos in enumerate(pos_short_names):
+        # Deltas X
+        axs[0, it].fill_between(
+            x_axis,
+            1000 * (beam_analysis[f'{pos}_deltas_means'][:, 1] - beam_analysis[f'{pos}_deltas_stds'][:, 1]),
+            1000 * (beam_analysis[f'{pos}_deltas_means'][:, 1] + beam_analysis[f'{pos}_deltas_stds'][:, 1]),
+            label=r'$D_x \pm \sigma$', color='m', alpha=0.33)
+        axs[0, it].plot(x_axis, 1000 * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 1], 'ob-',
+                        label=r'$D_x$ $(\mu_{image})$', linewidth=1, markersize=3)
         axs[0, it].legend(loc='best', prop={'size': 8})
-        axs[0, it].xticks([])
+        axs[0, it].set_xticks([])
+        axs[0, it].set_title(pos_long_names[it])
 
-        axs[1, it].fill_between(x_axis,
-                                beam_analysis[f'{pos}_deltas_means'][:, 0] - beam_analysis[f'{pos}_deltas_stds'][:, 0],
-                                beam_analysis[f'{pos}_deltas_means'][:, 0] + beam_analysis[f'{pos}_deltas_stds'][:, 0],
-                                label='Dy [mm]', color='m')
-        axs[1, it].plot(x_axis, beam_analysis[f'{pos}_deltas_avg_imgs'][:, 0], 'ob-', label='Dy <img> [mm]')
+        # Deltas Y
+        axs[1, it].fill_between(
+            x_axis,
+            1000 * (beam_analysis[f'{pos}_deltas_means'][:, 0] - beam_analysis[f'{pos}_deltas_stds'][:, 0]),
+            1000 * (beam_analysis[f'{pos}_deltas_means'][:, 0] + beam_analysis[f'{pos}_deltas_stds'][:, 0]),
+            label=r'$D_y \pm \sigma$', color='m', alpha=0.33)
+        axs[1, it].plot(x_axis, 1000 * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 0], 'ob-',
+                        label=r'$D_y$ $(\mu_{image})$', linewidth=1, markersize=3)
         axs[1, it].legend(loc='best', prop={'size': 8})
-        axs[1, it].xlabel('Screen')
-        axs[1, it].xticks(x_axis, screen_labels)
+        axs[1, it].set_xticks([])
 
-    axs[0, 0].set_ylabel('X-Offsets [mm]')
-    axs[1, 0].set_ylabel('Y-Offsets [mm]')
+        # FWHM X
+        axs[2, it].fill_between(
+            x_axis,
+            beam_analysis[f'{pos}_fwhm_means'][:, 1] - beam_analysis[f'{pos}_fwhm_stds'][:, 1],
+            beam_analysis[f'{pos}_fwhm_means'][:, 1] + beam_analysis[f'{pos}_fwhm_stds'][:, 1],
+            label=r'$FWHM_x \pm \sigma$', color='y', alpha=0.33)
+        axs[2, it].plot(x_axis, beam_analysis[f'{pos}_fwhm_means'][:, 1], 'og-',
+                        label=r'$FWHM_x$ $(\mu_{image})$', linewidth=1, markersize=3)
+        axs[2, it].legend(loc='best', prop={'size': 8})
+        axs[2, it].set_xticks([])
+
+        # FWHM Y
+        axs[3, it].fill_between(
+            x_axis,
+            beam_analysis[f'{pos}_fwhm_means'][:, 0] - beam_analysis[f'{pos}_fwhm_stds'][:, 0],
+            beam_analysis[f'{pos}_fwhm_means'][:, 0] + beam_analysis[f'{pos}_fwhm_stds'][:, 0],
+            label=r'$FWHM_y \pm \sigma$ [$\mu$m]', color='y', alpha=0.33)
+        axs[3, it].plot(x_axis, beam_analysis[f'{pos}_fwhm_means'][:, 0], 'og-',
+                        label=r'$FWHM_y$ $(\mu_{image})$', linewidth=1, markersize=3)
+        axs[3, it].legend(loc='best', prop={'size': 8})
+        axs[3, it].set_xlabel('Screen')
+        axs[3, it].set_xticks(x_axis, screen_labels)
+
+    axs[0, 0].set_ylabel(r'X-Offsets [$\mu$m]')
+    axs[1, 0].set_ylabel(r'Y-Offsets [$\mu$m]')
+    axs[2, 0].set_ylabel(r'X-FWHM [$\mu$m]')
+    axs[3, 0].set_ylabel(r'Y-FWHM [$\mu$m]')
+
+    # set matching vertical limits for deltas/FWHMs
+    y_lim = (min(axs[0, 0].get_ylim()[0], axs[1, 0].get_ylim()[0]),
+             max(axs[0, 0].get_ylim()[1], axs[1, 0].get_ylim()[1]))
+    [axs[0, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
+    [axs[1, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
+
+    y_lim = (min(axs[2, 0].get_ylim()[0], axs[3, 0].get_ylim()[0]),
+             max(axs[2, 0].get_ylim()[1], axs[3, 0].get_ylim()[1]))
+    [axs[2, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
+    [axs[3, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
 
     if save_dir:
         save_path = save_dir / 'beam_analysis.png'
@@ -179,16 +229,28 @@ if __name__ == '__main__':
     if not is_local:
         GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-    # _tags = [(2023, 5, 9, 12, 'UC_ALineEbeam1', 'A1', 90),
-    #          (2023, 5, 9, 14, 'UC_ALineEBeam2', 'A2', 90),
-    #          (2023, 5, 9, 15, 'UC_ALineEBeam3', 'A3', 0)]
+    _base_tag = (2023, 5, 9, 0)
+    _scans_screens = [(22, 'U1'),
+                      (23, 'U2'),
+                      (24, 'U3'),
+                      (25, 'U4'),
+                      (26, 'U5'),
+                      (27, 'U6'),
+                      (28, 'U7')]
 
-    _tags = [(2023, 5, 9, 22, 'UC_VisaEBeam1', 'U1', 0)]
+    _analysis_files: list[Path] = \
+        [base_path/'Undulator'/f'Y{_base_tag[0]}'/f'{_base_tag[1]:02d}-{cal.month_name[_base_tag[1]][:3]}' /
+         f'{str(_base_tag[0])[-2:]}_{_base_tag[1]:02d}{_base_tag[2]:02d}'/'analysis' /
+         f'Scan{number[0]:03d}'/f'UC_VisaEBeam{number[1][-1]}'/'profiles_analysis.dat'
+         for number in _scans_screens]
+    _scan_paths = [file.parents[3]/'scans'/file.parts[-3] for file in _analysis_files]
+    _no_scans: dict[str, tuple[Path, Path]] = \
+        {key[1]: (analysis, data) for key, analysis, data in zip(_scans_screens, _analysis_files, _scan_paths)}
 
-    _no_scans = [(base_path/'Undulator'/f'Y{tag[0]}'/f'{tag[1]:02d}-{cal.month_name[tag[1]][:3]}' /
-                  f'{str(tag[0])[-2:]}_{tag[1]:02d}{tag[2]:02d}'/'scans'/f'Scan{tag[3]:03d}', tag[4])
-                 for tag in _tags]
-    _labels = [tag[5] for tag in _tags]
-    _rotations = [tag[6] for tag in _tags]
-    # screen_scan_analysis(_no_scans, _labels, ignore_experiment_name=is_local)
+    _save_dir = _analysis_files[0].parents[2] / \
+        f'{_scan_paths[0].name}_Screens_{_scans_screens[0][1]}_{_scans_screens[-1][1]}'
+    _labels = [label[1] for label in _scans_screens]
+
+    screen_scan_analysis(no_scans=_no_scans, screen_labels=_labels, save_dir=None)
+
     print('done')

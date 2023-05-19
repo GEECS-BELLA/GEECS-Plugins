@@ -154,7 +154,7 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
         for label in used_labels:
             if label in image_analysis_files and image_analysis_files[label][0]:
                 first_scan = image_analysis_files[label][1].parts[-1]
-                save_folder = list(image_analysis_files[label][1].parts)[:-3]
+                save_folder = image_analysis_files[label][1].parents[2]
                 break
         save_folder = Path(*save_folder) / 'analysis' / f'{first_scan} - Screens {used_labels[0]}-{used_labels[-1]}'
         if not save_folder.is_dir():

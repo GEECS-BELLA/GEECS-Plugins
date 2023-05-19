@@ -482,8 +482,8 @@ class UndulatorNoScan:
                     ell.set_fill(False)
 
                 # max
-                ax_i.axvline(analysis['position_max'][1], color='gray', linestyle='--', linewidth=0.5)
-                ax_i.axhline(analysis['position_max'][0], color='gray', linestyle='--', linewidth=0.5)
+                ax_i.axvline(analysis['position_max'][1], color='k', linestyle='--', linewidth=0.5)
+                ax_i.axhline(analysis['position_max'][0], color='k', linestyle='--', linewidth=0.5)
                 ax_i.plot(analysis['position_max'][1], analysis['position_max'][0], 'k.', markersize=3)
                 if ax_i.xaxis_inverted():
                     ax_i.invert_xaxis()
@@ -519,9 +519,9 @@ class UndulatorNoScan:
                 fig, axs = plt.subplots(ncols=3, nrows=len(analysis['positions']), figsize=profiles_fig_size,
                                         sharex='col', sharey='col')
                 for it, pos in enumerate(analysis['positions']):
-                    axs[it, 0].imshow(analysis['image_raw'])
-                    axs[it, 0].axvline(pos[1], color='r', linestyle='--', linewidth=0.5)
-                    axs[it, 0].axhline(pos[0], color='r', linestyle='--', linewidth=0.5)
+                    axs[it, 0].imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper')
+                    axs[it, 0].axvline(pos[1], color='k', linestyle='--', linewidth=0.5)
+                    axs[it, 0].axhline(pos[0], color='k', linestyle='--', linewidth=0.5)
                     axs[it, 0].plot(pos[1], pos[0], '.k', markersize=2)
                     axs[it, 0].set_ylabel(analysis['positions_labels'][it])
                     axs[it, 1].plot(analysis[f'axis_x_{pos[2]}'], analysis[f'data_x_{pos[2]}'], 'b-', label='data')
@@ -549,10 +549,10 @@ class UndulatorNoScan:
 if __name__ == '__main__':
     # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
     _base = Path(r'Z:\data')
-    _folder = _base / r'Undulator\Y2023\05-May\23_0509\scans\Scan022'
+    _folder = _base / r'Undulator\Y2023\05-May\23_0509\scans\Scan024'
 
     _scan = Scan(_folder, ignore_experiment_name=True)
-    images = UndulatorNoScan(_scan, 'U1', angle=0)
-    images.analyze_images(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0,
+    images = UndulatorNoScan(_scan, 'U3', angle=0)
+    images.analyze_images(contrast=0.5, hp_median=2, hp_threshold=3., denoise_cycles=0,
                           gauss_filter=5., com_threshold=0.66, plots=True, skip_ellipse=True)
     print('done')
