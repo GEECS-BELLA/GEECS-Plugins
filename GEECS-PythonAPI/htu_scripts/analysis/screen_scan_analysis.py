@@ -9,7 +9,8 @@ from geecs_api.tools.interfaces.exports import load_py, save_py
 from geecs_api.tools.images.spot import fwhm
 from geecs_api.tools.images.displays import show_one
 from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice
+from geecs_api.devices.geecs_device import GeecsDevice, api_error
+from geecs_api.tools.interfaces.prompts import text_input
 from geecs_api.devices.HTU.diagnostics.cameras.camera import Camera
 from htu_scripts.analysis.undulator_no_scan import UndulatorNoScan
 import matplotlib.pyplot as plt
@@ -38,9 +39,35 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
     pos_long_names: list[str] = []
 
     with ProgressBar(max_value=len(no_scans)) as pb:
-        for it, (analysis_file, scan_path) in enumerate(no_scans.values()):
+        for it, (lbl, (analysis_file, scan_path)) in enumerate(no_scans.items()):
             if not analysis_file.is_file():
-                continue
+                scan_obj = Scan(scan_path)
+                no_scan = UndulatorNoScan(scan_obj, lbl)
+                contrast = 1.333
+                while True:
+                    try:
+                        no_scan.analyze_images(contrast=contrast, hp_median=2, hp_threshold=3., denoise_cycles=0,
+                                               gauss_filter=5., com_threshold=0.66, plots=True, skip_ellipse=True)
+                    except Exception as ex:
+                        api_error(str(ex), f'Failed to analyze {scan_path.name}')
+                        pass
+
+                    repeat = text_input(f'Repeat analysis (adjust contrast)? : ',
+                                        accepted_answers=['y', 'yes', 'n', 'no'])
+                    if repeat.lower()[0] == 'n':
+                        break
+                    else:
+                        while True:
+                            try:
+                                contrast = float(text_input(f'New contrast value (old: {contrast:.3f}) : '))
+                                break
+                            except Exception:
+                                print('Contrast value must be a positive number (e.g. 1.3)')
+                                continue
+                keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
+                                  accepted_answers=['y', 'yes', 'n', 'no'])
+                if keep.lower()[0] == 'n':
+                    continue
 
             analysis_files.append(analysis_file)
             scan_paths.append(scan_path)
@@ -238,28 +265,33 @@ if __name__ == '__main__':
     if not is_local:
         GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-    _base_tag = (2023, 5, 9, 0)
-    _scans_screens = [(22, 'U1'),
-                      (23, 'U2'),
-                      (24, 'U3'),
-                      (25, 'U4'),
-                      (26, 'U5'),
-                      (27, 'U6'),
-                      (28, 'U7')]
+    # Parameters
+    _base_tag = (2023, 4, 20, 0)
+    _scans_screens = [(38+n-1, f'A{n}') for n in range(1, 3+1)]
+    # _scans_screens = [(22, 'U1'),
+    #                   (23, 'U2'),
+    #                   (24, 'U3'),
+    #                   (25, 'U4'),
+    #                   (26, 'U5'),
+    #                   (27, 'U6'),
+    #                   (28, 'U7')]
 
+    # Folders/Files
     _analysis_files: list[Path] = \
         [base_path/'Undulator'/f'Y{_base_tag[0]}'/f'{_base_tag[1]:02d}-{cal.month_name[_base_tag[1]][:3]}' /
          f'{str(_base_tag[0])[-2:]}_{_base_tag[1]:02d}{_base_tag[2]:02d}'/'analysis' /
-         f'Scan{number[0]:03d}'/f'UC_VisaEBeam{number[1][-1]}'/'profiles_analysis.dat'
+         f'Scan{number[0]:03d}'/Camera.name_from_label(number[1])/'profiles_analysis.dat'
          for number in _scans_screens]
+
     _scan_paths = [file.parents[3]/'scans'/file.parts[-3] for file in _analysis_files]
     _no_scans: dict[str, tuple[Path, Path]] = \
         {key[1]: (analysis, data) for key, analysis, data in zip(_scans_screens, _analysis_files, _scan_paths)}
 
     _save_dir = _analysis_files[0].parents[2] / \
         f'{_scan_paths[0].name}_Screens_{_scans_screens[0][1]}_{_scans_screens[-1][1]}'
-    _labels = [label[1] for label in _scans_screens]
+    _labels = [label[1] for label in _scans_screens]  # separate from list(_scans_screens.keys()) to define an order
 
+    # Analysis
     _data_dict = screen_scan_analysis(no_scans=_no_scans, screen_labels=_labels, save_dir=_save_dir)
 
     print('done')

@@ -49,28 +49,31 @@ class UndulatorNoScan:
 
         self.scan: Scan = scan
         self.camera: Optional[Camera] = None
-        if angle is None:
-            self.camera_r90: int = 0
-        else:
-            self.camera_r90: int = int(round(angle / 90.))
 
-        if isinstance(camera, Camera):
+        if isinstance(camera, Camera):  # Camera class object
             self.camera = camera
             self.camera_name: str = camera.get_name()
             self.camera_roi: Optional[np.ndarray] = camera.roi
             self.camera_r90 = camera.rot_90
-        elif isinstance(camera, str) and (camera in Camera.ROIs):
+        elif isinstance(camera, str) and (camera in Camera.ROIs):  # device name
             self.camera_name = camera
             self.camera_roi = np.array(Camera.ROIs[camera])
-        elif isinstance(camera, str) and re.match(r'(U[1-9]|A[1-3]|Rad2)', camera):
+            self.camera_r90 = Camera.get_rot_90(Camera.label_from_name(camera))
+        elif isinstance(camera, str) and re.match(r'(U[1-9]|A[1-3]|Rad2)', camera):  # shorthand label ('A1','U3',)
             self.camera_name = Camera.name_from_label(camera)
             self.camera_roi = np.array(Camera.ROIs[self.camera_name])
-        elif isinstance(camera, int) and (1 <= camera <= 9):
+            self.camera_r90 = Camera.get_rot_90(camera)
+        elif isinstance(camera, int) and (1 <= camera <= 9):  # undulator screen number
             self.camera_name = Camera.name_from_label(f'U{camera}')
             self.camera_roi = np.array(Camera.ROIs[self.camera_name])
+            self.camera_r90 = Camera.get_rot_90(f'U{camera}')
         else:
             self.camera_name = camera
             self.camera_roi = None
+            self.camera_r90 = 0
+
+        if angle:
+            self.camera_r90: int = int(round(angle / 90.))
 
         self.camera_label: str = Camera.label_from_name(self.camera_name)
 
@@ -555,7 +558,7 @@ if __name__ == '__main__':
     _folder = _base / r'Undulator\Y2023\05-May\23_0509\scans\Scan028'
 
     _scan = Scan(_folder, ignore_experiment_name=False)
-    images = UndulatorNoScan(_scan, 'U7', angle=0)
+    images = UndulatorNoScan(_scan, 'U7')
     images.analyze_images(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0,
                           gauss_filter=5., com_threshold=0.66, plots=True, skip_ellipse=True)
     print('done')

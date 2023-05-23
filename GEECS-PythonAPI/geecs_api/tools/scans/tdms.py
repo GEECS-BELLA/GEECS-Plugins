@@ -3,16 +3,15 @@ import pandas as pd
 import nptdms as tdms
 import numpy.typing as npt
 from typing import Optional
-from geecs_api.api_defs import SysPath
+from pathlib import Path
 
 
-def read_geecs_tdms(file_path: SysPath) \
+def read_geecs_tdms(file_path: Path) \
         -> tuple[Optional[dict[str, dict[str, npt.ArrayLike]]], Optional[pd.DataFrame]]:
-    file_path = str(file_path)
-    file_extension: str = os.path.splitext(file_path)[1].lower()
+    file_extension: str = file_path.suffix.lower()
 
-    if os.path.isfile(file_path) and (file_extension == '.tdms'):
-        with tdms.TdmsFile.open(file_path) as f_tdms:
+    if file_path.is_file() and (file_extension == '.tdms'):
+        with tdms.TdmsFile.open(str(file_path)) as f_tdms:
             def convert_channel_to_float(channel: tdms.TdmsChannel):
                 try:
                     return channel[:].astype('float64')
@@ -35,6 +34,6 @@ def read_geecs_tdms(file_path: SysPath) \
 
 
 if __name__ == '__main__':
-    _file_path = r'Z:\data\Undulator\Y2023\04-Apr\23_0427\scans\Scan012\Scan012.tdms'
+    _file_path = Path(r'Z:\data\Undulator\Y2023\04-Apr\23_0427\scans\Scan012\Scan012.tdms')
     _data_dict, _data_frame = read_geecs_tdms(_file_path)
     print('Done')

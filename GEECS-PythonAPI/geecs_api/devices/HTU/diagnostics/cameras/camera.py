@@ -52,10 +52,14 @@ class Camera(GeecsDevice):
             self.roi = None
 
         self.label = Camera.label_from_name(self.get_name())
-        if self.label in ['A1', 'A2']:
-            self.rot_90: int = 90
+        self.rot_90 = Camera.get_rot_90(self.label)
+
+    @staticmethod
+    def get_rot_90(label: str) -> int:
+        if label in ['A1', 'A2']:
+            return 90
         else:
-            self.rot_90 = 0
+            return 0
 
     def get_variables(self):
         return self.__variables
