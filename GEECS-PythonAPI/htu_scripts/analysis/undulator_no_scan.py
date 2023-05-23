@@ -23,6 +23,7 @@ from geecs_api.devices.geecs_device import api_error
 import geecs_api.tools.images.ni_vision as ni
 from geecs_api.tools.interfaces.exports import save_py
 from geecs_api.tools.scans.scan import Scan
+from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
 from geecs_api.tools.images.filtering import clip_hot_pixels, filter_image
@@ -547,12 +548,14 @@ class UndulatorNoScan:
 
 
 if __name__ == '__main__':
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+
     # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
     _base = Path(r'Z:\data')
-    _folder = _base / r'Undulator\Y2023\05-May\23_0509\scans\Scan024'
+    _folder = _base / r'Undulator\Y2023\05-May\23_0509\scans\Scan028'
 
-    _scan = Scan(_folder, ignore_experiment_name=True)
-    images = UndulatorNoScan(_scan, 'U3', angle=0)
-    images.analyze_images(contrast=0.5, hp_median=2, hp_threshold=3., denoise_cycles=0,
+    _scan = Scan(_folder, ignore_experiment_name=False)
+    images = UndulatorNoScan(_scan, 'U7', angle=0)
+    images.analyze_images(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0,
                           gauss_filter=5., com_threshold=0.66, plots=True, skip_ellipse=True)
     print('done')

@@ -18,7 +18,7 @@ from progressbar import ProgressBar
 
 
 def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path, str]]], screen_labels: list[str],
-                         save_dir: Optional[SysPath] = None):
+                         save_dir: Optional[SysPath] = None) -> dict[str, Any]:
     """
     no_scans = dict of tuples (analysis file paths, scan data directory paths)
     """
@@ -26,7 +26,9 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
 
     # save analysis
     if not save_dir:
-        save_dir = Path(filedialog.askdirectory(title='Save directory:'))
+        save_dir = filedialog.askdirectory(title='Save directory:')
+        if save_dir:
+            save_dir = Path(save_dir)
     elif not isinstance(save_dir, Path):
         save_dir = Path(save_dir)
 
@@ -67,30 +69,36 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
                     beam_analysis[f'{pos}_deltas_stds'] = tmp.copy()
                     beam_analysis[f'{pos}_fwhm_means'] = tmp.copy()
                     beam_analysis[f'{pos}_fwhm_stds'] = tmp.copy()
+                    beam_analysis['target_um_pix'] = np.ones((len(screen_labels),), dtype=float)
 
                 if targets and (f'avg_img_{pos}_delta' in targets):
                     beam_analysis[f'{pos}_deltas_avg_imgs'][index, :] = targets[f'avg_img_{pos}_delta']
                     beam_analysis[f'{pos}_deltas_means'][index, :] = targets[f'target_deltas_{pos}_mean']
                     beam_analysis[f'{pos}_deltas_stds'][index, :] = targets[f'target_deltas_{pos}_std']
+                    beam_analysis['target_um_pix'][index] = targets['target_um_pix']
 
                 if summary and (f'mean_pos_{pos}_fwhm_x' in summary):
-                    beam_analysis[f'{pos}_fwhm_means'][index, 1] = summary[f'mean_pos_{pos}_fwhm_x']
-                    beam_analysis[f'{pos}_fwhm_means'][index, 0] = summary[f'mean_pos_{pos}_fwhm_y']
-                    beam_analysis[f'{pos}_fwhm_stds'][index, 1] = summary[f'std_pos_{pos}_fwhm_x']
-                    beam_analysis[f'{pos}_fwhm_stds'][index, 0] = summary[f'std_pos_{pos}_fwhm_y']
+                    beam_analysis[f'{pos}_fwhm_means'][index, 1] = \
+                        summary[f'mean_pos_{pos}_fwhm_x'] * beam_analysis['target_um_pix'][index]
+                    beam_analysis[f'{pos}_fwhm_means'][index, 0] = \
+                        summary[f'mean_pos_{pos}_fwhm_y'] * beam_analysis['target_um_pix'][index]
+                    beam_analysis[f'{pos}_fwhm_stds'][index, 1] = \
+                        summary[f'std_pos_{pos}_fwhm_x'] * beam_analysis['target_um_pix'][index]
+                    beam_analysis[f'{pos}_fwhm_stds'][index, 0] = \
+                        summary[f'std_pos_{pos}_fwhm_y'] * beam_analysis['target_um_pix'][index]
 
             pb.increment()
 
+    data_dict: dict[str, Any] = {'screen_labels': screen_labels,
+                                 'analysis_files': analysis_files,
+                                 'scan_paths': scan_paths,
+                                 'beam_analysis': beam_analysis}
     if save_dir:
         if not save_dir.is_dir():
             os.makedirs(save_dir)
 
         export_file_path: Path = save_dir / 'beam_analysis'
-        save_py(file_path=export_file_path,
-                data={'screen_labels': screen_labels,
-                      'analysis_files': analysis_files,
-                      'scan_paths': scan_paths,
-                      'beam_analysis': beam_analysis})
+        save_py(file_path=export_file_path, data=data_dict)
         print(f'Data exported to:\n\t{export_file_path}.dat')
 
     x_axis = np.arange(1, len(screen_labels) + 1, dtype='int')
@@ -166,6 +174,7 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
         plt.savefig(save_path, dpi=300)
 
     plt.show(block=True)
+    return data_dict
 
 
 def plot_scan_image(scan: Scan, block_execution: bool = False):
@@ -251,6 +260,6 @@ if __name__ == '__main__':
         f'{_scan_paths[0].name}_Screens_{_scans_screens[0][1]}_{_scans_screens[-1][1]}'
     _labels = [label[1] for label in _scans_screens]
 
-    screen_scan_analysis(no_scans=_no_scans, screen_labels=_labels, save_dir=None)
+    _data_dict = screen_scan_analysis(no_scans=_no_scans, screen_labels=_labels, save_dir=_save_dir)
 
     print('done')
