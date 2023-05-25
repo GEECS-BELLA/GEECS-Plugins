@@ -112,9 +112,10 @@ class GasJetStage(GeecsDevice):
             var_values = self._scan_values(var_alias, start_value, end_value, step_size, self.__variables)
 
             if use_alias:
-                self._write_1D_scan_file(self.get_name(), var_alias, var_values, shots_per_step)
+                GeecsDevice.write_1D_scan_file(self.get_name(), var_alias, var_values, shots_per_step)
             else:
-                self._write_1D_scan_file(self.get_name(), self.get_axis_var_name(axis), var_values, shots_per_step)
+                GeecsDevice.write_1D_scan_file(self.get_name(), self.get_axis_var_name(axis),
+                                               var_values, shots_per_step)
 
             comment = f'{var_alias} scan'
             return GeecsDevice.run_file_scan(self, comment, timeout)
@@ -142,5 +143,5 @@ if __name__ == '__main__':
     # if scan_accepted:
     #     print(f'Scan timed out: {scan_timed_out}')
 
-    jet.cleanup()
+    jet.close()
     print(api_error)

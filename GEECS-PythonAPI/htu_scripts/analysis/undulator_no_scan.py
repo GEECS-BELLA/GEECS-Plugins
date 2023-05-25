@@ -7,8 +7,6 @@ import math
 import numpy as np
 import screeninfo
 from pathlib import Path
-import scipy.ndimage as simg
-from skimage.segmentation import clear_border
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
 from skimage.transform import hough_ellipse
@@ -26,8 +24,9 @@ from geecs_api.tools.scans.scan import Scan
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
-from geecs_api.tools.images.filtering import clip_hot_pixels, filter_image
+from geecs_api.tools.images.filtering import filter_image
 from geecs_api.tools.images.spot import spot_analysis, fwhm
+from geecs_api.tools.interfaces.prompts import text_input
 
 
 class UndulatorNoScan:
@@ -59,7 +58,7 @@ class UndulatorNoScan:
             self.camera_name = camera
             self.camera_roi = np.array(Camera.ROIs[camera])
             self.camera_r90 = Camera.get_rot_90(Camera.label_from_name(camera))
-        elif isinstance(camera, str) and re.match(r'(U[1-9]|A[1-3]|Rad2)', camera):  # shorthand label ('A1','U3',)
+        elif isinstance(camera, str) and re.match(r'(U[1-9]|A[1-3]|Rad2|P1)', camera):  # shorthand label ('A1','U3',)
             self.camera_name = Camera.name_from_label(camera)
             self.camera_roi = np.array(Camera.ROIs[self.camera_name])
             self.camera_r90 = Camera.get_rot_90(camera)
@@ -88,54 +87,38 @@ class UndulatorNoScan:
         self.average_image: Optional[np.ndarray] = None
         self.average_analysis: Optional[dict[str, Any]] = None
 
-    @staticmethod
-    def find_roi(image: np.ndarray, threshold: Optional[float] = None, plots: bool = False):
-        roi = None
-        roi_box = np.array([0, image.shape[1] - 1, 0, image.shape[0]])
-
-        try:
-            # filter and smooth
-            blur = clip_hot_pixels(image, median_filter_size=2, threshold_factor=3)
-            blur = simg.gaussian_filter(blur, sigma=5.)
-
-            # threshold
-            if threshold is None:
-                counts, bins = np.histogram(blur, bins=10)
-                threshold = bins[np.where(counts == np.max(counts))[0][0] + 1]
-            bw = closing(blur > threshold, square(3))
-
-            # remove artifacts connected to image border
-            cleared = clear_border(bw)
-            # cleared = bw
-
-            # label image regions
-            label_image = label(cleared)
-            areas = [box.area for box in regionprops(label_image)]
-            roi = regionprops(label_image)[areas.index(max(areas))]
-            roi_box = roi.bbox
-
-        except Exception:
-            pass
-
-        finally:
-            if plots:
-                fig, ax = plt.subplots(figsize=UndulatorNoScan.fig_size)
-                ax.imshow(image)
-                rect = mpatches.Rectangle((roi_box[1], roi_box[0]), roi_box[3] - roi_box[1], roi_box[2] - roi_box[0],
-                                          fill=False, edgecolor='red', linewidth=2)
-                ax.add_patch(rect)
-                ax.set_axis_off()
-                plt.tight_layout()
-                plt.show(block=True)
-
-        return roi_box, roi
-
     def read_image_as_float(self, image_path: SysPath) -> np.ndarray:
         image = ni.read_imaq_image(image_path)
         if isinstance(self.camera_roi, np.ndarray) and (self.camera_roi.size >= 4):
             image = image[self.camera_roi[-2]:self.camera_roi[-1], self.camera_roi[0]:self.camera_roi[1]]
         image = np.rot90(image, self.camera_r90)
         return image.astype('float64')
+
+    def run_analysis_with_checks(self, n_images: int = 0, initial_contrast: float = 1.333,
+                                 hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 0,
+                                 gauss_filter: float = 5., com_threshold: float = 0.5, plots: bool = False,
+                                 bkg_image: Optional[Path] = None, skip_ellipse: bool = True):
+        contrast: float = initial_contrast
+        while True:
+            try:
+                self.analyze_images(n_images, contrast, hp_median, hp_threshold, denoise_cycles,
+                                    gauss_filter, com_threshold, plots, bkg_image, skip_ellipse)
+            except Exception as ex:
+                api_error(str(ex), f'Failed to analyze {self.scan.get_folder().name}')
+                pass
+
+            repeat = text_input(f'Repeat analysis (adjust contrast)? : ',
+                                accepted_answers=['y', 'yes', 'n', 'no'])
+            if repeat.lower()[0] == 'n':
+                break
+            else:
+                while True:
+                    try:
+                        contrast = float(text_input(f'New contrast value (old: {contrast:.3f}) : '))
+                        break
+                    except Exception:
+                        print('Contrast value must be a positive number (e.g. 1.3)')
+                        continue
 
     def analyze_images(self, n_images: int = 0, contrast: float = 2, hp_median: int = 2, hp_threshold: float = 3.,
                        denoise_cycles: int = 0, gauss_filter: float = 5., com_threshold: float = 0.5,
@@ -195,9 +178,12 @@ class UndulatorNoScan:
                             pb.increment()
 
                 # report skipped files
-                print(f'Skipped:')
-                for file in skipped_files:
-                    print(f'\t{file}')
+                if skipped_files:
+                    print(f'Skipped:')
+                    for file in skipped_files:
+                        print(f'\t{file}')
+                else:
+                    print('No file skipped.')
 
                 # analyze the average image
                 self.average_analysis = self._analyze_image(avg_image, bkg_image, contrast, hp_median, hp_threshold,
@@ -238,7 +224,7 @@ class UndulatorNoScan:
     def _analyze_image(self, image: Union[SysPath, np.ndarray], bkg_image: Optional[Path] = None, contrast: float = 2,
                        hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 0, gauss_filter: float = 5.,
                        com_threshold: float = 0.5, skip_ellipse: bool = True) -> dict[str, Any]:
-        # raw mage
+        # raw image
         if isinstance(image, np.ndarray):
             image_raw = image
         else:

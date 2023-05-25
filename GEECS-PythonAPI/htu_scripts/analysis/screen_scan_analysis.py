@@ -9,7 +9,7 @@ from geecs_api.tools.interfaces.exports import load_py, save_py
 from geecs_api.tools.images.spot import fwhm
 from geecs_api.tools.images.displays import show_one
 from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice, api_error
+from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.tools.interfaces.prompts import text_input
 from geecs_api.devices.HTU.diagnostics.cameras.camera import Camera
 from htu_scripts.analysis.undulator_no_scan import UndulatorNoScan
@@ -40,30 +40,18 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
 
     with ProgressBar(max_value=len(no_scans)) as pb:
         for it, (lbl, (analysis_file, scan_path)) in enumerate(no_scans.items()):
-            if not analysis_file.is_file():
+            analyze: str = 'y'
+            if analysis_file.is_file():
+                analyze = text_input(f'Re-run the analysis ({scan_path.name})? : ',
+                                     accepted_answers=['y', 'yes', 'n', 'no'])
+
+            if (analyze.lower()[0] == 'y') or (not analysis_file.is_file()):
+                print(f'\nAnalyzing {scan_path.name} ("{lbl}")...')
                 scan_obj = Scan(scan_path)
                 no_scan = UndulatorNoScan(scan_obj, lbl)
-                contrast = 1.333
-                while True:
-                    try:
-                        no_scan.analyze_images(contrast=contrast, hp_median=2, hp_threshold=3., denoise_cycles=0,
-                                               gauss_filter=5., com_threshold=0.66, plots=True, skip_ellipse=True)
-                    except Exception as ex:
-                        api_error(str(ex), f'Failed to analyze {scan_path.name}')
-                        pass
-
-                    repeat = text_input(f'Repeat analysis (adjust contrast)? : ',
-                                        accepted_answers=['y', 'yes', 'n', 'no'])
-                    if repeat.lower()[0] == 'n':
-                        break
-                    else:
-                        while True:
-                            try:
-                                contrast = float(text_input(f'New contrast value (old: {contrast:.3f}) : '))
-                                break
-                            except Exception:
-                                print('Contrast value must be a positive number (e.g. 1.3)')
-                                continue
+                no_scan.run_analysis_with_checks(initial_contrast=1.333, hp_median=2, hp_threshold=3.,
+                                                 denoise_cycles=0, gauss_filter=5., com_threshold=0.66,
+                                                 plots=True, skip_ellipse=True)
                 keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
                                   accepted_answers=['y', 'yes', 'n', 'no'])
                 if keep.lower()[0] == 'n':
@@ -72,6 +60,7 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
             analysis_files.append(analysis_file)
             scan_paths.append(scan_path)
 
+            print('Loading analysis...')
             analysis = load_py(analysis_file, as_dict=True)
 
             # noinspection PyUnboundLocalVariable
@@ -267,14 +256,11 @@ if __name__ == '__main__':
 
     # Parameters
     _base_tag = (2023, 4, 20, 0)
-    _scans_screens = [(38+n-1, f'A{n}') for n in range(1, 3+1)]
-    # _scans_screens = [(22, 'U1'),
-    #                   (23, 'U2'),
-    #                   (24, 'U3'),
-    #                   (25, 'U4'),
-    #                   (26, 'U5'),
-    #                   (27, 'U6'),
-    #                   (28, 'U7')]
+    _scans_screens = [(46+n-1, f'U{n}') for n in range(1, 9+1)]
+    # _scans_screens = [(37, 'P1'),
+    #                   (38, 'A1'),
+    #                   (39, 'A2'),
+    #                   (40, 'A3')]
 
     # Folders/Files
     _analysis_files: list[Path] = \

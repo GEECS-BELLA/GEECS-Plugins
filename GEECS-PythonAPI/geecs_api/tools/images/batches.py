@@ -53,8 +53,6 @@ def list_images(images_folder: SysPath, n_images: int = 0, file_extension: str =
         return None
 
     # list images
-    # images = sorted(glob.glob(os.path.join(images_folder, f'*.{file_extension}')),
-    #                 key=lambda x: x[0].split('_')[-1][:-4])
     images = sorted(glob.glob(str(images_folder / f'*.{file_extension}')), key=lambda f: Path(f).parts[-1])
 
     if n_images > 0:

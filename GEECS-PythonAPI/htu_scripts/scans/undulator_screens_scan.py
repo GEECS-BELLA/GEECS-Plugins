@@ -118,27 +118,9 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
         no_scan = Scan(scan_path, ignore_experiment_name=False)
         no_scan_images = UndulatorNoScan(no_scan, camera)
         analysis_file: Path = no_scan_images.save_folder.parent / 'profiles_analysis.dat'
-        contrast = 1.333
-        while True:
-            try:
-                no_scan_images.analyze_images(contrast=contrast, hp_median=2, hp_threshold=3., denoise_cycles=0,
-                                              gauss_filter=5., com_threshold=0.66, plots=True,
-                                              bkg_image=Path(camera.state_background_path()), skip_ellipse=True)
-            except Exception as ex:
-                api_error(str(ex), f'Failed to analyze {scan_path.name}')
-                pass
-
-            repeat = text_input(f'Repeat analysis (adjust contrast)? : ', accepted_answers=['y', 'yes', 'n', 'no'])
-            if repeat.lower()[0] == 'n':
-                break
-            else:
-                while True:
-                    try:
-                        contrast = float(text_input(f'New contrast value (old: {contrast:.3f}) : '))
-                        break
-                    except Exception:
-                        print('Contrast value must be a positive number (e.g. 1.3)')
-                        continue
+        no_scan_images.run_analysis_with_checks(initial_contrast=1.333, hp_median=2, hp_threshold=3.,
+                                                denoise_cycles=0, gauss_filter=5., com_threshold=0.66, plots=True,
+                                                bkg_image=Path(camera.state_background_path()), skip_ellipse=True)
         keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
                           accepted_answers=['y', 'yes', 'n', 'no'])
         if keep.lower()[0] == 'y':

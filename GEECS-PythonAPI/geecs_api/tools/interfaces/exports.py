@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Optional
 import tkinter as tk
 from tkinter import filedialog
-# import htu_scripts.analysis.undulator_no_scan as uns
 
 
 # Pop-ups initialization
@@ -53,11 +52,11 @@ def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = N
     if not file_path:
         return None
     else:
-        file_path = os.path.normpath(file_path)
+        file_path = Path(file_path)
         file_path = re.split(r'\.[^\.]+$', str(file_path))[0]
 
     data = {}
-    with shelve.open(file_path, 'r') as shelve_file:
+    with shelve.open(str(file_path), 'r') as shelve_file:
         for key, value in shelve_file.items():
             if variables:
                 if key in variables:

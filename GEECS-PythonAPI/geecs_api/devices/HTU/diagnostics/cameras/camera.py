@@ -10,23 +10,25 @@ from datetime import datetime as dtime
 from geecs_api.tools.images.batches import average_images
 from geecs_api.api_defs import VarAlias, SysPath
 from geecs_api.devices.geecs_device import GeecsDevice
+from geecs_api.interface.geecs_database import GeecsDatabase
 
 
 class Camera(GeecsDevice):
     # ROIs with [left, right, top, bottom] (x_lim = [:1], y_lim = [-2:])
-    ROIs = {'UC_ALineEbeam1': [204, 777, 319, 701],
-            'UC_ALineEBeam2': [261, 843, 499, 656],
-            'UC_ALineEBeam3': [274, 528, 256, 546],
-            'UC_VisaEBeam1': [105, 708, 252, 377],
-            'UC_VisaEBeam2': [164, 434, 100, 400],
-            'UC_VisaEBeam3': [185, 477, 137, 469],
-            'UC_VisaEBeam4': [263, 541, 192, 508],
-            'UC_VisaEBeam5': [167, 450, 106, 427],
-            'UC_VisaEBeam6': [167, 500, 147, 406],
-            'UC_VisaEBeam7': [125, 462, 130, 490],
-            'UC_VisaEBeam8': [206, 401, 111, 466],
-            'UC_VisaEBeam9': [341, 1141, 628, 670],
-            'UC_UndulatorRad2': [600, 2360, 1420, 1170]}
+    ROIs = {'UC_Phosphor1': [166, 1283, 179, 898],
+            'UC_ALineEbeam1': [174, 1021, 209, 777],
+            'UC_ALineEBeam2': [275, 1114, 154, 778],
+            'UC_ALineEBeam3': [183, 858, 187, 740],
+            'UC_VisaEBeam1': [290, 605, 286, 651],
+            'UC_VisaEBeam2': [102, 470, 153, 406],
+            'UC_VisaEBeam3': [163, 483, 140, 472],
+            'UC_VisaEBeam4': [186, 548, 204, 554],
+            'UC_VisaEBeam5': [142, 457, 128, 416],
+            'UC_VisaEBeam6': [157, 490, 116, 410],
+            'UC_VisaEBeam7': [121, 475, 129, 478],
+            'UC_VisaEBeam8': [133, 490, 112, 513],
+            'UC_VisaEBeam9': [709, 1125, 269, 681],
+            'UC_UndulatorRad2': [276, 2515, 204, 1483]}
 
     def __init__(self, device_name: str):
         super().__init__(device_name)
@@ -195,3 +197,12 @@ class Camera(GeecsDevice):
 
             except Exception:
                 continue
+
+
+if __name__ == '__main__':
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+
+    cam = Camera('UC_ALineEBeam3')
+    cam.save_local_background(10, set_as_background=True)
+
+    cam.close()

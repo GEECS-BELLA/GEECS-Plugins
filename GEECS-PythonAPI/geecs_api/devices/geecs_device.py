@@ -641,8 +641,8 @@ class GeecsDevice:
         return np.arange(start_value, end_value + step_size, step_size)
 
     @staticmethod
-    def _write_1D_scan_file(devices: Union[list[str], str], variables: Union[list[str], str],
-                            values_by_row: npt.ArrayLike, shots_per_step: int = 10):
+    def write_1D_scan_file(devices: Union[list[str], str], variables: Union[list[str], str],
+                           values_by_row: Union[np.ndarray, list], shots_per_step: int = 10):
         scan_number = 1
 
         with open(GeecsDevice.scan_file_path, 'w+') as f:
@@ -657,6 +657,9 @@ class GeecsDevice:
             else:
                 f.write(f'Variable = "{variables}"\n')
             f.write('Values:#shots = "')
+
+            if isinstance(values_by_row, list):
+                values_by_row = np.array(values_by_row)
 
             if values_by_row.ndim > 1:
                 for col in range(values_by_row.shape[1]):
@@ -792,13 +795,48 @@ class GeecsDevice:
 if __name__ == '__main__':
     GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
+    # example for 1d scan (no object instantiated)
+    GeecsDevice.write_1D_scan_file('U_S3H', 'Current', np.linspace(-1., 1., 5), shots_per_step=20)
+    next_folder, next_scan, accepted, timed_out = \
+        GeecsDevice.run_file_scan(comment='U_S3H current scan (GeecsDevice demo)', timeout=300.)
+
+    print(f'Scan folder (#{next_scan}): {next_folder}')
+    print(f'Scan{"" if accepted else " not"} accepted{"; Scan timed out!" if timed_out else ""}')
+
+    # example for 1d scan (using existing device object)
+    s3h = GeecsDevice('U_S3H')
+
+    GeecsDevice.write_1D_scan_file(s3h.get_name(), 'Current', np.linspace(-1., 1., 5), shots_per_step=20)
+    next_folder, next_scan, accepted, timed_out = \
+        GeecsDevice.run_file_scan(comment=f'{s3h.get_name()} current scan (GeecsDevice demo)', timeout=300.)
+
+    print(f'Scan folder (#{next_scan}): {next_folder}')
+    print(f'Scan{"" if accepted else " not"} accepted{"; Scan timed out!" if timed_out else ""}')
+
+    # example for variables subscription (user defined)
     # s3h = GeecsDevice('U_S3H')
-    # s3h.subscribe_var_values()
-    # s3h.subscribe_var_values(['Current', 'Voltage'])
+    s3h.subscribe_var_values(['Current', 'Voltage'])
+    time.sleep(1.)
+    print(f'{s3h.get_name()} state:\n\t{s3h.state}')
 
-    # s3h.get('Current')
-    # s3h.set('Current', -0.5)
-    # time.sleep(1.)
-    # print(f'State: {s3h.state}')
+    # asynchronous example
+    # s3h = GeecsDevice('U_S3H')
+    s3v = GeecsDevice('U_S3V')
 
-    # s3h.close()
+    h_queued, h_cmd_label, (h_thread, h_stop) = s3h.get('Current', sync=False)
+    thread_v = s3v.get('Current', sync=False)
+
+    # all-device synchronization example
+    devs_synced = GeecsDevice.wait_for_all_devices(timeout=10.)
+    if not devs_synced:
+        GeecsDevice.stop_waiting_for_all_devices()
+
+    # device-level synchronization example
+    dev_h_synced = s3h.wait_for_cmd(thread=h_thread, timeout=1.)
+    dev_v_synced = s3h.wait_for_cmd(thread=thread_v[2][0], timeout=1.)
+    if not dev_h_synced or not dev_v_synced:
+        s3h.stop_waiting_for_all_cmds()
+        s3v.stop_waiting_for_cmd(thread=thread_v[2][0], stop=thread_v[2][1])
+
+    # close objects
+    s3h.close()
