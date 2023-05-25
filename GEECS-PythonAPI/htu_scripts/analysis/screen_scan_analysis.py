@@ -117,7 +117,30 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
         save_py(file_path=export_file_path, data=data_dict)
         print(f'Data exported to:\n\t{export_file_path}.dat')
 
+    # plots
     x_axis = np.arange(1, len(screen_labels) + 1, dtype='int')
+
+    ys_deltas = (np.inf, -np.inf)
+    ys_fwhms = (np.inf, -np.inf)
+    for pos in pos_short_names:
+        ys_deltas = (min(ys_deltas[0], np.min(beam_analysis[f'{pos}_deltas_means'])),
+                     max(ys_deltas[1], np.max(beam_analysis[f'{pos}_deltas_means'])))
+        ys_fwhms = (min(ys_fwhms[0], np.min(beam_analysis[f'{pos}_fwhm_means'])),
+                    max(ys_fwhms[1], np.max(beam_analysis[f'{pos}_fwhm_means'])))
+
+    if ys_deltas[1] - ys_deltas[0] > 1.2:
+        f_deltas = 1000
+        units_deltas = r'$\mu$m'
+    else:
+        f_deltas = 1
+        units_deltas = 'mm'
+
+    if ys_fwhms[1] - ys_fwhms[0] > 1200.:
+        f_fwhms = 0.001
+        units_fwhms = 'mm'
+    else:
+        f_fwhms = 1
+        units_fwhms = r'$\mu$m'
 
     fig, axs = plt.subplots(ncols=len(pos_short_names), nrows=4,
                             figsize=(UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1] * 1.5),
@@ -126,8 +149,8 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
         # Deltas X
         axs[0, it].fill_between(
             x_axis,
-            1000 * (beam_analysis[f'{pos}_deltas_means'][:, 1] - beam_analysis[f'{pos}_deltas_stds'][:, 1]),
-            1000 * (beam_analysis[f'{pos}_deltas_means'][:, 1] + beam_analysis[f'{pos}_deltas_stds'][:, 1]),
+            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 1] - beam_analysis[f'{pos}_deltas_stds'][:, 1]),
+            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 1] + beam_analysis[f'{pos}_deltas_stds'][:, 1]),
             label=r'$D_x \pm \sigma$', color='m', alpha=0.33)
         axs[0, it].plot(x_axis, 1000 * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 1], 'ob-',
                         label=r'$D_x$ $(\mu_{image})$', linewidth=1, markersize=3)
@@ -138,8 +161,8 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
         # Deltas Y
         axs[1, it].fill_between(
             x_axis,
-            1000 * (beam_analysis[f'{pos}_deltas_means'][:, 0] - beam_analysis[f'{pos}_deltas_stds'][:, 0]),
-            1000 * (beam_analysis[f'{pos}_deltas_means'][:, 0] + beam_analysis[f'{pos}_deltas_stds'][:, 0]),
+            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] - beam_analysis[f'{pos}_deltas_stds'][:, 0]),
+            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] + beam_analysis[f'{pos}_deltas_stds'][:, 0]),
             label=r'$D_y \pm \sigma$', color='m', alpha=0.33)
         axs[1, it].plot(x_axis, 1000 * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 0], 'ob-',
                         label=r'$D_y$ $(\mu_{image})$', linewidth=1, markersize=3)
@@ -169,10 +192,10 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
         axs[3, it].set_xlabel('Screen')
         axs[3, it].set_xticks(x_axis, screen_labels)
 
-    axs[0, 0].set_ylabel(r'X-Offsets [$\mu$m]')
-    axs[1, 0].set_ylabel(r'Y-Offsets [$\mu$m]')
-    axs[2, 0].set_ylabel(r'X-FWHM [$\mu$m]')
-    axs[3, 0].set_ylabel(r'Y-FWHM [$\mu$m]')
+    axs[0, 0].set_ylabel(f'X-Offsets [{units_deltas}]')
+    axs[1, 0].set_ylabel(f'Y-Offsets [{units_deltas}]')
+    axs[2, 0].set_ylabel(f'X-FWHM [{units_fwhms}]')
+    axs[3, 0].set_ylabel(f'Y-FWHM [{units_fwhms}]')
 
     # set matching vertical limits for deltas/FWHMs
     y_lim = (min(axs[0, 0].get_ylim()[0], axs[1, 0].get_ylim()[0]),
