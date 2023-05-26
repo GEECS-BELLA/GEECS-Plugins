@@ -128,14 +128,14 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
         ys_fwhms = (min(ys_fwhms[0], np.min(beam_analysis[f'{pos}_fwhm_means'])),
                     max(ys_fwhms[1], np.max(beam_analysis[f'{pos}_fwhm_means'])))
 
-    if ys_deltas[1] - ys_deltas[0] > 1.2:
+    if (ys_deltas[1] - ys_deltas[0]) > 1.2:
         f_deltas = 1000
         units_deltas = r'$\mu$m'
     else:
         f_deltas = 1
         units_deltas = 'mm'
 
-    if ys_fwhms[1] - ys_fwhms[0] > 1200.:
+    if (abs(ys_fwhms[1]) > 1200) or (abs(ys_fwhms[0]) > 1200):
         f_fwhms = 0.001
         units_fwhms = 'mm'
     else:
@@ -152,7 +152,7 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
             f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 1] - beam_analysis[f'{pos}_deltas_stds'][:, 1]),
             f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 1] + beam_analysis[f'{pos}_deltas_stds'][:, 1]),
             label=r'$D_x \pm \sigma$', color='m', alpha=0.33)
-        axs[0, it].plot(x_axis, 1000 * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 1], 'ob-',
+        axs[0, it].plot(x_axis, f_deltas * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 1], 'ob-',
                         label=r'$D_x$ $(\mu_{image})$', linewidth=1, markersize=3)
         axs[0, it].legend(loc='best', prop={'size': 8})
         axs[0, it].set_xticks([])
@@ -164,7 +164,7 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
             f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] - beam_analysis[f'{pos}_deltas_stds'][:, 0]),
             f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] + beam_analysis[f'{pos}_deltas_stds'][:, 0]),
             label=r'$D_y \pm \sigma$', color='m', alpha=0.33)
-        axs[1, it].plot(x_axis, 1000 * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 0], 'ob-',
+        axs[1, it].plot(x_axis, f_deltas * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 0], 'ob-',
                         label=r'$D_y$ $(\mu_{image})$', linewidth=1, markersize=3)
         axs[1, it].legend(loc='best', prop={'size': 8})
         axs[1, it].set_xticks([])
@@ -172,10 +172,10 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
         # FWHM X
         axs[2, it].fill_between(
             x_axis,
-            beam_analysis[f'{pos}_fwhm_means'][:, 1] - beam_analysis[f'{pos}_fwhm_stds'][:, 1],
-            beam_analysis[f'{pos}_fwhm_means'][:, 1] + beam_analysis[f'{pos}_fwhm_stds'][:, 1],
+            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1] - beam_analysis[f'{pos}_fwhm_stds'][:, 1],
+            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1] + beam_analysis[f'{pos}_fwhm_stds'][:, 1],
             label=r'$FWHM_x \pm \sigma$', color='y', alpha=0.33)
-        axs[2, it].plot(x_axis, beam_analysis[f'{pos}_fwhm_means'][:, 1], 'og-',
+        axs[2, it].plot(x_axis, f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1], 'og-',
                         label=r'$FWHM_x$ $(\mu_{image})$', linewidth=1, markersize=3)
         axs[2, it].legend(loc='best', prop={'size': 8})
         axs[2, it].set_xticks([])
@@ -183,10 +183,10 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
         # FWHM Y
         axs[3, it].fill_between(
             x_axis,
-            beam_analysis[f'{pos}_fwhm_means'][:, 0] - beam_analysis[f'{pos}_fwhm_stds'][:, 0],
-            beam_analysis[f'{pos}_fwhm_means'][:, 0] + beam_analysis[f'{pos}_fwhm_stds'][:, 0],
+            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0] - beam_analysis[f'{pos}_fwhm_stds'][:, 0],
+            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0] + beam_analysis[f'{pos}_fwhm_stds'][:, 0],
             label=r'$FWHM_y \pm \sigma$ [$\mu$m]', color='y', alpha=0.33)
-        axs[3, it].plot(x_axis, beam_analysis[f'{pos}_fwhm_means'][:, 0], 'og-',
+        axs[3, it].plot(x_axis, f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0], 'og-',
                         label=r'$FWHM_y$ $(\mu_{image})$', linewidth=1, markersize=3)
         axs[3, it].legend(loc='best', prop={'size': 8})
         axs[3, it].set_xlabel('Screen')
@@ -279,7 +279,7 @@ if __name__ == '__main__':
 
     # Parameters
     _base_tag = (2023, 4, 20, 0)
-    _scans_screens = [(46+n-1, f'U{n}') for n in range(1, 9+1)]
+    _scans_screens = [(46+n-1, f'U{n}') for n in range(1, 1+1)]
     # _scans_screens = [(37, 'P1'),
     #                   (38, 'A1'),
     #                   (39, 'A2'),
@@ -296,8 +296,9 @@ if __name__ == '__main__':
     _no_scans: dict[str, tuple[Path, Path]] = \
         {key[1]: (analysis, data) for key, analysis, data in zip(_scans_screens, _analysis_files, _scan_paths)}
 
-    _save_dir = _analysis_files[0].parents[2] / \
-        f'{_scan_paths[0].name}_Screens_{_scans_screens[0][1]}_{_scans_screens[-1][1]}'
+    _save_dir = None
+    # _save_dir = _analysis_files[0].parents[2] / \
+    #     f'{_scan_paths[0].name}_Screens_{_scans_screens[0][1]}_{_scans_screens[-1][1]}'
     _labels = [label[1] for label in _scans_screens]  # separate from list(_scans_screens.keys()) to define an order
 
     # Analysis
