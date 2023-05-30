@@ -51,7 +51,7 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
                 no_scan = UndulatorNoScan(scan_obj, lbl)
                 no_scan.run_analysis_with_checks(initial_contrast=1.333, hp_median=2, hp_threshold=3.,
                                                  denoise_cycles=0, gauss_filter=5., com_threshold=0.66,
-                                                 plots=True, skip_ellipse=True)
+                                                 plots=bool(save_dir), skip_ellipse=True)
                 keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
                                   accepted_answers=['y', 'yes', 'n', 'no'])
                 if keep.lower()[0] == 'n':
@@ -142,77 +142,79 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
         f_fwhms = 1
         units_fwhms = r'$\mu$m'
 
-    fig, axs = plt.subplots(ncols=len(pos_short_names), nrows=4,
-                            figsize=(UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1] * 1.5),
-                            sharex='col', sharey='row')
-    for it, pos in enumerate(pos_short_names):
-        # Deltas X
-        axs[0, it].fill_between(
-            x_axis,
-            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 1] - beam_analysis[f'{pos}_deltas_stds'][:, 1]),
-            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 1] + beam_analysis[f'{pos}_deltas_stds'][:, 1]),
-            label=r'$D_x \pm \sigma$', color='m', alpha=0.33)
-        axs[0, it].plot(x_axis, f_deltas * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 1], 'ob-',
-                        label=r'$D_x$ $(\mu_{image})$', linewidth=1, markersize=3)
-        axs[0, it].legend(loc='best', prop={'size': 8})
-        axs[0, it].set_xticks([])
-        axs[0, it].set_title(pos_long_names[it])
+    if pos_short_names:
+        fig, axs = plt.subplots(ncols=len(pos_short_names), nrows=4,
+                                figsize=(UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1] * 1.5),
+                                sharex='col', sharey='row')
+        for it, pos in enumerate(pos_short_names):
+            # Deltas X
+            axs[0, it].fill_between(
+                x_axis,
+                f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 1] - beam_analysis[f'{pos}_deltas_stds'][:, 1]),
+                f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 1] + beam_analysis[f'{pos}_deltas_stds'][:, 1]),
+                label=r'$D_x \pm \sigma$', color='m', alpha=0.33)
+            axs[0, it].plot(x_axis, f_deltas * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 1], 'ob-',
+                            label=r'$D_x$ $(\mu_{image})$', linewidth=1, markersize=3)
+            axs[0, it].legend(loc='best', prop={'size': 8})
+            axs[0, it].set_xticks([])
+            axs[0, it].set_title(pos_long_names[it])
 
-        # Deltas Y
-        axs[1, it].fill_between(
-            x_axis,
-            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] - beam_analysis[f'{pos}_deltas_stds'][:, 0]),
-            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] + beam_analysis[f'{pos}_deltas_stds'][:, 0]),
-            label=r'$D_y \pm \sigma$', color='m', alpha=0.33)
-        axs[1, it].plot(x_axis, f_deltas * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 0], 'ob-',
-                        label=r'$D_y$ $(\mu_{image})$', linewidth=1, markersize=3)
-        axs[1, it].legend(loc='best', prop={'size': 8})
-        axs[1, it].set_xticks([])
+            # Deltas Y
+            axs[1, it].fill_between(
+                x_axis,
+                f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] - beam_analysis[f'{pos}_deltas_stds'][:, 0]),
+                f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] + beam_analysis[f'{pos}_deltas_stds'][:, 0]),
+                label=r'$D_y \pm \sigma$', color='m', alpha=0.33)
+            axs[1, it].plot(x_axis, f_deltas * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 0], 'ob-',
+                            label=r'$D_y$ $(\mu_{image})$', linewidth=1, markersize=3)
+            axs[1, it].legend(loc='best', prop={'size': 8})
+            axs[1, it].set_xticks([])
 
-        # FWHM X
-        axs[2, it].fill_between(
-            x_axis,
-            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1] - beam_analysis[f'{pos}_fwhm_stds'][:, 1],
-            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1] + beam_analysis[f'{pos}_fwhm_stds'][:, 1],
-            label=r'$FWHM_x \pm \sigma$', color='y', alpha=0.33)
-        axs[2, it].plot(x_axis, f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1], 'og-',
-                        label=r'$FWHM_x$ $(\mu_{image})$', linewidth=1, markersize=3)
-        axs[2, it].legend(loc='best', prop={'size': 8})
-        axs[2, it].set_xticks([])
+            # FWHM X
+            axs[2, it].fill_between(
+                x_axis,
+                f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1] - beam_analysis[f'{pos}_fwhm_stds'][:, 1],
+                f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1] + beam_analysis[f'{pos}_fwhm_stds'][:, 1],
+                label=r'$FWHM_x \pm \sigma$', color='y', alpha=0.33)
+            axs[2, it].plot(x_axis, f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1], 'og-',
+                            label=r'$FWHM_x$ $(\mu_{image})$', linewidth=1, markersize=3)
+            axs[2, it].legend(loc='best', prop={'size': 8})
+            axs[2, it].set_xticks([])
 
-        # FWHM Y
-        axs[3, it].fill_between(
-            x_axis,
-            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0] - beam_analysis[f'{pos}_fwhm_stds'][:, 0],
-            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0] + beam_analysis[f'{pos}_fwhm_stds'][:, 0],
-            label=r'$FWHM_y \pm \sigma$ [$\mu$m]', color='y', alpha=0.33)
-        axs[3, it].plot(x_axis, f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0], 'og-',
-                        label=r'$FWHM_y$ $(\mu_{image})$', linewidth=1, markersize=3)
-        axs[3, it].legend(loc='best', prop={'size': 8})
-        axs[3, it].set_xlabel('Screen')
-        axs[3, it].set_xticks(x_axis, screen_labels)
+            # FWHM Y
+            axs[3, it].fill_between(
+                x_axis,
+                f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0] - beam_analysis[f'{pos}_fwhm_stds'][:, 0],
+                f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0] + beam_analysis[f'{pos}_fwhm_stds'][:, 0],
+                label=r'$FWHM_y \pm \sigma$ [$\mu$m]', color='y', alpha=0.33)
+            axs[3, it].plot(x_axis, f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0], 'og-',
+                            label=r'$FWHM_y$ $(\mu_{image})$', linewidth=1, markersize=3)
+            axs[3, it].legend(loc='best', prop={'size': 8})
+            axs[3, it].set_xlabel('Screen')
+            axs[3, it].set_xticks(x_axis, screen_labels)
 
-    axs[0, 0].set_ylabel(f'X-Offsets [{units_deltas}]')
-    axs[1, 0].set_ylabel(f'Y-Offsets [{units_deltas}]')
-    axs[2, 0].set_ylabel(f'X-FWHM [{units_fwhms}]')
-    axs[3, 0].set_ylabel(f'Y-FWHM [{units_fwhms}]')
+        axs[0, 0].set_ylabel(f'X-Offsets [{units_deltas}]')
+        axs[1, 0].set_ylabel(f'Y-Offsets [{units_deltas}]')
+        axs[2, 0].set_ylabel(f'X-FWHM [{units_fwhms}]')
+        axs[3, 0].set_ylabel(f'Y-FWHM [{units_fwhms}]')
 
-    # set matching vertical limits for deltas/FWHMs
-    y_lim = (min(axs[0, 0].get_ylim()[0], axs[1, 0].get_ylim()[0]),
-             max(axs[0, 0].get_ylim()[1], axs[1, 0].get_ylim()[1]))
-    [axs[0, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
-    [axs[1, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
+        # set matching vertical limits for deltas/FWHMs
+        y_lim = (min(axs[0, 0].get_ylim()[0], axs[1, 0].get_ylim()[0]),
+                 max(axs[0, 0].get_ylim()[1], axs[1, 0].get_ylim()[1]))
+        [axs[0, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
+        [axs[1, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
 
-    y_lim = (min(axs[2, 0].get_ylim()[0], axs[3, 0].get_ylim()[0]),
-             max(axs[2, 0].get_ylim()[1], axs[3, 0].get_ylim()[1]))
-    [axs[2, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
-    [axs[3, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
+        y_lim = (min(axs[2, 0].get_ylim()[0], axs[3, 0].get_ylim()[0]),
+                 max(axs[2, 0].get_ylim()[1], axs[3, 0].get_ylim()[1]))
+        [axs[2, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
+        [axs[3, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
 
-    if save_dir:
-        save_path = save_dir / 'beam_analysis.png'
-        plt.savefig(save_path, dpi=300)
+        if save_dir:
+            save_path = save_dir / 'beam_analysis.png'
+            plt.savefig(save_path, dpi=300)
 
-    plt.show(block=True)
+        plt.show(block=True)
+
     return data_dict
 
 
@@ -279,7 +281,10 @@ if __name__ == '__main__':
 
     # Parameters
     _base_tag = (2023, 4, 20, 0)
-    _scans_screens = [(46+n-1, f'U{n}') for n in range(1, 1+1)]
+    _first_scan = 48
+    _first_screen = 3
+    _n_screens = 1
+    _scans_screens = [(_first_scan + n, f'U{_first_screen + n}') for n in range(_n_screens)]
     # _scans_screens = [(37, 'P1'),
     #                   (38, 'A1'),
     #                   (39, 'A2'),

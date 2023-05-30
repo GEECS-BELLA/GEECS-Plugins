@@ -7,6 +7,7 @@ import math
 import numpy as np
 import screeninfo
 from pathlib import Path
+import calendar as cal
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
 from skimage.transform import hough_ellipse
@@ -142,7 +143,7 @@ class UndulatorNoScan:
                         if analysis['is_valid']:
                             analysis = UndulatorNoScan.profiles_analysis(analysis)
                             if plots:
-                                self.plot_save_image_analysis(analysis, block=False)
+                                self.render_image_analysis(analysis, block=False)
                             avg_image: np.ndarray = analysis['image_raw'].copy()
                         else:
                             skipped_files.append(Path(image_path).name)
@@ -164,7 +165,7 @@ class UndulatorNoScan:
                                 # profiles
                                 analysis = UndulatorNoScan.profiles_analysis(analysis)
                                 if plots:
-                                    self.plot_save_image_analysis(analysis, block=False)
+                                    self.render_image_analysis(analysis, block=False)
 
                                 # average
                                 alpha = 1.0 / (it + 2)
@@ -192,7 +193,7 @@ class UndulatorNoScan:
                     self.average_analysis = \
                         UndulatorNoScan.profiles_analysis(self.average_analysis)
                     if plots:
-                        self.plot_save_image_analysis(self.average_analysis, tag='average_image', block=True)
+                        self.render_image_analysis(self.average_analysis, tag='average_image', block=True)
                 except Exception as ex:
                     api_error.error(str(ex), 'Failed to analyze average image')
 
@@ -200,22 +201,25 @@ class UndulatorNoScan:
                 self.average_image = avg_image
                 self.analyses_summary = self._summarize_image_analyses()
                 self.analyses_summary['targets'] = self._target_analysis()
-                print(f'Figures saved in:\n\t{self.save_folder}')
+                if plots:
+                    print(f'Figures saved in:\n\t{self.save_folder}')
 
-                export_file_path: Path = self.save_folder.parent / 'profiles_analysis'
-                save_py(file_path=export_file_path,
-                        data={'scan': self.scan,
-                              'camera_r90': self.camera_r90,
-                              'camera_name': self.camera_name,
-                              'camera_roi': self.camera_roi,
-                              'camera_label': self.camera_label,
-                              'image_folder': self.image_folder,
-                              'save_folder': self.save_folder,
-                              'image_analyses': self.image_analyses if self.image_analyses is not None else {},
-                              'analyses_summary': self.analyses_summary if self.analyses_summary is not None else {},
-                              'average_image': self.average_image if self.average_image is not None else {},
-                              'average_analysis': self.average_analysis if self.average_analysis is not None else {}})
-                print(f'Data exported to:\n\t{export_file_path}.dat')
+                    export_file_path: Path = self.save_folder.parent / 'profiles_analysis'
+                    save_py(file_path=export_file_path,
+                            data={'scan': self.scan,
+                                  'camera_r90': self.camera_r90,
+                                  'camera_name': self.camera_name,
+                                  'camera_roi': self.camera_roi,
+                                  'camera_label': self.camera_label,
+                                  'image_folder': self.image_folder,
+                                  'save_folder': self.save_folder,
+                                  'image_analyses': self.image_analyses if self.image_analyses is not None else {},
+                                  'analyses_summary': self.analyses_summary
+                                  if self.analyses_summary is not None else {},
+                                  'average_image': self.average_image if self.average_image is not None else {},
+                                  'average_analysis': self.average_analysis
+                                  if self.average_analysis is not None else {}})
+                    print(f'Data exported to:\n\t{export_file_path}.dat')
 
             except Exception as ex:
                 api_error.error(str(ex), 'Failed to analyze image')
@@ -289,9 +293,6 @@ class UndulatorNoScan:
                 right_gain = min(image_edges.shape[1] - 1 - roi[1], gain_pixels)
                 top_gain = min(roi[2], gain_pixels)
                 bottom_gain = min(image_edges.shape[0] - 1 - roi[3], gain_pixels)
-            # else:
-            #     left_gain = right_gain = top_gain = bottom_gain = 0
-            #     roi = np.nan * np.zeros((4,))
 
                 analysis['roi'] = np.array([roi[0] - left_gain, roi[1] + right_gain,
                                             roi[2] - top_gain, roi[3] + bottom_gain])
@@ -302,17 +303,16 @@ class UndulatorNoScan:
 
                 pos_box = np.array([(analysis['roi'][2] + analysis['roi'][3]) / 2.,
                                     (analysis['roi'][0] + analysis['roi'][1]) / 2.])
-            # if not np.isnan(pos_box).any():
                 pos_box = np.round(pos_box).astype(int)
                 analysis['position_box'] = tuple(pos_box)  # i, j
 
-            # update edges image
-            # if not np.isnan(pos_box).any():
+                # update edges image
                 image_edges[:, :analysis['roi'][0]] = 0
                 image_edges[:, analysis['roi'][1]+1:] = 0
                 image_edges[:analysis['roi'][2], :] = 0
                 image_edges[analysis['roi'][3]+1:, :] = 0
-                analysis['image_edges'] = image_edges
+
+            analysis['image_edges'] = image_edges
 
             # ellipse fit (min_size: min of major axis, max_size: max of minor axis)
             if not skip_ellipse:
@@ -398,8 +398,9 @@ class UndulatorNoScan:
     def profiles_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
         try:
             positions = [(*analysis['position_max'], 'max'),
-                         (*analysis['position_com'], 'com'),
-                         (*analysis['position_box'], 'box')]
+                         (*analysis['position_com'], 'com')]
+            if 'position_box' in analysis:
+                positions.append((*analysis['position_box'], 'box'))
             if 'position_ellipse' in analysis:
                 positions.append((*analysis['position_ellipse'], 'ell'))
             labels = ['maximum', 'center of mass', 'box', 'ellipse']
@@ -433,7 +434,7 @@ class UndulatorNoScan:
 
         return analysis
 
-    def plot_save_image_analysis(self, analysis: dict[str, Any], tag: str = '', block: bool = False):
+    def render_image_analysis(self, analysis: dict[str, Any], tag: str = '', block: bool = False, save: bool = True):
         try:
             if not tag:
                 image_path: Path = Path(analysis['image_path'])
@@ -447,9 +448,11 @@ class UndulatorNoScan:
                 ax_y = fig.add_subplot(grid[1, 2:], sharey=ax_x)
 
                 # raw image
-                edges = np.where(analysis['image_edges'] != 0)
                 ax_i.imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper')
-                ax_i.scatter(edges[1], edges[0], s=0.3, c='b', alpha=0.2)
+
+                if 'image_edges' in analysis:
+                    edges = np.where(analysis['image_edges'] != 0)
+                    ax_i.scatter(edges[1], edges[0], s=0.3, c='b', alpha=0.2)
 
                 # roi box
                 if 'roi' in analysis:
@@ -505,9 +508,12 @@ class UndulatorNoScan:
                 # plot & save
                 file_name: str = f'max_profiles_{tag}.png'
                 image_path: Path = self.save_folder / file_name
-                plt.savefig(image_path, dpi=300)
+                if save:
+                    plt.savefig(image_path, dpi=300)
+
                 if block:
                     plt.show(block=block)
+
                 try:
                     plt.close(fig)
                 except Exception:
@@ -552,11 +558,15 @@ if __name__ == '__main__':
     GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    _base = Path(r'Z:\data')
-    _folder = _base / r'Undulator\Y2023\05-May\23_0509\scans\Scan028'
+    _base: Path = Path(r'Z:\data')
+    _base_tag = (2023, 4, 20, 48)
+    _camera_tag = 'U3'
+
+    _folder = _base/'Undulator'/f'Y{_base_tag[0]}'/f'{_base_tag[1]:02d}-{cal.month_name[_base_tag[1]][:3]}'
+    _folder = _folder/f'{str(_base_tag[0])[-2:]}_{_base_tag[1]:02d}{_base_tag[2]:02d}'/'scans'/f'Scan{_base_tag[3]:03d}'
 
     _scan = Scan(_folder, ignore_experiment_name=False)
-    images = UndulatorNoScan(_scan, 'U7')
+    images = UndulatorNoScan(_scan, _camera_tag)
     images.analyze_images(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0,
                           gauss_filter=5., com_threshold=0.66, plots=True, skip_ellipse=True)
     print('done')
