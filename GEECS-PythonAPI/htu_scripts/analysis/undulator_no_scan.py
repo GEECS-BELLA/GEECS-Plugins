@@ -272,41 +272,47 @@ class UndulatorNoScan:
             areas = [box.area for box in regionprops(label_image)]
             roi = regionprops(label_image)[areas.index(max(areas))]
 
-            gain_factor: float = 0.2
-            roi = np.array([roi.bbox[1], roi.bbox[3], roi.bbox[0], roi.bbox[2]])  # left, right, top, bottom
+            if roi:
+                gain_factor: float = 0.2
+                roi = np.array([roi.bbox[1], roi.bbox[3], roi.bbox[0], roi.bbox[2]])  # left, right, top, bottom
 
-            width_gain = int(round((roi[1] - roi[0]) * gain_factor))
-            left_gain = min(roi[0], width_gain)
-            right_gain = min(image_edges.shape[1] - 1 - roi[1], width_gain)
+                width_gain = int(round((roi[1] - roi[0]) * gain_factor))
+                left_gain = min(roi[0], width_gain)
+                right_gain = min(image_edges.shape[1] - 1 - roi[1], width_gain)
 
-            height_gain = int(round((roi[3] - roi[2]) * gain_factor))
-            top_gain = min(roi[2], height_gain)
-            bottom_gain = min(image_edges.shape[0] - 1 - roi[3], height_gain)
+                height_gain = int(round((roi[3] - roi[2]) * gain_factor))
+                top_gain = min(roi[2], height_gain)
+                bottom_gain = min(image_edges.shape[0] - 1 - roi[3], height_gain)
 
-            gain_pixels = max(left_gain, right_gain, top_gain, bottom_gain)
-            left_gain = min(roi[0], gain_pixels)
-            right_gain = min(image_edges.shape[1] - 1 - roi[1], gain_pixels)
-            top_gain = min(roi[2], gain_pixels)
-            bottom_gain = min(image_edges.shape[0] - 1 - roi[3], gain_pixels)
+                gain_pixels = max(left_gain, right_gain, top_gain, bottom_gain)
+                left_gain = min(roi[0], gain_pixels)
+                right_gain = min(image_edges.shape[1] - 1 - roi[1], gain_pixels)
+                top_gain = min(roi[2], gain_pixels)
+                bottom_gain = min(image_edges.shape[0] - 1 - roi[3], gain_pixels)
+            # else:
+            #     left_gain = right_gain = top_gain = bottom_gain = 0
+            #     roi = np.nan * np.zeros((4,))
 
-            analysis['roi'] = np.array([roi[0] - left_gain, roi[1] + right_gain,
-                                        roi[2] - top_gain, roi[3] + bottom_gain])
-            analysis['box_left_gain'] = left_gain
-            analysis['box_right_gain'] = right_gain
-            analysis['box_top_gain'] = top_gain
-            analysis['box_bottom_gain'] = bottom_gain
+                analysis['roi'] = np.array([roi[0] - left_gain, roi[1] + right_gain,
+                                            roi[2] - top_gain, roi[3] + bottom_gain])
+                analysis['box_left_gain'] = left_gain
+                analysis['box_right_gain'] = right_gain
+                analysis['box_top_gain'] = top_gain
+                analysis['box_bottom_gain'] = bottom_gain
 
-            pos_box = np.array([(analysis['roi'][2] + analysis['roi'][3]) / 2.,
-                                (analysis['roi'][0] + analysis['roi'][1]) / 2.])
-            pos_box = np.round(pos_box).astype(int)
-            analysis['position_box'] = tuple(pos_box)  # i, j
+                pos_box = np.array([(analysis['roi'][2] + analysis['roi'][3]) / 2.,
+                                    (analysis['roi'][0] + analysis['roi'][1]) / 2.])
+            # if not np.isnan(pos_box).any():
+                pos_box = np.round(pos_box).astype(int)
+                analysis['position_box'] = tuple(pos_box)  # i, j
 
             # update edges image
-            image_edges[:, :analysis['roi'][0]] = 0
-            image_edges[:, analysis['roi'][1]+1:] = 0
-            image_edges[:analysis['roi'][2], :] = 0
-            image_edges[analysis['roi'][3]+1:, :] = 0
-            analysis['image_edges'] = image_edges
+            # if not np.isnan(pos_box).any():
+                image_edges[:, :analysis['roi'][0]] = 0
+                image_edges[:, analysis['roi'][1]+1:] = 0
+                image_edges[:analysis['roi'][2], :] = 0
+                image_edges[analysis['roi'][3]+1:, :] = 0
+                analysis['image_edges'] = image_edges
 
             # ellipse fit (min_size: min of major axis, max_size: max of minor axis)
             if not skip_ellipse:
@@ -398,10 +404,10 @@ class UndulatorNoScan:
                 positions.append((*analysis['position_ellipse'], 'ell'))
             labels = ['maximum', 'center of mass', 'box', 'ellipse']
 
+            x_win = (analysis['roi'][0], analysis['roi'][1]) if 'roi' in analysis else None
+            y_win = (analysis['roi'][2], analysis['roi'][3]) if 'roi' in analysis else None
             # noinspection PyTypeChecker
-            profiles = spot_analysis(analysis['image_raw'], positions,
-                                     x_window=(analysis['roi'][0], analysis['roi'][1]),
-                                     y_window=(analysis['roi'][2], analysis['roi'][3]))
+            profiles = spot_analysis(analysis['image_raw'], positions, x_window=x_win, y_window=y_win)
 
             if profiles:
                 for k, v in profiles.items():
@@ -446,18 +452,23 @@ class UndulatorNoScan:
                 ax_i.scatter(edges[1], edges[0], s=0.3, c='b', alpha=0.2)
 
                 # roi box
-                roi_color = '--y'
-                roi_line = 0.66
-                ax_i.plot(analysis['roi'][0] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
-                          np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)  # left
-                ax_i.plot(analysis['roi'][1] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
-                          np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)  # right
-                ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
-                          analysis['roi'][2] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
-                          roi_color, linewidth=roi_line)  # top
-                ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
-                          analysis['roi'][3] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
-                          roi_color, linewidth=roi_line)  # bottom
+                if 'roi' in analysis:
+                    roi_color = '--y'
+                    roi_line = 0.66
+                    # left
+                    ax_i.plot(analysis['roi'][0] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
+                              np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)
+                    # right
+                    ax_i.plot(analysis['roi'][1] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
+                              np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)
+                    # top
+                    ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
+                              analysis['roi'][2] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
+                              roi_color, linewidth=roi_line)
+                    # bottom
+                    ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
+                              analysis['roi'][3] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
+                              roi_color, linewidth=roi_line)
 
                 # ellipse
                 if 'ellipse' in analysis:
@@ -509,17 +520,18 @@ class UndulatorNoScan:
                 fig, axs = plt.subplots(ncols=3, nrows=len(analysis['positions']), figsize=profiles_fig_size,
                                         sharex='col', sharey='col')
                 for it, pos in enumerate(analysis['positions']):
-                    axs[it, 0].imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper')
-                    axs[it, 0].axvline(pos[1], color='k', linestyle='--', linewidth=0.5)
-                    axs[it, 0].axhline(pos[0], color='k', linestyle='--', linewidth=0.5)
-                    axs[it, 0].plot(pos[1], pos[0], '.k', markersize=2)
-                    axs[it, 0].set_ylabel(analysis['positions_labels'][it])
-                    axs[it, 1].plot(analysis[f'axis_x_{pos[2]}'], analysis[f'data_x_{pos[2]}'], 'b-', label='data')
-                    axs[it, 1].plot(analysis[f'axis_x_{pos[2]}'], analysis[f'fit_x_{pos[2]}'], 'm-', label='fit(x)')
-                    axs[it, 1].legend(loc='best', prop={'size': 8})
-                    axs[it, 2].plot(analysis[f'axis_y_{pos[2]}'], analysis[f'data_y_{pos[2]}'], 'b-', label='data')
-                    axs[it, 2].plot(analysis[f'axis_y_{pos[2]}'], analysis[f'fit_y_{pos[2]}'], 'm-', label='fit(y)')
-                    axs[it, 2].legend(loc='best', prop={'size': 8})
+                    if not np.isnan(pos[:2]).any():
+                        axs[it, 0].imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper')
+                        axs[it, 0].axvline(pos[1], color='k', linestyle='--', linewidth=0.5)
+                        axs[it, 0].axhline(pos[0], color='k', linestyle='--', linewidth=0.5)
+                        axs[it, 0].plot(pos[1], pos[0], '.k', markersize=2)
+                        axs[it, 0].set_ylabel(analysis['positions_labels'][it])
+                        axs[it, 1].plot(analysis[f'axis_x_{pos[2]}'], analysis[f'data_x_{pos[2]}'], 'b-', label='data')
+                        axs[it, 1].plot(analysis[f'axis_x_{pos[2]}'], analysis[f'fit_x_{pos[2]}'], 'm-', label='fit(x)')
+                        axs[it, 1].legend(loc='best', prop={'size': 8})
+                        axs[it, 2].plot(analysis[f'axis_y_{pos[2]}'], analysis[f'data_y_{pos[2]}'], 'b-', label='data')
+                        axs[it, 2].plot(analysis[f'axis_y_{pos[2]}'], analysis[f'fit_y_{pos[2]}'], 'm-', label='fit(y)')
+                        axs[it, 2].legend(loc='best', prop={'size': 8})
 
                 file_name: str = f'all_profiles_{tag}.png'
                 image_path: Path = self.save_folder / file_name
