@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 from datetime import datetime as dtime, date
 from typing import Optional, Union
+import matplotlib.pyplot as plt
 from geecs_api.api_defs import SysPath
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.tools.scans.tdms import read_geecs_tdms
@@ -130,9 +131,17 @@ class Scan:
 if __name__ == '__main__':
     # GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-    # scan_path = os.path.normpath(r'Z:\data\Undulator\Y2022\08-Aug\22_0819\scans\Scan008')
-    scan_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\05-May\23_0509\scans\Scan008')
+    # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    _base: Path = Path(r'Z:\data')
+    _key_device = 'U_S4H'
 
-    # scan = Scan(folder=scan_path, ignore_experiment_name=True)
-    scan = Scan(tag=(2023, 5, 9, 8), experiment_base_path=r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator')
+    _scan = Scan(tag=(2023, 4, 13, 26), experiment_base_path=_base/'Undulator')
+    _key_data = _scan.data_dict[_key_device]
+
+    plt.figure()
+    plt.plot(_key_data['shot #'], _key_data['Current'], '.b', alpha=0.3)
+    plt.xlabel('Shot #')
+    plt.ylabel('Current [A]')
+    plt.show(block=True)
+
     print('Done')
