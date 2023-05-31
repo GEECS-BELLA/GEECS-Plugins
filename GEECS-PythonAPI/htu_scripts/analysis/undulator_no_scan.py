@@ -294,23 +294,23 @@ class UndulatorNoScan:
                 top_gain = min(roi[2], gain_pixels)
                 bottom_gain = min(image_edges.shape[0] - 1 - roi[3], gain_pixels)
 
-                analysis['roi'] = np.array([roi[0] - left_gain, roi[1] + right_gain,
-                                            roi[2] - top_gain, roi[3] + bottom_gain])
+                analysis['roi_edges'] = np.array([roi[0] - left_gain, roi[1] + right_gain,
+                                                  roi[2] - top_gain, roi[3] + bottom_gain])
                 analysis['box_left_gain'] = left_gain
                 analysis['box_right_gain'] = right_gain
                 analysis['box_top_gain'] = top_gain
                 analysis['box_bottom_gain'] = bottom_gain
 
-                pos_box = np.array([(analysis['roi'][2] + analysis['roi'][3]) / 2.,
-                                    (analysis['roi'][0] + analysis['roi'][1]) / 2.])
+                pos_box = np.array([(analysis['roi_edges'][2] + analysis['roi_edges'][3]) / 2.,
+                                    (analysis['roi_edges'][0] + analysis['roi_edges'][1]) / 2.])
                 pos_box = np.round(pos_box).astype(int)
                 analysis['position_box'] = tuple(pos_box)  # i, j
 
                 # update edges image
-                image_edges[:, :analysis['roi'][0]] = 0
-                image_edges[:, analysis['roi'][1]+1:] = 0
-                image_edges[:analysis['roi'][2], :] = 0
-                image_edges[analysis['roi'][3]+1:, :] = 0
+                image_edges[:, :analysis['roi_edges'][0]] = 0
+                image_edges[:, analysis['roi_edges'][1]+1:] = 0
+                image_edges[:analysis['roi_edges'][2], :] = 0
+                image_edges[analysis['roi_edges'][3]+1:, :] = 0
 
             analysis['image_edges'] = image_edges
 
@@ -405,8 +405,8 @@ class UndulatorNoScan:
                 positions.append((*analysis['position_ellipse'], 'ell'))
             labels = ['maximum', 'center of mass', 'box', 'ellipse']
 
-            x_win = (analysis['roi'][0], analysis['roi'][1]) if 'roi' in analysis else None
-            y_win = (analysis['roi'][2], analysis['roi'][3]) if 'roi' in analysis else None
+            x_win = (analysis['roi_edges'][0], analysis['roi_edges'][1]) if 'roi' in analysis else None
+            y_win = (analysis['roi_edges'][2], analysis['roi_edges'][3]) if 'roi' in analysis else None
             # noinspection PyTypeChecker
             profiles = spot_analysis(analysis['image_raw'], positions, x_window=x_win, y_window=y_win)
 
@@ -454,23 +454,29 @@ class UndulatorNoScan:
                     edges = np.where(analysis['image_edges'] != 0)
                     ax_i.scatter(edges[1], edges[0], s=0.3, c='b', alpha=0.2)
 
-                # roi box
+                # roi edges
                 if 'roi' in analysis:
                     roi_color = '--y'
                     roi_line = 0.66
                     # left
-                    ax_i.plot(analysis['roi'][0] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
-                              np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)
+                    ax_i.plot(analysis['roi_edges'][0] *
+                              np.ones((analysis['roi_edges'][3] - analysis['roi_edges'][2] + 1)),
+                              np.arange(analysis['roi_edges'][2], analysis['roi_edges'][3] + 1),
+                              roi_color, linewidth=roi_line)
                     # right
-                    ax_i.plot(analysis['roi'][1] * np.ones((analysis['roi'][3] - analysis['roi'][2] + 1)),
-                              np.arange(analysis['roi'][2], analysis['roi'][3] + 1), roi_color, linewidth=roi_line)
+                    ax_i.plot(analysis['roi_edges'][1] *
+                              np.ones((analysis['roi_edges'][3] - analysis['roi_edges'][2] + 1)),
+                              np.arange(analysis['roi_edges'][2], analysis['roi_edges'][3] + 1),
+                              roi_color, linewidth=roi_line)
                     # top
-                    ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
-                              analysis['roi'][2] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
+                    ax_i.plot(np.arange(analysis['roi_edges'][0], analysis['roi_edges'][1] + 1),
+                              analysis['roi_edges'][2] *
+                              np.ones((analysis['roi_edges'][1] - analysis['roi_edges'][0] + 1)),
                               roi_color, linewidth=roi_line)
                     # bottom
-                    ax_i.plot(np.arange(analysis['roi'][0], analysis['roi'][1] + 1),
-                              analysis['roi'][3] * np.ones((analysis['roi'][1] - analysis['roi'][0] + 1)),
+                    ax_i.plot(np.arange(analysis['roi_edges'][0], analysis['roi_edges'][1] + 1),
+                              analysis['roi_edges'][3] *
+                              np.ones((analysis['roi_edges'][1] - analysis['roi_edges'][0] + 1)),
                               roi_color, linewidth=roi_line)
 
                 # ellipse
