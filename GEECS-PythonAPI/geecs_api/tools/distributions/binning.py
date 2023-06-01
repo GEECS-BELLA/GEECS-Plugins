@@ -15,7 +15,7 @@ def find(condition: np.ndarray):
     return ret[condition]
 
 
-def bin_scan(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 1):
+def bin_scan(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 3):
     # sort by x
     x_permutations = np.argsort(x_data)
     x_data = x_data[x_permutations]
@@ -65,15 +65,15 @@ def bin_scan(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 1):
     avg_y = np.zeros((len(bin_lim_x)-1,))
     std_x = np.zeros((len(bin_lim_x)-1,))
     std_y = np.zeros((len(bin_lim_x)-1,))
-    opt = np.zeros((len(bin_lim_x)-1,))
-    all_opt = []
+    near_ix = np.zeros((len(bin_lim_x)-1,))
+    indexes = []
 
     for it, (lim_low, lim_high) in enumerate(zip(bin_lim_x[:-1], bin_lim_x[1:])):
         t_low = lim_low <= x_data
         t_high = x_data < lim_high
         pts_to_bin = find(np.array([lc & hc for lc, hc in zip(t_low, t_high)]))
 
-        all_opt.append(x_permutations[pts_to_bin])
+        indexes.append(x_permutations[pts_to_bin])
         bin_x[it] = np.mean(x_data[pts_to_bin])
         avg_y[it] = np.mean(y_data[pts_to_bin])
         std_x[it] = np.std(x_data[pts_to_bin])
@@ -82,19 +82,20 @@ def bin_scan(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 1):
         # find best representative
         d_rep = np.abs(y_data[pts_to_bin] - avg_y[it])
         pos_rep = find(d_rep == np.min(d_rep))
-        opt[it] = x_permutations[pts_to_bin[pos_rep[0]]]
+        near_ix[it] = x_permutations[pts_to_bin[pos_rep[0]]]
 
-    return bin_x, avg_y, std_x, std_y, opt, all_opt
+    return bin_x, avg_y, std_x, std_y, near_ix, indexes
 
 
 if __name__ == '__main__':
-    n_steps = 10
+    n_steps = 13
     n_pts = 40
-    err_x = 20.
+    err_x = 16.
     n_min = n_steps
 
+    base_x = np.linspace(-450., 30., n_steps)
     x: np.ndarray
-    x, _ = np.meshgrid(np.linspace(-450., 50., n_steps), np.arange(n_pts))
+    x, _ = np.meshgrid(base_x, np.arange(n_pts))
     x += err_x * (2 * np.random.random((n_pts, n_steps)) - 1)
     x = x.transpose().reshape((x.size,))
 
@@ -112,5 +113,9 @@ if __name__ == '__main__':
     plt.plot(x, y, '.c')
     plt.errorbar(bins[0], bins[1], yerr=bins[3], xerr=bins[2], c='k', alpha=0.66, linestyle='None')
     plt.show(block=True)
+
+    if bins[0].size == base_x.size:
+        print(f'dx:\n\t{bins[0] - base_x}')
+        print(f'dy:\n\t{bins[1] - polyval(base_x, c_y)}')
 
     print('done')

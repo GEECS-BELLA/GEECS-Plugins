@@ -12,14 +12,14 @@ from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.tools.interfaces.prompts import text_input
 from geecs_api.devices.HTU.diagnostics.cameras.camera import Camera
-from htu_scripts.analysis.undulator_no_scan import UndulatorNoScan
+from htu_scripts.analysis.scan_images import ScanImages
 import matplotlib.pyplot as plt
 from tkinter import filedialog
 from progressbar import ProgressBar
 
 
-def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path, str]]], screen_labels: list[str],
-                         save_dir: Optional[SysPath] = None) -> dict[str, Any]:
+def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path, str]]], screen_labels: list[str],
+                          save_dir: Optional[SysPath] = None) -> dict[str, Any]:
     """
     no_scans = dict of tuples (analysis file paths, scan data directory paths)
     """
@@ -48,7 +48,7 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
             if (analyze.lower()[0] == 'y') or (not analysis_file.is_file()):
                 print(f'\nAnalyzing {scan_path.name} ("{lbl}")...')
                 scan_obj = Scan(scan_path)
-                no_scan = UndulatorNoScan(scan_obj, lbl)
+                no_scan = ScanImages(scan_obj, lbl)
                 no_scan.run_analysis_with_checks(initial_contrast=1.333, hp_median=2, hp_threshold=3.,
                                                  denoise_cycles=0, gauss_filter=5., com_threshold=0.66,
                                                  plots=bool(save_dir), skip_ellipse=True)
@@ -144,7 +144,7 @@ def screen_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path,
 
     if pos_short_names:
         fig, axs = plt.subplots(ncols=len(pos_short_names), nrows=4,
-                                figsize=(UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1] * 1.5),
+                                figsize=(ScanImages.fig_size[0] * 1.5, ScanImages.fig_size[1] * 1.5),
                                 sharex='col', sharey='row')
         for it, pos in enumerate(pos_short_names):
             # Deltas X
@@ -307,6 +307,6 @@ if __name__ == '__main__':
     _labels = [label[1] for label in _scans_screens]  # separate from list(_scans_screens.keys()) to define an order
 
     # Analysis
-    _data_dict = screen_scan_analysis(no_scans=_no_scans, screen_labels=_labels, save_dir=_save_dir)
+    _data_dict = screens_scan_analysis(no_scans=_no_scans, screen_labels=_labels, save_dir=_save_dir)
 
     print('done')

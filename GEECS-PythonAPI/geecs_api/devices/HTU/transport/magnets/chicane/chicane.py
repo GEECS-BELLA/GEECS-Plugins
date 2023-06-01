@@ -26,6 +26,6 @@ class Chicane(GeecsDevice):
         sub &= self.outer_supply.subscribe_var_values()
         return sub
 
-    def cleanup(self):
-        self.inner_supply.cleanup()
-        self.outer_supply.cleanup()
+    def close(self):
+        self.inner_supply.close()
+        self.outer_supply.close()

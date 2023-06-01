@@ -7,7 +7,7 @@ from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.transport.magnets import Steering
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
-from htu_scripts.scans.undulator_screens_scan import undulator_screens_scan
+from htu_scripts.scans.screens_scan import screens_scan
 
 
 def undulator_position_scan(screens: Optional[tuple[EBeamDiagnostics, str, str, str]],
@@ -131,7 +131,7 @@ def set_position_and_run_screen_scan(s3: Steering, s4: Steering, h_curr, v_curr,
                 print(f'Starting screen scan ("{screens[1]}" to "{screens[2]}")...')
                 # no_scans = list of (scan path, scan number, camera name)
                 success, no_scans, screen_labels, _ = \
-                    undulator_screens_scan(*screens, log_comment=log_comment)
+                    screens_scan(*screens, log_comment=log_comment)
 
                 # analyze screens scan
 

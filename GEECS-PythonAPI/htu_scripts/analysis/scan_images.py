@@ -30,7 +30,7 @@ from geecs_api.tools.images.spot import spot_analysis, fwhm
 from geecs_api.tools.interfaces.prompts import text_input
 
 
-class UndulatorNoScan:
+class ScanImages:
     fig_size = (int(round(screeninfo.get_monitors()[0].width / 540. * 10) / 10),
                 int(round(screeninfo.get_monitors()[0].height / 450. * 10) / 10))
 
@@ -141,7 +141,7 @@ class UndulatorNoScan:
                         analysis['image_path'] = image_path
 
                         if analysis['is_valid']:
-                            analysis = UndulatorNoScan.profiles_analysis(analysis)
+                            analysis = ScanImages.profiles_analysis(analysis)
                             if plots:
                                 self.render_image_analysis(analysis, block=False)
                             avg_image: np.ndarray = analysis['image_raw'].copy()
@@ -163,7 +163,7 @@ class UndulatorNoScan:
 
                             if analysis['is_valid']:
                                 # profiles
-                                analysis = UndulatorNoScan.profiles_analysis(analysis)
+                                analysis = ScanImages.profiles_analysis(analysis)
                                 if plots:
                                     self.render_image_analysis(analysis, block=False)
 
@@ -191,7 +191,7 @@ class UndulatorNoScan:
                                                             denoise_cycles, gauss_filter, com_threshold, skip_ellipse)
                 try:
                     self.average_analysis = \
-                        UndulatorNoScan.profiles_analysis(self.average_analysis)
+                        ScanImages.profiles_analysis(self.average_analysis)
                     if plots:
                         self.render_image_analysis(self.average_analysis, tag='average_image', block=True)
                 except Exception as ex:
@@ -240,7 +240,7 @@ class UndulatorNoScan:
         analysis = filter_image(image_raw, hp_median, hp_threshold, denoise_cycles, gauss_filter, com_threshold)
 
         # check image
-        analysis = UndulatorNoScan.is_image_valid(analysis, contrast)
+        analysis = ScanImages.is_image_valid(analysis, contrast)
 
         # stop if low-contrast image
         if not analysis['is_valid']:
@@ -435,13 +435,14 @@ class UndulatorNoScan:
         return analysis
 
     def render_image_analysis(self, analysis: dict[str, Any], tag: str = '', block: bool = False, save: bool = True):
+        # pass path to save to as either None (consider no-scan) or specific if used as part of a scan
         try:
             if not tag:
                 image_path: Path = Path(analysis['image_path'])
                 tag = image_path.name.split(".")[0].split("_")[-1]
 
             if 'axis_x_max' in analysis:
-                fig = plt.figure(figsize=(UndulatorNoScan.fig_size[0] * 1.5, UndulatorNoScan.fig_size[1]))
+                fig = plt.figure(figsize=(ScanImages.fig_size[0] * 1.5, ScanImages.fig_size[1]))
                 grid = plt.GridSpec(2, 4, hspace=0.3, wspace=0.3)
                 ax_i = fig.add_subplot(grid[:, :2])
                 ax_x = fig.add_subplot(grid[0, 2:])
@@ -527,8 +528,8 @@ class UndulatorNoScan:
 
             # ___________________________________________
             if 'positions' in analysis and 'axis_x_max' in analysis:
-                profiles_fig_size = (UndulatorNoScan.fig_size[0] * 1.5,
-                                     UndulatorNoScan.fig_size[1] * math.ceil(len(analysis['positions']) / 3))
+                profiles_fig_size = (ScanImages.fig_size[0] * 1.5,
+                                     ScanImages.fig_size[1] * math.ceil(len(analysis['positions']) / 3))
                 fig, axs = plt.subplots(ncols=3, nrows=len(analysis['positions']), figsize=profiles_fig_size,
                                         sharex='col', sharey='col')
                 for it, pos in enumerate(analysis['positions']):
@@ -572,7 +573,7 @@ if __name__ == '__main__':
     _folder = _folder/f'{str(_base_tag[0])[-2:]}_{_base_tag[1]:02d}{_base_tag[2]:02d}'/'scans'/f'Scan{_base_tag[3]:03d}'
 
     _scan = Scan(_folder, ignore_experiment_name=False)
-    images = UndulatorNoScan(_scan, _camera_tag)
+    images = ScanImages(_scan, _camera_tag)
     images.analyze_images(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0,
                           gauss_filter=5., com_threshold=0.66, plots=True, skip_ellipse=True)
     print('done')

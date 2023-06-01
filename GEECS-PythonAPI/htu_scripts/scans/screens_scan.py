@@ -4,18 +4,18 @@ from typing import Optional, Union
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice, api_error
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
-from htu_scripts.analysis.screen_scan_analysis import screen_scan_analysis
-from htu_scripts.analysis.undulator_no_scan import UndulatorNoScan
+from htu_scripts.analysis.screens_scan_analysis import screens_scan_analysis
+from htu_scripts.analysis.scan_images import ScanImages
 from geecs_api.tools.interfaces.prompts import text_input
 from geecs_api.tools.scans.scan import Scan
 
 
-def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
-                           first_screen: Optional[str] = 'A1',
-                           last_screen: Optional[str] = 'A3',
-                           undulator_diagnostic: Optional[str] = 'spectrum',
-                           log_comment: str = '',
-                           backgrounds: int = 0) -> dict[str, tuple[Union[Path, str], Union[Path, str]]]:
+def screens_scan(e_diagnostics: EBeamDiagnostics,
+                 first_screen: Optional[str] = 'A1',
+                 last_screen: Optional[str] = 'A3',
+                 undulator_diagnostic: Optional[str] = 'spectrum',
+                 log_comment: str = '',
+                 backgrounds: int = 0) -> dict[str, tuple[Union[Path, str], Union[Path, str]]]:
     """
     Outputs:
     ====================
@@ -116,7 +116,7 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
         # analysis
         scan_path = Path(scan_path)
         no_scan = Scan(scan_path, ignore_experiment_name=False)
-        no_scan_images = UndulatorNoScan(no_scan, camera)
+        no_scan_images = ScanImages(no_scan, camera)
         analysis_file: Path = no_scan_images.save_folder.parent / 'profiles_analysis.dat'
         no_scan_images.run_analysis_with_checks(initial_contrast=1.333, hp_median=2, hp_threshold=3.,
                                                 denoise_cycles=0, gauss_filter=5., com_threshold=0.66, plots=True,
@@ -142,7 +142,7 @@ def undulator_screens_scan(e_diagnostics: EBeamDiagnostics,
         if not save_folder.is_dir():
             os.makedirs(save_folder)
 
-        screen_scan_analysis(image_analysis_files, used_labels, save_dir=save_folder)
+        screens_scan_analysis(image_analysis_files, used_labels, save_dir=save_folder)
 
     return image_analysis_files
 
@@ -154,10 +154,10 @@ if __name__ == '__main__':
 
     # scan
     try:
-        undulator_screens_scan(_e_diagnostics, 'U1', 'U9',
-                               undulator_diagnostic='spectrum',
-                               log_comment='Screen scan',
-                               backgrounds=10)
+        screens_scan(_e_diagnostics, 'U1', 'U9',
+                     undulator_diagnostic='spectrum',
+                     log_comment='Screen scan',
+                     backgrounds=10)
     except Exception:
         pass
     finally:

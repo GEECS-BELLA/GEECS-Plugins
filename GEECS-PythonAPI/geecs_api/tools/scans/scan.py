@@ -1,12 +1,14 @@
 import os
-from pathlib import Path
 import re
+import numpy as np
+from pathlib import Path
 from datetime import datetime as dtime, date
 from typing import Optional, Union
 import matplotlib.pyplot as plt
 from geecs_api.api_defs import SysPath
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.tools.scans.tdms import read_geecs_tdms
+from geecs_api.tools.distributions.binning import bin_scan
 
 
 class Scan:
@@ -138,10 +140,19 @@ if __name__ == '__main__':
     _scan = Scan(tag=(2023, 4, 13, 26), experiment_base_path=_base/'Undulator')
     _key_data = _scan.data_dict[_key_device]
 
+    bin_x, avg_y, std_x, std_y, near_ix, indexes = bin_scan(_key_data['Current'], _key_data['shot #'])
+
     plt.figure()
     plt.plot(_key_data['shot #'], _key_data['Current'], '.b', alpha=0.3)
     plt.xlabel('Shot #')
     plt.ylabel('Current [A]')
+    plt.show(block=False)
+
+    plt.figure()
+    for x, ind in zip(bin_x, indexes):
+        plt.plot(x * np.ones(ind.shape), ind, '.', alpha=0.3)
+    plt.xlabel('Current [A]')
+    plt.ylabel('Shot #')
     plt.show(block=True)
 
     print('Done')
