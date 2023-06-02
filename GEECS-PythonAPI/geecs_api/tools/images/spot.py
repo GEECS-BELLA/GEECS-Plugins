@@ -6,7 +6,7 @@ import numpy as np
 from typing import Optional, Any
 import scipy.ndimage as simg
 from scipy.signal import savgol_filter
-from geecs_api.tools.images.filtering import filter_image
+from geecs_api.tools.images.filtering import basic_filter
 from geecs_api.tools.distributions.fit_utility import fit_distribution
 
 
@@ -109,7 +109,7 @@ def find_spot(image: np.ndarray,
     gauss_filter:   gaussian filter size
     com_threshold:  image threshold for center-of-mass calculation
     """
-    filter_dict = filter_image(image, hp_median, hp_threshold, denoise_cycles, gauss_filter, com_threshold)
+    filter_dict = basic_filter(image, hp_median, hp_threshold, denoise_cycles, gauss_filter, com_threshold)
 
     return filter_dict['position_com'], filter_dict['position_max']
 

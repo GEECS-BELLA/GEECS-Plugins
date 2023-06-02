@@ -5,16 +5,6 @@ from numpy.polynomial.polynomial import polyval
 import matplotlib.pyplot as plt
 
 
-def find(condition: np.ndarray):
-    """
-    vector = [1, 2, 3, 1, 2, 3]
-    [2, 5] = find(vector > 2)
-    """
-    ret = np.array(range(len(condition)))
-
-    return ret[condition]
-
-
 def bin_scan(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 3):
     # sort by x
     x_permutations = np.argsort(x_data)
@@ -37,12 +27,12 @@ def bin_scan(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 3):
     best_n_steps = best_pos = 0
     mark_x: np.ndarray = np.array((0,))
     for pos in reversed(d2x_permutations):
-        if pos+1 >= len(d1x_permutations):
+        if pos+1 >= d1x_permutations.size:
             continue
 
         # pos_v1 = d1x_permutations[pos]  # highest value among small spaces
         pos_v2 = d1x_permutations[pos+1]  # smallest jump
-        mark_x = find(d1x >= d1x[pos_v2])  # all jump positions
+        mark_x, = np.nonzero(d1x >= d1x[pos_v2])  # all jump positions
 
         if mark_x.size + 1 >= n_bins_min:
             break
@@ -53,38 +43,40 @@ def bin_scan(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 3):
         if pos == d2x_permutations[0]:
             # pos_v1 = d1x_permutations[best_pos]
             pos_v2 = d1x_permutations[best_pos + 1]
-            mark_x = find(d1x >= d1x[pos_v2])
+            mark_x, = np.nonzero(d1x >= d1x[pos_v2])
 
     # bins limits
-    bin_lim_x = [(x_data[m] + x_data[m+1]) / 2 for m in mark_x]
-    bin_lim_x.insert(0, x_data[0] - 1)
-    bin_lim_x.append(x_data[-1] + 1)
+    bins = np.array([(x_data[m] + x_data[m+1]) / 2 for m in mark_x])
+    bins = np.insert(bins, 0, x_data[0] - 1)
+    bins = np.append(bins, x_data[-1] + 1)
 
     # bin the dataset
-    bin_x = np.zeros((len(bin_lim_x)-1,))
-    avg_y = np.zeros((len(bin_lim_x)-1,))
-    std_x = np.zeros((len(bin_lim_x)-1,))
-    std_y = np.zeros((len(bin_lim_x)-1,))
-    near_ix = np.zeros((len(bin_lim_x)-1,))
+    avg_x = np.zeros((bins.size-1,))
+    avg_y = np.zeros((bins.size-1,))
+    std_x = np.zeros((bins.size-1,))
+    std_y = np.zeros((bins.size-1,))
+    near_ix = np.zeros((bins.size-1,))
     indexes = []
 
-    for it, (lim_low, lim_high) in enumerate(zip(bin_lim_x[:-1], bin_lim_x[1:])):
-        t_low = lim_low <= x_data
-        t_high = x_data < lim_high
-        pts_to_bin = find(np.array([lc & hc for lc, hc in zip(t_low, t_high)]))
+    for it, (lim_low, lim_high) in enumerate(zip(bins[:-1], bins[1:])):
+        pts_to_bin, = np.nonzero((lim_low <= x_data) & (x_data < lim_high))
 
         indexes.append(x_permutations[pts_to_bin])
-        bin_x[it] = np.mean(x_data[pts_to_bin])
+        avg_x[it] = np.mean(x_data[pts_to_bin])
         avg_y[it] = np.mean(y_data[pts_to_bin])
         std_x[it] = np.std(x_data[pts_to_bin])
         std_y[it] = np.std(y_data[pts_to_bin])
 
         # find best representative
         d_rep = np.abs(y_data[pts_to_bin] - avg_y[it])
-        pos_rep = find(d_rep == np.min(d_rep))
+        pos_rep, = np.nonzero(d_rep == np.min(d_rep))
         near_ix[it] = x_permutations[pts_to_bin[pos_rep[0]]]
 
-    return bin_x, avg_y, std_x, std_y, near_ix, indexes
+    avg_bin = np.mean((bins[1:] - bins[:-1])[1:-1])
+    bins[0] = min(bins[0],  bins[1] - avg_bin)
+    bins[-1] = max(bins[-1], bins[-2] + avg_bin)
+
+    return avg_x, avg_y, std_x, std_y, near_ix, indexes, np.array(bins)
 
 
 if __name__ == '__main__':
@@ -99,23 +91,21 @@ if __name__ == '__main__':
     x += err_x * (2 * np.random.random((n_pts, n_steps)) - 1)
     x = x.transpose().reshape((x.size,))
 
-    # c_y = [5.1607e-11, 3.9397e-08, 8.6414e-06, 0.00072434, 0.048984, 12.5905]
     c_y = [12.5905, 0.048984, 0.00072434, 8.6414e-06, 3.9397e-08, 5.1607e-11]
     y = polyval(x, c_y)
 
-    # plt.figure(figsize=(3.2, 2.4))
-    # plt.plot(x, y, '.')
-    # plt.show(block=True)
-
-    bins = bin_scan(x, y, n_min)
+    _bins = bin_scan(x, y, n_min)
 
     plt.figure(figsize=(3.2, 2.4))
     plt.plot(x, y, '.c')
-    plt.errorbar(bins[0], bins[1], yerr=bins[3], xerr=bins[2], c='k', alpha=0.66, linestyle='None')
+    plt.errorbar(_bins[0], _bins[1], yerr=_bins[3], xerr=_bins[2], c='k', alpha=0.66, linestyle='None')
+    for lim in _bins[6]:
+        plt.axvline(lim, color='k', linestyle='--', linewidth=0.5)
     plt.show(block=True)
 
-    if bins[0].size == base_x.size:
-        print(f'dx:\n\t{bins[0] - base_x}')
-        print(f'dy:\n\t{bins[1] - polyval(base_x, c_y)}')
+    if _bins[0].size == base_x.size:
+        print(f'dx:\n\t{_bins[0] - base_x}')
+        print(f'dy:\n\t{_bins[1] - polyval(base_x, c_y)}')
+        print(f'bins:\n\t{_bins[6]}')
 
     print('done')

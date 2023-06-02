@@ -1,7 +1,8 @@
 import numpy as np
 import scipy.ndimage as simg
-from typing import Any, Optional
 from pathlib import Path
+from typing import Any, Optional, Union
+from dataclasses import dataclass
 from scipy.ndimage import median_filter
 from skimage.restoration import denoise_wavelet, cycle_spin
 from skimage.measure import label, regionprops
@@ -12,6 +13,19 @@ from matplotlib.widgets import RectangleSelector
 from geecs_api.tools.images.batches import average_images
 import geecs_api.tools.images.ni_vision as ni
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
+
+
+@dataclass
+class FiltersParameters:
+    contrast: float = 1.333
+    hp_median: int = 2
+    hp_threshold: float = 3.
+    denoise_cycles: int = 0
+    gauss_filter: float = 5.
+    com_threshold: float = 0.5
+    bkg_image: Optional[Union[Path, np.ndarray]] = None
+    box: bool = True
+    ellipse: bool = False
 
 
 def mad(x):
@@ -66,7 +80,7 @@ def denoise(image: np.ndarray, max_shifts: int = 3):
     return cycle_spin(image, func=denoise_wavelet, max_shifts=max_shifts)
 
 
-def filter_image(image: np.ndarray,
+def basic_filter(image: np.ndarray,
                  hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 3,
                  gauss_filter: float = 5., com_threshold: float = 0.5) -> dict[str, Any]:
     """
@@ -231,4 +245,4 @@ if __name__ == '__main__':
     # _range = None
     _range = (0, 1.8)
     # check_roi(_folder, camera_name=Camera.name_from_label('P1'), disp_range=_range, color_map='hot')
-    check_roi(_folder, camera_name=_folder.name, disp_range=_range, color_map='jet')
+    # check_roi(_folder, camera_name=_folder.name, disp_range=_range, color_map='jet')

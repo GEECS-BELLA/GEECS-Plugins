@@ -2,12 +2,13 @@ import os
 from pathlib import Path
 from typing import Optional, Union
 from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice, api_error
+from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
 from htu_scripts.analysis.screens_scan_analysis import screens_scan_analysis
-from htu_scripts.analysis.scan_images import ScanImages
+from geecs_api.tools.images.scan_images import ScanImages
 from geecs_api.tools.interfaces.prompts import text_input
-from geecs_api.tools.scans.scan import Scan
+from geecs_api.tools.images.filtering import FiltersParameters
+from geecs_api.tools.scans.scan_data import ScanData
 
 
 def screens_scan(e_diagnostics: EBeamDiagnostics,
@@ -115,12 +116,12 @@ def screens_scan(e_diagnostics: EBeamDiagnostics,
 
         # analysis
         scan_path = Path(scan_path)
-        no_scan = Scan(scan_path, ignore_experiment_name=False)
+        no_scan = ScanData(scan_path, ignore_experiment_name=False)
         no_scan_images = ScanImages(no_scan, camera)
         analysis_file: Path = no_scan_images.save_folder.parent / 'profiles_analysis.dat'
-        no_scan_images.run_analysis_with_checks(initial_contrast=1.333, hp_median=2, hp_threshold=3.,
-                                                denoise_cycles=0, gauss_filter=5., com_threshold=0.66, plots=True,
-                                                bkg_image=Path(camera.state_background_path()), skip_ellipse=True)
+        no_scan_images.run_analysis_with_checks(
+            initial_filtering=FiltersParameters(com_threshold=0.66, bkg_image=Path(camera.state_background_path())),
+            plots=True)
         keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
                           accepted_answers=['y', 'yes', 'n', 'no'])
         if keep.lower()[0] == 'y':

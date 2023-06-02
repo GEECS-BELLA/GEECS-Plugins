@@ -1,10 +1,9 @@
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
-from geecs_api.tools.scans.scan import Scan
+from geecs_api.tools.scans.scan_data import ScanData
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.diagnostics.cameras import Camera
 from geecs_api.tools.distributions.binning import bin_scan
 
 
@@ -18,7 +17,7 @@ if __name__ == '__main__':
 
     _key_device = 'U_S4H'
 
-    _scan = Scan(tag=(2023, 4, 13, 26), experiment_base_path=_base/'Undulator')
+    _scan = ScanData(tag=(2023, 4, 13, 26), experiment_base_path=_base / 'Undulator')
     _key_data = _scan.data_dict[_key_device]
 
     bin_x, avg_y, std_x, std_y, near_ix, indexes = bin_scan(_key_data['Current'], _key_data['shot #'])

@@ -2,7 +2,7 @@
 from os import PathLike
 from pathlib import Path
 from threading import Thread, Event
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, NamedTuple
 
 
 # if TYPE_CHECKING:
@@ -21,3 +21,10 @@ def exec_async(fct, args=(), kwargs=None) -> AsyncResult:
 
 class VarAlias(str):
     pass
+
+
+class ScanTag(NamedTuple):
+    year: int
+    month: int
+    day: int
+    number: int
