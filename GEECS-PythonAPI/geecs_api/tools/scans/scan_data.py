@@ -4,14 +4,14 @@ import inspect
 import numpy as np
 from pathlib import Path
 from datetime import datetime as dtime, date
-from typing import Optional, Union
+from typing import Optional, Union, NamedTuple
 import matplotlib.pyplot as plt
 from configparser import ConfigParser, NoSectionError
 from geecs_api.api_defs import SysPath, ScanTag
 from geecs_api.interface import api_error
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.tools.scans.tdms import read_geecs_tdms
-from geecs_api.tools.distributions.binning import bin_scan
+from geecs_api.tools.distributions.binning import unsupervised_binning, BinningResults
 
 
 class ScanData:
@@ -155,14 +155,23 @@ class ScanData:
 if __name__ == '__main__':
     # GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-    # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    _base: Path = Path(r'Z:\data')
+    _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    # _base: Path = Path(r'Z:\data')
     _key_device = 'U_S4H'
 
     _scan = ScanData(tag=ScanTag(2023, 4, 13, 26), experiment_base_path=_base / 'Undulator')
     _key_data = _scan.data_dict[_key_device]
 
-    bin_x, avg_y, std_x, std_y, near_ix, indexes = bin_scan(_key_data['Current'], _key_data['shot #'])
+    measured: BinningResults = unsupervised_binning(_key_data['Current'], _key_data['shot #'])
+
+    Expected = NamedTuple('Expected', start=float, end=float, steps=int, setpoints=np.ndarray, indexes=list(np.ndarray))
+    steps: int = \
+        round((float(_scan.scan_info['End']) - float(_scan.scan_info['Start'])) / (float(_scan.scan_info['Step']) - 1))
+    expected = Expected(start=float(_scan.scan_info['Start']),
+                        end=float(_scan.scan_info['End']),
+                        steps=steps,
+                        setpoints=np.linspace(float(_scan.scan_info['Start']), float(_scan.scan_info['End']), steps),
+                        indexes=[np.arange(p * steps, (p+1) * steps - 1) for p in range(steps)])
 
     plt.figure()
     plt.plot(_key_data['shot #'], _key_data['Current'], '.b', alpha=0.3)
@@ -171,10 +180,10 @@ if __name__ == '__main__':
     plt.show(block=False)
 
     plt.figure()
-    for x, ind in zip(bin_x, indexes):
+    for x, ind in zip(measured.avg_x, measured.indexes):
         plt.plot(x * np.ones(ind.shape), ind, '.', alpha=0.3)
     plt.xlabel('Current [A]')
-    plt.ylabel('Shot #')
+    plt.ylabel('Indexes')
     plt.show(block=True)
 
     print('Done')

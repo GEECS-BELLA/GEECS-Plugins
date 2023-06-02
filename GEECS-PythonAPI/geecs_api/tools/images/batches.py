@@ -2,15 +2,14 @@ import glob
 import cv2
 import numpy as np
 from pathlib import Path
-from progressbar import ProgressBar
+from typing import Optional, Union
 import matplotlib.pyplot as plt
-from typing import Optional
-from geecs_api.api_defs import SysPath
+from progressbar import ProgressBar
 from geecs_api.devices.geecs_device import api_error
 import geecs_api.tools.images.ni_vision as ni
 
 
-def average_images(images_folder: SysPath, n_images: int = 0, file_extension: str = '.png') \
+def average_images(images_folder: Union[Path, str], n_images: int = 0, file_extension: str = '.png') \
         -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     images = list_images(images_folder, n_images, file_extension)
 
@@ -39,7 +38,8 @@ def average_images(images_folder: SysPath, n_images: int = 0, file_extension: st
             return None, None
 
 
-def list_images(images_folder: SysPath, n_images: int = 0, file_extension: str = '.png') -> Optional[list[SysPath]]:
+def list_images(images_folder: Union[Path, str], n_images: Optional[int] = None, file_extension: str = '.png') \
+        -> Optional[list[Path]]:
     # file extension
     if not file_extension:
         return None
@@ -58,7 +58,7 @@ def list_images(images_folder: SysPath, n_images: int = 0, file_extension: str =
     if n_images > 0:
         images = images[-n_images:]
 
-    return images
+    return [Path(p) for p in images]
 
 
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ from typing import Optional, Any, Union
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.transport.magnets.steering import SteeringSupply
-from geecs_api.tools.distributions.binning import bin_scan
+from geecs_api.tools.distributions.binning import unsupervised_binning
 from geecs_api.tools.images.scan_images import ScanImages
 from geecs_api.tools.scans.scan_data import ScanData
 
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     _scan = ScanData(tag=(2023, 4, 13, 26), experiment_base_path=_base / 'Undulator')
     _key_data = _scan.data_dict[_key_device]
 
-    bin_x, avg_y, std_x, std_y, near_ix, indexes, bins = bin_scan(_key_data['Current'], _key_data['shot #'])
+    bin_x, avg_y, std_x, std_y, near_ix, indexes, bins = unsupervised_binning(_key_data['Current'], _key_data['shot #'])
 
     plt.figure()
     plt.plot(_key_data['shot #'], _key_data['Current'], '.b', alpha=0.3)

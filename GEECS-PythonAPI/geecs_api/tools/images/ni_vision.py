@@ -1,21 +1,20 @@
-import os
 import png
 import cv2
 import numpy as np
-from typing import Optional
+from typing import Optional, Union
 from pathlib import Path
-from geecs_api.api_defs import SysPath
 
 
-def read_imaq_image(file_path: SysPath) -> Optional[np.ndarray]:
-    if not os.path.isfile(file_path):
+def read_imaq_image(file_path: Union[Path, str]) -> Optional[np.ndarray]:
+    file_path = Path(file_path)
+    if not file_path.is_file():
         return None
 
     try:
         png_header = read_png_header(file_path)
-        image = cv2.imread(file_path, cv2.IMREAD_ANYDEPTH)
+        image = cv2.imread(str(file_path), cv2.IMREAD_ANYDEPTH)
 
-        if Path(file_path).suffix.lower() == '.png':
+        if file_path.suffix.lower() == '.png':
             data_bytes: int = image.dtype.itemsize
             return np.right_shift(image, data_bytes * 8 - ord(png_header[b'sBIT']))
         else:
@@ -25,9 +24,9 @@ def read_imaq_image(file_path: SysPath) -> Optional[np.ndarray]:
         return None
 
 
-def read_png_header(file_path: SysPath) -> dict[bytes, bytes]:
+def read_png_header(file_path: Path) -> dict[bytes, bytes]:
     try:
-        png_reader = png.Reader(file_path)
+        png_reader = png.Reader(str(file_path))
         return {key: val for key, val in png_reader.chunks() if key != b'IDAT'}
 
     except Exception:

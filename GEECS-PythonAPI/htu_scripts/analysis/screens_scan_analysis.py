@@ -12,6 +12,7 @@ from geecs_api.tools.interfaces.prompts import text_input
 from geecs_api.devices.HTU.diagnostics.cameras.camera import Camera
 from geecs_api.tools.images.scan_images import ScanImages
 from geecs_api.tools.images.filtering import FiltersParameters
+from htu_scripts.analysis.beam_analyses_collector import add_beam_analysis
 import matplotlib.pyplot as plt
 from tkinter import filedialog
 from progressbar import ProgressBar
@@ -48,8 +49,9 @@ def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path
                 print(f'\nAnalyzing {scan_path.name} ("{lbl}")...')
                 scan_obj = ScanData(scan_path)
                 no_scan = ScanImages(scan_obj, lbl)
-                no_scan.run_analysis_with_checks(initial_filtering=FiltersParameters(com_threshold=0.66),
-                                                 plots=bool(save_dir))
+                analysis_file = \
+                    no_scan.run_analysis_with_checks(images=-1, plots=bool(save_dir),
+                                                     initial_filtering=FiltersParameters(com_threshold=0.66))
                 keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
                                   accepted_answers=['y', 'yes', 'n', 'no'])
                 if keep.lower()[0] == 'n':
@@ -64,42 +66,46 @@ def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path
             # noinspection PyUnboundLocalVariable
             label = Camera.label_from_name(analysis['camera_name'])
             index = screen_labels.index(label)
-            summary: dict[str, Any] = analysis['analyses_summary']
-            targets: dict[str, Any] = summary['targets']
 
-            if not pos_short_names:
-                for im_analysis in analysis['image_analyses']:
-                    if 'positions' in im_analysis:
-                        pos_short_names = [pos[-1] for pos in im_analysis['positions']]
-                        pos_long_names = [pos for pos in im_analysis['positions_labels']]
-                        break
-
-            for pos in pos_short_names:
-                if f'{pos}_deltas_avg_imgs' not in beam_analysis:
-                    tmp = np.zeros((len(screen_labels), 2))
-                    tmp[:] = np.nan
-                    beam_analysis[f'{pos}_deltas_avg_imgs'] = tmp.copy()  # Dx, Dy [mm]
-                    beam_analysis[f'{pos}_deltas_means'] = tmp.copy()
-                    beam_analysis[f'{pos}_deltas_stds'] = tmp.copy()
-                    beam_analysis[f'{pos}_fwhm_means'] = tmp.copy()
-                    beam_analysis[f'{pos}_fwhm_stds'] = tmp.copy()
-                    beam_analysis['target_um_pix'] = np.ones((len(screen_labels),), dtype=float)
-
-                if targets and (f'avg_img_{pos}_delta' in targets):
-                    beam_analysis[f'{pos}_deltas_avg_imgs'][index, :] = targets[f'avg_img_{pos}_delta']
-                    beam_analysis[f'{pos}_deltas_means'][index, :] = targets[f'target_deltas_{pos}_mean']
-                    beam_analysis[f'{pos}_deltas_stds'][index, :] = targets[f'target_deltas_{pos}_std']
-                    beam_analysis['target_um_pix'][index] = targets['target_um_pix']
-
-                if summary and (f'mean_pos_{pos}_fwhm_x' in summary):
-                    beam_analysis[f'{pos}_fwhm_means'][index, 1] = \
-                        summary[f'mean_pos_{pos}_fwhm_x'] * beam_analysis['target_um_pix'][index]
-                    beam_analysis[f'{pos}_fwhm_means'][index, 0] = \
-                        summary[f'mean_pos_{pos}_fwhm_y'] * beam_analysis['target_um_pix'][index]
-                    beam_analysis[f'{pos}_fwhm_stds'][index, 1] = \
-                        summary[f'std_pos_{pos}_fwhm_x'] * beam_analysis['target_um_pix'][index]
-                    beam_analysis[f'{pos}_fwhm_stds'][index, 0] = \
-                        summary[f'std_pos_{pos}_fwhm_y'] * beam_analysis['target_um_pix'][index]
+            print('Collecting analysis summary...')
+            beam_analysis, pos_short_names, pos_long_names = \
+                add_beam_analysis(beam_analysis, analysis, pos_short_names, pos_long_names, index, len(screen_labels))
+            # summary: dict[str, Any] = analysis['analyses_summary']
+            # targets: dict[str, Any] = summary['targets']
+            #
+            # if not pos_short_names:
+            #     for im_analysis in analysis['image_analyses']:
+            #         if 'positions' in im_analysis:
+            #             pos_short_names = [pos[-1] for pos in im_analysis['positions']]
+            #             pos_long_names = [pos for pos in im_analysis['positions_labels']]
+            #             break
+            #
+            # for pos in pos_short_names:
+            #     if f'{pos}_deltas_avg_imgs' not in beam_analysis:
+            #         tmp = np.zeros((len(screen_labels), 2))
+            #         tmp[:] = np.nan
+            #         beam_analysis[f'{pos}_deltas_avg_imgs'] = tmp.copy()  # Dx, Dy [mm]
+            #         beam_analysis[f'{pos}_deltas_means'] = tmp.copy()
+            #         beam_analysis[f'{pos}_deltas_stds'] = tmp.copy()
+            #         beam_analysis[f'{pos}_fwhm_means'] = tmp.copy()
+            #         beam_analysis[f'{pos}_fwhm_stds'] = tmp.copy()
+            #         beam_analysis['target_um_pix'] = np.ones((len(screen_labels),), dtype=float)
+            #
+            #     if targets and (f'avg_img_{pos}_delta' in targets):
+            #         beam_analysis[f'{pos}_deltas_avg_imgs'][index, :] = targets[f'avg_img_{pos}_delta']
+            #         beam_analysis[f'{pos}_deltas_means'][index, :] = targets[f'target_deltas_{pos}_mean']
+            #         beam_analysis[f'{pos}_deltas_stds'][index, :] = targets[f'target_deltas_{pos}_std']
+            #         beam_analysis['target_um_pix'][index] = targets['target_um_pix']
+            #
+            #     if summary and (f'mean_pos_{pos}_fwhm_x' in summary):
+            #         beam_analysis[f'{pos}_fwhm_means'][index, 1] = \
+            #             summary[f'mean_pos_{pos}_fwhm_x'] * beam_analysis['target_um_pix'][index]
+            #         beam_analysis[f'{pos}_fwhm_means'][index, 0] = \
+            #             summary[f'mean_pos_{pos}_fwhm_y'] * beam_analysis['target_um_pix'][index]
+            #         beam_analysis[f'{pos}_fwhm_stds'][index, 1] = \
+            #             summary[f'std_pos_{pos}_fwhm_x'] * beam_analysis['target_um_pix'][index]
+            #         beam_analysis[f'{pos}_fwhm_stds'][index, 0] = \
+            #             summary[f'std_pos_{pos}_fwhm_y'] * beam_analysis['target_um_pix'][index]
 
             pb.increment()
 

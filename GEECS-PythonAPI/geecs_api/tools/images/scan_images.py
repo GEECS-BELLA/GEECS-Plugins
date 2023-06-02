@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from progressbar import ProgressBar
 from typing import Optional, Any, Union
-from geecs_api.api_defs import SysPath
 from geecs_api.tools.images.batches import list_images
 from geecs_api.devices.geecs_device import api_error
 import geecs_api.tools.images.ni_vision as ni
@@ -77,8 +76,9 @@ class ScanImages:
 
         self.camera_label: str = Camera.label_from_name(self.camera_name)
 
-        self.image_folder: SysPath = self.scan.get_folder() / self.camera_name
-        self.save_folder: Path = self.scan.get_analysis_folder() / self.camera_name / 'Profiles Images'
+        self.image_folder: Path = self.scan.get_folder() / self.camera_name
+        # self.save_folder: Path = self.scan.get_analysis_folder() / self.camera_name / 'Profiles Images'
+        self.save_folder: Path = self.scan.get_analysis_folder() / self.camera_name
         self.set_save_folder()  # default no-scan analysis folder
 
         self.image_analyses: Optional[list[dict[str, Any]]] = None
@@ -91,21 +91,25 @@ class ScanImages:
         if path and path.is_dir():
             self.save_folder = path
         if path is None:
-            self.save_folder = self.scan.get_analysis_folder() / self.camera_name / 'Profiles Images'
+            # self.save_folder = self.scan.get_analysis_folder() / self.camera_name / 'Profiles Images'
+            self.save_folder = self.scan.get_analysis_folder() / self.camera_name
             if not self.save_folder.is_dir():
                 os.makedirs(self.save_folder)
 
-    def read_image_as_float(self, image_path: SysPath) -> np.ndarray:
+    def read_image_as_float(self, image_path: Path) -> np.ndarray:
         image = ni.read_imaq_image(image_path)
         if isinstance(self.camera_roi, np.ndarray) and (self.camera_roi.size >= 4):
             image = image[self.camera_roi[-2]:self.camera_roi[-1], self.camera_roi[0]:self.camera_roi[1]]
         image = np.rot90(image, self.camera_r90)
         return image.astype('float64')
 
-    def run_analysis_with_checks(self, n_images: int = 0, initial_filtering=FiltersParameters(), plots: bool = False):
+    def run_analysis_with_checks(self, images: Union[int, list[Path]] = -1,
+                                 initial_filtering=FiltersParameters(), plots: bool = False) -> Optional[Path]:
+        export_file_path: Optional[Path] = None
+
         while True:
             try:
-                self.analyze_image_batch(n_images, initial_filtering, plots)
+                export_file_path = self.analyze_image_batch(images, initial_filtering, plots)
             except Exception as ex:
                 api_error(str(ex), f'Failed to analyze {self.scan.get_folder().name}')
                 pass
@@ -124,8 +128,17 @@ class ScanImages:
                         print('Contrast value must be a positive number (e.g. 1.3)')
                         continue
 
-    def analyze_image_batch(self, n_images: int = 0, filtering=FiltersParameters(), plots: bool = False):
-        paths = list_images(self.image_folder, n_images, '.png')
+        return export_file_path
+
+    def analyze_image_batch(self, images: Union[int, list[Path]] = -1,
+                            filtering=FiltersParameters(), plots: bool = False) -> Optional[Path]:
+        export_file_path: Optional[Path] = None
+
+        if isinstance(images, int):
+            paths = list_images(self.image_folder, images, '.png')
+        else:
+            paths = images
+
         # paths = paths[25:30]  # tmp
         skipped_files = []
         analyses: list[dict[str, Any]] = []
@@ -201,7 +214,8 @@ class ScanImages:
                 if plots:
                     print(f'Figures saved in:\n\t{self.save_folder}')
 
-                    export_file_path: Path = self.save_folder.parent / 'profiles_analysis'
+                    # export_file_path: Path = self.save_folder.parent / 'profiles_analysis'
+                    export_file_path = self.save_folder / 'profiles_analysis'
                     save_py(file_path=export_file_path,
                             data={'scan': self.scan,
                                   'camera_r90': self.camera_r90,
@@ -222,7 +236,9 @@ class ScanImages:
                 api_error.error(str(ex), 'Failed to analyze image')
                 pass
 
-    def analyze_image(self, image: Union[SysPath, np.ndarray], filtering=FiltersParameters()) -> dict[str, Any]:
+        return export_file_path
+
+    def analyze_image(self, image: Union[Path, np.ndarray], filtering=FiltersParameters()) -> dict[str, Any]:
         # raw image
         if isinstance(image, np.ndarray):
             image_raw = image
@@ -514,7 +530,7 @@ class ScanImages:
                     ax_y.legend(loc='best', prop={'size': 8})
 
                     # plot & save
-                    file_name: str = f'max_profiles_{tag}.png'
+                    file_name: str = f'{profile}_profiles_{tag}.png'
                     image_path: Path = self.save_folder / file_name
                     if save:
                         plt.savefig(image_path, dpi=300)
@@ -578,9 +594,9 @@ if __name__ == '__main__':
     _folder = _folder/f'{str(_base_tag[0])[-2:]}_{_base_tag[1]:02d}{_base_tag[2]:02d}'/'scans'/f'Scan{_base_tag[3]:03d}'
 
     _scan = ScanData(_folder, ignore_experiment_name=False)
-    images = ScanImages(_scan, _camera_tag)
-    images.analyze_image_batch(filtering=FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3.,
-                                                           denoise_cycles=0, gauss_filter=5., com_threshold=0.66,
-                                                           bkg_image=None, box=True, ellipse=False),
-                               plots=True)
+    _images = ScanImages(_scan, _camera_tag)
+    _images.analyze_image_batch(filtering=FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3.,
+                                                            denoise_cycles=0, gauss_filter=5., com_threshold=0.66,
+                                                            bkg_image=None, box=True, ellipse=False),
+                                plots=True)
     print('done')

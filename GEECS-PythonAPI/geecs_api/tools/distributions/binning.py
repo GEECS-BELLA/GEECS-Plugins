@@ -3,9 +3,14 @@
 import numpy as np
 from numpy.polynomial.polynomial import polyval
 import matplotlib.pyplot as plt
+from typing import NamedTuple
 
 
-def bin_scan(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 3):
+BinningResults = NamedTuple('BinningResults', avg_x=np.ndarray, avg_y=np.ndarray, std_x=np.ndarray, std_y=np.ndarray,
+                            near_ix=np.ndarray, indexes=list(np.ndarray), bins=np.ndarray)
+
+
+def unsupervised_binning(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 3) -> BinningResults:
     # sort by x
     x_permutations = np.argsort(x_data)
     x_data = x_data[x_permutations]
@@ -56,7 +61,7 @@ def bin_scan(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 3):
     std_x = np.zeros((bins.size-1,))
     std_y = np.zeros((bins.size-1,))
     near_ix = np.zeros((bins.size-1,))
-    indexes = []
+    indexes: list[np.ndarray] = []
 
     for it, (lim_low, lim_high) in enumerate(zip(bins[:-1], bins[1:])):
         pts_to_bin, = np.nonzero((lim_low <= x_data) & (x_data < lim_high))
@@ -76,7 +81,7 @@ def bin_scan(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 3):
     bins[0] = min(bins[0],  bins[1] - avg_bin)
     bins[-1] = max(bins[-1], bins[-2] + avg_bin)
 
-    return avg_x, avg_y, std_x, std_y, near_ix, indexes, np.array(bins)
+    return BinningResults(avg_x, avg_y, std_x, std_y, near_ix, indexes, bins)
 
 
 if __name__ == '__main__':
@@ -94,7 +99,7 @@ if __name__ == '__main__':
     c_y = [12.5905, 0.048984, 0.00072434, 8.6414e-06, 3.9397e-08, 5.1607e-11]
     y = polyval(x, c_y)
 
-    _bins = bin_scan(x, y, n_min)
+    _bins = unsupervised_binning(x, y, n_min)
 
     plt.figure(figsize=(3.2, 2.4))
     plt.plot(x, y, '.c')

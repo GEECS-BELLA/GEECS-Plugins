@@ -116,15 +116,16 @@ def screens_scan(e_diagnostics: EBeamDiagnostics,
 
         # analysis
         scan_path = Path(scan_path)
-        no_scan = ScanData(scan_path, ignore_experiment_name=False)
-        no_scan_images = ScanImages(no_scan, camera)
-        analysis_file: Path = no_scan_images.save_folder.parent / 'profiles_analysis.dat'
-        no_scan_images.run_analysis_with_checks(
+        no_scan_data = ScanData(scan_path, ignore_experiment_name=False)
+        no_scan_images = ScanImages(no_scan_data, camera)
+        # analysis_file: Path = no_scan_images.save_folder.parent / 'profiles_analysis.dat'
+        analysis_file = no_scan_images.run_analysis_with_checks(
+            images=-1,
             initial_filtering=FiltersParameters(com_threshold=0.66, bkg_image=Path(camera.state_background_path())),
             plots=True)
         keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
                           accepted_answers=['y', 'yes', 'n', 'no'])
-        if keep.lower()[0] == 'y':
+        if keep.lower()[0] == 'y' and analysis_file:
             image_analysis_files[label] = (analysis_file, scan_path)
         else:
             image_analysis_files[label] = ('', scan_path)
