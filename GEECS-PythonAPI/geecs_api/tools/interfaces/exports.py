@@ -6,7 +6,7 @@ import numpy as np
 import shelve
 from scipy.io import savemat, loadmat
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 import tkinter as tk
 from tkinter import filedialog
 
@@ -39,7 +39,7 @@ def save_py(file_path: Optional[Path] = None, data: Optional[dict[str, Any]] = N
 
 
 def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = None, as_dict: bool = False) \
-        -> Optional[dict[str, Any]]:
+        -> tuple[Optional[dict[str, Any]], Union[Path, str]]:
     if file_path and not re.search(r'\.[^\.]+$', str(file_path)):
         file_path = Path(f'{file_path}.dat')
 
@@ -50,7 +50,7 @@ def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = N
                                                title='Open a Python shelf:')
 
     if not file_path:
-        return None
+        return None, ''
     else:
         file_path = Path(file_path)
         file_path = re.split(r'\.[^\.]+$', str(file_path))[0]
@@ -70,9 +70,9 @@ def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = N
                 globals()[key] = value
 
     if as_dict:
-        return data
+        return data, file_path
     else:
-        return None
+        return None, file_path
 
 
 def save_mat(file_path: Optional[Path] = None, data: Optional[dict[str, Any]] = None):

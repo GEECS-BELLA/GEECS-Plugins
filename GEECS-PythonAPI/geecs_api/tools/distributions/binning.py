@@ -7,7 +7,7 @@ from typing import NamedTuple
 
 
 BinningResults = NamedTuple('BinningResults', avg_x=np.ndarray, avg_y=np.ndarray, std_x=np.ndarray, std_y=np.ndarray,
-                            near_ix=np.ndarray, indexes=list(np.ndarray), bins=np.ndarray)
+                            near_ix=np.ndarray, indexes=list, bins=np.ndarray)
 
 
 def unsupervised_binning(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int = 3) -> BinningResults:

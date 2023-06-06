@@ -64,18 +64,24 @@ def steering_scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str],
                 os.makedirs(save_dir)
 
             scan_images.set_save_folder(save_dir)
-            analysis_file = \
-                scan_images.run_analysis_with_checks(images=step_paths, plots=True,
+            analysis_file, analysis = \
+                scan_images.run_analysis_with_checks(images=step_paths, plots=True, save=True,
                                                      initial_filtering=FiltersParameters(com_threshold=0.66))
             keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
                               accepted_answers=['y', 'yes', 'n', 'no'])
             if keep.lower()[0] == 'n':
                 continue
 
-            analysis_files.append(analysis_file)
+            if not analysis:
+                print('Loading analysis...')
+                analysis, analysis_file = load_py(analysis_file, as_dict=True)
 
-            print('Loading analysis...')
-            analysis = load_py(analysis_file, as_dict=True)
+            if not analysis:
+                continue  # skip
+
+            if not analysis_file:
+                analysis_file = ''
+            analysis_files.append(analysis_file)
 
             print('Collecting analysis summary...')
             beam_analysis, pos_short_names, pos_long_names = \

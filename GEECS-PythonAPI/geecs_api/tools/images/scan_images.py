@@ -103,13 +103,14 @@ class ScanImages:
         image = np.rot90(image, self.camera_r90)
         return image.astype('float64')
 
-    def run_analysis_with_checks(self, images: Union[int, list[Path]] = -1,
-                                 initial_filtering=FiltersParameters(), plots: bool = False) -> Optional[Path]:
+    def run_analysis_with_checks(self, images: Union[int, list[Path]] = -1, initial_filtering=FiltersParameters(),
+                                 plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
+        data_dict: dict[str, Any] = {}
 
         while True:
             try:
-                export_file_path = self.analyze_image_batch(images, initial_filtering, plots)
+                export_file_path, data_dict = self.analyze_image_batch(images, initial_filtering, plots, save)
             except Exception as ex:
                 api_error(str(ex), f'Failed to analyze {self.scan.get_folder().name}')
                 pass
@@ -128,11 +129,12 @@ class ScanImages:
                         print('Contrast value must be a positive number (e.g. 1.3)')
                         continue
 
-        return export_file_path
+        return export_file_path, data_dict
 
-    def analyze_image_batch(self, images: Union[int, list[Path]] = -1,
-                            filtering=FiltersParameters(), plots: bool = False) -> Optional[Path]:
+    def analyze_image_batch(self, images: Union[int, list[Path]] = -1, filtering=FiltersParameters(),
+                            plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
+        data_dict: dict[str, Any] = {}
 
         if isinstance(images, int):
             paths = list_images(self.image_folder, images, '.png')
@@ -155,7 +157,7 @@ class ScanImages:
                         if analysis['is_valid']:
                             analysis = ScanImages.profiles_analysis(analysis)
                             if plots:
-                                self.render_image_analysis(analysis, block=False)
+                                self.render_image_analysis(analysis, block=False, save=save)
                             avg_image: np.ndarray = analysis['image_raw'].copy()
                         else:
                             skipped_files.append(Path(image_path).name)
@@ -176,7 +178,7 @@ class ScanImages:
                                 # profiles
                                 analysis = ScanImages.profiles_analysis(analysis)
                                 if plots:
-                                    self.render_image_analysis(analysis, block=False)
+                                    self.render_image_analysis(analysis, block=False, save=save)
 
                                 # average
                                 alpha = 1.0 / (it + 2)
@@ -203,7 +205,7 @@ class ScanImages:
                     self.average_analysis = \
                         ScanImages.profiles_analysis(self.average_analysis)
                     if plots:
-                        self.render_image_analysis(self.average_analysis, tag='average_image', block=True)
+                        self.render_image_analysis(self.average_analysis, tag='average_image', block=True, save=save)
                 except Exception as ex:
                     api_error.error(str(ex), 'Failed to analyze average image')
 
@@ -211,32 +213,33 @@ class ScanImages:
                 self.average_image = avg_image
                 self.analyses_summary = self._summarize_image_analyses()
                 self.analyses_summary['targets'] = self._target_analysis()
-                if plots:
+
+                data_dict = {
+                    'scan': self.scan,
+                    'camera_r90': self.camera_r90,
+                    'camera_name': self.camera_name,
+                    'camera_roi': self.camera_roi,
+                    'camera_label': self.camera_label,
+                    'image_folder': self.image_folder,
+                    'save_folder': self.save_folder,
+                    'image_analyses': self.image_analyses if self.image_analyses is not None else {},
+                    'analyses_summary': self.analyses_summary if self.analyses_summary is not None else {},
+                    'average_image': self.average_image if self.average_image is not None else {},
+                    'average_analysis': self.average_analysis if self.average_analysis is not None else {}}
+
+                if save:
                     print(f'Figures saved in:\n\t{self.save_folder}')
 
                     # export_file_path: Path = self.save_folder.parent / 'profiles_analysis'
                     export_file_path = self.save_folder / 'profiles_analysis'
-                    save_py(file_path=export_file_path,
-                            data={'scan': self.scan,
-                                  'camera_r90': self.camera_r90,
-                                  'camera_name': self.camera_name,
-                                  'camera_roi': self.camera_roi,
-                                  'camera_label': self.camera_label,
-                                  'image_folder': self.image_folder,
-                                  'save_folder': self.save_folder,
-                                  'image_analyses': self.image_analyses if self.image_analyses is not None else {},
-                                  'analyses_summary': self.analyses_summary
-                                  if self.analyses_summary is not None else {},
-                                  'average_image': self.average_image if self.average_image is not None else {},
-                                  'average_analysis': self.average_analysis
-                                  if self.average_analysis is not None else {}})
+                    save_py(file_path=export_file_path, data=data_dict)
                     print(f'Data exported to:\n\t{export_file_path}.dat')
 
             except Exception as ex:
                 api_error.error(str(ex), 'Failed to analyze image')
                 pass
 
-        return export_file_path
+        return export_file_path, data_dict
 
     def analyze_image(self, image: Union[Path, np.ndarray], filtering=FiltersParameters()) -> dict[str, Any]:
         # raw image
@@ -450,7 +453,7 @@ class ScanImages:
         return analysis
 
     def render_image_analysis(self, analysis: dict[str, Any], tag: str = '', profiles: tuple[str] = ('max',),
-                              comparison: bool = True, block: bool = False, save: bool = True):
+                              comparison: bool = True, block: bool = False, save: bool = False):
         try:
             if not tag:
                 image_path: Path = Path(analysis['image_path'])
@@ -595,8 +598,9 @@ if __name__ == '__main__':
 
     _scan = ScanData(_folder, ignore_experiment_name=False)
     _images = ScanImages(_scan, _camera_tag)
-    _images.analyze_image_batch(filtering=FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3.,
-                                                            denoise_cycles=0, gauss_filter=5., com_threshold=0.66,
-                                                            bkg_image=None, box=True, ellipse=False),
-                                plots=True)
+    _images.run_analysis_with_checks(
+        initial_filtering=FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0,
+                                            gauss_filter=5., com_threshold=0.66, bkg_image=None, box=True,
+                                            ellipse=False),
+        plots=True, save=True)
     print('done')

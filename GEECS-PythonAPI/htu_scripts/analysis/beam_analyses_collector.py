@@ -16,8 +16,6 @@ def add_beam_analysis(beam_analysis: dict[str, Any], analysis_dict: dict[str, An
                 break
 
     for pos in pos_short_names:
-        beam_analysis[f'{pos}_deltas_avg_imgs'][index, :] = summary[f'mean_pos_{pos}']
-
         if f'{pos}_deltas_avg_imgs' not in beam_analysis and init_size:
             tmp = np.zeros((init_size, 2))
             tmp[:] = np.nan
