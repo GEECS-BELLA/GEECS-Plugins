@@ -4,7 +4,7 @@ import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 from progressbar import ProgressBar
-from typing import Union, NamedTuple
+from typing import Union, NamedTuple, Any, Optional
 from geecs_api.interface import GeecsDatabase, api_error
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
@@ -18,7 +18,12 @@ from geecs_api.tools.distributions.fit_utility import fit_distribution
 from htu_scripts.analysis.beam_analyses_collector import add_beam_analysis
 
 
-def steering_scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], camera: Union[int, Camera, str]):
+def steering_scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], camera: Union[int, Camera, str]) \
+        -> tuple[Optional[Path], dict[str, Any]]:
+    beam_analysis: dict[str, Any] = {}
+    pos_short_names: list[str] = []
+    pos_long_names: list[str] = []
+
     scan_images = ScanImages(scan_data, camera)
     device_name: str = device.get_name() if isinstance(device, GeecsDevice) else device
     # key_data = scan_data.data_dict[device_name]
@@ -26,23 +31,28 @@ def steering_scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str],
     # scan parameters & binning
     measured: BinningResults = unsupervised_binning(_key_data['Current'], _key_data['shot #'])
 
-    Expected = NamedTuple('Expected', start=float, end=float, steps=int, setpoints=np.ndarray, indexes=list(np.ndarray))
-    steps: int = \
-        round((float(_scan.scan_info['End']) - float(_scan.scan_info['Start'])) / (float(_scan.scan_info['Step']) - 1))
-    expected = Expected(start=float(_scan.scan_info['Start']),
-                        end=float(_scan.scan_info['End']),
+    Expected = NamedTuple('Expected', start=float, end=float, steps=int, shots=int, setpoints=np.ndarray, indexes=list)
+    steps: int = 1 + round((float(scan_data.scan_info['End']) - float(scan_data.scan_info['Start']))
+                           / float(scan_data.scan_info['Step size']))
+    expected = Expected(start=float(scan_data.scan_info['Start']),
+                        end=float(scan_data.scan_info['End']),
                         steps=steps,
-                        setpoints=np.linspace(float(_scan.scan_info['Start']), float(_scan.scan_info['End']), steps),
-                        indexes=[np.arange(p * steps, (p+1) * steps - 1) for p in range(steps)])
+                        shots=int(scan_data.scan_info['Shots per step']),
+                        setpoints=np.linspace(float(scan_data.scan_info['Start']),
+                                              float(scan_data.scan_info['End']),
+                                              steps),
+                        indexes=[np.arange(p * steps, (p+1) * steps) for p in range(steps)])
 
-    matching = all([inds.size == expected.steps for inds in measured.indexes])
+    matching = \
+        all([inds.size == expected.shots for inds in measured.indexes]) and (len(measured.indexes) == expected.steps)
     if not matching:
         api_error.warning(f'Observed data binning does not match expected scan parameters (.ini)',
                           f'Function "{inspect.stack()[0][3]}"')
 
     # list images for each step
     def build_file_name(shot: int):
-        return scan_images.image_folder / f'Scan{scan_data.get_tag().number:03d}_{device_name}_{shot:03d}.png'
+        return scan_images.image_folder / \
+            f'Scan{scan_data.get_tag().number:03d}_{scan_images.camera_name}_{shot:03d}.png'
 
     if matching:
         indexes = expected.indexes
@@ -58,7 +68,8 @@ def steering_scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str],
     analysis_files: list[Path] = []
 
     with ProgressBar(max_value=len(paths)) as pb:
-        for it, step_paths in enumerate(paths):
+        for it, (step_paths, step_val) in enumerate(zip(paths, setpoints)):
+            print(f'Analyzing step "{step_val}"...')
             save_dir: Path = scan_data.get_analysis_folder() / f'Step_{it+1}'
             if not save_dir.is_dir():
                 os.makedirs(save_dir)
@@ -95,44 +106,42 @@ def steering_scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str],
     y_opt, y_fit = fit_distribution(setpoints, beam_analysis[f'{pos}_mean_pos_pix'][:, 1], fit_type='linear')
 
     # export to .dat
+    data_dict: dict[str, Any] = {
+        'indexes': indexes,
+        'setpoints': setpoints,
+        'analysis_files': analysis_files,
+        'beam_analysis': beam_analysis,
+        'device_name': device_name,
+        'scan_folder': scan_images.scan.get_folder(),
+        'camera_name': scan_images.camera_name,
+        'pos_short_names': pos_short_names,
+        'pos_long_names': pos_long_names,
+        'x_opt': x_opt,
+        'x_fit': x_fit,
+        'y_opt': y_opt,
+        'y_fit': y_fit}
     export_file_path = scan_data.get_analysis_folder() / f'steering_analysis_{device_name}'
-    save_py(file_path=export_file_path,
-            data={'indexes': indexes,
-                  'setpoints': setpoints,
-                  'analysis_files': analysis_files,
-                  'beam_analysis': beam_analysis,
-                  'device_name': device_name,
-                  'scan_folder': scan_images.scan.get_folder(),
-                  'camera_name': scan_images.camera_name,
-                  'pos_short_names': pos_short_names,
-                  'pos_long_names': pos_long_names,
-                  'x_opt': x_opt,
-                  'x_fit': x_fit,
-                  'y_opt': y_opt,
-                  'y_fit': y_fit})
+    save_py(file_path=export_file_path, data=data_dict)
     print(f'Data exported to:\n\t{export_file_path}.dat')
+
+    return export_file_path, data_dict
 
 
 if __name__ == '__main__':
     GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-    _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    # _base: Path = Path(r'Z:\data')
-    _base_tag = (2023, 4, 18, 27)
-    _camera_tag = 'A1'
+    # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    _base: Path = Path(r'Z:\data')
 
+    _base_tag = (2023, 4, 13, 26)
     _key_device = 'U_S4H'
+    _camera_tag = 'A2'
 
-    _scan = ScanData(tag=_base_tag, experiment_base_path=_base / 'Undulator')
-    _key_data = _scan.data_dict[_key_device]
+    _scan_data = ScanData(tag=_base_tag, experiment_base_path=_base / 'Undulator')
 
+    # data preview
+    _key_data = _scan_data.data_dict[_key_device]
     _bins: BinningResults = unsupervised_binning(_key_data['Current'], _key_data['shot #'])
-
-    plt.figure()
-    plt.plot(_key_data['shot #'], _key_data['Current'], '.b', alpha=0.3)
-    plt.xlabel('Shot #')
-    plt.ylabel('Current [A]')
-    plt.show(block=False)
 
     plt.figure()
     for x, _ind in zip(_bins.avg_x, _bins.indexes):
@@ -140,5 +149,8 @@ if __name__ == '__main__':
     plt.xlabel('Current [A]')
     plt.ylabel('Indexes')
     plt.show(block=True)
+
+    # run analysis
+    _export_file_path, _data_dict = steering_scan_analysis(_scan_data, _key_device, _camera_tag)
 
     print('done')

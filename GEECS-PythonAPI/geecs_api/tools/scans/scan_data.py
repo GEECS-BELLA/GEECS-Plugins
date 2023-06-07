@@ -142,9 +142,10 @@ class ScanData:
 
     def load_scan_info(self):
         config_parser = ConfigParser()
-        config_parser.read(self.__folder/f'ScanInfoScan{self.__tag.number:03d}.ini')
+        config_parser.optionxform = str
 
         try:
+            config_parser.read(self.__folder / f'ScanInfoScan{self.__tag.number:03d}.ini')
             self.scan_info.update({key: value.strip("'\"")
                                    for key, value in config_parser.items("Scan Info")})
         except NoSectionError:

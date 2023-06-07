@@ -18,6 +18,10 @@ def unsupervised_binning(x_data: np.ndarray, y_data: np.ndarray, n_bins_min: int
 
     # sorted dx, and d(dx)
     d1x: np.ndarray = x_data[1:] - x_data[:-1]
+    if all(d1x == 0):
+        return BinningResults(avg_x=np.empty((0,)), avg_y=np.empty((0,)), std_x=np.empty((0,)), std_y=np.empty((0,)),
+                              near_ix=np.empty((0,)), indexes=[], bins=np.empty((0,)))
+
     d1x_permutations = np.argsort(d1x)
     d1x = d1x[d1x_permutations]
 
