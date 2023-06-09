@@ -16,7 +16,7 @@ tk_root = tk.Tk()
 tk_root.withdraw()
 
 
-def save_py(file_path: Optional[Path] = None, data: Optional[dict[str, Any]] = None):
+def save_py(file_path: Optional[Path] = None, data: Optional[dict[str, Any]] = None, as_bulk: bool = False):
     if not file_path and data:
         file_path = filedialog.asksaveasfilename(defaultextension='',
                                                  filetypes=[('All Files', '*.*'), ('Shelve Files', '*.dat')],
@@ -29,16 +29,24 @@ def save_py(file_path: Optional[Path] = None, data: Optional[dict[str, Any]] = N
         file_path = Path(file_path)
 
     with shelve.open(str(file_path), 'c') as shelve_file:
-        for key, value in data.items():
+        if as_bulk:
             try:
-                shelve_file[key] = value
+                shelve_file['data'] = data
             except Exception as ex:
-                print(f'Failed to write "{key}" data to shelve file')
+                print('Failed to write data as bulk to shelve file')
                 print(ex)
-                continue
+        else:
+            for key, value in data.items():
+                try:
+                    shelve_file[key] = value
+                except Exception as ex:
+                    print(f'Failed to write "{key}" data to shelve file')
+                    print(ex)
+                    continue
 
 
-def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = None, as_dict: bool = False) \
+def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = None,
+            as_dict: bool = False, as_bulk: bool = False) \
         -> tuple[Optional[dict[str, Any]], Union[Path, str]]:
     if file_path and not re.search(r'\.[^\.]+$', str(file_path)):
         file_path = Path(f'{file_path}.dat')
@@ -70,6 +78,8 @@ def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = N
                 globals()[key] = value
 
     if as_dict:
+        if as_bulk:
+            data = data['data']
         return data, file_path
     else:
         return None, file_path
@@ -139,12 +149,14 @@ if __name__ == '__main__':
     # load_mat(test_file, variables=['str', 'lst', 'num', 'arr', 'dct'])
 
     # test_file = Path(test_file.__str__()[:-4])
-    save_py(test_file, data=_data)
-    load_py(test_file, variables=['str', 'lst', 'num', 'arr', 'dct'])
+    # save_py(test_file, data=_data)
+    # load_py(test_file, variables=['str', 'lst', 'num', 'arr', 'dct'])
 
     # load_py(Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\05-May\23_0509\analysis\
     # Scan028\UC_VisaEBeam7\profiles_analysis.dat'))
     # noinspection PyUnboundLocalVariable
     # average_analysis = uns.UndulatorNoScan.is_image_valid(average_analysis, 2.)
+
+    analysis, analysis_file = load_py(as_dict=True)
 
     print('done')

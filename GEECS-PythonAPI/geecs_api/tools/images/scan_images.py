@@ -104,13 +104,15 @@ class ScanImages:
         return image.astype('float64')
 
     def run_analysis_with_checks(self, images: Union[int, list[Path]] = -1, initial_filtering=FiltersParameters(),
-                                 plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
+                                 trim_collection: bool = False, plots: bool = False, save: bool = False) \
+            -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
 
         while True:
             try:
-                export_file_path, data_dict = self.analyze_image_batch(images, initial_filtering, plots, save)
+                export_file_path, data_dict = \
+                    self.analyze_image_batch(images, initial_filtering, trim_collection, plots, save)
             except Exception as ex:
                 api_error(str(ex), f'Failed to analyze {self.scan.get_folder().name}')
                 pass
@@ -132,7 +134,8 @@ class ScanImages:
         return export_file_path, data_dict
 
     def analyze_image_batch(self, images: Union[int, list[Path]] = -1, filtering=FiltersParameters(),
-                            plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
+                            trim_collection: bool = False, plots: bool = False, save: bool = False) \
+            -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
 
@@ -151,7 +154,7 @@ class ScanImages:
                 with ProgressBar(max_value=len(paths)) as pb:
                     # analyze one at a time until valid image found to initialize average
                     for skipped, image_path in enumerate(paths):
-                        analysis = self.analyze_image(image_path, filtering)
+                        analysis = self.analyze_image(image_path, filtering, trim_collection)
                         analysis['image_path'] = image_path
 
                         if analysis['is_valid']:
@@ -171,7 +174,7 @@ class ScanImages:
                     # analyze the rest of the images
                     if len(paths) > (skipped + 1):
                         for it, image_path in enumerate(paths[skipped+1:]):
-                            analysis = self.analyze_image(image_path, filtering)
+                            analysis = self.analyze_image(image_path, filtering, trim_collection)
                             analysis['image_path'] = image_path
 
                             if analysis['is_valid']:
@@ -200,7 +203,7 @@ class ScanImages:
                     print('No file skipped.')
 
                 # analyze the average image
-                self.average_analysis = self.analyze_image(avg_image, filtering)
+                self.average_analysis = self.analyze_image(avg_image, filtering, trim_collection)
                 try:
                     self.average_analysis = \
                         ScanImages.profiles_analysis(self.average_analysis)
@@ -241,7 +244,8 @@ class ScanImages:
 
         return export_file_path, data_dict
 
-    def analyze_image(self, image: Union[Path, np.ndarray], filtering=FiltersParameters()) -> dict[str, Any]:
+    def analyze_image(self, image: Union[Path, np.ndarray], filtering=FiltersParameters(),
+                      trim_collection: bool = False) -> dict[str, Any]:
         # raw image
         if isinstance(image, np.ndarray):
             image_raw = image
@@ -267,26 +271,6 @@ class ScanImages:
             # beam edges
             image_edges: np.ndarray = canny(analysis['image_thresholded'], sigma=3)
             image_edges = closing(image_edges.astype(float), square(3))
-            # image_edges = clear_border(image_edges)
-
-            # edges_binary = image_edges.astype('uint8') * 255
-            # contours = cv2.findContours(edges_binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            # hierarchy = contours[1] if len(contours) == 2 else contours[2]
-            # contours = contours[0] if len(contours) == 2 else contours[1]
-            # hierarchy = hierarchy[0]
-            #
-            # count = 0
-            # result = edges_binary.copy()
-            # result = cv2.merge([result, result, result])
-            # for component in zip(contours, hierarchy):
-            #     cntr = component[0]
-            #     hier = component[1]
-            #     # discard outermost no parent contours and keep innermost no child contours
-            #     # hier = indices for next, previous, child, parent
-            #     # no parent or no child indicated by negative values
-            #     if (hier[3] > -1) & (hier[2] < 0):
-            #         count = count + 1
-            #         cv2.drawContours(result, [cntr], 0, (0, 0, 255), 2)
 
             # boxed image
             if filtering.box:
@@ -347,6 +331,11 @@ class ScanImages:
 
         except Exception:
             pass
+
+        if trim_collection:
+            analysis.pop('image_denoised')
+            analysis.pop('image_blurred')
+            analysis.pop('image_thresholded')
 
         return analysis
 

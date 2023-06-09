@@ -33,29 +33,31 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
                 if x_window:
                     axis_x = np.arange(x_window[0], x_window[1] + 1)
                     data_x = image[pos_i, x_window[0]:x_window[1]+1]
-                    opt_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
+                    opt_x, err_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
                 else:
                     axis_x = np.arange(image.shape[1])
                     data_x = image[pos_i, :]
-                    opt_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
+                    opt_x, err_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
 
                 analysis[f'axis_x_{name}'] = axis_x
                 analysis[f'data_x_{name}'] = data_x
-                analysis[f'opt_x_{name}'] = opt_x[0]
+                analysis[f'opt_x_{name}'] = opt_x
+                analysis[f'err_x_{name}'] = err_x
                 analysis[f'fit_x_{name}'] = fit_x
 
                 if y_window:
                     axis_y = np.arange(y_window[0], y_window[1] + 1)
                     data_y = image[y_window[0]:y_window[1]+1, pos_j]
-                    opt_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
+                    opt_y, err_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
                 else:
                     axis_y = np.arange(image.shape[0])
                     data_y = image[:, pos_j]
-                    opt_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
+                    opt_y, err_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
 
                 analysis[f'axis_y_{name}'] = axis_y
                 analysis[f'data_y_{name}'] = data_y
-                analysis[f'opt_y_{name}'] = opt_y[0]
+                analysis[f'opt_y_{name}'] = opt_y
+                analysis[f'err_y_{name}'] = err_y
                 analysis[f'fit_y_{name}'] = fit_y
 
     except Exception:
@@ -70,7 +72,7 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
                 guess_fwhm: Optional[float] = None,
                 guess_amplitude: Optional[float] = None,
                 guess_background: Optional[float] = None):
-    smoothed = savgol_filter(y_data, max(int(len(y_data) / 5), 2), 3)
+    smoothed = savgol_filter(y_data, max(int(len(y_data) / 6), 2), 3)
     if not guess_center:
         guess_center = x_data[0] + \
                        (simg.center_of_mass(smoothed)[0] + np.where(smoothed == np.max(smoothed))[0][0]) / 2.
@@ -95,7 +97,8 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
               np.array([np.max(y_data), 2 * guess_amplitude, x_data[-1], 10 * guess_std]))
 
     # noinspection PyTypeChecker
-    return fit_distribution(x_data, y_data, fit_type='gaussian', guess=guess, bounds=bounds)
+    opt, err, fit = fit_distribution(x_data, y_data, fit_type='gaussian', guess=guess, bounds=bounds)
+    return opt, err, fit
 
 
 def find_spot(image: np.ndarray,

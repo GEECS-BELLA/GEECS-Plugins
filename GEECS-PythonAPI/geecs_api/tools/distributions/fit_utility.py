@@ -1,38 +1,40 @@
 """ @author: Guillaume Plateau, TAU Systems """
 
 import numpy as np
-import scipy.optimize as sopt
+from scipy.optimize import curve_fit
 
 
+# noinspection PyTupleAssignmentBalance
 def fit_distribution(x_data: np.ndarray, y_data: np.ndarray, fit_type='linear', guess=None, bounds=None):
     """
     fit_type: 'linear', 'root', 'gaussian'
     """
     fit: np.ndarray = y_data
-    opt = None
+    opt = err = None
 
     if fit_type == 'linear':
         if bounds:
-            opt = sopt.curve_fit(linear_fit, x_data, y_data, p0=guess, bounds=bounds)
+            opt, err = curve_fit(linear_fit, x_data, y_data, p0=guess, bounds=bounds)
         else:
-            opt = sopt.curve_fit(linear_fit, x_data, y_data, p0=guess)
-        fit = linear_fit(x_data, *opt[0])
+            opt, err = curve_fit(linear_fit, x_data, y_data, p0=guess)
+        fit = linear_fit(x_data, *opt)
 
     if fit_type == 'root':
         if bounds:
-            opt = sopt.curve_fit(root_fit, x_data, y_data, p0=guess, bounds=bounds)
+            opt, err = curve_fit(root_fit, x_data, y_data, p0=guess, bounds=bounds)
         else:
-            opt = sopt.curve_fit(root_fit, x_data, y_data, p0=guess)
-        fit = root_fit(x_data, *opt[0])
+            opt, err = curve_fit(root_fit, x_data, y_data, p0=guess)
+        fit = root_fit(x_data, *opt)
 
     if fit_type == 'gaussian':
         if bounds:
-            opt = sopt.curve_fit(gaussian_fit, x_data, y_data, p0=guess, bounds=bounds)
+            opt, err = curve_fit(gaussian_fit, x_data, y_data, p0=guess, bounds=bounds)
         else:
-            opt = sopt.curve_fit(gaussian_fit, x_data, y_data, p0=guess)
-        fit = gaussian_fit(x_data, *opt[0])
+            opt, err = curve_fit(gaussian_fit, x_data, y_data, p0=guess)
+        fit = gaussian_fit(x_data, *opt)
 
-    return opt, fit
+    err = np.sqrt(np.diag(err))
+    return opt, err, fit
 
 
 def linear_fit(x, m, b):
