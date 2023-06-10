@@ -1,0 +1,72 @@
+data:
+  HexV:
+    '1': 0.3849774879
+    '2': -0.7803382017
+  HexW:
+    '1': 0.5679845665
+    '2': -0.4401468142
+  HexY:
+    '1': 0.3697534557
+    '2': -0.0246911506
+  HexZ:
+    '1': -0.482054151
+    '2': 0.7289481493
+  f:
+    '1': 0.012475
+    '2': 0.025085
+  xopt_error:
+    '1': false
+    '2': false
+  xopt_runtime:
+    '1': 0.0133953
+    '2': 0.0110962
+evaluator:
+  function: __main__.geecs_measurement
+  function_kwargs: {}
+  max_workers: 1
+  vectorized: false
+generator:
+  acq:
+    beta: 0.1
+    monte_carlo_samples: 128
+    proximal_lengthscales: null
+    use_transformed_proximal_weights: true
+  model:
+    covar_modules: {}
+    custom_constructor: null
+    mean_modules: {}
+    name: standard
+    use_low_noise_prior: true
+  n_initial: 2
+  name: upper_confidence_bound
+  optim:
+    max_travel_distances: null
+    num_restarts: 20
+    raw_samples: 20
+    sequential: true
+    use_turbo: false
+  use_cuda: false
+vocs:
+  constants: {}
+  constraints: {}
+  linked_variables: {}
+  objectives:
+    f: MAXIMIZE
+  variables:
+    HexV:
+    - -1.0
+    - 1.0
+    HexW:
+    - -1.0
+    - 1.0
+    HexY:
+    - -1.0
+    - 1.0
+    HexZ:
+    - -1.0
+    - 1.0
+xopt:
+  asynch: false
+  dump_file: dump.yaml
+  max_evaluations: null
+  strict: false

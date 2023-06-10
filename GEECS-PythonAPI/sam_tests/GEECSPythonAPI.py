@@ -115,7 +115,7 @@ class GEECSDevice:
     def find_database(self):
         found=False
         while not found:
-            os.chdir('../..')
+            os.chdir('../')
             found = os.path.exists('user data')
         os.chdir('user data')
         config = configparser.ConfigParser()
@@ -197,7 +197,7 @@ class GEECSDevice:
                 #print("command rejected")
                 pass
                 
-            time.sleep(0.25)
+            #time.sleep(0.25)
 
         if command_accepted:
             if kwargs['wait_for_response']:
