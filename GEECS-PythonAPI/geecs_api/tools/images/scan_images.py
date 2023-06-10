@@ -203,8 +203,8 @@ class ScanImages:
                     print('No file skipped.')
 
                 # analyze the average image
-                self.average_analysis = self.analyze_image(avg_image, filtering, trim_collection)
                 try:
+                    self.average_analysis = self.analyze_image(avg_image, filtering, trim_collection)
                     self.average_analysis = \
                         ScanImages.profiles_analysis(self.average_analysis)
                     if plots:

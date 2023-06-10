@@ -19,7 +19,7 @@ from progressbar import ProgressBar
 
 
 def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path, str]]], screen_labels: list[str],
-                          save_dir: Optional[SysPath] = None) -> dict[str, Any]:
+                          initial_filtering=FiltersParameters(), save_dir: Optional[SysPath] = None) -> dict[str, Any]:
     """
     no_scans = dict of tuples (analysis file paths, scan data directory paths)
     """
@@ -51,7 +51,7 @@ def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path
                 no_scan = ScanImages(scan_obj, lbl)
                 analysis_file, analysis = \
                     no_scan.run_analysis_with_checks(images=-1, plots=True, save=bool(save_dir),
-                                                     initial_filtering=FiltersParameters(com_threshold=0.66))
+                                                     initial_filtering=initial_filtering)
                 keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
                                   accepted_answers=['y', 'yes', 'n', 'no'])
                 if keep.lower()[0] == 'n':
@@ -209,15 +209,21 @@ if __name__ == '__main__':
         GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # Parameters
-    _base_tag = (2023, 4, 20, 0)
-    _first_scan = 48
-    _first_screen = 3
-    _n_screens = 1
-    _scans_screens = [(_first_scan + n, f'U{_first_screen + n}') for n in range(_n_screens)]
-    # _scans_screens = [(37, 'P1'),
-    #                   (38, 'A1'),
-    #                   (39, 'A2'),
-    #                   (40, 'A3')]
+    _base_tag = (2023, 6, 9, 0)
+    # _first_scan = 1
+    # _first_screen = 3
+    # _n_screens = 1
+    # _scans_screens = [(_first_scan + n, f'U{_first_screen + n}') for n in range(_n_screens)]
+    _scans_screens = [(1, 'A2'),
+                      (1, 'A3'),
+                      (1, 'U1'),
+                      (1, 'U2'),
+                      (1, 'U3'),
+                      (1, 'U4'),
+                      (1, 'U5'),
+                      (1, 'U6'),
+                      (1, 'U7'),
+                      (1, 'U8')]
 
     # Folders/Files
     _analysis_files: list[Path] = \
@@ -230,12 +236,15 @@ if __name__ == '__main__':
     _no_scans: dict[str, tuple[Path, Path]] = \
         {key[1]: (analysis, data) for key, analysis, data in zip(_scans_screens, _analysis_files, _scan_paths)}
 
-    _save_dir = None
-    # _save_dir = _analysis_files[0].parents[2] / \
-    #     f'{_scan_paths[0].name}_Screens_{_scans_screens[0][1]}_{_scans_screens[-1][1]}'
+    # _save_dir = None
+    _save_dir = _analysis_files[0].parents[2] / \
+        f'{_scan_paths[0].name}_Screens_{_scans_screens[0][1]}_{_scans_screens[-1][1]}'
     _labels = [label[1] for label in _scans_screens]  # separate from list(_scans_screens.keys()) to define an order
 
     # Analysis
-    _data_dict = screens_scan_analysis(no_scans=_no_scans, screen_labels=_labels, save_dir=_save_dir)
+    _data_dict = screens_scan_analysis(no_scans=_no_scans, screen_labels=_labels,
+                                       initial_filtering=FiltersParameters(com_threshold=0.66,
+                                                                           contrast=0.333),
+                                       save_dir=_save_dir)
 
     print('done')

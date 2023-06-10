@@ -129,7 +129,8 @@ class ScanData:
 
         # scalar data
         tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
-        self.data_dict, self.data_frame = read_geecs_tdms(tdms_path)
+        if tdms_path.is_file():
+            self.data_dict, self.data_frame = read_geecs_tdms(tdms_path)
 
     def get_folder(self) -> Optional[Path]:
         return self.__folder
