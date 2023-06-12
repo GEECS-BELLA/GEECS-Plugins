@@ -238,10 +238,10 @@ def find_roi(image: np.ndarray, threshold: Optional[float] = None, plots: bool =
 
 
 if __name__ == '__main__':
-    # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    _base = Path(r'Z:\data')
+    _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    # _base = Path(r'Z:\data')
 
-    _camera = 'UC_VisaEBeam8'
+    _camera = 'UC_ALineEBeam2'
     _folder = _base / fr'Undulator\Y2023\06-Jun\23_0609\scans\Scan001\{_camera}'
 
     _range = None

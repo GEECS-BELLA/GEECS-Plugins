@@ -54,7 +54,7 @@ class Camera(GeecsDevice):
             self.roi = None
 
         self.label = Camera.label_from_name(self.get_name())
-        self.rot_90 = Camera.get_rot_90(self.label)
+        self.rot_90: int = Camera.get_rot_90(self.label)
 
     @staticmethod
     def get_rot_90(label: str) -> int:
