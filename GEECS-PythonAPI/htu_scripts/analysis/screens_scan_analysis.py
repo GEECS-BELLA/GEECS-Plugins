@@ -19,8 +19,7 @@ from progressbar import ProgressBar
 
 
 def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path, str]]], screen_labels: list[str],
-                          initial_filtering=FiltersParameters(), save_dir: Optional[SysPath] = None,
-                          ignore_experiment_name: bool = False) -> dict[str, Any]:
+                          initial_filtering=FiltersParameters(), save_dir: Optional[SysPath] = None) -> dict[str, Any]:
     """
     no_scans = dict of tuples (analysis file paths, scan data directory paths)
     """
@@ -48,7 +47,7 @@ def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path
 
             if (analyze.lower()[0] == 'y') or (not analysis_file.is_file()):
                 print(f'\nAnalyzing {scan_path.name} ("{lbl}")...')
-                scan_obj = ScanData(scan_path, ignore_experiment_name=ignore_experiment_name)
+                scan_obj = ScanData(scan_path)
                 no_scan = ScanImages(scan_obj, lbl)
                 analysis_file, analysis = \
                     no_scan.run_analysis_with_checks(images=-1, plots=True, save=bool(save_dir),
@@ -202,8 +201,8 @@ def render_screens_scan_analysis(pos_short_names: list[str], pos_long_names: lis
 
 
 if __name__ == '__main__':
-    base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    # base_path = Path(r'Z:\data')
+    # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    base_path = Path(r'Z:\data')
 
     is_local = (str(base_path)[0] == 'C')
     if not is_local:
@@ -246,7 +245,6 @@ if __name__ == '__main__':
     _data_dict = screens_scan_analysis(no_scans=_no_scans, screen_labels=_labels,
                                        initial_filtering=FiltersParameters(com_threshold=0.66,
                                                                            contrast=0.333),
-                                       save_dir=_save_dir,
-                                       ignore_experiment_name=True)
+                                       save_dir=_save_dir)
 
     print('done')

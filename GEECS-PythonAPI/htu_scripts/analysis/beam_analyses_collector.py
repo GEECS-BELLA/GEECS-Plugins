@@ -27,7 +27,7 @@ def add_beam_analysis(beam_analysis: dict[str, Any], analysis_dict: dict[str, An
             beam_analysis[f'pos_pix_{pos}']: list[np.ndarray] = []
             beam_analysis[f'{pos}_mean_pos_pix'] = tmp.copy()
             beam_analysis[f'{pos}_std_pos_pix'] = tmp.copy()
-            beam_analysis['target_ij'] = tmp.copy()
+            beam_analysis['target_xy'] = tmp.copy()
             beam_analysis['target_um_pix'] = np.ones((init_size,), dtype=float)
 
         if targets and (f'avg_img_{pos}_delta' in targets):
@@ -35,7 +35,7 @@ def add_beam_analysis(beam_analysis: dict[str, Any], analysis_dict: dict[str, An
             beam_analysis[f'{pos}_deltas_means'][index, :] = targets[f'target_deltas_{pos}_mean']
             beam_analysis[f'{pos}_deltas_stds'][index, :] = targets[f'target_deltas_{pos}_std']
 
-            beam_analysis['target_ij'][index, :] = targets['target_ij']
+            beam_analysis['target_xy'][index, :] = targets['target_xy']
             beam_analysis['target_um_pix'][index] = targets['target_um_pix']
 
         if summary and (f'mean_pos_{pos}_fwhm_x' in summary):
