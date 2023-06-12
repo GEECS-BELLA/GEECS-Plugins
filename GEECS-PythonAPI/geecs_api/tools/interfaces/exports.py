@@ -61,7 +61,8 @@ def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = N
         return None, ''
     else:
         file_path = Path(file_path)
-        file_path = re.split(r'\.[^\.]+$', str(file_path))[0]
+        file_path = file_path.parent / file_path.name[:-len(file_path.suffix)]
+        # file_path = re.split(r'\.[^\.]+$', str(file_path))[0]
 
     data = {}
     with shelve.open(str(file_path), 'r') as shelve_file:
@@ -134,16 +135,16 @@ def save_csv(file_name=None, file_dir=None, data=None, header='', data_format='%
 
 
 if __name__ == '__main__':
-    a_string = 'hello!'
-    a_list = [a_string, 'people']
-    a_numeric = 1.23456789
-    an_array = np.random.random((3, 4))
-    a_dict = {'str': a_string, 'lst': a_list, 'num': a_numeric, 'arr': an_array}
-
-    _data = {'str': a_string, 'lst': a_list, 'num': a_numeric, 'arr': an_array, 'dct': a_dict}
+    # a_string = 'hello!'
+    # a_list = [a_string, 'people']
+    # a_numeric = 1.23456789
+    # an_array = np.random.random((3, 4))
+    # a_dict = {'str': a_string, 'lst': a_list, 'num': a_numeric, 'arr': an_array}
+    #
+    # _data = {'str': a_string, 'lst': a_list, 'num': a_numeric, 'arr': an_array, 'dct': a_dict}
 
     # test_file = Path(r'C:\Users\GuillaumePlateau\Desktop\tests\test.mat')
-    test_file = None
+    # test_file = None
 
     # save_mat(test_file, data=_data)
     # load_mat(test_file, variables=['str', 'lst', 'num', 'arr', 'dct'])
@@ -152,10 +153,9 @@ if __name__ == '__main__':
     # save_py(test_file, data=_data)
     # load_py(test_file, variables=['str', 'lst', 'num', 'arr', 'dct'])
 
-    # load_py(Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\05-May\23_0509\analysis\
-    # Scan028\UC_VisaEBeam7\profiles_analysis.dat'))
-    # noinspection PyUnboundLocalVariable
-    # average_analysis = uns.UndulatorNoScan.is_image_valid(average_analysis, 2.)
+    _file_path = Path(r'C:/Users/GuillaumePlateau/Documents/LBL/Data/Undulator/Y2023/06-Jun/23_0609/analysis/'
+                      r'Scan001_Screens_A2_U8/beam_analysis.dat')
+    load_py(_file_path)
 
     analysis, analysis_file = load_py(as_dict=True)
 

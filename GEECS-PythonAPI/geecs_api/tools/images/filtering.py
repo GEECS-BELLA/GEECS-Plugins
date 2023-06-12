@@ -201,7 +201,7 @@ def check_roi(images: Path, initial_roi: Optional[np.ndarray] = None, camera_nam
 
 
 def find_roi(image: np.ndarray, threshold: Optional[float] = None, plots: bool = False):
-    roi_box = np.array([0, image.shape[1] - 1, 0, image.shape[0]])  # left, right, top, bottom
+    roi_box = np.array([0, image.shape[1] - 1, 0, image.shape[0] - 1])  # left, right, top, bottom
 
     try:
         # filter and smooth

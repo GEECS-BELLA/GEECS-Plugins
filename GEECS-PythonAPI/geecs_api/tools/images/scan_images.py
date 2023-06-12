@@ -99,7 +99,7 @@ class ScanImages:
     def read_image_as_float(self, image_path: Path) -> np.ndarray:
         image = ni.read_imaq_image(image_path)
         if isinstance(self.camera_roi, np.ndarray) and (self.camera_roi.size >= 4):
-            image = image[self.camera_roi[-2]:self.camera_roi[-1], self.camera_roi[0]:self.camera_roi[1]]
+            image = image[self.camera_roi[-2]:self.camera_roi[-1]+1, self.camera_roi[0]:self.camera_roi[1]+1]
         image = np.rot90(image, self.camera_r90)
         return image.astype('float64')
 
@@ -259,6 +259,11 @@ class ScanImages:
         # initial filtering
         analysis = basic_filter(image_raw, filtering.hp_median, filtering.hp_threshold, filtering.denoise_cycles,
                                 filtering.gauss_filter, filtering.com_threshold)
+        if not self.camera_roi:
+            analysis['image_roi'] = \
+                np.array([0, image_raw.shape[1] - 1, 0, image_raw.shape[0] - 1])  # left, right, top, bottom
+        else:
+            analysis['image_roi'] = self.camera_roi.copy()
 
         # check image
         analysis = ScanImages.is_image_valid(analysis, filtering.contrast)
@@ -346,24 +351,26 @@ class ScanImages:
         try:
             target_analysis['target_um_pix'] = \
                 float(GeecsDevice.exp_info['devices'][self.camera_name]['SpatialCalibration']['defaultvalue'])
-            target_analysis['target_xy'] = \
+            target_analysis['target_ij'] = \
                 (float(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue']),
                  float(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue']))
         except Exception:
             target_analysis['target_um_pix'] = 1.
-            target_analysis['target_xy'] = (0., 0.)
+            target_analysis['target_ij'] = (0., 0.)
 
         if self.average_analysis and self.analyses_summary:
             for pos in positions:
                 if f'position_{pos}' in self.average_analysis and self.average_analysis[f'position_{pos}']:
-                    target_analysis[f'avg_img_{pos}_delta'] = \
-                        (np.array(self.average_analysis[f'position_{pos}']) - np.array(target_analysis['target_xy'])) \
-                        * target_analysis['target_um_pix'] / 1000.
+                    target_analysis[f'avg_img_{pos}_delta'] = (np.array(self.average_analysis[f'position_{pos}'])
+                                                               + self.camera_roi[[2, 0]]
+                                                               - np.array(target_analysis['target_ij'])) \
+                                                              * target_analysis['target_um_pix'] / 1000.
 
                 if f'scan_pos_{pos}' in self.analyses_summary and self.analyses_summary[f'scan_pos_{pos}'].any():
-                    target_analysis[f'scan_pos_{pos}_delta'] = \
-                        (np.array(self.analyses_summary[f'scan_pos_{pos}']) - np.array(target_analysis['target_xy'])) \
-                        * target_analysis['target_um_pix'] / 1000.
+                    target_analysis[f'scan_pos_{pos}_delta'] = (np.array(self.analyses_summary[f'scan_pos_{pos}'])
+                                                                + self.camera_roi[[2, 0]]
+                                                                - np.array(target_analysis['target_ij'])) \
+                                                               * target_analysis['target_um_pix'] / 1000.
                     target_analysis[f'target_deltas_{pos}_mean'] = \
                         np.mean(target_analysis[f'scan_pos_{pos}_delta'], axis=0)
                     target_analysis[f'target_deltas_{pos}_std'] = \
