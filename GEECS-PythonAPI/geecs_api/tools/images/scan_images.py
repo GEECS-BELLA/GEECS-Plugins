@@ -76,7 +76,7 @@ class ScanImages:
 
         if angle:
             self.camera_r90: int = int(round(angle / 90.))
-        self.raw_size: tuple[int, int] = (0, 0)
+        self.raw_size: tuple[int, int] = (0, 0)  # to be updated by latest opened image
 
         self.camera_label: str = Camera.label_from_name(self.camera_name)
 
