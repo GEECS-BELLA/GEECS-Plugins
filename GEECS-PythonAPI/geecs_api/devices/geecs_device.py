@@ -24,10 +24,19 @@ class GeecsDevice:
     # Static
     threads_lock = Lock()
     all_threads: list[ThreadInfo] = []
+
+    appdata_path: Path
     if os.name == 'nt':
-        appdata_path: Path = Path(os.getenv('LOCALAPPDATA')) / 'GEECS'
+        appdata_path = Path(os.getenv('LOCALAPPDATA')) / 'GEECS'
     elif os.name == 'posix':
-        appdata_path: Path = Path(os.getenv('TMPDIR')) / 'GEECS'
+        appdata_path = Path(os.getenv('TMPDIR')) / 'GEECS'
+    elif 'USERPROFILE' in os.environ:
+        appdata_path = Path(os.getenv('USERPROFILE')) / 'GEECS'
+    elif 'HOME' in os.environ:
+        appdata_path = Path(os.getenv('HOME')) / 'GEECS'
+    else:
+        appdata_path = Path(os.getenv('LOCALAPPDATA')) / 'GEECS'
+
     scan_file_path: Path = appdata_path / 'geecs_scan.txt'
     exp_info: dict[str, Any] = {}
 

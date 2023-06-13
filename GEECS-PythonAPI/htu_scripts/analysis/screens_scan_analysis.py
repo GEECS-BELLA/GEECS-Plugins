@@ -1,4 +1,5 @@
 import os
+import time
 import numpy as np
 import calendar as cal
 from pathlib import Path
@@ -20,7 +21,8 @@ from progressbar import ProgressBar
 
 def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path, str]]], screen_labels: list[str],
                           initial_filtering=FiltersParameters(), save_dir: Optional[SysPath] = None,
-                          ignore_experiment_name: bool = False) -> dict[str, Any]:
+                          ignore_experiment_name: bool = False, trim_collection: bool = False,
+                          new_targets: bool = False) -> dict[str, Any]:
     """
     no_scans = dict of tuples (analysis file paths, scan data directory paths)
     """
@@ -41,9 +43,10 @@ def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path
 
     with ProgressBar(max_value=len(no_scans)) as pb:
         for it, (lbl, (analysis_file, scan_path)) in enumerate(no_scans.items()):
+            analysis: dict[str, Any] = {}
             analyze: str = 'y'
             if analysis_file.is_file():
-                analyze = text_input(f'Re-run the analysis ({scan_path.name})? : ',
+                analyze = text_input(f'\nRe-run the analysis ({scan_path.name}, {lbl})? : ',
                                      accepted_answers=['y', 'yes', 'n', 'no'])
 
             if (analyze.lower()[0] == 'y') or (not analysis_file.is_file()):
@@ -51,16 +54,16 @@ def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path
                 scan_obj = ScanData(scan_path, ignore_experiment_name=ignore_experiment_name)
                 no_scan = ScanImages(scan_obj, lbl)
                 analysis_file, analysis = \
-                    no_scan.run_analysis_with_checks(images=-1, plots=True, save=bool(save_dir),
-                                                     initial_filtering=initial_filtering)
-                keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
-                                  accepted_answers=['y', 'yes', 'n', 'no'])
-                if keep.lower()[0] == 'n':
-                    continue
+                    no_scan.run_analysis_with_checks(images=-1, initial_filtering=initial_filtering,
+                                                     trim_collection=trim_collection, new_targets=new_targets,
+                                                     plots=True, save=bool(save_dir))
 
             if not analysis:
                 print('Loading analysis...')
                 analysis, analysis_file = load_py(analysis_file, as_dict=True)
+                scan_obj = ScanData(scan_path, ignore_experiment_name=ignore_experiment_name)
+                no_scan = ScanImages(scan_obj, lbl)
+                no_scan.render_image_analysis(analysis['average_analysis'], tag='average_image', block=True, save=False)
 
             if not analysis:
                 continue  # skip
@@ -69,6 +72,11 @@ def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path
                 analysis_file = ''
             analysis_files.append(analysis_file)
             scan_paths.append(scan_path)
+
+            keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
+                              accepted_answers=['y', 'yes', 'n', 'no'])
+            if keep.lower()[0] == 'n':
+                continue
 
             # noinspection PyUnboundLocalVariable
             label = Camera.label_from_name(analysis['camera_name'])
@@ -79,6 +87,7 @@ def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path
                 add_beam_analysis(beam_analysis, analysis, pos_short_names, pos_long_names, index, len(screen_labels))
 
             pb.increment()
+            time.sleep(0.01)
 
     data_dict: dict[str, Any] = {'screen_labels': screen_labels,
                                  'analysis_files': analysis_files,
@@ -98,8 +107,8 @@ def screens_scan_analysis(no_scans: dict[str, tuple[Union[Path, str], Union[Path
     ys_deltas = (np.inf, -np.inf)
     ys_fwhms = (np.inf, -np.inf)
     for pos in pos_short_names:
-        ys_deltas = (min(ys_deltas[0], np.min(beam_analysis[f'{pos}_deltas_means'])),
-                     max(ys_deltas[1], np.max(beam_analysis[f'{pos}_deltas_means'])))
+        ys_deltas = (min(ys_deltas[0], np.min(beam_analysis[f'{pos}_deltas_mm_means'])),
+                     max(ys_deltas[1], np.max(beam_analysis[f'{pos}_deltas_mm_means'])))
         ys_fwhms = (min(ys_fwhms[0], np.min(beam_analysis[f'{pos}_fwhm_means'])),
                     max(ys_fwhms[1], np.max(beam_analysis[f'{pos}_fwhm_means'])))
 
@@ -135,10 +144,10 @@ def render_screens_scan_analysis(pos_short_names: list[str], pos_long_names: lis
         # Deltas X
         axs[0, it].fill_between(
             x_axis,
-            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 1] - beam_analysis[f'{pos}_deltas_stds'][:, 1]),
-            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 1] + beam_analysis[f'{pos}_deltas_stds'][:, 1]),
+            f_deltas * (beam_analysis[f'{pos}_deltas_mm_means'][:, 1] - beam_analysis[f'{pos}_deltas_mm_stds'][:, 1]),
+            f_deltas * (beam_analysis[f'{pos}_deltas_mm_means'][:, 1] + beam_analysis[f'{pos}_deltas_mm_stds'][:, 1]),
             label=r'$D_x \pm \sigma$', color='m', alpha=0.33)
-        axs[0, it].plot(x_axis, f_deltas * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 1], 'ob-',
+        axs[0, it].plot(x_axis, f_deltas * beam_analysis[f'{pos}_deltas_mm_avg_imgs'][:, 1], 'ob-',
                         label=r'$D_x$ $(\mu_{image})$', linewidth=1, markersize=3)
         axs[0, it].legend(loc='best', prop={'size': 8})
         axs[0, it].set_xticks([])
@@ -147,10 +156,10 @@ def render_screens_scan_analysis(pos_short_names: list[str], pos_long_names: lis
         # Deltas Y
         axs[1, it].fill_between(
             x_axis,
-            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] - beam_analysis[f'{pos}_deltas_stds'][:, 0]),
-            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] + beam_analysis[f'{pos}_deltas_stds'][:, 0]),
+            f_deltas * (beam_analysis[f'{pos}_deltas_mm_means'][:, 0] - beam_analysis[f'{pos}_deltas_mm_stds'][:, 0]),
+            f_deltas * (beam_analysis[f'{pos}_deltas_mm_means'][:, 0] + beam_analysis[f'{pos}_deltas_mm_stds'][:, 0]),
             label=r'$D_y \pm \sigma$', color='m', alpha=0.33)
-        axs[1, it].plot(x_axis, f_deltas * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 0], 'ob-',
+        axs[1, it].plot(x_axis, f_deltas * beam_analysis[f'{pos}_deltas_mm_avg_imgs'][:, 0], 'ob-',
                         label=r'$D_y$ $(\mu_{image})$', linewidth=1, markersize=3)
         axs[1, it].legend(loc='best', prop={'size': 8})
         axs[1, it].set_xticks([])
@@ -202,8 +211,8 @@ def render_screens_scan_analysis(pos_short_names: list[str], pos_long_names: lis
 
 
 if __name__ == '__main__':
-    base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    # base_path = Path(r'Z:\data')
+    # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    base_path = Path(r'Z:\data')
 
     is_local = (str(base_path)[0] == 'C')
     if not is_local:
@@ -243,10 +252,13 @@ if __name__ == '__main__':
     _labels = [label[1] for label in _scans_screens]  # separate from list(_scans_screens.keys()) to define an order
 
     # Analysis
-    _data_dict = screens_scan_analysis(no_scans=_no_scans, screen_labels=_labels,
+    _data_dict = screens_scan_analysis(no_scans=_no_scans,
+                                       screen_labels=_labels,
                                        initial_filtering=FiltersParameters(com_threshold=0.66,
-                                                                           contrast=0.333),
+                                                                           contrast=1.333),
                                        save_dir=_save_dir,
-                                       ignore_experiment_name=True)
+                                       ignore_experiment_name=False,
+                                       trim_collection=True,
+                                       new_targets=True)
 
     print('done')
