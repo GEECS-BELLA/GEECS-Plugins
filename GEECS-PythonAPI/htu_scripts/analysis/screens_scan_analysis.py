@@ -215,8 +215,8 @@ def render_screens_scan_analysis(analysis_dict: dict[str, Any], save_dir: Option
 
 
 if __name__ == '__main__':
-    # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    base_path = Path(r'Z:\data')
+    base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    # base_path = Path(r'Z:\data')
 
     is_local = (str(base_path)[0] == 'C')
     if not is_local:
@@ -263,7 +263,7 @@ if __name__ == '__main__':
                                                   initial_filtering=FiltersParameters(com_threshold=0.66,
                                                                                       contrast=1.),
                                                   save_dir=_save_dir,
-                                                  ignore_experiment_name=False,
+                                                  ignore_experiment_name=is_local,
                                                   trim_collection=True,
                                                   new_targets=True)
 

@@ -14,7 +14,6 @@ from skimage.transform import hough_ellipse
 from skimage.feature import canny
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from scipy.signal import savgol_filter
 from progressbar import ProgressBar
 from typing import Optional, Any, Union
 from geecs_api.tools.images.batches import list_images
@@ -26,7 +25,7 @@ from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
 from geecs_api.tools.images.filtering import basic_filter, FiltersParameters
-from geecs_api.tools.images.spot import spot_analysis, fwhm
+from geecs_api.tools.images.spot import spot_analysis, fwhm, n_sigma_window
 from geecs_api.tools.interfaces.prompts import text_input
 
 
@@ -228,12 +227,14 @@ class ScanImages:
                     self.average_analysis = self.analyze_image(avg_image, filtering)
                     self.average_analysis = \
                         ScanImages.profiles_analysis(self.average_analysis)
+
+                    if plots:
+                        self.render_image_analysis(self.average_analysis, tag='average_image', block=True, save=save)
+
                     if trim_collection:
                         self.average_analysis.pop('image_denoised')
                         self.average_analysis.pop('image_blurred')
                         self.average_analysis.pop('image_thresholded')
-                    if plots:
-                        self.render_image_analysis(self.average_analysis, tag='average_image', block=True, save=save)
                 except Exception as ex:
                     api_error.error(str(ex), 'Failed to analyze average image')
 
@@ -297,23 +298,16 @@ class ScanImages:
             return analysis
 
         try:
-            # com roi
-            line_x = analysis['image_blurred'][analysis['position_com'][0], :]
-            line_x = savgol_filter(line_x, max(int(len(line_x) / 6), 2), 3)
-            c_x = np.argmax(line_x)
-            left = np.argmin(np.abs(line_x[:c_x] - line_x[c_x]/2.))
-            right = np.argmin(np.abs(line_x[c_x:] - line_x[c_x]/2.)) + c_x
-            sigma_x_x4 = 4 * (right - left) / (2 * math.sqrt(2 * math.log(2.)))
+            # com roi (left, right, top, bottom)
+            n_sig = 6
+            lr = np.round(n_sigma_window(analysis['image_blurred'][analysis['position_com'][0], :], n_sig)).astype(int)
+            ud = np.round(n_sigma_window(analysis['image_blurred'][:, analysis['position_com'][1]], n_sig)).astype(int)
+            analysis['roi_com'] = np.concatenate((lr, ud))
 
-            line_y = analysis['image_blurred'][:, analysis['position_com'][1]]
-            line_y = savgol_filter(line_y, max(int(len(line_y) / 6), 2), 3)
-            c_y = np.argmax(line_y)
-            top = np.argmin(np.abs(line_y[:c_y] - line_y[c_y]/2.))
-            bottom = np.argmin(np.abs(line_x[c_y:] + line_y[c_y]/2.)) + c_y
-            sigma_y_x4 = 4 * (bottom - top) / (2 * math.sqrt(2 * math.log(2.)))
-
-            analysis['roi_com'] = np.array([c_x - sigma_x_x4, c_x + sigma_x_x4,
-                                            c_y - sigma_y_x4, c_y + sigma_y_x4])  # left, right, top, bottom
+            # max roi (left, right, top, bottom)
+            lr = np.round(n_sigma_window(analysis['image_blurred'][analysis['position_max'][0], :], n_sig)).astype(int)
+            ud = np.round(n_sigma_window(analysis['image_blurred'][:, analysis['position_max'][1]], n_sig)).astype(int)
+            analysis['roi_max'] = np.concatenate((lr, ud))
 
             # beam edges
             image_edges: np.ndarray = canny(analysis['image_thresholded'], sigma=3)
@@ -541,8 +535,10 @@ class ScanImages:
                 positions.append((*analysis['position_ellipse'], 'ell'))
             labels = ['maximum', 'center of mass', 'box', 'ellipse']
 
-            x_win = (analysis['roi_edges'][0], analysis['roi_edges'][1]) if 'roi' in analysis else None
-            y_win = (analysis['roi_edges'][2], analysis['roi_edges'][3]) if 'roi' in analysis else None
+            # x_win = (analysis['roi_edges'][0], analysis['roi_edges'][1]) if 'roi_edges' in analysis else None
+            # y_win = (analysis['roi_edges'][2], analysis['roi_edges'][3]) if 'roi_edges' in analysis else None
+            x_win = (analysis['roi_com'][0], analysis['roi_com'][1]) if 'roi_com' in analysis else None
+            y_win = (analysis['roi_com'][2], analysis['roi_com'][3]) if 'roi_com' in analysis else None
             # noinspection PyTypeChecker
             profiles = spot_analysis(analysis['image_raw'], positions, x_window=x_win, y_window=y_win)
 
@@ -586,36 +582,27 @@ class ScanImages:
                     ax_y = fig.add_subplot(grid[1, 2:], sharey=ax_x)
 
                     # raw image
-                    ax_i.imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper')
+                    ax_i.imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper', vmin=0,
+                                vmax=1.5 * analysis['image_raw'][analysis['position_max'][0],
+                                                                 analysis['position_max'][1]])
 
                     if 'image_edges' in analysis:
                         edges = np.where(analysis['image_edges'] != 0)
                         ax_i.scatter(edges[1], edges[0], s=0.3, c='b', alpha=0.2)
 
+                    # roi com
+                    if 'roi_com' in analysis:
+                        roi = analysis['roi_com']
+                        rect = mpatches.Rectangle((roi[0], roi[2]), roi[1] - roi[0], roi[3] - roi[2],
+                                                  fill=False, edgecolor='cyan', linestyle='--', linewidth=1)
+                        ax_i.add_patch(rect)
+
                     # roi edges
                     if 'roi_edges' in analysis:
-                        roi_color = '--y'
-                        roi_line = 0.66
-                        # left
-                        ax_i.plot(analysis['roi_edges'][0] *
-                                  np.ones((analysis['roi_edges'][3] - analysis['roi_edges'][2] + 1)),
-                                  np.arange(analysis['roi_edges'][2], analysis['roi_edges'][3] + 1),
-                                  roi_color, linewidth=roi_line)
-                        # right
-                        ax_i.plot(analysis['roi_edges'][1] *
-                                  np.ones((analysis['roi_edges'][3] - analysis['roi_edges'][2] + 1)),
-                                  np.arange(analysis['roi_edges'][2], analysis['roi_edges'][3] + 1),
-                                  roi_color, linewidth=roi_line)
-                        # top
-                        ax_i.plot(np.arange(analysis['roi_edges'][0], analysis['roi_edges'][1] + 1),
-                                  analysis['roi_edges'][2] *
-                                  np.ones((analysis['roi_edges'][1] - analysis['roi_edges'][0] + 1)),
-                                  roi_color, linewidth=roi_line)
-                        # bottom
-                        ax_i.plot(np.arange(analysis['roi_edges'][0], analysis['roi_edges'][1] + 1),
-                                  analysis['roi_edges'][3] *
-                                  np.ones((analysis['roi_edges'][1] - analysis['roi_edges'][0] + 1)),
-                                  roi_color, linewidth=roi_line)
+                        roi = analysis['roi_edges']
+                        rect = mpatches.Rectangle((roi[0], roi[2]), roi[1] - roi[0], roi[3] - roi[2],
+                                                  fill=False, edgecolor='yellow', linestyle='--', linewidth=1)
+                        ax_i.add_patch(rect)
 
                     # ellipse
                     if 'ellipse' in analysis:
@@ -672,16 +659,22 @@ class ScanImages:
                                         sharex='col', sharey='col')
                 for it, pos in enumerate(analysis['positions']):
                     if not np.isnan(pos[:2]).any():
-                        axs[it, 0].imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper')
+                        axs[it, 0].imshow(analysis['image_raw'], cmap='hot', aspect='equal', origin='upper', vmin=0,
+                                          vmax=1.5 * analysis['image_raw'][analysis['position_max'][0],
+                                                                           analysis['position_max'][1]])
                         axs[it, 0].axvline(pos[1], color='w', linestyle='--', linewidth=0.5)
                         axs[it, 0].axhline(pos[0], color='w', linestyle='--', linewidth=0.5)
                         axs[it, 0].plot(pos[1], pos[0], '.w', markersize=2)
                         axs[it, 0].set_ylabel(analysis['positions_labels'][it])
                         axs[it, 1].plot(analysis[f'axis_x_{pos[2]}'], analysis[f'data_x_{pos[2]}'], 'b-', label='data')
-                        axs[it, 1].plot(analysis[f'axis_x_{pos[2]}'], analysis[f'fit_x_{pos[2]}'], 'm-', label='fit(x)')
+                        axs[it, 1].plot(analysis[f'axis_x_{pos[2]}'], analysis[f'fit_x_{pos[2]}'], 'm-',
+                                        label=r'$\mu$ = ' + f'{analysis[f"opt_x_{pos[2]}"][2]:.1f}, ' +
+                                              r'$\sigma$ = ' + f'{fwhm(analysis[f"opt_x_{pos[2]}"][3]):.1f}')
                         axs[it, 1].legend(loc='best', prop={'size': 8})
                         axs[it, 2].plot(analysis[f'axis_y_{pos[2]}'], analysis[f'data_y_{pos[2]}'], 'b-', label='data')
-                        axs[it, 2].plot(analysis[f'axis_y_{pos[2]}'], analysis[f'fit_y_{pos[2]}'], 'm-', label='fit(y)')
+                        axs[it, 2].plot(analysis[f'axis_y_{pos[2]}'], analysis[f'fit_y_{pos[2]}'], 'm-',
+                                        label=r'$\mu$ = ' + f'{analysis[f"opt_y_{pos[2]}"][2]:.1f}, ' +
+                                              r'$\sigma$ = ' + f'{fwhm(analysis[f"opt_y_{pos[2]}"][3]):.1f}')
                         axs[it, 2].legend(loc='best', prop={'size': 8})
 
                 file_name: str = f'all_profiles_{tag}.png'

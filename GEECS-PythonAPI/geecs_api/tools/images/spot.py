@@ -14,6 +14,17 @@ def fwhm(sd):
     return 2 * np.sqrt(2 * np.log(2)) * sd
 
 
+def n_sigma_window(dist: np.ndarray, n_sigmas: int = 4) -> np.ndarray:
+    dist = savgol_filter(dist, max(int(len(dist) / 6), 2), 3)
+    center = np.argmax(dist)
+    mid_level = (dist[center] + np.min(dist)) / 2.
+    left = np.where(dist[:center] <= mid_level)[0][-1]
+    right = np.where(dist[center:] <= mid_level)[0][0] + center
+    n_sig = n_sigmas * (right - left) / (2 * math.sqrt(2 * math.log(2.)))
+
+    return np.array([max(0, center - n_sig), min(dist.size, center + n_sig)])
+
+
 def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
                   x_window: Optional[tuple[int, int]] = None,
                   y_window: Optional[tuple[int, int]] = None) -> Optional[dict[str, Any]]:
