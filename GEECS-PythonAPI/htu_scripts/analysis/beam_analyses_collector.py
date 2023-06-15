@@ -33,6 +33,7 @@ def add_beam_analysis(beam_analysis: dict[str, Any], analysis_dict: dict[str, An
             beam_analysis['target_ij'] = tmp.copy()
             beam_analysis['roi_ij_offset'] = tmp.copy()
             beam_analysis['target_um_pix'] = np.ones((init_size,), dtype=float)
+            beam_analysis['raw_shape_ij'] = tmp.copy()
             beam_analysis['roi_xy'] = np.zeros((init_size, 4))
             beam_analysis['rot_90'] = np.ones((init_size,), dtype=int)
 
@@ -47,6 +48,7 @@ def add_beam_analysis(beam_analysis: dict[str, Any], analysis_dict: dict[str, An
             beam_analysis['target_ij'][index, :] = targets['target_ij']
             beam_analysis['roi_ij_offset'][index, :] = targets['roi_ij_offset']
             beam_analysis['target_um_pix'][index] = targets['target_um_pix']
+            beam_analysis['raw_shape_ij'][index, :] = targets['raw_shape_ij']
             beam_analysis['roi_xy'][index, :] = targets['camera_roi']
             beam_analysis['rot_90'][index] = targets['camera_r90']
 

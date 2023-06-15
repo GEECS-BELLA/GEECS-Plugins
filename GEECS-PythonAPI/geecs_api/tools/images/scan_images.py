@@ -14,6 +14,7 @@ from skimage.transform import hough_ellipse
 from skimage.feature import canny
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from scipy.signal import savgol_filter
 from progressbar import ProgressBar
 from typing import Optional, Any, Union
 from geecs_api.tools.images.batches import list_images
@@ -113,24 +114,31 @@ class ScanImages:
                                  save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
+        filtering = FiltersParameters(initial_filtering.contrast,
+                                      initial_filtering.hp_median, initial_filtering.hp_threshold,
+                                      initial_filtering.denoise_cycles, initial_filtering.gauss_filter,
+                                      initial_filtering.com_threshold, initial_filtering.bkg_image,
+                                      initial_filtering.box, initial_filtering.ellipse)
 
         while True:
             try:
                 export_file_path, data_dict = \
-                    self.analyze_image_batch(images, initial_filtering, trim_collection, new_targets, plots, save)
+                    self.analyze_image_batch(images, filtering, trim_collection, new_targets, plots, save)
             except Exception as ex:
                 api_error(str(ex), f'Failed to analyze {self.scan.get_folder().name}')
                 pass
 
-            repeat = text_input(f'Repeat analysis (adjust contrast)? : ',
+            repeat = text_input(f'Repeat analysis (adjust contrast/threshold)? : ',
                                 accepted_answers=['y', 'yes', 'n', 'no'])
             if repeat.lower()[0] == 'n':
                 break
             else:
                 while True:
                     try:
-                        initial_filtering.contrast = \
-                            float(text_input(f'New contrast value (old: {initial_filtering.contrast:.3f}) : '))
+                        filtering.contrast = \
+                            float(text_input(f'New contrast value (old: {filtering.contrast:.3f}) : '))
+                        filtering.com_threshold = \
+                            float(text_input(f'New threshold value (old: {filtering.com_threshold:.3f}) : '))
                         break
                     except Exception:
                         print('Contrast value must be a positive number (e.g. 1.3)')
@@ -159,7 +167,7 @@ class ScanImages:
                 with ProgressBar(max_value=len(paths)) as pb:
                     # analyze one at a time until valid image found to initialize average
                     for skipped, image_path in enumerate(paths):
-                        analysis = self.analyze_image(image_path, filtering, trim_collection)
+                        analysis = self.analyze_image(image_path, filtering)
                         analysis['image_path'] = image_path
 
                         if analysis['is_valid']:
@@ -170,6 +178,10 @@ class ScanImages:
                         else:
                             skipped_files.append(Path(image_path).name)
 
+                        if trim_collection:
+                            analysis.pop('image_denoised')
+                            analysis.pop('image_blurred')
+                            analysis.pop('image_thresholded')
                         analyses.append(analysis)
                         pb.increment()
 
@@ -179,7 +191,7 @@ class ScanImages:
                     # analyze the rest of the images
                     if len(paths) > (skipped + 1):
                         for it, image_path in enumerate(paths[skipped+1:]):
-                            analysis = self.analyze_image(image_path, filtering, trim_collection)
+                            analysis = self.analyze_image(image_path, filtering)
                             analysis['image_path'] = image_path
 
                             if analysis['is_valid']:
@@ -196,6 +208,10 @@ class ScanImages:
                                 skipped_files.append(Path(image_path).name)
 
                             # collect
+                            if trim_collection:
+                                analysis.pop('image_denoised')
+                                analysis.pop('image_blurred')
+                                analysis.pop('image_thresholded')
                             analyses.append(analysis)
                             pb.increment()
 
@@ -209,9 +225,13 @@ class ScanImages:
 
                 # analyze the average image
                 try:
-                    self.average_analysis = self.analyze_image(avg_image, filtering, trim_collection)
+                    self.average_analysis = self.analyze_image(avg_image, filtering)
                     self.average_analysis = \
                         ScanImages.profiles_analysis(self.average_analysis)
+                    if trim_collection:
+                        self.average_analysis.pop('image_denoised')
+                        self.average_analysis.pop('image_blurred')
+                        self.average_analysis.pop('image_thresholded')
                     if plots:
                         self.render_image_analysis(self.average_analysis, tag='average_image', block=True, save=save)
                 except Exception as ex:
@@ -249,8 +269,7 @@ class ScanImages:
 
         return export_file_path, data_dict
 
-    def analyze_image(self, image: Union[Path, np.ndarray], filtering=FiltersParameters(),
-                      trim_collection: bool = False) -> dict[str, Any]:
+    def analyze_image(self, image: Union[Path, np.ndarray], filtering=FiltersParameters()) -> dict[str, Any]:
         # raw image
         if isinstance(image, np.ndarray):
             image_raw = image
@@ -278,6 +297,24 @@ class ScanImages:
             return analysis
 
         try:
+            # com roi
+            line_x = analysis['image_blurred'][analysis['position_com'][0], :]
+            line_x = savgol_filter(line_x, max(int(len(line_x) / 6), 2), 3)
+            c_x = np.argmax(line_x)
+            left = np.argmin(np.abs(line_x[:c_x] - line_x[c_x]/2.))
+            right = np.argmin(np.abs(line_x[c_x:] - line_x[c_x]/2.)) + c_x
+            sigma_x_x4 = 4 * (right - left) / (2 * math.sqrt(2 * math.log(2.)))
+
+            line_y = analysis['image_blurred'][:, analysis['position_com'][1]]
+            line_y = savgol_filter(line_y, max(int(len(line_y) / 6), 2), 3)
+            c_y = np.argmax(line_y)
+            top = np.argmin(np.abs(line_y[:c_y] - line_y[c_y]/2.))
+            bottom = np.argmin(np.abs(line_x[c_y:] + line_y[c_y]/2.)) + c_y
+            sigma_y_x4 = 4 * (bottom - top) / (2 * math.sqrt(2 * math.log(2.)))
+
+            analysis['roi_com'] = np.array([c_x - sigma_x_x4, c_x + sigma_x_x4,
+                                            c_y - sigma_y_x4, c_y + sigma_y_x4])  # left, right, top, bottom
+
             # beam edges
             image_edges: np.ndarray = canny(analysis['image_thresholded'], sigma=3)
             image_edges = closing(image_edges.astype(float), square(3))
@@ -342,12 +379,47 @@ class ScanImages:
         except Exception:
             pass
 
-        if trim_collection:
-            analysis.pop('image_denoised')
-            analysis.pop('image_blurred')
-            analysis.pop('image_thresholded')
-
         return analysis
+
+    @staticmethod
+    def rotated_to_original_ij(coords_ij: tuple[int, int], raw_shape_ij: tuple[int, int], rot_deg: int = 0) \
+            -> tuple[int, int]:
+        rots: int = divmod(rot_deg, 90)[0] % 4
+        raw_coords: tuple[int, int]
+        if rots == 1:
+            # 90deg: [j, j_max - i - 1]
+            raw_coords = (coords_ij[1], raw_shape_ij[1] - coords_ij[0] - 1)
+        elif rots == 2:
+            # 180deg: [i_max - i - 1, j_max - j - 1]
+            raw_coords = (raw_shape_ij[0] - coords_ij[0] - 1, raw_shape_ij[1] - coords_ij[1] - 1)
+        elif rots == 3:
+            # 270deg: [i_max - j - 1, i]
+            raw_coords = (raw_shape_ij[0] - coords_ij[1] - 1, coords_ij[0])
+        else:
+            # 0deg: [i, j]
+            raw_coords = coords_ij
+
+        return raw_coords
+
+    @staticmethod
+    def original_to_rotated_ij(coords_ij: tuple[int, int], raw_shape_ij: tuple[int, int], rot_deg: int = 0) \
+            -> tuple[int, int]:
+        rots: int = divmod(rot_deg, 90)[0] % 4
+        raw_coords: tuple[int, int]
+        if rots == 1:
+            # 90deg: [j_max - j - 1, i]
+            raw_coords = (raw_shape_ij[1] - coords_ij[1] - 1, coords_ij[0])
+        elif rots == 2:
+            # 180deg: [i_max - i - 1, j_max - j - 1]
+            raw_coords = (raw_shape_ij[0] - coords_ij[0] - 1, raw_shape_ij[1] - coords_ij[1] - 1)
+        elif rots == 3:
+            # 270deg: [j, i_max - i - 1]
+            raw_coords = (coords_ij[1], raw_shape_ij[0] - coords_ij[0] - 1)
+        else:
+            # 0deg: [i, j]
+            raw_coords = coords_ij
+
+        return raw_coords
 
     def _target_analysis(self, new_targets: bool = False) -> dict[str, Any]:
         positions = ['max', 'com', 'box', 'ellipse']
@@ -422,7 +494,7 @@ class ScanImages:
 
                     target_analysis['roi_ij_offset'] = roi_ij_offset
                     target_analysis['target_ij'] = target_ij
-                    target_analysis['raw_size'] = self.raw_size
+                    target_analysis['raw_shape_ij'] = self.raw_size
                     target_analysis['camera_roi'] = self.camera_roi
                     target_analysis['camera_r90'] = rots * 90
 
