@@ -299,7 +299,7 @@ class ScanImages:
 
         try:
             # com roi (left, right, top, bottom)
-            n_sig = 6
+            n_sig = 4
             lr = np.round(n_sigma_window(analysis['image_blurred'][analysis['position_com'][0], :], n_sig)).astype(int)
             ud = np.round(n_sigma_window(analysis['image_blurred'][:, analysis['position_com'][1]], n_sig)).astype(int)
             analysis['roi_com'] = np.concatenate((lr, ud))
@@ -370,7 +370,12 @@ class ScanImages:
                 pos_ellipse = np.array([yc, xc])
                 analysis['position_ellipse'] = tuple(pos_ellipse)  # i, j
 
-        except Exception:
+        except Exception as ex:
+            if isinstance(image, Path):
+                image_name = f' {image.name}'
+            else:
+                image_name = ''
+            api_error.error(str(ex), f'Failed to analyze image{image_name}')
             pass
 
         return analysis
@@ -594,14 +599,14 @@ class ScanImages:
                     if 'roi_com' in analysis:
                         roi = analysis['roi_com']
                         rect = mpatches.Rectangle((roi[0], roi[2]), roi[1] - roi[0], roi[3] - roi[2],
-                                                  fill=False, edgecolor='cyan', linestyle='--', linewidth=1)
+                                                  fill=False, edgecolor='cyan', linestyle='--', linewidth=0.5)
                         ax_i.add_patch(rect)
 
                     # roi edges
                     if 'roi_edges' in analysis:
                         roi = analysis['roi_edges']
                         rect = mpatches.Rectangle((roi[0], roi[2]), roi[1] - roi[0], roi[3] - roi[2],
-                                                  fill=False, edgecolor='yellow', linestyle='--', linewidth=1)
+                                                  fill=False, edgecolor='yellow', linestyle='--', linewidth=0.5)
                         ax_i.add_patch(rect)
 
                     # ellipse

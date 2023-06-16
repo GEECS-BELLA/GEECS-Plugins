@@ -14,12 +14,23 @@ def fwhm(sd):
     return 2 * np.sqrt(2 * np.log(2)) * sd
 
 
-def n_sigma_window(dist: np.ndarray, n_sigmas: int = 4) -> np.ndarray:
+def n_sigma_window(dist: np.ndarray, n_sigmas: float = 4) -> np.ndarray:
     dist = savgol_filter(dist, max(int(len(dist) / 6), 2), 3)
     center = np.argmax(dist)
     mid_level = (dist[center] + np.min(dist)) / 2.
-    left = np.where(dist[:center] <= mid_level)[0][-1]
-    right = np.where(dist[center:] <= mid_level)[0][0] + center
+
+    left = np.where(dist[:center] <= mid_level)[0]
+    if left.any():
+        left = left[-1]
+    else:
+        left = 0
+
+    right = np.where(dist[center:] <= mid_level)[0]
+    if right.any():
+        right = right[0] + center
+    else:
+        right = dist.size - 1
+
     n_sig = n_sigmas * (right - left) / (2 * math.sqrt(2 * math.log(2.)))
 
     return np.array([max(0, center - n_sig), min(dist.size, center + n_sig)])
@@ -42,7 +53,8 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
         for pos_i, pos_j, name in positions:
             if not np.isnan([pos_i, pos_j]).any():
                 if x_window:
-                    axis_x = np.arange(x_window[0], x_window[1] + 1)
+                    x_window = (max(0, x_window[0]), min(x_window[1], image.shape[1] - 1))
+                    axis_x = np.arange(x_window[0], x_window[1]+1)
                     data_x = image[pos_i, x_window[0]:x_window[1]+1]
                     opt_x, err_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
                 else:
@@ -57,7 +69,8 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
                 analysis[f'fit_x_{name}'] = fit_x
 
                 if y_window:
-                    axis_y = np.arange(y_window[0], y_window[1] + 1)
+                    y_window = (max(0, y_window[0]), min(y_window[1], image.shape[0] - 1))
+                    axis_y = np.arange(y_window[0], y_window[1]+1)
                     data_y = image[y_window[0]:y_window[1]+1, pos_j]
                     opt_y, err_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
                 else:
@@ -89,11 +102,13 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
                        (simg.center_of_mass(smoothed)[0] + np.where(smoothed == np.max(smoothed))[0][0]) / 2.
 
     if not guess_fwhm:
-        left = np.abs(smoothed[:int(guess_center)-x_data[0]] - 0.66 * np.max(smoothed))  # not 0.5 for low-level noise
-        left = np.where(left == np.min(left))[0][0]
-        right = np.abs(smoothed[int(guess_center)-x_data[0]:] - 0.66 * np.max(smoothed))
-        right = np.where(right == np.min(right))[0][-1]
-        guess_fwhm = max(right + int(guess_center) - left - x_data[0], len(y_data) / 10)
+        guess_fwhm = n_sigma_window(smoothed, fwhm(0.5))
+        guess_fwhm = guess_fwhm[1] - guess_fwhm[0]
+        # left = np.abs(smoothed[:int(guess_center)-x_data[0]] - 0.66 * np.max(smoothed))  # not 0.5 for low-level noise
+        # left = np.where(left == np.min(left))[0][0]
+        # right = np.abs(smoothed[int(guess_center)-x_data[0]:] - 0.66 * np.max(smoothed))
+        # right = np.where(right == np.min(right))[0][-1]
+        # guess_fwhm = max(right + int(guess_center) - left - x_data[0], len(y_data) / 10)
 
     guess_std = guess_fwhm / (2 * math.sqrt(2 * math.log(2.)))
 

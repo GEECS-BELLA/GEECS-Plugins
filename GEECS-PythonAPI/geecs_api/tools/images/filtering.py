@@ -168,14 +168,14 @@ def check_roi(images: Path, initial_roi: Optional[np.ndarray] = None, camera_nam
     if default_roi is not None:
         rect_def = mpatches.Rectangle((default_roi[0], default_roi[2]),
                                       default_roi[1] - default_roi[0], default_roi[3] - default_roi[2],
-                                      fill=False, edgecolor='gray', linewidth=2, linestyle='--')
+                                      fill=False, edgecolor='gray', linewidth=1, linestyle='--')
         ax.add_patch(rect_def)
 
-    if initial_roi is not None:
-        rect_ini = mpatches.Rectangle((initial_roi[0], initial_roi[2]),
-                                      initial_roi[1] - initial_roi[0], initial_roi[3] - initial_roi[2],
-                                      fill=False, edgecolor='m', linewidth=2, linestyle='-')
-        ax.add_patch(rect_ini)
+    # if initial_roi is not None:
+    #     rect_ini = mpatches.Rectangle((initial_roi[0], initial_roi[2]),
+    #                                   initial_roi[1] - initial_roi[0], initial_roi[3] - initial_roi[2],
+    #                                   fill=False, edgecolor='m', linewidth=1, linestyle='-')
+    #     ax.add_patch(rect_ini)
 
     ax.set_axis_off()
     plt.tight_layout()
@@ -228,7 +228,7 @@ def find_roi(image: np.ndarray, threshold: Optional[float] = None, plots: bool =
             fig, ax = plt.subplots(figsize=(6.4, 4.8))
             ax.imshow(image)
             rect = mpatches.Rectangle((roi_box[0], roi_box[2]), roi_box[1] - roi_box[0], roi_box[3] - roi_box[2],
-                                      fill=False, edgecolor='red', linewidth=2)
+                                      fill=False, edgecolor='red', linewidth=1)
             ax.add_patch(rect)
             ax.set_axis_off()
             plt.tight_layout()
@@ -241,8 +241,9 @@ if __name__ == '__main__':
     # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
     _base = Path(r'Z:\data')
 
-    _camera = 'UC_VisaEBeam8'
-    _folder = _base / fr'Undulator\Y2023\06-Jun\23_0609\scans\Scan001\{_camera}'
+    # _camera = 'UC_UndulatorRad2'
+    _camera = 'UC_VisaEBeam9'
+    _folder = _base / fr'Undulator\Y2023\04-Apr\23_0420\scans\Scan075\{_camera}'
 
     _range = None
     # _range = (0, 1.8)

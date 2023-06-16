@@ -227,6 +227,18 @@ class GeecsDatabase:
 
         return search_results
 
+    @staticmethod
+    def _write_default_value(db_cursor, exp_name: str = 'Undulator') -> int:
+        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
+
+        cmd_str = f'UPDATE {db_cursor.connection.escape_string(GeecsDatabase.name)}.variable SET defaultvalue=%s ' \
+                  f'WHERE device=%s AND name=%s;'
+        db_cursor.execute(cmd_str, (exp_name,))
+        db_result = db_cursor.fetchone()
+        mc_port = int(db_result.popitem()[1])
+
+        return mc_port
+
 
 if __name__ == '__main__':
     print('Name:\t\t' + GeecsDatabase.name)

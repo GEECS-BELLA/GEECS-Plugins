@@ -215,8 +215,8 @@ def render_screens_scan_analysis(analysis_dict: dict[str, Any], save_dir: Option
 
 
 if __name__ == '__main__':
-    base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    # base_path = Path(r'Z:\data')
+    # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    base_path = Path(r'Z:\data')
 
     is_local = (str(base_path)[0] == 'C')
     if not is_local:
@@ -256,7 +256,7 @@ if __name__ == '__main__':
     _labels = [label[1] for label in _scans_screens]  # separate from list(_scans_screens.keys()) to define an order
 
     # Analysis
-    _analysis_path: Path = _save_dir / 'beam_analysis.dat'
+    # _analysis_path: Path = _save_dir / 'beam_analysis.dat'
     # _data_dict, _analysis_path = load_py(_analysis_path, as_dict=True)
     _data_dict, _save_dir = screens_scan_analysis(no_scans=_no_scans,
                                                   screen_labels=_labels,
