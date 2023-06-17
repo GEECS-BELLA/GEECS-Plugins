@@ -28,7 +28,7 @@ class Camera(GeecsDevice):
             'UC_VisaEBeam7': [123, 474, 117, 492],  # [121, 475, 129, 478],
             'UC_VisaEBeam8': [111, 486, 90, 494],  # [133, 490, 112, 513],
             'UC_VisaEBeam9': [709, 1125, 269, 681],
-            'UC_UndulatorRad2': [1468, 2279, 600, 1069]}  # [276, 2515, 204, 1483]}
+            'UC_UndulatorRad2': [1364, 2233, 482, 1251]}  # [545, 2292, 368, 1292]}  # [276, 2515, 204, 1483]}
 
     def __init__(self, device_name: str):
         super().__init__(device_name)
