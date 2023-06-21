@@ -1,9 +1,8 @@
 import re
-import os
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
-from typing import Optional, Any, Union
+from typing import Optional, Union
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.transport.magnets.steering import SteeringSupply
