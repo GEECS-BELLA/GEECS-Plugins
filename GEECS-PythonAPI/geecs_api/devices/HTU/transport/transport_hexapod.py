@@ -21,28 +21,46 @@ class TransportHexapod(GeecsDevice):
         self.__initialized = True
         super().__init__('U_Hexapod')
 
-        self.__variables = {VarAlias('xpos'): (-10., 10.),  # [mm]
-                            VarAlias('ypos'): (-25., 25.),
-                            VarAlias('zpos'): (-10., 10.)}
+        self.__variables = {VarAlias('xpos'): (-1., 1.),  # [mm]
+                            VarAlias('ypos'): (-25., 20.),
+                            VarAlias('zpos'): (-1., 1.),
+                            VarAlias('uangle'): (-.5, .5),
+                            VarAlias('vangle'): (-.5, .5),
+                            VarAlias('wangle'): (-.5, .5)}
         self.build_var_dicts(tuple(self.__variables.keys()))
 
-        # self.register_cmd_executed_handler()
-        # self.register_var_listener_handler()
+    def get_variables(self) -> dict[VarAlias, tuple[float, float]]:
+        return self.__variables
 
-    def get_axis_var_name(self, axis: int) -> str:
+    def get_position_var_name(self, axis: int) -> str:
         if axis < 0 or axis > 2:
             return ''
         else:
             return self.var_names_by_index.get(axis)[0]
 
+    def get_angle_var_name(self, axis: int) -> str:
+        if axis < 0 or axis > 2:
+            return ''
+        else:
+            return self.var_names_by_index.get(axis + 3)[0]
+
     def state_x(self) -> Optional[float]:
-        return self._state_value(self.get_axis_var_name(0))
+        return self._state_value(self.get_position_var_name(0))
 
     def state_y(self) -> Optional[float]:
-        return self._state_value(self.get_axis_var_name(1))
+        return self._state_value(self.get_position_var_name(1))
 
     def state_z(self) -> Optional[float]:
-        return self._state_value(self.get_axis_var_name(2))
+        return self._state_value(self.get_position_var_name(2))
+
+    def state_u(self) -> Optional[float]:
+        return self._state_value(self.get_angle_var_name(0))
+
+    def state_v(self) -> Optional[float]:
+        return self._state_value(self.get_angle_var_name(1))
+
+    def state_w(self) -> Optional[float]:
+        return self._state_value(self.get_angle_var_name(2))
 
     def get_position(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
             -> Optional[Union[float, AsyncResult]]:
@@ -57,7 +75,7 @@ class TransportHexapod(GeecsDevice):
             else:
                 return False, '', (None, None)
 
-        return self.get(self.get_axis_var_name(axis), exec_timeout=exec_timeout, sync=sync)
+        return self.get(self.get_position_var_name(axis), exec_timeout=exec_timeout, sync=sync)
 
     def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 60.0, sync=True) \
             -> Optional[Union[float, AsyncResult]]:
@@ -73,7 +91,42 @@ class TransportHexapod(GeecsDevice):
             else:
                 return False, '', (None, None)
 
-        var_name = self.get_axis_var_name(axis)
+        var_name = self.get_position_var_name(axis)
+        var_alias = self.var_aliases_by_name[var_name][0]
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
+
+        return self.set(var_name, value, exec_timeout=exec_timeout, sync=sync)
+
+    def get_angle(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
+            -> Optional[Union[float, AsyncResult]]:
+        if len(axis) == 1:
+            axis = ord(axis.upper()) - ord('U')
+        else:
+            axis = -1
+
+        if axis < 0 or axis > 2:
+            if sync:
+                return None
+            else:
+                return False, '', (None, None)
+
+        return self.get(self.get_angle_var_name(axis), exec_timeout=exec_timeout, sync=sync)
+
+    def set_angle(self, axis: Optional[str, int], value: float, exec_timeout: float = 60.0, sync=True) \
+            -> Optional[Union[float, AsyncResult]]:
+        if isinstance(axis, str):
+            if len(axis) == 1:
+                axis = ord(axis.upper()) - ord('U')
+            else:
+                axis = -1
+
+        if axis < 0 or axis > 2:
+            if sync:
+                return None
+            else:
+                return False, '', (None, None)
+
+        var_name = self.get_angle_var_name(axis)
         var_alias = self.var_aliases_by_name[var_name][0]
         value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
 
