@@ -30,7 +30,7 @@ def add_beam_analysis(beam_analysis: dict[str, Any], analysis_dict: dict[str, An
             beam_analysis[f'pos_pix_{pos}']: list[np.ndarray] = []
             beam_analysis[f'{pos}_mean_pos_pix'] = tmp.copy()
             beam_analysis[f'{pos}_std_pos_pix'] = tmp.copy()
-            beam_analysis['target_ij'] = tmp.copy()
+            beam_analysis['target_ij_raw'] = tmp.copy()
             beam_analysis['roi_ij_offset'] = tmp.copy()
             beam_analysis['target_um_pix'] = np.ones((init_size,), dtype=float)
             beam_analysis['raw_shape_ij'] = tmp.copy()
@@ -45,7 +45,7 @@ def add_beam_analysis(beam_analysis: dict[str, Any], analysis_dict: dict[str, An
             beam_analysis[f'{pos}_deltas_mm_means'][index, :] = targets[f'target_deltas_mm_{pos}_mean']
             beam_analysis[f'{pos}_deltas_mm_stds'][index, :] = targets[f'target_deltas_mm_{pos}_std']
 
-            beam_analysis['target_ij'][index, :] = targets['target_ij']
+            beam_analysis['target_ij_raw'][index, :] = targets['target_ij_raw']
             beam_analysis['roi_ij_offset'][index, :] = targets['roi_ij_offset']
             beam_analysis['target_um_pix'][index] = targets['target_um_pix']
             beam_analysis['raw_shape_ij'][index, :] = targets['raw_shape_ij']

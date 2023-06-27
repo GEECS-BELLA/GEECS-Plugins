@@ -187,7 +187,7 @@ class GeecsDatabase:
         cmd_str = f'SELECT MCUDPLocalPortSlow FROM {GeecsDatabase.name}.expt WHERE name = %s;'
         db_cursor.execute(cmd_str, (exp_name,))
         db_result = db_cursor.fetchone()
-        mc_port = int(db_result.popitem()[1])
+        mc_port = int(db_result['MCUDPLocalPortSlow'])
 
         return mc_port
 
@@ -228,16 +228,15 @@ class GeecsDatabase:
         return search_results
 
     @staticmethod
-    def _write_default_value(db_cursor, exp_name: str = 'Undulator') -> int:
-        """ Dictionary of (key) devices with (values) dictionary of (key) variables and (values) attributes. """
+    def _write_default_value(db_cursor, new_default: str, dev_name: str, var_name: str) -> bool:
+        """ Updates the default value of a variable. """
 
         cmd_str = f'UPDATE {db_cursor.connection.escape_string(GeecsDatabase.name)}.variable SET defaultvalue=%s ' \
                   f'WHERE device=%s AND name=%s;'
-        db_cursor.execute(cmd_str, (exp_name,))
-        db_result = db_cursor.fetchone()
-        mc_port = int(db_result.popitem()[1])
+        db_cursor.execute(cmd_str, (new_default, dev_name, var_name))
+        db_cursor.connection.commit()
 
-        return mc_port
+        return db_cursor.rowcount == 1
 
 
 if __name__ == '__main__':

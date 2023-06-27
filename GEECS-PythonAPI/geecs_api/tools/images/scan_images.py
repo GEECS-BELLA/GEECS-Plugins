@@ -110,7 +110,8 @@ class ScanImages:
 
     def run_analysis_with_checks(self, images: Union[int, list[Path]] = -1, initial_filtering=FiltersParameters(),
                                  trim_collection: bool = False, new_targets: bool = False, plots: bool = False,
-                                 save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
+                                 profiles: tuple[str] = ('com',), save: bool = False) \
+            -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
         filtering = FiltersParameters(initial_filtering.contrast,
@@ -122,7 +123,7 @@ class ScanImages:
         while True:
             try:
                 export_file_path, data_dict = \
-                    self.analyze_image_batch(images, filtering, trim_collection, new_targets, plots, save)
+                    self.analyze_image_batch(images, filtering, trim_collection, new_targets, plots, profiles, save)
             except Exception as ex:
                 api_error(str(ex), f'Failed to analyze {self.scan.get_folder().name}')
                 pass
@@ -147,7 +148,8 @@ class ScanImages:
 
     def analyze_image_batch(self, images: Union[int, list[Path]] = -1, filtering=FiltersParameters(),
                             trim_collection: bool = False, new_targets: bool = False, plots: bool = False,
-                            save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
+                            profiles: tuple[str] = ('com',), save: bool = False) \
+            -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
 
@@ -164,57 +166,20 @@ class ScanImages:
         if paths:
             try:
                 with ProgressBar(max_value=len(paths)) as pb:
-                    # analyze one at a time until valid image found to initialize average
-                    for skipped, image_path in enumerate(paths):
-                        analysis = self.analyze_image(image_path, filtering)
-                        analysis['image_path'] = image_path
+                    count = 0
+                    avg_image: Optional[np.ndarray] = None
+                    for image_path in paths:
+                        analysis, avg_image, count = \
+                            self.analyze_average_render(image_path, filtering, count, avg_image, trim_collection,
+                                                        plots, block_plot=False, profiles=profiles, save=save)
+                        if not analysis['is_valid']:
+                            skipped_files.append(image_path.name)
 
-                        if analysis['is_valid']:
-                            analysis = ScanImages.profiles_analysis(analysis)
-                            if plots:
-                                self.render_image_analysis(analysis, block=False, save=save)
-                            avg_image: np.ndarray = analysis['image_raw'].copy()
-                        else:
-                            skipped_files.append(Path(image_path).name)
-
-                        if trim_collection:
-                            analysis.pop('image_denoised')
-                            analysis.pop('image_blurred')
-                            analysis.pop('image_thresholded')
                         analyses.append(analysis)
                         pb.increment()
 
-                        if analysis['is_valid']:
-                            break
-
-                    # analyze the rest of the images
-                    if len(paths) > (skipped + 1):
-                        for it, image_path in enumerate(paths[skipped+1:]):
-                            analysis = self.analyze_image(image_path, filtering)
-                            analysis['image_path'] = image_path
-
-                            if analysis['is_valid']:
-                                # profiles
-                                analysis = ScanImages.profiles_analysis(analysis)
-                                if plots:
-                                    self.render_image_analysis(analysis, block=False, save=save)
-
-                                # average
-                                alpha = 1.0 / (it + 2)
-                                beta = 1.0 - alpha
-                                avg_image = cv2.addWeighted(analysis['image_raw'], alpha, avg_image, beta, 0.0)
-                            else:
-                                skipped_files.append(Path(image_path).name)
-
-                            # collect
-                            if trim_collection:
-                                analysis.pop('image_denoised')
-                                analysis.pop('image_blurred')
-                                analysis.pop('image_thresholded')
-                            analyses.append(analysis)
-                            pb.increment()
-
                 # report skipped files
+                print(f'Successful analyses: {count}')
                 if skipped_files:
                     print(f'Skipped:')
                     for file in skipped_files:
@@ -225,11 +190,11 @@ class ScanImages:
                 # analyze the average image
                 try:
                     self.average_analysis = self.analyze_image(avg_image, filtering)
-                    self.average_analysis = \
-                        ScanImages.profiles_analysis(self.average_analysis)
+                    self.average_analysis = ScanImages.profiles_analysis(self.average_analysis)
 
                     if plots:
-                        self.render_image_analysis(self.average_analysis, tag='average_image', block=True, save=save)
+                        self.render_image_analysis(self.average_analysis, tag='average_image', profiles=profiles,
+                                                   block=True, save=save)
 
                     if trim_collection:
                         self.average_analysis.pop('image_denoised')
@@ -269,6 +234,37 @@ class ScanImages:
                 pass
 
         return export_file_path, data_dict
+
+    def analyze_average_render(self, image: Path, filtering=FiltersParameters(), count: int = 0,
+                               avg_image: Optional[np.ndarray] = None, trim_collection: bool = False,
+                               plots: bool = False, block_plot: bool = False, profiles: tuple[str] = ('com',),
+                               save: bool = False):
+        analysis = self.analyze_image(image, filtering)
+        analysis['image_path'] = image
+
+        if analysis['is_valid']:
+            # profiles
+            count += 1
+            analysis = ScanImages.profiles_analysis(analysis)
+            if plots:
+                self.render_image_analysis(analysis, profiles=profiles, block=block_plot, save=save)
+
+            # average
+            if avg_image is None:
+                avg_image: np.ndarray = analysis['image_raw'].copy()
+            else:
+                # alpha = 1.0 / (it + 2)
+                alpha = 1.0 / count
+                beta = 1.0 - alpha
+                avg_image = cv2.addWeighted(analysis['image_raw'], alpha, avg_image, beta, 0.0)
+
+        # collect
+        if trim_collection:
+            analysis.pop('image_denoised')
+            analysis.pop('image_blurred')
+            analysis.pop('image_thresholded')
+
+        return analysis, avg_image, count
 
     def analyze_image(self, image: Union[Path, np.ndarray], filtering=FiltersParameters()) -> dict[str, Any]:
         # raw image
@@ -429,19 +425,24 @@ class ScanImages:
             target_analysis['target_um_pix'] = \
                 float(GeecsDevice.exp_info['devices'][self.camera_name]['SpatialCalibration']['defaultvalue'])
             if new_targets:
-                target_analysis['target_ij_raw'] = (0, 0)
+                # target_analysis['target_ij_raw'] = (0, 0)
+                target_ij = np.zeros((2,))
             else:
-                target_analysis['target_ij_raw'] = \
-                    (int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue']),
-                     int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue']))
+                # target_analysis['target_ij_raw'] = \
+                #     (int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue']),
+                #      int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue']))
+                target_ij = np.array(
+                    [int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue']),
+                     int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue'])])
         except Exception:
             target_found = False
             target_analysis['target_um_pix'] = 1.
-            target_analysis['target_ij_raw'] = (0, 0)
+            # target_analysis['target_ij_raw'] = (0, 0)
+            target_ij = np.zeros((2,))
 
         if self.average_analysis and self.analyses_summary:
             rots: int = divmod(self.camera_r90, 90)[0] % 4  # quotient modulo 4: [0-3]
-            target_ij = np.array(target_analysis['target_ij_raw'])  # defined in raw image
+            # target_ij = np.array(target_analysis['target_ij_raw'])  # defined in raw image
 
             if rots == 1:
                 # 90deg: [j_raw - j_max - 1, i_min]
@@ -492,7 +493,7 @@ class ScanImages:
                         np.std(target_analysis[f'scan_pos_{pos}_delta_mm'], axis=0)
 
                     target_analysis['roi_ij_offset'] = roi_ij_offset
-                    target_analysis['target_ij'] = target_ij
+                    target_analysis['target_ij_raw'] = tuple(target_ij)
                     target_analysis['raw_shape_ij'] = self.raw_size
                     target_analysis['camera_roi'] = self.camera_roi
                     target_analysis['camera_r90'] = rots * 90
@@ -571,7 +572,7 @@ class ScanImages:
 
         return analysis
 
-    def render_image_analysis(self, analysis: dict[str, Any], tag: str = '', profiles: tuple[str] = ('max',),
+    def render_image_analysis(self, analysis: dict[str, Any], tag: str = '', profiles: tuple[str] = ('com',),
                               comparison: bool = True, block: bool = False, save: bool = False):
         try:
             if not tag:
