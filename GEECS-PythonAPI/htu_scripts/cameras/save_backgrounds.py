@@ -8,8 +8,8 @@ local: bool = False
 average: int = 30
 exp_name: str = 'Undulator'
 
-c_names = ['UC_ALineEbeam1', 'UC_ALineEBeam2', 'UC_ALineEBeam3',
-           'UC_TC_Phosphor', 'UC_DiagnosticsPhosphor', 'UC_Phosphor1',
+c_names = ['UC_TC_Phosphor', 'UC_DiagnosticsPhosphor', 'UC_Phosphor1',
+           'UC_ALineEbeam1', 'UC_ALineEBeam2', 'UC_ALineEBeam3',
            'UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3',
            'UC_VisaEBeam4', 'UC_VisaEBeam5', 'UC_VisaEBeam6',
            'UC_VisaEBeam7', 'UC_VisaEBeam8', 'UC_VisaEBeam9']

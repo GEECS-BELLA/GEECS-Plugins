@@ -12,7 +12,7 @@ class Transport(GeecsDevice):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self):
+    def __init__(self, subscribe: bool = True):
         if self.__initialized:
             return
         self.__initialized = True
@@ -25,12 +25,13 @@ class Transport(GeecsDevice):
         self.steer_3 = Steering(3)
         self.steer_4 = Steering(4)
 
-        self.hexapod.subscribe_var_values()
-        self.chicane.subscribe_var_values()
-        self.steer_1.subscribe_var_values()
-        self.steer_2.subscribe_var_values()
-        self.steer_3.subscribe_var_values()
-        self.steer_4.subscribe_var_values()
+        if subscribe:
+            self.hexapod.subscribe_var_values()
+            self.chicane.subscribe_var_values()
+            self.steer_1.subscribe_var_values()
+            self.steer_2.subscribe_var_values()
+            self.steer_3.subscribe_var_values()
+            self.steer_4.subscribe_var_values()
 
     def close(self):
         self.hexapod.close()
