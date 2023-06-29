@@ -30,13 +30,19 @@ analysis_path: Path = save_dir / 'beam_analysis.dat'
 analysis_dict, analysis_path = load_py(analysis_path, as_dict=True)
 
 # Targets
-targets = [ScanImages.rotated_to_original_ij(pos, shape, rot90)
-           for rot90, shape, pos in zip(analysis_dict['beam_analysis']['rot_90'],
-                                        analysis_dict['beam_analysis']['raw_shape_ij'],
-                                        analysis_dict['beam_analysis']['com_deltas_pix_means'])]
+com_of_avg_ij = [ScanImages.rotated_to_original_ij(pos, shape, rot90)
+                 for rot90, shape, pos in zip(analysis_dict['beam_analysis']['rot_90'],
+                                              analysis_dict['beam_analysis']['raw_shape_ij'],
+                                              analysis_dict['beam_analysis']['com_deltas_pix_avg_imgs'])]
+
+avg_of_coms_ij = [ScanImages.rotated_to_original_ij(pos, shape, rot90)
+                  for rot90, shape, pos in zip(analysis_dict['beam_analysis']['rot_90'],
+                                               analysis_dict['beam_analysis']['raw_shape_ij'],
+                                               analysis_dict['beam_analysis']['com_deltas_pix_means'])]
 
 # Export
-data_dict: dict[str, Any] = {'targets': targets,
+data_dict: dict[str, Any] = {'com_of_avg_ij': com_of_avg_ij,
+                             'avg_of_coms_ij': avg_of_coms_ij,
                              'base_tag': base_tag,
                              'screen_labels': screen_labels,
                              'analysis_path': analysis_path}

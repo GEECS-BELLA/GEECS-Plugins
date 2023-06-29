@@ -3,6 +3,7 @@ import scipy.ndimage as simg
 from pathlib import Path
 from typing import Any, Optional, Union
 from dataclasses import dataclass
+from tkinter import filedialog
 from scipy.ndimage import median_filter
 from skimage.restoration import denoise_wavelet, cycle_spin
 from skimage.measure import label, regionprops
@@ -155,8 +156,8 @@ def check_roi(images: Path, initial_roi: Optional[np.ndarray] = None, camera_nam
     else:
         default_roi = None
 
-    if initial_roi is None or (initial_roi.size < 4):
-        initial_roi = find_roi(avg_image, threshold=None, plots=False)
+    # if initial_roi is None or (initial_roi.size < 4):
+    #     initial_roi = find_roi(avg_image, threshold=None, plots=False)
 
     if disp_range:
         avg_image[np.where(avg_image < disp_range[0])] = disp_range[0]
@@ -241,11 +242,15 @@ if __name__ == '__main__':
     # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
     _base = Path(r'Z:\data')
 
-    _camera = 'UC_UndulatorRad2'
+    # _camera = 'UC_UndulatorRad2'
     # _camera = 'UC_VisaEBeam9'
-    _folder = _base / fr'Undulator\Y2023\04-Apr\23_0420\scans\Scan075\{_camera}'
+    # _folder = _base / fr'Undulator\Y2023\04-Apr\23_0420\scans\Scan075\{_camera}'
+    _folder = filedialog.askdirectory(initialdir=_base/r'Undulator\Y2023', title='Save directory:')
 
     _range = None
     # _range = (0, 1.8)
-    check_roi(_folder, camera_name=Camera.name_from_label(_camera), disp_range=_range, color_map='hot')
-    # check_roi(_folder, camera_name=_folder.name, disp_range=_range, color_map='jet')
+
+    if _folder:
+        _folder = Path(_folder)
+        # check_roi(_folder, camera_name=Camera.name_from_label(_camera), disp_range=_range, color_map='hot')
+        check_roi(_folder, camera_name=_folder.name, disp_range=_range, color_map='jet')

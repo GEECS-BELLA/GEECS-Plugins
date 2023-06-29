@@ -371,14 +371,13 @@ if __name__ == '__main__':
     # _analysis_path: Path = _save_dir / 'beam_analysis.dat'
     # _data_dict, _analysis_path = load_py(_analysis_path, as_dict=True)
     _data_dict, _ = screens_scan_analysis(no_scans=_no_scans,
-                                                  screen_labels=_labels,
-                                                  initial_filtering=FiltersParameters(com_threshold=0.66,
-                                                                                      contrast=1.),
-                                                  save_dir=None,
-                                                  ignore_experiment_name=is_local,
-                                                  trim_collection=True,
-                                                  new_targets=True,
-                                                  load_blind=True)
+                                          screen_labels=_labels,
+                                          initial_filtering=FiltersParameters(com_threshold=0.66, contrast=1.),
+                                          save_dir=None,
+                                          ignore_experiment_name=is_local,
+                                          trim_collection=True,
+                                          new_targets=True,
+                                          load_blind=False)
 
     try:
         # _save_dir = None
