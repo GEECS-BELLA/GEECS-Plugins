@@ -332,6 +332,20 @@ class GeecsDevice:
 
         return queued, cmd_label, async_thread
 
+    def scan(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
+             var_span: tuple[float, float], shots_per_step: int = 10, use_alias: bool = True, timeout: float = 60.) \
+            -> Optional[tuple[SysPath, int, bool, bool]]:
+        var_values = self._scan_values(var_alias, start_value, end_value, step_size, var_span)
+
+        if use_alias:
+            GeecsDevice.write_1D_scan_file(self.get_name(), var_alias, var_values, shots_per_step)
+        else:
+            var_name = self.find_var_by_alias(var_alias)
+            GeecsDevice.write_1D_scan_file(self.get_name(), var_name, var_values, shots_per_step)
+
+        comment = f'{var_alias} scan'
+        return GeecsDevice.run_file_scan(self, comment, timeout)
+
     @staticmethod
     def run_no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
                     shots: int = 10, timeout: float = 300.) -> tuple[SysPath, int, bool, bool]:
@@ -643,9 +657,9 @@ class GeecsDevice:
         return value
 
     def _scan_values(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
-                     spans:  dict[VarAlias, tuple[float, float]]) -> npt.ArrayLike:
-        start_value = self.coerce_float(var_alias, inspect.stack()[0][3], start_value, spans[var_alias])
-        end_value = self.coerce_float(var_alias, inspect.stack()[0][3], end_value, spans[var_alias])
+                     var_span:  tuple[float, float]) -> npt.ArrayLike:
+        start_value = self.coerce_float(var_alias, inspect.stack()[0][3], start_value, var_span)
+        end_value = self.coerce_float(var_alias, inspect.stack()[0][3], end_value, var_span)
         if end_value < start_value:
             step_size = -abs(step_size)
         else:

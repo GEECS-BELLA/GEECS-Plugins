@@ -63,7 +63,7 @@ class Camera(GeecsDevice):
         else:
             return 0
 
-    def get_variables(self):
+    def get_variables(self) -> dict[VarAlias, tuple[float, float]]:
         return self.__variables
 
     def state_background_path(self) -> Path:

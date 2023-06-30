@@ -94,7 +94,7 @@ class GasJetStage(GeecsDevice):
 
         if not out_of_bound:
             var_alias = self.get_axis_var_alias(axis)
-            var_values = self._scan_values(var_alias, start_value, end_value, step_size, self.__variables)
+            var_values = self._scan_values(var_alias, start_value, end_value, step_size, self.__variables[var_alias])
 
             for value in var_values:
                 if report:
@@ -102,23 +102,15 @@ class GasJetStage(GeecsDevice):
                 self.set_position(axis, value)
                 time.sleep(dwell_time)
 
-    def scan(self, axis: Optional[str, int], start_value: float, end_value: float, step_size: float = 0.10,
-             shots_per_step: int = 10, use_alias: bool = True, timeout: float = 60.) \
+    def scan_position(self, axis: Optional[str, int], start_value: float, end_value: float, step_size: float,
+                      shots_per_step: int = 10, use_alias: bool = True, timeout: float = 60.) \
             -> Optional[tuple[SysPath, int, bool, bool]]:
         out_of_bound, axis = self.is_axis_out_of_bound(axis)
 
         if not out_of_bound:
             var_alias = self.get_axis_var_alias(axis)
-            var_values = self._scan_values(var_alias, start_value, end_value, step_size, self.__variables)
-
-            if use_alias:
-                GeecsDevice.write_1D_scan_file(self.get_name(), var_alias, var_values, shots_per_step)
-            else:
-                GeecsDevice.write_1D_scan_file(self.get_name(), self.get_axis_var_name(axis),
-                                               var_values, shots_per_step)
-
-            comment = f'{var_alias} scan'
-            return GeecsDevice.run_file_scan(self, comment, timeout)
+            return self.scan(var_alias, start_value, end_value, step_size, self.__variables[var_alias],
+                             shots_per_step, use_alias, timeout)
         else:
             return None
 

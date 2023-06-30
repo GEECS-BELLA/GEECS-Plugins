@@ -7,22 +7,22 @@ from geecs_api.interface import GeecsDatabase, api_error
 
 
 class SteeringSupply(GeecsDevice):
-    def __init__(self, index: int = 1, direction: str = 'Vertical'):
+    def __init__(self, index: int = 1, plane: str = 'Vertical'):
         if index < 1 or index > 4:
             api_error.error(f'Object cannot be instantiated, index {index} out of bound [1-4]',
                             f'Class "{self.get_class()}", method "{inspect.stack()[0][3]}"')
             return
 
-        if direction.lower() == 'horizontal':
+        if plane.lower() == 'horizontal':
             mc_name = f'U_S{index}H'
             self.is_horizontal = True
             self.is_vertical = False
-        elif direction.lower() == 'vertical':
+        elif plane.lower() == 'vertical':
             mc_name = f'U_S{index}V'
             self.is_horizontal = False
             self.is_vertical = True
         else:
-            api_error.error(f'Object cannot be instantiated, direction "{direction}" '
+            api_error.error(f'Object cannot be instantiated, direction "{plane}" '
                             f'not recognized ["Horizontal", "Vertical"]',
                             f'Class "{self.get_class()}", method "{inspect.stack()[0][3]}"')
             return
@@ -36,6 +36,9 @@ class SteeringSupply(GeecsDevice):
         self.var_current = self.var_names_by_index.get(0)[0]
         self.var_enable = self.var_names_by_index.get(1)[0]
         self.var_voltage = self.var_names_by_index.get(2)[0]
+
+    def get_variables(self) -> dict[VarAlias, tuple[float, float]]:
+        return self.__variables
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         if var_alias == self.var_aliases_by_name[self.var_enable][0]:  # status
