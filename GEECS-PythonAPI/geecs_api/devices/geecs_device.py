@@ -53,6 +53,7 @@ class GeecsDevice:
         self.mc_port: int = 0
         self.mc_port = GeecsDevice.exp_info['MC_port']  # needed to initialize dev_udp
 
+        self.dev_udp: Optional[UdpHandler]
         if not self.__dev_virtual:
             self.dev_udp = UdpHandler(owner=self)
         else:
@@ -118,7 +119,30 @@ class GeecsDevice:
         if self.dev_tcp:
             self.dev_tcp.close()
 
-    def is_valid(self):
+    def reconnect(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+        if not self.__dev_virtual:
+            self.dev_udp = UdpHandler(owner=self)
+            self.register_cmd_executed_handler()
+
+            if self.is_valid():
+                try:
+                    self.dev_tcp = TcpSubscriber(owner=self)
+                    self.connect_var_listener()
+                    self.register_var_listener_handler()
+                except Exception:
+                    api_error.error('Failed creating TCP subscriber', 'GeecsDevice class, method "__init__"')
+            else:
+                api_error.warning(f'Device "{self.__dev_name}" not found', 'GeecsDevice class, method "__init__"')
+        else:
+            self.dev_udp = None
+            self.dev_tcp = None
+
+    def is_valid(self) -> bool:
         return not self.__dev_virtual and self.dev_ip and self.dev_port > 0
 
     # Accessors

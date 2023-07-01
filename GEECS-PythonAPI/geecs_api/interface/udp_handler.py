@@ -129,7 +129,7 @@ class UdpHandler:
 class UdpServer:
     def __init__(self, owner: GeecsDevice, port: int = -1):
         self.owner: GeecsDevice = owner
-        self.subscribed = False
+        self.subscribed: bool = False
 
         # initialize socket
         self.buffer_size = 1024
