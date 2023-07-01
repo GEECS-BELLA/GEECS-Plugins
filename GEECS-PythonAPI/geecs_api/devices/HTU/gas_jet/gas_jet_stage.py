@@ -22,10 +22,10 @@ class GasJetStage(GeecsDevice):
 
         super().__init__('U_ESP_JetXYZ')
 
-        self.__variables = {VarAlias('Jet_X (mm)'): (2., 10.),  # [min, max]
-                            VarAlias('Jet_Y (mm)'): (-8., -1.),
-                            VarAlias('Jet_Z (mm)'): (0., 25.)}
-        self.build_var_dicts(tuple(self.__variables.keys()))
+        self.var_spans = {VarAlias('Jet_X (mm)'): (2., 10.),  # [min, max]
+                          VarAlias('Jet_Y (mm)'): (-8., -1.),
+                          VarAlias('Jet_Z (mm)'): (0., 25.)}
+        self.build_var_dicts()
 
         # self.register_cmd_executed_handler()
         # self.register_var_listener_handler()
@@ -85,7 +85,7 @@ class GasJetStage(GeecsDevice):
                 return False, '', (None, None)
         else:
             var_alias = self.get_axis_var_alias(axis)
-            value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
+            value = self.coerce_float(var_alias, inspect.stack()[0][3], value)
             return self.set(self.get_axis_var_name(axis), value=value, exec_timeout=exec_timeout, sync=sync)
 
     def rough_scan(self, axis: Optional[str, int], start_value: float, end_value: float,
@@ -94,7 +94,7 @@ class GasJetStage(GeecsDevice):
 
         if not out_of_bound:
             var_alias = self.get_axis_var_alias(axis)
-            var_values = self._scan_values(var_alias, start_value, end_value, step_size, self.__variables[var_alias])
+            var_values = self._scan_values(var_alias, start_value, end_value, step_size)
 
             for value in var_values:
                 if report:
@@ -109,8 +109,7 @@ class GasJetStage(GeecsDevice):
 
         if not out_of_bound:
             var_alias = self.get_axis_var_alias(axis)
-            return self.scan(var_alias, start_value, end_value, step_size, self.__variables[var_alias],
-                             shots_per_step, use_alias, timeout)
+            return self.scan(var_alias, start_value, end_value, step_size, None, shots_per_step, use_alias, timeout)
         else:
             return None
 

@@ -22,8 +22,8 @@ class GasJetPressure(GeecsDevice):
 
         super().__init__('U_HP_Daq')
 
-        self.__variables = {VarAlias('PressureControlVoltage'): (0.0, 800.)}
-        self.build_var_dicts(tuple(self.__variables.keys()))
+        self.var_spans = {VarAlias('PressureControlVoltage'): (0.0, 800.)}
+        self.build_var_dicts()
         self.var_pressure: str = self.var_names_by_index.get(0)[0]
 
         # self.register_cmd_executed_handler()
@@ -40,7 +40,7 @@ class GasJetPressure(GeecsDevice):
 
     def set_pressure(self, value: float, exec_timeout: float = 10.0, sync=True) -> Optional[Union[float, AsyncResult]]:
         var_alias = self.var_aliases_by_name[self.var_pressure][0]
-        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias]) / 100.
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value) / 100.
         return self.set(self.var_pressure, value=value, exec_timeout=exec_timeout, sync=sync)
 
 
@@ -63,5 +63,5 @@ if __name__ == '__main__':
         api_error.error(str(e), 'Demo code for gas jet')
         pass
 
-    jet_pressure.cleanup()
+    jet_pressure.close()
     print(api_error)

@@ -1,16 +1,16 @@
 import yaml
 import pandas as pd
-from geecs_api.devices.HTU.transport.transport_hexapod import TransportHexapod
+from geecs_api.devices.HTU.transport.hexapod_pmq import PMQ
 
 
-def pmq_alignment(hexa: TransportHexapod, opt_method: str = 'bayes', norm: bool = True):
+def pmq_alignment(hexa: PMQ, opt_method: str = 'bayes', norm: bool = True):
     # define a dict containing the specific variables and bounds to be used in optimization
     objs = {
-        name_alias[0][0]: {
+        var_name[0]: {
             'Geecs_Object': hexa,
-            'variable': name_alias[0],
-            'bounds': list(hexa.get_variables()[name_alias[1]])}
-        for name_alias in hexa.var_names_by_index.values()}  # 'x', 'y', 'z', 'u', 'v', 'w'
+            'variable': var_name,
+            'bounds': list(hexa.var_spans[var_alias])}
+        for var_name, var_alias in hexa.var_names_by_index.values()}  # 'x', 'y', 'z', 'u', 'v', 'w'
 
     def normalize_var(obj, val):
         span = objs[obj]['bounds'][1] - objs[obj]['bounds'][0]
@@ -66,7 +66,7 @@ def pmq_alignment(hexa: TransportHexapod, opt_method: str = 'bayes', norm: bool 
 
 
 if __name__ == '__main__':
-    hexapod = TransportHexapod()
+    hexapod = PMQ()
 
     pmq_alignment(hexa=hexapod)
 

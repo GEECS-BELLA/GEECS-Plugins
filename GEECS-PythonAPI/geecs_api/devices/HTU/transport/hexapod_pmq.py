@@ -7,11 +7,11 @@ from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface import GeecsDatabase, api_error
 
 
-class TransportHexapod(GeecsDevice):
+class PMQ(GeecsDevice):
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
-            cls.instance = super(TransportHexapod, cls).__new__(cls)
+            cls.instance = super(PMQ, cls).__new__(cls)
             cls.instance.__initialized = False
         return cls.instance
 
@@ -21,16 +21,13 @@ class TransportHexapod(GeecsDevice):
         self.__initialized = True
         super().__init__('U_Hexapod')
 
-        self.__variables = {VarAlias('xpos'): (-1., 1.),  # [mm]
-                            VarAlias('ypos'): (-25., 20.),
-                            VarAlias('zpos'): (-1., 1.),
-                            VarAlias('uangle'): (-.5, .5),
-                            VarAlias('vangle'): (-.5, .5),
-                            VarAlias('wangle'): (-.5, .5)}
-        self.build_var_dicts(tuple(self.__variables.keys()))
-
-    def get_variables(self) -> dict[VarAlias, tuple[float, float]]:
-        return self.__variables
+        self.var_spans = {VarAlias('xpos'): (-1., 1.),  # [mm]
+                          VarAlias('ypos'): (-25., 20.),
+                          VarAlias('zpos'): (-1., 1.),
+                          VarAlias('uangle'): (-.5, .5),
+                          VarAlias('vangle'): (-.5, .5),
+                          VarAlias('wangle'): (-.5, .5)}
+        self.build_var_dicts()
 
     def get_position_var_name(self, axis: int) -> str:
         if axis < 0 or axis > 2:
@@ -93,7 +90,7 @@ class TransportHexapod(GeecsDevice):
 
         var_name = self.get_position_var_name(axis)
         var_alias = self.var_aliases_by_name[var_name][0]
-        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value)
 
         return self.set(var_name, value, exec_timeout=exec_timeout, sync=sync)
 
@@ -128,7 +125,7 @@ class TransportHexapod(GeecsDevice):
 
         var_name = self.get_angle_var_name(axis)
         var_alias = self.var_aliases_by_name[var_name][0]
-        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value)
 
         return self.set(var_name, value, exec_timeout=exec_timeout, sync=sync)
 
@@ -146,7 +143,7 @@ if __name__ == '__main__':
     GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     # create object
-    hexapod = TransportHexapod()
+    hexapod = PMQ()
     print(f'Variables subscription: {hexapod.subscribe_var_values()}')
 
     # retrieve currently known positions
@@ -159,5 +156,5 @@ if __name__ == '__main__':
         pass
 
     # close
-    hexapod.cleanup()
+    hexapod.close()
     print(api_error)

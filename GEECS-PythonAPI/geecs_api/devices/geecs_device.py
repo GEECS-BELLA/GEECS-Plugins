@@ -63,6 +63,7 @@ class GeecsDevice:
 
         # Variables
         self.dev_vars = {}
+        self.var_spans: dict[VarAlias, tuple[Optional[float], Optional[float]]] = {}
         self.var_names_by_index: dict[int, tuple[str, VarAlias]] = {}
         self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = {}
 
@@ -229,12 +230,14 @@ class GeecsDevice:
 
         return VarAlias(var_alias)
 
-    def build_var_dicts(self, aliases: tuple[VarAlias]):
-        self.var_names_by_index: dict[int, tuple[str, VarAlias]] = \
-            {index: (self.find_var_by_alias(aliases[index]), aliases[index]) for index in range(len(aliases))}
+    def build_var_dicts(self):
+        self.var_names_by_index: dict[int, tuple[str, VarAlias]] = {
+            index: (self.find_var_by_alias(var_alias), var_alias)
+            for index, var_alias in enumerate(self.var_spans.keys())}
 
-        self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = \
-            {self.find_var_by_alias(aliases[index]): (aliases[index], index) for index in range(len(aliases))}
+        self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = {
+            self.find_var_by_alias(var_alias): (var_alias, index)
+            for index, var_alias in enumerate(self.var_spans.keys())}
 
     def _state_value(self, var_name: str) -> Any:
         var_alias: VarAlias
@@ -333,8 +336,8 @@ class GeecsDevice:
         return queued, cmd_label, async_thread
 
     def scan(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
-             var_span: tuple[float, float], shots_per_step: int = 10, use_alias: bool = True, timeout: float = 60.) \
-            -> Optional[tuple[SysPath, int, bool, bool]]:
+             var_span: Optional[tuple[Optional[float], Optional[float]]] = None, shots_per_step: int = 10,
+             use_alias: bool = True, timeout: float = 60.) -> Optional[tuple[SysPath, int, bool, bool]]:
         var_values = self._scan_values(var_alias, start_value, end_value, step_size, var_span)
 
         if use_alias:
@@ -641,29 +644,37 @@ class GeecsDevice:
         return dev_name, cmd_received, dev_val, err_status
 
     def coerce_float(self, var_alias: VarAlias, method: str, value: float,
-                     span: tuple[Optional[float], Optional[float]]) -> float:
+                     var_span: Optional[tuple[Optional[float], Optional[float]]] = None) -> float:
         try:
-            if span[0] and value < span[0]:
-                api_error.warning(f'{var_alias} value coerced from {value} to {span[0]}',
+            if var_span is None:
+                if var_alias in self.var_spans:
+                    var_span = self.var_spans[var_alias]
+                else:
+                    var_span = (None, None)
+
+            if var_span[0] and value < var_span[0]:
+                api_error.warning(f'{var_alias} value coerced from {value} to {var_span[0]}',
                                   f'Class {self.__class_name}, method "{method}"')
-                value = span[0]
-            if span[1] and value > span[1]:
-                api_error.warning(f'{var_alias} value coerced from {value} to {span[1]}',
+                value = var_span[0]
+            if var_span[1] and value > var_span[1]:
+                api_error.warning(f'{var_alias} value coerced from {value} to {var_span[1]}',
                                   f'Class {self.__class_name}, method "{method}"')
-                value = span[1]
+                value = var_span[1]
         except Exception:
             api_error.error('Failed to coerce value')
 
         return value
 
     def _scan_values(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
-                     var_span:  tuple[float, float]) -> npt.ArrayLike:
+                     var_span:  Optional[tuple[Optional[float], Optional[float]]] = None) -> npt.ArrayLike:
         start_value = self.coerce_float(var_alias, inspect.stack()[0][3], start_value, var_span)
         end_value = self.coerce_float(var_alias, inspect.stack()[0][3], end_value, var_span)
+
         if end_value < start_value:
             step_size = -abs(step_size)
         else:
             step_size = abs(step_size)
+
         return np.arange(start_value, end_value + step_size, step_size)
 
     @staticmethod
@@ -823,20 +834,20 @@ if __name__ == '__main__':
 
     # example for 1d scan (no object instantiated)
     GeecsDevice.write_1D_scan_file('U_S3H', 'Current', np.linspace(-1., 1., 5), shots_per_step=20)
-    next_folder, next_scan, accepted, timed_out = \
+    _next_folder, _next_scan, accepted, timed_out = \
         GeecsDevice.run_file_scan(comment='U_S3H current scan (GeecsDevice demo)', timeout=300.)
 
-    print(f'Scan folder (#{next_scan}): {next_folder}')
+    print(f'Scan folder (#{_next_scan}): {_next_folder}')
     print(f'Scan{"" if accepted else " not"} accepted{"; Scan timed out!" if timed_out else ""}')
 
     # example for 1d scan (using existing device object)
     s3h = GeecsDevice('U_S3H')
 
     GeecsDevice.write_1D_scan_file(s3h.get_name(), 'Current', np.linspace(-1., 1., 5), shots_per_step=20)
-    next_folder, next_scan, accepted, timed_out = \
+    _next_folder, _next_scan, accepted, timed_out = \
         GeecsDevice.run_file_scan(comment=f'{s3h.get_name()} current scan (GeecsDevice demo)', timeout=300.)
 
-    print(f'Scan folder (#{next_scan}): {next_folder}')
+    print(f'Scan folder (#{_next_scan}): {_next_folder}')
     print(f'Scan{"" if accepted else " not"} accepted{"; Scan timed out!" if timed_out else ""}')
 
     # example for variables subscription (user defined)

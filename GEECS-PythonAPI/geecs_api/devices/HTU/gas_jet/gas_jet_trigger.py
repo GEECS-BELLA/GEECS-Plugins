@@ -20,10 +20,10 @@ class GasJetTrigger(GeecsDevice):
 
         super().__init__('U_DG645_ShotControl')
 
-        self.__variables = {VarAlias('Amplitude.Ch AB'): (None, None),
-                            VarAlias('Delay.Ch A'): (None, None),
-                            VarAlias('Delay.Ch B'): (None, None)}
-        self.build_var_dicts(tuple(self.__variables.keys()))
+        self.var_spans = {VarAlias('Amplitude.Ch AB'): (None, None),
+                          VarAlias('Delay.Ch A'): (None, None),
+                          VarAlias('Delay.Ch B'): (None, None)}
+        self.build_var_dicts()
         self.var_trigger: str = self.var_names_by_index.get(0)[0]
         self.var_start_time: str = self.var_names_by_index.get(1)[0]
         self.var_duration: str = self.var_names_by_index.get(2)[0]

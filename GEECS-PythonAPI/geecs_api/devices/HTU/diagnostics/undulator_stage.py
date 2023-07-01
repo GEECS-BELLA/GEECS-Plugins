@@ -25,8 +25,8 @@ class UndulatorStage(GeecsDevice):
 
         super().__init__('U_Velmex')
 
-        self.__variables = {VarAlias('Position'): (0., 4100.)}
-        self.build_var_dicts(tuple(self.__variables.keys()))
+        self.var_spans = {VarAlias('Position'): (0., 4100.)}
+        self.build_var_dicts()
         self.var_position = self.var_names_by_index.get(0)[0]
 
         file_path = os.path.normpath(r'Z:\software\control-all-loasis\HTU\user data\VelmexPositionConfig.tsv')
@@ -45,7 +45,7 @@ class UndulatorStage(GeecsDevice):
     def set_rail_position(self, value: float, exec_timeout: float = 10.0, sync=True) \
             -> Optional[Union[float, AsyncResult]]:
         var_alias = self.var_aliases_by_name[self.var_position][0]
-        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value)
 
         return self.set(self.var_position, value=value, exec_timeout=exec_timeout, sync=sync)
 

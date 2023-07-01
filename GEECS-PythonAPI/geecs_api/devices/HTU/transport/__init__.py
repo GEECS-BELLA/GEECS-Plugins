@@ -1,3 +1,3 @@
 from .magnets import Quads, Chicane, Steering
-from .transport_hexapod import TransportHexapod
+from .hexapod_pmq import PMQ
 from .transport import Transport

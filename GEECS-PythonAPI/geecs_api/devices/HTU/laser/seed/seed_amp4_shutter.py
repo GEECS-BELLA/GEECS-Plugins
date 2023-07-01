@@ -21,8 +21,8 @@ class SeedAmp4Shutter(GeecsDevice):
         self.__initialized = True
         super().__init__('U_1Wire_148')
 
-        self.__variables = {VarAlias('Revo-North Shutter'): (None, None)}
-        self.build_var_dicts(tuple(self.__variables.keys()))
+        self.var_spans = {VarAlias('Revo-North Shutter'): (None, None)}
+        self.build_var_dicts()
         self.var_amp4: str = self.var_names_by_index.get(0)[0]
 
         # self.register_cmd_executed_handler()
@@ -109,5 +109,5 @@ if __name__ == '__main__':
         pass
 
     # close
-    shutter.cleanup()
+    shutter.close()
     print(api_error)

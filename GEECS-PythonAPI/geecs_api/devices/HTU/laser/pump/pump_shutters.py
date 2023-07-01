@@ -19,15 +19,15 @@ class PumpShutters(GeecsDevice):
         self.__initialized = True
         super().__init__('U_1Wire_148')
 
-        self.__variables = {VarAlias('Gaia Stop North Position'): (None, None),
-                            VarAlias('Gaia Beamblock 2-North Shutter'): (None, None),
-                            VarAlias('Gaia Beamblock 3-North Position'): (None, None),
-                            VarAlias('Gaia Beamblock 4-North Position'): (None, None),
-                            VarAlias('Gaia Stop South Position'): (None, None),
-                            VarAlias('Gaia Beamblock 2-South Shutter'): (None, None),
-                            VarAlias('Gaia Beamblock 3-South Position'): (None, None),
-                            VarAlias('Gaia Beamblock 4-South Position'): (None, None)}
-        self.build_var_dicts(tuple(self.__variables.keys()))
+        self.var_spans = {VarAlias('Gaia Stop North Position'): (None, None),
+                          VarAlias('Gaia Beamblock 2-North Shutter'): (None, None),
+                          VarAlias('Gaia Beamblock 3-North Position'): (None, None),
+                          VarAlias('Gaia Beamblock 4-North Position'): (None, None),
+                          VarAlias('Gaia Stop South Position'): (None, None),
+                          VarAlias('Gaia Beamblock 2-South Shutter'): (None, None),
+                          VarAlias('Gaia Beamblock 3-South Position'): (None, None),
+                          VarAlias('Gaia Beamblock 4-South Position'): (None, None)}
+        self.build_var_dicts()
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         if val_string.lower() == 'inserted':
@@ -101,5 +101,5 @@ if __name__ == '__main__':
     print(f'North-1 inserted: {shutters.is_inserted(1, "North")}')
 
     # close
-    shutters.cleanup()
+    shutters.close()
     print(api_error)

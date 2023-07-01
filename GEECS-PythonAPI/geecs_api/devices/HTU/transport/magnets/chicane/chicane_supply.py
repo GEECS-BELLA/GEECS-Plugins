@@ -22,10 +22,10 @@ class ChicaneSupply(GeecsDevice):
 
         super().__init__(mc_name)
 
-        self.__variables = {VarAlias('Current'): (-6., 6.),
-                            VarAlias('Enable_Output'): (None, None),
-                            VarAlias('Voltage'): (0., 12.)}
-        self.build_var_dicts(tuple(self.__variables.keys()))
+        self.var_spans = {VarAlias('Current'): (-6., 6.),
+                          VarAlias('Enable_Output'): (None, None),
+                          VarAlias('Voltage'): (0., 12.)}
+        self.build_var_dicts()
         self.var_current = self.var_names_by_index.get(0)[0]
         self.var_enable = self.var_names_by_index.get(1)[0]
         self.var_voltage = self.var_names_by_index.get(2)[0]
@@ -53,7 +53,7 @@ class ChicaneSupply(GeecsDevice):
 
     def set_current(self, value: float, exec_timeout: float = 10.0, sync=True) -> Optional[Union[float, AsyncResult]]:
         var_alias = self.var_aliases_by_name[self.var_current][0]
-        value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
+        value = self.coerce_float(var_alias, inspect.stack()[0][3], value)
         return self.set(self.var_current, value=value, exec_timeout=exec_timeout, sync=sync)
 
     def is_enabled(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[bool, AsyncResult]]:

@@ -19,15 +19,15 @@ class PlungersPLC(GeecsDevice):
 
         super().__init__('U_PLC')
 
-        self.__variables = {VarAlias('ALine1 plunger'): (None, None),
-                            VarAlias('ALine2'): (None, None),
-                            VarAlias('Aline3'): (None, None),
-                            VarAlias('DiagnosticsPhosphor'): (None, None),
-                            VarAlias('Phosphor1'): (None, None),
-                            VarAlias('TCPhosphor'): (None, None),
-                            VarAlias('Visa9Plunger'): (None, None),
-                            VarAlias('OAP -Chamber-Beam-Dump'): (None, None)}
-        self.build_var_dicts(tuple(self.__variables.keys()))
+        self.var_spans = {VarAlias('ALine1 plunger'): (None, None),
+                          VarAlias('ALine2'): (None, None),
+                          VarAlias('Aline3'): (None, None),
+                          VarAlias('DiagnosticsPhosphor'): (None, None),
+                          VarAlias('Phosphor1'): (None, None),
+                          VarAlias('TCPhosphor'): (None, None),
+                          VarAlias('Visa9Plunger'): (None, None),
+                          VarAlias('OAP -Chamber-Beam-Dump'): (None, None)}
+        self.build_var_dicts()
         self.var_trigger: str = self.var_names_by_index.get(0)[0]
         self.var_start_time: str = self.var_names_by_index.get(1)[0]
         self.var_duration: str = self.var_names_by_index.get(2)[0]
@@ -35,7 +35,7 @@ class PlungersPLC(GeecsDevice):
         self.subscribe_var_values()
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
-        if var_alias in self.__variables:
+        if var_alias in self.var_spans:
             return val_string.lower() == 'on'
         else:
             return val_string

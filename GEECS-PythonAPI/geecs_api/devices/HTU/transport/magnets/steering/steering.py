@@ -48,5 +48,4 @@ class Steering(GeecsDevice):
             return None
 
         var_alias = VarAlias('Current')
-        return self.scan(var_alias, start_value, end_value, step_size, supply.get_variables()[var_alias],
-                         shots_per_step, use_alias, timeout)
+        return self.scan(var_alias, start_value, end_value, step_size, None, shots_per_step, use_alias, timeout)

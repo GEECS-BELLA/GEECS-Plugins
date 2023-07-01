@@ -39,11 +39,11 @@ class Camera(GeecsDevice):
         if not os.path.isdir(self.bkg_folder):
             os.makedirs(self.bkg_folder)
 
-        self.__variables = {VarAlias('BackgroundPath'): (None, None),
-                            VarAlias('localsavingpath'): (None, None),
-                            VarAlias('exposure'): (None, None),
-                            VarAlias('triggerdelay'): (None, None)}
-        self.build_var_dicts(tuple(self.__variables.keys()))
+        self.var_spans = {VarAlias('BackgroundPath'): (None, None),
+                          VarAlias('localsavingpath'): (None, None),
+                          VarAlias('exposure'): (None, None),
+                          VarAlias('triggerdelay'): (None, None)}
+        self.build_var_dicts()
         self.var_bkg_path: str = self.var_names_by_index.get(0)[0]
         self.var_save_path: str = self.var_names_by_index.get(1)[0]
         self.var_exposure: str = self.var_names_by_index.get(2)[0]
@@ -63,14 +63,11 @@ class Camera(GeecsDevice):
         else:
             return 0
 
-    def get_variables(self) -> dict[VarAlias, tuple[float, float]]:
-        return self.__variables
-
     def state_background_path(self) -> Path:
         return Path(self._state_value(self.var_bkg_path))
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
-        if var_alias in self.__variables.keys():
+        if var_alias in self.var_spans.keys():
             if (var_alias == VarAlias('BackgroundPath')) or (var_alias == VarAlias('localsavingpath')):
                 return val_string
             else:

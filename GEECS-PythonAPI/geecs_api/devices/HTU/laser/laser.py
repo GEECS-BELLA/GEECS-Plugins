@@ -30,6 +30,6 @@ class Laser(GeecsDevice):
         self.pump.shutters.subscribe_var_values()
 
     def cleanup(self):
-        self.compressor.cleanup()
-        self.seed.cleanup()
-        self.pump.cleanup()
+        self.compressor.close()
+        self.seed.close()
+        self.pump.close()

@@ -50,7 +50,7 @@ class HtuExp(Experiment):
         is_gaia_in &= self.laser.pump.shutters.insert(4, 'North', exec_timeout=30)
         is_gaia_in &= self.laser.pump.shutters.insert(4, 'South', exec_timeout=30)
 
-        is_hexapod_out = self.transport.hexapod.move_out(exec_timeout=120)
+        is_hexapod_out = self.transport.pmq.move_out(exec_timeout=120)
 
         is_pressure_zero = abs(self.jet.pressure.state_psi()) < 0.1
         is_jet_out = abs(self.jet.stage.state_y() + 5.) < 0.01

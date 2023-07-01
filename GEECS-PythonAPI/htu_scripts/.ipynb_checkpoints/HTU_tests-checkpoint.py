@@ -129,7 +129,7 @@ save_mat(data=GeecsDevice.exp_info)
 # velmex.set_position(station=3, diagnostic='energy')
 
 # cleanup connections
-# e_beam.cleanup()
+# e_beam.close()
 # for controller in e_beam.controllers:
-#     controller.cleanup()
-# velmex.cleanup()
+#     controller.close()
+# velmex.close()

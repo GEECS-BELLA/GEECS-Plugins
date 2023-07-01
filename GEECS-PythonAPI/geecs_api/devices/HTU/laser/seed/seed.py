@@ -20,4 +20,4 @@ class Seed(GeecsDevice):
         self.amp4_shutter = SeedAmp4Shutter()
 
     def cleanup(self):
-        self.amp4_shutter.cleanup()
+        self.amp4_shutter.close()

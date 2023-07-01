@@ -18,8 +18,8 @@ class LaserDump(GeecsDevice):
         self.__initialized = True
         super().__init__('U_PLC')
 
-        self.__variables = {VarAlias('OAP -Chamber-Beam-Dump'): (None, None)}
-        self.build_var_dicts(tuple(self.__variables.keys()))
+        self.var_spans = {VarAlias('OAP -Chamber-Beam-Dump'): (None, None)}
+        self.build_var_dicts()
         self.var_dump: str = self.var_names_by_index.get(0)[0]
 
         # self.register_cmd_executed_handler()

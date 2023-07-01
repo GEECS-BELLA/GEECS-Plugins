@@ -20,23 +20,23 @@ class Quads(GeecsDevice):
 
         super().__init__('U_EMQTripletBipolar')
 
-        self.__variables = {VarAlias('Current_Limit.Ch1'): (-10., 10.),
-                            VarAlias('Current_Limit.Ch2'): (-10., 10.),
-                            VarAlias('Current_Limit.Ch3'): (-10., 10.),
-                            VarAlias('Voltage_Limit.Ch1'): (0., 12.),
-                            VarAlias('Voltage_Limit.Ch2'): (0., 12.),
-                            VarAlias('Voltage_Limit.Ch3'): (0., 12.),
-                            VarAlias('Enable_Output.Ch1'): (None, None),
-                            VarAlias('Enable_Output.Ch2'): (None, None),
-                            VarAlias('Enable_Output.Ch3'): (None, None),
-                            VarAlias('Current.Ch1'): (0., 12.),
-                            VarAlias('Current.Ch2'): (0., 12.),
-                            VarAlias('Current.Ch3'): (0., 12.),
-                            VarAlias('Voltage.Ch1'): (0., 12.),
-                            VarAlias('Voltage.Ch2'): (0., 12.),
-                            VarAlias('Voltage.Ch3'): (0., 12.)}
+        self.var_spans = {VarAlias('Current_Limit.Ch1'): (-10., 10.),
+                          VarAlias('Current_Limit.Ch2'): (-10., 10.),
+                          VarAlias('Current_Limit.Ch3'): (-10., 10.),
+                          VarAlias('Voltage_Limit.Ch1'): (0., 12.),
+                          VarAlias('Voltage_Limit.Ch2'): (0., 12.),
+                          VarAlias('Voltage_Limit.Ch3'): (0., 12.),
+                          VarAlias('Enable_Output.Ch1'): (None, None),
+                          VarAlias('Enable_Output.Ch2'): (None, None),
+                          VarAlias('Enable_Output.Ch3'): (None, None),
+                          VarAlias('Current.Ch1'): (0., 12.),
+                          VarAlias('Current.Ch2'): (0., 12.),
+                          VarAlias('Current.Ch3'): (0., 12.),
+                          VarAlias('Voltage.Ch1'): (0., 12.),
+                          VarAlias('Voltage.Ch2'): (0., 12.),
+                          VarAlias('Voltage.Ch3'): (0., 12.)}
         # noinspection PyTypeChecker
-        self.build_var_dicts(tuple(self.__variables.keys()))
+        self.build_var_dicts()
         self.vars_current_lim = [self.var_names_by_index.get(i)[0] for i in range(0, 3)]
         self.vars_voltage_lim = [self.var_names_by_index.get(i)[0] for i in range(3, 6)]
         self.vars_enable = [self.var_names_by_index.get(i)[0] for i in range(6, 9)]
@@ -110,7 +110,7 @@ class Quads(GeecsDevice):
                 return False, '', (None, None)
         else:
             var_alias = self.var_aliases_by_name[self.vars_current_lim[index-1]][0]
-            value = self.coerce_float(var_alias, inspect.stack()[0][3], value, self.__variables[var_alias])
+            value = self.coerce_float(var_alias, inspect.stack()[0][3], value)
             return self.set(self.vars_current_lim[index-1], value=value, exec_timeout=exec_timeout, sync=sync)
 
     def is_enabled(self, index: int, exec_timeout: float = 2.0, sync=True) -> Optional[Union[bool, AsyncResult]]:
