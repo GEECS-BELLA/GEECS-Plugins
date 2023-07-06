@@ -29,7 +29,7 @@ class EBeamDiagnostics(GeecsDevice):
                                plunger_name=plg_name,
                                tcp_subscription=True)
              for obj_name, cam_name, controller, plg_name
-             in [('DC', 'UC_DiagnosticsPhosphor', self.controllers[0], 'DiagnosticsPhosphor'),
+             in [('DP', 'UC_DiagnosticsPhosphor', self.controllers[0], 'DiagnosticsPhosphor'),
                  ('P1', 'UC_Phosphor1', self.controllers[0], 'Phosphor1'),
                  ('A1', 'UC_ALineEbeam1', self.controllers[0], 'ALine1 plunger'),
                  ('A2', 'UC_ALineEBeam2', self.controllers[0], 'ALine2'),

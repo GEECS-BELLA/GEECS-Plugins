@@ -1,7 +1,7 @@
 from __future__ import annotations
 import inspect
 from typing import Optional, Any, Union
-from geecs_api.api_defs import VarAlias, AsyncResult
+from geecs_api.api_defs import VarAlias, AsyncResult, SysPath
 from geecs_api.devices.geecs_device import GeecsDevice, api_error
 
 
@@ -153,3 +153,17 @@ class Quads(GeecsDevice):
                 return False, '', (None, None)
         else:
             return self.get(self.vars_voltage[index-1], exec_timeout=exec_timeout, sync=sync)
+
+    def scan_current(self, index: int, start_value: float, end_value: float, step_size: float, shots_per_step: int = 10,
+                     use_alias: bool = True, timeout: float = 60.) -> Optional[tuple[SysPath, int, bool, bool]]:
+        if self.is_index_out_of_bound(index):
+            return None
+
+        if not self.is_enabled(index):
+            self.enable(index, True)
+
+        if not self.is_enabled(index):
+            return None
+
+        var_alias = VarAlias(f'Current_Limit.Ch{index}')
+        return self.scan(var_alias, start_value, end_value, step_size, None, shots_per_step, use_alias, timeout)

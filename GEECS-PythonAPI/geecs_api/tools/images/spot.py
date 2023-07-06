@@ -104,11 +104,6 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
     if not guess_fwhm:
         guess_fwhm = n_sigma_window(smoothed, fwhm(0.5))
         guess_fwhm = guess_fwhm[1] - guess_fwhm[0]
-        # left = np.abs(smoothed[:int(guess_center)-x_data[0]] - 0.66 * np.max(smoothed))  # not 0.5 for low-level noise
-        # left = np.where(left == np.min(left))[0][0]
-        # right = np.abs(smoothed[int(guess_center)-x_data[0]:] - 0.66 * np.max(smoothed))
-        # right = np.where(right == np.min(right))[0][-1]
-        # guess_fwhm = max(right + int(guess_center) - left - x_data[0], len(y_data) / 10)
 
     guess_std = guess_fwhm / (2 * math.sqrt(2 * math.log(2.)))
 

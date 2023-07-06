@@ -425,24 +425,18 @@ class ScanImages:
             target_analysis['target_um_pix'] = \
                 float(GeecsDevice.exp_info['devices'][self.camera_name]['SpatialCalibration']['defaultvalue'])
             if new_targets:
-                # target_analysis['target_ij_raw'] = (0, 0)
                 target_ij = np.zeros((2,))
             else:
-                # target_analysis['target_ij_raw'] = \
-                #     (int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue']),
-                #      int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue']))
                 target_ij = np.array(
                     [int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue']),
                      int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue'])])
         except Exception:
             target_found = False
             target_analysis['target_um_pix'] = 1.
-            # target_analysis['target_ij_raw'] = (0, 0)
             target_ij = np.zeros((2,))
 
         if self.average_analysis and self.analyses_summary:
             rots: int = divmod(self.camera_r90, 90)[0] % 4  # quotient modulo 4: [0-3]
-            # target_ij = np.array(target_analysis['target_ij_raw'])  # defined in raw image
 
             if rots == 1:
                 # 90deg: [j_raw - j_max - 1, i_min]

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.transport.hexapod_pmq import PMQ
-from geecs_api.devices.HTU.transport.magnets import Chicane, Steering
+from geecs_api.devices.HTU.transport.magnets import Chicane, Steering, Quads
 
 
 class Transport(GeecsDevice):
@@ -24,6 +24,7 @@ class Transport(GeecsDevice):
         self.steer_2 = Steering(2)
         self.steer_3 = Steering(3)
         self.steer_4 = Steering(4)
+        self.quads = Quads()
 
         if subscribe:
             self.pmq.subscribe_var_values()
@@ -32,6 +33,7 @@ class Transport(GeecsDevice):
             self.steer_2.subscribe_var_values()
             self.steer_3.subscribe_var_values()
             self.steer_4.subscribe_var_values()
+            self.quads.subscribe_var_values()
 
     def close(self):
         self.pmq.close()
@@ -40,3 +42,4 @@ class Transport(GeecsDevice):
         self.steer_2.close()
         self.steer_3.close()
         self.steer_4.close()
+        self.quads.close()

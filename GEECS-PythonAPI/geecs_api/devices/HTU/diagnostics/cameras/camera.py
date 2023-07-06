@@ -148,7 +148,7 @@ class Camera(GeecsDevice):
         elif name[3] == 'U':
             return name[-4:]
         elif name[3] == 'D':
-            return 'DC'
+            return 'DP'
         elif name[3] == 'P':
             return 'P1'
         else:

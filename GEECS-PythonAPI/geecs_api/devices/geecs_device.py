@@ -361,7 +361,7 @@ class GeecsDevice:
 
     def scan(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
              var_span: Optional[tuple[Optional[float], Optional[float]]] = None, shots_per_step: int = 10,
-             use_alias: bool = True, timeout: float = 60.) -> Optional[tuple[SysPath, int, bool, bool]]:
+             use_alias: bool = True, timeout: float = 60.) -> tuple[SysPath, int, bool, bool]:
         var_values = self._scan_values(var_alias, start_value, end_value, step_size, var_span)
 
         if use_alias:
@@ -380,8 +380,9 @@ class GeecsDevice:
         return GeecsDevice._process_scan(cmd, comment, monitoring_device, timeout)
 
     @staticmethod
-    def run_file_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan', timeout: float = 300.):
-        cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
+    def run_file_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan', timeout: float = 300.)\
+            -> tuple[SysPath, int, bool, bool]:
+        cmd = f'FileScan>>{GeecsDevice.scan_file_path}>>{comment}'
         return GeecsDevice._process_scan(cmd, comment, monitoring_device, timeout)
 
     @staticmethod
@@ -858,21 +859,21 @@ if __name__ == '__main__':
 
     # example for 1d scan (no object instantiated)
     GeecsDevice.write_1D_scan_file('U_S3H', 'Current', np.linspace(-1., 1., 5), shots_per_step=20)
-    _next_folder, _next_scan, accepted, timed_out = \
+    _next_folder, _next_scan, _accepted, _timed_out = \
         GeecsDevice.run_file_scan(comment='U_S3H current scan (GeecsDevice demo)', timeout=300.)
 
     print(f'Scan folder (#{_next_scan}): {_next_folder}')
-    print(f'Scan{"" if accepted else " not"} accepted{"; Scan timed out!" if timed_out else ""}')
+    print(f'Scan{"" if _accepted else " not"} accepted{"; Scan timed out!" if _timed_out else ""}')
 
     # example for 1d scan (using existing device object)
     s3h = GeecsDevice('U_S3H')
 
     GeecsDevice.write_1D_scan_file(s3h.get_name(), 'Current', np.linspace(-1., 1., 5), shots_per_step=20)
-    _next_folder, _next_scan, accepted, timed_out = \
+    _next_folder, _next_scan, _accepted, _timed_out = \
         GeecsDevice.run_file_scan(comment=f'{s3h.get_name()} current scan (GeecsDevice demo)', timeout=300.)
 
     print(f'Scan folder (#{_next_scan}): {_next_folder}')
-    print(f'Scan{"" if accepted else " not"} accepted{"; Scan timed out!" if timed_out else ""}')
+    print(f'Scan{"" if _accepted else " not"} accepted{"; Scan timed out!" if _timed_out else ""}')
 
     # example for variables subscription (user defined)
     # s3h = GeecsDevice('U_S3H')

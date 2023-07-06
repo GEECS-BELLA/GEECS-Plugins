@@ -11,7 +11,7 @@ class HtuExp(Experiment):
             cls.instance.__initialized = False
         return cls.instance
 
-    def __init__(self):
+    def __init__(self, laser: bool = True, jet: bool = True, diagnostics: bool = True, transport: bool = True):
         # Singleton
         if self.__initialized:
             return
@@ -20,10 +20,10 @@ class HtuExp(Experiment):
         super().__init__('Undulator')
 
         # Devices
-        self.laser = Laser()
-        self.jet = GasJet()
-        self.diagnostics = Diagnostics()
-        self.transport = Transport()
+        self.laser = Laser() if laser else None
+        self.jet = GasJet() if jet else None
+        self.diagnostics = Diagnostics() if diagnostics else None
+        self.transport = Transport() if transport else None
 
         self.devs = {
             'laser': self.laser,

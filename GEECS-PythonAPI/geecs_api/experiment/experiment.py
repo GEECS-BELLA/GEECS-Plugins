@@ -13,7 +13,8 @@ class Experiment:
     def close(self):
         for dev in self.devs.values():
             try:
-                dev.close()
+                if dev is not None:
+                    dev.close()
             except Exception:
                 pass
 
