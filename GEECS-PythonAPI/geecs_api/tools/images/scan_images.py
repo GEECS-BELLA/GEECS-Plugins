@@ -518,9 +518,23 @@ class ScanImages:
                 summary[f'mean_pos_{pos}_fwhm_x'] = np.mean(summary[f'scan_pos_{pos}_fwhm_x'])
                 summary[f'mean_pos_{pos}_fwhm_y'] = np.mean(summary[f'scan_pos_{pos}_fwhm_y'])
 
+                summary[f'median_pos_{pos}'] = np.median(summary[f'scan_pos_{pos}'], axis=0)
+                summary[f'median_pos_{pos}_fwhm_x'] = np.median(summary[f'scan_pos_{pos}_fwhm_x'])
+                summary[f'median_pos_{pos}_fwhm_y'] = np.median(summary[f'scan_pos_{pos}_fwhm_y'])
+
                 summary[f'std_pos_{pos}'] = np.std(summary[f'scan_pos_{pos}'], axis=0)
                 summary[f'std_pos_{pos}_fwhm_x'] = np.std(summary[f'scan_pos_{pos}_fwhm_x'])
                 summary[f'std_pos_{pos}_fwhm_y'] = np.std(summary[f'scan_pos_{pos}_fwhm_y'])
+
+                summary[f'skew_pos_{pos}'] = \
+                    np.sum((summary[f'scan_pos_{pos}'] - summary[f'mean_pos_{pos}'])**3, axis=0) / \
+                    ((summary[f'scan_pos_{pos}'].shape[0]) * (summary[f'std_pos_{pos}']**3))
+                summary[f'skew_pos_{pos}_fwhm_x'] = \
+                    np.sum((summary[f'scan_pos_{pos}_fwhm_x'] - summary[f'mean_pos_{pos}_fwhm_x'])**3, axis=0) / \
+                    ((summary[f'scan_pos_{pos}_fwhm_x'].shape[0]) * (summary[f'std_pos_{pos}_fwhm_x']**3))
+                summary[f'skew_pos_{pos}_fwhm_y'] = \
+                    np.sum((summary[f'scan_pos_{pos}_fwhm_y'] - summary[f'mean_pos_{pos}_fwhm_y'])**3, axis=0) / \
+                    ((summary[f'scan_pos_{pos}_fwhm_y'].shape[0]) * (summary[f'std_pos_{pos}_fwhm_y']**3))
 
         return summary
 

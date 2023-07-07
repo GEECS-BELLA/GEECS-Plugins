@@ -25,10 +25,15 @@ def add_beam_analysis(beam_analysis: dict[str, Any], analysis_dict: dict[str, An
             beam_analysis[f'{pos}_deltas_pix_stds'] = tmp.copy()
             beam_analysis[f'{pos}_deltas_mm_means'] = tmp.copy()
             beam_analysis[f'{pos}_deltas_mm_stds'] = tmp.copy()
-            beam_analysis[f'{pos}_fwhm_means'] = tmp.copy()
-            beam_analysis[f'{pos}_fwhm_stds'] = tmp.copy()
+            beam_analysis[f'{pos}_fwhm_pix_means'] = tmp.copy()
+            beam_analysis[f'{pos}_fwhm_pix_medians'] = tmp.copy()
+            beam_analysis[f'{pos}_fwhm_pix_stds'] = tmp.copy()
+            beam_analysis[f'{pos}_fwhm_um_means'] = tmp.copy()
+            beam_analysis[f'{pos}_fwhm_um_medians'] = tmp.copy()
+            beam_analysis[f'{pos}_fwhm_um_stds'] = tmp.copy()
             beam_analysis[f'pos_pix_{pos}']: list[np.ndarray] = []
             beam_analysis[f'{pos}_mean_pos_pix'] = tmp.copy()
+            beam_analysis[f'{pos}_median_pos_pix'] = tmp.copy()
             beam_analysis[f'{pos}_std_pos_pix'] = tmp.copy()
             beam_analysis['target_ij_raw'] = tmp.copy()
             beam_analysis['roi_ij_offset'] = tmp.copy()
@@ -55,15 +60,27 @@ def add_beam_analysis(beam_analysis: dict[str, Any], analysis_dict: dict[str, An
         if summary and (f'mean_pos_{pos}_fwhm_x' in summary):
             beam_analysis[f'pos_pix_{pos}'].append(summary[f'scan_pos_{pos}'])
             beam_analysis[f'{pos}_mean_pos_pix'][index, :] = summary[f'mean_pos_{pos}']
+            beam_analysis[f'{pos}_median_pos_pix'][index, :] = summary[f'median_pos_{pos}']
             beam_analysis[f'{pos}_std_pos_pix'][index, :] = summary[f'std_pos_{pos}']
 
-            beam_analysis[f'{pos}_fwhm_means'][index, 1] = \
+            beam_analysis[f'{pos}_fwhm_pix_means'][index, 1] = summary[f'mean_pos_{pos}_fwhm_x']
+            beam_analysis[f'{pos}_fwhm_pix_means'][index, 0] = summary[f'mean_pos_{pos}_fwhm_y']
+            beam_analysis[f'{pos}_fwhm_pix_medians'][index, 1] = summary[f'median_pos_{pos}_fwhm_x']
+            beam_analysis[f'{pos}_fwhm_pix_medians'][index, 0] = summary[f'median_pos_{pos}_fwhm_y']
+            beam_analysis[f'{pos}_fwhm_pix_stds'][index, 1] = summary[f'std_pos_{pos}_fwhm_x']
+            beam_analysis[f'{pos}_fwhm_pix_stds'][index, 0] = summary[f'std_pos_{pos}_fwhm_y']
+
+            beam_analysis[f'{pos}_fwhm_um_means'][index, 1] = \
                 summary[f'mean_pos_{pos}_fwhm_x'] * beam_analysis['target_um_pix'][index]
-            beam_analysis[f'{pos}_fwhm_means'][index, 0] = \
+            beam_analysis[f'{pos}_fwhm_um_means'][index, 0] = \
                 summary[f'mean_pos_{pos}_fwhm_y'] * beam_analysis['target_um_pix'][index]
-            beam_analysis[f'{pos}_fwhm_stds'][index, 1] = \
+            beam_analysis[f'{pos}_fwhm_um_medians'][index, 1] = \
+                summary[f'median_pos_{pos}_fwhm_x'] * beam_analysis['target_um_pix'][index]
+            beam_analysis[f'{pos}_fwhm_um_medians'][index, 0] = \
+                summary[f'median_pos_{pos}_fwhm_y'] * beam_analysis['target_um_pix'][index]
+            beam_analysis[f'{pos}_fwhm_um_stds'][index, 1] = \
                 summary[f'std_pos_{pos}_fwhm_x'] * beam_analysis['target_um_pix'][index]
-            beam_analysis[f'{pos}_fwhm_stds'][index, 0] = \
+            beam_analysis[f'{pos}_fwhm_um_stds'][index, 0] = \
                 summary[f'std_pos_{pos}_fwhm_y'] * beam_analysis['target_um_pix'][index]
 
     return beam_analysis, pos_short_names, pos_long_names
