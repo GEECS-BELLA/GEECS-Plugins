@@ -48,7 +48,8 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
     analysis: Optional[dict[str, Any]]
 
     try:
-        analysis = {}
+        analysis = {'x': {},
+                    'y': {}}
 
         for pos_i, pos_j, name in positions:
             if not np.isnan([pos_i, pos_j]).any():
@@ -62,11 +63,11 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
                     data_x = image[pos_i, :]
                     opt_x, err_x, fit_x = profile_fit(axis_x, data_x, guess_center=pos_j)
 
-                analysis[f'axis_x_{name}'] = axis_x
-                analysis[f'data_x_{name}'] = data_x
-                analysis[f'opt_x_{name}'] = opt_x
-                analysis[f'err_x_{name}'] = err_x
-                analysis[f'fit_x_{name}'] = fit_x
+                analysis[name]['x']['axis'] = axis_x
+                analysis[name]['x']['data'] = data_x
+                analysis[name]['x']['opt'] = opt_x
+                analysis[name]['x']['err'] = err_x
+                analysis[name]['x']['fit'] = fit_x
 
                 if y_window:
                     y_window = (max(0, y_window[0]), min(y_window[1], image.shape[0] - 1))
@@ -78,11 +79,11 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
                     data_y = image[:, pos_j]
                     opt_y, err_y, fit_y = profile_fit(axis_y, data_y, guess_center=pos_i)
 
-                analysis[f'axis_y_{name}'] = axis_y
-                analysis[f'data_y_{name}'] = data_y
-                analysis[f'opt_y_{name}'] = opt_y
-                analysis[f'err_y_{name}'] = err_y
-                analysis[f'fit_y_{name}'] = fit_y
+                analysis[name]['y']['axis'] = axis_y
+                analysis[name]['y']['data'] = data_y
+                analysis[name]['y']['opt'] = opt_y
+                analysis[name]['y']['err'] = err_y
+                analysis[name]['y']['fit'] = fit_y
 
     except Exception:
         analysis = None
@@ -133,7 +134,7 @@ def find_spot(image: np.ndarray,
     gauss_filter:   gaussian filter size
     com_threshold:  image threshold for center-of-mass calculation
     """
-    filter_dict = basic_filter(image, hp_median, hp_threshold, denoise_cycles, gauss_filter, com_threshold)
+    filter_dict = basic_filter(image, None, hp_median, hp_threshold, denoise_cycles, gauss_filter, com_threshold)
 
     return filter_dict['position_com'], filter_dict['position_max']
 
