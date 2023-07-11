@@ -45,13 +45,12 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
     image: numpy array
     positions: list of tuples of (i, j, label)
     """
-    analysis: Optional[dict[str, Any]]
+    analysis: Optional[dict[str, Any]] = {}
 
     try:
-        analysis = {'x': {},
-                    'y': {}}
-
         for pos_i, pos_j, name in positions:
+            analysis[name] = {'x': {}, 'y': {}}
+
             if not np.isnan([pos_i, pos_j]).any():
                 if x_window:
                     x_window = (max(0, x_window[0]), min(x_window[1], image.shape[1] - 1))
