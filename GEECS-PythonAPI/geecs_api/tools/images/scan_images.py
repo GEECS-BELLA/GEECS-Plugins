@@ -439,45 +439,6 @@ class ScanImages:
             api_error.error(str(ex), 'Failed to analyze profiles')
             pass
 
-    # def summarize_analyses(self):
-    #     self.summary = {'max': {}, 'com': {}, 'box': {}, 'ellipse': {}}
-    #
-    #     for pos in self.summary.keys():
-    #         scan_pos = []
-    #         scan_pos_fit = []
-    #         scan_fwhm_fit = []
-    #
-    #         for analysis in self.analyses:
-    #             if (analysis is not None) and analysis['flags']['is_valid'] \
-    #                     and ('profiles' in analysis['metrics']) and (pos in analysis['metrics']['profiles']):
-    #                 scan_pos.append(analysis['positions'][f'{pos}_ij'])
-    #
-    #                 profile = analysis['metrics']['profiles'][pos]
-    #                 scan_pos_fit.append((profile['y']['opt'][2], profile['x']['opt'][2]))
-    #                 scan_fwhm_fit.append((fwhm(profile['y']['opt'][3]), fwhm(profile['x']['opt'][3])))
-    #
-    #         if scan_pos:
-    #             self.summary[pos][f'scan_pos_roi_ij'] = np.array(scan_pos)
-    #             self.summary[pos][f'scan_pos_fit_roi_ij'] = np.array(scan_pos_fit)
-    #             self.summary[pos][f'scan_fwhm_fit_ij'] = np.array(scan_fwhm_fit)
-    #
-    #             self.summary[pos][f'scan_delta_pix_ij'], um_per_pix = \
-    #                 ScanImages.calculate_target_offset(self.analyses[-1], self.summary[pos][f'scan_pos_roi_ij'])
-    #             self.summary[pos][f'scan_delta_um_xy'] = np.flip(self.summary[pos][f'scan_delta_pix_ij']) * um_per_pix
-    #
-    #             self.summary[pos][f'scan_delta_fit_pix_ij'], um_per_pix = \
-    #                 ScanImages.calculate_target_offset(self.analyses[-1], self.summary[pos][f'scan_pos_fit_roi_ij'])
-    #             self.summary[pos][f'scan_delta_fit_um_xy'] = \
-    #                 np.flip(self.summary[pos][f'scan_delta_fit_pix_ij']) * um_per_pix
-    #
-    #             # self.summary[pos][f'mean_pos_roi_ij'] = np.mean(self.summary[f'scan_pos_roi_ij'], axis=0)
-    #             # self.summary[pos][f'mean_fwhm_x'] = np.mean(self.summary[f'scan_fwhm_x'])
-    #             # self.summary[pos][f'mean_fwhm_y'] = np.mean(self.summary[f'scan_fwhm_y'])
-    #             #
-    #             # self.summary[pos][f'std_pos_roi_ij'] = np.std(self.summary[f'scan_pos_roi_ij'], axis=0)
-    #             # self.summary[pos][f'std_fwhm_x'] = np.std(self.summary[f'scan_fwhm_x'])
-    #             # self.summary[pos][f'std_fwhm_y'] = np.std(self.summary[f'scan_fwhm_y'])
-
     def summarize_analyses(self):
         self.summary = {'positions_roi': {'data': {}, 'fit': {}},
                         'positions_raw': {'data': {}, 'fit': {}},
@@ -598,84 +559,6 @@ class ScanImages:
             raw_coords = raw_coords[0]
 
         return raw_coords
-
-    # def _target_analysis(self, new_targets: bool = False) -> dict[str, Any]:
-    #     positions = ['max', 'com', 'box', 'ellipse']
-    #     target_analysis: dict[str, Any] = {}
-    #     target_found: bool = True
-    #
-    #     try:
-    #         target_analysis['target_um_pix'] = \
-    #             float(GeecsDevice.exp_info['devices'][self.camera_name]['SpatialCalibration']['defaultvalue'])
-    #         if new_targets:
-    #             target_ij = np.zeros((2,))
-    #         else:
-    #             target_ij = np.array(
-    #                 [int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue']),
-    #                  int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue'])])
-    #     except Exception:
-    #         target_found = False
-    #         target_analysis['target_um_pix'] = 1.
-    #         target_ij = np.zeros((2,))
-    #
-    #     if self.average_analysis and self.summary:
-    #         rots: int = divmod(self.camera_r90, 90)[0] % 4  # quotient modulo 4: [0-3]
-    #
-    #         if rots == 1:
-    #             # 90deg: [j_raw - j_max - 1, i_min]
-    #             roi_ij_offset = np.array([self.raw_size[1] - self.camera_roi[1] - 1, self.camera_roi[2]])
-    #             if target_found and not new_targets:
-    #                 target_ij = np.array([self.raw_size[1] - target_ij[1] - 1, target_ij[0]])
-    #
-    #         elif rots == 2:
-    #             # 180deg: [i_raw - i_max - 1, j_raw - j_max - 1]
-    #             roi_ij_offset = np.array([self.raw_size[0] - self.camera_roi[3] - 1,
-    #                                       self.raw_size[1] - self.camera_roi[1] - 1])
-    #             if target_found and not new_targets:
-    #                 target_ij = np.array([self.raw_size[0] - target_ij[0] - 1, self.raw_size[1] - target_ij[1] - 1])
-    #
-    #         elif rots == 3:
-    #             # 270deg: [j_min, i_raw - i_max - 1]
-    #             roi_ij_offset = np.array([self.camera_roi[0], self.raw_size[0] - self.camera_roi[3] - 1])
-    #             if target_found and not new_targets:
-    #                 target_ij = np.array([target_ij[1], self.raw_size[0] - target_ij[0] - 1])
-    #
-    #         else:
-    #             # 0deg: [i_min, j_min]
-    #             roi_ij_offset = self.camera_roi[[2, 0]]
-    #
-    #         for pos in positions:
-    #             if f'position_{pos}' in self.average_analysis and self.average_analysis[f'position_{pos}']:
-    #                 target_analysis[f'avg_img_{pos}_delta_pix'] = \
-    #                     np.array(self.average_analysis[f'position_{pos}']) + roi_ij_offset - target_ij
-    #                 target_analysis[f'avg_img_{pos}_delta_mm'] = \
-    #                     np.roll(target_analysis[f'avg_img_{pos}_delta_pix'], 1) \
-    #                     * target_analysis['target_um_pix'] / 1000.
-    #
-    #             if f'scan_pos_{pos}' in self.summary and self.summary[f'scan_pos_{pos}'].any():
-    #                 target_analysis[f'scan_pos_{pos}_delta_pix'] = \
-    #                     np.array(self.summary[f'scan_pos_{pos}']) + roi_ij_offset - target_ij
-    #                 target_analysis[f'scan_pos_{pos}_delta_mm'] = \
-    #                     np.roll(target_analysis[f'scan_pos_{pos}_delta_pix'], 1) \
-    #                     * target_analysis['target_um_pix'] / 1000.
-    #
-    #                 target_analysis[f'target_deltas_pix_{pos}_mean'] = \
-    #                     np.mean(target_analysis[f'scan_pos_{pos}_delta_pix'], axis=0)
-    #                 target_analysis[f'target_deltas_pix_{pos}_std'] = \
-    #                     np.std(target_analysis[f'scan_pos_{pos}_delta_pix'], axis=0)
-    #
-    #                 target_analysis[f'target_deltas_mm_{pos}_mean'] = \
-    #                     np.mean(target_analysis[f'scan_pos_{pos}_delta_mm'], axis=0)
-    #                 target_analysis[f'target_deltas_mm_{pos}_std'] = \
-    #                     np.std(target_analysis[f'scan_pos_{pos}_delta_mm'], axis=0)
-    #
-    #                 target_analysis['roi_ij_offset'] = roi_ij_offset
-    #                 target_analysis['target_ij_raw'] = tuple(target_ij)
-    #                 target_analysis['raw_shape_ij'] = self.raw_size
-    #                 target_analysis['camera_roi'] = self.camera_roi
-    #                 target_analysis['camera_r90'] = rots * 90
-    #
-    #     return target_analysis
 
     @staticmethod
     def calculate_target_offset(analysis: dict[str, Any], pos_roi_ij: Union[tuple[int, int], np.ndarray]) \
@@ -858,7 +741,7 @@ if __name__ == '__main__':
 
     _scan = ScanData(_folder, ignore_experiment_name=is_local)
     _images = ScanImages(_scan, _camera_tag)
-    _images.run_analysis_with_checks(
+    _export_file_path, _data_dict = _images.run_analysis_with_checks(
         initial_filtering=FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0,
                                             gauss_filter=5., com_threshold=0.66, bkg_image=None, box=True,
                                             ellipse=False),

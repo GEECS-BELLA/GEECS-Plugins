@@ -5,61 +5,61 @@ import matplotlib.pyplot as plt
 from typing import Optional, Union
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.transport.magnets.steering import SteeringSupply
+from geecs_api.devices.HTU.transport import Transport
 from geecs_api.tools.distributions.binning import unsupervised_binning
 from geecs_api.tools.images.scan_images import ScanImages
 from geecs_api.tools.scans.scan_data import ScanData
 
 
-class SteeringScan:
-    def __init__(self, scan_images: ScanImages, steering_supply: Union[SteeringSupply, str]):
-        """
-        Container for data analysis of a set of images collected at an undulator station.
-
-        scan (ScanImages object): analysis object for the relevant scan
-        steering_supply (SteeringSupply | str), either of:
-            - SteeringSupply object
-            - GEECS device name of the relevant steering magnet supply
-        """
-
-        self.scan_images: ScanImages = scan_images
-        self.supply: Optional[SteeringSupply] = None
-
-        # Steering supply
-        if isinstance(steering_supply, SteeringSupply):
-            self.supply = steering_supply
-            self.supply_name: str = steering_supply.get_name()
-            self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
-        elif isinstance(steering_supply, str) and re.match(r'U_S[1-4][HV]', steering_supply):  # device name
-            self.supply_name = steering_supply
-            self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
-        else:
-            self.supply_name = steering_supply
-
-
-# def steering_scan(e_transport: , scan_images: ScanImages, steering_supply: Union[SteeringSupply, str]):
-#     """
-#     Container for data analysis of a set of images collected at an undulator station.
+# class SteeringScan:
+#     def __init__(self, scan_images: ScanImages, steering_supply: Union[SteeringSupply, str]):
+#         """
+#         Container for data analysis of a set of images collected at an undulator station.
 #
-#     scan (ScanImages object): analysis object for the relevant scan
-#     steering_supply (SteeringSupply | str), either of:
-#         - SteeringSupply object
-#         - GEECS device name of the relevant steering magnet supply
-#     """
+#         scan (ScanImages object): analysis object for the relevant scan
+#         steering_supply (SteeringSupply | str), either of:
+#             - SteeringSupply object
+#             - GEECS device name of the relevant steering magnet supply
+#         """
 #
-#     self.scan_images: ScanImages = scan_images
-#     self.supply: Optional[SteeringSupply] = None
+#         self.scan_images: ScanImages = scan_images
+#         self.supply: Optional[SteeringSupply] = None
 #
-#     # Steering supply
-#     if isinstance(steering_supply, SteeringSupply):
-#         self.supply = steering_supply
-#         self.supply_name: str = steering_supply.get_name()
-#         self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
-#     elif isinstance(steering_supply, str) and re.match(r'U_S[1-4][HV]', steering_supply):  # device name
-#         self.supply_name = steering_supply
-#         self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
-#     else:
-#         self.supply_name = steering_supply
+#         # Steering supply
+#         if isinstance(steering_supply, SteeringSupply):
+#             self.supply = steering_supply
+#             self.supply_name: str = steering_supply.get_name()
+#             self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
+#         elif isinstance(steering_supply, str) and re.match(r'U_S[1-4][HV]', steering_supply):  # device name
+#             self.supply_name = steering_supply
+#             self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
+#         else:
+#             self.supply_name = steering_supply
+
+
+def steering_scan(e_transport: , scan_images: ScanImages, steering_supply: Union[SteeringSupply, str]):
+    """
+    Container for data analysis of a set of images collected at an undulator station.
+
+    scan (ScanImages object): analysis object for the relevant scan
+    steering_supply (SteeringSupply | str), either of:
+        - SteeringSupply object
+        - GEECS device name of the relevant steering magnet supply
+    """
+
+    self.scan_images: ScanImages = scan_images
+    self.supply: Optional[SteeringSupply] = None
+
+    # Steering supply
+    if isinstance(steering_supply, SteeringSupply):
+        self.supply = steering_supply
+        self.supply_name: str = steering_supply.get_name()
+        self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
+    elif isinstance(steering_supply, str) and re.match(r'U_S[1-4][HV]', steering_supply):  # device name
+        self.supply_name = steering_supply
+        self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
+    else:
+        self.supply_name = steering_supply
 
 
 if __name__ == '__main__':
