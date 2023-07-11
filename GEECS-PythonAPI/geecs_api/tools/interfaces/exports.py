@@ -46,7 +46,7 @@ def save_py(file_path: Optional[Path] = None, data: Optional[dict[str, Any]] = N
 
 
 def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = None,
-            as_dict: bool = False, as_bulk: bool = False) \
+            as_dict: bool = True, as_bulk: bool = False) \
         -> tuple[Optional[dict[str, Any]], Union[Path, str]]:
     if file_path and not re.search(r'\.[^\.]+$', str(file_path)):
         file_path = Path(f'{file_path}.dat')

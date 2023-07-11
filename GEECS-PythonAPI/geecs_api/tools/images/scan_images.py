@@ -117,7 +117,7 @@ class ScanImages:
         return image.astype(float)
 
     def run_analysis_with_checks(self, images: Union[int, list[Path]] = -1, initial_filtering=FiltersParameters(),
-                                 save_images: bool = True, plots: bool = False, profiles: tuple[str] = ('com',),
+                                 profiles: tuple[str] = ('com',), plots: bool = False, store_images: bool = True,
                                  save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
 
         export_file_path: Optional[Path] = None
@@ -131,7 +131,7 @@ class ScanImages:
         while True:
             try:
                 export_file_path, data_dict = \
-                    self.analyze_image_batch(images, filtering, save_images, plots, profiles, save)
+                    self.analyze_image_batch(images, filtering, store_images, plots, profiles, save)
             except Exception as ex:
                 api_error(str(ex), f'Failed to analyze {self.scan.get_folder().name}')
                 pass
@@ -155,7 +155,7 @@ class ScanImages:
         return export_file_path, data_dict
 
     def analyze_image_batch(self, images: Union[int, list[Path]] = -1, filtering=FiltersParameters(),
-                            save_images: bool = True, plots: bool = False, profiles: tuple[str] = ('com',),
+                            store_images: bool = True, plots: bool = False, profiles: tuple[str] = ('com',),
                             save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
@@ -182,7 +182,7 @@ class ScanImages:
                         if not self.analysis['flags']['is_valid']:
                             skipped_files.append(image_path.name)
 
-                        if not save_images:
+                        if not store_images:
                             self.analysis.pop('arrays')
 
                         self.analyses.append(self.analysis)
@@ -207,7 +207,7 @@ class ScanImages:
                         ScanImages.render_image_analysis(self.analysis, tag='average_image', profiles=profiles,
                                                          block=True, save_folder=save_folder)
 
-                    if not save_images:
+                    if not store_images:
                         self.analysis.pop('arrays')
 
                 except Exception as ex:
