@@ -81,7 +81,7 @@ def denoise(image: np.ndarray, max_shifts: int = 3):
     return cycle_spin(image, func=denoise_wavelet, max_shifts=max_shifts)
 
 
-def basic_filter(image: np.ndarray,
+def basic_filter(image: np.ndarray, analysis_dict: Optional[dict[str, Any]] = None,
                  hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 3,
                  gauss_filter: float = 5., com_threshold: float = 0.5) -> dict[str, Any]:
     """
@@ -125,17 +125,46 @@ def basic_filter(image: np.ndarray,
         i_max, j_max, i_com, j_com = -1
         image_thresholded: np.ndarray = image_blurred.copy()
 
-    return {'hp_median': hp_median,
-            'hp_threshold': hp_threshold,
-            'denoise_cycles': denoise_cycles,
-            'gauss_filter': gauss_filter,
-            'com_threshold': com_threshold,
-            'image_raw': image,
-            'image_denoised': image_denoised,
-            'image_blurred': image_blurred,
-            'image_thresholded': image_thresholded,
-            'position_max': (int(i_max), int(j_max)),
-            'position_com': (int(i_com), int(j_com))}
+    filters = {'hp_median': hp_median,
+               'hp_threshold': hp_threshold,
+               'denoise_cycles': denoise_cycles,
+               'gauss_filter': gauss_filter,
+               'com_threshold': com_threshold}
+
+    positions = {'max_ij': (int(i_max), int(j_max)),
+                 'com_ij': (int(i_com), int(j_com)),
+                 'long_names': ['maximum', 'center of mass'],
+                 'short_names': ['max', 'com']}
+
+    arrays = {'raw_roi': image,
+              'denoised': image_denoised,
+              'blurred': image_blurred,
+              'thresholded': image_thresholded}
+
+    if analysis_dict is None:
+        analysis_dict = {'filter_pars': filters,
+                         'positions': positions,
+                         'arrays': arrays}
+    else:
+        if 'filters' in analysis_dict:
+            for k, v in filters.items():
+                analysis_dict['filters'][k] = v
+        else:
+            analysis_dict['filters'] = filters
+
+        if 'positions' in analysis_dict:
+            for k, v in positions.items():
+                analysis_dict['positions'][k] = v
+        else:
+            analysis_dict['positions'] = positions
+
+        if 'arrays' in analysis_dict:
+            for k, v in arrays.items():
+                analysis_dict['arrays'][k] = v
+        else:
+            analysis_dict['arrays'] = arrays
+
+    return analysis_dict
 
 
 def check_roi(images: Path, initial_roi: Optional[np.ndarray] = None, camera_name: Optional[str] = None,
