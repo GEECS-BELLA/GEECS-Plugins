@@ -51,6 +51,7 @@ class EBeamDiagnostics(GeecsDevice):
     def close(self):
         [obj.close() for obj in self.imagers.values()]
         self.undulator_stage.close()
+        [controller.close() for controller in self.controllers]
 
     def remove_all_imagers(self) -> bool:
         done: bool = False

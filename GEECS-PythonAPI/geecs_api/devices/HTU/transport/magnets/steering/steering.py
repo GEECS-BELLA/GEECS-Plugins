@@ -1,6 +1,7 @@
 import inspect
+from pathlib import Path
 from typing import Optional, Union
-from geecs_api.api_defs import VarAlias, SysPath, AsyncResult
+from geecs_api.api_defs import VarAlias, AsyncResult
 from geecs_api.devices.geecs_device import GeecsDevice, api_error
 from geecs_api.devices.HTU.transport.magnets.steering.steering_supply import SteeringSupply
 
@@ -60,7 +61,7 @@ class Steering(GeecsDevice):
             return supply.set_current(value, exec_timeout, sync)
 
     def scan_current(self, plane: str, start_value: float, end_value: float, step_size: float, shots_per_step: int = 10,
-                     use_alias: bool = True, timeout: float = 60.) -> Optional[tuple[SysPath, int, bool, bool]]:
+                     use_alias: bool = True, timeout: float = 60.) -> Optional[tuple[Path, int, bool, bool]]:
         supply = self.get_supply(plane)
         if supply is None:
             return None

@@ -110,7 +110,7 @@ class Camera(GeecsDevice):
         # average image
         avg_image, _ = average_images(source_path, n_images)
 
-        if avg_image:
+        if avg_image is not None and avg_image.any():
             cv2.imwrite(file_path, avg_image)
             if set_as_background:
                 time.sleep(1.)  # buffer to write file to disk
@@ -133,7 +133,7 @@ class Camera(GeecsDevice):
         # average image
         avg_image, _ = average_images(images_folder=os.path.join(next_scan_folder, self.get_name()))
 
-        if avg_image:
+        if avg_image is not None and avg_image.any():
             cv2.imwrite(file_path, avg_image)
             if set_as_background:
                 time.sleep(1.)  # buffer to write file to disk
@@ -186,7 +186,7 @@ class Camera(GeecsDevice):
 
                 avg_image, _ = average_images(images_folder=os.path.join(next_scan_folder, camera.get_name()))
 
-                if avg_image:
+                if avg_image is not None and avg_image.any():
                     cv2.imwrite(file_path, avg_image)
                     if set_as_background:
                         time.sleep(1.)  # buffer to write file to disk

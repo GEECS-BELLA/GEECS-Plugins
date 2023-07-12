@@ -2,8 +2,9 @@ import os
 from typing import Any
 import configparser
 import mysql.connector
+from pathlib import Path
 from typing import Union, Optional
-from geecs_api.api_defs import ExpDict, SysPath
+from geecs_api.api_defs import ExpDict
 from geecs_api.interface.geecs_errors import api_error
 import tkinter as tk
 from tkinter import filedialog
@@ -69,7 +70,7 @@ class GeecsDatabase:
 
     @staticmethod
     def collect_exp_info(exp_name: str = 'Undulator')\
-            -> dict[str, Union[ExpDict, dict[str, SysPath], SysPath, int]]:
+            -> dict[str, Union[ExpDict, dict[str, Path], Path, int]]:
         db = GeecsDatabase._get_db()
         db_cursor = db.cursor(dictionary=True)
 
@@ -150,33 +151,33 @@ class GeecsDatabase:
 
     @staticmethod
     def _find_exp_guis(db_cursor, exp_name: str = 'Undulator',
-                       git_base: Optional[Union[str, os.PathLike]] = None) -> dict[str, SysPath]:
+                       git_base: Optional[Union[str, Path]] = None) -> dict[str, Path]:
         """ Dictionary of (key) descriptive names with (values) executable paths. """
 
         if git_base is None:
-            git_base = r'C:\GEECS\Developers Version\builds\Interface builds'
+            git_base = Path(r'C:\GEECS\Developers Version\builds\Interface builds')
 
         cmd_str = 'SELECT `name` , `path` FROM commongui WHERE experiment = %s;'
         db_cursor.execute(cmd_str, (exp_name,))
         rows = db_cursor.fetchall()
 
-        exp_guis: dict[str, SysPath] = {}
+        exp_guis: dict[str, Path] = {}
         while rows:
             row = rows.pop()
-            path: SysPath = os.path.join(git_base, row['path'][1:])
+            path: Path = git_base / row['path'][1:]
             exp_guis[row['name']] = path
 
         return exp_guis
 
     @staticmethod
-    def _find_exp_data_path(db_cursor, exp_name: str = 'Undulator') -> SysPath:
+    def _find_exp_data_path(db_cursor, exp_name: str = 'Undulator') -> Path:
         """ Path to experiment's data root directory. """
 
         cmd_str = f'SELECT RootPath FROM {GeecsDatabase.name}.expt WHERE name = %s;'
 
         db_cursor.execute(cmd_str, (exp_name,))
         db_result = db_cursor.fetchone()
-        data_path: SysPath = os.path.realpath(db_result.popitem()[1])
+        data_path: Path = Path(db_result.popitem()[1])
 
         return data_path
 

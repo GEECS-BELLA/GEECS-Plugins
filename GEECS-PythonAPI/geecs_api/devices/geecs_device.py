@@ -4,12 +4,13 @@ from __future__ import annotations
 from typing import Optional, Any, Union, TYPE_CHECKING
 from geecs_api.api_defs import VarAlias
 if TYPE_CHECKING:
-    from geecs_api.api_defs import VarDict, ExpDict, AsyncResult, ThreadInfo, SysPath
+    from geecs_api.api_defs import VarDict, ExpDict, AsyncResult, ThreadInfo
 import queue
 import re
 import inspect
 import time
 import os
+import shutil
 import numpy as np
 from queue import Queue
 import numpy.typing as npt
@@ -102,7 +103,7 @@ class GeecsDevice:
             self.list_variables(GeecsDevice.exp_info['devices'])
 
         # Data
-        self.data_root_path: SysPath = GeecsDevice.exp_info['data_path']
+        self.data_root_path: Path = GeecsDevice.exp_info['data_path']
 
         if not GeecsDevice.appdata_path.is_dir():
             os.makedirs(GeecsDevice.appdata_path)
@@ -361,7 +362,7 @@ class GeecsDevice:
 
     def scan(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
              var_span: Optional[tuple[Optional[float], Optional[float]]] = None, shots_per_step: int = 10,
-             use_alias: bool = True, timeout: float = 60.) -> tuple[SysPath, int, bool, bool]:
+             use_alias: bool = True, timeout: float = 60.) -> tuple[Path, int, bool, bool]:
         var_values = self._scan_values(var_alias, start_value, end_value, step_size, var_span)
 
         if use_alias:
@@ -375,19 +376,19 @@ class GeecsDevice:
 
     @staticmethod
     def run_no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
-                    shots: int = 10, timeout: float = 300.) -> tuple[SysPath, int, bool, bool]:
+                    shots: int = 10, timeout: float = 300.) -> tuple[Path, int, bool, bool]:
         cmd = f'ScanStart>>{comment}>>{shots}'
         return GeecsDevice._process_scan(cmd, comment, monitoring_device, timeout)
 
     @staticmethod
     def run_file_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan', timeout: float = 300.)\
-            -> tuple[SysPath, int, bool, bool]:
-        cmd = f'FileScan>>{GeecsDevice.scan_file_path}>>{comment}'
+            -> tuple[Path, int, bool, bool]:
+        cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
         return GeecsDevice._process_scan(cmd, comment, monitoring_device, timeout)
 
     @staticmethod
     def _process_scan(cmd: str, comment: str = 'no scan', monitoring_device: Optional[GeecsDevice] = None,
-                      timeout: float = 300.) -> tuple[SysPath, int, bool, bool]:
+                      timeout: float = 300.) -> tuple[Path, int, bool, bool]:
         if monitoring_device is None:
             dev = GeecsDevice('tmp', virtual=True)
             dev.dev_udp = UdpHandler(owner=dev)
@@ -398,79 +399,79 @@ class GeecsDevice:
         accepted = timed_out = False
 
         txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
-        txt_file_path = os.path.join(next_folder, txt_file_name)
+        txt_file_path: Path = next_folder / txt_file_name
 
         try:
             accepted = dev.dev_udp.send_scan_cmd(cmd)
 
-            # # format ini file
-            # ini_file_name = f'ScanInfo{os.path.basename(next_folder)}.ini'
-            # # txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
-            #
-            # ini_file_path = os.path.join(next_folder, ini_file_name)
-            # # txt_file_path = os.path.join(next_folder, txt_file_name)
-            # ini_found = False
-            #
-            # if accepted:
-            #     # wait for .ini file creation
-            #     t0 = time.monotonic()
-            #     while True:
-            #         timed_out = (time.monotonic() - t0 > 10.)
-            #         if timed_out:
-            #             break
-            #
-            #         if os.path.isfile(ini_file_path):
-            #             ini_found = True
-            #             break
-            #
-            #     if ini_found:
-            #         try:
-            #             # make a copy and write content to it
-            #             shutil.copy2(ini_file_path, ini_file_path + '~')
-            #
-            #             destination = open(ini_file_path, 'w')
-            #             source = open(ini_file_path + '~', 'r')
-            #
-            #             info_line_found = False
-            #             par_line_found = False
-            #             for line in source:
-            #                 if line.startswith('ScanStartInfo'):
-            #                     destination.write(f'ScanStartInfo = "{comment}"\n')
-            #                     info_line_found = True
-            #                 elif line.startswith('Scan Parameter'):
-            #                     destination.write('Scan Parameter = "Shotnumber"\n')
-            #                     par_line_found = True
-            #                 else:
-            #                     destination.write(line)
-            #
-            #             source.close()
-            #             destination.close()
-            #
-            #             #  add lines if missing
-            #             if not info_line_found or not par_line_found:
-            #                 destination = open(ini_file_path, 'a')
-            #                 if not info_line_found:
-            #                     destination.write(f'ScanStartInfo = "{comment}"\n')
-            #                 if not par_line_found:
-            #                     destination.write('Scan Parameter = "Shotnumber"\n')
-            #                 destination.close()
-            #
-            #         except Exception as ex:
-            #             api_error.error(str(ex), f'Could not update "{ini_file_name}" with scan comment')
-            #             try:
-            #                 # restore files
-            #                 os.remove(ini_file_path)
-            #                 shutil.move(ini_file_path + '~', ini_file_path)
-            #             except Exception:
-            #                 pass
-            #         else:
-            #             # remove original if successful
-            #             try:
-            #                 os.remove(ini_file_path + "~")
-            #             except Exception:
-            #                 pass
+            # format ini file
+            ini_file_name = f'ScanInfo{next_folder.name}.ini'
+            # txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
 
-            timed_out = dev.wait_for_scan_start(next_folder, next_scan, timeout=60.)
+            ini_file_path = next_folder / ini_file_name
+            # txt_file_path = os.path.join(next_folder, txt_file_name)
+            ini_found = False
+
+            if accepted:
+                # wait for .ini file creation
+                t0 = time.monotonic()
+                while True:
+                    timed_out = (time.monotonic() - t0 > 10.)
+                    if timed_out:
+                        break
+
+                    if ini_file_path.is_file():
+                        ini_found = True
+                        break
+
+                if ini_found:
+                    try:
+                        # make a copy and write content to it
+                        shutil.copy2(ini_file_path, ini_file_path + '~')
+
+                        destination = open(ini_file_path, 'w')
+                        source = open(ini_file_path + '~', 'r')
+
+                        info_line_found = False
+                        par_line_found = False
+                        for line in source:
+                            if line.startswith('ScanStartInfo'):
+                                destination.write(f'ScanStartInfo = "{comment}"\n')
+                                info_line_found = True
+                            elif line.startswith('Scan Parameter'):
+                                destination.write('Scan Parameter = "Shotnumber"\n')
+                                par_line_found = True
+                            else:
+                                destination.write(line)
+
+                        source.close()
+                        destination.close()
+
+                        #  add lines if missing
+                        if not info_line_found or not par_line_found:
+                            destination = open(ini_file_path, 'a')
+                            if not info_line_found:
+                                destination.write(f'ScanStartInfo = "{comment}"\n')
+                            if not par_line_found:
+                                destination.write('Scan Parameter = "Shotnumber"\n')
+                            destination.close()
+
+                    except Exception as ex:
+                        api_error.error(str(ex), f'Could not update "{ini_file_name}" with scan comment')
+                        try:
+                            # restore files
+                            os.remove(ini_file_path)
+                            shutil.move(str(ini_file_path) + '~', ini_file_path)
+                        except Exception:
+                            pass
+                    else:
+                        # remove original if successful
+                        try:
+                            os.remove(str(ini_file_path) + "~")
+                        except Exception:
+                            pass
+
+            timed_out = GeecsDevice.wait_for_scan_start(next_folder, next_scan, timeout=60.)
             if not timed_out:
                 if not dev.is_valid():
                     time.sleep(2.)  # buffer since cannot verify in 'scan' mode
@@ -731,47 +732,55 @@ class GeecsDevice:
                     f.write(f'({values_by_row[col]}):{shots_per_step}|')
             f.write('"')
 
-    def today_data_folder(self) -> SysPath:
+    def today_data_folder(self) -> Path:
         stamp = dtime.now()
         date_folders = os.path.join(stamp.strftime('Y%Y'), stamp.strftime('%m-%B')[:6], stamp.strftime('%y_%m%d'))
 
-        return os.path.join(self.data_root_path, date_folders)
+        return self.data_root_path / date_folders
 
     def last_scan_number(self) -> int:
-        data_folder: SysPath = self.today_data_folder()
-        if not os.path.isdir(os.path.join(data_folder, 'scans'))\
-                or not next(os.walk(os.path.join(data_folder, 'scans')))[1]:  # no 'scans' or no 'ScanXXX' folders
+        data_folder: Path = self.today_data_folder()
+        # if not os.path.isdir(os.path.join(data_folder, 'scans'))\
+        #         or not next(os.walk(os.path.join(data_folder, 'scans')))[1]:  # no 'scans' or no 'ScanXXX' folders
+        #     return -1
+
+        # no 'scans' or no 'ScanXXX' folders
+        if not (data_folder/'scans').is_dir() or not next(os.walk(data_folder/'scans'))[1]:
             return -1
 
-        scan_folders: list[SysPath] = next(os.walk(os.path.join(data_folder, 'scans')))[1]
+        # scan_folders: list[SysPath] = next(os.walk(os.path.join(data_folder, 'scans')))[1]
+        scan_folders: list[Path] = next(os.walk(data_folder/'scans'))[1]
         scan_folders = [x for x in scan_folders if re.match(r'^Scan(?P<scan>\d{3})$', x)]
         if scan_folders:
             return int(scan_folders[-1][-3:])
         else:
             return -1
 
-    def next_scan_folder(self) -> tuple[SysPath, int]:
+    def next_scan_folder(self) -> tuple[Path, int]:
         last_scan: int = self.last_scan_number()
-        data_folder: SysPath = self.today_data_folder()
+        data_folder: Path = self.today_data_folder()
 
         if last_scan > 0:
             next_folder = f'Scan{last_scan + 1:03d}'
         else:
             next_folder = 'Scan001'
 
-        return os.path.join(data_folder, 'scans', next_folder), last_scan + 1
+        return data_folder/'scans'/next_folder, last_scan + 1
 
-    def wait_for_scan_start(self, next_folder: SysPath, next_scan: int, timeout: float = 60.) -> bool:
+    @staticmethod
+    def wait_for_scan_start(next_folder: Path, next_scan: int, timeout: float = 60.) -> bool:
         t0 = time.monotonic()
         while True:
             timed_out = (time.monotonic() - t0 > timeout)
             if timed_out:
                 break
 
-            tdms_filepath = os.path.join(next_folder, f'Scan{next_scan:03d}.tdms')
-            if os.path.isdir(next_folder) and os.path.isfile(tdms_filepath) \
-                    and (not self.is_valid() or
-                         (('device status' in self.state) and (self.state[VarAlias('device status')] == 'scan'))):
+            tdms_filepath = next_folder/f'Scan{next_scan:03d}.tdms'
+            # if os.path.isdir(next_folder) and os.path.isfile(tdms_filepath) \
+            #         and (not self.is_valid() or
+            #              (('device status' in self.state) and (self.state[VarAlias('device status')] == 'scan'))):
+            #     break
+            if next_folder.is_dir() and tdms_filepath.is_file():
                 break
             time.sleep(0.1)
 

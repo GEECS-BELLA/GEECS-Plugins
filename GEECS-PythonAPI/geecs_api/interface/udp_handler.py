@@ -40,7 +40,7 @@ class UdpHandler:
         except Exception:
             self.port_cmd = self.port_exe = -1
 
-    def cleanup(self):
+    def close(self):
         try:
             self.close_sock_cmd()
         except Exception:
@@ -144,7 +144,7 @@ class UdpServer:
             self.port = -1
             self.bounded = False
 
-    def cleanup(self):
+    def close(self):
         try:
             self.close_sock_exe()
         except Exception:
