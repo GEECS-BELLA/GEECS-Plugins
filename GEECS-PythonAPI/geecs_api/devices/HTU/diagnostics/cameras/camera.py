@@ -8,7 +8,7 @@ from typing import Any
 from pathlib import Path
 from datetime import datetime as dtime
 from geecs_api.tools.images.batches import average_images
-from geecs_api.api_defs import VarAlias, SysPath
+from geecs_api.api_defs import VarAlias
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.interface.geecs_database import GeecsDatabase
 
@@ -35,7 +35,7 @@ class Camera(GeecsDevice):
 
         # self.gui_path: SysPath = GeecsDevice.exp_info['GUIs'][device_name]
 
-        self.bkg_folder: SysPath = os.path.join(self.data_root_path, 'backgrounds', f'{device_name}')
+        self.bkg_folder: Path = self.data_root_path/'backgrounds'/f'{device_name}'
         if not os.path.isdir(self.bkg_folder):
             os.makedirs(self.bkg_folder)
 
@@ -80,11 +80,11 @@ class Camera(GeecsDevice):
 
     def save_local_background(self, n_images: int = 15, set_as_background: bool = True):
         # background images folder
-        source_path: SysPath = os.path.join(self.bkg_folder, 'tmp_images')
+        source_path: Path = self.bkg_folder / 'tmp_images'
         if os.path.isdir(source_path):
             shutil.rmtree(source_path, ignore_errors=True)
         while True:
-            if not os.path.isdir(source_path):
+            if not source_path.is_dir():
                 break
         os.makedirs(source_path)
 
@@ -93,7 +93,7 @@ class Camera(GeecsDevice):
         # file name
         stamp = dtime.now()
         file_name = stamp.strftime('%y%m%d_%H%M') + f'_{self.get_name()}_x{n_images}_Local.png'
-        file_path: SysPath = os.path.join(self.bkg_folder, file_name)
+        file_path: Path = self.bkg_folder / file_name
 
         # save images
         if n_images > 0:
@@ -123,7 +123,7 @@ class Camera(GeecsDevice):
         # background file name
         stamp = dtime.now()
         file_name: str = stamp.strftime('%y%m%d_%H%M') + f'_{self.get_name()}_{scan_name}.png'
-        file_path: SysPath = os.path.join(self.bkg_folder, file_name)
+        file_path: Path = self.bkg_folder / file_name
 
         # save images
         GeecsDevice.run_no_scan(monitoring_device=self,
@@ -182,7 +182,7 @@ class Camera(GeecsDevice):
         for camera in cameras:
             try:
                 file_name = f'{file_stamp}_{camera.get_name()}_{scan_name}.png'
-                file_path: SysPath = os.path.join(camera.bkg_folder, file_name)
+                file_path: Path = camera.bkg_folder / file_name
 
                 avg_image, _ = average_images(images_folder=os.path.join(next_scan_folder, camera.get_name()))
 
@@ -199,7 +199,7 @@ class Camera(GeecsDevice):
 if __name__ == '__main__':
     GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-    cam = Camera('UC_ALineEBeam3')
-    cam.save_local_background(10, set_as_background=True)
+    _cam = Camera('UC_ALineEBeam3')
+    _cam.save_local_background(10, set_as_background=True)
 
-    cam.close()
+    _cam.close()

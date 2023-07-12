@@ -12,6 +12,7 @@ from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
 from geecs_api.tools.distributions.binning import unsupervised_binning
 from geecs_api.tools.interfaces.prompts import text_input
+from geecs_api.tools.images.filtering import FiltersParameters
 from geecs_api.tools.images.scan_images import ScanImages
 from geecs_api.tools.scans.scan_data import ScanData
 
@@ -51,8 +52,9 @@ def steering_calibration(steering_magnets: list[int], screens: list[str],
     # ------------------------------------------------------------------------------
     sweep_scans: list[dict[str, Any]] = []
 
-    success, scans = sweep_magnet(magnets, currents, imagers[0].camera,
-                                  screen_out=None, screen_in=imagers[0].screen, backgrounds=backgrounds)
+    success, scans, analyses = sweep_magnet(magnets, currents, imagers[0].camera,
+                                            screen_out=None, screen_in=imagers[0].screen,
+                                            backgrounds=backgrounds, live_analysis=live_analysis)
     sweep_scans += scans
     if not success:
         close_all()
@@ -60,9 +62,9 @@ def steering_calibration(steering_magnets: list[int], screens: list[str],
 
     if len(steering_magnets) > 1:
         for previous_screen, next_screen in zip(imagers[:-1], imagers[1:]):
-            success, scans = sweep_magnet(magnets, currents, next_screen.camera,
-                                          screen_out=previous_screen.screen, screen_in=next_screen.screen,
-                                          backgrounds=backgrounds)
+            success, scans, analyses = sweep_magnet(magnets, currents, next_screen.camera,
+                                                    screen_out=previous_screen.screen, screen_in=next_screen.screen,
+                                                    backgrounds=backgrounds, live_analysis=live_analysis)
             sweep_scans += scans
             if not success:
                 close_all()
@@ -71,6 +73,17 @@ def steering_calibration(steering_magnets: list[int], screens: list[str],
     # clear screens
     set_screens(screen_out=imagers[-1].screen, screen_in=None)
 
+    if not live_analysis:
+        print('Analyzing data...')
+        analyses: list[tuple[Path, dict[str, Any]]] = []
+        for scan in sweep_scans:
+            images = ScanImages(ScanData(folder=scan_folder), camera.label)
+            bkg_image = camera.var_bkg_path if backgrounds > 0 else None
+            analysis = images.run_analysis_with_checks(
+                initial_filtering=FiltersParameters(com_threshold=0.50, bkg_image=bkg_image),
+                plots=True, save=True)
+            analyses.append(analysis)
+
     time.sleep(1.)
     close_all()
 
@@ -78,12 +91,12 @@ def steering_calibration(steering_magnets: list[int], screens: list[str],
 
 
 def sweep_magnet(magnets: list[Steering], currents: list[tuple[float, float, float, int]],
-                 camera: Camera, screen_out: Optional[Screen], screen_in: Optional[Screen], backgrounds: int = 0)\
-        -> tuple[bool, list[dict[str, Any]]]:
+                 camera: Camera, screen_out: Optional[Screen], screen_in: Optional[Screen], backgrounds: int = 0,
+                 live_analysis: bool = True) -> tuple[bool, list[dict[str, Any]], list[tuple[Path, dict[str, Any]]]]:
     success: bool = True
 
     if not set_screens(screen_out, screen_in):
-        return False, []
+        return False, [], []
 
     # background
     if backgrounds > 0:
@@ -91,34 +104,53 @@ def sweep_magnet(magnets: list[Steering], currents: list[tuple[float, float, flo
         camera.save_local_background(n_images=backgrounds)
 
     scans: list[dict[str, Any]] = []
+    analyses: list[tuple[Path, dict[str, Any]]] = []
     for magnet, current in zip(magnets, currents):
         # -------------------
         plane = 'horizontal'
         scan_folder, scan_number, success = \
-            run_scan(magnet, plane, current, Camera.label_from_name(camera.get_name()), 300.)
+            run_scan(magnet, plane, current, camera.label, 300.)
         if success:
-            scans.append({'folder': scan_folder,
-                          'number': scan_number,
-                          'magnet': magnet,
-                          'plane': plane,
-                          'camera': camera})
+            scan_dict: dict[str, Any] = {'folder': scan_folder,
+                                         'number': scan_number,
+                                         'magnet': magnet,
+                                         'plane': plane,
+                                         'camera': camera}
+            scans.append(scan_dict)
+
+            if live_analysis:
+                images = ScanImages(ScanData(folder=scan_folder), camera.label)
+                bkg_image = camera.var_bkg_path if backgrounds > 0 else None
+                analysis = images.run_analysis_with_checks(
+                    initial_filtering=FiltersParameters(com_threshold=0.50, bkg_image=bkg_image),
+                    plots=True, save=True)
+                analyses.append(analysis)
         else:
-            return False, scans
+            return False, scans, analyses
 
         # -------------------
         plane = 'vertical'
         scan_folder, scan_number, success = \
-            run_scan(magnet, plane, current, Camera.label_from_name(camera.get_name()), 300.)
+            run_scan(magnet, plane, current, camera.label, 300.)
         if success:
-            scans.append({'folder': scan_folder,
-                          'number': scan_number,
-                          'magnet': magnet,
-                          'plane': plane,
-                          'camera': camera})
-        else:
-            return False, scans
+            scan_dict: dict[str, Any] = {'folder': scan_folder,
+                                         'number': scan_number,
+                                         'magnet': magnet,
+                                         'plane': plane,
+                                         'camera': camera}
+            scans.append(scan_dict)
 
-    return success, scans
+            if live_analysis:
+                images = ScanImages(ScanData(folder=scan_folder), camera.label)
+                bkg_image = camera.var_bkg_path if backgrounds > 0 else None
+                analysis = images.run_analysis_with_checks(
+                    initial_filtering=FiltersParameters(com_threshold=0.50, bkg_image=bkg_image),
+                    plots=True, save=True)
+                analyses.append(analysis)
+        else:
+            return False, scans, analyses
+
+    return success, scans, analyses
 
 
 def run_scan(magnet: Steering, plane: str, setpoints: tuple[float, float, float, int],
