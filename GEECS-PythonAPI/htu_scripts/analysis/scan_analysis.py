@@ -19,7 +19,7 @@ from geecs_api.tools.interfaces.prompts import text_input
 
 
 def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable: str, camera: Union[int, Camera, str],
-                  blind_loads: bool = False, store_images: bool = True, save: bool = False) \
+                  com_threshold: float = 0.5, blind_loads: bool = False, store_images: bool = True, save: bool = False)\
         -> tuple[Optional[Path], dict[str, Any]]:
     analyses: list[dict[str, Any]] = []
 
@@ -86,10 +86,10 @@ def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable
                     os.makedirs(save_dir)
 
                 scan_images.set_save_folder(save_dir)
-                analysis_file, analysis = \
-                    scan_images.run_analysis_with_checks(images=step_paths,
-                                                         initial_filtering=FiltersParameters(com_threshold=0.66),
-                                                         plots=True, store_images=store_images, save=save)
+                analysis_file, analysis = scan_images.run_analysis_with_checks(
+                    images=step_paths,
+                    initial_filtering=FiltersParameters(com_threshold=com_threshold),
+                    plots=True, store_images=store_images, save=save)
 
             if not analysis:
                 print('Loading analysis...')
@@ -113,11 +113,6 @@ def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable
             if keep.lower()[0] == 'n':
                 continue
 
-            keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
-                              accepted_answers=['y', 'yes', 'n', 'no'])
-            if keep.lower()[0] == 'n':
-                continue
-
             print('Collecting analysis summary...')
             analyses.append(analysis)
 
@@ -132,103 +127,144 @@ def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable
         'analyses': analyses,
         'device_name': device_name,
         'scan_folder': scan_images.scan.get_folder(),
-        'camera_name': scan_images.camera_name,
-        'pos_short_names': pos_short_names,
-        'pos_long_names': pos_long_names}
-    export_file_path = scan_data.get_analysis_folder() / f'steering_analysis_{device_name}'
-    save_py(file_path=export_file_path, data=data_dict, as_bulk=False)
-    print(f'Data exported to:\n\t{export_file_path}.dat')
+        'camera_name': scan_images.camera_name}
+
+    if save:
+        export_file_path = scan_data.get_analysis_folder() / f'scan_analysis_{device_name}'
+        save_py(file_path=export_file_path, data=data_dict, as_bulk=False)
+        print(f'Data exported to:\n\t{export_file_path}.dat')
+    else:
+        export_file_path = None
 
     return export_file_path, data_dict
 
+# data_dict: dict[str, Any] = {
+#     'indexes': indexes,
+#     'setpoints': setpoints,
+#     'analysis_files': analysis_files,
+#     'analyses': analyses,
+#     'device_name': device_name,
+#     'scan_folder': scan_images.scan.get_folder(),
+#     'camera_name': scan_images.camera_name}
 
-def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
-                         show_xy: bool = True, show_fwhm: bool = True, show_deltas: bool = True,
-                         xy_metric: str = 'mean', fwhm_metric: str = 'mean', deltas_metric: str = 'mean'):
+# self.summary = {'positions_roi': {'data': {}, 'fit': {}},
+#                 'positions_raw': {'data': {}, 'fit': {}},
+#                 'deltas': {'data': {}, 'fit': {}},
+#                 'fwhms': {'pix_ij': {}, 'um_xy': {}}}
+
+
+def scan_metrics(analyses: list[dict[str, Any]], metric: str = 'mean', values: str = 'raw', ptype: str = 'com',
+                 dtype: str = 'data', um_per_pix: float = 1.) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    metric:     'mean', 'median'
+    values:     'raw' (positions), 'roi' (positions), 'fwhms', 'deltas'
+    ptype:      'max', 'com', 'box', 'ellipse'
+    dtype:      'data', 'fit', 'pix_ij' (values == "fwhms")
+    """
+
+    # for each step analysis
+    data_val = np.empty((0, 2))
+    data_err_low = np.empty((0, 2))
+    data_err_high = np.empty((0, 2))
+    for analysis in analyses:
+        ij: np.ndarray
+        if values.lower() in ['raw', 'roi']:
+            ij = analysis[f'positions_{values}'][dtype][f'{ptype}_ij'] * um_per_pix
+        else:
+            ij = analysis[values][dtype][f'{ptype}_ij'] * um_per_pix
+
+        if metric == 'mean':
+            pos_ij = np.mean(ij, axis=0)
+            err_ij = np.std(ij, axis=0)
+            data_val = np.concatenate([data_val, [pos_ij]])
+            data_err_low = np.concatenate([data_err_low, [err_ij]])
+            data_err_high = np.concatenate([data_err_high, [err_ij]])
+
+        if metric == 'median':
+            pos_ij = np.median(ij, axis=0)
+            err_low_ij = np.array([np.std(ij[ij[:, 0] < pos_ij[0], 0]),
+                                   np.std(ij[ij[:, 1] < pos_ij[1], 1])])
+            err_high_ij = np.array([np.std(ij[ij[:, 0] >= pos_ij[0], 0]),
+                                    np.std(ij[ij[:, 1] >= pos_ij[1], 1])])
+            data_val = np.concatenate([data_val, [pos_ij]])
+            data_err_low = np.concatenate([data_err_low, [err_low_ij]])
+            data_err_high = np.concatenate([data_err_high, [err_high_ij]])
+
+    return data_val, data_err_low, data_err_high
+
+
+def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True, x_label: str = 'scan variable [a.u.]',
+                         show_xy: bool = True, show_fwhms: bool = True, show_deltas: bool = True,
+                         xy_metric: str = 'mean', fwhms_metric: str = 'mean', deltas_metric: str = 'mean',
+                         xy_fit: int = 1, fwhms_fit: int = 1, deltas_fit: int = 1,
+                         save_dir: Optional[Path] = None):
     """
     metric:     'mean', 'median'
     """
-    x_axis: np.ndarray = data_dict['setpoints']
+    scan_axis: np.ndarray = data_dict['setpoints']
     analyses: list[dict[str, Any]] = data_dict['analyses']
-    n_rows: int = sum([show_xy, show_fwhm, show_deltas])
 
-    for pos, label in zip(analyses[0]['positions']['short_names'], analyses[0]['positions']['long_names']):
+    shows: list[bool] = [show_xy, show_fwhms, show_deltas]
+    metrics: list[str] = [xy_metric, fwhms_metric, deltas_metric]
+    fits: list[int] = [xy_fit, fwhms_fit, deltas_fit]
+
+    n_rows: int = sum(shows)
+    um_per_pix: float = analyses[0]['summary']['um_per_pix'] if physical_units else 1.
+    units_factor: float
+    units_label: str
+
+    for pos, title in zip(analyses[0]['positions']['short_names'], analyses[0]['positions']['long_names']):
         fig, axs = plt.subplots(ncols=1, nrows=n_rows,
                                 figsize=(ScanImages.fig_size[0], ScanImages.fig_size[1] * 1.5),
-                                sharex='col', sharey='row')
-        # X(var), Y(var)
-        axs[0].plot(x_axis, analyses['max_mean_pos_pix'][:, 0], '.k', markersize=10)
-        opt = data_dict['beam_analysis']['x_fit']['opt']
-        opt_sign = '-' if opt[1] < 0 else ''
-        axs[0, it].plot(x_axis, analyses['x_fit']['fit'], 'gray',
-                        label=rf"$X \simeq {opt[0]} \cdot dx {opt_sign}{abs(opt[1])} \sigma$")
+                                sharex='col')
+        i_ax = 0
+        for show, metric, val, plot_labels, y_label, fit in zip(shows, metrics, ['raw', 'fwhms', 'deltas'],
+                                                                [['X', 'Y'], ['FWHM$_x$', 'FWHM$_y$'], ['Dx', 'Dy']],
+                                                                ['Positions', 'FWHMs', 'Deltas'], fits):
+            units_label: str = 'a.u.'
 
-        axs[0, it].plot(x_axis, analyses['max_mean_pos_pix'][:, 0],
-                        '.k', markersize=10)
-        opt = data_dict['beam_analysis']['x_fit']['opt']
-        opt_sign = '-' if opt[1] < 0 else ''
-        axs[0, it].plot(x_axis, analyses['x_fit']['fit'], 'gray',
-                        label=rf"$X \simeq {opt[0]} \cdot dx {opt_sign}{abs(opt[1])} \sigma$")
+            if show:
+                dtype = 'pix_ij' if val == 'fwhms' else 'data'
+                data_val, data_err_low, data_err_high = scan_metrics(analyses, metric, val, pos, dtype, um_per_pix)
 
-        axs[0, it].legend(loc='best', prop={'size': 8})
-        axs[0, it].set_xticks([])
-        axs[0, it].set_title(pos_long_names[it])
+                if physical_units:
+                    if (np.max(data_val) - np.min(data_val)) > 1000:
+                        units_factor = 0.001
+                        units_label = 'mm'
+                    else:
+                        units_factor = 1
+                        units_label = r'$\mu$m'
+                else:
+                    units_factor = 1
+                    units_label = 'pix'
 
-        # X(dy), Y(dy)
-        axs[1, it].fill_between(
-            x_axis,
-            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] - beam_analysis[f'{pos}_deltas_stds'][:, 0]),
-            f_deltas * (beam_analysis[f'{pos}_deltas_means'][:, 0] + beam_analysis[f'{pos}_deltas_stds'][:, 0]),
-            label=r'$D_y \pm \sigma$', color='m', alpha=0.33)
-        axs[1, it].plot(x_axis, f_deltas * beam_analysis[f'{pos}_deltas_avg_imgs'][:, 0], 'ob-',
-                        label=r'$D_y$ $(\mu_{image})$', linewidth=1, markersize=3)
-        axs[1, it].legend(loc='best', prop={'size': 8})
-        axs[1, it].set_xticks([])
+                for i_xy, var, c in enumerate(zip([1, 0], plot_labels, ['m', 'y'])):
+                    axs[i_ax].fill_between(scan_axis,
+                                           units_factor * (data_val[:, i_xy] - data_err_low[:, i_xy]),
+                                           units_factor * (data_val[:, i_xy] + data_err_high[:, i_xy]),
+                                           color=c, alpha=0.33)
+                    axs[i_ax].plot(scan_axis, units_factor * data_val[:, i_xy], 'ob-',
+                                   label=rf'{var} ({xy_metric}) [{units_label}]', linewidth=1, markersize=3)
 
-        # FWHM X
-        axs[2, it].fill_between(
-            x_axis,
-            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1] - beam_analysis[f'{pos}_fwhm_stds'][:, 1],
-            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1] + beam_analysis[f'{pos}_fwhm_stds'][:, 1],
-            label=r'$FWHM_x \pm \sigma$', color='y', alpha=0.33)
-        axs[2, it].plot(x_axis, f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 1], 'og-',
-                        label=r'$FWHM_x$ $(\mu_{image})$', linewidth=1, markersize=3)
-        axs[2, it].legend(loc='best', prop={'size': 8})
-        axs[2, it].set_xticks([])
+                    if xy_fit > 0:
+                        fit_pars = np.polyfit(scan_axis, units_factor * data_val[:, i_xy], xy_fit)
+                        fit_vals = np.polyval(fit_pars, scan_axis)
+                        axs[i_ax].plot(scan_axis, fit_vals, 'gray', label='fit')
 
-        # FWHM Y
-        axs[3, it].fill_between(
-            x_axis,
-            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0] - beam_analysis[f'{pos}_fwhm_stds'][:, 0],
-            f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0] + beam_analysis[f'{pos}_fwhm_stds'][:, 0],
-            label=r'$FWHM_y \pm \sigma$ [$\mu$m]', color='y', alpha=0.33)
-        axs[3, it].plot(x_axis, f_fwhms * beam_analysis[f'{pos}_fwhm_means'][:, 0], 'og-',
-                        label=r'$FWHM_y$ $(\mu_{image})$', linewidth=1, markersize=3)
-        axs[3, it].legend(loc='best', prop={'size': 8})
-        axs[3, it].set_xlabel('Screen')
-        axs[3, it].set_xticks(x_axis, screen_labels)
+                axs[i_ax].legend(loc='best', prop={'size': 8})
+                axs[i_ax].set_ylabel(f'{y_label} [{units_label}]')
+                if i_ax == 0:
+                    axs[i_ax].set_title(title)
+                i_ax += 1
 
-        axs[0, 0].set_ylabel(f'X-Offsets [{units_deltas}]')
-        axs[1, 0].set_ylabel(f'Y-Offsets [{units_deltas}]')
-        axs[2, 0].set_ylabel(f'X-FWHM [{units_fwhms}]')
-        axs[3, 0].set_ylabel(f'Y-FWHM [{units_fwhms}]')
-
-        # set matching vertical limits for deltas/FWHMs
-        y_lim = (min(axs[0, 0].get_ylim()[0], axs[1, 0].get_ylim()[0]),
-                 max(axs[0, 0].get_ylim()[1], axs[1, 0].get_ylim()[1]))
-        [axs[0, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
-        [axs[1, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
-
-        y_lim = (min(axs[2, 0].get_ylim()[0], axs[3, 0].get_ylim()[0]),
-                 max(axs[2, 0].get_ylim()[1], axs[3, 0].get_ylim()[1]))
-        [axs[2, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
-        [axs[3, j].set_ylim(y_lim) for j in range(len(pos_short_names))]
+            axs[i_ax].set_ylabel(f'{y_label} [{units_label}]')
+        axs[i_ax].set_xlabel(x_label)
 
         if save_dir:
-            save_path = save_dir / 'beam_analysis.png'
+            save_path = save_dir / f'scan_analysis_{pos}.png'
             plt.savefig(save_path, dpi=300)
 
-        plt.show(block=True)
+    plt.show(block=True)
 
 
 if __name__ == '__main__':
@@ -255,7 +291,7 @@ if __name__ == '__main__':
     # plt.show(block=True)
 
     # run analysis
-    _export_file_path, _data_dict = steering_scan_analysis(_scan_data, _key_device, _camera_tag)
+    # _export_file_path, _data_dict = scan_analysis(_scan_data, _key_device, _camera_tag)
 
     # open analysis
     # _analysis_file = Path(r'Z:\data\Undulator\Y2023\04-Apr\23_0413\analysis\Scan026\steering_analysis_U_S4H.dat')

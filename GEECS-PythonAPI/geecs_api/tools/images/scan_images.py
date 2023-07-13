@@ -226,7 +226,7 @@ class ScanImages:
                     'image_folder': self.image_folder,
                     'save_folder': self.save_folder,
                     'image_analyses': self.analyses if self.analyses is not None else {},
-                    'analyses_summary': self.summary if self.summary is not None else {},
+                    'summary': self.summary if self.summary is not None else {},
                     'average_image': self.average_image if self.average_image is not None else {},
                     'average_analysis': self.average_analysis if self.average_analysis is not None else {}}
 
@@ -443,8 +443,10 @@ class ScanImages:
         self.summary = {'positions_roi': {'data': {}, 'fit': {}},
                         'positions_raw': {'data': {}, 'fit': {}},
                         'deltas': {'data': {}, 'fit': {}},
-                        'fwhm': {'pix_ij': {}, 'um_xy': {}}}
+                        'fwhms': {'pix_ij': {}, 'um_xy': {}},
+                        'um_per_pix': float}
 
+        # for each image analysis
         for analysis in self.analyses:
             if (analysis is not None) and analysis['flags']['is_valid'] and ('profiles' in analysis['metrics']):
                 # collect values from ROI analysis
@@ -459,12 +461,15 @@ class ScanImages:
                             np.concatenate([self.summary['positions_roi']['data'][f'{pos}_ij'], [pos_ij]])
                         self.summary['positions_roi']['fit'][f'{pos}_ij'] = \
                             np.concatenate([self.summary['positions_roi']['fit'][f'{pos}_ij'], [fit_mean_ij]])
-                        self.summary['fwhm']['pix_ij'][pos] = \
-                            np.concatenate([self.summary['fwhm']['pix_ij'][pos], [fit_fwhm_ij]])
+                        self.summary['fwhms']['pix_ij'][pos] = \
+                            np.concatenate([self.summary['fwhms']['pix_ij'][pos], [fit_fwhm_ij]])
                     else:
                         self.summary['positions_roi']['data'][f'{pos}_ij'] = np.array([pos_ij])
                         self.summary['positions_roi']['fit'][f'{pos}_ij'] = np.array([fit_mean_ij])
-                        self.summary['fwhm']['pix_ij'][pos] = np.array([fit_fwhm_ij])
+                        self.summary['fwhms']['pix_ij'][pos] = np.array([fit_fwhm_ij])
+
+        um_per_pix: float = self.analyses[0]['camera']['um_per_pix']
+        self.summary['um_per_pix'] = um_per_pix
 
         # convert to raw image positions, um FWHMs, and calculate target deltas
         for k in self.summary['positions_roi']['data'].keys():
@@ -477,8 +482,7 @@ class ScanImages:
                                                     self.analyses[0]['camera']['raw_shape_ij'],
                                                     self.analyses[0]['camera']['r90'])
 
-            um_per_pix: float = self.analyses[0]['camera']['um_per_pix']
-            self.summary['fwhm']['um_xy'][k[:-3]] = np.fliplr(self.summary['fwhm']['pix_ij'][k[:-3]]) * um_per_pix
+            self.summary['fwhms']['um_xy'][k[:-3]] = np.fliplr(self.summary['fwhms']['pix_ij'][k[:-3]]) * um_per_pix
 
             self.summary['deltas']['data']['pix_ij'], _ = \
                 ScanImages.calculate_target_offset(self.analyses[0], self.summary['positions_roi']['data'][k])
