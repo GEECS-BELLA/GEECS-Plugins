@@ -11,7 +11,87 @@ import numpy as np
 from nptdms import TdmsFile
 
 #sys.path.insert(0, "../")
-from modules import CedossMathTools as MathTools
+import modules.CedossMathTools as MathTools
+
+#Important: Using constants like this is generally bad,
+# should consider using a specific normalization file with
+# this information isntead
+
+#Factor to go from camera counts to pC/MeV
+#Record: June 29th, Scan 23, Shot 1 (HiRes ONLY)
+const_normalization_factor = 3.308440355409613e-06
+const_normalization_triggerdelay = 15.497208
+const_normalization_exposure = 0.010000
+
+def NormalizeImage(image, shotnumber, tdms_filepath):
+    """
+    Normalizes the HiResMagSpec image according to the saved normalization value.
+    This value represents an image which is neither clipped or saturated
+
+    Parameters
+    ----------
+    image : 2D Numpy Float Array
+        The Image we are normalizing
+    shotnumber : Int
+        The shot number.
+    tdms_filepath : String
+        Filepath to the tdms file.
+
+    Returns
+    -------
+    returnimage : 2D Numpy Float Array
+        The normalized image.
+
+    """
+    #First, open up the tdms file and check that the camera delay
+    # and shutter duration are close to expected
+    trigger_list, exposure_list = GetCameraTriggerAndExposure(tdms_filepath)
+    if float(trigger_list[shotnumber-1]) != float(const_normalization_triggerdelay):
+        print("WARNING: the trigger delay is not the same as the current normalization!")
+        print(" This Image: ",trigger_list[shotnumber-1])
+        print(" Reference:  ",const_normalization_triggerdelay)
+    if float(exposure_list[shotnumber-1]) != float(const_normalization_exposure):
+        print("WARNING: the exposure is not the same as the current normalization!")
+        print(" This Image: ",exposure_list[shotnumber-1])
+        print(" Reference:  ",const_normalization_exposure)
+    
+    #Then, do the old quick normalization
+    returnimage = np.copy(image) * const_normalization_factor
+    return returnimage
+
+def PrintNormalization(image, shotnumber ,tdms_filepath):
+    """
+    For a given image, print out the normalization factor.
+    If this is a good image, then copy the normalization factors to the top of this module
+
+    Parameters
+    ----------
+    image : 2D Numpy Float Array
+        The Image we are normalizing
+    shotnumber : Int
+        The shot number.
+    tdms_filepath : String
+        Filepath to the tdms file.
+
+    Returns
+    -------
+    None.
+
+    """
+    charge_pC_vals = GetBeamCharge(tdms_filepath)
+    charge=charge_pC_vals[shotnumber-1]
+    
+    trigger_list, exposure_list = GetCameraTriggerAndExposure(tdms_filepath)
+
+    #Assuming the image is good, find the factor, camera delay, and shutter duration and
+    # print out the information for copy-pasting into this module.
+    
+    print("The following are the normalization factors,")
+    print(" paste them into MagSpecAnalysis.py:")
+    print("const_normalization_factor =",charge/sum(sum(image)))
+    print("const_normalization_triggerdelay = ",trigger_list[shotnumber-1])
+    print("const_normalization_exposure =",exposure_list[shotnumber-1])
+    return
 
 def CompileImageDirectory(superpath, scannumber, shotnumber, imagename, suffix=".png"):
     """
@@ -186,12 +266,36 @@ def GetBeamCharge(tdms_filepath):
     #
     #Also note, this loads the entire TDMS file into memory, and so a more
     # elegant usage of TdmsFile could be only reading the necessary picoscope data
-    tdms_file = TdmsFile.read("C:/Users/chris/Desktop/cedoss_htu_data/Scan023/Scan023.tdms")
+    tdms_file = TdmsFile.read(tdms_filepath)
     picoscope_group = tdms_file['U-picoscope5245D']
     charge_pC_channel = picoscope_group['U-picoscope5245D charge pC']
     scan_charge_vals = np.asarray(charge_pC_channel[:], dtype=float)
     tdms_file = None
     return scan_charge_vals
+
+def GetCameraTriggerAndExposure(tdms_filepath):
+    """
+    From the TDMS file, grabs the list of camera exposures and trigger delays
+
+    Parameters
+    ----------
+    tdms_filepath : String
+        Filepath to the TDMS file.
+
+    Returns
+    -------
+    trigger_list : 1D Numpy Float Array
+        Array of recorded trigger delays
+    exposure_list : 1D Numpy Float Array
+        Array of recorded exposure times
+
+    """
+    tdms_file = TdmsFile.read(tdms_filepath)
+    hiresmagcam_group = tdms_file['U_HiResMagCam']
+    exposure_list = hiresmagcam_group['U_HiResMagCam Exposure']
+    trigger_list = hiresmagcam_group['U_HiResMagCam TriggerDelay']
+    tdms_file = None
+    return trigger_list, exposure_list
 
 def FindMax(image):
     """

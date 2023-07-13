@@ -12,8 +12,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, "../")
-from modules import MagSpecAnalysis
-from modules import pngTools
+import modules.MagSpecAnalysis as MagSpecAnalysis
+import modules.pngTools as pngTools
 
 #I use another version of pngTools because the current version
 # is incompatible with my version of python?  Eventually merge these...
@@ -23,7 +23,7 @@ from modules import pngTools
 superpath = "C:/Users/chris/Desktop/cedoss_htu_data/"
 
 scannumber = 23
-shotnumber = 1
+shotnumber = 5
 
 #Loads in the 2 arrays from the interpSpec
 
@@ -32,9 +32,6 @@ suffix = ".txt"
 specpath = MagSpecAnalysis.CompileImageDirectory(superpath, scannumber, shotnumber, folderpath, suffix)
 
 mom_arr, charge_arr = MagSpecAnalysis.ParseInterpSpec(specpath)
-
-
-#Loads in a 2d png image
 
 folderpath = "U_HiResMagCam-interp"
 fullpath = MagSpecAnalysis.CompileImageDirectory(superpath, scannumber, shotnumber, folderpath)
@@ -45,7 +42,8 @@ tdms_filepath = MagSpecAnalysis.CompileTDMSFilepath(superpath, scannumber)
 charge_pC_vals = MagSpecAnalysis.GetBeamCharge(tdms_filepath)
 charge=charge_pC_vals[shotnumber-1]
 
-image = image * charge/sum(sum(image))
+#image = image * charge/sum(sum(image))
+image = MagSpecAnalysis.NormalizeImage(image, shotnumber, tdms_filepath)
 
 calc_charge_arr = MagSpecAnalysis.CalculateChargeDensityDistribution(image)
 
