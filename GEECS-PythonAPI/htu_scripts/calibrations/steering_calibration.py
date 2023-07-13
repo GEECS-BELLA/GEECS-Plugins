@@ -4,18 +4,15 @@ import calendar as cal
 from pathlib import Path
 import matplotlib.pyplot as plt
 from typing import Optional, Any
-from geecs_api.api_defs import SysPath
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.transport import Steering
+from geecs_api.devices.HTU.transport.magnets.steering import Steering, SteeringSupply
 from geecs_api.devices.HTU.diagnostics.screens import Screen
 from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
-from htu_scripts.analysis import scan_analysis as sa
 from geecs_api.tools.interfaces.prompts import text_input
-from geecs_api.tools.images.filtering import FiltersParameters
-from geecs_api.tools.images.scan_images import ScanImages
 from geecs_api.tools.scans.scan_data import ScanData
+from htu_scripts.analysis import scan_analysis as sa
 
 
 def steering_calibration(steering_magnets: list[int], screens: list[str],
@@ -99,11 +96,12 @@ def steering_calibration(steering_magnets: list[int], screens: list[str],
         try:
             analyses: list[tuple[Path, dict[str, Any]]] = []
             for scan in sweep_scans:
-                images = ScanImages(ScanData(folder=scan['folder']), scan['camera'].label)
+                scan_data = ScanData(folder=scan['folder'])
                 bkg_image = scan['camera'].var_bkg_path if backgrounds > 0 else None
-                analysis = images.run_analysis_with_checks(
-                    initial_filtering=FiltersParameters(com_threshold=0.50, bkg_image=bkg_image),
-                    plots=True, save=True)
+                analysis = sa.scan_analysis(scan_data, scan['supply'].get_name(), scan['supply'].var_current,
+                                            scan['camera'].label, com_threshold=0.5, bkg_image=bkg_image,
+                                            blind_loads=True, store_images=False, save=True)
+                sa.render_scan_analysis(analysis[1], physical_units=False, xy_metric='median', xy_fit=1)
                 analyses.append(analysis)
         except Exception:
             print('Failed to run analysis...')
@@ -128,54 +126,35 @@ def sweep_magnet(magnets: list[Steering], currents: list[tuple[float, float, flo
         print(f'Collecting {backgrounds} background images...')
         camera.save_local_background(n_images=backgrounds)
 
-    scans: list[dict[str, Any]] = []
+    scans_info: list[dict[str, Any]] = []
     analyses: list[tuple[Path, dict[str, Any]]] = []
+
     for magnet, current in zip(magnets, currents):
-        # -------------------
-        plane = 'horizontal'
-        scan_folder, scan_number, success = \
-            run_scan(magnet, plane, current, camera.label, 300.)
-        if success:
-            scan_dict: dict[str, Any] = {'folder': scan_folder,
-                                         'number': scan_number,
-                                         'magnet': magnet,
-                                         'plane': plane,
-                                         'camera': camera}
-            scans.append(scan_dict)
+        for plane in ['horizontal', 'vertical']:
+            supply: SteeringSupply = magnet.supplies[plane]
+            scan_folder, scan_number, success = \
+                run_scan(magnet, plane, current, camera.label, 300.)
+            if success:
+                scan_info: dict[str, Any] = {'folder': scan_folder,
+                                             'number': scan_number,
+                                             'magnet': magnet,
+                                             'supply': supply,
+                                             'plane': plane,
+                                             'camera': camera}
+                scans_info.append(scan_info)
 
-            if live_analysis:
-                images = ScanImages(ScanData(folder=scan_folder), camera.label)
-                bkg_image = camera.var_bkg_path if backgrounds > 0 else None
-                analysis = images.run_analysis_with_checks(
-                    initial_filtering=FiltersParameters(com_threshold=0.50, bkg_image=bkg_image),
-                    plots=True, save=True)
-                analyses.append(analysis)
-        else:
-            return False, scans, analyses
+                if live_analysis:
+                    scan_data = ScanData(folder=scan_folder)
+                    bkg_image = camera.var_bkg_path if backgrounds > 0 else None
+                    analysis = sa.scan_analysis(scan_data, supply.get_name(), supply.var_current, camera.label,
+                                                com_threshold=0.5, bkg_image=bkg_image,
+                                                blind_loads=True, store_images=False, save=True)
+                    sa.render_scan_analysis(analysis[1], physical_units=False, xy_metric='median', xy_fit=1)
+                    analyses.append(analysis)
+            else:
+                return False, scans_info, analyses
 
-        # -------------------
-        plane = 'vertical'
-        scan_folder, scan_number, success = \
-            run_scan(magnet, plane, current, camera.label, 300.)
-        if success:
-            scan_dict: dict[str, Any] = {'folder': scan_folder,
-                                         'number': scan_number,
-                                         'magnet': magnet,
-                                         'plane': plane,
-                                         'camera': camera}
-            scans.append(scan_dict)
-
-            if live_analysis:
-                images = ScanImages(ScanData(folder=scan_folder), camera.label)
-                bkg_image = camera.var_bkg_path if backgrounds > 0 else None
-                analysis = images.run_analysis_with_checks(
-                    initial_filtering=FiltersParameters(com_threshold=0.50, bkg_image=bkg_image),
-                    plots=True, save=True)
-                analyses.append(analysis)
-        else:
-            return False, scans, analyses
-
-    return success, scans, analyses
+    return success, scans_info, analyses
 
 
 def run_scan(magnet: Steering, plane: str, setpoints: tuple[float, float, float, int],
@@ -266,13 +245,14 @@ if __name__ == '__main__':
         _base_tag = (2023, 6, 29, 29)
         _camera_tag = 'P1'
 
-        _folder = base_path / 'Undulator' / f'Y{_base_tag[0]}' / f'{_base_tag[1]:02d}-{cal.month_name[_base_tag[1]][:3]}'
+        _folder = base_path / 'Undulator'
+        _folder = _folder / f'Y{_base_tag[0]}' / f'{_base_tag[1]:02d}-{cal.month_name[_base_tag[1]][:3]}'
         _folder = _folder / f'{str(_base_tag[0])[-2:]}_{_base_tag[1]:02d}{_base_tag[2]:02d}'
         _folder = _folder / 'scans' / f'Scan{_base_tag[3]:03d}'
 
         _scan = ScanData(_folder, ignore_experiment_name=is_local)
         _path, _dict = sa.scan_analysis(_scan, 'U_EMQTripletBipolar', 'Current_Limit.Ch1', 'P1', com_threshold=0.5,
-                                        blind_loads=True, store_images=False, save=True)
-        sa.render_scan_analysis(_dict, physical_units=True, xy_metric='median')
+                                        blind_loads=True, store_images=False, store_scalars=False, save=True)
+        sa.render_scan_analysis(_dict, physical_units=not is_local, xy_metric='median')
 
     print('done')
