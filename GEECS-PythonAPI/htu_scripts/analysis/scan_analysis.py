@@ -19,13 +19,17 @@ from geecs_api.tools.interfaces.prompts import text_input
 
 
 def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable: str, camera: Union[int, Camera, str],
-                  com_threshold: float = 0.5, blind_loads: bool = False, store_images: bool = True, save: bool = False)\
+                  com_threshold: float = 0.5, bkg_image: Optional[Union[Path, np.ndarray]] = None,
+                  blind_loads: bool = False, store_images: bool = True, store_scalars: bool = True, save: bool = False)\
         -> tuple[Optional[Path], dict[str, Any]]:
     analyses: list[dict[str, Any]] = []
 
     scan_images = ScanImages(scan_data, camera)
     device_name: str = device.get_name() if isinstance(device, GeecsDevice) else device
     key_data = scan_data.data_dict[device_name]
+    if not store_scalars:
+        del scan_data.data_dict
+        del scan_data.data_frame
 
     # scan parameters & binning
     measured: BinningResults = unsupervised_binning(key_data[variable], key_data['shot #'])
@@ -33,14 +37,15 @@ def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable
     Expected = NamedTuple('Expected', start=float, end=float, steps=int, shots=int, setpoints=np.ndarray, indexes=list)
     steps: int = 1 + round((float(scan_data.scan_info['End']) - float(scan_data.scan_info['Start']))
                            / float(scan_data.scan_info['Step size']))
+    shots: int = int(scan_data.scan_info['Shots per step'])
     expected = Expected(start=float(scan_data.scan_info['Start']),
                         end=float(scan_data.scan_info['End']),
                         steps=steps,
-                        shots=int(scan_data.scan_info['Shots per step']),
+                        shots=shots,
                         setpoints=np.linspace(float(scan_data.scan_info['Start']),
                                               float(scan_data.scan_info['End']),
                                               steps),
-                        indexes=[np.arange(p * steps, (p+1) * steps) for p in range(steps)])
+                        indexes=[np.arange(p * shots, (p+1) * shots) for p in range(steps)])
 
     matching = \
         all([inds.size == expected.shots for inds in measured.indexes]) and (len(measured.indexes) == expected.steps)
@@ -88,7 +93,7 @@ def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable
                 scan_images.set_save_folder(save_dir)
                 analysis_file, analysis = scan_images.run_analysis_with_checks(
                     images=step_paths,
-                    initial_filtering=FiltersParameters(com_threshold=com_threshold),
+                    initial_filtering=FiltersParameters(com_threshold=com_threshold, bkg_image=bkg_image),
                     plots=True, store_images=store_images, save=save)
 
             if not analysis:
@@ -196,7 +201,7 @@ def scan_metrics(analyses: list[dict[str, Any]], metric: str = 'mean', values: s
 def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True, x_label: str = 'scan variable [a.u.]',
                          show_xy: bool = True, show_fwhms: bool = True, show_deltas: bool = True,
                          xy_metric: str = 'mean', fwhms_metric: str = 'mean', deltas_metric: str = 'mean',
-                         xy_fit: int = 1, fwhms_fit: int = 1, deltas_fit: int = 1,
+                         xy_fit: int = 0, fwhms_fit: int = 0, deltas_fit: int = 0,
                          save_dir: Optional[Path] = None):
     """
     metric:     'mean', 'median'
@@ -213,7 +218,8 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
     units_factor: float
     units_label: str
 
-    for pos, title in zip(analyses[0]['positions']['short_names'], analyses[0]['positions']['long_names']):
+    for pos, title in zip(analyses[0]['image_analyses']['positions']['short_names'],
+                          analyses[0]['image_analyses']['positions']['long_names']):
         fig, axs = plt.subplots(ncols=1, nrows=n_rows,
                                 figsize=(ScanImages.fig_size[0], ScanImages.fig_size[1] * 1.5),
                                 sharex='col')

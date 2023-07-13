@@ -165,7 +165,7 @@ class ScanImages:
         else:
             paths = images
 
-        paths = paths[:10]  # tmp
+        # paths = paths[:10]  # tmp
         skipped_files = []
         self.analyses = []
 

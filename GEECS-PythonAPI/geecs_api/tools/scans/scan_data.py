@@ -20,6 +20,7 @@ class ScanData:
 
     def __init__(self, folder: Optional[SysPath] = None,
                  tag: Optional[Union[int, ScanTag, tuple]] = None,
+                 load_scalars: bool = True,
                  ignore_experiment_name: bool = False,
                  experiment_base_path: Optional[SysPath] = None):
         """
@@ -130,7 +131,7 @@ class ScanData:
 
         # scalar data
         tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
-        if tdms_path.is_file():
+        if load_scalars and tdms_path.is_file():
             self.data_dict, self.data_frame = read_geecs_tdms(tdms_path)
 
     def get_folder(self) -> Optional[Path]:
