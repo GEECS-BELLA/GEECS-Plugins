@@ -88,14 +88,15 @@ def steering_scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str],
 
                 scan_images.set_save_folder(save_dir)
                 analysis_file, analysis = \
-                    scan_images.run_analysis_with_checks(images=step_paths, plots=True, save=True, trim_collection=True,
-                                                         initial_filtering=FiltersParameters(com_threshold=0.66))
+                    scan_images.run_analysis_with_checks(images=step_paths,
+                                                         initial_filtering=FiltersParameters(com_threshold=0.50),
+                                                         plots=True, store_images=False, save=True)
 
             if not analysis:
                 print('Loading analysis...')
                 analysis, analysis_file = load_py(analysis_file, as_dict=True, as_bulk=False)
                 scan_images.render_image_analysis(analysis['average_analysis'],
-                                                  tag='average_image', block=True, save=False)
+                                                  tag='average_image', block=True, save_folder=None)
 
             if not analysis:
                 continue  # skip
