@@ -8,10 +8,12 @@ Module for performing various analysis on MagSpec Images
 """
 import sys
 import numpy as np
+import matplotlib.pyplot as plt
 from nptdms import TdmsFile
 
 #sys.path.insert(0, "../")
 import modules.CedossMathTools as MathTools
+import modules.pngTools as pngTools
 
 #Important: Using constants like this is generally bad,
 # should consider using a specific normalization file with
@@ -179,6 +181,17 @@ def ParseInterpSpec(filename):
         f.close()
     return momentum_arr, charge_arr
 
+def LoadImage(superpath, scannumber, shotnumber, folderpath, tdms_filepath = None, doThreshold = True, hardlimit = None, doNormalize=True):
+    fullpath = CompileImageDirectory(superpath, scannumber, shotnumber, folderpath)
+    if tdms_filepath is None:
+        tdms_filepath = CompileTDMSFilepath(superpath, scannumber)
+    image = pngTools.nBitPNG(fullpath)
+    if doThreshold:
+        image = ThresholdReduction(image, hardlimit)
+    if doNormalize:
+        image = NormalizeImage(image, shotnumber, tdms_filepath)
+    return image
+
 def ThresholdReduction(image, hardlimit = None, skipPlots = True):
     """
     Attempts to do a quick reduction of the background by subtracting a fixed threshold off of the data
@@ -225,6 +238,20 @@ def BackgroundSubtraction(image, background):
     print("JUST A PLACEHOLDER")
     return image
 
+def CalculateProjectedBeamSize(image):
+    skipPlots = True
+    proj_arr = np.zeros(np.shape(image)[0])
+    for i in range(len(proj_arr)):
+        image_slice = image[i,:]
+        proj_arr[i]=np.sum(image_slice)
+    
+    axis_arr = np.linspace(0,len(proj_arr),len(proj_arr))
+    axis_arr = np.flip(axis_arr)
+    fit = MathTools.FitDataSomething(proj_arr, axis_arr, 
+                  MathTools.Gaussian, guess=[max(proj_arr),5,axis_arr[np.argmax(proj_arr)]], supress = skipPlots)
+    
+    return axis_arr, proj_arr, fit[1]
+
 def CalculateChargeDensityDistribution(image):
     """
     Projects the MagSpec image onto the energy axis
@@ -245,6 +272,58 @@ def CalculateChargeDensityDistribution(image):
         image_slice = image[:,i]
         charge_arr[i]=np.sum(image_slice)
     return charge_arr
+
+def CalculateMaximumCharge(charge_arr):
+    return np.max(charge_arr)
+
+def CalculateAverageEnergy(charge_arr, energy_arr):
+    return np.average(energy_arr,weights=charge_arr)
+
+def CalculateStandardDeviationEnergy(charge_arr, energy_arr):
+    average_energy = CalculateAverageEnergy(charge_arr, energy_arr)
+    return np.sqrt(np.average((energy_arr-average_energy)**2, weights=charge_arr))
+
+def CalculatePeakEnergy(charge_arr, energy_arr):
+    return energy_arr[np.argmax(charge_arr)]
+
+def FitTransverseGaussianSlices(image, threshold=0.01):
+    ny, nx = np.shape(image)
+    xloc, yloc, maxval = FindMax(image)
+    skipPlots = True #False for debugging and/or make an animation book
+    
+    sigma_arr = np.zeros(nx)
+    err_arr = np.zeros(nx)
+    x0_arr = np.zeros(nx)
+    amp_arr = np.zeros(nx)
+    for i in range(nx):
+        slice_arr = image[:,i]
+        if np.max(slice_arr) > threshold*maxval:
+            axis_arr = np.linspace(0,len(slice_arr),len(slice_arr))
+            axis_arr = np.flip(axis_arr)
+            fit = MathTools.FitDataSomething(slice_arr, axis_arr, 
+                          MathTools.Gaussian, guess=[max(slice_arr),5,axis_arr[np.argmax(slice_arr)]], supress = skipPlots)
+            amp_arr[i], sigma_arr[i], x0_arr[i] = fit
+            
+            func = MathTools.Gaussian(fit, axis_arr)
+            error = 0
+            for j in range(len(slice_arr)):
+                error = error + np.square(slice_arr[j]-func[j])
+            err_arr[i] = np.sqrt(error)/max(slice_arr)
+        else:
+            sigma_arr[i] = 0; x0_arr[i] = 0; amp_arr[i] = 0; err_arr[i] = 0
+
+    return sigma_arr, x0_arr, amp_arr, err_arr
+
+def CalculateAverageSize(sigma_arr, amp_arr):
+    return np.average(sigma_arr, weights=amp_arr)
+
+def FitBeamAngle(x0_arr, amp_arr, energy_arr):
+    linear_fit = np.polyfit(energy_arr, x0_arr, deg=1, w=amp_arr)
+    #anglefunc = energy_arr*linear_fit[0]+linear_fit[1]
+    #plt.plot(energy_arr, x0_arr)
+    #plt.plot(energy_arr, anglefunc, c='black')
+    #plt.show()
+    return linear_fit
 
 def GetBeamCharge(tdms_filepath):
     """
@@ -272,6 +351,11 @@ def GetBeamCharge(tdms_filepath):
     scan_charge_vals = np.asarray(charge_pC_channel[:], dtype=float)
     tdms_file = None
     return scan_charge_vals
+
+def GetShotCharge(superpath, scannumber, shotnumber):
+    tdms_filepath = CompileTDMSFilepath(superpath, scannumber)
+    charge_pC_vals = GetBeamCharge(tdms_filepath)
+    return charge_pC_vals[shotnumber-1]
 
 def GetCameraTriggerAndExposure(tdms_filepath):
     """
@@ -322,3 +406,4 @@ def FindMax(image):
     ymax = int(np.floor(max_ind/nx))
     maxval = image[ymax,xmax]
     return xmax, ymax, maxval
+
