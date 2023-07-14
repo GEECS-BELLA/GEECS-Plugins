@@ -2,6 +2,7 @@ import os
 import time
 import inspect
 import numpy as np
+import calendar as cal
 from pathlib import Path
 import matplotlib.pyplot as plt
 from progressbar import ProgressBar
@@ -15,7 +16,7 @@ from geecs_api.tools.scans.scan_data import ScanData
 from geecs_api.tools.images.filtering import FiltersParameters
 from geecs_api.tools.interfaces.exports import load_py, save_py
 from geecs_api.tools.interfaces.prompts import text_input
-# from geecs_api.tools.distributions.fit_utility import fit_distribution
+from geecs_api.devices.HTU.laser import LaserCompressor
 
 
 def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable: str, camera: Union[int, Camera, str],
@@ -163,7 +164,7 @@ def scan_metrics(analyses: list[dict[str, Any]], metric: str = 'mean', values: s
     """
     metric:     'mean', 'median'
     values:     'raw' (positions), 'roi' (positions), 'fwhms', 'deltas'
-    ptype:      'max', 'com', 'box', 'ellipse'
+    ptype:      'max', 'com', 'box', 'ellipse', 'pix_ij' (values == "deltas")
     dtype:      'data', 'fit', 'pix_ij' (values == "fwhms")
     """
 
@@ -173,10 +174,14 @@ def scan_metrics(analyses: list[dict[str, Any]], metric: str = 'mean', values: s
     data_err_high = np.empty((0, 2))
     for analysis in analyses:
         ij: np.ndarray
-        if values.lower() in ['raw', 'roi']:
-            ij = analysis[f'positions_{values}'][dtype][f'{ptype}_ij'] * um_per_pix
+        if values in ['raw', 'roi']:
+            ij = analysis['summary'][f'positions_{values}'][dtype][f'{ptype}_ij'] * um_per_pix
+        elif values == 'fwhms':
+            ij = analysis['summary'][values][dtype][ptype] * um_per_pix
+        elif values == 'deltas':
+            ij = analysis['summary'][values][dtype]['pix_ij'] * um_per_pix
         else:
-            ij = analysis[values][dtype][f'{ptype}_ij'] * um_per_pix
+            continue
 
         if metric == 'mean':
             pos_ij = np.mean(ij, axis=0)
@@ -214,12 +219,13 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
     fits: list[int] = [xy_fit, fwhms_fit, deltas_fit]
 
     n_rows: int = sum(shows)
-    um_per_pix: float = analyses[0]['summary']['um_per_pix'] if physical_units else 1.
+    sample_analysis = analyses[0]
+    um_per_pix: float = sample_analysis['summary']['um_per_pix'] if physical_units else 1.
     units_factor: float
     units_label: str
 
-    for pos, title in zip(analyses[0]['image_analyses']['positions']['short_names'],
-                          analyses[0]['image_analyses']['positions']['long_names']):
+    for pos, title in zip(sample_analysis['image_analyses'][0]['positions']['short_names'],
+                          sample_analysis['image_analyses'][0]['positions']['long_names']):
         fig, axs = plt.subplots(ncols=1, nrows=n_rows,
                                 figsize=(ScanImages.fig_size[0], ScanImages.fig_size[1] * 1.5),
                                 sharex='col')
@@ -244,12 +250,12 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
                     units_factor = 1
                     units_label = 'pix'
 
-                for i_xy, var, c in enumerate(zip([1, 0], plot_labels, ['m', 'y'])):
+                for i_xy, var, c_fill, c_val in zip([1, 0], plot_labels, ['m', 'y'], ['b', 'g']):
                     axs[i_ax].fill_between(scan_axis,
                                            units_factor * (data_val[:, i_xy] - data_err_low[:, i_xy]),
                                            units_factor * (data_val[:, i_xy] + data_err_high[:, i_xy]),
-                                           color=c, alpha=0.33)
-                    axs[i_ax].plot(scan_axis, units_factor * data_val[:, i_xy], 'ob-',
+                                           color=c_fill, alpha=0.33)
+                    axs[i_ax].plot(scan_axis, units_factor * data_val[:, i_xy], f'o{c_val}-',
                                    label=rf'{var} ({xy_metric}) [{units_label}]', linewidth=1, markersize=3)
 
                     if xy_fit > 0:
@@ -263,8 +269,8 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
                     axs[i_ax].set_title(title)
                 i_ax += 1
 
-            axs[i_ax].set_ylabel(f'{y_label} [{units_label}]')
-        axs[i_ax].set_xlabel(x_label)
+            axs[i_ax - 1].set_ylabel(f'{y_label} [{units_label}]')
+        axs[i_ax - 1].set_xlabel(x_label)
 
         if save_dir:
             save_path = save_dir / f'scan_analysis_{pos}.png'
@@ -274,33 +280,38 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
 
 
 if __name__ == '__main__':
-    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    # database
+    # --------------------------------------------------------------------------
+    # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    base_path: Path = Path(r'Z:\data')
 
+    is_local = (str(base_path)[0] == 'C')
+    if not is_local:
+        GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+
+    # scan data
+    # --------------------------------------------------------------------------
     # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
     _base: Path = Path(r'Z:\data')
 
-    _base_tag = (2023, 4, 13, 26)
-    _key_device = 'U_S4H'
-    _camera_tag = 'A2'
+    _base_tag = (2023, 7, 13, 27)
+    _key_device = LaserCompressor()
+    _device_variable = _key_device.var_separation
+    _camera = Camera('UC_TopView')
 
-    _scan_data = ScanData(tag=_base_tag, experiment_base_path=_base / 'Undulator')
+    _folder = base_path / 'Undulator'
+    _folder = _folder / f'Y{_base_tag[0]}' / f'{_base_tag[1]:02d}-{cal.month_name[_base_tag[1]][:3]}'
+    _folder = _folder / f'{str(_base_tag[0])[-2:]}_{_base_tag[1]:02d}{_base_tag[2]:02d}'
+    _folder = _folder / 'scans' / f'Scan{_base_tag[3]:03d}'
 
-    # data preview
-    # _key_data = _scan_data.data_dict[_key_device]
-    # _bins: BinningResults = unsupervised_binning(_key_data['Current'], _key_data['shot #'])
-    #
-    # plt.figure()
-    # for x, _ind in zip(_bins.avg_x, _bins.indexes):
-    #     plt.plot(x * np.ones(_ind.shape), _ind, '.', alpha=0.3)
-    # plt.xlabel('Current [A]')
-    # plt.ylabel('Indexes')
-    # plt.show(block=True)
+    _scan = ScanData(_folder, ignore_experiment_name=is_local)
 
-    # run analysis
-    # _export_file_path, _data_dict = scan_analysis(_scan_data, _key_device, _camera_tag)
+    # scan analysis
+    # --------------------------------------------------------------------------
+    _path, _dict = scan_analysis(_scan, _key_device, _device_variable, _camera, com_threshold=0.5,
+                                 blind_loads=True, store_images=False, store_scalars=False, save=True)
 
-    # open analysis
-    # _analysis_file = Path(r'Z:\data\Undulator\Y2023\04-Apr\23_0413\analysis\Scan026\steering_analysis_U_S4H.dat')
-    # _data_dict, _ = load_py(_analysis_file, as_dict=True)
+    render_scan_analysis(_dict, physical_units=False, x_label='Current [A]',
+                         xy_metric='mean', save_dir=_scan.get_analysis_folder())
 
     print('done')

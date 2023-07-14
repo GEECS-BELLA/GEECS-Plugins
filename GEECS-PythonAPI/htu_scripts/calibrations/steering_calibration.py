@@ -1,8 +1,6 @@
 import time
-import numpy as np
 import calendar as cal
 from pathlib import Path
-import matplotlib.pyplot as plt
 from typing import Optional, Any
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
@@ -101,7 +99,8 @@ def steering_calibration(steering_magnets: list[int], screens: list[str],
                 analysis = sa.scan_analysis(scan_data, scan['supply'].get_name(), scan['supply'].var_current,
                                             scan['camera'].label, com_threshold=0.5, bkg_image=bkg_image,
                                             blind_loads=True, store_images=False, save=True)
-                sa.render_scan_analysis(analysis[1], physical_units=False, xy_metric='median', xy_fit=1)
+                sa.render_scan_analysis(analysis[1], physical_units=False, x_label='Current [A]',
+                                        xy_metric='median', xy_fit=1)
                 analyses.append(analysis)
         except Exception:
             print('Failed to run analysis...')
@@ -149,7 +148,8 @@ def sweep_magnet(magnets: list[Steering], currents: list[tuple[float, float, flo
                     analysis = sa.scan_analysis(scan_data, supply.get_name(), supply.var_current, camera.label,
                                                 com_threshold=0.5, bkg_image=bkg_image,
                                                 blind_loads=True, store_images=False, save=True)
-                    sa.render_scan_analysis(analysis[1], physical_units=False, xy_metric='median', xy_fit=1)
+                    sa.render_scan_analysis(analysis[1], physical_units=False, x_label='Current [A]',
+                                            xy_metric='median', xy_fit=1)
                     analyses.append(analysis)
             else:
                 return False, scans_info, analyses
@@ -196,6 +196,7 @@ def set_screens(screen_out: Optional[Screen], screen_in: Optional[Screen]) -> bo
         print(f'Removing {screen_out.var_alias} ({screen_out.controller.get_name()})...')
         while True:
             screen_out.remove()
+            time.sleep(1.)
             if not screen_out.is_inserted():
                 break
             else:
@@ -214,6 +215,7 @@ def set_screens(screen_out: Optional[Screen], screen_in: Optional[Screen]) -> bo
         print(f'Inserting {screen_in.var_alias} ({screen_in.controller.get_name()})...')
         while True:
             screen_in.insert()
+            time.sleep(1.)
             if screen_in.is_inserted():
                 break
             else:
@@ -227,8 +229,8 @@ def set_screens(screen_out: Optional[Screen], screen_in: Optional[Screen]) -> bo
 
 
 if __name__ == '__main__':
-    base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    # base_path: Path = Path(r'Z:\data')
+    # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    base_path: Path = Path(r'Z:\data')
 
     is_local = (str(base_path)[0] == 'C')
     if not is_local:
@@ -253,6 +255,7 @@ if __name__ == '__main__':
         _scan = ScanData(_folder, ignore_experiment_name=is_local)
         _path, _dict = sa.scan_analysis(_scan, 'U_EMQTripletBipolar', 'Current_Limit.Ch1', 'P1', com_threshold=0.5,
                                         blind_loads=True, store_images=False, store_scalars=False, save=True)
-        sa.render_scan_analysis(_dict, physical_units=not is_local, xy_metric='median')
+        sa.render_scan_analysis(_dict, physical_units=False, x_label='Current [A]',
+                                xy_metric='mean', save_dir=_scan.get_analysis_folder())
 
     print('done')

@@ -321,7 +321,6 @@ class ScanImages:
             n_sig = 4
             blurred = self.analysis['arrays']['blurred']
 
-            # com roi (left, right, top, bottom)
             lr = np.round(n_sigma_window(blurred[self.analysis['positions']['com_ij'][0], :], n_sig)).astype(int)
             ud = np.round(n_sigma_window(blurred[:, self.analysis['positions']['com_ij'][1]], n_sig)).astype(int)
             self.analysis['metrics']['roi_com'] = np.concatenate((lr, ud))
@@ -593,6 +592,9 @@ class ScanImages:
     def render_image_analysis(analysis: dict[str, Any], tag: str = '', profiles: tuple[str] = ('com',),
                               comparison: bool = True, block: bool = False, save_folder: Optional[Path] = None):
         try:
+            um_per_pix: float = analysis['camera']['um_per_pix']
+            v_max = None
+
             if not tag:
                 image_path: Path = Path(analysis['paths']['image'])
                 tag = image_path.name.split(".")[0].split("_")[-1]
@@ -607,13 +609,15 @@ class ScanImages:
                     ax_y = fig.add_subplot(grid[1, 2:], sharey=ax_x)
 
                     # raw image
-                    ax_i.imshow(analysis['arrays']['denoised'], cmap='hot', aspect='equal', origin='upper', vmin=0,
-                                vmax=1.5 * analysis['arrays']['denoised'][analysis['positions']['max_ij'][0],
-                                                                          analysis['positions']['max_ij'][1]])
+                    if 'arrays' in analysis:
+                        v_max = 1.5 * analysis['arrays']['denoised'][analysis['positions']['max_ij'][0],
+                                                                     analysis['positions']['max_ij'][1]]
+                        ax_i.imshow(analysis['arrays']['denoised'],
+                                    cmap='hot', aspect='equal', origin='upper', vmin=0, vmax=v_max)
 
-                    if 'edges' in analysis['arrays']:
-                        edges = np.where(analysis['arrays']['edges'] != 0)
-                        ax_i.scatter(edges[1], edges[0], s=0.3, c='b', alpha=0.2)
+                        if 'edges' in analysis['arrays']:
+                            edges = np.where(analysis['arrays']['edges'] != 0)
+                            ax_i.scatter(edges[1], edges[0], s=0.3, c='b', alpha=0.2)
 
                     # roi com
                     if 'roi_com' in analysis['metrics']:
@@ -654,14 +658,16 @@ class ScanImages:
 
                     # lineouts
                     ax_x.plot(analysis['metrics']['profiles'][profile]['x']['axis'],
-                              analysis['metrics']['profiles'][profile]['x']['data'], 'b-', label='data (x)')
+                              analysis['metrics']['profiles'][profile]['x']['data'], 'b-',
+                              label=rf'X-data ({um_per_pix:.2f} $\mu$m/pix)')
                     ax_x.plot(analysis['metrics']['profiles'][profile]['x']['axis'],
                               analysis['metrics']['profiles'][profile]['x']['fit'], 'm-',
                               label=f"FWHM: {fwhm(analysis['metrics']['profiles'][profile]['x']['opt'][3]):.1f}")
                     ax_x.legend(loc='best', prop={'size': 8})
 
                     ax_y.plot(analysis['metrics']['profiles'][profile]['y']['axis'],
-                              analysis['metrics']['profiles'][profile]['y']['data'], 'b-', label='data (y)')
+                              analysis['metrics']['profiles'][profile]['y']['data'], 'b-',
+                              label=rf'Y-data ({um_per_pix:.2f} $\mu$m/pix)')
                     ax_y.plot(analysis['metrics']['profiles'][profile]['y']['axis'],
                               analysis['metrics']['profiles'][profile]['y']['fit'], 'm-',
                               label=f"FWHM: {fwhm(analysis['metrics']['profiles'][profile]['y']['opt'][3]):.1f}")
@@ -693,24 +699,29 @@ class ScanImages:
                     profile = analysis['metrics']['profiles'][pos]
 
                     if isinstance(pos_ij, tuple) and not np.isnan(pos_ij[:2]).any():
-                        axs[it, 0].imshow(analysis['arrays']['denoised'], cmap='hot', aspect='equal', origin='upper',
-                                          vmin=0,
-                                          vmax=1.5 * analysis['arrays']['denoised'][analysis['positions']['max_ij'][0],
-                                                                                    analysis['positions']['max_ij'][1]])
+                        if 'arrays' in analysis:
+                            axs[it, 0].imshow(analysis['arrays']['denoised'],
+                                              cmap='hot', aspect='equal', origin='upper', vmin=0, vmax=v_max)
                         axs[it, 0].axvline(pos_ij[1], color='w', linestyle='--', linewidth=0.5)
                         axs[it, 0].axhline(pos_ij[0], color='w', linestyle='--', linewidth=0.5)
                         axs[it, 0].plot(pos_ij[1], pos_ij[0], '.w', markersize=2)
                         axs[it, 0].set_ylabel(analysis['positions']['long_names'][it])
-                        axs[it, 1].plot(profile['x']['axis'], profile['x']['data'], 'b-', label='data')
+                        axs[it, 1].plot(profile['x']['axis'], profile['x']['data'], 'b-',
+                                        label=rf'y$_0$ [pix] = {pos_ij[0]}')
                         axs[it, 1].plot(profile['x']['axis'], profile['x']['fit'], 'm-',
-                                        label=r'$\mu$ = ' + f"{profile['x']['opt'][2]:.1f}, " +
-                                              r'$\sigma$ = ' + f"{fwhm(profile['x']['opt'][3]):.1f}")
+                                        label=r'$\mu_x$ = ' + f"{profile['x']['opt'][2]:.1f}, " +
+                                              r'$\sigma_x$ = ' + f"{fwhm(profile['x']['opt'][3]):.1f}")
                         axs[it, 1].legend(loc='best', prop={'size': 8})
-                        axs[it, 2].plot(profile['y']['axis'], profile['y']['data'], 'b-', label='data')
+                        if it == 0:
+                            axs[it, 1].set_title(rf'{um_per_pix:.2f} $\mu$m/pix')
+                        axs[it, 2].plot(profile['y']['axis'], profile['y']['data'], 'b-',
+                                        label=rf'x$_0$ [pix] = {pos_ij[1]}')
                         axs[it, 2].plot(profile['y']['axis'], profile['y']['fit'], 'm-',
-                                        label=r'$\mu$ = ' + f"{profile['y']['opt'][2]:.1f}, " +
-                                              r'$\sigma$ = ' + f"{fwhm(profile['y']['opt'][3]):.1f}")
+                                        label=r'$\mu_y$ = ' + f"{profile['y']['opt'][2]:.1f}, " +
+                                              r'$\sigma_y$ = ' + f"{fwhm(profile['y']['opt'][3]):.1f}")
                         axs[it, 2].legend(loc='best', prop={'size': 8})
+                        if it == 0:
+                            axs[it, 2].set_title(rf'{um_per_pix:.2f} $\mu$m/pix')
 
                 if save_folder:
                     image_path: Path = save_folder / f'all_profiles_{tag}.png'
