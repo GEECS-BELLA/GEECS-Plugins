@@ -155,6 +155,17 @@ class ScanData:
             api_error.warning(f'ScanInfo file does not have a "Scan Info" section',
                               f'ScanData class, method "{inspect.stack()[0][3]}"')
 
+    @staticmethod
+    def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator')\
+            -> Path:
+        base_directory = Path(base_directory)
+        folder: Path = base_directory / experiment
+        folder = folder / f'Y{tag[0]}' / f'{tag[1]:02d}-{cal.month_name[tag[1]][:3]}'
+        folder = folder / f'{str(tag[0])[-2:]}_{tag[1]:02d}{tag[2]:02d}'
+        folder = folder / 'scans' / f'Scan{tag[3]:03d}'
+
+        return folder
+
 
 if __name__ == '__main__':
     # GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')

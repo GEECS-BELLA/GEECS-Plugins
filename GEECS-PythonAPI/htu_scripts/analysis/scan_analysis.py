@@ -2,7 +2,6 @@ import os
 import time
 import inspect
 import numpy as np
-import calendar as cal
 from pathlib import Path
 import matplotlib.pyplot as plt
 from progressbar import ProgressBar
@@ -16,7 +15,8 @@ from geecs_api.tools.scans.scan_data import ScanData
 from geecs_api.tools.images.filtering import FiltersParameters
 from geecs_api.tools.interfaces.exports import load_py, save_py
 from geecs_api.tools.interfaces.prompts import text_input
-from geecs_api.devices.HTU.laser import LaserCompressor
+from geecs_api.api_defs import ScanTag
+# from geecs_api.devices.HTU.laser import LaserCompressor
 
 
 def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable: str, camera: Union[int, Camera, str],
@@ -36,16 +36,13 @@ def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable
     measured: BinningResults = unsupervised_binning(key_data[variable], key_data['shot #'])
 
     Expected = NamedTuple('Expected', start=float, end=float, steps=int, shots=int, setpoints=np.ndarray, indexes=list)
-    steps: int = 1 + round((float(scan_data.scan_info['End']) - float(scan_data.scan_info['Start']))
-                           / float(scan_data.scan_info['Step size']))
+    start = float(scan_data.scan_info['Start'])
+    end = float(scan_data.scan_info['End'])
+    steps: int = 1 + round(np.abs(end - start) / float(scan_data.scan_info['Step size']))
     shots: int = int(scan_data.scan_info['Shots per step'])
-    expected = Expected(start=float(scan_data.scan_info['Start']),
-                        end=float(scan_data.scan_info['End']),
-                        steps=steps,
-                        shots=shots,
+    expected = Expected(start=start, end=end, steps=steps, shots=shots,
                         setpoints=np.linspace(float(scan_data.scan_info['Start']),
-                                              float(scan_data.scan_info['End']),
-                                              steps),
+                                              float(scan_data.scan_info['End']), steps),
                         indexes=[np.arange(p * shots, (p+1) * shots) for p in range(steps)])
 
     matching = \
@@ -282,28 +279,22 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
 if __name__ == '__main__':
     # database
     # --------------------------------------------------------------------------
-    # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    base_path: Path = Path(r'Z:\data')
+    base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    # base_path: Path = Path(r'Z:\data')
 
     is_local = (str(base_path)[0] == 'C')
     if not is_local:
         GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-    # scan data
-    # --------------------------------------------------------------------------
-    # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    _base: Path = Path(r'Z:\data')
+    _base_tag = (2023, 4, 13, 19)
+    # _key_device = LaserCompressor()
+    # _device_variable = _key_device.var_separation
+    # _camera = Camera('UC_TopView')
+    _key_device = 'U_S1V'
+    _device_variable = 'Current'
+    _camera = 'UC_DiagnosticsPhosphor'
 
-    _base_tag = (2023, 7, 13, 27)
-    _key_device = LaserCompressor()
-    _device_variable = _key_device.var_separation
-    _camera = Camera('UC_TopView')
-
-    _folder = base_path / 'Undulator'
-    _folder = _folder / f'Y{_base_tag[0]}' / f'{_base_tag[1]:02d}-{cal.month_name[_base_tag[1]][:3]}'
-    _folder = _folder / f'{str(_base_tag[0])[-2:]}_{_base_tag[1]:02d}{_base_tag[2]:02d}'
-    _folder = _folder / 'scans' / f'Scan{_base_tag[3]:03d}'
-
+    _folder = ScanData.build_folder_path(ScanTag(*_base_tag), base_path)
     _scan = ScanData(_folder, ignore_experiment_name=is_local)
 
     # scan analysis
@@ -314,4 +305,6 @@ if __name__ == '__main__':
     render_scan_analysis(_dict, physical_units=False, x_label='Current [A]',
                          xy_metric='mean', save_dir=_scan.get_analysis_folder())
 
+    # _key_device.close()
+    # _camera.close()
     print('done')
