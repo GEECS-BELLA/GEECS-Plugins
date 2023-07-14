@@ -21,7 +21,7 @@ import modules.MagSpecAnalysis as MagSpecAnalysis
 
 superpath = "C:/Users/chris/Desktop/cedoss_htu_data/"
 scannumber = 23
-shotnumber = 43
+shotnumber = 25
 
 spec_folderpath = "U_HiResMagCam-interpSpec"
 suffix = ".txt"
@@ -54,8 +54,6 @@ plt.show()
 threshold = 0.01 #Ignore slices with < 0.01% of peak slice charge compared to peak beam charge
 sigma_arr, x0_arr, amp_arr, err_arr = MagSpecAnalysis.FitTransverseGaussianSlices(image, threshold)
 average_size = MagSpecAnalysis.CalculateAverageSize(sigma_arr, amp_arr)
-linear_fit = MagSpecAnalysis.FitBeamAngle(x0_arr, amp_arr, energy_arr)
-projected_axis, projected_arr, projected_size = MagSpecAnalysis.CalculateProjectedBeamSize(image)
 
 plt.errorbar(energy_arr, sigma_arr, yerr=err_arr*10,c='b', ls='dotted',label="Relative Error in Fit")
 plt.plot(energy_arr, sigma_arr, c='r', ls='solid', label = "Tranverse Size of Slice")
@@ -68,13 +66,18 @@ plt.show()
 
 ##43 ums / pixel
 
+linear_fit = MagSpecAnalysis.FitBeamAngle(x0_arr, amp_arr, energy_arr)
+projected_axis, projected_arr, projected_size = MagSpecAnalysis.CalculateProjectedBeamSize(image)
 anglefunc = energy_arr*linear_fit[0]+linear_fit[1]
+
 plt.imshow(image, aspect=.02, extent=(energy_arr[0],energy_arr[-1],0,np.shape(image)[0]))
 plt.plot(energy_arr, anglefunc, c='white', ls='dashed', label="Slope:"+"{:10.2f}".format(linear_fit[0])+" pixels/MeV")
 plt.plot(projected_arr*20+min(energy_arr),projected_axis,c='orange',ls='dotted',label="Projected RMS Size:"+"{:8.2f}".format(projected_size)+" pixels")
 plt.xlabel("Energy "+r'$(\mathrm{\ MeV})$')
 plt.ylabel("Transverse Position "+r'$(\mathrm{pixel})$')
 plt.title("Sample Data:  Scan "+str(scannumber)+", Shot "+str(shotnumber))
+plt.ylim([0,np.shape(image)[0]])
+plt.xlim([min(energy_arr),max(energy_arr)])
 plt.legend(title="Total Charge:"+"{:10.2f}".format(charge)+" pC")
 
 plt.show()

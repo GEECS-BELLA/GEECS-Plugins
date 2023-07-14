@@ -319,11 +319,14 @@ def CalculateAverageSize(sigma_arr, amp_arr):
 
 def FitBeamAngle(x0_arr, amp_arr, energy_arr):
     linear_fit = np.polyfit(energy_arr, x0_arr, deg=1, w=amp_arr)
-    #anglefunc = energy_arr*linear_fit[0]+linear_fit[1]
-    #plt.plot(energy_arr, x0_arr)
-    #plt.plot(energy_arr, anglefunc, c='black')
-    #plt.show()
     return linear_fit
+
+def GetSizeStatistics_Full(image, energy_arr, threshold=0.01):
+    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, threshold)
+    average_size = CalculateAverageSize(sigma_arr, amp_arr)
+    axis, vals, projected_size = CalculateProjectedBeamSize(image)
+    linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
+    return average_size, projected_size, linear_fit[0]
 
 def GetBeamCharge(tdms_filepath):
     """
