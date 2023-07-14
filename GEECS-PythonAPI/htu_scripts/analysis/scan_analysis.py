@@ -286,13 +286,13 @@ if __name__ == '__main__':
     if not is_local:
         GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-    _base_tag = (2023, 4, 13, 19)
+    _base_tag = (2023, 4, 13, 20)
     # _key_device = LaserCompressor()
     # _device_variable = _key_device.var_separation
     # _camera = Camera('UC_TopView')
-    _key_device = 'U_S1V'
+    _key_device = 'U_S2H'
     _device_variable = 'Current'
-    _camera = 'UC_DiagnosticsPhosphor'
+    _camera = 'UC_Phosphor1'
 
     _folder = ScanData.build_folder_path(ScanTag(*_base_tag), base_path)
     _scan = ScanData(_folder, ignore_experiment_name=is_local)

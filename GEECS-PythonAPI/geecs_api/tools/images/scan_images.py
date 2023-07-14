@@ -318,7 +318,7 @@ class ScanImages:
             return
 
         try:
-            n_sig = 4
+            n_sig = 5
             blurred = self.analysis['arrays']['blurred']
 
             lr = np.round(n_sigma_window(blurred[self.analysis['positions']['com_ij'][0], :], n_sig)).astype(int)
