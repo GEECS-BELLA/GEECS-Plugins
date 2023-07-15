@@ -290,11 +290,11 @@ if __name__ == '__main__':
         GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
     _base_tag = ScanTag(2023, 4, 13, 21)
-    # _key_device = LaserCompressor()
-    # _device_variable = _key_device.var_separation
+    # _device = LaserCompressor()
+    # _variable = _key_device.var_separation
     # _camera = Camera('UC_TopView')
-    _key_device = 'U_S2V'
-    _device_variable = 'Current'
+    _device = 'U_S2V'
+    _variable = 'Current'
     _camera = 'UC_Phosphor1'
 
     _folder = ScanData.build_folder_path(_base_tag, base_path)
@@ -302,7 +302,7 @@ if __name__ == '__main__':
 
     # scan analysis
     # --------------------------------------------------------------------------
-    _path, _dict = scan_analysis(_scan, _key_device, _device_variable, _camera, com_threshold=0.5,
+    _path, _dict = scan_analysis(_scan, _device, _variable, _camera, com_threshold=0.5,
                                  bkg_image=None, blind_loads=True,
                                  store_images=False, store_scalars=False,
                                  save_plots=False, save=True)
@@ -313,6 +313,6 @@ if __name__ == '__main__':
                          xy_fit=1, fwhms_fit=1, deltas_fit=0,
                          save_dir=_scan.get_analysis_folder())
 
-    # _key_device.close()
+    # _device.close()
     # _camera.close()
     print('done')

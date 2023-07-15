@@ -208,7 +208,9 @@ class ScanImages:
                                                          block=True, save_folder=self.save_folder)
 
                     if not store_images:
-                        self.analysis.pop('arrays')
+                        for k in self.analysis.keys():
+                            if k != 'denoised':
+                                self.analysis.pop(k)
 
                 except Exception as ex:
                     api_error.error(str(ex), 'Failed to analyze average image')
