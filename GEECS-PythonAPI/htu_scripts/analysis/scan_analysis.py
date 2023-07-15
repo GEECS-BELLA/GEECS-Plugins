@@ -205,11 +205,13 @@ def scan_metrics(analyses: list[dict[str, Any]], metric: str = 'mean', values: s
     return data_val, data_err_low, data_err_high
 
 
-def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True, x_label: str = 'scan variable [a.u.]',
+def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True, x_label: str = 'variable [a.u.]',
                          show_xy: bool = True, show_fwhms: bool = True, show_deltas: bool = True,
                          xy_metric: str = 'mean', fwhms_metric: str = 'mean', deltas_metric: str = 'mean',
-                         xy_fit: int = 0, fwhms_fit: int = 0, deltas_fit: int = 0,
-                         save_dir: Optional[Path] = None):
+                         xy_fit: Union[int, tuple[np.ndarray, str]] = 0,
+                         fwhms_fit: Union[int, tuple[np.ndarray, str]] = 0,
+                         deltas_fit: Union[int, tuple[np.ndarray, str]] = 0,
+                         show_figs: bool = True, save_dir: Optional[Path] = None) -> list[tuple[Any, Any]]:
     """
     metric:     'mean', 'median'
     """
@@ -218,19 +220,20 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
 
     shows: list[bool] = [show_xy, show_fwhms, show_deltas]
     metrics: list[str] = [xy_metric, fwhms_metric, deltas_metric]
-    fits: list[int] = [xy_fit, fwhms_fit, deltas_fit]
+    fits: list[Union[int, tuple[np.ndarray, str]]] = [xy_fit, fwhms_fit, deltas_fit]
 
     n_rows: int = sum(shows)
     sample_analysis = analyses[0]
     um_per_pix: float = sample_analysis['summary']['um_per_pix'] if physical_units else 1.
+    positions: {} = sample_analysis['image_analyses'][0]['positions']
     units_factor: float
     units_label: str
 
-    for pos, title in zip(sample_analysis['image_analyses'][0]['positions']['short_names'],
-                          sample_analysis['image_analyses'][0]['positions']['long_names']):
-        fig, axs = plt.subplots(ncols=1, nrows=n_rows,
-                                figsize=(ScanImages.fig_size[0], ScanImages.fig_size[1] * 1.5),
-                                sharex='col')
+    figs = []
+
+    for it, (pos, title) in enumerate(zip(positions['short_names'], positions['long_names'])):
+        fig, axs = plt.subplots(ncols=1, nrows=n_rows, sharex='col',
+                                figsize=(ScanImages.fig_size[0], ScanImages.fig_size[1] * 1.5))
         i_ax = 0
         for show, metric, val, plot_labels, y_label, fit in zip(shows, metrics, ['raw', 'fwhms', 'deltas'],
                                                                 [['X', 'Y'], ['FWHM$_x$', 'FWHM$_y$'], ['Dx', 'Dy']],
@@ -258,11 +261,15 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
                     axs[i_ax].plot(scan_axis, units_factor * data_val[:, i_xy], f'o{c_val}-',
                                    label=rf'{var} ({xy_metric}) [{units_label}]', linewidth=1, markersize=3)
 
-                    if (fit > 0) and not np.isnan(data_val).any():
-                        fit_pars = np.polyfit(scan_axis, units_factor * data_val[:, i_xy], xy_fit)
+                    if isinstance(fit, int) and (fit > 0) and not np.isnan(data_val).any():
+                        fit_pars = np.polyfit(scan_axis, units_factor * data_val[:, i_xy], fit)
                         fit_vals = np.polyval(fit_pars, scan_axis)
                         axs[i_ax].plot(scan_axis, fit_vals, 'k', linestyle='--', linewidth=0.66,
                                        label='fit: ' + polyfit_label(list(fit_pars), res=2, latex=True))
+
+                    if isinstance(fit, tuple):
+                        label = fit[1] if fit[1] else 'fit'
+                        axs[i_ax].plot(scan_axis, fit[0], 'k', linestyle='--', linewidth=0.66, label=label)
 
                 axs[i_ax].legend(loc='best', prop={'size': 8})
                 axs[i_ax].set_ylabel(f'{y_label} [{units_label}]')
@@ -271,12 +278,16 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
                 i_ax += 1
 
         axs[i_ax - 1].set_xlabel(x_label)
+        figs.append((fig, axs))
 
         if save_dir:
-            save_path = save_dir / f'scan_analysis_{pos}.png'
+            save_path = save_dir / f'scan_analysis_{pos}_{xy_metric}.png'
             plt.savefig(save_path, dpi=300)
 
-    plt.show(block=True)
+    if show_figs:
+        plt.show(block=True)
+
+    return figs
 
 
 if __name__ == '__main__':
