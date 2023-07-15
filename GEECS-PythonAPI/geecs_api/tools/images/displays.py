@@ -4,6 +4,41 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from typing import Optional, Any, Union
 
 
+def polyfit_label(fit_pars: Union[list, np.ndarray], res: int = 2, var_str: str = 'x',
+                  sep_str: str = ' ', latex: bool = True) -> str:
+    label: str = ''
+    if isinstance(fit_pars, np.ndarray):
+        order = fit_pars.size - 1
+        fit_pars = list(fit_pars)
+    else:
+        order = len(fit_pars) - 1
+
+    res_str = f'.{res}f'
+    for o, par in enumerate(fit_pars):
+        if par < 0:
+            sign_str = '- '
+        elif (par >= 0) and (o > 0):
+            sign_str = '+ '
+        else:
+            sign_str = ''
+
+        order_str = f'^{order - o}'
+        if latex:
+            order_str = f'${order_str}$'
+
+        if o > 0:
+            label += ' '
+
+        if order - o == 0:
+            label += f"{sign_str}{('{:' + res_str + '}').format(np.abs(par))}"
+        elif order - o == 1:
+            label += f"{sign_str}{('{:' + res_str + '}').format(np.abs(par))}{sep_str}{var_str}"
+        else:
+            label += f"{sign_str}{('{:' + res_str + '}').format(np.abs(par))}{sep_str}{var_str}" + order_str
+
+    return label
+
+
 def show_one(image: np.ndarray,
              figure_size: tuple[float, float] = (6.4, 4.8),
              x_lim: Optional[tuple[float, float]] = None,
@@ -56,3 +91,9 @@ def show_one(image: np.ndarray,
         plt.show(block=block_execution)
 
     return ax, im
+
+
+if __name__ == '__main__':
+    # pars = np.array([-2.3456, -1.2345, -6.789])
+    pars = [-1.2345, -6.789]
+    print(polyfit_label(pars, res=2, var_str='x', sep_str=' ', latex=False))

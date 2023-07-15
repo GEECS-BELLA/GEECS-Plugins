@@ -161,7 +161,7 @@ def quad_scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], qua
         'analysis_files': analysis_files,
         'beam_analysis': beam_analysis,
         'device_name': device_name,
-        'scan_folder': scan_images.scan.get_folder(),
+        'scan_folder': scan_images.scan_obj.get_folder(),
         'camera_name': scan_images.camera_name,
         'pos_short_names': pos_short_names,
         'pos_long_names': pos_long_names}

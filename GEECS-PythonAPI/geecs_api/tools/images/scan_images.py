@@ -46,7 +46,7 @@ class ScanImages:
         angle (int): rotation angle to apply (multiples of +/-90 deg only). Ignored if camera object is provided.
         """
 
-        self.scan: ScanData = scan
+        self.scan_obj: ScanData = scan
         self.camera: Optional[Camera] = None
         self.camera_name: str
         self.camera_roi: Optional[np.ndarray]
@@ -83,9 +83,9 @@ class ScanImages:
 
         self.camera_label: str = Camera.label_from_name(self.camera_name)
 
-        self.image_folder: Path = self.scan.get_folder() / self.camera_name
+        self.image_folder: Path = self.scan_obj.get_folder() / self.camera_name
         # self.save_folder: Path = self.scan.get_analysis_folder() / self.camera_name / 'Profiles Images'
-        self.save_folder: Path = self.scan.get_analysis_folder() / self.camera_name
+        self.save_folder: Path = self.scan_obj.get_analysis_folder() / self.camera_name
         self.set_save_folder()  # default no-scan analysis folder
 
         self.analysis: dict[str, Any] = ScanImages._new_analysis_dict()
@@ -104,7 +104,7 @@ class ScanImages:
             self.save_folder = path
         if path is None:
             # self.save_folder = self.scan.get_analysis_folder() / self.camera_name / 'Profiles Images'
-            self.save_folder = self.scan.get_analysis_folder() / self.camera_name
+            self.save_folder = self.scan_obj.get_analysis_folder() / self.camera_name
             if not self.save_folder.is_dir():
                 os.makedirs(self.save_folder)
 
@@ -118,7 +118,7 @@ class ScanImages:
 
     def run_analysis_with_checks(self, images: Union[int, list[Path]] = -1, initial_filtering=FiltersParameters(),
                                  profiles: tuple[str] = ('com',), plots: bool = False, store_images: bool = True,
-                                 save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
+                                 save_plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
 
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
@@ -131,9 +131,9 @@ class ScanImages:
         while True:
             try:
                 export_file_path, data_dict = \
-                    self.analyze_image_batch(images, filtering, store_images, plots, profiles, save)
+                    self.analyze_image_batch(images, filtering, store_images, plots, profiles, save_plots, save)
             except Exception as ex:
-                api_error(str(ex), f'Failed to analyze {self.scan.get_folder().name}')
+                api_error(str(ex), f'Failed to analyze {self.scan_obj.get_folder().name}')
                 pass
 
             repeat = text_input(f'Repeat analysis (adjust contrast/threshold)? : ',
@@ -156,7 +156,7 @@ class ScanImages:
 
     def analyze_image_batch(self, images: Union[int, list[Path]] = -1, filtering=FiltersParameters(),
                             store_images: bool = True, plots: bool = False, profiles: tuple[str] = ('com',),
-                            save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
+                            save_plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
 
@@ -178,7 +178,7 @@ class ScanImages:
                     for image_path in paths:
                         avg_image, count = \
                             self.analyze_average_render(image_path, filtering, count, avg_image, profiles,
-                                                        plots, block_plot=False, save=save)
+                                                        plots, block_plot=False, save_plots=save_plots)
                         if not self.analysis['flags']['is_valid']:
                             skipped_files.append(image_path.name)
 
@@ -203,9 +203,9 @@ class ScanImages:
                     self.analyze_profiles()
 
                     if plots:
-                        save_folder = self.save_folder if save else None
+                        # always save average image
                         ScanImages.render_image_analysis(self.analysis, tag='average_image', profiles=profiles,
-                                                         block=True, save_folder=save_folder)
+                                                         block=True, save_folder=self.save_folder)
 
                     if not store_images:
                         self.analysis.pop('arrays')
@@ -218,7 +218,7 @@ class ScanImages:
                 self.summarize_analyses()
 
                 data_dict = {
-                    'scan': self.scan,
+                    'scan': self.scan_obj,
                     'camera_r90': self.camera_r90,
                     'camera_name': self.camera_name,
                     'camera_roi': self.camera_roi,
@@ -246,7 +246,7 @@ class ScanImages:
 
     def analyze_average_render(self, image: Path, filtering=FiltersParameters(), count: int = 0,
                                avg_image: Optional[np.ndarray] = None, profiles: tuple[str] = ('com',),
-                               plots: bool = False, block_plot: bool = False, save: bool = False) \
+                               plots: bool = False, block_plot: bool = False, save_plots: bool = False)\
             -> tuple[np.ndarray, int]:
         self.analyze_image(image, filtering)
 
@@ -255,7 +255,7 @@ class ScanImages:
             count += 1
             self.analyze_profiles()
             if plots:
-                save_folder = self.save_folder if save else None
+                save_folder = self.save_folder if save_plots else None
                 ScanImages.render_image_analysis(self.analysis, profiles=profiles,
                                                  block=block_plot, save_folder=save_folder)
 
@@ -270,7 +270,7 @@ class ScanImages:
 
         return avg_image, count
 
-    def analyze_image(self, image: Union[Path, np.ndarray], filtering=FiltersParameters()):
+    def analyze_image(self, image: Union[Path, np.ndarray], filtering=FiltersParameters(), sigma_radius: float = 5):
         self.analysis = ScanImages._new_analysis_dict()
 
         # raw image
@@ -318,16 +318,15 @@ class ScanImages:
             return
 
         try:
-            n_sig = 5
             blurred = self.analysis['arrays']['blurred']
 
-            lr = np.round(n_sigma_window(blurred[self.analysis['positions']['com_ij'][0], :], n_sig)).astype(int)
-            ud = np.round(n_sigma_window(blurred[:, self.analysis['positions']['com_ij'][1]], n_sig)).astype(int)
+            lr = np.round(n_sigma_window(blurred[self.analysis['positions']['com_ij'][0], :], sigma_radius)).astype(int)
+            ud = np.round(n_sigma_window(blurred[:, self.analysis['positions']['com_ij'][1]], sigma_radius)).astype(int)
             self.analysis['metrics']['roi_com'] = np.concatenate((lr, ud))
 
             # max roi (left, right, top, bottom)
-            lr = np.round(n_sigma_window(blurred[self.analysis['positions']['max_ij'][0], :], n_sig)).astype(int)
-            ud = np.round(n_sigma_window(blurred[:, self.analysis['positions']['max_ij'][1]], n_sig)).astype(int)
+            lr = np.round(n_sigma_window(blurred[self.analysis['positions']['max_ij'][0], :], sigma_radius)).astype(int)
+            ud = np.round(n_sigma_window(blurred[:, self.analysis['positions']['max_ij'][1]], sigma_radius)).astype(int)
             self.analysis['metrics']['roi_max'] = np.concatenate((lr, ud))
 
             # beam edges
@@ -594,6 +593,7 @@ class ScanImages:
         try:
             um_per_pix: float = analysis['camera']['um_per_pix']
             v_max = None
+            fig_1 = None
 
             if not tag:
                 image_path: Path = Path(analysis['paths']['image'])
@@ -601,12 +601,12 @@ class ScanImages:
 
             for profile in profiles:
                 if ('profiles' in analysis['metrics']) and (profile in analysis['metrics']['profiles']):
-                    fig = plt.figure(figsize=(ScanImages.fig_size[0] * 1.5, ScanImages.fig_size[1]))
+                    fig_1 = plt.figure(figsize=(ScanImages.fig_size[0] * 1.5, ScanImages.fig_size[1]))
 
                     grid = plt.GridSpec(2, 4, hspace=0.3, wspace=0.3)
-                    ax_i = fig.add_subplot(grid[:, :2])
-                    ax_x = fig.add_subplot(grid[0, 2:])
-                    ax_y = fig.add_subplot(grid[1, 2:], sharey=ax_x)
+                    ax_i = fig_1.add_subplot(grid[:, :2])
+                    ax_x = fig_1.add_subplot(grid[0, 2:])
+                    ax_y = fig_1.add_subplot(grid[1, 2:], sharey=ax_x)
 
                     # raw image
                     if 'arrays' in analysis:
@@ -678,21 +678,20 @@ class ScanImages:
                         image_path: Path = save_folder / f'{profile}_profiles_{tag}.png'
                         plt.savefig(image_path, dpi=300)
 
-                    if block:
-                        plt.show(block=block)
+                    # plt.show(block=False)
 
-                    try:
-                        plt.close(fig)
-                    except Exception:
-                        pass
+                    # try:
+                    #     plt.close(fig)
+                    # except Exception:
+                    #     pass
 
             # ___________________________________________
             if comparison and ('positions' in analysis) and ('profiles' in analysis['metrics']):
                 profiles_fig_size = (ScanImages.fig_size[0] * 1.5,
                                      ScanImages.fig_size[1] * math.ceil(len(analysis['positions']) / 3))
 
-                fig, axs = plt.subplots(ncols=3, nrows=len(analysis['positions']['short_names']),
-                                        figsize=profiles_fig_size, sharex='col', sharey='col')
+                fig_2, axs = plt.subplots(ncols=3, nrows=len(analysis['positions']['short_names']),
+                                          figsize=profiles_fig_size, sharex='col', sharey='col')
 
                 for it, pos in enumerate(analysis['positions']['short_names']):
                     pos_ij = analysis['positions'][f'{pos}_ij']
@@ -731,7 +730,8 @@ class ScanImages:
                     plt.show(block=block)
 
                 try:
-                    plt.close(fig)
+                    plt.close(fig_1)
+                    plt.close(fig_2)
                 except Exception:
                     pass
 

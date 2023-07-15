@@ -13,6 +13,7 @@ from geecs_api.tools.distributions.binning import unsupervised_binning, BinningR
 from geecs_api.tools.images.scan_images import ScanImages
 from geecs_api.tools.scans.scan_data import ScanData
 from geecs_api.tools.images.filtering import FiltersParameters
+from geecs_api.tools.images.displays import polyfit_label
 from geecs_api.tools.interfaces.exports import load_py, save_py
 from geecs_api.tools.interfaces.prompts import text_input
 from geecs_api.api_defs import ScanTag
@@ -21,13 +22,15 @@ from geecs_api.api_defs import ScanTag
 
 def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable: str, camera: Union[int, Camera, str],
                   com_threshold: float = 0.5, bkg_image: Optional[Union[Path, np.ndarray]] = None,
-                  blind_loads: bool = False, store_images: bool = True, store_scalars: bool = True, save: bool = False)\
-        -> tuple[Optional[Path], dict[str, Any]]:
+                  blind_loads: bool = False, store_images: bool = True, store_scalars: bool = True,
+                  save_plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
     analyses: list[dict[str, Any]] = []
 
     scan_images = ScanImages(scan_data, camera)
     device_name: str = device.get_name() if isinstance(device, GeecsDevice) else device
     key_data = scan_data.data_dict[device_name]
+
+    scan_scalars: dict[str, Any] = scan_data.data_dict
     if not store_scalars:
         del scan_data.data_dict
         del scan_data.data_frame
@@ -92,7 +95,7 @@ def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable
                 analysis_file, analysis = scan_images.run_analysis_with_checks(
                     images=step_paths,
                     initial_filtering=FiltersParameters(com_threshold=com_threshold, bkg_image=bkg_image),
-                    plots=True, store_images=store_images, save=save)
+                    plots=True, store_images=store_images, save_plots=save_plots, save=save)
 
             if not analysis:
                 print('Loading analysis...')
@@ -129,7 +132,8 @@ def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable
         'analysis_files': analysis_files,
         'analyses': analyses,
         'device_name': device_name,
-        'scan_folder': scan_images.scan.get_folder(),
+        'scan_folder': scan_images.scan_obj.get_folder(),
+        'scan_scalars': scan_scalars,
         'camera_name': scan_images.camera_name}
 
     if save:
@@ -148,6 +152,7 @@ def scan_analysis(scan_data: ScanData, device: Union[GeecsDevice, str], variable
 #     'analyses': analyses,
 #     'device_name': device_name,
 #     'scan_folder': scan_images.scan.get_folder(),
+#     'scan_scalars': scan_scalars,
 #     'camera_name': scan_images.camera_name}
 
 # self.summary = {'positions_roi': {'data': {}, 'fit': {}},
@@ -230,8 +235,6 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
         for show, metric, val, plot_labels, y_label, fit in zip(shows, metrics, ['raw', 'fwhms', 'deltas'],
                                                                 [['X', 'Y'], ['FWHM$_x$', 'FWHM$_y$'], ['Dx', 'Dy']],
                                                                 ['Positions', 'FWHMs', 'Deltas'], fits):
-            units_label: str = 'a.u.'
-
             if show:
                 dtype = 'pix_ij' if val == 'fwhms' else 'data'
                 data_val, data_err_low, data_err_high = scan_metrics(analyses, metric, val, pos, dtype, um_per_pix)
@@ -255,18 +258,18 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
                     axs[i_ax].plot(scan_axis, units_factor * data_val[:, i_xy], f'o{c_val}-',
                                    label=rf'{var} ({xy_metric}) [{units_label}]', linewidth=1, markersize=3)
 
-                    if xy_fit > 0:
+                    if (fit > 0) and not np.isnan(data_val).any():
                         fit_pars = np.polyfit(scan_axis, units_factor * data_val[:, i_xy], xy_fit)
                         fit_vals = np.polyval(fit_pars, scan_axis)
-                        axs[i_ax].plot(scan_axis, fit_vals, 'gray', label='fit')
+                        axs[i_ax].plot(scan_axis, fit_vals, 'k', linestyle='--', linewidth=0.66,
+                                       label='fit: ' + polyfit_label(list(fit_pars), res=2, latex=True))
 
                 axs[i_ax].legend(loc='best', prop={'size': 8})
                 axs[i_ax].set_ylabel(f'{y_label} [{units_label}]')
                 if i_ax == 0:
-                    axs[i_ax].set_title(title)
+                    axs[i_ax].set_title(rf'{title} ({um_per_pix:.2f} $\mu$m/pix)')
                 i_ax += 1
 
-            axs[i_ax - 1].set_ylabel(f'{y_label} [{units_label}]')
         axs[i_ax - 1].set_xlabel(x_label)
 
         if save_dir:
@@ -279,31 +282,36 @@ def render_scan_analysis(data_dict: dict[str, Any], physical_units: bool = True,
 if __name__ == '__main__':
     # database
     # --------------------------------------------------------------------------
-    base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    # base_path: Path = Path(r'Z:\data')
+    # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    base_path: Path = Path(r'Z:\data')
 
     is_local = (str(base_path)[0] == 'C')
     if not is_local:
         GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
-    _base_tag = (2023, 4, 13, 20)
+    _base_tag = ScanTag(2023, 4, 13, 21)
     # _key_device = LaserCompressor()
     # _device_variable = _key_device.var_separation
     # _camera = Camera('UC_TopView')
-    _key_device = 'U_S2H'
+    _key_device = 'U_S2V'
     _device_variable = 'Current'
     _camera = 'UC_Phosphor1'
 
-    _folder = ScanData.build_folder_path(ScanTag(*_base_tag), base_path)
+    _folder = ScanData.build_folder_path(_base_tag, base_path)
     _scan = ScanData(_folder, ignore_experiment_name=is_local)
 
     # scan analysis
     # --------------------------------------------------------------------------
     _path, _dict = scan_analysis(_scan, _key_device, _device_variable, _camera, com_threshold=0.5,
-                                 blind_loads=True, store_images=False, store_scalars=False, save=True)
+                                 bkg_image=None, blind_loads=True,
+                                 store_images=False, store_scalars=False,
+                                 save_plots=False, save=True)
 
     render_scan_analysis(_dict, physical_units=False, x_label='Current [A]',
-                         xy_metric='mean', save_dir=_scan.get_analysis_folder())
+                         show_xy=True, show_fwhms=True, show_deltas=False,
+                         xy_metric='mean', fwhms_metric='mean', deltas_metric='mean',
+                         xy_fit=1, fwhms_fit=1, deltas_fit=0,
+                         save_dir=_scan.get_analysis_folder())
 
     # _key_device.close()
     # _camera.close()
