@@ -174,6 +174,12 @@ class GrenouilleRetrieval:
         """
         return Q_(2*np.pi, 'radians') / self.time_step * np.fft.fftshift(np.fft.fftfreq(self.shape[0]))
 
+    @property
+    def frequency_multiplier(self):
+        return {'self_diffraction': 1,
+                'second_harmonic_generation': 2,
+               }[self.nonlinear_effect]
+
     def _calculate_I_FROG(self):
         self.I_FROG = np.transpose(
             np.fromiter((np.interp((invert_wavelength_angular_frequency(self.ω)),  self.grenouille_trace_λ, grenouille_trace_column, left=0.0, right=0.0)
@@ -270,7 +276,7 @@ class GrenouilleRetrieval:
         # interpolate I_frog at lambda
         return np.transpose(
             np.fromiter(
-                (np.interp(invert_wavelength_angular_frequency(self.grenouille_trace_λ), 
+                (np.interp(invert_wavelength_angular_frequency(self.frequency_multiplier * self.grenouille_trace_λ), 
                            self.ω, spectrogram_column, left=0.0, right=0.0
                           )
                  for spectrogram_column in spectrogram.T
