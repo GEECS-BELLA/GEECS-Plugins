@@ -161,7 +161,7 @@ class GrenouilleRetrieval:
 
     @property
     def t(self) -> QuantityArray:
-        return np.arange(self.shape[0]) * self.time_step
+        return np.arange(self.time_axis_length) * self.time_step
     
     @property
     def τ(self) -> QuantityArray:
@@ -172,7 +172,7 @@ class GrenouilleRetrieval:
         """ Returns the frequency axis of the FT of E_sig, as an array from
             -Ny..Ny 
         """
-        return Q_(2*np.pi, 'radians') / self.time_step * np.fft.fftshift(np.fft.fftfreq(self.shape[0]))
+        return Q_(2*np.pi, 'radians') / self.time_step * np.fft.fftshift(np.fft.fftfreq(self.time_axis_length))
 
     @property
     def frequency_multiplier(self):
@@ -184,7 +184,7 @@ class GrenouilleRetrieval:
         self.I_FROG = np.transpose(
             np.fromiter((np.interp((invert_wavelength_angular_frequency(self.ω)),  self.grenouille_trace_λ, grenouille_trace_column, left=0.0, right=0.0)
                         for grenouille_trace_column in self.grenouille_trace.T
-                        ), (float, self.shape[0]))
+                        ), (float, self.time_axis_length))
         )
 
     def _default_initial_E(self):
