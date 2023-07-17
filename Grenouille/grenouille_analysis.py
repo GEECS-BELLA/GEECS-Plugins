@@ -216,11 +216,9 @@ class GrenouilleRetrieval:
                        )
             def gate_second_harmonic_generation(t):
                 """ gate(t) = |E(t)| """
-                return np.sqrt(  np.square(E_interpolator_real(t.m_as('sec')))
-                               + np.square(E_interpolator_imag(t.m_as('sec')))
-                              )
+                return E_interpolator_real(t.m_as('sec')) + 1j * E_interpolator_imag(t.m_as('sec'))
 
-            return {'self-diffraction': gate_self_diffraction,
+            return {'self_diffraction': gate_self_diffraction,
                     'second_harmonic_generation': gate_second_harmonic_generation,
                    }[self.nonlinear_effect](t)
 
