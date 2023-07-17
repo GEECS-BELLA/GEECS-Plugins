@@ -25,22 +25,48 @@ def invert_wavelength_angular_frequency(wavelength_or_angular_frequency):
 
 class GrenouilleRetrieval:
     """
+    [1] R. Trebino and D. J. Kane, “Using phase retrieval to measure the intensity 
+       and phase of ultrashort pulses: frequency-resolved optical gating,” J. Opt. 
+       Soc. Am. A, vol. 10, no. 5, p. 1101, May 1993, doi: 10.1364/JOSAA.10.001101.
+    [2] K. W. DeLong, B. Kohler, K. Wilson, D. N. Fittinghoff, and R. Trebino, 
+       “Pulse retrieval in frequency-resolved optical gating based on the method 
+       of generalized projections,” Opt. Lett., vol. 19, no. 24, p. 2152, Dec. 
+       1994, doi: 10.1364/OL.19.002152.
+
     """
 
     def __init__(self, 
-                 wavelength_center: Quantity = 2 * Q_(400, 'nm'),
-                 wavelength_step: Quantity = 2 * Q_(0.0798546, 'nm'),
-                 time_delay_step: Quantity = Q_(0.893676, 'fs'),
                  calculate_next_E_method: str = "integration",
                  nonlinear_effect: str = "second_harmonic_generation",
                  number_of_iterations: int = 100,
+                 pulse_center_wavelength: Quantity = Q_(800, 'nm'),
+                 min_pulse_wavelength: Quantity = Q_(700, 'nm'), 
                 ):
+        """
+        Parameters
+        ----------
+        calculate_next_E_method : str
+            How to obtain the next iteration of E(t) from E_sig(t, τ)
+                'integration': integrate E_sig(t, τ)dτ, as in [1]
+                'generalized_projection/along_gradient': project E_sig(t, τ) onto
+                    space of E_sig(t, τ)'s that can be generated from E(t), as in 
+                    [2]. Search along the dZ/dE line
+                'generalized_projection/full_minimization': generalized projection
+                    as with previous, but optimize Z via all E points.
+        nonlinear_effect : str
+            The FROG setup's nonlinear effect, which determines the gate function
+            as well as possible frequency doubling.
+                'self_diffraction'
+                'second_harmonic_generation'
+        number_of_iterations: int 
+            Maximum number of iterations
+        pulse_center_wavelength : [length] Quantity
+            the center, or carrier, wavelength of the laser pulse.
+        min_pulse_wavelength: [length] Quantity
+            The minimum wavelength of the pulse spectrum to resolve. This 
+            determines the time step and the angular frequency of E_sig axis 0
+        """
 
-        self.wavelength_center = wavelength_center
-        self.wavelength_step = wavelength_step
-        self.time_delay_step = time_delay_step
-
-        self.number_of_iterations = number_of_iterations
 
         if calculate_next_E_method not in {'integration', 
                                            'generalized_projection/along_gradient', 
@@ -52,30 +78,67 @@ class GrenouilleRetrieval:
                             )
         self.calculate_next_E_method = calculate_next_E_method
 
-        if nonlinear_effect not in {'self-diffraction',
+        if nonlinear_effect not in {'self_diffraction',
                                     'second_harmonic_generation', 
                                    }:
             raise ValueError(f"Unknown nonlinear_effect ({nonlinear_effect}). "
-                             "Should be one of 'self-diffraction', 'second_harmonic_generation'."
+                             "Should be one of 'self_diffraction', 'second_harmonic_generation'."
                             )
         self.nonlinear_effect = nonlinear_effect
 
-    def calculate_pulse(self, grenouille_trace: np.ndarray, 
-                        initial_E: Optional[np.ndarray] = None,
-                       ):
+        self.number_of_iterations = number_of_iterations
+        self.min_pulse_wavelength = min_pulse_wavelength
 
-        self.shape = grenouille_trace.shape
-        self.grenouille_trace = grenouille_trace
-
-        self.time_step = (# Nyquist should cover 350-450nm range, i.e. be 
-                          # greater than angular frequency corresponding to 
-                          # 350nm  
-                          (invert_wavelength_angular_frequency(Q_(700, 'nm'))
+        # time step should be small enough so that Nyquist frequency is at least
+        # equal to frequency corresponding to min_wavelength
+        self.time_step = ((invert_wavelength_angular_frequency(self.min_pulse_wavelength)
                           # convert to sampling rate, in 1/[time]
                            * 2 / Q_(2*np.pi, 'radian')
                           # invert to get time step
                           ) ** -1
                          )
+
+    def calculate_pulse(self, grenouille_trace: np.ndarray, 
+                        grenouille_trace_center_wavelength: Quantity = Q_(400, 'nm'),
+                        grenouille_trace_wavelength_step: Quantity = Q_(0.0798546, 'nm'),
+                        time_delay_step: Quantity = Q_(0.893676, 'fs'),
+                        initial_E: Optional[np.ndarray] = None,
+                       ):
+        """
+        Parameters
+        ----------
+        grenouille_trace : np.ndarray
+            the Grenouille image to be analyzed, with wavelength on axis 0 
+            (vertical) and time delay (tau) on axis 1 (horizontal)
+        grenouille_trace_center_wavelength : [length] Quantity
+            center wavelength of the spectrometer axis (0, vertical). For the 
+            'second_harmonic_generation' nonlinear effect, this will be half
+            the wavelength of the pulse
+        grenouille_trace_wavelength_step : [length] Quantity
+            resolution of spectrometer axis (0, vertical). 
+        time_delay_step: [time] Quantity
+            resolution of time_delay (tau) axis (1, horizontal). The center 
+            of the axis should represent tau = 0
+        initial_E : complex np.ndarray of length grenouille_trace.shape[0]
+            starting guess for E field pulse
+        
+        """
+        
+        self.shape = grenouille_trace.shape
+        self.grenouille_trace = grenouille_trace
+
+        self.grenouille_trace_center_wavelength = grenouille_trace_center_wavelength
+        self.grenouille_trace_wavelength_step = grenouille_trace_wavelength_step
+        self.time_delay_step = time_delay_step
+
+        # total time, i.e. length of time axis, should be such that it matches
+        # (roughly) the resolution of grenouille trace wavelength resolution
+        total_time = ((self.frequency_multiplier * self.grenouille_trace_center_wavelength)**2 
+                      / ureg.speed_of_light 
+                      / (self.frequency_multiplier * self.grenouille_trace_wavelength_step)
+                     )
+        
+        self.time_axis_length = int(np.ceil(total_time / self.time_step))
 
         self._calculate_I_FROG()
         if initial_E is None:
@@ -94,7 +157,7 @@ class GrenouilleRetrieval:
 
     @property
     def grenouille_trace_λ(self) -> QuantityArray:
-        return self.wavelength_center + (np.arange(self.shape[0]) - (self.shape[0] - 1) / 2) * self.wavelength_step
+        return self.grenouille_trace_center_wavelength + (np.arange(self.shape[0]) - (self.shape[0] - 1) / 2) * self.grenouille_trace_wavelength_step
 
     @property
     def t(self) -> QuantityArray:
