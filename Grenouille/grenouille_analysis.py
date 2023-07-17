@@ -249,7 +249,7 @@ class GrenouilleRetrieval:
             @ureg.wraps('=A*B', ('=A', '=B'))
             def trapz_ua(Y, x):
                 return np.trapz(Y, x, axis=1)
-            self.E = trapz_ua(self.E_sig_tτ, self.τ)
+            self.E = trapz_ua(self.E_sig_tτ, self.τ).m
 
         def _calculate_next_E_by_generalized_projection_along_gradient():
             raise NotImplementedError()
