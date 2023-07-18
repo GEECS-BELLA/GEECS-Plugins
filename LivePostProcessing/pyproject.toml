@@ -15,6 +15,8 @@ Pint = "0.22"
 PyAbel = "^0.9.0"
 watchdog = "^3.0.0"
 wxPython = "^4.2.1"
+docstring-parser = "^0.15"
+scikit-image = "^0.21"
 
 [tool.poetry.group.dev.dependencies]
 spyder-kernels = "^2.4.3"
