@@ -117,7 +117,7 @@ def deconstruct_scandata_column_name(column_name: str) -> dict:
            }
 
 
-def read_scalar_data(scalar_data_path: str|PathLike, 
+def read_scalar_data(scalar_data_path: Union[str, PathLike], 
                      run_id: Optional[str] = None, 
                      unable_to_split_column_name: str = 'raise'
                     ) -> pd.DataFrame:
@@ -163,7 +163,7 @@ def read_scalar_data(scalar_data_path: str|PathLike,
     return df.rename_axis(columns=['device', 'metric'])
 
 
-def get_run_folder(run: str|date) -> Path:
+def get_run_folder(run: Union[str, date]) -> Path:
     """ Return path to folder for the run, i.e. date folder.
 
     Parameters
@@ -184,7 +184,7 @@ def get_run_folder(run: str|date) -> Path:
             run_date.strftime('%y_%m%d')
            )
 
-def get_scan_folder(run: str|date, scan: int) -> Path:
+def get_scan_folder(run: Union[str, date], scan: int) -> Path:
     """ Return path to folder for the scan with given run_date and scan number.
 
     Parameters
@@ -216,7 +216,7 @@ def parse_run_date(run_date: str):
             raise ValueError(f"Could not parse run_date '{run_date}'")
 
 
-def iterate_scan_folders(start_folder_path: str|PathLike, recursion_level: Optional[str] = None):
+def iterate_scan_folders(start_folder_path: Union[str, PathLike], recursion_level: Optional[str] = None):
     r""" Searches the Undulator data folder for ScanXXX folders. 
 
     Specifically, those that look like

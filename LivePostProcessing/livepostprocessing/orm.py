@@ -15,7 +15,7 @@ from configparser import ConfigParser, NoSectionError
 import re
 import shutil
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union
 if TYPE_CHECKING:
     from pandas.core.groupby.generic import DataFrameGroupBy
 from .types import ShotNumber, DeviceName, ImageSubject, ImageFolderName
@@ -35,7 +35,7 @@ class Scan:
     
     """
 
-    def __init__(self, run_date: str|date, scan: int, create_image_directory=True):
+    def __init__(self, run_date: Union[str, date], scan: int, create_image_directory=True):
         """
         Parameters
         ----------

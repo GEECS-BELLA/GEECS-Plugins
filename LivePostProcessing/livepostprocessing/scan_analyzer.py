@@ -5,14 +5,14 @@ from pathlib import Path
 from argparse import ArgumentParser
 from datetime import datetime
 
-from typing import TYPE_CHECKING, Any, Optional, Iterator
+from typing import TYPE_CHECKING, Any, Optional, Union
 from .types import Array2D, ImageSubject, DeviceName, MetricName, RunID, ScanNumber, ShotNumber
 if TYPE_CHECKING:
     from numpy.typing import NDArray
     from .image_analyzers.base import ImageAnalyzer
     ShotKey = tuple[RunID, ScanNumber, ShotNumber]
     DeviceMetricKey = tuple[DeviceName, MetricName]
-    AnalysisDict = dict[DeviceMetricKey, float|NDArray]
+    AnalysisDict = dict[DeviceMetricKey, Union[float, NDArray]]
 
 import numpy as np
 from imageio.v3 import imwrite

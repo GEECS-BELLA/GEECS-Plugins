@@ -4,7 +4,7 @@ from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
 from time import sleep
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union
 import re
 from multiprocessing import Process
 
@@ -36,7 +36,7 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
         self.scan_analyzer = scan_analyzer
         super().__init__()
 
-    def on_created(self, event: DirCreatedEvent|FileCreatedEvent):
+    def on_created(self, event: Union[DirCreatedEvent, FileCreatedEvent]):
         # ignore new directories
         if event.is_directory:
             return
