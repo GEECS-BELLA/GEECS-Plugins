@@ -21,7 +21,7 @@ superpath = "C:/Users/chris/Desktop/cedoss_htu_data/"
 folderpath = "U_HiResMagCam-interp"
 scannumber = 23
 
-skipLoop = True
+skipLoop = False
 
 if not skipLoop:
     spec_folderpath = "U_HiResMagCam-interpSpec"

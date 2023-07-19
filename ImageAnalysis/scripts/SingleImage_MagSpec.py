@@ -21,7 +21,7 @@ import modules.MagSpecAnalysis as MagSpecAnalysis
 
 superpath = "C:/Users/chris/Desktop/cedoss_htu_data/"
 scannumber = 23
-shotnumber = 25
+shotnumber = 43
 
 spec_folderpath = "U_HiResMagCam-interpSpec"
 suffix = ".txt"
