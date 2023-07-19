@@ -10,7 +10,7 @@ from geecs_api.interface import GeecsDatabase, api_error
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
 from geecs_api.tools.distributions.binning import unsupervised_binning, BinningResults
-from geecs_api.tools.images.scan_images import ScanImages
+from geecs_api.tools.scans.scan_images import ScanImages
 from geecs_api.tools.scans.scan_data import ScanData
 from geecs_api.tools.images.filtering import FiltersParameters
 from geecs_api.tools.interfaces.exports import load_py, save_py

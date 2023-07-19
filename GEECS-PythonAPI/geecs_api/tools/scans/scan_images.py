@@ -183,7 +183,9 @@ class ScanImages:
                             skipped_files.append(image_path.name)
 
                         if not store_images:
-                            self.analysis.pop('arrays')
+                            for k in self.analysis.keys():
+                                if k != 'denoised':
+                                    self.analysis.pop(k)
 
                         self.analyses.append(self.analysis)
                         pb.increment()

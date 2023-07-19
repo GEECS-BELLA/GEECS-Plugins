@@ -5,9 +5,8 @@ import matplotlib.pyplot as plt
 from typing import Optional, Union
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.transport import Transport
 from geecs_api.tools.distributions.binning import unsupervised_binning
-from geecs_api.tools.images.scan_images import ScanImages
+from geecs_api.tools.scans.scan_images import ScanImages
 from geecs_api.tools.scans.scan_data import ScanData
 
 
