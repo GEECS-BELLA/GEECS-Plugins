@@ -157,7 +157,7 @@ class ScanAnalysis:
             'analysis_files': analysis_files,
             'analyses': analyses,
             'device_name': self.device_name,
-            'scan_folder': self.scan_images.scan_obj.get_folder(),
+            'scan_folder': self.scan_images.scan_data_folder,
             'scan_scalars': scan_scalars,
             'camera_name': self.scan_images.camera_name}
 
