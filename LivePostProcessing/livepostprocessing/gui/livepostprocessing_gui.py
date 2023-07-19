@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, get_type_hints, Callable, Any, Type
+from typing import TYPE_CHECKING, get_type_hints, Callable, Any, Type, NamedTuple
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -43,8 +43,7 @@ class LivePostProcessingGUI(MainFrame):
 
     # first set up converters between image analyzer properties and PGProperty
     # elements of the PropertyGrid
-    @dataclass
-    class ImageAnalyzerParameterPGPropertyConverter:
+    class ImageAnalyzerParameterPGPropertyConverter(NamedTuple):
         # the PropertyGrid PGProperty subclass, such as pg.IntProperty that should
         # be used to 
         pg_property_subclass: Type[pg.PGProperty]
