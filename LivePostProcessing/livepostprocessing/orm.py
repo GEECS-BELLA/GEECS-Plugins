@@ -23,14 +23,9 @@ from .types import ShotNumber, DeviceName, ImageSubject, ImageFolderName
 import pandas as pd
 import numpy as np
 
-from PIL.Image import open as PIL_open
-
-import sys
-from . import GEECS_Plugins_folder
-sys.path.append(str(GEECS_Plugins_folder / "dataanalysis-notebook" / "functions"))
-from pngTools import nBitPNG as load_bella_png
-
-from .utils import find_device_image_folders, read_scalar_data, parse_run_date, find_undulator_folder
+from .utils import (find_device_image_folders, read_scalar_data, parse_run_date, 
+                    find_undulator_folder, read_imaq_image
+                   ) 
 
 undulator_data_folder = find_undulator_folder()
 
@@ -284,14 +279,10 @@ class Image:
             return f"{self.device}-{self.subject}"
 
     def load(self) -> np.ndarray:
-        if self.format.lower() == 'png':
-            return load_bella_png(str(self.path))
-        
-        elif self.format.lower() == 'npy':
+        if self.format.lower() == 'npy':
             return np.load(self.path)
-
         else:
-            return np.array(PIL_open(self.path))
+            return read_imaq_image(self.path)
 
     @staticmethod
     def _find_image_path(shot: Shot, device: str, subject: Optional[str] = None) -> Path:

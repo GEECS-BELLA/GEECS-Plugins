@@ -15,8 +15,8 @@ import sys
 from .. import GEECS_Plugins_folder
 sys.path.append(str(GEECS_Plugins_folder / "PhasicsDensity"))
 from phasics_density_analysis import PhasicsImageAnalyzer, ureg
-sys.path.append(str(GEECS_Plugins_folder / "dataanalysis-notebook" / "functions"))
-from pngTools import read_imaq_image
+
+from ..utils import read_imaq_image
 
 import numpy as np
 from scipy.optimize import curve_fit
