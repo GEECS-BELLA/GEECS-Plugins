@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     AnalysisDict = dict[DeviceMetricKey, float|NDArray]
 
 import numpy as np
-from matplotlib.pyplot import imsave
+from imageio.v3 import imwrite
 
 from .orm import Scan, SFile
 from .image_analyzers.U_PhasicsFileCopy import U_PhasicsFileCopyImageAnalyzer
@@ -98,7 +98,7 @@ class ScanAnalyzer:
                 
                 # save 2d arrays as png images
                 elif np.ndim(metric_value) == 2:
-                    imsave(make_filename('png'), metric_value, cmap='gray')
+                    imwrite(make_filename('png'), metric_value)
 
         s_file.save_s_file()
 
