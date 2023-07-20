@@ -90,12 +90,12 @@ class QuadAnalysis(ScanAnalysis):
             # noinspection PyTypeChecker
             fit_x_pars: np.ndarray = np.flip(polyfit(scan_x, data_val[selected_x, 1], 2))
             twiss_analysis[pos]['epsilon_x'], twiss_analysis[pos]['alpha_x'], twiss_analysis[pos]['beta_x'] = \
-                QuadAnalysis.twiss_parameters(fit_x_pars, self.quad_2_screen)
+                QuadAnalysis.twiss_parameters(fit_x_pars * 1e-6, self.quad_2_screen)
 
             # noinspection PyTypeChecker
             fit_y_pars: np.ndarray = np.flip(polyfit(scan_y, data_val[selected_y, 0], 2))
             twiss_analysis[pos]['epsilon_y'], twiss_analysis[pos]['alpha_y'], twiss_analysis[pos]['beta_y'] = \
-                QuadAnalysis.twiss_parameters(fit_y_pars, self.quad_2_screen)
+                QuadAnalysis.twiss_parameters(fit_y_pars * 1e-6, self.quad_2_screen)
 
             twiss_analysis[pos]['fit_pars'] = np.stack([fit_y_pars, fit_x_pars]).transpose()
 
@@ -197,11 +197,12 @@ class QuadAnalysis(ScanAnalysis):
 
         return epsilon, alpha, beta
 
+
 if __name__ == '__main__':
     # database
     # --------------------------------------------------------------------------
-    base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    # base_path: Path = Path(r'Z:\data')
+    # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
+    base_path: Path = Path(r'Z:\data')
 
     is_local = (str(base_path)[0] == 'C')
     if not is_local:
@@ -219,7 +220,7 @@ if __name__ == '__main__':
     _folder = ScanData.build_folder_path(_base_tag, base_path)
     _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
     _scan_images = ScanImages(_scan_data, _camera)
-    _quad_analysis = QuadAnalysis(_scan_data, _scan_images, _quad)
+    _quad_analysis = QuadAnalysis(_scan_data, _scan_images, _quad, fwhms_metric='median', quad_2_screen=2.126)
 
     # scan analysis
     # --------------------------------------------------------------------------

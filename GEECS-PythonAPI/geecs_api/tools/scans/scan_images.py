@@ -186,9 +186,10 @@ class ScanImages:
                             skipped_files.append(image_path.name)
 
                         if not store_images:
-                            for k in self.analysis.keys():
+                            list_keys = list(self.analysis['arrays'].keys())
+                            for k in list_keys:
                                 if k != 'denoised':
-                                    self.analysis.pop(k)
+                                    self.analysis['arrays'].pop(k)
 
                         self.analyses.append(self.analysis)
                         pb.increment()
@@ -213,9 +214,10 @@ class ScanImages:
                                                          block=True, save_folder=self.save_folder)
 
                     if not store_images:
-                        for k in self.analysis.keys():
+                        list_keys = list(self.analysis['arrays'].keys())
+                        for k in list_keys:
                             if k != 'denoised':
-                                self.analysis.pop(k)
+                                self.analysis['arrays'].pop(k)
 
                 except Exception as ex:
                     api_error.error(str(ex), 'Failed to analyze average image')
@@ -267,7 +269,7 @@ class ScanImages:
 
             # average
             if avg_image is None:
-                avg_image: np.ndarray = self.analysis['arrays']['denoised'].copy()
+                avg_image = self.analysis['arrays']['denoised'].copy()
             else:
                 # alpha = 1.0 / (it + 2)
                 alpha = 1.0 / count

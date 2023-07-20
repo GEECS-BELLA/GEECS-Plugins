@@ -70,8 +70,8 @@ class ScanAnalysis:
                                                   float(self.scan_data.scan_info['End']), steps),
                             indexes=[np.arange(p * shots, (p+1) * shots) for p in range(steps)])
 
-        matching = all([inds.size == expected.shots for inds in measured.indexes])\
-                   and (len(measured.indexes) == expected.steps)
+        matching = all([inds.size == expected.shots for inds in measured.indexes])
+        matching = matching and (len(measured.indexes) == expected.steps)
         if not matching:
             api_error.warning(f'Observed data binning does not match expected scan parameters (.ini)',
                               f'Function "{inspect.stack()[0][3]}"')
