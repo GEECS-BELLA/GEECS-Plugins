@@ -7,4 +7,5 @@ LogMaker 4 GoogleDocs/source/HTTcurrentvalues.ini
 LogMaker 4 GoogleDocs/source/frontpanel.png
 GEECS-PythonAPI/*.xml
 *.pyc
+.env
 .vscode/

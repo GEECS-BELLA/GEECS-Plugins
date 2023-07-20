@@ -1,4 +1,8 @@
+from pathlib import Path
+from dotenv import dotenv_values
 from geecs_api.api_defs import exec_async
+from geecs_api.interface import GeecsDatabase
+from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU import Laser, GasJet, Transport, Diagnostics
 from geecs_api.experiment import Experiment
 
@@ -60,6 +64,22 @@ class HtuExp(Experiment):
         return is_pressure_zero and is_jet_out and is_amp4_in and is_lamp_timing_off and is_gaia_in and is_hexapod_out
 
 
+def initialize() -> tuple[Path, bool]:
+    base_path: Path
+    try:
+        env_dict: dict = dotenv_values()
+        base_path = Path(env_dict['DATA_BASE_PATH'])
+    except Exception:
+        base_path = Path(r'Z:\data')
+
+    is_local = (base_path.drive.lower() == 'c:')
+    if not is_local:
+        GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+
+    return base_path, is_local
+
+
 if __name__ == '__main__':
-    htu = HtuExp()
-    htu.close()
+    initialize()
+    # htu = HtuExp()
+    # htu.close()

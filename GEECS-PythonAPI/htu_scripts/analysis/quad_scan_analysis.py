@@ -3,8 +3,7 @@ from numpy.polynomial.polynomial import polyfit
 from pathlib import Path
 import matplotlib.pyplot as plt
 from typing import Union, Any, Optional
-from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice
+import geecs_api.experiment.htu as htu
 from geecs_api.tools.scans.scan_data import ScanData
 from geecs_api.tools.interfaces.prompts import text_input
 from geecs_api.api_defs import ScanTag
@@ -201,12 +200,7 @@ class QuadAnalysis(ScanAnalysis):
 if __name__ == '__main__':
     # database
     # --------------------------------------------------------------------------
-    base_path: Path = Path(r'Z:\data')
-
-    is_local = (str(base_path)[0] == 'C')
-    if not is_local:
-        GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
-
+    _base_path, is_local = htu.initialize()
     _base_tag = ScanTag(2023, 7, 6, 49)
 
     # _device = Quads()
@@ -216,7 +210,7 @@ if __name__ == '__main__':
 
     _quad = 3
 
-    _folder = ScanData.build_folder_path(_base_tag, base_path)
+    _folder = ScanData.build_folder_path(_base_tag, _base_path)
     _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
     _scan_images = ScanImages(_scan_data, _camera)
     _quad_analysis = QuadAnalysis(_scan_data, _scan_images, _quad, fwhms_metric='median', quad_2_screen=2.126)
