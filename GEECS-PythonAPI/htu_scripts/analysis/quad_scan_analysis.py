@@ -201,7 +201,6 @@ class QuadAnalysis(ScanAnalysis):
 if __name__ == '__main__':
     # database
     # --------------------------------------------------------------------------
-    # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
     base_path: Path = Path(r'Z:\data')
 
     is_local = (str(base_path)[0] == 'C')
