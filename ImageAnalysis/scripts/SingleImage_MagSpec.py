@@ -13,22 +13,22 @@ import matplotlib.pyplot as plt
 
 sys.path.insert(0, "../")
 import modules.MagSpecAnalysis as MagSpecAnalysis
+import modules.DirectoryModules as DirectoryFunc
+
 
 # I use another version of pngTools because the current version
 # is incompatible with my version of python?  Eventually merge these...
 # sys.path.insert(0, "../../dataanalysis-notebook/functions/")
 # from pngTools import nBitPNG
 
-# superpath = "C:/Users/chris/Desktop/cedoss_htu_data/"
-# scannumber = 23
-
 superpath = "Z:/data/Undulator/Y2023/07-Jul/23_0713/scans"
 scannumber = 20
-
+shotnumber = 43
+"""
 superpath = "C:/Users/chris/Desktop/cedoss_htu_data/"
 scannumber = 23
 shotnumber = 43
-
+"""
 spec_folderpath = "U_HiResMagCam-interpSpec"
 suffix = ".txt"
 specpath = MagSpecAnalysis.CompileImageDirectory(superpath, scannumber, shotnumber, spec_folderpath, suffix)
@@ -74,16 +74,18 @@ plt.title("Sample Data:  Scan " + str(scannumber) + ", Shot " + str(shotnumber))
 plt.legend(title="Total Charge:" + "{:10.2f}".format(charge) + " pC")
 plt.show()
 
-##43 ums / pixel
+# Calibration Factor is 43 ums / pixel
 
 linear_fit = MagSpecAnalysis.FitBeamAngle(x0_arr, amp_arr, energy_arr)
 projected_axis, projected_arr, projected_size = MagSpecAnalysis.CalculateProjectedBeamSize(image)
 anglefunc = energy_arr * linear_fit[0] + linear_fit[1]
+aspect_ratio = (energy_arr[-1]-energy_arr[0])/(np.shape(image)[0])
+projected_factor = 0.3*(energy_arr[-1]-energy_arr[0])/max(projected_arr)
 
-plt.imshow(image, aspect=.02, extent=(energy_arr[0], energy_arr[-1], 0, np.shape(image)[0]))
+plt.imshow(image, aspect=aspect_ratio, extent=(energy_arr[0], energy_arr[-1], 0, np.shape(image)[0]))
 plt.plot(energy_arr, anglefunc, c='white', ls='dashed',
          label="Slope:" + "{:10.2f}".format(linear_fit[0]) + " pixels/MeV")
-plt.plot(projected_arr * 20 + min(energy_arr), projected_axis, c='orange', ls='dotted',
+plt.plot(projected_arr * projected_factor + min(energy_arr), projected_axis, c='orange', ls='dotted',
          label="Projected RMS Size:" + "{:8.2f}".format(projected_size) + " pixels")
 plt.xlabel("Energy " + r'$(\mathrm{\ MeV})$')
 plt.ylabel("Transverse Position " + r'$(\mathrm{pixel})$')
