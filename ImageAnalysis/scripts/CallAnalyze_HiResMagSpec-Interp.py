@@ -64,7 +64,7 @@ Call the overhead "analyze" function with all of this, and return a dictionary o
 Note:  this function first performs background reduction and then charge normalization.
 """
 
-MagSpecDict = MagSpecAnalysis.AnalyzeImage(raw_image, tdms_filepath, interpSpec_filepath, shot_number)
+MagSpecDict = MagSpecAnalysis.AnalyzeImage_Interp(raw_image, tdms_filepath, interpSpec_filepath, shot_number)
 print(MagSpecDict)
 
 """
@@ -72,6 +72,6 @@ For my own benefit, call a separate function to make the nice plots
 """
 
 plotInfo = DirectoryFunc.CompilePlotInfo(data_day, data_month, data_year, scan_number, shot_number, image_name)
-MagSpecAnalysis.PlotEnergyProjection(raw_image, tdms_filepath, interpSpec_filepath, shot_number, plotInfo = plotInfo, analyzeDict = MagSpecDict, doThreshold = True, doNormalize = True)
-MagSpecAnalysis.PlotSliceStatistics(raw_image, tdms_filepath, interpSpec_filepath, shot_number, plotInfo = plotInfo, analyzeDict = MagSpecDict, doThreshold = True, doNormalize = True)
-MagSpecAnalysis.PlotBeamDistribution(raw_image, tdms_filepath, interpSpec_filepath, shot_number, plotInfo = plotInfo, analyzeDict = MagSpecDict, doThreshold = True, doNormalize = True)
+MagSpecAnalysis.PlotEnergyProjection_Interp(raw_image, tdms_filepath, interpSpec_filepath, shot_number, plotInfo = plotInfo, analyzeDict = MagSpecDict, doThreshold = True, doNormalize = True)
+MagSpecAnalysis.PlotSliceStatistics_Interp(raw_image, tdms_filepath, interpSpec_filepath, shot_number, plotInfo = plotInfo, analyzeDict = MagSpecDict, doThreshold = True, doNormalize = True)
+MagSpecAnalysis.PlotBeamDistribution_Interp(raw_image, tdms_filepath, interpSpec_filepath, shot_number, plotInfo = plotInfo, analyzeDict = MagSpecDict, doThreshold = True, doNormalize = True)

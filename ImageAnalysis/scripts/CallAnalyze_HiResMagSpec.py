@@ -39,7 +39,7 @@ else:
     data_day = 0; data_month = 0; data_year = 0
 
 superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
-image_name = "U_HiResMagCam-interp"
+image_name = "U_HiResMagCam"
 
 """
 From the path, load the image, tdms, and interpSpec files
