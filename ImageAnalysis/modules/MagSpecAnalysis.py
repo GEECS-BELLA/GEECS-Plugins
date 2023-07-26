@@ -9,30 +9,34 @@ Module for performing various analysis on MagSpec Images
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
 from nptdms import TdmsFile
 
-#sys.path.insert(0, "../")
+# sys.path.insert(0, "../")
 import modules.CedossMathTools as MathTools
 import modules.pngTools as pngTools
 import modules.DirectoryModules as DirectoryFunc
 import modules.EnergyAxisEstimate as EnergyAxis
 
-#Important: Using constants like this is generally bad,
+# Important: Using constants like this is generally bad,
 # should consider using a specific normalization file with
 # this information instead
 
-const_HiResMagSpec_Resolution = 43 # ums/pixel
+const_HiResMagSpec_Resolution = 43  # ums/pixel
 
-#When doing the slice algorithm, only count slices where the peak is a particular percentage relative to image maximum
+# When doing the slice algorithm, only count slices where the peak is a particular percentage relative to image maximum
 const_default_sliceThreshold = 0.02
 
-#Factor to go from camera counts to pC/MeV
-#Record: June 29th, Scan 23, Shot 1 (HiRes ONLY)
+# Factor to go from camera counts to pC/MeV
+# Record: June 29th, Scan 23, Shot 1 (HiRes ONLY)
 const_normalization_factor = 3.308440355409613e-06
 const_normalization_triggerdelay = 15.497208
 const_normalization_exposure = 0.010000
 
-def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit = None, sliceThreshold = 0.02, calibrationFactor = const_HiResMagSpec_Resolution):
+
+def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit=None, sliceThreshold=0.02,
+                 calibrationFactor=const_HiResMagSpec_Resolution):
+    saturationCheck = SaturationCheck(image)
 
     image = ThresholdReduction(image, hardlimit)
     image = NormalizeImage(image, shotnumber, tdms_filepath)
@@ -40,13 +44,13 @@ def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimi
     interpSpec_energy_arr, spec_charge_arr = ParseInterpSpec(interpSpec_filepath)
     image = np.copy(image[::-1, ::-1])
     image_width = np.shape(image)[1]
-    pixel_arr = np.linspace(0,image_width,image_width)
+    pixel_arr = np.linspace(0, image_width, image_width)
     energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
 
     chargeOnCamera = np.sum(image)
 
     charge_pC_vals = GetBeamCharge(tdms_filepath)
-    picoscopeCharge = charge_pC_vals[shotnumber-1]
+    picoscopeCharge = charge_pC_vals[shotnumber - 1]
 
     clippedPercentage = CalculateClippedPercentage(image)
 
@@ -57,41 +61,44 @@ def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimi
     energySpread = CalculateStandardDeviationEnergy(charge_arr, energy_arr)
     peakChargeEnergy = CalculatePeakEnergy(charge_arr, energy_arr)
 
-    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor, threshold = sliceThreshold)
-    averageBeamSize = CalculateAverageSize(sigma_arr, amp_arr) # * const_HiResMagSpec_Resolution
+    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
+                                                                      threshold=sliceThreshold)
+    averageBeamSize = CalculateAverageSize(sigma_arr, amp_arr)  # * const_HiResMagSpec_Resolution
     linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
-    beamAngle = linear_fit[0] # * const_HiResMagSpec_Resolution
-    beamIntercept = linear_fit[1] # * const_HiResMagSpec_Resolution
+    beamAngle = linear_fit[0]  # * const_HiResMagSpec_Resolution
+    beamIntercept = linear_fit[1]  # * const_HiResMagSpec_Resolution
     projected_axis, projected_arr, projectedBeamSize = CalculateProjectedBeamSize(image)
     projectedBeamSize = projectedBeamSize * const_HiResMagSpec_Resolution
 
     magSpecDict = {
-        "Clipped-Percentage" : clippedPercentage,
-        "Charge-On-Camera" : chargeOnCamera,
-        "Picoscope-Charge" : picoscopeCharge,
-        "Peak-Charge" : peakCharge,
-        "Peak-Charge-Energy" : peakChargeEnergy,
-        "Average-Energy" : averageEnergy,
-        "Energy-Spread" : energySpread,
-        "Average-Beam-Size" : averageBeamSize,
-        "Projected-Beam-Size" : projectedBeamSize,
-        "Beam-Tilt" : beamAngle,
-        "Beam-Intercept" : beamIntercept
+        "Clipped-Percentage": clippedPercentage,
+        "Saturation-Counts": saturationCheck,
+        "Charge-On-Camera": chargeOnCamera,
+        "Picoscope-Charge": picoscopeCharge,
+        "Peak-Charge": peakCharge,
+        "Peak-Charge-Energy": peakChargeEnergy,
+        "Average-Energy": averageEnergy,
+        "Energy-Spread": energySpread,
+        "Average-Beam-Size": averageBeamSize,
+        "Projected-Beam-Size": projectedBeamSize,
+        "Beam-Tilt": beamAngle,
+        "Beam-Intercept": beamIntercept
     }
     return magSpecDict
 
 
-def AnalyzeImage_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit = None, sliceThreshold = 0.02, calibrationFactor = const_HiResMagSpec_Resolution):
-
+def AnalyzeImage_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit=None, sliceThreshold=0.02,
+                        calibrationFactor=const_HiResMagSpec_Resolution):
     image = ThresholdReduction(image, hardlimit)
     image = NormalizeImage(image, shotnumber, tdms_filepath)
     energy_arr, spec_charge_arr = ParseInterpSpec(interpSpec_filepath)
     chargeOnCamera = np.sum(image)
 
     charge_pC_vals = GetBeamCharge(tdms_filepath)
-    picoscopeCharge = charge_pC_vals[shotnumber-1]
+    picoscopeCharge = charge_pC_vals[shotnumber - 1]
 
     clippedPercentage = CalculateClippedPercentage(image)
+    saturationCheck = SaturationCheck(image)
 
     charge_arr = CalculateChargeDensityDistribution(image)
 
@@ -100,28 +107,31 @@ def AnalyzeImage_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber, h
     energySpread = CalculateStandardDeviationEnergy(charge_arr, energy_arr)
     peakChargeEnergy = CalculatePeakEnergy(charge_arr, energy_arr)
 
-    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor, threshold = sliceThreshold)
-    averageBeamSize = CalculateAverageSize(sigma_arr, amp_arr) # * const_HiResMagSpec_Resolution
+    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
+                                                                      threshold=sliceThreshold)
+    averageBeamSize = CalculateAverageSize(sigma_arr, amp_arr)  # * const_HiResMagSpec_Resolution
     linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
-    beamAngle = linear_fit[0] # * const_HiResMagSpec_Resolution
-    beamIntercept = linear_fit[1] # * const_HiResMagSpec_Resolution
+    beamAngle = linear_fit[0]  # * const_HiResMagSpec_Resolution
+    beamIntercept = linear_fit[1]  # * const_HiResMagSpec_Resolution
     projected_axis, projected_arr, projectedBeamSize = CalculateProjectedBeamSize(image)
     projectedBeamSize = projectedBeamSize * const_HiResMagSpec_Resolution
 
     magSpecDict = {
-        "Clipped-Percentage" : clippedPercentage,
-        "Charge-On-Camera" : chargeOnCamera,
-        "Picoscope-Charge" : picoscopeCharge,
-        "Peak-Charge" : peakCharge,
-        "Peak-Charge-Energy" : peakChargeEnergy,
-        "Average-Energy" : averageEnergy,
-        "Energy-Spread" : energySpread,
-        "Average-Beam-Size" : averageBeamSize,
-        "Projected-Beam-Size" : projectedBeamSize,
-        "Beam-Tilt" : beamAngle,
-        "Beam-Intercept" : beamIntercept
+        "Clipped-Percentage": clippedPercentage,
+        "Saturation-Counts": saturationCheck,
+        "Charge-On-Camera": chargeOnCamera,
+        "Picoscope-Charge": picoscopeCharge,
+        "Peak-Charge": peakCharge,
+        "Peak-Charge-Energy": peakChargeEnergy,
+        "Average-Energy": averageEnergy,
+        "Energy-Spread": energySpread,
+        "Average-Beam-Size": averageBeamSize,
+        "Projected-Beam-Size": projectedBeamSize,
+        "Beam-Tilt": beamAngle,
+        "Beam-Intercept": beamIntercept
     }
     return magSpecDict
+
 
 def NormalizeImage(image, shotnumber, tdms_filepath):
     """
@@ -143,23 +153,24 @@ def NormalizeImage(image, shotnumber, tdms_filepath):
         The normalized image.
 
     """
-    #First, open up the tdms file and check that the camera delay
+    # First, open up the tdms file and check that the camera delay
     # and shutter duration are close to expected
     trigger_list, exposure_list = GetCameraTriggerAndExposure(tdms_filepath)
-    if float(trigger_list[shotnumber-1]) != float(const_normalization_triggerdelay):
+    if float(trigger_list[shotnumber - 1]) != float(const_normalization_triggerdelay):
         print("WARNING: the trigger delay is not the same as the current normalization!")
-        print(" This Image: ",trigger_list[shotnumber-1])
-        print(" Reference:  ",const_normalization_triggerdelay)
-    if float(exposure_list[shotnumber-1]) != float(const_normalization_exposure):
+        print(" This Image: ", trigger_list[shotnumber - 1])
+        print(" Reference:  ", const_normalization_triggerdelay)
+    if float(exposure_list[shotnumber - 1]) != float(const_normalization_exposure):
         print("WARNING: the exposure is not the same as the current normalization!")
-        print(" This Image: ",exposure_list[shotnumber-1])
-        print(" Reference:  ",const_normalization_exposure)
-    
-    #Then, do the old quick normalization
+        print(" This Image: ", exposure_list[shotnumber - 1])
+        print(" Reference:  ", const_normalization_exposure)
+
+    # Then, do the old quick normalization
     returnimage = np.copy(image) * const_normalization_factor
     return returnimage
 
-def PrintNormalization(image, shotnumber ,tdms_filepath):
+
+def PrintNormalization(image, shotnumber, tdms_filepath):
     """
     For a given image, print out the normalization factor.
     If this is a good image, then copy the normalization factors to the top of this module
@@ -179,23 +190,27 @@ def PrintNormalization(image, shotnumber ,tdms_filepath):
 
     """
     charge_pC_vals = GetBeamCharge(tdms_filepath)
-    charge=charge_pC_vals[shotnumber-1]
-    
+    charge = charge_pC_vals[shotnumber - 1]
+
     trigger_list, exposure_list = GetCameraTriggerAndExposure(tdms_filepath)
 
-    #Assuming the image is good, find the factor, camera delay, and shutter duration and
+    # Assuming the image is good, find the factor, camera delay, and shutter duration and
     # print out the information for copy-pasting into this module.
-    
+
     print("The following are the normalization factors,")
     print(" paste them into MagSpecAnalysis.py:")
-    print("const_normalization_factor =",charge/sum(sum(image)))
-    print("const_normalization_triggerdelay = ",trigger_list[shotnumber-1])
-    print("const_normalization_exposure =",exposure_list[shotnumber-1])
+    print("const_normalization_factor =", charge / sum(sum(image)))
+    print("const_normalization_triggerdelay = ", trigger_list[shotnumber - 1])
+    print("const_normalization_exposure =", exposure_list[shotnumber - 1])
     return
 
-def PlotEnergyProjection_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber, plotInfo = None, analyzeDict = None, doThreshold = False, doNormalize = False, hardlimit = None, sliceThreshold = const_default_sliceThreshold):
+
+def PlotEnergyProjection_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber, plotInfo=None, analyzeDict=None,
+                                doThreshold=False, doNormalize=False, hardlimit=None,
+                                sliceThreshold=const_default_sliceThreshold):
     if analyzeDict is None:
-        analyzeDict = AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit = None, sliceThreshold = sliceThreshold)
+        analyzeDict = AnalyzeImage_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit=None,
+                                          sliceThreshold=sliceThreshold)
     if doThreshold:
         image = ThresholdReduction(image, hardlimit)
     if doNormalize:
@@ -225,25 +240,32 @@ def PlotEnergyProjection_Interp(image, tdms_filepath, interpSpec_filepath, shotn
     plt.legend(title="Picoscope Charge:" + "{:10.2f}".format(charge) + " pC")
     plt.show()
 
-def PlotBeamDistribution_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber,  plotInfo = None, analyzeDict = None, doThreshold = False, doNormalize = False, hardlimit = None, sliceThreshold = const_default_sliceThreshold, calibrationFactor = const_HiResMagSpec_Resolution):
+
+def PlotBeamDistribution_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber, plotInfo=None, analyzeDict=None,
+                                doThreshold=False, doNormalize=False, hardlimit=None,
+                                sliceThreshold=const_default_sliceThreshold,
+                                calibrationFactor=const_HiResMagSpec_Resolution):
     if analyzeDict is None:
-        analyzeDict = AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit = None, sliceThreshold = sliceThreshold)
+        analyzeDict = AnalyzeImage_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit=None,
+                                          sliceThreshold=sliceThreshold)
     if doThreshold:
         image = ThresholdReduction(image, hardlimit)
     if doNormalize:
         image = NormalizeImage(image, shotnumber, tdms_filepath)
 
     energy_arr, spec_charge_arr = ParseInterpSpec(interpSpec_filepath)
-    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor = calibrationFactor, threshold = sliceThreshold)
+    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
+                                                                      threshold=sliceThreshold)
 
-    #linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
-    projected_axis, projected_arr, projected_size = CalculateProjectedBeamSize(image, calibrationFactor = calibrationFactor)
+    # linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
+    projected_axis, projected_arr, projected_size = CalculateProjectedBeamSize(image,
+                                                                               calibrationFactor=calibrationFactor)
 
     beamAngle = analyzeDict["Beam-Tilt"]
     beamIntercept = analyzeDict["Beam-Intercept"]
     anglefunc = energy_arr * beamAngle + beamIntercept
 
-    vertSize = (np.shape(image)[0])*calibrationFactor
+    vertSize = (np.shape(image)[0]) * calibrationFactor
     aspect_ratio = (energy_arr[-1] - energy_arr[0]) / vertSize
     projected_factor = 0.3 * (energy_arr[-1] - energy_arr[0]) / max(projected_arr)
 
@@ -251,29 +273,35 @@ def PlotBeamDistribution_Interp(image, tdms_filepath, interpSpec_filepath, shotn
 
     plt.imshow(image, aspect=aspect_ratio, extent=(energy_arr[0], energy_arr[-1], 0, vertSize))
     plt.plot(energy_arr, anglefunc, c='white', ls='dashed',
-             label="Slope:" + "{:10.2f}".format(beamAngle) + " "+r'$\mathrm{\mu}$'+"m/MeV")
+             label="Slope:" + "{:10.2f}".format(beamAngle) + " " + r'$\mathrm{\mu}$' + "m/MeV")
     plt.plot(projected_arr * projected_factor + min(energy_arr), projected_axis, c='orange', ls='dotted',
-             label="Projected RMS Size:" + "{:8.2f}".format(projected_size) + " "+r'$\mathrm{\mu}$'+"m")
+             label="Projected RMS Size:" + "{:8.2f}".format(projected_size) + " " + r'$\mathrm{\mu}$' + "m")
     plt.xlabel("Energy " + r'$(\mathrm{\ MeV})$')
     plt.ylabel("Transverse Position " + r'$(\mathrm{\mu m})$')
     if plotInfo is not None:
         plt.title(plotInfo)
     plt.ylim([0, vertSize])
     plt.xlim([min(energy_arr), max(energy_arr)])
-    plt.legend(title="Clipped Percentage: " + "{:.1f}".format(clippedFactor*100) + " %")
+    plt.legend(title="Clipped Percentage: " + "{:.1f}".format(clippedFactor * 100) + " %")
 
     plt.show()
 
-def PlotSliceStatistics_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber,  plotInfo = None, analyzeDict = None, doThreshold = False, doNormalize = False, hardlimit = None, sliceThreshold = const_default_sliceThreshold, calibrationFactor = const_HiResMagSpec_Resolution):
+
+def PlotSliceStatistics_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber, plotInfo=None, analyzeDict=None,
+                               doThreshold=False, doNormalize=False, hardlimit=None,
+                               sliceThreshold=const_default_sliceThreshold,
+                               calibrationFactor=const_HiResMagSpec_Resolution):
     if analyzeDict is None:
-        analyzeDict = AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit = None, sliceThreshold = sliceThreshold, calibrationFactor = calibrationFactor)
+        analyzeDict = AnalyzeImage_Interp(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit=None,
+                                          sliceThreshold=sliceThreshold, calibrationFactor=calibrationFactor)
     if doThreshold:
         image = ThresholdReduction(image, hardlimit)
     if doNormalize:
         image = NormalizeImage(image, shotnumber, tdms_filepath)
 
     energy_arr, spec_charge_arr = ParseInterpSpec(interpSpec_filepath)
-    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor = calibrationFactor, threshold = sliceThreshold)
+    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
+                                                                      threshold=sliceThreshold)
     average_size = analyzeDict['Average-Beam-Size']
     camera_charge = analyzeDict['Charge-On-Camera']
 
@@ -288,9 +316,13 @@ def PlotSliceStatistics_Interp(image, tdms_filepath, interpSpec_filepath, shotnu
     plt.legend(title="Charge on Camera:" + "{:10.2f}".format(camera_charge) + " pC")
     plt.show()
 
-def PlotEnergyProjection(image, tdms_filepath, interpSpec_filepath, shotnumber, plotInfo = None, analyzeDict = None, doThreshold = False, doNormalize = False, hardlimit = None, sliceThreshold = const_default_sliceThreshold):
+
+def PlotEnergyProjection(image, tdms_filepath, interpSpec_filepath, shotnumber, plotInfo=None, analyzeDict=None,
+                         doThreshold=False, doNormalize=False, hardlimit=None,
+                         sliceThreshold=const_default_sliceThreshold):
     if analyzeDict is None:
-        analyzeDict = AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit = None, sliceThreshold = sliceThreshold)
+        analyzeDict = AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit=None,
+                                   sliceThreshold=sliceThreshold)
     if doThreshold:
         image = ThresholdReduction(image, hardlimit)
     if doNormalize:
@@ -325,9 +357,13 @@ def PlotEnergyProjection(image, tdms_filepath, interpSpec_filepath, shotnumber, 
     plt.legend(title="Picoscope Charge:" + "{:10.2f}".format(charge) + " pC")
     plt.show()
 
-def PlotBeamDistribution(image, tdms_filepath, interpSpec_filepath, shotnumber,  plotInfo = None, analyzeDict = None, doThreshold = False, doNormalize = False, hardlimit = None, sliceThreshold = const_default_sliceThreshold, calibrationFactor = const_HiResMagSpec_Resolution):
+
+def PlotBeamDistribution(image, tdms_filepath, interpSpec_filepath, shotnumber, plotInfo=None, analyzeDict=None,
+                         doThreshold=False, doNormalize=False, hardlimit=None,
+                         sliceThreshold=const_default_sliceThreshold, calibrationFactor=const_HiResMagSpec_Resolution):
     if analyzeDict is None:
-        analyzeDict = AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit = None, sliceThreshold = sliceThreshold)
+        analyzeDict = AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit=None,
+                                   sliceThreshold=sliceThreshold)
     if doThreshold:
         image = ThresholdReduction(image, hardlimit)
     if doNormalize:
@@ -338,33 +374,59 @@ def PlotBeamDistribution(image, tdms_filepath, interpSpec_filepath, shotnumber, 
     image_width = np.shape(image)[1]
     pixel_arr = np.linspace(0, image_width, image_width)
     energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
-    #sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor = calibrationFactor, threshold = sliceThreshold)
+    # sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor = calibrationFactor, threshold = sliceThreshold)
 
-    #linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
-    projected_axis, projected_arr, projected_size = CalculateProjectedBeamSize(image, calibrationFactor = calibrationFactor)
+    # linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
+    projected_axis, projected_arr, projected_size = CalculateProjectedBeamSize(image,
+                                                                               calibrationFactor=calibrationFactor)
 
     beamAngle = analyzeDict["Beam-Tilt"]
     beamIntercept = analyzeDict["Beam-Intercept"]
     anglefunc = energy_arr * beamAngle + beamIntercept
 
-    vertSize = (np.shape(image)[0])*calibrationFactor
+    vertSize = (np.shape(image)[0]) * calibrationFactor
     aspect_ratio = (energy_arr[-1] - energy_arr[0]) / vertSize
     projected_factor = 0.3 * (energy_arr[-1] - energy_arr[0]) / max(projected_arr)
 
     clippedFactor = analyzeDict['Clipped-Percentage']
 
-    fig, ax = plt.subplots(1,1)
+    fig, ax = plt.subplots(1, 1)
 
-    ax.imshow(image, aspect=aspect_ratio, extent=(energy_arr[0], energy_arr[-1], 0, vertSize))
+    maxx, maxy, maxval = FindMax(image)
 
+    color_choice = 1  # 1 for saturation check, 2 for a tropical vacation, anything else for normal
+
+    if color_choice == 1:
+        colors_normal = plt.cm.Greens_r(np.linspace(0, 0.80, 256))
+        colors_saturated = plt.cm.jet(np.linspace(0.99, 1, 5))
+        all_colors = np.vstack((colors_normal, colors_saturated))
+        colormap = colors.LinearSegmentedColormap.from_list('terrain_map', all_colors)
+        divnorm = colors.TwoSlopeNorm(vmin=0, vcenter=maxval * .99999, vmax=maxval)
+        print("Saturation Counts:", analyzeDict["Saturation-Counts"])
+        print("Saturation Percentage:", analyzeDict["Saturation-Counts"]/(np.shape(image)[0]*np.shape(image)[1])*100,"%")
+
+    elif color_choice == 2:
+        colors_water = plt.cm.terrain(np.linspace(0, 0.17, 256))
+        colors_land = plt.cm.terrain(np.linspace(0.25, 1, 256))
+        all_colors = np.vstack((colors_water, colors_land))
+        colormap = colors.LinearSegmentedColormap.from_list('terrain_map', all_colors)
+        divnorm = colors.TwoSlopeNorm(vmin=0, vcenter=.4 * maxval, vmax=maxval)
+
+    else:
+        colormap = None
+        divnorm = None
+
+    img = ax.imshow(image, aspect=aspect_ratio, extent=(energy_arr[0], energy_arr[-1], 0, vertSize), norm=divnorm,
+                    cmap=colormap)
+    cbar = fig.colorbar(img, label='Charge Density ' + r'$\mathrm{(pC/(\mu m\times MeV))}$')
     plt.plot(energy_arr, anglefunc, c='white', ls='dashed',
-             label="Slope:" + "{:10.2f}".format(beamAngle) + " "+r'$\mathrm{\mu}$'+"m/MeV")
+             label="Slope:" + "{:10.2f}".format(beamAngle) + " " + r'$\mathrm{\mu}$' + "m/MeV")
     plt.plot(projected_arr * projected_factor + min(energy_arr), projected_axis, c='orange', ls='dotted',
-             label="Projected RMS Size:" + "{:8.2f}".format(projected_size) + " "+r'$\mathrm{\mu}$'+"m")
+             label="Projected RMS Size:" + "{:8.2f}".format(projected_size) + " " + r'$\mathrm{\mu}$' + "m")
     ax.set_xlabel("'Approximate' Energy " + r'$(\mathrm{\ MeV})$')
     ax.set_ylabel("Transverse Position " + r'$(\mathrm{\mu m})$')
 
-    #This is where I would have the non-linear ticks, but they don't work with the beam angle
+    # This is where I would have the non-linear ticks, but they don't work with the beam angle
     """
     energy_ticks = np.arange(80,130.1,5)
     energy_ticks = energy_ticks[np.where(energy_ticks < np.max(energy_arr))[0]]
@@ -392,13 +454,17 @@ def PlotBeamDistribution(image, tdms_filepath, interpSpec_filepath, shotnumber, 
         plt.title(plotInfo)
     plt.ylim([0, vertSize])
     plt.xlim([min(energy_arr), max(energy_arr)])
-    plt.legend(title="Clipped Percentage: " + "{:.1f}".format(clippedFactor*100) + " %")
+    plt.legend(title="Clipped Percentage: " + "{:.1f}".format(clippedFactor * 100) + " %")
 
     plt.show()
 
-def PlotSliceStatistics(image, tdms_filepath, interpSpec_filepath, shotnumber,  plotInfo = None, analyzeDict = None, doThreshold = False, doNormalize = False, hardlimit = None, sliceThreshold = const_default_sliceThreshold, calibrationFactor = const_HiResMagSpec_Resolution):
+
+def PlotSliceStatistics(image, tdms_filepath, interpSpec_filepath, shotnumber, plotInfo=None, analyzeDict=None,
+                        doThreshold=False, doNormalize=False, hardlimit=None,
+                        sliceThreshold=const_default_sliceThreshold, calibrationFactor=const_HiResMagSpec_Resolution):
     if analyzeDict is None:
-        analyzeDict = AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit = None, sliceThreshold = sliceThreshold, calibrationFactor = calibrationFactor)
+        analyzeDict = AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit=None,
+                                   sliceThreshold=sliceThreshold, calibrationFactor=calibrationFactor)
     if doThreshold:
         image = ThresholdReduction(image, hardlimit)
     if doNormalize:
@@ -410,7 +476,8 @@ def PlotSliceStatistics(image, tdms_filepath, interpSpec_filepath, shotnumber,  
     pixel_arr = np.linspace(0, image_width, image_width)
     energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
 
-    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor = calibrationFactor, threshold = sliceThreshold)
+    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
+                                                                      threshold=sliceThreshold)
     average_size = analyzeDict['Average-Beam-Size']
     camera_charge = analyzeDict['Charge-On-Camera']
 
@@ -446,10 +513,10 @@ def ParseInterpSpec(filename):
     """
     with open(filename) as f:
         lines = f.readlines()
-        nSlices = len(lines)-1
+        nSlices = len(lines) - 1
         momentum_arr = np.zeros(nSlices)
         charge_arr = np.zeros(nSlices)
-        
+
         i = 0
         for line in lines:
             line = line.strip()
@@ -461,7 +528,9 @@ def ParseInterpSpec(filename):
         f.close()
     return momentum_arr, charge_arr
 
-def LoadImage(superpath, scannumber, shotnumber, folderpath, tdms_filepath = None, doThreshold = True, hardlimit = None, doNormalize=True):
+
+def LoadImage(superpath, scannumber, shotnumber, folderpath, tdms_filepath=None, doThreshold=True, hardlimit=None,
+              doNormalize=True):
     fullpath = DirectoryFunc.CompileFileLocation(superpath, scannumber, shotnumber, folderpath, suffix=".png")
     if tdms_filepath is None:
         tdms_filepath = DirectoryFunc.CompileTDMSFilepath(superpath, scannumber)
@@ -472,7 +541,8 @@ def LoadImage(superpath, scannumber, shotnumber, folderpath, tdms_filepath = Non
         image = NormalizeImage(image, shotnumber, tdms_filepath)
     return image
 
-def ThresholdReduction(image, hardlimit = None, skipPlots = True):
+
+def ThresholdReduction(image, hardlimit=None, skipPlots=True):
     """
     Attempts to do a quick reduction of the background by subtracting a fixed threshold off of the data
     Can either manually supply a "hardlimit" to do this, or if none is provided then we take Gaussian
@@ -495,16 +565,18 @@ def ThresholdReduction(image, hardlimit = None, skipPlots = True):
     """
     if hardlimit is None:
         xmax, ymax, maxval = FindMax(image)
-        xslice = image[ymax,:]
-        yslice = image[:,xmax]
-        xfit = MathTools.FitDataSomething(xslice, np.linspace(0,len(xslice),len(xslice)), 
-                                   MathTools.GaussianOffset, guess=[max(xslice),5,np.argmax(xslice),min(xslice)], supress = skipPlots)
-        yfit = MathTools.FitDataSomething(yslice, np.linspace(0,len(yslice),len(yslice)), 
-                                   MathTools.GaussianOffset, guess=[max(yslice),5,np.argmax(yslice),min(yslice)], supress = skipPlots)
-        threshold = np.max([xfit[3],yfit[3]])
+        xslice = image[ymax, :]
+        yslice = image[:, xmax]
+        xfit = MathTools.FitDataSomething(xslice, np.linspace(0, len(xslice), len(xslice)),
+                                          MathTools.GaussianOffset,
+                                          guess=[max(xslice), 5, np.argmax(xslice), min(xslice)], supress=skipPlots)
+        yfit = MathTools.FitDataSomething(yslice, np.linspace(0, len(yslice), len(yslice)),
+                                          MathTools.GaussianOffset,
+                                          guess=[max(yslice), 5, np.argmax(yslice), min(yslice)], supress=skipPlots)
+        threshold = np.max([xfit[3], yfit[3]])
     else:
         threshold = hardlimit
-        
+
     returnimage = np.copy(image)
     for i in range(np.shape(image)[0]):
         for j in range(np.shape(image)[1]):
@@ -513,29 +585,35 @@ def ThresholdReduction(image, hardlimit = None, skipPlots = True):
                 returnimage[i][j] = 0
     return returnimage
 
-#NOT YET IMPLEMENTED
+
+# NOT YET IMPLEMENTED
 def BackgroundSubtraction(image, background):
     print("JUST A PLACEHOLDER")
     return image
+
 
 def CalculateClippedPercentage(image):
     clipcheck = np.append(np.append(np.append(image[0, :], image[:, 0]), image[-1, :]), image[:, -1])
     xmax, ymax, maxval = FindMax(image)
     return np.max(clipcheck) / maxval
 
-def CalculateProjectedBeamSize(image, calibrationFactor = const_HiResMagSpec_Resolution):
+
+def CalculateProjectedBeamSize(image, calibrationFactor=const_HiResMagSpec_Resolution):
     skipPlots = True
     proj_arr = np.zeros(np.shape(image)[0])
     for i in range(len(proj_arr)):
-        image_slice = image[i,:]
-        proj_arr[i]=np.sum(image_slice)
-    
-    axis_arr = np.linspace(0,len(proj_arr)*calibrationFactor,len(proj_arr))
+        image_slice = image[i, :]
+        proj_arr[i] = np.sum(image_slice)
+
+    axis_arr = np.linspace(0, len(proj_arr) * calibrationFactor, len(proj_arr))
     axis_arr = np.flip(axis_arr)
     fit = MathTools.FitDataSomething(proj_arr, axis_arr,
-        MathTools.Gaussian, guess=[max(proj_arr),20*calibrationFactor,axis_arr[np.argmax(proj_arr)]], supress = skipPlots)
+                                     MathTools.Gaussian,
+                                     guess=[max(proj_arr), 20 * calibrationFactor, axis_arr[np.argmax(proj_arr)]],
+                                     supress=skipPlots)
     beamSize = fit[1]
     return axis_arr, proj_arr, beamSize
+
 
 def CalculateChargeDensityDistribution(image):
     """
@@ -554,81 +632,102 @@ def CalculateChargeDensityDistribution(image):
     """
     charge_arr = np.zeros(np.shape(image)[1])
     for i in range(len(charge_arr)):
-        image_slice = image[:,i]
-        charge_arr[i]=np.sum(image_slice)
+        image_slice = image[:, i]
+        charge_arr[i] = np.sum(image_slice)
     return charge_arr
+
 
 def CalculateMaximumCharge(charge_arr):
     return np.max(charge_arr)
 
+
 def CalculateAverageEnergy(charge_arr, energy_arr):
-    return np.average(energy_arr,weights=charge_arr)
+    return np.average(energy_arr, weights=charge_arr)
+
 
 def CalculateStandardDeviationEnergy(charge_arr, energy_arr):
     average_energy = CalculateAverageEnergy(charge_arr, energy_arr)
-    return np.sqrt(np.average((energy_arr-average_energy)**2, weights=charge_arr))
+    return np.sqrt(np.average((energy_arr - average_energy) ** 2, weights=charge_arr))
+
 
 def CalculatePeakEnergy(charge_arr, energy_arr):
     return energy_arr[np.argmax(charge_arr)]
 
-def FitTransverseGaussianSlices(image, calibrationFactor = 1, threshold=0.01):
+
+def FitTransverseGaussianSlices(image, calibrationFactor=1, threshold=0.01):
     ny, nx = np.shape(image)
     xloc, yloc, maxval = FindMax(image)
-    skipPlots = True #False for debugging and/or make an animation book
-    
+    skipPlots = True  # False for debugging and/or make an animation book
+
     sigma_arr = np.zeros(nx)
     err_arr = np.zeros(nx)
     x0_arr = np.zeros(nx)
     amp_arr = np.zeros(nx)
     for i in range(nx):
-        slice_arr = image[:,i]
-        if np.max(slice_arr) > threshold*maxval:
-            axis_arr = np.linspace(0,len(slice_arr),len(slice_arr))
+        slice_arr = image[:, i]
+        if np.max(slice_arr) > threshold * maxval:
+            axis_arr = np.linspace(0, len(slice_arr), len(slice_arr))
             axis_arr = np.flip(axis_arr) * calibrationFactor
-            #if i%100 == 0:
+            # if i%100 == 0:
             #    skipPlots = False
-            #else:
+            # else:
             #    skipPlots = True
-            fit = MathTools.FitDataSomething(slice_arr, axis_arr, 
-                          MathTools.Gaussian, guess=[max(slice_arr),5*const_HiResMagSpec_Resolution,axis_arr[np.argmax(slice_arr)]], supress = skipPlots)
+            fit = MathTools.FitDataSomething(slice_arr, axis_arr,
+                                             MathTools.Gaussian,
+                                             guess=[max(slice_arr), 5 * const_HiResMagSpec_Resolution,
+                                                    axis_arr[np.argmax(slice_arr)]], supress=skipPlots)
             amp_arr[i], sigma_arr[i], x0_arr[i] = fit
 
-            #Check to see that our x0 is within bounds (only an issue for vertically-clipped beams
+            # Check to see that our x0 is within bounds (only an issue for vertically-clipped beams
             if x0_arr[i] < axis_arr[-1] or x0_arr[i] > axis_arr[0]:
-                sigma_arr[i] = 0; x0_arr[i] = 0; amp_arr[i] = 0; err_arr[i] = 0
+                sigma_arr[i] = 0;
+                x0_arr[i] = 0;
+                amp_arr[i] = 0;
+                err_arr[i] = 0
             else:
                 # TODO:  This error calculation below is "correct," but produces no meaningful error.  Please find a way
                 func = MathTools.Gaussian(fit, axis_arr)
                 error = 0
                 for j in range(len(slice_arr)):
-                    error = error + np.square(slice_arr[j]-func[j])
+                    error = error + np.square(slice_arr[j] - func[j])
                 err_arr[i] = np.sqrt(error) * 1e3
 
         else:
-            sigma_arr[i] = 0; x0_arr[i] = 0; amp_arr[i] = 0; err_arr[i] = 0
+            sigma_arr[i] = 0;
+            x0_arr[i] = 0;
+            amp_arr[i] = 0;
+            err_arr[i] = 0
 
     return sigma_arr, x0_arr, amp_arr, err_arr
+
 
 def CalculateAverageSize(sigma_arr, amp_arr):
     return np.average(sigma_arr, weights=amp_arr)
 
+
 def FitBeamAngle(x0_arr, amp_arr, energy_arr):
-    linear_fit = np.polyfit(energy_arr, x0_arr, deg=1, w=amp_arr)
-    """ #Secret Plot of the Angle Fit
-    plt.plot(energy_arr,x0_arr)
-    energy_axis = np.linspace(energy_arr[0],energy_arr[-1],50)
-    plt.plot(energy_axis,energy_axis*linear_fit[0]+linear_fit[1])
-    plt.plot(energy_arr, amp_arr*0.3*max(x0_arr)/max(amp_arr))
-    plt.show()
-    """
+    linear_fit = np.polyfit(energy_arr, x0_arr, deg=1, w=np.power(amp_arr, 2))
+    secretPlot = False
+    if secretPlot:
+        # Secret Plot of the Angle Fit
+        plt.plot(energy_arr, x0_arr)
+        energy_axis = np.linspace(energy_arr[0], energy_arr[-1], 50)
+        plt.plot(energy_axis, energy_axis * linear_fit[0] + linear_fit[1])
+        plt.plot(energy_arr, amp_arr * 0.3 * max(x0_arr) / max(amp_arr))
+        plt.show()
+
     return linear_fit
 
-def GetSizeStatistics_Full(image, energy_arr, sliceThreshold = const_default_sliceThreshold):
-    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=const_HiResMagSpec_Resolution, threshold = sliceThreshold)
+
+def GetSizeStatistics_Full(image, energy_arr, sliceThreshold=const_default_sliceThreshold):
+    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image,
+                                                                      calibrationFactor=const_HiResMagSpec_Resolution,
+                                                                      threshold=sliceThreshold)
     average_size = CalculateAverageSize(sigma_arr, amp_arr)
     axis, vals, projected_size = CalculateProjectedBeamSize(image)
     linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
     return average_size, projected_size, linear_fit[0]
+
 
 def GetBeamCharge(tdms_filepath):
     """
@@ -645,10 +744,10 @@ def GetBeamCharge(tdms_filepath):
         Array of beam charge measurements.
         
     """
-    #For future reference, can list all of the groups using tdms_file.groups()
+    # For future reference, can list all of the groups using tdms_file.groups()
     # and can list all of the groups, channels using group.channels()
     #
-    #Also note, this loads the entire TDMS file into memory, and so a more
+    # Also note, this loads the entire TDMS file into memory, and so a more
     # elegant usage of TdmsFile could be only reading the necessary picoscope data
     tdms_file = TdmsFile.read(tdms_filepath)
     picoscope_group = tdms_file['U-picoscope5245D']
@@ -657,10 +756,12 @@ def GetBeamCharge(tdms_filepath):
     tdms_file = None
     return scan_charge_vals
 
+
 def GetShotCharge(superpath, scannumber, shotnumber):
     tdms_filepath = DirectoryFunc.CompileTDMSFilepath(superpath, scannumber)
     charge_pC_vals = GetBeamCharge(tdms_filepath)
-    return charge_pC_vals[shotnumber-1]
+    return charge_pC_vals[shotnumber - 1]
+
 
 def GetCameraTriggerAndExposure(tdms_filepath):
     """
@@ -686,6 +787,7 @@ def GetCameraTriggerAndExposure(tdms_filepath):
     tdms_file = None
     return trigger_list, exposure_list
 
+
 def FindMax(image):
     """
     Grabs the coordinates and value of the maximum of the image
@@ -707,8 +809,21 @@ def FindMax(image):
     """
     ny, nx = np.shape(image)
     max_ind = np.argmax(image)
-    xmax = int(max_ind%nx)
-    ymax = int(np.floor(max_ind/nx))
-    maxval = image[ymax,xmax]
+    xmax = int(max_ind % nx)
+    ymax = int(np.floor(max_ind / nx))
+    maxval = image[ymax, xmax]
     return xmax, ymax, maxval
 
+
+def SaturationCheck(image):
+    nx, ny = np.shape(image)
+    saturation_counts = 0
+    maximum_value = 0
+    for i in range(nx):
+        for j in range(ny):
+            if image[i][j] > maximum_value:
+                maximum_value = image[i][j]
+                saturation_counts = 1
+            if image[i][j] == maximum_value:
+                saturation_counts = saturation_counts + 1
+    return saturation_counts - 1
