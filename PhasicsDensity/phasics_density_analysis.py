@@ -130,19 +130,26 @@ class PhasicsImageAnalyzer:
     
     def locate_diffraction_spot(self, 
                                 center0: SpatialFrequencyCoordinates, 
-                                search_radius: SpatialFrequencyQuantity = Q_(1.2, 'mm^-1')
+                                search_radius: SpatialFrequencyQuantity = Q_(1.2, 'mm^-1'), 
+                                method: str = 'parabolic_interpolated_peak',
                                ) -> SpatialFrequencyCoordinates:
         """ Utility function to refine location of diffraction spot center
 
         Uses 2D parabolic interpolation to find peak in the Fourier transform 
         of the image saved in this instance, near a given center0
-        
+
         Parameters
         ----------
         center0 : tuple[SpatialFrequencyQuantity, SpatialFrequencyQuantity]
             x and y coordinates (not row, column) of approximate center
         search_radius : SpatialFrequencyQuantity
             how far around center0 to look for the maximum.
+        method : str
+            parabolic_interpolated_peak:
+                Uses 2D parabolic interpolation to find peak in the Fourier transform 
+                of the image saved in this instance, near a given center0
+            fit_reciprocal_function:
+                Fits a c/(fx*fy) function to the diffraction spot.
 
         Returns
         -------
@@ -151,38 +158,76 @@ class PhasicsImageAnalyzer:
 
         """
 
-        # first find the maximum value of IMG near center0
-        FREQ_X, FREQ_Y = np.meshgrid(self.freq_x, self.freq_y)
-        IMG_magn = np.abs(self.IMG)
-        Z = IMG_magn * (np.square(FREQ_X - center0.nu_x) + np.square(FREQ_Y - center0.nu_y) <= search_radius**2)
-        y0, x0 = np.unravel_index(np.argmax(Z.flatten()), Z.shape)
+        def _locate_diffraction_spot_parabolic_interpolated_peak():
+            # first find the maximum value of IMG near center0
+            FREQ_X, FREQ_Y = np.meshgrid(self.freq_x, self.freq_y)
+            IMG_magn = np.abs(self.IMG)
+            Z = IMG_magn * (np.square(FREQ_X - center0.nu_x) + np.square(FREQ_Y - center0.nu_y) <= search_radius**2)
+            y0, x0 = np.unravel_index(np.argmax(Z.flatten()), Z.shape)
 
-        # then use parabolic interpolation 1 pixel around x0, y0
-        # We fit a 2d quadratic function to the 9 pixels around and including
-        # x0, y0
-        #   f(dx, dy) = coeffs . (1, dx, dy, dx^2, dx*dy, dy^2)
-        # We construct matrix A where rows are (1, dx, dy, dx^2, dx*dy, dy^2) for 
-        # (dx, dy) = [(0, 0), (-1, 0), (+1, 0), (0, -1), (0, +1), (-1, -1), (-1, +1), (+1, -1), (+1, +1)]
-        # Furthermore, the matrix W is diag([1, 1, 1, 1, 1, 1/sqrt(2), 1/sqrt(2), 1/sqrt(2), 1/sqrt(2)]) 
-        # to downweight the corners of the 3x3 square.
-        # then to solve the least squares equation A . coeffs = z, with z the values
-        # of IMG at (x0 + dx, y0 + dy) for the above (dx, dy), we construct
-        # B = (A.T . W . A)^-1 . A.T . W
-        B = [[(15 + 2*sqrt(2))/31, (8 - sqrt(2))/31, (8 - sqrt(2))/31, (8 - sqrt(2))/31, (8 - sqrt(2))/31, (-8 + sqrt(2))/62, (-8 + sqrt(2))/62, (-8 + sqrt(2))/62, (-8 + sqrt(2))/62], [0, 1/2 - 1/sqrt(2), -1/2 + 1/sqrt(2), 0, 0, (-2 + sqrt(2))/4, (-2 + sqrt(2))/4, (2 - sqrt(2))/4, (2 - sqrt(2))/4], [0, 0, 0, 1/2 - 1/sqrt(2), -1/2 + 1/sqrt(2), (-2 + sqrt(2))/4, (2 - sqrt(2))/4, (-2 + sqrt(2))/4, (2 - sqrt(2))/4], [(-7 - 3*sqrt(2))/31, (7 + 3*sqrt(2))/62, (7 + 3*sqrt(2))/62, (3*(-8 + sqrt(2)))/62, (3*(-8 + sqrt(2)))/62, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124], [0, 0, 0, 0, 0, 1/4, -1/4, -1/4, 1/4], [(-7 - 3*sqrt(2))/31, (3*(-8 + sqrt(2)))/62, (3*(-8 + sqrt(2)))/62, (7 + 3*sqrt(2))/62, (7 + 3*sqrt(2))/62, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124]]
-        # and solve coeffs = B . z
-        z = [IMG_magn[y0 + dy, x0 + dx] 
-             for (dx, dy) in [(0, 0), (-1, 0), (+1, 0), (0, -1), (0, +1), (-1, -1), (-1, +1), (+1, -1), (+1, +1)]
-            ]
-        c_1, c_x, c_y, c_x2, c_xy, c_y2 = c = np.dot(B, z)
-        # finally, we solve df/ddx = 0 and df/ddy = 0
-        dx, dy = np.array([ 2 * c_x * c_y2 - c_xy * c_y,
-                            2 * c_y * c_x2 - c_xy * c_x 
-                         ]) / (c_xy**2 - 4 * c_x2 * c_y2)
+            # then use parabolic interpolation 1 pixel around x0, y0
+            # We fit a 2d quadratic function to the 9 pixels around and including
+            # x0, y0
+            #   f(dx, dy) = coeffs . (1, dx, dy, dx^2, dx*dy, dy^2)
+            # We construct matrix A where rows are (1, dx, dy, dx^2, dx*dy, dy^2) for 
+            # (dx, dy) = [(0, 0), (-1, 0), (+1, 0), (0, -1), (0, +1), (-1, -1), (-1, +1), (+1, -1), (+1, +1)]
+            # Furthermore, the matrix W is diag([1, 1, 1, 1, 1, 1/sqrt(2), 1/sqrt(2), 1/sqrt(2), 1/sqrt(2)]) 
+            # to downweight the corners of the 3x3 square.
+            # then to solve the least squares equation A . coeffs = z, with z the values
+            # of IMG at (x0 + dx, y0 + dy) for the above (dx, dy), we construct
+            # B = (A.T . W . A)^-1 . A.T . W
+            B = [[(15 + 2*sqrt(2))/31, (8 - sqrt(2))/31, (8 - sqrt(2))/31, (8 - sqrt(2))/31, (8 - sqrt(2))/31, (-8 + sqrt(2))/62, (-8 + sqrt(2))/62, (-8 + sqrt(2))/62, (-8 + sqrt(2))/62], [0, 1/2 - 1/sqrt(2), -1/2 + 1/sqrt(2), 0, 0, (-2 + sqrt(2))/4, (-2 + sqrt(2))/4, (2 - sqrt(2))/4, (2 - sqrt(2))/4], [0, 0, 0, 1/2 - 1/sqrt(2), -1/2 + 1/sqrt(2), (-2 + sqrt(2))/4, (2 - sqrt(2))/4, (-2 + sqrt(2))/4, (2 - sqrt(2))/4], [(-7 - 3*sqrt(2))/31, (7 + 3*sqrt(2))/62, (7 + 3*sqrt(2))/62, (3*(-8 + sqrt(2)))/62, (3*(-8 + sqrt(2)))/62, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124], [0, 0, 0, 0, 0, 1/4, -1/4, -1/4, 1/4], [(-7 - 3*sqrt(2))/31, (3*(-8 + sqrt(2)))/62, (3*(-8 + sqrt(2)))/62, (7 + 3*sqrt(2))/62, (7 + 3*sqrt(2))/62, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124, (-3*(-8 + sqrt(2)))/124]]
+            # and solve coeffs = B . z
+            z = [IMG_magn[y0 + dy, x0 + dx] 
+                for (dx, dy) in [(0, 0), (-1, 0), (+1, 0), (0, -1), (0, +1), (-1, -1), (-1, +1), (+1, -1), (+1, +1)]
+                ]
+            c_1, c_x, c_y, c_x2, c_xy, c_y2 = c = np.dot(B, z)
+            # finally, we solve df/ddx = 0 and df/ddy = 0
+            dx, dy = np.array([ 2 * c_x * c_y2 - c_xy * c_y,
+                                2 * c_y * c_x2 - c_xy * c_x 
+                            ]) / (c_xy**2 - 4 * c_x2 * c_y2)
 
-        # and we return the spatial frequencies corresponding to x0 + dx and y0 + dy
-        return SpatialFrequencyCoordinates(np.interp(x0 + dx,  np.arange(len(self.freq_x)), self.freq_x),
-                                           np.interp(y0 + dy,  np.arange(len(self.freq_y)), self.freq_y),
-                                          ) 
+            # and we return the spatial frequencies corresponding to x0 + dx and y0 + dy
+            return SpatialFrequencyCoordinates(np.interp(x0 + dx,  np.arange(len(self.freq_x)), self.freq_x),
+                                               np.interp(y0 + dy,  np.arange(len(self.freq_y)), self.freq_y),
+                                              ) 
+
+        def _locate_diffraction_spot_fit_reciprocal_function():
+            
+            FREQ_X, FREQ_Y = np.meshgrid(self.freq_x, self.freq_y)
+            s = (np.square(FREQ_X - center0.nu_x) + np.square(FREQ_Y - center0.nu_y) <= self.diffraction_spot_crop_radius**2)
+
+            @ureg.wraps(('', '', 'mm^-1', 'mm^-1'), ('mm^-1', 'mm^-1', 'mm^-1', 'mm^-1'))
+            def _fit_reciprocal_function(FREQ_X, FREQ_Y, center0_nu_x, center0_nu_y):
+                def loss(params):
+                    a, b, x0, y0 = params
+                    Z = (a + b*1j) / ((FREQ_X[s] - x0) * (FREQ_Y[s] - y0))
+                    return np.concatenate([Z.real - self.IMG[s].real,
+                                           Z.imag - self.IMG[s].imag,
+                                         ])
+
+                # initial guess for complex amplitude
+                xp = np.argmin(np.abs(self.freq_x - (center0.nu_x + search_radius)))
+                xm = np.argmin(np.abs(self.freq_x - (center0.nu_x - search_radius)))
+                yp = np.argmin(np.abs(self.freq_y - (center0.nu_y + search_radius)))
+                ym = np.argmin(np.abs(self.freq_y - (center0.nu_y - search_radius)))
+
+                A = (  (self.IMG[yp, xp] * FREQ_X[0, xp] * FREQ_Y[yp, 0]) 
+                     - (self.IMG[ym, xm] * FREQ_X[0, xp] * FREQ_Y[yp, 0])
+                    ) / 2
+
+                (a, b, x0, y0), flag = leastsq(loss, [np.real(A), np.imag(A), center0_nu_x, center0_nu_y])
+
+                return a, b, x0, y0
+
+            _, _, x0, y0 = _fit_reciprocal_function(FREQ_X, FREQ_Y, center0.nu_x, center0.nu_y)
+
+            return SpatialFrequencyCoordinates(x0, y0)
+
+        return {'parabolic_interpolated_peak': _locate_diffraction_spot_parabolic_interpolated_peak,
+                'fit_reciprocal_function': _locate_diffraction_spot_fit_reciprocal_function,
+               }[method]()
+
 
     def _set_diffraction_spot_crop_radius(self) -> SpatialFrequencyQuantity:
         """ Calculate minimum distance between any two centers
@@ -193,9 +238,8 @@ class PhasicsImageAnalyzer:
                 if i1 != i2
                )
         ) / 2
-        
+
         return self.diffraction_spot_crop_radius
-  
 
 
     
