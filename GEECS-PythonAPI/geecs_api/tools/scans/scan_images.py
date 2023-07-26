@@ -46,7 +46,9 @@ class ScanImages:
         angle (int): rotation angle to apply (multiples of +/-90 deg only). Ignored if camera object is provided.
         """
 
-        self.scan_obj: ScanData = scan
+        self.scan_data_folder: Path = scan.get_folder()
+        self.scan_analysis_folder: Path = scan.get_analysis_folder()
+
         self.camera: Optional[Camera] = None
         self.camera_name: str
         self.camera_roi: Optional[np.ndarray]
@@ -83,9 +85,10 @@ class ScanImages:
 
         self.camera_label: str = Camera.label_from_name(self.camera_name)
 
-        self.image_folder: Path = self.scan_obj.get_folder() / self.camera_name
-        # self.save_folder: Path = self.scan.get_analysis_folder() / self.camera_name / 'Profiles Images'
-        self.save_folder: Path = self.scan_obj.get_analysis_folder() / self.camera_name
+        # self.image_folder: Path = self.scan_obj.get_folder() / self.camera_name
+        # self.save_folder: Path = self.scan_obj.get_analysis_folder() / self.camera_name
+        self.image_folder: Path = self.scan_data_folder / self.camera_name
+        self.save_folder: Path = self.scan_analysis_folder / self.camera_name
         self.set_save_folder()  # default no-scan analysis folder
 
         self.analysis: dict[str, Any] = ScanImages._new_analysis_dict()
@@ -103,8 +106,8 @@ class ScanImages:
         if path and path.is_dir():
             self.save_folder = path
         if path is None:
-            # self.save_folder = self.scan.get_analysis_folder() / self.camera_name / 'Profiles Images'
-            self.save_folder = self.scan_obj.get_analysis_folder() / self.camera_name
+            # self.save_folder = self.scan_obj.get_analysis_folder() / self.camera_name
+            self.save_folder = self.scan_analysis_folder / self.camera_name
             if not self.save_folder.is_dir():
                 os.makedirs(self.save_folder)
 
@@ -133,7 +136,7 @@ class ScanImages:
                 export_file_path, data_dict = \
                     self.analyze_image_batch(images, filtering, store_images, plots, profiles, save_plots, save)
             except Exception as ex:
-                api_error(str(ex), f'Failed to analyze {self.scan_obj.get_folder().name}')
+                api_error(str(ex), f'Failed to analyze {self.scan_data_folder.name}')
                 pass
 
             repeat = text_input(f'Repeat analysis (adjust contrast/threshold)? : ',
@@ -183,7 +186,10 @@ class ScanImages:
                             skipped_files.append(image_path.name)
 
                         if not store_images:
-                            self.analysis.pop('arrays')
+                            list_keys = list(self.analysis['arrays'].keys())
+                            for k in list_keys:
+                                if k != 'denoised':
+                                    self.analysis['arrays'].pop(k)
 
                         self.analyses.append(self.analysis)
                         pb.increment()
@@ -208,9 +214,10 @@ class ScanImages:
                                                          block=True, save_folder=self.save_folder)
 
                     if not store_images:
-                        for k in self.analysis.keys():
+                        list_keys = list(self.analysis['arrays'].keys())
+                        for k in list_keys:
                             if k != 'denoised':
-                                self.analysis.pop(k)
+                                self.analysis['arrays'].pop(k)
 
                 except Exception as ex:
                     api_error.error(str(ex), 'Failed to analyze average image')
@@ -220,7 +227,6 @@ class ScanImages:
                 self.summarize_analyses()
 
                 data_dict = {
-                    'scan': self.scan_obj,
                     'camera_r90': self.camera_r90,
                     'camera_name': self.camera_name,
                     'camera_roi': self.camera_roi,
@@ -263,7 +269,7 @@ class ScanImages:
 
             # average
             if avg_image is None:
-                avg_image: np.ndarray = self.analysis['arrays']['denoised'].copy()
+                avg_image = self.analysis['arrays']['denoised'].copy()
             else:
                 # alpha = 1.0 / (it + 2)
                 alpha = 1.0 / count

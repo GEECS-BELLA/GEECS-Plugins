@@ -8,7 +8,7 @@ from typing import Any
 from geecs_api.tools.images.batches import list_images
 from geecs_api.tools.interfaces.exports import save_py, load_py
 from geecs_api.tools.scans.scan_data import ScanData
-from geecs_api.tools.images.scan_images import ScanImages
+from geecs_api.tools.scans.scan_images import ScanImages
 from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.tools.distributions.fit_utility import fit_distribution

@@ -11,7 +11,7 @@ from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.tools.interfaces.prompts import text_input
 from geecs_api.devices.HTU.diagnostics.cameras.camera import Camera
-from geecs_api.tools.images.scan_images import ScanImages
+from geecs_api.tools.scans.scan_images import ScanImages
 from geecs_api.tools.images.filtering import FiltersParameters
 from htu_scripts.analysis.beam_analyses_collector import add_beam_analysis
 import matplotlib.pyplot as plt
