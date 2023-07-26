@@ -268,8 +268,19 @@ class PhasicsImageAnalyzer:
     
             """
             
+            # NU_X, NU_Y = np.meshgrid(self.freq_x, self.freq_y)
+            # IMG_cropped = self.IMG * ((np.square(NU_X - center.nu_x) + np.square(NU_Y - center.nu_y)) < self.diffraction_spot_crop_radius**2)
+            def crop_function(X, Y):
+                R = np.sqrt(np.square(X) + np.square(Y))
+                return 1.0 * (R < self.diffraction_spot_crop_radius)
+                # return np.exp(-np.square(R) / (2 * (self.diffraction_spot_crop_radius/2)**2))
+                # return (  (np.abs(X * Y) < (self.diffraction_spot_crop_radius / np.sqrt(2) / 3)**2)
+                #         * (R < self.diffraction_spot_crop_radius)
+                #        ) 
+
             NU_X, NU_Y = np.meshgrid(self.freq_x, self.freq_y)
-            IMG_cropped = self.IMG * ((np.square(NU_X - center.nu_x) + np.square(NU_Y - center.nu_y)) < self.diffraction_spot_crop_radius**2)
+    #        IMG_cropped = self.parent.IMG * ((np.square(NU_X - self.spatial_frequency.nu_x) + np.square(NU_Y - self.spatial_frequency.nu_y)) < self.parent.diffraction_spot_crop_radius**2)
+            IMG_cropped = self.IMG * crop_function(NU_X - center.nu_x, NU_Y - center.nu_y)
 
             # RegularGridInterpolator will strip the units off the grid and values, 
             # so make sure they are all handled correctly.
@@ -296,15 +307,15 @@ class PhasicsImageAnalyzer:
     def _reconstruct_wavefront_gradients_from_cropped_centered_diffraction_FTs(self) -> list[NDArray]:
         """ Calculate the angle (argument) of the inverse FT of a diffraction 
             spot image.
-            
+
             The wavefront gradient in a specific direction is in the argument 
             of the inverse FT. 
-        
+
             In particular, these wavefront gradient maps represent
                 nu . grad(W),
             where W is the wavefront, i.e. relative optical distance (in [length] 
             units)
-            
+
             Returns
             -------
             wavefront_gradient_maps : list of Quantity np.ndarray
