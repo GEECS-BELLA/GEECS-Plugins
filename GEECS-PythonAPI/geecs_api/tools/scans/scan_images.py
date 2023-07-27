@@ -46,6 +46,7 @@ class ScanImages:
         angle (int): rotation angle to apply (multiples of +/-90 deg only). Ignored if camera object is provided.
         """
 
+        self.scan_scalar_data = scan.data_dict
         self.scan_data_folder: Path = scan.get_folder()
         self.scan_analysis_folder: Path = scan.get_analysis_folder()
 
