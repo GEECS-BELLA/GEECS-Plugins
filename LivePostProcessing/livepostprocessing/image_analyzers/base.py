@@ -94,33 +94,3 @@ class ROI:
     def crop(self, image: np.ndarray):
         return image[self.top:self.bottom, self.left:self.right]
 
-
-class ImageAnalyzer:
-    roi: ROI
-
-    def __init__(self):
-        self.background = None
-        self.enable = True
-
-    def crop_image(self, image: Array2D) -> Array2D:
-        return Array2D(self.roi.crop(image))
-
-    def analyze_image(self, image: Array2D) -> dict[str, float|np.ndarray]:
-        """ Calculate metrics from an image.
-
-        This function should be implemented by each device's ImageAnalyzer subclass, 
-        to run on an image from that device (obviously).
-
-        Should take full-size (i.e. uncropped) image.
-        
-        Parameters
-        ----------
-        image : 2d array
-
-        Returns
-        -------
-        analysis : dict[str, float|np.ndarray]
-            metric name as key. value can be a float, 1d array, 2d array, etc.
-
-        """
-        raise NotImplementedError()

@@ -18,10 +18,14 @@ from phasics_density_analysis import PhasicsImageAnalyzer, ureg
 
 from ..utils import read_imaq_image
 
+from .camera import ImageAnalyzer
+
 import numpy as np
 from scipy.optimize import curve_fit
 
 class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
+
+    device_name = 'U_PhasicsFileCopy'
 
     def __init__(self, 
                  roi: ROI = ROI(top=None, bottom=317, left=118, right=1600), 
