@@ -394,7 +394,7 @@ def PlotBeamDistribution(image, tdms_filepath, interpSpec_filepath, shotnumber, 
 
     maxx, maxy, maxval = FindMax(image)
 
-    color_choice = 1  # 1 for saturation check, 2 for a tropical vacation, anything else for normal
+    color_choice = 0  # 1 for saturation check, 2 for a tropical vacation, anything else for normal
 
     if color_choice == 1:
         colors_normal = plt.cm.Greens_r(np.linspace(0, 0.80, 256))
@@ -532,12 +532,12 @@ def ParseInterpSpec(filename):
 def LoadImage(superpath, scannumber, shotnumber, folderpath, tdms_filepath=None, doThreshold=True, hardlimit=None,
               doNormalize=True):
     fullpath = DirectoryFunc.CompileFileLocation(superpath, scannumber, shotnumber, folderpath, suffix=".png")
-    if tdms_filepath is None:
-        tdms_filepath = DirectoryFunc.CompileTDMSFilepath(superpath, scannumber)
     image = pngTools.nBitPNG(fullpath)
     if doThreshold:
         image = ThresholdReduction(image, hardlimit)
     if doNormalize:
+        if tdms_filepath is None:
+            tdms_filepath = DirectoryFunc.CompileTDMSFilepath(superpath, scannumber)
         image = NormalizeImage(image, shotnumber, tdms_filepath)
     return image
 

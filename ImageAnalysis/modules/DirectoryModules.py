@@ -6,6 +6,8 @@ Module for compiling filepaths
 @author: chris
 """
 
+import os
+
 const_superpath = "Z:/data/Undulator/"
 
 def CompileDailyPath(day, month, year):
@@ -19,6 +21,16 @@ def CompilePlotInfo(day, month, year, scan, shot, cameraStr):
     scanStr = 'Scan '+'{:03d}'.format(scan)
     shotStr = 'Shot '+'{:03d}'.format(shot)
     return cameraStr +': ' + dateStr + ' ' + scanStr + ' ' + shotStr
+
+
+def GetNumberOfShots(superpath, scannumber, imagename):
+    scanpath = "Scan"+"{:03d}".format(scannumber)
+    num_shots = 0
+    for file in os.listdir(superpath + "/" + scanpath + "/" + imagename + "/"):
+        if file.endswith(".png"):
+            num_shots = num_shots + 1
+    print(num_shots)
+    return num_shots
 
 def CompileFileLocation(superpath, scannumber, shotnumber, imagename, suffix=".png"):
     """
