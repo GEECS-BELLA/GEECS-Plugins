@@ -28,10 +28,21 @@ const_HiResMagSpec_Resolution = 43  # ums/pixel
 const_default_sliceThreshold = 0.02
 
 # Factor to go from camera counts to pC/MeV
-# Record: June 29th, Scan 23, Shot 1 (HiRes ONLY)
-const_normalization_factor = 3.308440355409613e-06
+# Record: June 29th, Scan 23, HiResMagSpec
+const_normalization_factor = 8.419118646207455e-07#3.308440355409613e-06
 const_normalization_triggerdelay = 15.497208
 const_normalization_exposure = 0.010000
+
+# Record: July 25th, Scan 25, HiResMagSpec
+const_normalization_triggerdelay =  15.497208
+const_normalization_exposure = 0.010000
+const_normalization_factor = 9.4727828734251e-07
+
+
+# Record: July 25th, Scan 24, HiResMagSpec
+const_normalization_triggerdelay =  15.497208
+const_normalization_exposure = 0.010000
+const_normalization_factor = 1.1692436725651834e-06
 
 
 def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit=None, sliceThreshold=0.02,
@@ -55,20 +66,30 @@ def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimi
     clippedPercentage = CalculateClippedPercentage(image)
 
     charge_arr = CalculateChargeDensityDistribution(image)
+    if np.sum(charge_arr) == 0:
+        print("No beam this shot")
+        peakCharge = 0
+        averageEnergy = 0
+        energySpread = 0
+        peakChargeEnergy = 0
+        averageBeamSize = 0
+        beamAngle = 0
+        beamIntercept = 0
+        projectedBeamSize = 0
+    else:
+        peakCharge = CalculateMaximumCharge(charge_arr)
+        averageEnergy = CalculateAverageEnergy(charge_arr, energy_arr)
+        energySpread = CalculateStandardDeviationEnergy(charge_arr, energy_arr)
+        peakChargeEnergy = CalculatePeakEnergy(charge_arr, energy_arr)
 
-    peakCharge = CalculateMaximumCharge(charge_arr)
-    averageEnergy = CalculateAverageEnergy(charge_arr, energy_arr)
-    energySpread = CalculateStandardDeviationEnergy(charge_arr, energy_arr)
-    peakChargeEnergy = CalculatePeakEnergy(charge_arr, energy_arr)
-
-    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
-                                                                      threshold=sliceThreshold)
-    averageBeamSize = CalculateAverageSize(sigma_arr, amp_arr)  # * const_HiResMagSpec_Resolution
-    linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
-    beamAngle = linear_fit[0]  # * const_HiResMagSpec_Resolution
-    beamIntercept = linear_fit[1]  # * const_HiResMagSpec_Resolution
-    projected_axis, projected_arr, projectedBeamSize = CalculateProjectedBeamSize(image)
-    projectedBeamSize = projectedBeamSize * const_HiResMagSpec_Resolution
+        sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
+                                                                          threshold=sliceThreshold)
+        averageBeamSize = CalculateAverageSize(sigma_arr, amp_arr)  # * const_HiResMagSpec_Resolution
+        linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
+        beamAngle = linear_fit[0]  # * const_HiResMagSpec_Resolution
+        beamIntercept = linear_fit[1]  # * const_HiResMagSpec_Resolution
+        projected_axis, projected_arr, projectedBeamSize = CalculateProjectedBeamSize(image)
+        projectedBeamSize = projectedBeamSize * const_HiResMagSpec_Resolution
 
     magSpecDict = {
         "Clipped-Percentage": clippedPercentage,
@@ -199,7 +220,7 @@ def PrintNormalization(image, shotnumber, tdms_filepath):
 
     print("The following are the normalization factors,")
     print(" paste them into MagSpecAnalysis.py:")
-    print("const_normalization_factor =", charge / sum(sum(image)))
+    #print("const_normalization_factor =", charge / sum(sum(image)))
     print("const_normalization_triggerdelay = ", trigger_list[shotnumber - 1])
     print("const_normalization_exposure =", exposure_list[shotnumber - 1])
     return
@@ -394,7 +415,7 @@ def PlotBeamDistribution(image, tdms_filepath, interpSpec_filepath, shotnumber, 
 
     maxx, maxy, maxval = FindMax(image)
 
-    color_choice = 0  # 1 for saturation check, 2 for a tropical vacation, anything else for normal
+    color_choice = 2  # 1 for saturation check, 2 for a tropical vacation, anything else for normal
 
     if color_choice == 1:
         colors_normal = plt.cm.Greens_r(np.linspace(0, 0.80, 256))
@@ -405,7 +426,7 @@ def PlotBeamDistribution(image, tdms_filepath, interpSpec_filepath, shotnumber, 
         print("Saturation Counts:", analyzeDict["Saturation-Counts"])
         print("Saturation Percentage:", analyzeDict["Saturation-Counts"]/(np.shape(image)[0]*np.shape(image)[1])*100,"%")
 
-    elif color_choice == 2:
+    elif color_choice == 2 and maxval != 0:
         colors_water = plt.cm.terrain(np.linspace(0, 0.17, 256))
         colors_land = plt.cm.terrain(np.linspace(0.25, 1, 256))
         all_colors = np.vstack((colors_water, colors_land))
@@ -563,20 +584,29 @@ def ThresholdReduction(image, hardlimit=None, skipPlots=True):
         A separate instance of the initial image array that is threshold subtracted.
 
     """
+    method = 1
+
     if hardlimit is None:
-        xmax, ymax, maxval = FindMax(image)
-        xslice = image[ymax, :]
-        yslice = image[:, xmax]
-        xfit = MathTools.FitDataSomething(xslice, np.linspace(0, len(xslice), len(xslice)),
-                                          MathTools.GaussianOffset,
-                                          guess=[max(xslice), 5, np.argmax(xslice), min(xslice)], supress=skipPlots)
-        yfit = MathTools.FitDataSomething(yslice, np.linspace(0, len(yslice), len(yslice)),
-                                          MathTools.GaussianOffset,
-                                          guess=[max(yslice), 5, np.argmax(yslice), min(yslice)], supress=skipPlots)
-        threshold = np.max([xfit[3], yfit[3]])
+        if method == 0:
+            xmax, ymax, maxval = FindMax(image)
+            xslice = image[ymax, :]
+            yslice = image[:, xmax]
+            xfit = MathTools.FitDataSomething(xslice, np.linspace(0, len(xslice), len(xslice)),
+                                              MathTools.GaussianOffset,
+                                              guess=[max(xslice), 5, np.argmax(xslice), min(xslice)], supress=skipPlots)
+            yfit = MathTools.FitDataSomething(yslice, np.linspace(0, len(yslice), len(yslice)),
+                                              MathTools.GaussianOffset,
+                                              guess=[max(yslice), 5, np.argmax(yslice), min(yslice)], supress=skipPlots)
+            threshold = np.max([xfit[3], yfit[3]])
+        else:
+            width = 2
+            topslab = SlabAverage(image, -1, -1-width, 'x')
+            botslab = SlabAverage(image, 0, width, 'x')
+            leftslab = SlabAverage(image, -1, -1-width, 'y')
+            rightslab = SlabAverage(image, 0, width, 'y')
+            threshold = np.min([topslab, botslab, leftslab, rightslab])*4.0
     else:
         threshold = hardlimit
-
     returnimage = np.copy(image)
     for i in range(np.shape(image)[0]):
         for j in range(np.shape(image)[1]):
@@ -584,6 +614,22 @@ def ThresholdReduction(image, hardlimit=None, skipPlots=True):
             if returnimage[i][j] < 0:
                 returnimage[i][j] = 0
     return returnimage
+
+
+def SlabAverage(image, ind0, indf, axis):
+    slice_array = np.linspace(ind0, indf, np.abs(indf-ind0)+1)
+    average = 0
+    if axis == 'x':
+        for i in slice_array:
+            average = average + np.average(image[int(i),:])
+        average = average / len(slice_array)
+    elif axis == 'y':
+        for i in slice_array:
+            average = average + np.average(image[:,int(i)])
+        average = average / len(slice_array)
+    else:
+        print("SlabAverage needs 'x' or 'y'!")
+    return average
 
 
 # NOT YET IMPLEMENTED
@@ -595,7 +641,10 @@ def BackgroundSubtraction(image, background):
 def CalculateClippedPercentage(image):
     clipcheck = np.append(np.append(np.append(image[0, :], image[:, 0]), image[-1, :]), image[:, -1])
     xmax, ymax, maxval = FindMax(image)
-    return np.max(clipcheck) / maxval
+    if maxval != 0:
+        return np.max(clipcheck) / maxval
+    else:
+        return 1.0
 
 
 def CalculateProjectedBeamSize(image, calibrationFactor=const_HiResMagSpec_Resolution):
@@ -642,12 +691,18 @@ def CalculateMaximumCharge(charge_arr):
 
 
 def CalculateAverageEnergy(charge_arr, energy_arr):
-    return np.average(energy_arr, weights=charge_arr)
+    if np.sum(charge_arr) != 0:
+        return np.average(energy_arr, weights=charge_arr)
+    else:
+        return 0
 
 
 def CalculateStandardDeviationEnergy(charge_arr, energy_arr):
     average_energy = CalculateAverageEnergy(charge_arr, energy_arr)
-    return np.sqrt(np.average((energy_arr - average_energy) ** 2, weights=charge_arr))
+    if np.sum(charge_arr) != 0:
+        return np.sqrt(np.average((energy_arr - average_energy) ** 2, weights=charge_arr))
+    else:
+        return 0
 
 
 def CalculatePeakEnergy(charge_arr, energy_arr):
@@ -702,7 +757,10 @@ def FitTransverseGaussianSlices(image, calibrationFactor=1, threshold=0.01):
 
 
 def CalculateAverageSize(sigma_arr, amp_arr):
-    return np.average(sigma_arr, weights=amp_arr)
+    if np.sum(amp_arr) != 0:
+        return np.average(sigma_arr, weights=amp_arr)
+    else:
+        return 0
 
 
 def FitBeamAngle(x0_arr, amp_arr, energy_arr):

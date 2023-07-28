@@ -16,10 +16,13 @@ def CompileDailyPath(day, month, year):
     daypath = '{:02d}'.format(year%100) + '_' + '{:02d}'.format(month) + '{:02d}'.format(day)
     return const_superpath + yearpath + '/' + monthpath + '/' + daypath + '/scans'
 
-def CompilePlotInfo(day, month, year, scan, shot, cameraStr):
+def CompilePlotInfo(day, month, year, scan, shot = None, cameraStr = ''):
     dateStr = '{:02d}'.format(month) + '/' + '{:02d}'.format(day) + '/' + '{:02d}'.format(year%100)
     scanStr = 'Scan '+'{:03d}'.format(scan)
-    shotStr = 'Shot '+'{:03d}'.format(shot)
+    if shot is not None:
+        shotStr = 'Shot '+'{:03d}'.format(shot)
+    else:
+        shotStr = ''
     return cameraStr +': ' + dateStr + ' ' + scanStr + ' ' + shotStr
 
 

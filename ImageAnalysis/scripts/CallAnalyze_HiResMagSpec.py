@@ -17,22 +17,22 @@ Generate the filepath to the saved data here.  Including the scan and shot numbe
 In the future, this step will be embedded in some other process.
 """
 
-sampleCase = 1
+sampleCase = 2
 if sampleCase == 1:
     data_day = 29
     data_month = 6
     data_year = 2023
 
     scan_number = 23
-    shot_number = 35
+    shot_number = 3
 
 elif sampleCase == 2:
-    data_day = 13
+    data_day = 25
     data_month = 7
     data_year = 2023
 
-    scan_number = 20
-    shot_number = 18#5
+    scan_number = 24
+    shot_number = 27
 
 else:
     print("Pick a valid sample case!")
@@ -57,7 +57,8 @@ interpSpec_filepath = DirectoryFunc.CompileFileLocation(superpath, scan_number, 
 Below is some optional code to test that I can skip right to the plots and not worry about the dictionary.
 """
 
-MagSpecAnalysis.PlotBeamDistribution(raw_image, tdms_filepath, interpSpec_filepath, shot_number, doThreshold = False, doNormalize = False)
+plotInfo = DirectoryFunc.CompilePlotInfo(data_day, data_month, data_year, scan_number, shot_number, image_name)
+MagSpecAnalysis.PlotBeamDistribution(raw_image, tdms_filepath, interpSpec_filepath, shot_number, plotInfo=plotInfo, doThreshold = True, doNormalize = True)
 #MagSpecAnalysis.PlotBeamDistribution_Interp(raw_image_interp, tdms_filepath, interpSpec_filepath, shot_number, doThreshold = True, doNormalize = True)
 sys.exit()
 

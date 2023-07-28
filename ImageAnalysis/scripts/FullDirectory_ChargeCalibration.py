@@ -25,12 +25,20 @@ def linear(x, a):
 
 # Locate the scan directory
 
-sampleCase = 1
+normalizationCheck = False
+
+sampleCase = 2
 if sampleCase == 1:
     data_day = 29
     data_month = 6
     data_year = 2023
     scan_number = 23
+
+elif sampleCase == 2:
+    data_day = 25
+    data_month = 7
+    data_year = 2023
+    scan_number = 24
 
 else:
     print("Pick a valid sample case!")
@@ -52,7 +60,7 @@ for i in range(len(shot_arr)):
         print(i / len(shot_arr) * 100, "%")
     shot_number = shot_arr[i]
     print("Shot Number:", shot_number)
-    image = MagSpecAnalysis.LoadImage(superpath, scan_number, shot_number, image_name, doNormalize=False)
+    image = MagSpecAnalysis.LoadImage(superpath, scan_number, shot_number, image_name, doNormalize=normalizationCheck)
     print("Loaded")
     clipcheck_arr[i] = MagSpecAnalysis.CalculateClippedPercentage(image)
     print("Clipped Percentage:", clipcheck_arr[i])
@@ -62,6 +70,10 @@ for i in range(len(shot_arr)):
     print("Picoscope Charge:", picoscopecharge_arr[i])
     cameracounts_arr[i] = np.sum(image)
     print("Camera Counts:", cameracounts_arr[i])
+
+min_camera = 2e6
+min_pass  = np.where(clipcheck_arr > 2e6)[0]
+
 
 clip_tolerance = 0.001
 clip_pass = np.where(clipcheck_arr < clip_tolerance)[0]
@@ -86,10 +98,15 @@ both_picoscopecharge_arr = picoscopecharge_arr[both_pass]
 both_cameracounts_arr = cameracounts_arr[both_pass]
 
 lfit = np.polyfit(cameracounts_arr, picoscopecharge_arr, 1)
-popt, pcov = curve_fit(f, cameracounts_arr, picoscopecharge_arr)
+popt, pcov = curve_fit(linear, cameracounts_arr, picoscopecharge_arr)
 lfit[0] = popt[0]
 lfit[1] = 0
 print("Fit Values:",lfit)
+
+print("Calibration Constants:")
+tdms_filepath = DirectoryFunc.CompileTDMSFilepath(superpath, scan_number)
+MagSpecAnalysis.PrintNormalization(image, shot_number, tdms_filepath)
+print("const_normalization_factor =", lfit[0])
 
 axis = np.linspace(min(cameracounts_arr), max(cameracounts_arr),50)
 slope = axis*lfit[0] + lfit[1]
@@ -99,8 +116,13 @@ plt.scatter(cameracounts_arr, picoscopecharge_arr, color = "r", marker="o", labe
 plt.scatter(both_cameracounts_arr, both_picoscopecharge_arr, color = "b", marker="o", label="Good Shots")
 plt.scatter(clip_cameracounts_arr, clip_picoscopecharge_arr, color = "k", marker="1", label="Not Clipped")
 plt.scatter(sat_cameracounts_arr, sat_picoscopecharge_arr, color = "k", marker="2", label="Unsaturated")
-plt.plot(axis, slope, c = 'k', ls = 'dashed', label="Fit")
+plt.plot(axis, slope, c = 'k', ls = 'dashed', label="Fit: " + '{:.3e}'.format(lfit[0]))
 #plt.plot(axis, slope2, c = 'g', ls = 'dashed', label="Old Calibration")
-plt.xlabel("Camera Counts")
-plt.ylabel("Picoscope Charge (MeV)")
+if normalizationCheck:
+    plt.xlabel("Calibrated Camera Charge (pC)")
+else:
+    plt.xlabel("Camera Counts")
+plt.ylabel("Picoscope Charge (pC)")
+plotInfo = DirectoryFunc.CompilePlotInfo(data_day, data_month, data_year, scan_number, shot = None, cameraStr="Camera Charge Calibration")
+plt.title(plotInfo)
 plt.legend()
