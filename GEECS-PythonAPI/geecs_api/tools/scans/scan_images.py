@@ -7,7 +7,6 @@ import math
 import numpy as np
 import screeninfo
 from pathlib import Path
-import calendar as cal
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
 from skimage.transform import hough_ellipse
@@ -16,12 +15,13 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from progressbar import ProgressBar
 from typing import Optional, Any, Union
+from geecs_api.api_defs import ScanTag
+import geecs_api.experiment.htu as htu
 from geecs_api.tools.images.batches import list_images
 from geecs_api.devices.geecs_device import api_error
 import geecs_api.tools.images.ni_vision as ni
 from geecs_api.tools.interfaces.exports import save_py
 from geecs_api.tools.scans.scan_data import ScanData
-from geecs_api.interface import GeecsDatabase
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.devices.HTU.diagnostics.cameras import Camera
 from geecs_api.tools.images.filtering import basic_filter, FiltersParameters
@@ -63,7 +63,7 @@ class ScanImages:
             self.camera_name = camera
             self.camera_roi = np.array(Camera.ROIs[camera])
             self.camera_r90 = Camera.get_rot_90(Camera.label_from_name(camera))
-        elif isinstance(camera, str) and re.match(r'(U[1-9]|A[1-3]|Rad2|P1)', camera):  # shorthand label ('A1','U3',)
+        elif isinstance(camera, str) and re.match(r'(U[1-9]|A[1-3]|Rad2|P1|DP)', camera):  # shorthand label ('A1', )
             self.camera_name = Camera.name_from_label(camera)
             if (self.camera_name in Camera.ROIs) and (len(Camera.ROIs[self.camera_name]) == 4):
                 self.camera_roi = np.array(Camera.ROIs[self.camera_name])
@@ -598,6 +598,9 @@ class ScanImages:
     @staticmethod
     def render_image_analysis(analysis: dict[str, Any], tag: str = '', profiles: tuple[str] = ('com',),
                               comparison: bool = True, block: bool = False, save_folder: Optional[Path] = None):
+        if not block and save_folder is None:
+            return
+
         try:
             um_per_pix: float = analysis['camera']['um_per_pix']
             v_max = None
@@ -606,6 +609,13 @@ class ScanImages:
             if not tag:
                 image_path: Path = Path(analysis['paths']['image'])
                 tag = image_path.name.split(".")[0].split("_")[-1]
+
+            # raw roi
+            roi_raw: np.ndarray
+            if 'roi' in analysis['filters']:
+                roi_raw = analysis['filters']['roi']
+            else:
+                roi_raw = np.zeros((4,))
 
             for profile in profiles:
                 if ('profiles' in analysis['metrics']) and (profile in analysis['metrics']['profiles']):
@@ -622,6 +632,7 @@ class ScanImages:
                                                                      analysis['positions']['max_ij'][1]]
                         ax_i.imshow(analysis['arrays']['denoised'],
                                     cmap='hot', aspect='equal', origin='upper', vmin=0, vmax=v_max)
+                        ax_i.set_title(r'ROI (x$_{min/max}$, y$_{min/max}$): ' + f'{roi_raw}')
 
                         if 'edges' in analysis['arrays']:
                             edges = np.where(analysis['arrays']['edges'] != 0)
@@ -714,7 +725,7 @@ class ScanImages:
                         axs[it, 0].plot(pos_ij[1], pos_ij[0], '.w', markersize=2)
                         axs[it, 0].set_ylabel(analysis['positions']['long_names'][it])
                         axs[it, 1].plot(profile['x']['axis'], profile['x']['data'], 'b-',
-                                        label=rf'y$_0$ [pix] = {pos_ij[0]}')
+                                        label=rf'y$_0$ [pix] = {pos_ij[0]}, $\delta$x = {roi_raw[0]}')
                         axs[it, 1].plot(profile['x']['axis'], profile['x']['fit'], 'm-',
                                         label=r'$\mu_x$ = ' + f"{profile['x']['opt'][2]:.1f}, " +
                                               r'$\sigma_x$ = ' + f"{fwhm(profile['x']['opt'][3]):.1f}")
@@ -722,7 +733,7 @@ class ScanImages:
                         if it == 0:
                             axs[it, 1].set_title(rf'{um_per_pix:.2f} $\mu$m/pix')
                         axs[it, 2].plot(profile['y']['axis'], profile['y']['data'], 'b-',
-                                        label=rf'x$_0$ [pix] = {pos_ij[1]}')
+                                        label=rf'x$_0$ [pix] = {pos_ij[1]}, $\delta$y = {roi_raw[2]}')
                         axs[it, 2].plot(profile['y']['axis'], profile['y']['fit'], 'm-',
                                         label=r'$\mu_y$ = ' + f"{profile['y']['opt'][2]:.1f}, " +
                                               r'$\sigma_y$ = ' + f"{fwhm(profile['y']['opt'][3]):.1f}")
@@ -749,24 +760,18 @@ class ScanImages:
 
 
 if __name__ == '__main__':
-    base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    # base_path: Path = Path(r'Z:\data')
+    _base_path, is_local = htu.initialize()
+    _base_tag = ScanTag(2023, 7, 27, 24)
+    _camera = 'P1'
 
-    is_local = (str(base_path)[0] == 'C')
-    if not is_local:
-        GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    _folder = ScanData.build_folder_path(_base_tag, _base_path)
+    _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
+    _scan_images = ScanImages(_scan_data, _camera)
 
-    _base_tag = (2023, 7, 6, 7)
-    _camera_tag = 'P1'
-
-    _folder = base_path/'Undulator'/f'Y{_base_tag[0]}'/f'{_base_tag[1]:02d}-{cal.month_name[_base_tag[1]][:3]}'
-    _folder = _folder/f'{str(_base_tag[0])[-2:]}_{_base_tag[1]:02d}{_base_tag[2]:02d}'/'scans'/f'Scan{_base_tag[3]:03d}'
-
-    _scan = ScanData(_folder, ignore_experiment_name=is_local)
-    _images = ScanImages(_scan, _camera_tag)
-    _export_file_path, _data_dict = _images.run_analysis_with_checks(
+    _export_file_path, _data_dict = _scan_images.run_analysis_with_checks(
+        images=-1,
         initial_filtering=FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0,
                                             gauss_filter=5., com_threshold=0.66, bkg_image=None, box=True,
                                             ellipse=False),
-        plots=True, save=False)
+        plots=True, store_images=False, save=True)
     print('done')
