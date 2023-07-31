@@ -19,6 +19,7 @@ from scipy.optimize import curve_fit
 sys.path.insert(0, "../")
 import modules.MagSpecAnalysis as MagSpecAnalysis
 import modules.DirectoryModules as DirectoryFunc
+import modules.CedossMathTools as MathTools
 
 def linear(x, a):
     return a * x
@@ -38,7 +39,7 @@ elif sampleCase == 2:
     data_day = 25
     data_month = 7
     data_year = 2023
-    scan_number = 24
+    scan_number = 25
 
 else:
     print("Pick a valid sample case!")
@@ -71,10 +72,6 @@ for i in range(len(shot_arr)):
     cameracounts_arr[i] = np.sum(image)
     print("Camera Counts:", cameracounts_arr[i])
 
-min_camera = 2e6
-min_pass  = np.where(clipcheck_arr > 2e6)[0]
-
-
 clip_tolerance = 0.001
 clip_pass = np.where(clipcheck_arr < clip_tolerance)[0]
 clip_picoscopecharge_arr = picoscopecharge_arr[clip_pass]
@@ -88,17 +85,29 @@ sat_picoscopecharge_arr = picoscopecharge_arr[sat_pass]
 sat_cameracounts_arr = cameracounts_arr[sat_pass]
 print("Non-Saturated:", len(sat_pass))
 
+"""# Old way before i made my nice function
 both_pass = np.array([])
 for j in range(len(clip_pass)):
     for k in range(len(sat_pass)):
         if clip_pass[j] == sat_pass[k]:
             both_pass = np.append(both_pass, int(clip_pass[j]))
-both_pass = both_pass.astype(int)
+both_pass = both_pass.astype(int)"""
+
+if normalizationCheck:
+    min_camera = 2
+else:
+    min_camera = 2e6
+all_conditions = [
+    [clipcheck_arr, '<', clip_tolerance],
+    [saturation_arr, '<', sat_tolerance],
+    [cameracounts_arr, '>', min_camera]
+]
+both_pass = MathTools.GetInequalityIndices(all_conditions)
 both_picoscopecharge_arr = picoscopecharge_arr[both_pass]
 both_cameracounts_arr = cameracounts_arr[both_pass]
 
-lfit = np.polyfit(cameracounts_arr, picoscopecharge_arr, 1)
-popt, pcov = curve_fit(linear, cameracounts_arr, picoscopecharge_arr)
+lfit = np.polyfit(both_cameracounts_arr, both_picoscopecharge_arr, 1)
+popt, pcov = curve_fit(linear, both_cameracounts_arr, both_picoscopecharge_arr)
 lfit[0] = popt[0]
 lfit[1] = 0
 print("Fit Values:",lfit)

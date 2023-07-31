@@ -36,13 +36,13 @@ const_normalization_exposure = 0.010000
 # Record: July 25th, Scan 25, HiResMagSpec
 const_normalization_triggerdelay =  15.497208
 const_normalization_exposure = 0.010000
-const_normalization_factor = 9.4727828734251e-07
+const_normalization_factor = 1.0510602507596621e-06
 
 
 # Record: July 25th, Scan 24, HiResMagSpec
 const_normalization_triggerdelay =  15.497208
 const_normalization_exposure = 0.010000
-const_normalization_factor = 1.1692436725651834e-06
+const_normalization_factor = 1.1301095153900242e-06
 
 
 def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit=None, sliceThreshold=0.02,
@@ -92,6 +92,7 @@ def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimi
         projectedBeamSize = projectedBeamSize * const_HiResMagSpec_Resolution
 
     magSpecDict = {
+        "Shot-Number": shotnumber,
         "Clipped-Percentage": clippedPercentage,
         "Saturation-Counts": saturationCheck,
         "Charge-On-Camera": chargeOnCamera,
