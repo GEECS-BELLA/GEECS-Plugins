@@ -73,9 +73,5 @@ if not TDMSFuncs.CheckExist(tdmsFilepath) or doOverwrite:
 tdms_data = TDMSFuncs.ReadFullTDMSScan(tdmsFilepath)
 
 array_name = 'Average-Beam-Size'
-
-
-group = tdms_data[camera_name]
-channel = group[array_name]
-array = channel.data
+array = TDMSFuncs.ReturnChannelArray(tdms_data, camera_name, array_name)
 print(array)
