@@ -11,7 +11,6 @@ from geecs_python_api.tools.images.batches import average_images
 from geecs_python_api.controls.api_defs import VarAlias
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.interface.geecs_database import GeecsDatabase
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
 
 
 class Camera(GeecsDevice):
@@ -197,38 +196,6 @@ class Camera(GeecsDevice):
             except Exception:
                 continue
 
-class ImageAnalyzer(Camera, ScanImages):
-    device_name: str
-
-    def __init__(self, scan: ScanData):
-        self.background = None
-        self.enable = True
-
-        Camera.__init__(self, self.device_name)
-        ScanImages.__init__(self, scan, self)
-
-    def crop_image(self, image: Array2D) -> Array2D:
-        return Array2D(self.roi.crop(image))
-
-    def analyze_image(self, image: Array2D) -> dict[str, float|np.ndarray]:
-        """ Calculate metrics from an image.
-
-        This function should be implemented by each device's ImageAnalyzer subclass, 
-        to run on an image from that device (obviously).
-
-        Should take full-size (i.e. uncropped) image.
-        
-        Parameters
-        ----------
-        image : 2d array
-
-        Returns
-        -------
-        analysis : dict[str, float|np.ndarray]
-            metric name as key. value can be a float, 1d array, 2d array, etc.
-
-        """
-        raise NotImplementedError()
 
 if __name__ == '__main__':
     GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
