@@ -1,8 +1,8 @@
 from __future__ import annotations
 import time
 from typing import Optional, Union
-from geecs_api.api_defs import VarAlias, AsyncResult
-from geecs_api.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.api_defs import VarAlias, AsyncResult
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
 
 class Screen(GeecsDevice):

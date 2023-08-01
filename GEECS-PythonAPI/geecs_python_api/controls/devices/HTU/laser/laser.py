@@ -1,4 +1,4 @@
-from geecs_api.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from . import LaserCompressor, LaserDump
 from .seed import Seed
 from .pump import Pump

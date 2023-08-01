@@ -8,10 +8,10 @@ from threading import Thread, Event
 from datetime import datetime as dtime
 from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
-    from geecs_api.devices import GeecsDevice
-import geecs_api.interface.message_handling as mh
-from geecs_api.interface.geecs_errors import api_error
-from geecs_api.api_defs import ThreadInfo
+    from geecs_python_api.controls.devices import GeecsDevice
+import geecs_python_api.controls.interface.message_handling as mh
+from geecs_python_api.controls.interface.geecs_errors import api_error
+from geecs_python_api.controls.api_defs import ThreadInfo
 
 
 class UdpHandler:

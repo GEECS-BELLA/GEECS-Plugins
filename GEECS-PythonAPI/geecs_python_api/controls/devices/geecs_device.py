@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 from typing import Optional, Any, Union, TYPE_CHECKING
-from geecs_api.api_defs import VarAlias
+from geecs_python_api.controls.api_defs import VarAlias
 if TYPE_CHECKING:
-    from geecs_api.api_defs import VarDict, ExpDict, AsyncResult, ThreadInfo
+    from geecs_python_api.controls.api_defs import VarDict, ExpDict, AsyncResult, ThreadInfo
 import queue
 import re
 import inspect
@@ -17,8 +17,8 @@ import numpy.typing as npt
 from pathlib import Path
 from threading import Thread, Condition, Event, Lock
 from datetime import datetime as dtime
-import geecs_api.interface.message_handling as mh
-from geecs_api.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorAPI, api_error
+import geecs_python_api.controls.interface.message_handling as mh
+from geecs_python_api.controls.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorAPI, api_error
 
 
 class GeecsDevice:

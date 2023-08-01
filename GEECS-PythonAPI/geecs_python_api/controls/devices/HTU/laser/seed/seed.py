@@ -1,5 +1,5 @@
 from __future__ import annotations
-from geecs_api.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from .seed_amp4_shutter import SeedAmp4Shutter
 
 

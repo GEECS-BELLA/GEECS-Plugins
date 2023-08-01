@@ -1,10 +1,10 @@
 from __future__ import annotations
-from geecs_api.api_defs import VarAlias
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.interface import GeecsDatabase, api_error
-from geecs_api.devices.HTU.multi_channels import PlungersPLC
-from geecs_api.devices.HTU.diagnostics.cameras import Camera
-from geecs_api.devices.HTU.diagnostics.screens import Screen
+from geecs_python_api.controls.api_defs import VarAlias
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.interface import GeecsDatabase, api_error
+from geecs_python_api.controls.devices.HTU.multi_channels import PlungersPLC
+from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
+from geecs_python_api.controls.devices.HTU.diagnostics.screens import Screen
 
 
 class EImager(GeecsDevice):

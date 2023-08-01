@@ -1,8 +1,8 @@
 from __future__ import annotations
 import inspect
 from typing import Optional, Any, Union
-from geecs_api.api_defs import VarAlias, AsyncResult, SysPath
-from geecs_api.devices.geecs_device import GeecsDevice, api_error
+from geecs_python_api.controls.api_defs import VarAlias, AsyncResult, SysPath
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice, api_error
 
 
 class Quads(GeecsDevice):

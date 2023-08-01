@@ -1,10 +1,10 @@
 from pathlib import Path
 from dotenv import dotenv_values
-from geecs_api.api_defs import exec_async
-from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU import Laser, GasJet, Transport, Diagnostics
-from geecs_api.experiment import Experiment
+from geecs_python_api.controls.api_defs import exec_async
+from geecs_python_api.controls.interface import GeecsDatabase
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.HTU import Laser, GasJet, Transport, Diagnostics
+from geecs_python_api.controls.experiment import Experiment
 
 
 class HtuExp(Experiment):

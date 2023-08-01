@@ -8,11 +8,11 @@ from datetime import datetime as dtime, date
 from typing import Optional, Union, NamedTuple
 import matplotlib.pyplot as plt
 from configparser import ConfigParser, NoSectionError
-from geecs_api.api_defs import SysPath, ScanTag
-from geecs_api.interface import api_error
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.tools.scans.tdms import read_geecs_tdms
-from geecs_api.tools.distributions.binning import unsupervised_binning, BinningResults
+from geecs_python_api.controls.api_defs import SysPath, ScanTag
+from geecs_python_api.controls.interface import api_error
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
+from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
 
 
 class ScanData:

@@ -1,7 +1,7 @@
 from __future__ import annotations
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.transport.hexapod_pmq import PMQ
-from geecs_api.devices.HTU.transport.magnets import Chicane, Steering, Quads
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.HTU.transport.hexapod_pmq import PMQ
+from geecs_python_api.controls.devices.HTU.transport.magnets import Chicane, Steering, Quads
 
 
 class Transport(GeecsDevice):

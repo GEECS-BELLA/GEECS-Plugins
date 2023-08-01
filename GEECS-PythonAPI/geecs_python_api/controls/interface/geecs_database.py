@@ -4,8 +4,8 @@ import configparser
 import mysql.connector
 from pathlib import Path
 from typing import Union, Optional
-from geecs_api.api_defs import ExpDict
-from geecs_api.interface.geecs_errors import api_error
+from geecs_python_api.controls.api_defs import ExpDict
+from geecs_python_api.controls.interface.geecs_errors import api_error
 import tkinter as tk
 from tkinter import filedialog
 

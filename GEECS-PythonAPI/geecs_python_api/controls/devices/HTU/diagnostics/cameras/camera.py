@@ -7,11 +7,11 @@ import numpy as np
 from typing import Any
 from pathlib import Path
 from datetime import datetime as dtime
-from geecs_api.tools.images.batches import average_images
-from geecs_api.api_defs import VarAlias
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.interface.geecs_database import GeecsDatabase
-from geecs_api.tools.scans.scan_images import ScanImages
+from geecs_python_api.tools.images.batches import average_images
+from geecs_python_api.controls.api_defs import VarAlias
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.interface.geecs_database import GeecsDatabase
+from geecs_python_api.analysis.images.scans.scan_images import ScanImages
 
 
 class Camera(GeecsDevice):

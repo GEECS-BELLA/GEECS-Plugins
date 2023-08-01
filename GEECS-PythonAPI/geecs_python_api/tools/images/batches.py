@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Optional, Union
 import matplotlib.pyplot as plt
 from progressbar import ProgressBar
-from geecs_api.devices.geecs_device import api_error
-import geecs_api.tools.images.ni_vision as ni
+from geecs_python_api.controls.devices.geecs_device import api_error
+import geecs_python_api.tools.images.ni_vision as ni
 
 
 def average_images(images_folder: Union[Path, str], n_images: int = 0, file_extension: str = '.png') \

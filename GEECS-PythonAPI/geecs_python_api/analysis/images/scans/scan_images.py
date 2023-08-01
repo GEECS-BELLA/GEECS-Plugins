@@ -15,18 +15,18 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from progressbar import ProgressBar
 from typing import Optional, Any, Union
-from geecs_api.api_defs import ScanTag
-import geecs_api.experiment.htu as htu
-from geecs_api.tools.images.batches import list_images
-from geecs_api.devices.geecs_device import api_error
-import geecs_api.tools.images.ni_vision as ni
-from geecs_api.tools.interfaces.exports import save_py
-from geecs_api.tools.scans.scan_data import ScanData
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.diagnostics.cameras import Camera
-from geecs_api.tools.images.filtering import basic_filter, FiltersParameters
-from geecs_api.tools.images.spot import spot_analysis, fwhm, n_sigma_window
-from geecs_api.tools.interfaces.prompts import text_input
+from geecs_python_api.controls.api_defs import ScanTag
+import geecs_python_api.controls.experiment.htu as htu
+from geecs_python_api.tools.images.batches import list_images
+from geecs_python_api.controls.devices.geecs_device import api_error
+import geecs_python_api.tools.images.ni_vision as ni
+from geecs_python_api.tools.interfaces.exports import save_py
+from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
+from geecs_python_api.tools.images.filtering import basic_filter, FiltersParameters
+from geecs_python_api.tools.images.spot import spot_analysis, fwhm, n_sigma_window
+from geecs_python_api.tools.interfaces.prompts import text_input
 
 
 class ScanImages:

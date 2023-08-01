@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Any
-from geecs_api.api_defs import VarAlias
-from geecs_api.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.api_defs import VarAlias
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
 
 class PlungersVISA(GeecsDevice):

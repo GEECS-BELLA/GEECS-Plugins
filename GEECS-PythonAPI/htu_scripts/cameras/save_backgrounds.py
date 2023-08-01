@@ -1,6 +1,6 @@
-from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.diagnostics.cameras import Camera
+from geecs_python_api.controls.interface import GeecsDatabase
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
 
 
 # parameters

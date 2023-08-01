@@ -1,7 +1,7 @@
 import socket
 from typing import Optional
-from geecs_api.devices import GeecsDevice
-from geecs_api.interface import GeecsDatabase, api_error
+from geecs_python_api.controls.devices import GeecsDevice
+from geecs_python_api.controls.interface import GeecsDatabase, api_error
 
 
 class Experiment:

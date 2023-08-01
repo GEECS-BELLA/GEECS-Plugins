@@ -1,6 +1,6 @@
 from typing import Optional
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.transport.magnets.chicane.chicane_supply import ChicaneSupply
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.HTU.transport.magnets.chicane.chicane_supply import ChicaneSupply
 
 
 class Chicane(GeecsDevice):

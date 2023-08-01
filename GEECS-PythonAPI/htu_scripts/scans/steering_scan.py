@@ -3,11 +3,11 @@ import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 from typing import Optional, Union
-from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.tools.distributions.binning import unsupervised_binning
-from geecs_api.tools.scans.scan_images import ScanImages
-from geecs_api.tools.scans.scan_data import ScanData
+from geecs_python_api.controls.interface import GeecsDatabase
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.tools.distributions.binning import unsupervised_binning
+from geecs_python_api.analysis.images.scans.scan_images import ScanImages
+from geecs_python_api.analysis.images.scans.scan_data import ScanData
 
 
 # class SteeringScan:

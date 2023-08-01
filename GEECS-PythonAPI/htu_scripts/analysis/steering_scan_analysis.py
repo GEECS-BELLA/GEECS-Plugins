@@ -6,16 +6,16 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from progressbar import ProgressBar
 from typing import Union, NamedTuple, Any, Optional
-from geecs_api.interface import GeecsDatabase, api_error
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.diagnostics.cameras import Camera
-from geecs_api.tools.distributions.binning import unsupervised_binning, BinningResults
-from geecs_api.tools.scans.scan_images import ScanImages
-from geecs_api.tools.scans.scan_data import ScanData
-from geecs_api.tools.images.filtering import FiltersParameters
-from geecs_api.tools.interfaces.exports import load_py, save_py
-from geecs_api.tools.interfaces.prompts import text_input
-from geecs_api.tools.distributions.fit_utility import fit_distribution
+from geecs_python_api.controls.interface import GeecsDatabase, api_error
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
+from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
+from geecs_python_api.analysis.images.scans.scan_images import ScanImages
+from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.tools.images.filtering import FiltersParameters
+from geecs_python_api.tools.interfaces.exports import load_py, save_py
+from geecs_python_api.tools.interfaces.prompts import text_input
+from geecs_python_api.tools.distributions.fit_utility import fit_distribution
 from htu_scripts.analysis.beam_analyses_collector import add_beam_analysis
 
 

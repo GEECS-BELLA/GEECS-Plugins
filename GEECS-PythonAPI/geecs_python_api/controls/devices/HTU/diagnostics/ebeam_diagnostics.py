@@ -1,10 +1,10 @@
 from __future__ import annotations
 import time
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.multi_channels import PlungersPLC, PlungersVISA
-from geecs_api.devices.HTU.diagnostics.e_imager import EImager
-from geecs_api.interface import GeecsDatabase, api_error
-from geecs_api.devices.HTU.diagnostics.undulator_stage import UndulatorStage
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.HTU.multi_channels import PlungersPLC, PlungersVISA
+from geecs_python_api.controls.devices.HTU.diagnostics.e_imager import EImager
+from geecs_python_api.controls.interface import GeecsDatabase, api_error
+from geecs_python_api.controls.devices.HTU.diagnostics.undulator_stage import UndulatorStage
 
 
 class EBeamDiagnostics(GeecsDevice):

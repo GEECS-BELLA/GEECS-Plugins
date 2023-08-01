@@ -1,9 +1,9 @@
 import inspect
 from pathlib import Path
 from typing import Optional, Union
-from geecs_api.api_defs import VarAlias, AsyncResult
-from geecs_api.devices.geecs_device import GeecsDevice, api_error
-from geecs_api.devices.HTU.transport.magnets.steering.steering_supply import SteeringSupply
+from geecs_python_api.controls.api_defs import VarAlias, AsyncResult
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice, api_error
+from geecs_python_api.controls.devices.HTU.transport.magnets.steering.steering_supply import SteeringSupply
 
 
 class Steering(GeecsDevice):

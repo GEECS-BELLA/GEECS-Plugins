@@ -11,9 +11,9 @@ from skimage.morphology import closing, square
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.widgets import RectangleSelector
-from geecs_api.tools.images.batches import average_images
-import geecs_api.tools.images.ni_vision as ni
-from geecs_api.devices.HTU.diagnostics.cameras import Camera
+from geecs_python_api.tools.images.batches import average_images
+import geecs_python_api.tools.images.ni_vision as ni
+from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
 
 
 @dataclass

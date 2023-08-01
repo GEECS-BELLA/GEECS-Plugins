@@ -6,9 +6,9 @@ from threading import Thread, Event
 from typing import TYPE_CHECKING
 from datetime import datetime as dtime
 if TYPE_CHECKING:
-    from geecs_api.devices import GeecsDevice
-import geecs_api.interface.message_handling as mh
-from geecs_api.interface.geecs_errors import ErrorAPI, api_error
+    from geecs_python_api.controls.devices import GeecsDevice
+import geecs_python_api.controls.interface.message_handling as mh
+from geecs_python_api.controls.interface.geecs_errors import ErrorAPI, api_error
 
 
 class TcpSubscriber:

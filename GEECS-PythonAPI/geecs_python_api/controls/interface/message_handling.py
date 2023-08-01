@@ -2,8 +2,8 @@ import queue
 import inspect
 import threading
 from typing import Optional
-from geecs_api.interface.geecs_errors import ErrorAPI, api_error
-from geecs_api.interface.event_handler import EventHandler
+from geecs_python_api.controls.interface.geecs_errors import ErrorAPI, api_error
+from geecs_python_api.controls.interface.event_handler import EventHandler
 
 
 class NetworkMessage:

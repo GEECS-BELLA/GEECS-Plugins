@@ -6,8 +6,8 @@ import numpy as np
 from typing import Optional, Any
 import scipy.ndimage as simg
 from scipy.signal import savgol_filter
-from geecs_api.tools.images.filtering import basic_filter
-from geecs_api.tools.distributions.fit_utility import fit_distribution
+from geecs_python_api.tools.images.filtering import basic_filter
+from geecs_python_api.tools.distributions.fit_utility import fit_distribution
 
 
 def fwhm(sd):

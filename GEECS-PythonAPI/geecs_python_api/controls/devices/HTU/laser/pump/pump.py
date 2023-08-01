@@ -1,9 +1,9 @@
 from __future__ import annotations
 import inspect
 from typing import Optional, Any, Union
-from geecs_api.api_defs import VarAlias, AsyncResult
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.laser.pump.pump_shutters import PumpShutters
+from geecs_python_api.controls.api_defs import VarAlias, AsyncResult
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.HTU.laser.pump.pump_shutters import PumpShutters
 
 
 class Pump(GeecsDevice):
