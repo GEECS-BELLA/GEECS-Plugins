@@ -6,6 +6,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from progressbar import ProgressBar
 from typing import Union, NamedTuple, Any, Optional
+from geecs_api.api_defs import ScanTag
+import geecs_api.experiment.htu as htu
 from geecs_api.interface import GeecsDatabase, api_error
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.tools.distributions.binning import unsupervised_binning, BinningResults
@@ -15,7 +17,6 @@ from geecs_api.tools.images.filtering import FiltersParameters
 from geecs_api.tools.images.displays import polyfit_label
 from geecs_api.tools.interfaces.exports import load_py, save_py
 from geecs_api.tools.interfaces.prompts import text_input
-from geecs_api.api_defs import ScanTag
 # from geecs_api.devices.HTU.laser import LaserCompressor
 
 
@@ -312,30 +313,25 @@ class ScanAnalysis:
 if __name__ == '__main__':
     # database
     # --------------------------------------------------------------------------
-    # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    base_path: Path = Path(r'Z:\data')
+    _base_path, is_local = htu.initialize()
+    _base_tag = ScanTag(2023, 7, 27, 25)
 
-    is_local = (str(base_path)[0] == 'C')
-    if not is_local:
-        GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
-
-    _base_tag = ScanTag(2023, 4, 13, 21)
     # _device = LaserCompressor()
     # _variable = _key_device.var_separation
     # _camera = Camera('UC_TopView')
-    _device = 'U_S2V'
-    _variable = 'Current'
-    _camera = 'UC_Phosphor1'
+    _device = 'U_EMQTripletBipolar'
+    _variable = 'Current_Limit.Ch1'
+    _camera = 'P1'
 
-    _folder = ScanData.build_folder_path(_base_tag, base_path)
+    _folder = ScanData.build_folder_path(_base_tag, _base_path)
     _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
     _scan_images = ScanImages(_scan_data, _camera)
     _scan_analysis = ScanAnalysis(_scan_data, _scan_images, _device)
 
     # scan analysis
     # --------------------------------------------------------------------------
-    _path, _dict = _scan_analysis.analyze(_variable, com_threshold=0.5, bkg_image=None, blind_loads=True,
-                                          store_images=False, store_scalars=False, save_plots=False, save=True)
+    _path = _scan_analysis.analyze(_variable, com_threshold=0.66, bkg_image=None, blind_loads=True,
+                                   store_images=False, store_scalars=False, save_plots=False, save=True)
 
     _scan_analysis.render(physical_units=False, x_label='Current [A]',
                           show_xy=True, show_fwhms=True, show_deltas=False,

@@ -3,10 +3,10 @@ from numpy.polynomial.polynomial import polyfit
 from pathlib import Path
 import matplotlib.pyplot as plt
 from typing import Union, Any, Optional
+from geecs_api.api_defs import ScanTag
 import geecs_api.experiment.htu as htu
 from geecs_api.tools.scans.scan_data import ScanData
 from geecs_api.tools.interfaces.prompts import text_input
-from geecs_api.api_defs import ScanTag
 from geecs_api.tools.scans.scan_images import ScanImages
 from geecs_api.tools.scans import ScanAnalysis
 from geecs_api.tools.interfaces.exports import save_py
