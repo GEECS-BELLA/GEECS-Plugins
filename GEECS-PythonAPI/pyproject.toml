@@ -22,6 +22,8 @@ xopt = "^1.4.1"
 mysql-connector = "^2.2.9"
 screeninfo = "^0.8.1"
 
+phasicsdensity = {path = "../PhasicsDensity/", develop = true}
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
