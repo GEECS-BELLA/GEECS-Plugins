@@ -68,14 +68,14 @@ def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimi
     charge_arr = CalculateChargeDensityDistribution(image)
     if np.sum(charge_arr) == 0:
         print("No beam this shot")
-        peakCharge = 0
-        averageEnergy = 0
-        energySpread = 0
-        peakChargeEnergy = 0
-        averageBeamSize = 0
-        beamAngle = 0
-        beamIntercept = 0
-        projectedBeamSize = 0
+        peakCharge = float(0)
+        averageEnergy = float(0)
+        energySpread = float(0)
+        peakChargeEnergy = float(0)
+        averageBeamSize = float(0)
+        beamAngle = float(0)
+        beamIntercept = float(0)
+        projectedBeamSize = float(0)
     else:
         peakCharge = CalculateMaximumCharge(charge_arr)
         averageEnergy = CalculateAverageEnergy(charge_arr, energy_arr)
