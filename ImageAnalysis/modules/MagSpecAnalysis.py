@@ -87,7 +87,7 @@ def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimi
         averageBeamSize = CalculateAverageSize(sigma_arr, amp_arr)  # * const_HiResMagSpec_Resolution
         linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
         beamAngle = linear_fit[0]  # * const_HiResMagSpec_Resolution
-        beamIntercept = linear_fit[1]  # * const_HiResMagSpec_Resolution
+        beamIntercept = 100*beamAngle + linear_fit[1]  # * const_HiResMagSpec_Resolution
         projected_axis, projected_arr, projectedBeamSize = CalculateProjectedBeamSize(image)
         projectedBeamSize = projectedBeamSize * const_HiResMagSpec_Resolution
 

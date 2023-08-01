@@ -31,7 +31,7 @@ elif sampleCase == 2:
     data_month = 7
     data_year = 2023
 
-    scan_number = 24
+    scan_number = 25
     shot_number = 27
 
 else:

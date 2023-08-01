@@ -13,10 +13,10 @@ import modules.DirectoryModules as DirectoryFunc
 import modules.CedossMathTools as MathTools
 
 # Define constants and filepaths
-data_day = 29#25
-data_month = 6#7
+data_day = 25
+data_month = 7
 data_year = 2023
-scan_number = 23#24
+scan_number = 25
 #superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
 image_name = "U_HiResMagCam"
 
