@@ -11,7 +11,7 @@ import geecs_api.tools.images.ni_vision as ni
 
 def average_images(images_folder: Union[Path, str], n_images: int = 0, file_extension: str = '.png') \
         -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    images = list_images(images_folder, n_images, file_extension)
+    images = list_files(images_folder, n_images, file_extension)
 
     # run averaging
     if images:
@@ -38,33 +38,33 @@ def average_images(images_folder: Union[Path, str], n_images: int = 0, file_exte
             return None, None
 
 
-def list_images(images_folder: Union[Path, str], n_images: Optional[int] = None, file_extension: str = '.png') \
+def list_files(folder: Union[Path, str], n_files: Optional[int] = None, file_extension: str = '.png') \
         -> Optional[list[Path]]:
     # file extension
     if not file_extension:
         return None
 
-    images_folder = Path(images_folder)
+    folder = Path(folder)
     file_extension = file_extension.lower().strip()
     if file_extension.startswith('.'):
         file_extension = file_extension[1:]
 
-    if file_extension not in ['png', 'jpg', 'jpeg', 'tiff', 'tif']:
-        return None
+    # if file_extension not in ['png', 'jpg', 'jpeg', 'tiff', 'tif']:
+    #     return None
 
-    # list images
-    images = sorted(glob.glob(str(images_folder / f'*.{file_extension}')), key=lambda f: Path(f).parts[-1])
+    # list files
+    files = sorted(glob.glob(str(folder / f'*.{file_extension}')), key=lambda f: Path(f).parts[-1])
 
-    if n_images > 0:
-        images = images[-n_images:]
+    if n_files > 0:
+        files = files[-n_files:]
 
-    return [Path(p) for p in images]
+    return [Path(p) for p in files]
 
 
 if __name__ == '__main__':
-    folder = r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\05-May\23_0509\scans\Scan022\UC_VisaEBeam1'
+    _folder = r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\05-May\23_0509\scans\Scan022\UC_VisaEBeam1'
 
-    image, _ = average_images(folder)
+    image, _ = average_images(_folder)
     plt.figure()
     plt.imshow(image)
     plt.show(block=True)

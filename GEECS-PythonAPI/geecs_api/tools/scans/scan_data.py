@@ -5,14 +5,15 @@ import numpy as np
 import calendar as cal
 from pathlib import Path
 from datetime import datetime as dtime, date
-from typing import Optional, Union, NamedTuple
+from typing import Optional, Union, Any
 import matplotlib.pyplot as plt
 from configparser import ConfigParser, NoSectionError
 from geecs_api.api_defs import SysPath, ScanTag
+import geecs_api.experiment.htu as htu
+from geecs_api.tools.images.batches import list_files
 from geecs_api.interface import api_error
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.tools.scans.tdms import read_geecs_tdms
-from geecs_api.tools.distributions.binning import unsupervised_binning, BinningResults
 
 
 class ScanData:
@@ -130,9 +131,11 @@ class ScanData:
             os.makedirs(self.__analysis_folder)
 
         # scalar data
-        tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
-        if load_scalars and tdms_path.is_file():
-            self.data_dict, self.data_frame = read_geecs_tdms(tdms_path)
+        if load_scalars:
+            self.load_scalar_data()
+        else:
+            self.data_dict = None
+            self.data_frame = None
 
     def get_folder(self) -> Optional[Path]:
         return self.__folder
@@ -155,6 +158,33 @@ class ScanData:
             api_error.warning(f'ScanInfo file does not have a "Scan Info" section',
                               f'ScanData class, method "{inspect.stack()[0][3]}"')
 
+    def load_scalar_data(self) -> bool:
+        tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
+        if tdms_path.is_file():
+            self.data_dict, self.data_frame = read_geecs_tdms(tdms_path)
+
+        return tdms_path.is_file()
+
+    def load_mag_spec_data(self) -> dict[str, Any]:
+        magspec_dict = {'full': {}, 'hi_res': {}}
+        magspec_dict['full']['paths'] = list_files(self.__folder / 'U_BCaveMagSpec-interpSpec', -1, '.txt')
+        magspec_dict['hi_res']['paths'] = list_files(self.__folder / 'U_HiResMagCam-interpSpec', -1, '.txt')
+
+        for key in ['full', 'hi_res']:
+            specs = []
+            shots = []
+            for path in magspec_dict[key]['paths']:
+                try:
+                    specs.append(np.loadtxt(path, skiprows=1))
+                    shots.append(int(path.name[-7:-4]))
+                except Exception:
+                    continue
+
+            magspec_dict[key]['specs'] = np.array(specs)
+            magspec_dict[key]['shots'] = np.array(shots)
+
+        return magspec_dict
+
     @staticmethod
     def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator')\
             -> Path:
@@ -168,37 +198,19 @@ class ScanData:
 
 
 if __name__ == '__main__':
-    # GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+    _base_path, is_local = htu.initialize()
+    _base_tag = ScanTag(2023, 7, 6, 4)
 
-    _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
-    # _base: Path = Path(r'Z:\data')
-    _key_device = 'U_S4H'
+    _folder = ScanData.build_folder_path(_base_tag, _base_path)
+    _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
 
-    _scan = ScanData(tag=ScanTag(2023, 4, 13, 26), experiment_base_path=_base / 'Undulator')
-    _key_data = _scan.data_dict[_key_device]
-
-    measured: BinningResults = unsupervised_binning(_key_data['Current'], _key_data['shot #'])
-
-    Expected = NamedTuple('Expected', start=float, end=float, steps=int, setpoints=np.ndarray, indexes=list(np.ndarray))
-    steps: int = \
-        round((float(_scan.scan_info['End']) - float(_scan.scan_info['Start'])) / (float(_scan.scan_info['Step']) - 1))
-    expected = Expected(start=float(_scan.scan_info['Start']),
-                        end=float(_scan.scan_info['End']),
-                        steps=steps,
-                        setpoints=np.linspace(float(_scan.scan_info['Start']), float(_scan.scan_info['End']), steps),
-                        indexes=[np.arange(p * steps, (p+1) * steps - 1) for p in range(steps)])
-
-    plt.figure()
-    plt.plot(_key_data['shot #'], _key_data['Current'], '.b', alpha=0.3)
-    plt.xlabel('Shot #')
-    plt.ylabel('Current [A]')
-    plt.show(block=False)
-
-    plt.figure()
-    for x, ind in zip(measured.avg_x, measured.indexes):
-        plt.plot(x * np.ones(ind.shape), ind, '.', alpha=0.3)
-    plt.xlabel('Current [A]')
-    plt.ylabel('Indexes')
-    plt.show(block=True)
+    print('Loading mag spec data...')
+    _magspec_data = _scan_data.load_mag_spec_data()
+    # plt.figure()
+    # for x, ind in zip(measured.avg_x, measured.indexes):
+    #     plt.plot(x * np.ones(ind.shape), ind, '.', alpha=0.3)
+    # plt.xlabel('Current [A]')
+    # plt.ylabel('Indexes')
+    # plt.show(block=True)
 
     print('Done')

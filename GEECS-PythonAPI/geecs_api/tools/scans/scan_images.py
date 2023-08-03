@@ -17,7 +17,7 @@ from progressbar import ProgressBar
 from typing import Optional, Any, Union
 from geecs_api.api_defs import ScanTag
 import geecs_api.experiment.htu as htu
-from geecs_api.tools.images.batches import list_images
+from geecs_api.tools.images.batches import list_files
 from geecs_api.devices.geecs_device import api_error
 import geecs_api.tools.images.ni_vision as ni
 from geecs_api.tools.interfaces.exports import save_py
@@ -164,7 +164,7 @@ class ScanImages:
         data_dict: dict[str, Any] = {}
 
         if isinstance(images, int):
-            paths = list_images(self.image_folder, images, '.png')
+            paths = list_files(self.image_folder, images, '.png')
         else:
             paths = images
 
