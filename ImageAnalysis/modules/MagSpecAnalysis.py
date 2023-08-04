@@ -11,12 +11,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 from nptdms import TdmsFile
+import time
 
 # sys.path.insert(0, "../")
 import modules.CedossMathTools as MathTools
 import modules.pngTools as pngTools
 import modules.DirectoryModules as DirectoryFunc
 import modules.EnergyAxisEstimate as EnergyAxis
+import modules.VectorizedCurveFit as CurveFit
+
 
 # Important: Using constants like this is generally bad,
 # should consider using a specific normalization file with
@@ -44,28 +47,61 @@ const_normalization_triggerdelay =  15.497208
 const_normalization_exposure = 0.010000
 const_normalization_factor = 1.1301095153900242e-06
 
+const_quickSaturation = True
+const_saturationValue = 4095
+const_staticThreshold = True
+const_thresholdValue = 230
+
+def PrintTime(label, time_in, doPrint = False):
+    if doPrint:
+        print(label, time.perf_counter()-time_in)
+    return time.perf_counter()
 
 def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimit=None, sliceThreshold=0.02,
                  calibrationFactor=const_HiResMagSpec_Resolution):
-    saturationCheck = SaturationCheck(image)
+    currentTime = time.perf_counter()
+    doPrint = False
 
-    image = ThresholdReduction(image, hardlimit)
+    saturationCheck = SaturationCheck(image)
+    currentTime = PrintTime(" Saturation Check:", currentTime, doPrint=doPrint)
+    if const_staticThreshold:
+        image = ThresholdReduction(image, hardlimit=const_thresholdValue)
+    else:
+        image = ThresholdReduction(image, hardlimit)
+    currentTime = PrintTime(" Threshold Subtraction", currentTime, doPrint=doPrint)
+
     image = NormalizeImage(image, shotnumber, tdms_filepath)
+    currentTime = PrintTime(" Normalize Image:", currentTime, doPrint=doPrint)
+
 
     interpSpec_energy_arr, spec_charge_arr = ParseInterpSpec(interpSpec_filepath)
+    currentTime = PrintTime(" Load specInterp Axis", currentTime, doPrint=doPrint)
+
     image = np.copy(image[::-1, ::-1])
+    currentTime = PrintTime(" Rotate Image", currentTime, doPrint=doPrint)
+
     image_width = np.shape(image)[1]
     pixel_arr = np.linspace(0, image_width, image_width)
     energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
+    currentTime = PrintTime(" Calculated Energy Axis:", currentTime, doPrint=doPrint)
+
 
     chargeOnCamera = np.sum(image)
+    currentTime = PrintTime(" Charge on Camera", currentTime, doPrint=doPrint)
+
 
     charge_pC_vals = GetBeamCharge(tdms_filepath)
     picoscopeCharge = charge_pC_vals[shotnumber - 1]
+    currentTime = PrintTime(" Reread Picoscope Charge:", currentTime, doPrint=doPrint)
+
 
     clippedPercentage = CalculateClippedPercentage(image)
+    currentTime = PrintTime(" Calculate Clipped Percentage", currentTime, doPrint=doPrint)
+
 
     charge_arr = CalculateChargeDensityDistribution(image)
+    currentTime = PrintTime(" Charge Projection:", currentTime, doPrint=doPrint)
+
     if np.sum(charge_arr) == 0:
         print("No beam this shot")
         peakCharge = float(0)
@@ -78,18 +114,33 @@ def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimi
         projectedBeamSize = float(0)
     else:
         peakCharge = CalculateMaximumCharge(charge_arr)
-        averageEnergy = CalculateAverageEnergy(charge_arr, energy_arr)
-        energySpread = CalculateStandardDeviationEnergy(charge_arr, energy_arr)
-        peakChargeEnergy = CalculatePeakEnergy(charge_arr, energy_arr)
+        currentTime = PrintTime(" Peak Charge:", currentTime, doPrint=doPrint)
 
-        sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
-                                                                          threshold=sliceThreshold)
+        averageEnergy = CalculateAverageEnergy(charge_arr, energy_arr)
+        currentTime = PrintTime(" Average Energy:", currentTime, doPrint=doPrint)
+
+        energySpread = CalculateStandardDeviationEnergy(charge_arr, energy_arr, averageEnergy)
+        currentTime = PrintTime(" Energy Spread:", currentTime, doPrint=doPrint)
+
+        peakChargeEnergy = CalculatePeakEnergy(charge_arr, energy_arr)
+        currentTime = PrintTime(" Energy at Peak Charge:", currentTime, doPrint=doPrint)
+
+        binsize_curvefit = 5
+        sigma_arr, x0_arr, amp_arr, err_arr = CurveFit.FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
+                                                                          threshold=sliceThreshold, binsize=binsize_curvefit)
+        currentTime = PrintTime(" Gaussian Fits for each Slice:", currentTime, doPrint=doPrint)
+
         averageBeamSize = CalculateAverageSize(sigma_arr, amp_arr)  # * const_HiResMagSpec_Resolution
+        currentTime = PrintTime(" Average Beam Size:", currentTime, doPrint=doPrint)
+
         linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
+        currentTime = PrintTime(" Beam Angle Fit:", currentTime, doPrint=doPrint)
+
         beamAngle = linear_fit[0]  # * const_HiResMagSpec_Resolution
-        beamIntercept = 100*beamAngle + linear_fit[1]  # * const_HiResMagSpec_Resolution
+        beamIntercept = linear_fit[1]  # * const_HiResMagSpec_Resolution
         projected_axis, projected_arr, projectedBeamSize = CalculateProjectedBeamSize(image)
         projectedBeamSize = projectedBeamSize * const_HiResMagSpec_Resolution
+        currentTime = PrintTime(" Projected Size:", currentTime, doPrint=doPrint)
 
     magSpecDict = {
         "Shot-Number": shotnumber,
@@ -101,10 +152,12 @@ def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimi
         "Peak-Charge-Energy": peakChargeEnergy,
         "Average-Energy": averageEnergy,
         "Energy-Spread": energySpread,
+        "Energy-Spread-Percent": energySpread/averageEnergy,
         "Average-Beam-Size": averageBeamSize,
         "Projected-Beam-Size": projectedBeamSize,
         "Beam-Tilt": beamAngle,
-        "Beam-Intercept": beamIntercept
+        "Beam-Intercept": beamIntercept,
+        "Beam-Intercept-100MeV": 100*beamAngle + beamIntercept
     }
     return magSpecDict
 
@@ -498,8 +551,9 @@ def PlotSliceStatistics(image, tdms_filepath, interpSpec_filepath, shotnumber, p
     pixel_arr = np.linspace(0, image_width, image_width)
     energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
 
-    sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
-                                                                      threshold=sliceThreshold)
+    binsize_curvefit = 1
+    sigma_arr, x0_arr, amp_arr, err_arr = CurveFit.FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
+                                                                      threshold=sliceThreshold, binsize=binsize_curvefit)
     average_size = analyzeDict['Average-Beam-Size']
     camera_charge = analyzeDict['Charge-On-Camera']
 
@@ -585,8 +639,8 @@ def ThresholdReduction(image, hardlimit=None, skipPlots=True):
         A separate instance of the initial image array that is threshold subtracted.
 
     """
+    """
     method = 1
-
     if hardlimit is None:
         if method == 0:
             xmax, ymax, maxval = FindMax(image)
@@ -608,15 +662,21 @@ def ThresholdReduction(image, hardlimit=None, skipPlots=True):
             threshold = np.min([topslab, botslab, leftslab, rightslab])*4.0
     else:
         threshold = hardlimit
-    returnimage = np.copy(image)
+    """
+    """
+    returnimage = np.copy(image) - threshold
     for i in range(np.shape(image)[0]):
         for j in range(np.shape(image)[1]):
-            returnimage[i][j] = image[i][j] - threshold
             if returnimage[i][j] < 0:
                 returnimage[i][j] = 0
+    """
+    hardlimit = const_thresholdValue
+    returnimage = np.copy(image) - hardlimit
+    returnimage[np.where(returnimage < 0)] = 0
+
     return returnimage
 
-
+""" #Only used in the auto-threshold finder.  Might just skip and always use hard limit
 def SlabAverage(image, ind0, indf, axis):
     slice_array = np.linspace(ind0, indf, np.abs(indf-ind0)+1)
     average = 0
@@ -631,7 +691,7 @@ def SlabAverage(image, ind0, indf, axis):
     else:
         print("SlabAverage needs 'x' or 'y'!")
     return average
-
+"""
 
 # NOT YET IMPLEMENTED
 def BackgroundSubtraction(image, background):
@@ -641,7 +701,8 @@ def BackgroundSubtraction(image, background):
 
 def CalculateClippedPercentage(image):
     clipcheck = np.append(np.append(np.append(image[0, :], image[:, 0]), image[-1, :]), image[:, -1])
-    xmax, ymax, maxval = FindMax(image)
+    #xmax, ymax, maxval = FindMax(image)
+    maxval = np.max(image)
     if maxval != 0:
         return np.max(clipcheck) / maxval
     else:
@@ -650,10 +711,14 @@ def CalculateClippedPercentage(image):
 
 def CalculateProjectedBeamSize(image, calibrationFactor=const_HiResMagSpec_Resolution):
     skipPlots = True
+
+    """
     proj_arr = np.zeros(np.shape(image)[0])
     for i in range(len(proj_arr)):
         image_slice = image[i, :]
         proj_arr[i] = np.sum(image_slice)
+    """
+    proj_arr = np.sum(image, axis=1)
 
     axis_arr = np.linspace(0, len(proj_arr) * calibrationFactor, len(proj_arr))
     axis_arr = np.flip(axis_arr)
@@ -680,10 +745,14 @@ def CalculateChargeDensityDistribution(image):
         Summation of the charge for each slice in energy
     
     """
+
+    """
     charge_arr = np.zeros(np.shape(image)[1])
     for i in range(len(charge_arr)):
         image_slice = image[:, i]
         charge_arr[i] = np.sum(image_slice)
+    """
+    charge_arr = np.sum(image, axis=0)
     return charge_arr
 
 
@@ -692,18 +761,13 @@ def CalculateMaximumCharge(charge_arr):
 
 
 def CalculateAverageEnergy(charge_arr, energy_arr):
-    if np.sum(charge_arr) != 0:
-        return np.average(energy_arr, weights=charge_arr)
-    else:
-        return 0
+    return np.average(energy_arr, weights=charge_arr)
 
 
-def CalculateStandardDeviationEnergy(charge_arr, energy_arr):
-    average_energy = CalculateAverageEnergy(charge_arr, energy_arr)
-    if np.sum(charge_arr) != 0:
-        return np.sqrt(np.average((energy_arr - average_energy) ** 2, weights=charge_arr))
-    else:
-        return 0
+def CalculateStandardDeviationEnergy(charge_arr, energy_arr, average_energy=None):
+    if average_energy is None:
+        average_energy = CalculateAverageEnergy(charge_arr, energy_arr)
+    return np.sqrt(np.average((energy_arr - average_energy) ** 2, weights=charge_arr))
 
 
 def CalculatePeakEnergy(charge_arr, energy_arr):
@@ -736,9 +800,9 @@ def FitTransverseGaussianSlices(image, calibrationFactor=1, threshold=0.01):
 
             # Check to see that our x0 is within bounds (only an issue for vertically-clipped beams
             if x0_arr[i] < axis_arr[-1] or x0_arr[i] > axis_arr[0]:
-                sigma_arr[i] = 0;
-                x0_arr[i] = 0;
-                amp_arr[i] = 0;
+                sigma_arr[i] = 0
+                x0_arr[i] = 0
+                amp_arr[i] = 0
                 err_arr[i] = 0
             else:
                 # TODO:  This error calculation below is "correct," but produces no meaningful error.  Please find a way
@@ -749,23 +813,61 @@ def FitTransverseGaussianSlices(image, calibrationFactor=1, threshold=0.01):
                 err_arr[i] = np.sqrt(error) * 1e3
 
         else:
-            sigma_arr[i] = 0;
-            x0_arr[i] = 0;
-            amp_arr[i] = 0;
+            sigma_arr[i] = 0
+            x0_arr[i] = 0
+            amp_arr[i] = 0
             err_arr[i] = 0
 
     return sigma_arr, x0_arr, amp_arr, err_arr
 
+"""
+def FitTransverseGaussianSlices(image, calibrationFactor=1, threshold=0.01):
+    ny, nx = np.shape(image)
+    xloc, yloc, maxval = FindMax(image)
+
+    slice_max = np.max(image, axis=0)
+    valid_slices = slice_max > threshold * maxval
+    valid_indices = np.where(valid_slices)[0]
+
+    sigma_arr = np.zeros(nx)
+    err_arr = np.zeros(nx)
+    x0_arr = np.zeros(nx)
+    amp_arr = np.zeros(nx)
+
+    if valid_indices.any():
+        axis_arr = np.arange(ny, 0, -1) * calibrationFactor
+        axis_arr = np.flip(axis_arr)
+
+        valid_slices_data = image[:, valid_slices]
+        axis_arr_broadcasted = axis_arr[:, np.newaxis]
+
+        #print("broadcasted:",np.shape(axis_arr_broadcasted))
+        #print(axis_arr_broadcasted)
+
+        fit_data = MathTools.FitDataSomething(valid_slices_data, axis_arr_broadcasted,
+                                              MathTools.Gaussian,
+                                              guess=[valid_slices_data.max(axis=0), 5 * const_HiResMagSpec_Resolution,
+                                                     axis_arr[np.argmax(valid_slices_data, axis=0)]],
+                                              supress=True)
+
+        amp_arr[valid_slices] = fit_data[:, 0]
+        sigma_arr[valid_slices] = fit_data[:, 1]
+        x0_arr[valid_slices] = fit_data[:, 2]
+
+        func = MathTools.Gaussian(fit_data, axis_arr_broadcasted)
+        error = np.sum(np.square(valid_slices_data - func), axis=0)
+        err_arr[valid_slices] = np.sqrt(error) * 1e3
+
+    return sigma_arr, x0_arr, amp_arr, err_arr
+"""
 
 def CalculateAverageSize(sigma_arr, amp_arr):
-    if np.sum(amp_arr) != 0:
-        return np.average(sigma_arr, weights=amp_arr)
-    else:
-        return 0
+    return np.average(sigma_arr, weights=amp_arr)
 
 
 def FitBeamAngle(x0_arr, amp_arr, energy_arr):
     linear_fit = np.polyfit(energy_arr, x0_arr, deg=1, w=np.power(amp_arr, 2))
+    """
     secretPlot = False
     if secretPlot:
         # Secret Plot of the Angle Fit
@@ -774,7 +876,7 @@ def FitBeamAngle(x0_arr, amp_arr, energy_arr):
         plt.plot(energy_axis, energy_axis * linear_fit[0] + linear_fit[1])
         plt.plot(energy_arr, amp_arr * 0.3 * max(x0_arr) / max(amp_arr))
         plt.show()
-
+    """
     return linear_fit
 
 
@@ -866,23 +968,31 @@ def FindMax(image):
         The value of the pixel at the maximum.
 
     """
+
+    """
     ny, nx = np.shape(image)
     max_ind = np.argmax(image)
     xmax = int(max_ind % nx)
     ymax = int(np.floor(max_ind / nx))
     maxval = image[ymax, xmax]
+    """
+    ymax, xmax = np.unravel_index(np.argmax(image), image.shape)
+    maxval = image[ymax, xmax]
     return xmax, ymax, maxval
 
 
 def SaturationCheck(image):
-    nx, ny = np.shape(image)
-    saturation_counts = 0
-    maximum_value = 0
-    for i in range(nx):
-        for j in range(ny):
-            if image[i][j] > maximum_value:
-                maximum_value = image[i][j]
-                saturation_counts = 1
-            if image[i][j] == maximum_value:
-                saturation_counts = saturation_counts + 1
-    return saturation_counts - 1
+    if const_quickSaturation:
+        return len(np.where(image > const_saturationValue)[0])
+    else:
+        nx, ny = np.shape(image)
+        saturation_counts = 0
+        maximum_value = 0
+        for i in range(nx):
+            for j in range(ny):
+                if image[i][j] > maximum_value:
+                    maximum_value = image[i][j]
+                    saturation_counts = 1
+                if image[i][j] == maximum_value:
+                    saturation_counts = saturation_counts + 1
+        return saturation_counts - 1

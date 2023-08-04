@@ -10,6 +10,7 @@ Functions for generic math and statistics
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import optimize
+from scipy.optimize import curve_fit
 
 def GetInequalityIndices(inputList):
     #inputList=[['inputArray1', 'inputSign1', 'inputCompare1']]
@@ -53,7 +54,7 @@ def GetInequalityIndices(inputList):
 def FitDataSomething(data, axis, function, guess = [0.,0.,0.], datlabel = 'Simulation',log=False,supress=False):
     errfunc = lambda p, x, y: function(p, x) - y
     p0 = guess
-    p1, success = optimize.leastsq(errfunc,p0[:], args=(axis, data))
+    p1, success = optimize.leastsq(errfunc, p0[:], args=(axis, data))
     if supress==False:
         if log==True:
             plt.semilogy(axis, data, label=datlabel)
@@ -65,8 +66,12 @@ def FitDataSomething(data, axis, function, guess = [0.,0.,0.], datlabel = 'Simul
         plt.show()
     return p1
 
+
 def Linear(p, x):
     return p[0]*x + p[1]
+
+def Gaussian(x, amp, sigma, x0):
+    return amp * np.exp(-0.5 * np.square((x - x0) / sigma))
 
 def Gaussian(p, x):
     return  p[0]*np.exp(-.5*np.square(x-p[2])/np.square(p[1]))
