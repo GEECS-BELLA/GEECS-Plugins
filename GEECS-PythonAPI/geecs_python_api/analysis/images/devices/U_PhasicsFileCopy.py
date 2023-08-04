@@ -8,22 +8,22 @@ if TYPE_CHECKING:
 from warnings import warn
 
 from ..types import Array2D, QuantityArray2D
-from .base import ImageAnalyzer, ROI
+from 
 from ..utils import NotAPath
 
 import sys
-from .. import GEECS_Plugins_folder
+from .... import GEECS_Plugins_folder
 sys.path.append(str(GEECS_Plugins_folder / "PhasicsDensity"))
 from phasics_density_analysis import PhasicsImageAnalyzer, ureg
 
-from ..utils import read_imaq_image
-
-from .camera import ImageAnalyzer
+from ...images.scans.scan_images import ScanImages
+from ....tools.images.filtering import ROI
+from ....tools.images.ni_vision import read_imaq_image
 
 import numpy as np
 from scipy.optimize import curve_fit
 
-class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
+class U_PhasicsFileCopyScanImages(ScanImages):
 
     device_name = 'U_PhasicsFileCopy'
 
