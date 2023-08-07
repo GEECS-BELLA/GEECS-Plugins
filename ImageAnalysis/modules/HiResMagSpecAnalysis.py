@@ -13,13 +13,13 @@ import sys
 import numpy as np
 from nptdms import TdmsFile
 import time
+from scipy import optimize
 
 # sys.path.insert(0, "../")
 import modules.CedossMathTools as MathTools
 import modules.pngTools as pngTools
 import modules.DirectoryModules as DirectoryFunc
 import modules.EnergyAxisLookup as EnergyAxisLookup
-import modules.VectorizedCurveFit as CurveFit
 
 
 def PrintTime(label, time_in, doPrint = False):
@@ -85,7 +85,7 @@ def AnalyzeImage(image, inputParams):
 
         binsize = inputParams["Transverse-Slice-Binsize"]
         sliceThreshold = inputParams["Transverse-Slice-Threshold"]
-        sigma_arr, x0_arr, amp_arr, err_arr = CurveFit.FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
+        sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
                                                                           threshold=sliceThreshold, binsize=binsize)
         currentTime = PrintTime(" Gaussian Fits for each Slice:", currentTime, doPrint=doPrint)
 
@@ -123,26 +123,8 @@ def NormalizeImage(image, normalizationFactor):
     returnimage = np.copy(image) * normalizationFactor
     return returnimage
 
-
+"""
 def PrintNormalization(shotnumber, tdms_filepath):
-    """
-    For a given image, print out the normalization factor.
-    If this is a good image, then copy the normalization factors to the top of this module
-
-    Parameters
-    ----------
-    image : 2D Numpy Float Array
-        The Image we are normalizing
-    shotnumber : Int
-        The shot number.
-    tdms_filepath : String
-        Filepath to the tdms file.
-
-    Returns
-    -------
-    None.
-
-    """
     charge_pC_vals = GetBeamCharge(tdms_filepath)
     charge = charge_pC_vals[shotnumber - 1]
 
@@ -156,7 +138,7 @@ def PrintNormalization(shotnumber, tdms_filepath):
     print("const_normalization_triggerdelay = ", trigger_list[shotnumber - 1])
     print("const_normalization_exposure =", exposure_list[shotnumber - 1])
     return
-
+"""
 
 def LoadImage(superpath, scannumber, shotnumber, folderpath):
     fullpath = DirectoryFunc.CompileFileLocation(superpath, scannumber, shotnumber, folderpath, suffix=".png")
@@ -238,22 +220,8 @@ def FitBeamAngle(x0_arr, amp_arr, energy_arr):
     linear_fit = np.polyfit(energy_arr, x0_arr, deg=1, w=np.power(amp_arr, 2))
     return linear_fit
 
-
+"""
 def GetBeamCharge(tdms_filepath):
-    """
-    From the TDMS file, grabs the measured beam charge for each shot
-
-    Parameters
-    ----------
-    tdms_filepath : String
-        Filepath to the TDMS file.
-
-    Returns
-    -------
-    scan_charge_vals : 1D Numpy Float Array
-        Array of beam charge measurements.
-        
-    """
     # For future reference, can list all of the groups using tdms_file.groups()
     # and can list all of the groups, channels using group.channels()
     #
@@ -265,38 +233,22 @@ def GetBeamCharge(tdms_filepath):
     scan_charge_vals = np.asarray(charge_pC_channel[:], dtype=float)
     tdms_file = None
     return scan_charge_vals
-
-
+"""
+"""
 def GetShotCharge(superpath, scannumber, shotnumber):
     tdms_filepath = DirectoryFunc.CompileTDMSFilepath(superpath, scannumber)
     charge_pC_vals = GetBeamCharge(tdms_filepath)
     return charge_pC_vals[shotnumber - 1]
-
-
+"""
+"""
 def GetCameraTriggerAndExposure(tdms_filepath):
-    """
-    From the TDMS file, grabs the list of camera exposures and trigger delays
-
-    Parameters
-    ----------
-    tdms_filepath : String
-        Filepath to the TDMS file.
-
-    Returns
-    -------
-    trigger_list : 1D Numpy Float Array
-        Array of recorded trigger delays
-    exposure_list : 1D Numpy Float Array
-        Array of recorded exposure times
-
-    """
     tdms_file = TdmsFile.read(tdms_filepath)
     hiresmagcam_group = tdms_file['U_HiResMagCam']
     exposure_list = hiresmagcam_group['U_HiResMagCam Exposure']
     trigger_list = hiresmagcam_group['U_HiResMagCam TriggerDelay']
     tdms_file = None
     return trigger_list, exposure_list
-
+"""
 
 def FindMax(image):
     ymax, xmax = np.unravel_index(np.argmax(image), image.shape)
@@ -306,3 +258,55 @@ def FindMax(image):
 
 def SaturationCheck(image, saturationValue):
     return len(np.where(image > saturationValue)[0])
+
+def Gaussian(x, amp, sigma, x0):
+    return amp * np.exp(-0.5 * ((x - x0) / sigma) ** 2)
+
+def FitDataSomething(data, axis, function, guess=[0., 0., 0.]):
+    errfunc = lambda p, x, y: function(x, *p) - y
+    p0 = guess
+    p1, success = optimize.leastsq(errfunc, p0[:], args=(axis, data))
+    return p1
+
+def FitTransverseGaussianSlices(image, calibrationFactor=1, threshold=0.01, binsize=1):
+    ny, nx = np.shape(image)
+    xloc, yloc, maxval = FindMax(image)
+
+    sigma_arr = np.zeros(nx)
+    err_arr = np.zeros(nx)
+    x0_arr = np.zeros(nx)
+    amp_arr = np.zeros(nx)
+
+    for i in range(int(nx/binsize)):
+        if binsize == 1:
+            slice_arr = image[:, i]
+        else:
+            slice_arr = np.average(image[:, binsize*i:(binsize*i)+binsize-1], axis=1)
+        if np.max(slice_arr) > threshold * maxval:
+            axis_arr = np.linspace(0, len(slice_arr), len(slice_arr)) * calibrationFactor
+            axis_arr = np.flip(axis_arr)
+
+            fit = FitDataSomething(slice_arr, axis_arr, Gaussian,
+                                   guess=[max(slice_arr), 5 * calibrationFactor,
+                                          axis_arr[np.argmax(slice_arr)]])
+            amp_fit, sigma_fit, x0_fit = fit
+            amp_arr[binsize*i:binsize*(i+1)] = amp_fit
+            sigma_arr[binsize*i:binsize*(i+1)] = sigma_fit
+            x0_arr[binsize*i:binsize*(i+1)] = x0_fit
+
+            # Check to see that our x0 is within bounds (only an issue for vertically-clipped beams)
+            if x0_arr[binsize*i] < axis_arr[-1] or x0_arr[binsize*i] > axis_arr[0]:
+                sigma_arr[binsize*i:binsize*(i+1)] = 0
+                x0_arr[binsize*i:binsize*(i+1)] = 0
+                amp_arr[binsize*i:binsize*(i+1)] = 0
+                err_arr[binsize*i:binsize*(i+1)] = 0
+            else:
+                func = Gaussian(axis_arr, *fit)
+                error = np.sum(np.square(slice_arr - func))
+                err_arr[binsize*i:binsize*(i+1)] = np.sqrt(error) * 1e3
+        else:
+            sigma_arr[binsize*i:binsize*(i+1)] = 0
+            x0_arr[binsize*i:binsize*(i+1)] = 0
+            amp_arr[binsize*i:binsize*(i+1)] = 0
+            err_arr[binsize*i:binsize*(i+1)] = 0
+    return sigma_arr, x0_arr, amp_arr, err_arr

@@ -26,7 +26,7 @@ if sampleCase == 1:
     data_year = 2023
 
     scan_number = 23
-    shot_number = 20
+    shot_number = 22
 
 elif sampleCase == 2:
     data_day = 25

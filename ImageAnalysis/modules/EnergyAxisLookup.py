@@ -9,7 +9,6 @@ parameters.  Works for both the HiResMagSpec and the BCaveMagSpec
 
 import numpy as np
 import matplotlib.pyplot as plt
-import numpy as np
 
 
 def return_default_energy_axis(pixel_axis):
