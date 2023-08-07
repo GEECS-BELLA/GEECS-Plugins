@@ -18,10 +18,10 @@ import modules.DirectoryModules as DirectoryFunc
 import modules.CedossMathTools as MathTools
 
 # Define constants and filepaths
-data_day = 29
-data_month = 6
+data_day = 25
+data_month = 7
 data_year = 2023
-scan_number = 23
+scan_number = 25
 #superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
 image_name = "U_HiResMagCam"
 
@@ -40,8 +40,8 @@ else:
 
     channel_array = np.array([
         "Shot-Number", "Clipped-Percentage", "Saturation-Counts", "Charge-On-Camera", "Picoscope-Charge", "Peak-Charge",
-        "Peak-Charge-Energy", "Average-Energy", "Energy-Spread", "Average-Beam-Size", "Projected-Beam-Size",
-        "Beam-Tilt", "Beam-Intercept"])
+        "Peak-Charge-Energy", "Average-Energy", "Energy-Spread-Percent", "Average-Beam-Size", "Projected-Beam-Size",
+        "Beam-Tilt", "Beam-Intercept-100MeV"])
 
     num_data = len(channel_array)
     num_shot = len(TDMSFuncs.ReturnChannelArray(tdms_data, image_name, channel_array[0]))
@@ -69,6 +69,9 @@ else:
             data_y = data_matrix[n, filter]
             #print(np.corrcoef(data_x, data_y))
             results_matrix[m, n] = np.corrcoef(data_x, data_y)[0,1]
+            print(results_matrix[m,n])
+            if np.isnan(results_matrix[m, n]):
+                results_matrix[m, n] = 0
 
     #print(results_matrix)
     plotInfo = DirectoryFunc.CompilePlotInfo(data_day, data_month, data_year, scan_number, shot=None, cameraStr=image_name)

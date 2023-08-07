@@ -8,12 +8,12 @@ import modules.MagSpecAnalysis as MagSpecAnalysis
 import modules.DirectoryModules as DirectoryFunc
 
 # Define necessary constants and filepaths
-doOverwrite = False
+doOverwrite = True
 
-data_day = 29
-data_month = 6
+data_day = 25
+data_month = 7
 data_year = 2023
-scan_number = 23
+scan_number = 25
 superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
 image_name = "U_HiResMagCam"
 

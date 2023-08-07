@@ -17,7 +17,8 @@ import time
 import modules.CedossMathTools as MathTools
 import modules.pngTools as pngTools
 import modules.DirectoryModules as DirectoryFunc
-import modules.EnergyAxisEstimate as EnergyAxis
+#import modules.EnergyAxisEstimate as EnergyAxis
+import modules.EnergyAxisLookup as EnergyAxisLookup
 import modules.VectorizedCurveFit as CurveFit
 
 
@@ -74,7 +75,7 @@ def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimi
     currentTime = PrintTime(" Normalize Image:", currentTime, doPrint=doPrint)
 
 
-    interpSpec_energy_arr, spec_charge_arr = ParseInterpSpec(interpSpec_filepath)
+    #interpSpec_energy_arr, spec_charge_arr = ParseInterpSpec(interpSpec_filepath)
     currentTime = PrintTime(" Load specInterp Axis", currentTime, doPrint=doPrint)
 
     image = np.copy(image[::-1, ::-1])
@@ -82,22 +83,19 @@ def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimi
 
     image_width = np.shape(image)[1]
     pixel_arr = np.linspace(0, image_width, image_width)
-    energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
+    #energy_arr2 = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
+    energy_arr = EnergyAxisLookup.return_default_energy_axis(pixel_arr)
     currentTime = PrintTime(" Calculated Energy Axis:", currentTime, doPrint=doPrint)
-
 
     chargeOnCamera = np.sum(image)
     currentTime = PrintTime(" Charge on Camera", currentTime, doPrint=doPrint)
-
 
     charge_pC_vals = GetBeamCharge(tdms_filepath)
     picoscopeCharge = charge_pC_vals[shotnumber - 1]
     currentTime = PrintTime(" Reread Picoscope Charge:", currentTime, doPrint=doPrint)
 
-
     clippedPercentage = CalculateClippedPercentage(image)
     currentTime = PrintTime(" Calculate Clipped Percentage", currentTime, doPrint=doPrint)
-
 
     charge_arr = CalculateChargeDensityDistribution(image)
     currentTime = PrintTime(" Charge Projection:", currentTime, doPrint=doPrint)
@@ -105,7 +103,7 @@ def AnalyzeImage(image, tdms_filepath, interpSpec_filepath, shotnumber, hardlimi
     if np.sum(charge_arr) == 0:
         print("No beam this shot")
         peakCharge = float(0)
-        averageEnergy = float(0)
+        averageEnergy = float(-1)
         energySpread = float(0)
         peakChargeEnergy = float(0)
         averageBeamSize = float(0)
@@ -407,7 +405,8 @@ def PlotEnergyProjection(image, tdms_filepath, interpSpec_filepath, shotnumber, 
     image = np.copy(image[::-1, ::-1])
     image_width = np.shape(image)[1]
     pixel_arr = np.linspace(0, image_width, image_width)
-    energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
+    #energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
+    energy_arr = EnergyAxisLookup.return_default_energy_axis(pixel_arr)
 
     charge_arr = CalculateChargeDensityDistribution(image)
     peak_charge = analyzeDict['Peak-Charge']
@@ -448,7 +447,8 @@ def PlotBeamDistribution(image, tdms_filepath, interpSpec_filepath, shotnumber, 
     image = np.copy(image[::-1, ::-1])
     image_width = np.shape(image)[1]
     pixel_arr = np.linspace(0, image_width, image_width)
-    energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
+    #energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
+    energy_arr = EnergyAxisLookup.return_default_energy_axis(pixel_arr)
     # sigma_arr, x0_arr, amp_arr, err_arr = FitTransverseGaussianSlices(image, calibrationFactor = calibrationFactor, threshold = sliceThreshold)
 
     # linear_fit = FitBeamAngle(x0_arr, amp_arr, energy_arr)
@@ -469,7 +469,7 @@ def PlotBeamDistribution(image, tdms_filepath, interpSpec_filepath, shotnumber, 
 
     maxx, maxy, maxval = FindMax(image)
 
-    color_choice = 2  # 1 for saturation check, 2 for a tropical vacation, anything else for normal
+    color_choice = 2 # 1 for saturation check, 2 for a tropical vacation, anything else for normal
 
     if color_choice == 1:
         colors_normal = plt.cm.Greens_r(np.linspace(0, 0.80, 256))
@@ -484,6 +484,8 @@ def PlotBeamDistribution(image, tdms_filepath, interpSpec_filepath, shotnumber, 
         colors_water = plt.cm.terrain(np.linspace(0, 0.17, 256))
         colors_land = plt.cm.terrain(np.linspace(0.25, 1, 256))
         all_colors = np.vstack((colors_water, colors_land))
+        colors_saturated = plt.cm.rainbow(np.linspace(0.99, 1, 1))
+        all_colors = np.vstack((all_colors, colors_saturated))
         colormap = colors.LinearSegmentedColormap.from_list('terrain_map', all_colors)
         divnorm = colors.TwoSlopeNorm(vmin=0, vcenter=.4 * maxval, vmax=maxval)
 
@@ -549,7 +551,8 @@ def PlotSliceStatistics(image, tdms_filepath, interpSpec_filepath, shotnumber, p
     image = np.copy(image[::-1, ::-1])
     image_width = np.shape(image)[1]
     pixel_arr = np.linspace(0, image_width, image_width)
-    energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
+    #energy_arr = EnergyAxis.GetEstimatedEnergyAxis(pixel_arr, interpSpec_energy_arr)
+    energy_arr = EnergyAxisLookup.return_default_energy_axis(pixel_arr)
 
     binsize_curvefit = 1
     sigma_arr, x0_arr, amp_arr, err_arr = CurveFit.FitTransverseGaussianSlices(image, calibrationFactor=calibrationFactor,
@@ -752,7 +755,7 @@ def CalculateChargeDensityDistribution(image):
         image_slice = image[:, i]
         charge_arr[i] = np.sum(image_slice)
     """
-    charge_arr = np.sum(image, axis=0)
+    charge_arr = np.sum(image, axis=0) * const_HiResMagSpec_Resolution
     return charge_arr
 
 
