@@ -10,13 +10,13 @@ All constants are defined in the function.
 @ Chris
 """
 
-import sys
 from array import array
-sys.path.insert(0, "../")
-import modules.HiResMagSpecAnalysis as MagSpecAnalysis
-import modules.DirectoryModules as DirectoryFunc
 
-def HiResMagSpec_LabView(image, step):
+import HiResAnalysisModules.HiResMagSpecAnalysis as MagSpecAnalysis
+import HiResAnalysisModules.DirectoryModules_HiRes as DirectoryFunc
+#import HiResAnalysisModules.pngTools_HiRes as pngTools
+
+def HiResMagSpec_LabView(image):
 
     # Factor to go from camera counts to pC/MeV
     # Record: July 25th, Scan 24, HiResMagSpec
@@ -38,6 +38,7 @@ def HiResMagSpec_LabView(image, step):
     return values
 
 
+"""
 if __name__ == '__main__':
 
     data_day = 29
@@ -49,7 +50,9 @@ if __name__ == '__main__':
     superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
     image_name = "U_HiResMagCam"
 
-    raw_image = MagSpecAnalysis.LoadImage(superpath, scan_number, shot_number, image_name)
+    fullpath = DirectoryFunc.CompileFileLocation(superpath, scan_number, shot_number, image_name, suffix=".png")
+    raw_image = pngTools.nBitPNG(fullpath)
 
-    results = HiResMagSpec_LabView(raw_image, shot_number)
+    results = HiResMagSpec_LabView(raw_image)
     print(results)
+"""

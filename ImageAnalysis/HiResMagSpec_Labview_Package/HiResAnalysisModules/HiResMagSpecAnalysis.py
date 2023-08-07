@@ -9,17 +9,12 @@ the interpSpec to parse any additional information.  Just make sure some of the 
 
 @author: chris
 """
-import sys
 import numpy as np
-from nptdms import TdmsFile
 import time
 from scipy import optimize
 
-# sys.path.insert(0, "../")
-import modules.CedossMathTools as MathTools
-import modules.pngTools as pngTools
-import modules.DirectoryModules as DirectoryFunc
-import modules.EnergyAxisLookup as EnergyAxisLookup
+import HiResAnalysisModules.CedossMathTools_HiRes as MathTools
+import HiResAnalysisModules.EnergyAxisLookup_HiRes as EnergyAxisLookup
 
 
 def PrintTime(label, time_in, doPrint = False):
@@ -140,11 +135,12 @@ def PrintNormalization(shotnumber, tdms_filepath):
     return
 """
 
+"""
 def LoadImage(superpath, scannumber, shotnumber, folderpath):
     fullpath = DirectoryFunc.CompileFileLocation(superpath, scannumber, shotnumber, folderpath, suffix=".png")
     image = pngTools.nBitPNG(fullpath)
     return image
-
+"""
 
 def ThresholdReduction(image, threshold):
     returnimage = np.copy(image) - threshold
