@@ -1,0 +1,3 @@
+- cd to folder where "Spot Analysis" is
+-run this in terminal/cmd: python create_env.py myenv requirements.txt
+-run: python "Spot Alignment.py"
