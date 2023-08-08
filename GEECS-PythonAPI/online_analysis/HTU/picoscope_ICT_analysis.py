@@ -69,5 +69,6 @@ def B_Cave_ICT(data,dt,crit_f):
     
 def Undulator_Exit_ICT(data,dt,crit_f):
     calib=0.2/2.78
-    charge=test_func(data,dt,crit_f,calib):
+    charge_pC=test_func(data,dt,crit_f,calib)
+    return charge_pC
     
