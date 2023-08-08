@@ -9,3 +9,4 @@ GEECS-PythonAPI/*.xml
 *.pyc
 .env
 .vscode/
+.DS_Store
