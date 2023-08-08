@@ -8,7 +8,7 @@ from progressbar import ProgressBar
 from typing import Union, NamedTuple, Any, Optional
 from geecs_api.api_defs import ScanTag
 import geecs_api.experiment.htu as htu
-from geecs_api.interface import GeecsDatabase, api_error
+from geecs_api.interface import api_error
 from geecs_api.devices.geecs_device import GeecsDevice
 from geecs_api.tools.distributions.binning import unsupervised_binning, BinningResults
 from geecs_api.tools.scans.scan_images import ScanImages
@@ -39,8 +39,7 @@ class ScanAnalysis:
         #     'scan_scalars': scan_scalars,
         #     'camera_name': camera_name}
 
-    def analyze(self, variable: str, com_threshold: float = 0.5,
-                bkg_image: Optional[Union[Path, np.ndarray]] = None, ask_rerun: bool = True,
+    def analyze(self, variable: str, initial_filtering=FiltersParameters(), ask_rerun: bool = True,
                 blind_loads: bool = False, store_images: bool = True, store_scalars: bool = True,
                 save_plots: bool = False, save: bool = False) -> Optional[Path]:
         analyses: list[dict[str, Any]] = []
@@ -120,8 +119,9 @@ class ScanAnalysis:
                     self.scan_images.set_save_folder(save_dir)
                     analysis_file, analysis = self.scan_images.run_analysis_with_checks(
                         images=step_paths,
-                        initial_filtering=FiltersParameters(com_threshold=com_threshold, bkg_image=bkg_image),
-                        plots=True, store_images=store_images, save_plots=save_plots, save=save)
+                        initial_filtering=initial_filtering,
+                        profiles=('com', 'max',), plots=True, store_images=store_images,
+                        save_plots=save_plots, save=save)
 
                 if not analysis:
                     print('Loading analysis...')
@@ -207,9 +207,10 @@ class ScanAnalysis:
             fig, axs = plt.subplots(ncols=1, nrows=n_rows, sharex='col',
                                     figsize=(ScanImages.fig_size[0], ScanImages.fig_size[1] * 1.5))
             i_ax = 0
-            for show, metric, val, plot_labels, y_label, fit in zip(shows, metrics, ['raw', 'fwhms', 'deltas'],
-                                                                    [['X', 'Y'], ['FWHM$_x$', 'FWHM$_y$'], ['Dx', 'Dy']],
-                                                                    ['Positions', 'FWHMs', 'Deltas'], fits):
+            for show, metric, val, plot_labels, y_label, fit \
+                    in zip(shows, metrics, ['raw', 'fwhms', 'deltas'],
+                           [['X', 'Y'], ['FWHM$_x$', 'FWHM$_y$'], ['Dx', 'Dy']],
+                           ['Positions', 'FWHMs', 'Deltas'], fits):
                 if show:
                     dtype = 'pix_ij' if val == 'fwhms' else 'data'
                     data_val, data_err_low, data_err_high = \
@@ -255,7 +256,11 @@ class ScanAnalysis:
 
             if save_dir:
                 save_path = save_dir / f'scan_analysis_{pos}_{xy_metric}.png'
+                if save_path.is_file():
+                    os.remove(save_path)
                 plt.savefig(save_path, dpi=300)
+                while not save_path.is_file():
+                    time.sleep(0.1)
 
         if show_figs:
             if sync:
@@ -314,14 +319,15 @@ if __name__ == '__main__':
     # database
     # --------------------------------------------------------------------------
     _base_path, is_local = htu.initialize()
-    _base_tag = ScanTag(2023, 7, 27, 25)
+    _base_tag = ScanTag(2023, 8, 1, 27)
 
     # _device = LaserCompressor()
     # _variable = _key_device.var_separation
     # _camera = Camera('UC_TopView')
-    _device = 'U_EMQTripletBipolar'
-    _variable = 'Current_Limit.Ch1'
-    _camera = 'P1'
+    _device = 'U_S1V'
+    _variable = 'Current'
+    _camera = 'DP'
+    _metric = 'median'
 
     _folder = ScanData.build_folder_path(_base_tag, _base_path)
     _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
@@ -330,12 +336,12 @@ if __name__ == '__main__':
 
     # scan analysis
     # --------------------------------------------------------------------------
-    _path = _scan_analysis.analyze(_variable, com_threshold=0.66, bkg_image=None, blind_loads=True,
+    _path = _scan_analysis.analyze(_variable, blind_loads=True,
                                    store_images=False, store_scalars=False, save_plots=False, save=True)
 
     _scan_analysis.render(physical_units=False, x_label='Current [A]',
                           show_xy=True, show_fwhms=True, show_deltas=False,
-                          xy_metric='mean', fwhms_metric='mean', deltas_metric='mean',
+                          xy_metric=_metric, fwhms_metric=_metric, deltas_metric=_metric,
                           xy_fit=1, fwhms_fit=1, deltas_fit=0,
                           save_dir=_scan_data.get_analysis_folder(), sync=True)
 

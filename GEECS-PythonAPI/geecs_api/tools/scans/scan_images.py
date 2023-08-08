@@ -120,7 +120,7 @@ class ScanImages:
         return image.astype(float)
 
     def run_analysis_with_checks(self, images: Union[int, list[Path]] = -1, initial_filtering=FiltersParameters(),
-                                 profiles: tuple[str] = ('com',), plots: bool = False, store_images: bool = True,
+                                 profiles: tuple = ('com',), plots: bool = False, store_images: bool = True,
                                  save_plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
 
         export_file_path: Optional[Path] = None
@@ -158,7 +158,7 @@ class ScanImages:
         return export_file_path, data_dict
 
     def analyze_image_batch(self, images: Union[int, list[Path]] = -1, filtering=FiltersParameters(),
-                            store_images: bool = True, plots: bool = False, profiles: tuple[str] = ('com',),
+                            store_images: bool = True, plots: bool = False, profiles: tuple = ('com',),
                             save_plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
@@ -253,7 +253,7 @@ class ScanImages:
         return export_file_path, data_dict
 
     def analyze_average_render(self, image: Path, filtering=FiltersParameters(), count: int = 0,
-                               avg_image: Optional[np.ndarray] = None, profiles: tuple[str] = ('com',),
+                               avg_image: Optional[np.ndarray] = None, profiles: tuple = ('com',),
                                plots: bool = False, block_plot: bool = False, save_plots: bool = False)\
             -> tuple[np.ndarray, int]:
         self.analyze_image(image, filtering)
@@ -307,8 +307,8 @@ class ScanImages:
 
         try:
             self.analysis['camera']['target_raw_ij'] = (
-                int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue']),
-                int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue']))
+                int(float(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue'])),
+                int(float(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue'])))
         except Exception:
             self.analysis['camera']['target_raw_ij'] = (np.nan, np.nan)
 

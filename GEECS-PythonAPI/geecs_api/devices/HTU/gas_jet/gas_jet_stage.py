@@ -8,6 +8,8 @@ from geecs_api.interface import GeecsDatabase, api_error
 
 
 class GasJetStage(GeecsDevice):
+    name: str = 'U_ESP_JetXYZ'
+
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
@@ -20,7 +22,7 @@ class GasJetStage(GeecsDevice):
             return
         self.__initialized = True
 
-        super().__init__('U_ESP_JetXYZ')
+        super().__init__(GasJetStage.name)
 
         self.var_spans = {VarAlias('Jet_X (mm)'): (2., 10.),  # [min, max]
                           VarAlias('Jet_Y (mm)'): (-8., -1.),
