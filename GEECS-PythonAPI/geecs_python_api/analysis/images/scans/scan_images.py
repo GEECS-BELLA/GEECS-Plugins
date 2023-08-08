@@ -312,7 +312,7 @@ class ScanImages:
         # now the meat of the analysis
         self.actually_analyze_image(image_raw)
 
-    def actually_analyze_image(image: np.ndarray) -> None:
+    def actually_analyze_image(image: np.ndarray, **kwargs) -> None:
         """ Calculate metrics from an image.
 
             Saves results in self.analysis.

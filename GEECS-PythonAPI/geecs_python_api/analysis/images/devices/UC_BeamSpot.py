@@ -3,6 +3,12 @@
 
 from __future__ import annotations
 
+from typing import Union, TYPE_CHECKING
+from pathlib import Path
+
+if TYPE_CHECKING:
+    from ....controls.devices.HTU.diagnostics.cameras.camera import Camera
+
 import numpy as np
 
 from skimage.measure import label, regionprops
@@ -10,10 +16,10 @@ from skimage.morphology import closing, square
 from skimage.transform import hough_ellipse
 from skimage.feature import canny
 
-from ..scans.scan_images import ScanImages
-from ....tools.images.filtering import basic_filter
+from ..scans.scan_images import ScanImages, ScanData
+from ....tools.images.filtering import basic_filter, FiltersParameters
 from ....tools.images.spot import n_sigma_window
-
+from ....controls.interface import api_error
 
 class UC_BeamSpotScanImages(ScanImages):
     """ Implements image analysis for any e-beam or laser beam spot image
@@ -21,9 +27,7 @@ class UC_BeamSpotScanImages(ScanImages):
         Used for undulator Visa, Aline, and Phosphor cameras
 
     """
-    def __init__(self, 
-                 sigma_radius: float = 5.0,
-                ):
+    def __init__(self, scan: ScanData, camera: Union[int, Camera, str]):
         """
         Parameters
         ----------
@@ -31,14 +35,19 @@ class UC_BeamSpotScanImages(ScanImages):
             used in n_sigma_window function
 
         """
-        super().__init__()
+        super().__init__(scan, camera)
 
-        self.sigma_radius = sigma_radius 
+    def actually_analyze_image(self, image: np.ndarray, filtering=FiltersParameters(), sigma_radius: float = 5):
+        """
+        Parameters
+        ----------
+        filtering : FiltersParameters
+        sigma_radius : float
 
-    def actually_analyze_image(self, image: np.ndarray):
-        
+        """
+
         # initial filtering
-        self.analysis = basic_filter(image, self.analysis, self.filtering.hp_median, filtering.hp_threshold,
+        self.analysis = basic_filter(image, self.analysis, filtering.hp_median, filtering.hp_threshold,
                                      filtering.denoise_cycles, filtering.gauss_filter, filtering.com_threshold)
         if self.camera_roi is None:
             self.analysis['filters']['roi'] = \
@@ -53,13 +62,13 @@ class UC_BeamSpotScanImages(ScanImages):
         try:
             blurred = self.analysis['arrays']['blurred']
 
-            lr = np.round(n_sigma_window(blurred[self.analysis['positions']['com_ij'][0], :], self.sigma_radius)).astype(int)
-            ud = np.round(n_sigma_window(blurred[:, self.analysis['positions']['com_ij'][1]], self.sigma_radius)).astype(int)
+            lr = np.round(n_sigma_window(blurred[self.analysis['positions']['com_ij'][0], :], sigma_radius)).astype(int)
+            ud = np.round(n_sigma_window(blurred[:, self.analysis['positions']['com_ij'][1]], sigma_radius)).astype(int)
             self.analysis['metrics']['roi_com'] = np.concatenate((lr, ud))
 
             # max roi (left, right, top, bottom)
-            lr = np.round(n_sigma_window(blurred[self.analysis['positions']['max_ij'][0], :], self.sigma_radius)).astype(int)
-            ud = np.round(n_sigma_window(blurred[:, self.analysis['positions']['max_ij'][1]], self.sigma_radius)).astype(int)
+            lr = np.round(n_sigma_window(blurred[self.analysis['positions']['max_ij'][0], :], sigma_radius)).astype(int)
+            ud = np.round(n_sigma_window(blurred[:, self.analysis['positions']['max_ij'][1]], sigma_radius)).astype(int)
             self.analysis['metrics']['roi_max'] = np.concatenate((lr, ud))
 
             # beam edges
