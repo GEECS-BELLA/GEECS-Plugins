@@ -2,8 +2,9 @@
 name = "phasicsdensity"
 version = "0.1.0"
 description = ""
-authors = ["TAU-Reinier <reinier.vanmourik@tausystems.com>"]
+authors = ["Reinier van Mourik <reinier.vanmourik@tausystems.com>"]
 readme = "README.md"
+packages = [{include = "phasicsdensity"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.13"
@@ -13,6 +14,8 @@ pint = "^0.22"
 scikit-image = "^0.21.0"
 pyabel = "^0.9.0"
 
+[tool.poetry.group.dev.dependencies]
+spyder-kernels = ">=2.4.0,<2.5.0"
 
 [build-system]
 requires = ["poetry-core"]
