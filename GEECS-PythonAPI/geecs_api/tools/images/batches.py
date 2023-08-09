@@ -11,6 +11,10 @@ import geecs_api.tools.images.ni_vision as ni
 
 def average_images(images_folder: Union[Path, str], n_images: int = 0, file_extension: str = '.png') \
         -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    if not images_folder:
+        return None, None
+
+    images_folder = Path(images_folder)
     images = list_files(images_folder, n_images, file_extension)
 
     # run averaging
@@ -38,8 +42,7 @@ def average_images(images_folder: Union[Path, str], n_images: int = 0, file_exte
             return None, None
 
 
-def list_files(folder: Union[Path, str], n_files: Optional[int] = None, file_extension: str = '.png') \
-        -> Optional[list[Path]]:
+def list_files(folder: Union[Path, str], n_files: Optional[int] = None, file_extension: str = '.png') -> list[Path]:
     # file extension
     if not file_extension:
         return None

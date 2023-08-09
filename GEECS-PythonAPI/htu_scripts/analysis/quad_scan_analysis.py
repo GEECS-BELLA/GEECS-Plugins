@@ -201,7 +201,7 @@ class QuadAnalysis(ScanAnalysis):
 
     @staticmethod
     def twiss_parameters(poly_pars, quad_2_screen: float = 1.) -> tuple[float, float, float]:
-        a1 = abs(poly_pars[0])
+        a1 = poly_pars[0]
         a2 = poly_pars[1] / (-2 * a1)
         a3 = poly_pars[2] - (a1 * a2**2)
 
@@ -213,10 +213,10 @@ class QuadAnalysis(ScanAnalysis):
 
 
 if __name__ == '__main__':
-    # database
+    # initialization
     # --------------------------------------------------------------------------
     _base_path, is_local = htu.initialize()
-    _base_tag = ScanTag(2023, 8, 3, 32)
+    _base_tag = ScanTag(2023, 8, 8, 32)
 
     # _device = Quads()
     # _camera = Camera('UC_TopView')
@@ -231,8 +231,8 @@ if __name__ == '__main__':
     _scan_images = ScanImages(_scan_data, _camera)
     _quad_analysis = QuadAnalysis(_scan_data, _scan_images, _quad, fwhms_metric='median', quad_2_screen=_quad_2_screen)
 
-    _filters = FiltersParameters(contrast=1., hp_median=2, hp_threshold=3., denoise_cycles=0, gauss_filter=6.,
-                                 com_threshold=0.9, bkg_image=None, box=True, ellipse=False)
+    _filters = FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0, gauss_filter=5.,
+                                 com_threshold=0.8, bkg_image=None, box=True, ellipse=False)
 
     # scan analysis
     # --------------------------------------------------------------------------

@@ -10,14 +10,15 @@ from geecs_api.api_defs import ScanTag
 import geecs_api.experiment.htu as htu
 from geecs_api.interface import api_error
 from geecs_api.devices.geecs_device import GeecsDevice
+from geecs_api.devices.HTU.diagnostics.cameras import Camera
 from geecs_api.tools.distributions.binning import unsupervised_binning, BinningResults
 from geecs_api.tools.scans.scan_images import ScanImages
 from geecs_api.tools.scans.scan_data import ScanData
+from geecs_api.tools.images.batches import average_images
 from geecs_api.tools.images.filtering import FiltersParameters
 from geecs_api.tools.images.displays import polyfit_label
 from geecs_api.tools.interfaces.exports import load_py, save_py
 from geecs_api.tools.interfaces.prompts import text_input
-# from geecs_api.devices.HTU.laser import LaserCompressor
 
 
 class ScanAnalysis:
@@ -316,35 +317,49 @@ class ScanAnalysis:
 
 
 if __name__ == '__main__':
-    # database
+    # initialization
     # --------------------------------------------------------------------------
     _base_path, is_local = htu.initialize()
-    _base_tag = ScanTag(2023, 8, 1, 27)
+    _base_tag = ScanTag(2023, 8, 8, 19)
+    _bkg_tag = ScanTag(2023, 8, 3, 18)
 
-    # _device = LaserCompressor()
-    # _variable = _key_device.var_separation
-    # _camera = Camera('UC_TopView')
-    _device = 'U_S1V'
+    _device = 'U_S2H'
     _variable = 'Current'
-    _camera = 'DP'
+    _camera = 'P1'
     _metric = 'median'
+    # _metric = 'mean'
 
     _folder = ScanData.build_folder_path(_base_tag, _base_path)
     _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
     _scan_images = ScanImages(_scan_data, _camera)
     _scan_analysis = ScanAnalysis(_scan_data, _scan_images, _device)
 
+    _filters = FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0, gauss_filter=5.,
+                                 com_threshold=0.75, bkg_image=None, box=True, ellipse=False)
+
+    # background
+    # --------------------------------------------------------------------------
+    camera_name = Camera.name_from_label(_camera)
+    # _bkg_folder = ScanData.build_folder_path(_bkg_tag, _base_path) / camera_name
+    _bkg_folder = ''
+
+    avg_image, _ = average_images(_bkg_folder)
+    if avg_image is not None:
+        if isinstance(_scan_images.camera_roi, np.ndarray) and (_scan_images.camera_roi.size >= 4):
+            avg_image = avg_image[_scan_images.camera_roi[-2]:_scan_images.camera_roi[-1] + 1,
+                                  _scan_images.camera_roi[0]:_scan_images.camera_roi[1] + 1]
+        avg_image = np.rot90(avg_image, _scan_images.camera_r90 // 90)
+        _filters.bkg_image = avg_image
+
     # scan analysis
     # --------------------------------------------------------------------------
-    _path = _scan_analysis.analyze(_variable, blind_loads=True,
+    _path = _scan_analysis.analyze(_variable, initial_filtering=_filters, ask_rerun=False, blind_loads=True,
                                    store_images=False, store_scalars=False, save_plots=False, save=True)
 
     _scan_analysis.render(physical_units=False, x_label='Current [A]',
-                          show_xy=True, show_fwhms=True, show_deltas=False,
+                          show_xy=True, show_fwhms=True, show_deltas=True,
                           xy_metric=_metric, fwhms_metric=_metric, deltas_metric=_metric,
-                          xy_fit=1, fwhms_fit=1, deltas_fit=0,
+                          xy_fit=1, fwhms_fit=1, deltas_fit=1,
                           save_dir=_scan_data.get_analysis_folder(), sync=True)
 
-    # _device.close()
-    # _camera.close()
     print('done')
