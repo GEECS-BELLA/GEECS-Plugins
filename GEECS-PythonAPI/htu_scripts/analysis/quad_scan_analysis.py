@@ -216,7 +216,7 @@ if __name__ == '__main__':
     # initialization
     # --------------------------------------------------------------------------
     _base_path, is_local = htu.initialize()
-    _base_tag = ScanTag(2023, 8, 8, 32)
+    _base_tag = ScanTag(2023, 8, 9, 24)
 
     # _device = Quads()
     # _camera = Camera('UC_TopView')

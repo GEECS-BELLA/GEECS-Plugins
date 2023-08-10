@@ -320,12 +320,12 @@ if __name__ == '__main__':
     # initialization
     # --------------------------------------------------------------------------
     _base_path, is_local = htu.initialize()
-    _base_tag = ScanTag(2023, 8, 8, 19)
+    _base_tag = ScanTag(2023, 8, 1, 29)
     _bkg_tag = ScanTag(2023, 8, 3, 18)
 
-    _device = 'U_S2H'
+    _device = 'U_S2V'
     _variable = 'Current'
-    _camera = 'P1'
+    _camera = 'DP'
     _metric = 'median'
     # _metric = 'mean'
 
@@ -334,7 +334,7 @@ if __name__ == '__main__':
     _scan_images = ScanImages(_scan_data, _camera)
     _scan_analysis = ScanAnalysis(_scan_data, _scan_images, _device)
 
-    _filters = FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0, gauss_filter=5.,
+    _filters = FiltersParameters(contrast=1.333, hp_median=3, hp_threshold=3., denoise_cycles=0, gauss_filter=5.,
                                  com_threshold=0.75, bkg_image=None, box=True, ellipse=False)
 
     # background
