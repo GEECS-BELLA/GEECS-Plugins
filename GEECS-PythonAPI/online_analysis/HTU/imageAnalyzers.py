@@ -64,36 +64,36 @@ class BaseAnalysis:
             np.zeros((2, 2), dtype=np.float64)
         )
 
-     def validate_output(self, result):
-            """
-            Validates and/or provides default values for the output data.
+    def validate_output(self, result):
+        """
+        Validates and/or provides default values for the output data.
 
-            Parameters:
-            -----------
-            result : tuple
-                The result data to be validated or filled with defaults.
+        Parameters:
+        -----------
+        result : tuple
+            The result data to be validated or filled with defaults.
 
-            Returns:
-            --------
-            tuple
-                Validated and possibly filled result data.
-            """
-        
-            # Default outputs
-            default_2d_uint16 = np.zeros((2, 2), dtype=np.uint16)
-            default_1d_float64 = np.zeros(2, dtype=np.float64)
-            default_2d_float64 = np.zeros((2, 2), dtype=np.float64)
+        Returns:
+        --------
+        tuple
+            Validated and possibly filled result data.
+        """
 
-            if not (isinstance(result[0], np.ndarray) and result[0].dtype == np.uint16):
-                result = (default_2d_uint16, result[1], result[2])
+        # Default outputs
+        default_2d_uint16 = np.zeros((2, 2), dtype=np.uint16)
+        default_1d_float64 = np.zeros(2, dtype=np.float64)
+        default_2d_float64 = np.zeros((2, 2), dtype=np.float64)
 
-            if not (isinstance(result[1], np.ndarray) and len(result[1].shape) == 1 and result[1].dtype == np.float64):
-                result = (result[0], default_1d_float64, result[2])
+        if not (isinstance(result[0], np.ndarray) and result[0].dtype == np.uint16):
+            result = (default_2d_uint16, result[1], result[2])
 
-            if not (isinstance(result[2], np.ndarray) and len(result[2].shape) == 2 and result[2].dtype == np.float64):
-                result = (result[0], result[1], default_2d_float64)
+        if not (isinstance(result[1], np.ndarray) and len(result[1].shape) == 1 and result[1].dtype == np.float64):
+            result = (result[0], default_1d_float64, result[2])
 
-            return result
+        if not (isinstance(result[2], np.ndarray) and len(result[2].shape) == 2 and result[2].dtype == np.float64):
+            result = (result[0], result[1], default_2d_float64)
+
+        return result
 
 class UC_ExampleCamAnalysis(BaseAnalysis):
     """
@@ -129,7 +129,10 @@ class UC_ExampleCamAnalysis(BaseAnalysis):
 
         # Ensure the output matches the expected format
         return self.validate_output(result)
-        
+  
+    
+from array import array
+import HiResAnalysisModules.HiResMagSpecAnalysis as MagSpecAnalysis
 class HiResMagSpecAnalysisClass(BaseAnalysis):
     """
     Analysis class specific for HiResMagSpec.
@@ -138,10 +141,7 @@ class HiResMagSpecAnalysisClass(BaseAnalysis):
     --------
     BaseAnalysis
     """
-    
-    from array import array
-    import HiResAnalysisModules.HiResMagSpecAnalysis as MagSpecAnalysis
-    
+
     @property
     def use_background(self):
         return False
