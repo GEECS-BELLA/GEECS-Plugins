@@ -11,7 +11,8 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "../")
-import modules.QuickTDMSWriterReader as TDMSFuncs
+import chris_PostAnalysis.mod_ImageProcessing.QuickTDMSWriterReader as TDMSFuncs
+
 
 # Generate some dummy data and a place to store
 

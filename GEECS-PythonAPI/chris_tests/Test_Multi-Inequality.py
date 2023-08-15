@@ -11,7 +11,8 @@ import sys
 import numpy as np
 
 sys.path.insert(0, "../")
-import modules.CedossMathTools as MathTools
+import online_analysis.HTU.OnlineAnalysisModules.CedossMathTools as MathTools
+
 
 testarr1 = np.linspace(1, 100, 100)
 value1 = 50

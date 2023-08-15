@@ -9,12 +9,22 @@ the interpSpec to parse any additional information.  Just make sure some of the 
 
 @author: chris
 """
+
 import numpy as np
 import time
 from scipy import optimize
 
-import HiResAnalysisModules.CedossMathTools_HiRes as MathTools
-import HiResAnalysisModules.EnergyAxisLookup_HiRes as EnergyAxisLookup
+try:
+    import OnlineAnalysisModules.CedossMathTools as MathTools
+    import OnlineAnalysisModules.EnergyAxisLookup_HiRes as EnergyAxisLookup
+    #print("Imported Via GEECS-PythonAPI.online_analysis.HTU")
+except ImportError:
+    try:
+        import online_analysis.HTU.OnlineAnalysisModules.CedossMathTools as MathTools
+        import online_analysis.HTU.OnlineAnalysisModules.EnergyAxisLookup_HiRes as EnergyAxisLookup
+        #print("Imported Via GEECS-PythonAPI")
+    except ImportError:
+        print("Modules not found!  Check your paths!")
 
 
 def PrintTime(label, time_in, doPrint=False):

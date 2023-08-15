@@ -9,18 +9,32 @@ The "_Dictionary" function is the same, just the list of doubles is instead a di
 
 All constants are defined in the function.
 
+The imports a bit ugly, but haven't had a chance to debug how paths work in the LabView implementation.  Works though.
+
 @ Chris
 """
 
 from array import array
 import numpy as np
-import time
 
-import HiResAnalysisModules.HiResMagSpecAnalysis as MagSpecAnalysis
-import HiResAnalysisModules.HiResMagSpecPlotter as MagPlotter
-import HiResAnalysisModules.DirectoryModules_HiRes as DirectoryFunc
-import HiResAnalysisModules.pngTools_HiRes as pngTools
+# Either importing with the path set to GEECS-PythonAPI (as is the case for post-analysis scripts elsewhere)
+#  or importing with the path set to this location (which is the case for when run on LabView)
 
+try:
+    import online_analysis.HTU.OnlineAnalysisModules.HiResMagSpecAnalysis as MagSpecAnalysis
+    print("Imported Via GEECS-PythonAPI")
+except ImportError:
+    try:
+        import OnlineAnalysisModules.HiResMagSpecAnalysis as MagSpecAnalysis
+        print("Imported Via GEECS-PythonAPI.online_analysis.HTU")
+    except ImportError:
+        print("Modules not found!  Check your paths!")
+
+"""
+import OnlineAnalysisModules.HiResMagSpecPlotter as MagPlotter
+import OnlineAnalysisModules.DirectoryModules as DirectoryFunc
+import OnlineAnalysisModules.pngTools_HiRes as pngTools
+"""
 
 def HiResMagSpec_LabView(image):
     returned_image, MagSpecDict, inputParams = HiResMagSpec_Dictionary(image)
@@ -52,7 +66,8 @@ def HiResMagSpec_Dictionary(image):
     uint_image = unnormalized_image.astype(np.uint16)
     return uint_image, MagSpecDict, inputParams
 
-
+# I don't run through this anymore, all plotting is handled in the chris_PostAnalysis folder of GEECS-PythonAPI
+"""
 if __name__ == '__main__':
 
     data_day = 9#29#9
@@ -82,3 +97,4 @@ if __name__ == '__main__':
     MagPlotter.PlotEnergyProjection(raw_image, analyzeDict, inputParams, plotInfo=plotInfo, doThreshold=doThreshold, doNormalize=doNormalization)
     MagPlotter.PlotSliceStatistics(raw_image, analyzeDict, inputParams, plotInfo=plotInfo, doThreshold=doThreshold, doNormalize=doNormalization)
     MagPlotter.PlotBeamDistribution(raw_image, analyzeDict, inputParams, plotInfo=plotInfo, doThreshold=doThreshold, doNormalize=doNormalization, style=2)
+"""

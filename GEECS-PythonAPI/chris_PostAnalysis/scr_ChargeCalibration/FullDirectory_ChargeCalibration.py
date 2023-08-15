@@ -16,10 +16,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
-sys.path.insert(0, "../")
-import modules.MagSpecAnalysis as MagSpecAnalysis
-import modules.DirectoryModules as DirectoryFunc
-import modules.CedossMathTools as MathTools
+sys.path.insert(0, "../../")
+import chris_PostAnalysis.mod_ImageProcessing.QuickTDMSWriterReader as TDMSFuncs
+import online_analysis.HTU.OnlineAnalysisModules.DirectoryModules as DirectoryFunc
+import online_analysis.HTU.OnlineAnalysisModules.CedossMathTools as MathTools
+
+print("Not yet fixed with new API!!")
+sys.exit()
 
 def linear(x, a):
     return a * x

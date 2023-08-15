@@ -12,18 +12,27 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, "../")
-import modules.QuickTDMSWriterReader as TDMSFuncs
-import modules.DirectoryModules as DirectoryFunc
-import modules.CedossMathTools as MathTools
+sys.path.insert(0, "../../")
+import chris_PostAnalysis.mod_ImageProcessing.QuickTDMSWriterReader as TDMSFuncs
+import online_analysis.HTU.OnlineAnalysisModules.DirectoryModules as DirectoryFunc
+import online_analysis.HTU.OnlineAnalysisModules.CedossMathTools as MathTools
 
 # Define constants and filepaths
-data_day = 25
-data_month = 7
+"""
+data_day = 29
+data_month = 6
 data_year = 2023
-scan_number = 25
-#superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
+scan_number = 23
+superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
 image_name = "U_HiResMagCam"
+"""
+
+data_day = 9
+data_month = 8
+data_year = 2023
+scan_number = 9
+superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
+image_name = "UC_TestCam"
 
 tdms_output_filepath = TDMSFuncs.CompileFilename(data_day, data_month, data_year, scan_number)
 
@@ -39,7 +48,7 @@ else:
     #  load a massive matrix of all the data.  Additionally load an array with the names so we know what is what
 
     channel_array = np.array([
-        "Shot-Number", "Clipped-Percentage", "Saturation-Counts", "Charge-On-Camera", "Picoscope-Charge", "Peak-Charge",
+        "Clipped-Percentage", "Saturation-Counts", "Charge-On-Camera", "Peak-Charge",
         "Peak-Charge-Energy", "Average-Energy", "Energy-Spread-Percent", "Average-Beam-Size", "Projected-Beam-Size",
         "Beam-Tilt", "Beam-Intercept-100MeV"])
 
@@ -69,7 +78,7 @@ else:
             data_y = data_matrix[n, filter]
             #print(np.corrcoef(data_x, data_y))
             results_matrix[m, n] = np.corrcoef(data_x, data_y)[0,1]
-            print(results_matrix[m,n])
+            #print(results_matrix[m,n])
             if np.isnan(results_matrix[m, n]):
                 results_matrix[m, n] = 0
 

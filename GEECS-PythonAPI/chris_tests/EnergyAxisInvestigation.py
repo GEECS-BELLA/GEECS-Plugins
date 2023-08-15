@@ -2,10 +2,15 @@
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+
 sys.path.insert(0, "../")
-import modules.MagSpecAnalysis as MagSpecAnalysis
-import modules.DirectoryModules as DirectoryFunc
-import modules.EnergyAxisLookup as EnergyAxis
+import online_analysis.HTU.OnlineAnalysisModules.DirectoryModules as DirectoryFunc
+import chris_PostAnalysis.mod_ImageProcessing as pngTools
+import online_analysis.HTU.OnlineAnalysisModules.EnergyAxisLookup_HiRes as EnergyAxis
+import online_analysis.HTU.OnlineAnalysisModules.HiResMagSpecAnalysis as MagSpecAnalysis
+
+print("Not yet fully fixed!  Exiting!")
+sys.exit()
 
 # Load both the interpolated and raw images
 

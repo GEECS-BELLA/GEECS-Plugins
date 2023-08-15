@@ -3,18 +3,27 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, "../")
-import modules.QuickTDMSWriterReader as TDMSFuncs
-import modules.DirectoryModules as DirectoryFunc
-import modules.CedossMathTools as MathTools
+sys.path.insert(0, "../../")
+import chris_PostAnalysis.mod_ImageProcessing.QuickTDMSWriterReader as TDMSFuncs
+import online_analysis.HTU.OnlineAnalysisModules.DirectoryModules as DirectoryFunc
+import online_analysis.HTU.OnlineAnalysisModules.CedossMathTools as MathTools
 
 # Define constants and filepaths
+"""
 data_day = 29
 data_month = 6
 data_year = 2023
 scan_number = 23
 superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
 image_name = "U_HiResMagCam"
+"""
+
+data_day = 9
+data_month = 8
+data_year = 2023
+scan_number = 9
+superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
+image_name = "UC_TestCam"
 
 tdms_output_filepath = TDMSFuncs.CompileFilename(data_day, data_month, data_year, scan_number)
 
@@ -26,11 +35,11 @@ if not TDMSFuncs.CheckExist(tdms_output_filepath):
 else:
     tdms_data = TDMSFuncs.ReadFullTDMSScan(tdms_output_filepath)
 
-    shot_number =           TDMSFuncs.ReturnChannelArray(tdms_data, image_name, 'Shot-Number')
+    #shot_number =           TDMSFuncs.ReturnChannelArray(tdms_data, image_name, 'Shot-Number')
     clipped_percent =       TDMSFuncs.ReturnChannelArray(tdms_data, image_name, 'Clipped-Percentage')
     saturation_counts =     TDMSFuncs.ReturnChannelArray(tdms_data, image_name, 'Saturation-Counts')
     camera_charge =         TDMSFuncs.ReturnChannelArray(tdms_data, image_name, 'Charge-On-Camera')
-    picoscope_charge =      TDMSFuncs.ReturnChannelArray(tdms_data, image_name, 'Picoscope-Charge')
+    #picoscope_charge =      TDMSFuncs.ReturnChannelArray(tdms_data, image_name, 'Picoscope-Charge')
     peak_energy =           TDMSFuncs.ReturnChannelArray(tdms_data, image_name, 'Peak-Charge-Energy')
     peak_charge =           TDMSFuncs.ReturnChannelArray(tdms_data, image_name, 'Peak-Charge')
     average_energy =        TDMSFuncs.ReturnChannelArray(tdms_data, image_name, 'Average-Energy')
@@ -50,7 +59,7 @@ else:
 
     xaxis = peak_charge;     xaxis_label = 'Peak Charge (pC/MeV)'
     yaxis = average_size;      yaxis_label = 'Average Size ('+r'$\mu$'+'m)'
-    caxis = picoscope_charge;   caxis_label = 'Picoscope Charge (pC)'
+    caxis = camera_charge;   caxis_label = 'Camera Charge (pC)'
 
     plotInfo = DirectoryFunc.CompilePlotInfo(data_day, data_month, data_year, scan_number, shot=None, cameraStr=image_name)
     plt.set_cmap('plasma')
