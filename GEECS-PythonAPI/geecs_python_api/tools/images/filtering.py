@@ -360,9 +360,6 @@ if __name__ == '__main__':
     # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
     _base = Path(r'Z:\data')
 
-    # _camera = 'UC_UndulatorRad2'
-    # _camera = 'UC_VisaEBeam9'
-    # _folder = _base / fr'Undulator\Y2023\04-Apr\23_0420\scans\Scan075\{_camera}'
     _folder = filedialog.askdirectory(initialdir=_base/r'Undulator\Y2023', title='Directory:')
 
     # _range = None

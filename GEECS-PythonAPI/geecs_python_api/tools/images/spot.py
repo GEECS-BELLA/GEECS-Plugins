@@ -6,6 +6,7 @@ import numpy as np
 from typing import Optional, Any
 import scipy.ndimage as simg
 from scipy.signal import savgol_filter
+from geecs_python_api.controls.interface import api_error
 from geecs_python_api.tools.images.filtering import basic_filter
 from geecs_python_api.tools.distributions.fit_utility import fit_distribution
 
@@ -87,7 +88,8 @@ def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
                 analysis[name]['y']['err'] = err_y
                 analysis[name]['y']['fit'] = fit_y
 
-    except Exception:
+    except Exception as ex:
+        api_error.error(str(ex), 'Spot analysis failed.')
         analysis = None
         pass
 
@@ -117,8 +119,11 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
         guess_background = np.min(y_data)
 
     guess = [guess_background, guess_amplitude, guess_center, guess_std]
-    bounds = (np.array([-guess_background, 0.5 * guess_amplitude, x_data[0], 0.1 * guess_std]),
+    bd_bkg = guess_background - 2 * np.abs(guess_background)
+    bounds = (np.array([bd_bkg, 0.5 * guess_amplitude, x_data[0], 0.1 * guess_std]),
               np.array([np.max(y_data), 2 * guess_amplitude, x_data[-1], 10 * guess_std]))
+    if not all(bounds[0] <= np.array(guess)) or not all(np.array(guess) <= bounds[1]):
+        print('fit guess out of bound!')
 
     # noinspection PyTypeChecker
     opt, err, fit = fit_distribution(x_data, y_data, fit_type='gaussian', guess=guess, bounds=bounds)

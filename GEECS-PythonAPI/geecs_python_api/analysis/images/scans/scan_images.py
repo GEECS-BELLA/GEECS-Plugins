@@ -117,7 +117,7 @@ class ScanImages:
         return image.astype(float)
 
     def run_analysis_with_checks(self, images: Union[int, list[Path]] = -1, initial_filtering=FiltersParameters(),
-                                 profiles: tuple[str] = ('com',), plots: bool = False, store_images: bool = True,
+                                 profiles: tuple = ('com',), plots: bool = False, store_images: bool = True,
                                  save_plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
 
         export_file_path: Optional[Path] = None
@@ -155,7 +155,7 @@ class ScanImages:
         return export_file_path, data_dict
 
     def analyze_image_batch(self, images: Union[int, list[Path]] = -1, filtering=FiltersParameters(),
-                            store_images: bool = True, plots: bool = False, profiles: tuple[str] = ('com',),
+                            store_images: bool = True, plots: bool = False, profiles: tuple = ('com',),
                             save_plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
@@ -221,6 +221,12 @@ class ScanImages:
 
                 self.average_image = avg_image
                 self.average_analysis = self.analysis
+                self.average_analysis['positions']['raw'] = {}
+                for pos in ['max_ij', 'com_ij']:
+                    self.average_analysis['positions']['raw'][pos] = \
+                        ScanImages.processed_to_original_ij(self.average_analysis['positions'][pos],
+                                                            self.average_analysis['filters']['roi'],
+                                                            self.average_analysis['camera']['r90'])
                 self.summarize_analyses()
 
                 data_dict = {
@@ -250,7 +256,7 @@ class ScanImages:
         return export_file_path, data_dict
 
     def analyze_average_render(self, image: Path, filtering=FiltersParameters(), count: int = 0,
-                               avg_image: Optional[np.ndarray] = None, profiles: tuple[str] = ('com',),
+                               avg_image: Optional[np.ndarray] = None, profiles: tuple = ('com',),
                                plots: bool = False, block_plot: bool = False, save_plots: bool = False)\
             -> tuple[np.ndarray, int]:
         self.analyze_image(image, filtering)
@@ -304,8 +310,8 @@ class ScanImages:
 
         try:
             self.analysis['camera']['target_raw_ij'] = (
-                int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue']),
-                int(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue']))
+                int(float(GeecsDevice.exp_info['devices'][self.camera_name]['Target.Y']['defaultvalue'])),
+                int(float(GeecsDevice.exp_info['devices'][self.camera_name]['Target.X']['defaultvalue'])))
         except Exception:
             self.analysis['camera']['target_raw_ij'] = (np.nan, np.nan)
 
@@ -391,13 +397,21 @@ class ScanImages:
 
         # convert to raw image positions, um FWHMs, and calculate target deltas
         for k in self.summary['positions_roi']['data'].keys():
+            # self.summary['positions_raw']['data'][k] = \
+            #     ScanImages.processed_to_original_ij(self.summary['positions_roi']['data'][k],
+            #                                         self.analyses[0]['camera']['raw_shape_ij'],
+            #                                         self.analyses[0]['camera']['r90'])
+            # self.summary['positions_raw']['fit'][k] = \
+            #     ScanImages.processed_to_original_ij(self.summary['positions_roi']['fit'][k],
+            #                                         self.analyses[0]['camera']['raw_shape_ij'],
+            #                                         self.analyses[0]['camera']['r90'])
             self.summary['positions_raw']['data'][k] = \
                 ScanImages.processed_to_original_ij(self.summary['positions_roi']['data'][k],
-                                                    self.analyses[0]['camera']['raw_shape_ij'],
+                                                    self.analyses[0]['filters']['roi'],
                                                     self.analyses[0]['camera']['r90'])
             self.summary['positions_raw']['fit'][k] = \
                 ScanImages.processed_to_original_ij(self.summary['positions_roi']['fit'][k],
-                                                    self.analyses[0]['camera']['raw_shape_ij'],
+                                                    self.analyses[0]['filters']['roi'],
                                                     self.analyses[0]['camera']['r90'])
 
             self.summary['fwhms']['um_xy'][k[:-3]] = np.fliplr(self.summary['fwhms']['pix_ij'][k[:-3]]) * um_per_pix
@@ -412,9 +426,9 @@ class ScanImages:
             self.summary['deltas']['fit']['um_xy'] = \
                 np.fliplr(self.summary['deltas']['fit']['pix_ij']) * um_per_pix
 
-    @staticmethod
-    def processed_to_original_ij(coords_ij: Union[tuple[int, int], np.ndarray], raw_shape_ij: tuple[int, int],
-                                 rot_deg: int = 0) -> Union[tuple[int, int], np.ndarray]:
+    @staticmethod  # tmp
+    def old_processed_to_original_ij(coords_ij: Union[tuple[int, int], np.ndarray], raw_shape_ij: tuple[int, int],
+                                     rot_deg: int = 0) -> Union[tuple[int, int], np.ndarray]:
         rots: int = divmod(rot_deg, 90)[0] % 4
         raw_coords: Union[tuple[int, int], np.ndarray]
         is_tuple: bool = isinstance(coords_ij, tuple)
@@ -438,6 +452,51 @@ class ScanImages:
         else:
             # 0deg: [i, j]
             raw_coords = coords_ij
+
+        if is_tuple:
+            raw_coords = tuple(raw_coords[0])
+
+        if is_1d:
+            raw_coords = raw_coords[0]
+
+        return raw_coords
+
+    @staticmethod
+    def processed_to_original_ij(coords_ij: Union[tuple[int, int], np.ndarray],
+                                 roi_ij: list[int, int, int, int], rot_deg: int = 0) \
+            -> Union[tuple[int, int], np.ndarray]:
+        rots: int = divmod(rot_deg, 90)[0] % 4
+        sub_coords: Union[tuple[int, int], np.ndarray]
+        is_tuple: bool = isinstance(coords_ij, tuple)
+        is_1d: bool = isinstance(coords_ij, np.ndarray) and (coords_ij.ndim == 1)
+        sub_shape_ij: tuple[int, int]
+
+        if is_tuple or is_1d:
+            coords_ij = np.array([coords_ij])
+
+        if rots == 1:
+            # 90deg: [j, j_max - i - 1]
+            sub_shape_ij: tuple[int, int] = (roi_ij[1] - roi_ij[0] + 1,
+                                             roi_ij[3] - roi_ij[2] + 1)
+            sub_coords = np.stack([coords_ij[:, 1],
+                                  sub_shape_ij[0] - coords_ij[:, 0] - 1]).transpose()
+        elif rots == 2:
+            # 180deg: [i_max - i - 1, j_max - j - 1]
+            sub_shape_ij: tuple[int, int] = (roi_ij[3] - roi_ij[2] + 1,
+                                             roi_ij[1] - roi_ij[0] + 1)
+            sub_coords = np.stack([sub_shape_ij[0] - coords_ij[:, 0] - 1,
+                                  sub_shape_ij[1] - coords_ij[:, 1] - 1]).transpose()
+        elif rots == 3:
+            # 270deg: [i_max - j - 1, i]
+            sub_shape_ij: tuple[int, int] = (roi_ij[1] - roi_ij[0] + 1,
+                                             roi_ij[3] - roi_ij[2] + 1)
+            sub_coords = np.stack([sub_shape_ij[1] - coords_ij[:, 1] - 1,
+                                  coords_ij[:, 0]]).transpose()
+        else:
+            # 0deg: [i, j]
+            sub_coords = coords_ij
+
+        raw_coords = sub_coords + np.array([roi_ij[2], roi_ij[0]])
 
         if is_tuple:
             raw_coords = tuple(raw_coords[0])
@@ -486,7 +545,8 @@ class ScanImages:
     def calculate_target_offset(analysis: dict[str, Any], pos_roi_ij: Union[tuple[int, int], np.ndarray]) \
             -> tuple[Union[tuple[int, int], np.ndarray], float]:
         rot_deg: int = analysis['camera']['r90']
-        raw_shape_ij: tuple[int, int] = analysis['camera']['raw_shape_ij']
+        # raw_shape_ij: tuple[int, int] = analysis['camera']['raw_shape_ij']
+        roi_ij: tuple[int, int] = analysis['filters']['roi']
         um_per_pix: float = analysis['camera']['um_per_pix']
         target_raw_ij: tuple[int, int] = analysis['camera']['target_raw_ij']
 
@@ -496,7 +556,8 @@ class ScanImages:
         if is_tuple or is_1d:
             pos_roi_ij = np.array([pos_roi_ij])
 
-        pos_raw_ij = ScanImages.processed_to_original_ij(pos_roi_ij, raw_shape_ij, rot_deg)
+        # pos_raw_ij = ScanImages.processed_to_original_ij(pos_roi_ij, raw_shape_ij, rot_deg)
+        pos_raw_ij = ScanImages.processed_to_original_ij(pos_roi_ij, roi_ij, rot_deg)
         delta_raw_ij = pos_raw_ij - np.array(target_raw_ij)
 
         if is_tuple:
@@ -672,18 +733,43 @@ class ScanImages:
 
 
 if __name__ == '__main__':
-    _base_path, is_local = htu.initialize()
-    _base_tag = ScanTag(2023, 7, 27, 24)
-    _camera = 'P1'
+    test = False
 
-    _folder = ScanData.build_folder_path(_base_tag, _base_path)
-    _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
-    _scan_images = ScanImages(_scan_data, _camera)
+    if not test:
+        _base_path, is_local = htu.initialize()
+        _base_tag = ScanTag(2023, 8, 9, 25)
+        _camera = 'A3'
 
-    _export_file_path, _data_dict = _scan_images.run_analysis_with_checks(
-        images=-1,
-        initial_filtering=FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0,
-                                            gauss_filter=5., com_threshold=0.66, bkg_image=None, box=True,
-                                            ellipse=False),
-        plots=True, store_images=False, save=True)
+        _folder = ScanData.build_folder_path(_base_tag, _base_path)
+        _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
+        _scan_images = ScanImages(_scan_data, _camera)
+
+        _export_file_path, _data_dict = _scan_images.run_analysis_with_checks(
+            images=-1,
+            initial_filtering=FiltersParameters(contrast=1.333, hp_median=3, hp_threshold=3., denoise_cycles=0,
+                                                gauss_filter=5., com_threshold=0.8, bkg_image=None, box=True,
+                                                ellipse=False),
+            plots=True, store_images=False, save=True)
+    else:
+        rots = 1
+        raw = np.zeros((7, 5))
+        roi = [2, 3, 1, 4]
+        raw[roi[2]:roi[3] + 1, roi[0]:roi[1] + 1] = \
+            np.reshape(np.arange((roi[1] - roi[0] + 1) * (roi[3] - roi[2] + 1)) + 1,
+                       (roi[3] - roi[2] + 1, roi[1] - roi[0] + 1))
+        print(f'raw:\n{raw}')
+
+        sub = raw[roi[2]:roi[3] + 1, roi[0]:roi[1] + 1]
+        print(f'sub:\n{sub}')
+
+        rot = np.rot90(sub, rots)
+        print(f'rot:\n{rot}')
+
+        p_subs = [(2, 1), (0, 2), (1, 0), (1, 1)]
+        p_sub = p_subs[rots]
+        print(f'point in rot {p_sub}: {rot[p_sub]}')
+
+        p_raw = ScanImages.processed_to_original_ij(p_sub, roi, rots * 90)
+        print(f'point in raw {p_raw}: {raw[p_raw]}')
+
     print('done')
