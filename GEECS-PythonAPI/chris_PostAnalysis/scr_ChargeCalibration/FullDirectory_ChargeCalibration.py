@@ -34,7 +34,7 @@ def linear(x, a):
 # Locate the scan directory
 
 doPrint = False
-normalizationCheck = True
+normalizationCheck = False
 
 sampleCase = 2
 if sampleCase == 1:
@@ -93,9 +93,11 @@ for i in range(len(shot_arr)):
     returned_image, MagSpecDict = MagSpecAnalysis.AnalyzeImage(processed_image, inputParams)
     clipcheck_arr[i] = MagSpecDict['Clipped-Percentage']
     saturation_arr[i] = MagSpecDict['Saturation-Counts']
+    cameracounts_arr[i] = MagSpecDict['Charge-On-Camera']
     if doPrint:
         print("Clipped Percentage:", clipcheck_arr[i])
         print("Saturation Counts:", saturation_arr[i])
+        print("Camera Counts:", cameracounts_arr[i])
 
     """
     clipcheck_arr[i] = MagSpecAnalysis.CalculateClippedPercentage(image)
@@ -108,9 +110,6 @@ for i in range(len(shot_arr)):
     picoscopecharge_arr[i] = ChargeTDMS.GetShotCharge(superpath, scan_number, shot_number)
     if doPrint:
         print("Picoscope Charge:", picoscopecharge_arr[i])
-    cameracounts_arr[i] = np.sum(image)
-    if doPrint:
-        print("Camera Counts:", cameracounts_arr[i])
 
 clip_tolerance = 0.001
 clip_pass = np.where(clipcheck_arr < clip_tolerance)[0]
@@ -140,7 +139,6 @@ if normalizationCheck:
     min_camera = 2
 else:
     min_camera = 2e6
-min_camera = 0
 all_conditions = [
     [clipcheck_arr, '<', clip_tolerance],
     [saturation_arr, '<', sat_tolerance],
@@ -152,7 +150,7 @@ both_cameracounts_arr = cameracounts_arr[both_pass]
 
 lfit = np.polyfit(both_cameracounts_arr, both_picoscopecharge_arr, 1)
 popt, pcov = curve_fit(linear, both_cameracounts_arr, both_picoscopecharge_arr)
-lfit[0] = popt[0]*2
+lfit[0] = popt[0]
 lfit[1] = 0
 print("Fit Values:", lfit)
 
@@ -166,9 +164,9 @@ slope = axis * lfit[0] + lfit[1]
 # slope2 = axis * MagSpecAnalysis.const_normalization_factor + lfit[1]
 
 plt.scatter(cameracounts_arr, picoscopecharge_arr, color="r", marker="o", label="All Shots")
-#plt.scatter(both_cameracounts_arr, both_picoscopecharge_arr, color="b", marker="o", label="Good Shots")
-#plt.scatter(clip_cameracounts_arr, clip_picoscopecharge_arr, color="k", marker="1", label="Not Clipped")
-#plt.scatter(sat_cameracounts_arr, sat_picoscopecharge_arr, color="k", marker="2", label="Unsaturated")
+plt.scatter(both_cameracounts_arr, both_picoscopecharge_arr, color="b", marker="o", label="Good Shots")
+plt.scatter(clip_cameracounts_arr, clip_picoscopecharge_arr, color="k", marker="1", label="Not Clipped")
+plt.scatter(sat_cameracounts_arr, sat_picoscopecharge_arr, color="k", marker="2", label="Unsaturated")
 plt.plot(axis, slope, c='k', ls='dashed', label="Fit: " + '{:.3e}'.format(lfit[0]))
 # plt.plot(axis, slope2, c = 'g', ls = 'dashed', label="Old Calibration")
 if normalizationCheck:

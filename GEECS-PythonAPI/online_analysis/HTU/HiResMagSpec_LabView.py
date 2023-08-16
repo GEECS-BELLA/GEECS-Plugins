@@ -40,10 +40,12 @@ def HiResMagSpec_LabView(image):
 def HiResMagSpec_Dictionary(image):
 
     # Factor to go from camera counts to pC/MeV
+    # Depends on trigger delay, exposure, and the threshold value for magspec analysis
     # Record: July 25th, Scan 24, HiResMagSpec
     normalization_triggerdelay = 15.497208
     normalization_exposure = 0.010000
-    normalization_factor = 1.1301095153900242e-06
+    normalization_thresholdvalue = 100 # 230
+    normalization_factor = 7.643283839778091e-07 # 1.1301095153900242e-06
 
     inputParams = {
         "Threshold-Value": 100,#230,                    # Large enough to remove noise level
