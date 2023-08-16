@@ -127,3 +127,9 @@ class ROI:
     def crop(self, image: np.ndarray):
         return image[self.top:self.bottom, self.left:self.right]
 
+
+class NotAPath(Path().__class__):
+    """ A Path instance that evaluates to false in, for example, if statements.
+    """
+    def __bool__(self):
+        return False

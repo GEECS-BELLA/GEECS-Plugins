@@ -5,27 +5,18 @@ from pathlib import Path
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-from warnings import warn
-
-from ..types import Array2D, QuantityArray2D
-from 
-from ..utils import NotAPath
-
-import sys
-from .... import GEECS_Plugins_folder
-sys.path.append(str(GEECS_Plugins_folder / "PhasicsDensity"))
-from phasics_density_analysis import PhasicsImageAnalyzer, ureg
-
-from ...images.scans.scan_images import ScanImages
-from ....tools.images.filtering import ROI
-from ....tools.images.ni_vision import read_imaq_image
-
 import numpy as np
 from scipy.optimize import curve_fit
 
-class U_PhasicsFileCopyScanImages(ScanImages):
+from warnings import warn
 
-    device_name = 'U_PhasicsFileCopy'
+from ..types import Array2D, QuantityArray2D
+from ..base import ImageAnalyzer
+from ..utils import ROI, read_imaq_image, NotAPath
+
+from phasicsdensity.phasics_density_analysis import PhasicsImageAnalyzer, ureg
+
+class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
 
     def __init__(self, 
                  roi: ROI = ROI(top=None, bottom=317, left=118, right=1600), 
