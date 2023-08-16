@@ -10,11 +10,13 @@ import os
 
 const_superpath = "Z:/data/Undulator/"
 
+
 def CompileDailyPath(day, month, year):
     yearpath = 'Y'+'{:04d}'.format(year)
     monthpath = '{:02d}'.format(month) + '-' + MonthLookup(month)
     daypath = '{:02d}'.format(year%100) + '_' + '{:02d}'.format(month) + '{:02d}'.format(day)
     return const_superpath + yearpath + '/' + monthpath + '/' + daypath + '/scans'
+
 
 def CompilePlotInfo(day, month, year, scan, shot = None, cameraStr = ''):
     dateStr = '{:02d}'.format(month) + '/' + '{:02d}'.format(day) + '/' + '{:02d}'.format(year%100)
@@ -34,6 +36,7 @@ def GetNumberOfShots(superpath, scannumber, imagename):
             num_shots = num_shots + 1
     print(num_shots)
     return num_shots
+
 
 def CompileFileLocation(superpath, scannumber, shotnumber, imagename, suffix=".png"):
     """
@@ -64,27 +67,6 @@ def CompileFileLocation(superpath, scannumber, shotnumber, imagename, suffix=".p
 
     return fullpath
 
-def CompileTDMSFilepath(superpath, scannumber):
-    """
-    Given the scan number, compile the path to the tdms file
-
-    Parameters
-    ----------
-    superpath : String
-        Path to the folder where the datasets are stored.
-        (NOTE:  Will update more once I understand the file structure of where things are saved).
-    scannumber : Int
-        The set number.
-
-    Returns
-    -------
-    tdms_filepath : String
-        The filepath for the tdms file.
-
-    """
-    scanpath = "Scan" + "{:03d}".format(scannumber)
-    tdms_filepath = superpath + "/" + scanpath + "/" + scanpath + ".tdms"
-    return tdms_filepath
 
 def MonthLookup(month):
     monthabbr = 'ERR'
