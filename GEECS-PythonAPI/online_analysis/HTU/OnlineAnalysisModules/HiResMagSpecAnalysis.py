@@ -140,31 +140,6 @@ def NormalizeImage(image, normalizationFactor):
     return returnimage
 
 
-"""
-def PrintNormalization(shotnumber, tdms_filepath):
-    charge_pC_vals = GetBeamCharge(tdms_filepath)
-    charge = charge_pC_vals[shotnumber - 1]
-
-    trigger_list, exposure_list = GetCameraTriggerAndExposure(tdms_filepath)
-
-    # Assuming the image is good, find the factor, camera delay, and shutter duration and
-    # print out the information for copy-pasting into this module.
-
-    print("The following are the normalization factors,")
-    print(" paste them into MagSpecAnalysis.py:")
-    print("const_normalization_triggerdelay = ", trigger_list[shotnumber - 1])
-    print("const_normalization_exposure =", exposure_list[shotnumber - 1])
-    return
-"""
-
-"""
-def LoadImage(superpath, scannumber, shotnumber, folderpath):
-    fullpath = DirectoryFunc.CompileFileLocation(superpath, scannumber, shotnumber, folderpath, suffix=".png")
-    image = pngTools.nBitPNG(fullpath)
-    return image
-"""
-
-
 def ThresholdReduction(image, threshold):
     returnimage = np.copy(image) - threshold
     returnimage[np.where(returnimage < 0)] = 0
@@ -196,20 +171,6 @@ def CalculateProjectedBeamSize(image, calibrationFactor):
 
 
 def CalculateChargeDensityDistribution(image, calibrationFactor):
-    """
-    Projects the MagSpec image onto the energy axis
-    
-    Parameters
-    ----------
-    image : 2D Float Numpy Array
-        The MagSpecImage.
-
-    Returns
-    -------
-    charge_arr : 1D Float Numpy Array
-        Summation of the charge for each slice in energy
-    
-    """
     charge_arr = np.sum(image, axis=0) * calibrationFactor
     return charge_arr
 
@@ -239,37 +200,6 @@ def CalculateAverageSize(sigma_arr, amp_arr):
 def FitBeamAngle(x0_arr, amp_arr, energy_arr):
     linear_fit = np.polyfit(energy_arr, x0_arr, deg=1, w=np.power(amp_arr, 2))
     return linear_fit
-
-
-"""
-def GetBeamCharge(tdms_filepath):
-    # For future reference, can list all of the groups using tdms_file.groups()
-    # and can list all of the groups, channels using group.channels()
-    #
-    # Also note, this loads the entire TDMS file into memory, and so a more
-    # elegant usage of TdmsFile could be only reading the necessary picoscope data
-    tdms_file = TdmsFile.read(tdms_filepath)
-    picoscope_group = tdms_file['U-picoscope5245D']
-    charge_pC_channel = picoscope_group['U-picoscope5245D charge pC']
-    scan_charge_vals = np.asarray(charge_pC_channel[:], dtype=float)
-    tdms_file = None
-    return scan_charge_vals
-"""
-"""
-def GetShotCharge(superpath, scannumber, shotnumber):
-    tdms_filepath = DirectoryFunc.CompileTDMSFilepath(superpath, scannumber)
-    charge_pC_vals = GetBeamCharge(tdms_filepath)
-    return charge_pC_vals[shotnumber - 1]
-"""
-"""
-def GetCameraTriggerAndExposure(tdms_filepath):
-    tdms_file = TdmsFile.read(tdms_filepath)
-    hiresmagcam_group = tdms_file['U_HiResMagCam']
-    exposure_list = hiresmagcam_group['U_HiResMagCam Exposure']
-    trigger_list = hiresmagcam_group['U_HiResMagCam TriggerDelay']
-    tdms_file = None
-    return trigger_list, exposure_list
-"""
 
 
 def FindMax(image):

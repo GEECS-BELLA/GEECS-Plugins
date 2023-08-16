@@ -9,6 +9,7 @@ sys.path.append('..')
 import png #this package does low level i/o on pngs
 import imageio as im
 
+
 def nBitPNG(fname):
     """
     This reads in a png and scales pixel values to compensate for variable bit 

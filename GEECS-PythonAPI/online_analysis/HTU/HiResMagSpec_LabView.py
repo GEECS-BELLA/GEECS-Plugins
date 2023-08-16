@@ -30,11 +30,6 @@ except ImportError:
     except ImportError:
         print("Modules not found!  Check your paths!")
 
-"""
-import OnlineAnalysisModules.HiResMagSpecPlotter as MagPlotter
-import OnlineAnalysisModules.DirectoryModules as DirectoryFunc
-import OnlineAnalysisModules.pngTools_HiRes as pngTools
-"""
 
 def HiResMagSpec_LabView(image):
     returned_image, MagSpecDict, inputParams = HiResMagSpec_Dictionary(image)
@@ -45,10 +40,12 @@ def HiResMagSpec_LabView(image):
 def HiResMagSpec_Dictionary(image):
 
     # Factor to go from camera counts to pC/MeV
+    # Depends on trigger delay, exposure, and the threshold value for magspec analysis
     # Record: July 25th, Scan 24, HiResMagSpec
     normalization_triggerdelay = 15.497208
     normalization_exposure = 0.010000
-    normalization_factor = 1.1301095153900242e-06
+    normalization_thresholdvalue = 100 # 230
+    normalization_factor = 7.643283839778091e-07 # 1.1301095153900242e-06
 
     inputParams = {
         "Threshold-Value": 100,#230,                    # Large enough to remove noise level
@@ -65,36 +62,3 @@ def HiResMagSpec_Dictionary(image):
     unnormalized_image = returned_image / normalization_factor
     uint_image = unnormalized_image.astype(np.uint16)
     return uint_image, MagSpecDict, inputParams
-
-# I don't run through this anymore, all plotting is handled in the chris_PostAnalysis folder of GEECS-PythonAPI
-"""
-if __name__ == '__main__':
-
-    data_day = 9#29#9
-    data_month = 8#6#8
-    data_year = 2023
-    scan_number = 9#23#9
-    shot_number = 28
-
-    superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
-    image_name = "UC_TestCam"
-    #image_name = "U_HiResMagCam"
-
-    fullpath = DirectoryFunc.CompileFileLocation(superpath, scan_number, shot_number, image_name, suffix=".png")
-    raw_image = pngTools.nBitPNG(fullpath)
-
-    start = time.perf_counter()
-    returned_image, analyzeDict, inputParams = HiResMagSpec_Dictionary(raw_image)
-    print("Elapsed Time: ", time.perf_counter()-start, "s")
-    print(analyzeDict)
-
-    num_pixel = inputParams["Pixel-Crop"]
-    raw_image = raw_image[num_pixel:-num_pixel, num_pixel:-num_pixel]
-    doThreshold = True
-    doNormalization = True
-
-    plotInfo = DirectoryFunc.CompilePlotInfo(data_day, data_month, data_year, scan_number, shot_number, "U_HiResMagSpec")
-    MagPlotter.PlotEnergyProjection(raw_image, analyzeDict, inputParams, plotInfo=plotInfo, doThreshold=doThreshold, doNormalize=doNormalization)
-    MagPlotter.PlotSliceStatistics(raw_image, analyzeDict, inputParams, plotInfo=plotInfo, doThreshold=doThreshold, doNormalize=doNormalization)
-    MagPlotter.PlotBeamDistribution(raw_image, analyzeDict, inputParams, plotInfo=plotInfo, doThreshold=doThreshold, doNormalize=doNormalization, style=2)
-"""
