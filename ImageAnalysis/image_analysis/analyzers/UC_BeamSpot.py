@@ -3,11 +3,8 @@
 
 from __future__ import annotations
 
-from typing import Union, TYPE_CHECKING
+from typing import Union, Optional
 from pathlib import Path
-
-if TYPE_CHECKING:
-    from ....controls.devices.HTU.diagnostics.cameras.camera import Camera
 
 import numpy as np
 
@@ -16,67 +13,133 @@ from skimage.morphology import closing, square
 from skimage.transform import hough_ellipse
 from skimage.feature import canny
 
-from ..scans.scan_images import ScanImages, ScanData
-from ....tools.images.filtering import basic_filter, FiltersParameters
-from ....tools.images.spot import n_sigma_window
-from ....controls.interface import api_error
+from ..tools.spot import n_sigma_window
 
-class UC_BeamSpotScanImages(ScanImages):
+from ..base import ImageAnalyzer
+from ..utils import ROI
+from ..tools.filtering import basic_filter
+
+class UC_BeamSpotImageAnalyzer(ImageAnalyzer):
     """ Implements image analysis for any e-beam or laser beam spot image
 
         Used for undulator Visa, Aline, and Phosphor cameras
 
     """
-    def __init__(self, scan: ScanData, camera: Union[int, Camera, str]):
+    def __init__(self,
+                 camera_roi: ROI = ROI(),
+                 contrast: float = 1.333,
+                 hp_median: int = 2,
+                 hp_threshold: float = 3.0,
+                 denoise_cycles: int = 0,
+                 gauss_filter: float = 5.0,
+                 com_threshold: float = 0.5,
+                 background: Optional[np.ndarray] = None,
+                 box: bool = True,
+                 ellipse: bool = False,
+                 sigma_radius: float = 5.0,
+                ):
         """
         Parameters
         ----------
-        sigma_radius : float 
-            used in n_sigma_window function
+        camera_roi: ROI
+            region of interest, to which the image is already cropped. This
+            is currently passed only for saving in the analysis.
+        contrast: float
+            needs doc
+        hp_median: int
+            hot pixels median filter size
+        hp_threshold: float
+            hot pixels threshold in # of sta. dev. of the median deviation
+        denoise_cycles: int
+            needs doc
+        gauss_filter: float
+            gaussian filter size 
+        com_threshold: float
+            image threshold for center-of-mass calculation
+        background: np.ndarray or None
+            not currently used
+        box: bool
+            needs doc
+        ellipse: bool
+            needs doc
+        sigma_radius: float
+            used in n_sigma_window function, needs doc
 
         """
-        super().__init__(scan, camera)
+        self.camera_roi = camera_roi
 
-    def actually_analyze_image(self, image: np.ndarray, filtering=FiltersParameters(), sigma_radius: float = 5):
-        """
-        Parameters
-        ----------
-        filtering : FiltersParameters
-        sigma_radius : float
+        # from FilterParameters
+        self.contrast = contrast
+        self.hp_median = hp_median
+        self.hp_threshold = hp_threshold
+        self.denoise_cycles = denoise_cycles
+        self.gauss_filter = gauss_filter
+        self.com_threshold = com_threshold
+        self.box = box
+        self.ellipse = ellipse
 
-        """
+        self.sigma_radius = sigma_radius
+
+        # background. not currently used
+        self.background = background
+
+        super().__init__()
+
+    def analyze_image(self, 
+                      image: np.ndarray, 
+                      auxiliary_data: Optional[dict] = None,
+                     ) -> dict[str, Union[float, np.ndarray]]:
 
         # initial filtering
-        self.analysis = basic_filter(image, self.analysis, filtering.hp_median, filtering.hp_threshold,
-                                     filtering.denoise_cycles, filtering.gauss_filter, filtering.com_threshold)
+        analysis = basic_filter(image, self.hp_median, self.hp_threshold,
+                                     self.denoise_cycles, self.gauss_filter, self.com_threshold)
+        
+        analysis.update({'filters': {}, 'metrics': {}, 'flags': {}})
+        
         if self.camera_roi is None:
-            self.analysis['filters']['roi'] = \
+            analysis['filters']['roi'] = \
                 np.array([0, image.shape[1] - 1, 0, image.shape[0] - 1])  # left, right, top, bottom
         else:
-            self.analysis['filters']['roi'] = self.camera_roi.copy()
+            # GEECS-PythonAPI uses [left, right, top, bottom], with all indices inclusive
+            analysis['filters']['roi'] = np.array([self.camera_roi.left, 
+                                                   self.camera_roi.right - 1, 
+                                                   self.camera_roi.top, 
+                                                   self.camera_roi.bottom - 1, 
+                                                 ])
 
         # stop if low-contrast image
-        if not self.is_image_valid(filtering.contrast):
-            return
+        def is_image_valid() -> bool:
+            counts, bins = np.histogram(analysis['arrays']['blurred'],
+                                        bins=max(10, 2 * int(np.std(analysis['arrays']['blurred']))))
+            analysis['arrays']['histogram'] = (counts, bins)
+            # most common value
+            analysis['metrics']['bkg_level']: float = bins[np.where(counts == np.max(counts))[0][0]]
+            analysis['metrics']['contrast']: float = self.contrast
+            analysis['flags']['is_valid']: bool = np.std(bins) > self.contrast * analysis['metrics']['bkg_level']
+
+            return analysis['flags']['is_valid']
+
+        if not is_image_valid():
+            return analysis
 
         try:
-            blurred = self.analysis['arrays']['blurred']
+            blurred = analysis['arrays']['blurred']
 
-            lr = np.round(n_sigma_window(blurred[self.analysis['positions']['com_ij'][0], :], sigma_radius)).astype(int)
-            ud = np.round(n_sigma_window(blurred[:, self.analysis['positions']['com_ij'][1]], sigma_radius)).astype(int)
-            self.analysis['metrics']['roi_com'] = np.concatenate((lr, ud))
+            lr = np.round(n_sigma_window(blurred[analysis['positions']['com_ij'][0], :], self.sigma_radius)).astype(int)
+            ud = np.round(n_sigma_window(blurred[:, analysis['positions']['com_ij'][1]], self.sigma_radius)).astype(int)
+            analysis['metrics']['roi_com'] = np.concatenate((lr, ud))
 
             # max roi (left, right, top, bottom)
-            lr = np.round(n_sigma_window(blurred[self.analysis['positions']['max_ij'][0], :], sigma_radius)).astype(int)
-            ud = np.round(n_sigma_window(blurred[:, self.analysis['positions']['max_ij'][1]], sigma_radius)).astype(int)
-            self.analysis['metrics']['roi_max'] = np.concatenate((lr, ud))
+            lr = np.round(n_sigma_window(blurred[analysis['positions']['max_ij'][0], :], self.sigma_radius)).astype(int)
+            ud = np.round(n_sigma_window(blurred[:, analysis['positions']['max_ij'][1]], self.sigma_radius)).astype(int)
+            analysis['metrics']['roi_max'] = np.concatenate((lr, ud))
 
             # beam edges
-            image_edges: np.ndarray = canny(self.analysis['arrays']['thresholded'], sigma=3)
+            image_edges: np.ndarray = canny(analysis['arrays']['thresholded'], sigma=3)
             image_edges = closing(image_edges.astype(float), square(3))
 
             # boxed image
-            if filtering.box:
+            if self.box:
                 label_image = label(image_edges)
                 areas = [box.area for box in regionprops(label_image)]
                 roi = regionprops(label_image)[areas.index(max(areas))]
@@ -99,46 +162,44 @@ class UC_BeamSpotScanImages(ScanImages):
                     top_gain = min(roi[2], gain_pixels)
                     bottom_gain = min(image_edges.shape[0] - 1 - roi[3], gain_pixels)
 
-                    self.analysis['metrics']['roi_edges'] = np.array([roi[0] - left_gain, roi[1] + right_gain,
+                    analysis['metrics']['roi_edges'] = np.array([roi[0] - left_gain, roi[1] + right_gain,
                                                                       roi[2] - top_gain, roi[3] + bottom_gain])
 
                     pos_box = np.array(
-                        [(self.analysis['metrics']['roi_edges'][2] + self.analysis['metrics']['roi_edges'][3]) / 2.,
-                         (self.analysis['metrics']['roi_edges'][0] + self.analysis['metrics']['roi_edges'][1]) / 2.])
+                        [(analysis['metrics']['roi_edges'][2] + analysis['metrics']['roi_edges'][3]) / 2.,
+                         (analysis['metrics']['roi_edges'][0] + analysis['metrics']['roi_edges'][1]) / 2.])
                     pos_box = np.round(pos_box).astype(int)
 
-                    self.analysis['positions']['box_ij'] = tuple(pos_box)  # i, j
-                    self.analysis['positions']['long_names'].append('box')
-                    self.analysis['positions']['short_names'].append('box')
+                    analysis['positions']['box_ij'] = tuple(pos_box)  # i, j
+                    analysis['positions']['long_names'].append('box')
+                    analysis['positions']['short_names'].append('box')
 
                     # update edges image
-                    image_edges[:, :self.analysis['metrics']['roi_edges'][0]] = 0
-                    image_edges[:, self.analysis['metrics']['roi_edges'][1]+1:] = 0
-                    image_edges[:self.analysis['metrics']['roi_edges'][2], :] = 0
-                    image_edges[self.analysis['metrics']['roi_edges'][3]+1:, :] = 0
+                    image_edges[:, :analysis['metrics']['roi_edges'][0]] = 0
+                    image_edges[:, analysis['metrics']['roi_edges'][1]+1:] = 0
+                    image_edges[:analysis['metrics']['roi_edges'][2], :] = 0
+                    image_edges[analysis['metrics']['roi_edges'][3]+1:, :] = 0
 
-            self.analysis['arrays']['edges'] = image_edges
+            analysis['arrays']['edges'] = image_edges
 
             # ellipse fit (min_size: min of major axis, max_size: max of minor axis)
-            if filtering.ellipse:
+            if self.ellipse:
                 h_ellipse = hough_ellipse(image_edges, min_size=10, max_size=60, accuracy=8)
                 h_ellipse.sort(order='accumulator')
                 best = list(h_ellipse[-1])
                 yc, xc, a, b = (int(round(x)) for x in best[1:5])
                 ellipse = (yc, xc, a, b, best[5])
-                self.analysis['metrics']['ellipse'] = ellipse  # (i, j, major, minor, orientation)
+                analysis['metrics']['ellipse'] = ellipse  # (i, j, major, minor, orientation)
 
                 # cy, cx = ellipse_perimeter(*ellipse)
                 pos_ellipse = np.array([yc, xc])
 
-                self.analysis['positions']['ellipse_ij'] = tuple(pos_ellipse)  # i, j
-                self.analysis['positions']['long_names'].append('ellipse')
-                self.analysis['positions']['short_names'].append('ellipse')
+                analysis['positions']['ellipse_ij'] = tuple(pos_ellipse)  # i, j
+                analysis['positions']['long_names'].append('ellipse')
+                analysis['positions']['short_names'].append('ellipse')
+
+            return analysis
 
         except Exception as ex:
-            if isinstance(image, Path):
-                image_name = f' {image.name}'
-            else:
-                image_name = ''
-            api_error.error(str(ex), f'Failed to analyze image{image_name}')
-            pass
+            print(f'Failed to analyze image: {ex}')
+            return analysis

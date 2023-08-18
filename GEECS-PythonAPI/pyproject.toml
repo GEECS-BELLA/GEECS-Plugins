@@ -8,19 +8,28 @@ packages = [{include = "geecs_python_api"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.13"
+
+# numerical packages
 numpy = "^1.21"
 pandas = "^2.0"
 matplotlib = "^3.7.2"
 scipy = "^1.9"
 nptdms = "^1.7.0"
+
+# image libraries
 scikit-image = "^0.21"
 opencv-python = "~4.7"
 pypng = "^0.20220715.0"
+screeninfo = "^0.8.1"
+
+# other
 python-dotenv = "^1.0.0"
 progressbar2 = "^4.2.0"
 xopt = "^1.4.1"
 mysql-connector = "^2.2.9"
-screeninfo = "^0.8.1"
+
+# internal libraries
+ImageAnalysis = { path = "../ImageAnalysis" }
 
 [tool.poetry.group.dev.dependencies]
 spyder-kernels = ">=2.4.0,<2.5.0"

@@ -4,8 +4,6 @@ from pathlib import Path
 from typing import Any, Optional, Union
 from dataclasses import dataclass
 from tkinter import filedialog
-from scipy.ndimage import median_filter
-from skimage.restoration import denoise_wavelet, cycle_spin
 from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
 import matplotlib.pyplot as plt
@@ -14,6 +12,8 @@ from matplotlib.widgets import RectangleSelector
 from geecs_python_api.tools.images.batches import average_images
 import geecs_python_api.tools.images.ni_vision as ni
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
+
+from image_analysis.tools.filtering import clip_hot_pixels
 
 
 @dataclass
@@ -58,201 +58,6 @@ def clip_outliers(image: np.ndarray,
     image_clipped[image_clipped > thresh] = thresh
 
     return image_clipped
-
-
-def clip_hot_pixels(image: np.ndarray, median_filter_size: int = 2, threshold_factor: float = 3) -> np.ndarray:
-    data_type = image.dtype
-    image = image.astype('float64')
-
-    # median filtering and hot pixels list
-    blurred = median_filter(image, size=median_filter_size)
-    difference = image - blurred
-    threshold = threshold_factor * np.std(difference)
-    hot_pixels = np.nonzero(np.abs(difference) > threshold)
-
-    # fix image with median values
-    for (y, x) in zip(hot_pixels[0], hot_pixels[1]):
-        image[y, x] = blurred[y, x]
-
-    return image.astype(data_type)
-
-
-def denoise(image: np.ndarray, max_shifts: int = 3):
-    return cycle_spin(image, func=denoise_wavelet, max_shifts=max_shifts)
-
-
-def basic_filter(image: np.ndarray, analysis_dict: Optional[dict[str, Any]] = None,
-                 hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 3,
-                 gauss_filter: float = 5., com_threshold: float = 0.5) -> dict[str, Any]:
-    """
-    Applies a basic set of filters to an image
-
-    hp_median:      hot pixels median filter size
-    hp_threshold:   hot pixels threshold in # of sta. dev. of the median deviation
-    gauss_filter:   gaussian filter size
-    com_threshold:  image threshold for center-of-mass calculation
-    """
-    # clip hot pixels
-    if hp_median > 0:
-        image_clipped = clip_hot_pixels(image, median_filter_size=hp_median, threshold_factor=hp_threshold)
-    else:
-        image_clipped: np.ndarray = image.copy()
-
-    # denoise
-    if denoise_cycles > 0:
-        image_denoised = denoise(image_clipped, max_shifts=denoise_cycles)
-    else:
-        image_denoised: np.ndarray = image_clipped.copy()
-
-    # gaussian filter
-    if gauss_filter > 0:
-        image_blurred = simg.gaussian_filter(image, sigma=gauss_filter)
-    else:
-        image_blurred: np.ndarray = image_denoised.copy()
-
-    # thresholding
-    if com_threshold > 0:
-        # peak location
-        i_max, j_max = np.where(image_blurred == image_blurred.max(initial=0))
-        i_max, j_max = i_max[0].item(), j_max[0].item()
-
-        # center of mass of thresholded image
-        val_max = image_blurred[i_max, j_max]
-        binary = image_blurred > (com_threshold * val_max)
-        image_thresholded = image_blurred * binary.astype(float)
-        i_com, j_com = simg.center_of_mass(image_thresholded)
-    else:
-        i_max, j_max, i_com, j_com = -1
-        image_thresholded: np.ndarray = image_blurred.copy()
-
-    filters = {'hp_median': hp_median,
-               'hp_threshold': hp_threshold,
-               'denoise_cycles': denoise_cycles,
-               'gauss_filter': gauss_filter,
-               'com_threshold': com_threshold}
-
-    positions = {'max_ij': (int(i_max), int(j_max)),
-                 'com_ij': (int(i_com), int(j_com)),
-                 'long_names': ['maximum', 'center of mass'],
-                 'short_names': ['max', 'com']}
-
-    arrays = {'raw_roi': image,
-              'denoised': image_denoised,
-              'blurred': image_blurred,
-              'thresholded': image_thresholded}
-
-    if analysis_dict is None:
-        analysis_dict = {'filter_pars': filters,
-                         'positions': positions,
-                         'arrays': arrays}
-    else:
-        if 'filters' in analysis_dict:
-            for k, v in filters.items():
-                analysis_dict['filters'][k] = v
-        else:
-            analysis_dict['filters'] = filters
-
-        if 'positions' in analysis_dict:
-            for k, v in positions.items():
-                analysis_dict['positions'][k] = v
-        else:
-            analysis_dict['positions'] = positions
-
-        if 'arrays' in analysis_dict:
-            for k, v in arrays.items():
-                analysis_dict['arrays'][k] = v
-        else:
-            analysis_dict['arrays'] = arrays
-
-    return analysis_dict
-
-
-class ROI:
-    """ Specify a region of interest for an ImageAnalyzer to crop with.
-    
-    This is given a class so that there can be no confusion about the order
-    of indices.
-
-    Initialzed with top, bottom, left, right indices. Cropping is done with 
-    slices containing these indices, which means: 
-        * None is valid, meaning go to the edge
-        * Negative integers are valid, which means up to edge - value.
-        * The top and left indices are inclusive, and bottom and right indices
-          are exclusive.
-
-    The convention of (0, 0) at the top left corner is used, which means 
-    top should be less than bottom. 
-
-    If not given as kwargs, the coordinates are in order that they would be 
-    used in slicing: 
-        image[i0:i1, i2:i3]
-
-    """
-    def __init__(self, top: Optional[int] = None, 
-                       bottom: Optional[int] = None, 
-                       left: Optional[int] = None, 
-                       right: Optional[int] = None, 
-
-                       bad_index_order = 'raise',
-                ):
-
-        """
-        Parameters
-        ----------
-        top, bottom, left, right : Optional[int]
-            indices of ROI. Cropping is done with slices containing these indices,
-            which means: 
-                * None is valid, meaning go to the edge
-                * Negative integers are valid, which means up to edge - value.
-                * The top and left indices are inclusive, and bottom and right indices
-                  are exclusive.
-
-            The convention of (0, 0) at the top left corner is used, which means 
-            top should be less than bottom. 
-
-        bad_index_order : one of 'raise', 'invert', 'invert_warn'
-            what to do if top > bottom, or right > left
-                'raise': raise ValueError
-                'invert': silently switch top/bottom, or left/right indices
-                'invert_warn': switch top/bottom or left/right indices with warning.
-
-        """
-
-        def check_index_order(low_name, low_index, high_name, high_index):
-            """ Checks whether low_index < high_index, and takes appropriate action.
-
-            Returns
-            -------
-            low_index, high_index : int
-                possibly inverted.
-
-            """
-            if low_index is None or high_index is None:
-                return low_index, high_index
-
-            if low_index > high_index:
-                if bad_index_order == 'raise': 
-                    raise ValueError(f"{low_index} should be less than {high_index} ((0, 0) is at the top left corner)")
-                elif bad_index_order == 'invert':
-                    low_index, high_index = high_index, low_index
-                elif bad_index_order == 'invert_warn':
-                    low_index, high_index = high_index, low_index
-                    warn(f"Inverting {low_index} and {high_index}.")
-                else:
-                    raise ValueError(f"Unknown action for bad_index_order: {bad_index_order}")
-
-            return low_index, high_index
-
-        top, bottom = check_index_order('top', top, 'bottom', bottom)
-        left, right = check_index_order('left', left, 'right', right)
-
-        self.top = top
-        self.bottom = bottom
-        self.left = left
-        self.right = right
-
-    def crop(self, image: np.ndarray):
-        return image[self.top:self.bottom, self.left:self.right]
 
 
 

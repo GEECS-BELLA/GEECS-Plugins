@@ -32,8 +32,8 @@ class TestReadIMAQImage(unittest.TestCase):
         
         From http://www.schaik.com/pngsuite/
         """
-        img = read_imaq_image(self.image_folder / 'cs5n2c08.png')
-        # TODO: assert
+        # TODO: create NI test png
+        pass
 
 if __name__ == "__main__":
     unittest.main()

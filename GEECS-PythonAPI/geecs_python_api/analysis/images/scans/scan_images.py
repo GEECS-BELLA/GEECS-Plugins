@@ -24,6 +24,8 @@ from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.images.spot import spot_analysis, fwhm
 from geecs_python_api.tools.interfaces.prompts import text_input
 
+from image_analysis.analyzers.UC_BeamSpot import UC_BeamSpotImageAnalyzer
+from image_analysis.utils import ROI as ImageAnalyzerROI
 
 class ScanImages:
     fig_size = (int(round(screeninfo.get_monitors()[0].width / 540. * 10) / 10),
@@ -315,28 +317,29 @@ class ScanImages:
         except Exception:
             self.analysis['camera']['target_raw_ij'] = (np.nan, np.nan)
 
-        # now the meat of the analysis
-        self.actually_analyze_image(image_raw)
-
-    def actually_analyze_image(image: np.ndarray, **kwargs) -> None:
-        """ Calculate metrics from an image.
-
-            Saves results in self.analysis.
-
-            Derived classes should implement this method.
-        """
-        raise NotImplementedError("Derived classes of ScanImages should implement actually_analyze_image()")
-
-    def is_image_valid(self, contrast: float = 2.) -> bool:
-        counts, bins = np.histogram(self.analysis['arrays']['blurred'],
-                                    bins=max(10, 2 * int(np.std(self.analysis['arrays']['blurred']))))
-        self.analysis['arrays']['histogram'] = (counts, bins)
-        # most common value
-        self.analysis['metrics']['bkg_level']: float = bins[np.where(counts == np.max(counts))[0][0]]
-        self.analysis['metrics']['contrast']: float = contrast
-        self.analysis['flags']['is_valid']: bool = np.std(bins) > contrast * self.analysis['metrics']['bkg_level']
-
-        return self.analysis['flags']['is_valid']
+        # now we're ready to run the analysis!
+        image_analyzer = UC_BeamSpotImageAnalyzer(
+            # image is already cropped to self.camera_roi but this is currently
+            # passed to save in the analysis dict
+            camera_roi = ImageAnalyzerROI(left=self.camera_roi[0], right=self.camera_roi[1] + 1,
+                                          top=self.camera_roi[2], bottom=self.camera_roi[3] + 1
+                                         ),
+            contrast=filtering.contrast,
+            hp_median=filtering.hp_median, 
+            hp_threshold=filtering.hp_threshold,
+            denoise_cycles=filtering.denoise_cycles,
+            gauss_filter=filtering.gauss_filter,
+            com_threshold=filtering.com_threshold,
+            background=None,  # background already subtracted above
+            box=filtering.box,
+            sigma_radius=sigma_radius,
+        )
+        image_analysis = image_analyzer.analyze_image(image_raw)
+        # image_analysis contains keys filter_pars, positions, filters, arrays, 
+        # metrics, flags. These should all be empty in self.analysis, so the 
+        # update action shouldn't overwrite anything. Assert that this is the case.
+        assert all(not self.analysis[k] for k in image_analysis)
+        self.analysis.update(image_analysis)
 
     def analyze_profiles(self):
         try:

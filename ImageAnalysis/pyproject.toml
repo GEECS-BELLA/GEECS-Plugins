@@ -11,11 +11,13 @@ python = ">=3.9,<3.13"
 
 # numeric libraries
 numpy = "^1.25.0"
+scipy = "^1.9"
 Pint = "0.22"
 
 # image libraries
 pypng = "^0.20220715.0"
 imageio = "^2.31.1"
+scikit-image = "^0.21"
 
 # internal libraries
 phasicsdensity = { path = "../PhasicsDensity", develop = true }

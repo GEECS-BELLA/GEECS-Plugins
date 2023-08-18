@@ -15,8 +15,9 @@ from geecs_python_api.controls.api_defs import SysPath
 from geecs_python_api.tools.images.batches import list_files, average_images
 from geecs_python_api.controls.devices.geecs_device import api_error
 import geecs_python_api.tools.images.ni_vision as ni
-from geecs_python_api.tools.images.filtering import clip_hot_pixels
 from geecs_python_api.tools.images.spot import spot_analysis, fwhm
+
+from image_analysis.tools.filtering import clip_hot_pixels
 
 # base_path = Path(r'Z:\data')
 base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')

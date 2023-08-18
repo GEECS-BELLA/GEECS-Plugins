@@ -6,8 +6,9 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 from collections import namedtuple
 
-from ..types import Array2D, QuantityArray2D, QuantityArray, Quantity
-from .base import ImageAnalyzer, ROI
+from ..types import Array2D
+from ..base import ImageAnalyzer
+from ..utils import ROI
 
 from . import ureg
 Q_ = ureg.Quantity
