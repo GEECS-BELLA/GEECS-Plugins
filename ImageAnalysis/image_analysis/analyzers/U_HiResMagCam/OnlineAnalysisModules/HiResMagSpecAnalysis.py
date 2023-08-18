@@ -108,19 +108,19 @@ def AnalyzeImage(inputImage, inputParams):
             beamIntercept = float(0.0)
 
     magSpecDict = {
-        "Clipped-Percentage": clippedPercentage,  # 1
-        "Saturation-Counts": saturationCheck,  # 2
-        "Charge-On-Camera": chargeOnCamera,  # 3
-        "Peak-Charge": peakCharge,  # 4
-        "Peak-Charge-Energy": peakChargeEnergy,  # 5
-        "Average-Energy": averageEnergy,  # 6
-        "Energy-Spread": energySpread,  # 7
-        "Energy-Spread-Percent": energySpread / averageEnergy,  # 8
-        "Average-Beam-Size": averageBeamSize,
-        "Projected-Beam-Size": projectedBeamSize,
-        "Beam-Tilt": beamAngle,
-        "Beam-Intercept": beamIntercept,
-        "Beam-Intercept-100MeV": 100 * beamAngle + beamIntercept
+        "Clipped-Percentage": float(clippedPercentage),  # 1
+        "Saturation-Counts": int(saturationCheck),  # 2
+        "Charge-On-Camera": float(chargeOnCamera),  # 3
+        "Peak-Charge": float(peakCharge),  # 4
+        "Peak-Charge-Energy": float(peakChargeEnergy),  # 5
+        "Average-Energy": float(averageEnergy),  # 6
+        "Energy-Spread": float(energySpread),  # 7
+        "Energy-Spread-Percent": float(energySpread / averageEnergy),  # 8
+        "Average-Beam-Size": float(averageBeamSize),
+        "Projected-Beam-Size": float(projectedBeamSize),
+        "Beam-Tilt": float(beamAngle),
+        "Beam-Intercept": float(beamIntercept),
+        "Beam-Intercept-100MeV": float(100 * beamAngle + beamIntercept)
     }
     return image, magSpecDict
 

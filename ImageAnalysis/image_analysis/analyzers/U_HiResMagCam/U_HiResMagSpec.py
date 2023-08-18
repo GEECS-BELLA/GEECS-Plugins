@@ -15,7 +15,7 @@ The imports a bit ugly, but haven't had a chance to debug how paths work in the 
 """
 
 from array import array
-from typing import Optional
+from typing import Optional, Any
 import numpy as np
 from numpy.typing import NDArray
 

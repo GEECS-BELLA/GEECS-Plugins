@@ -16,15 +16,15 @@ import online_analysis.HTU.OnlineAnalysisModules.DirectoryModules as DirectoryFu
 import online_analysis.HTU.HiResMagSpec_LabView as MagSpecCaller
 
 
-data_day = 9  # 29#9
-data_month = 8  # 6#8
+data_day = 29  # 29#9
+data_month = 6  # 6#8
 data_year = 2023
-scan_number = 9  # 23#9
-shot_number = 28
+scan_number = 23  # 23#9
+shot_number = 54
 
 superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
-image_name = "UC_TestCam"
-# image_name = "U_HiResMagCam"
+# image_name = "UC_TestCam"
+image_name = "U_HiResMagCam"
 
 fullpath = DirectoryFunc.CompileFileLocation(superpath, scan_number, shot_number, image_name, suffix=".png")
 raw_image = pngTools.nBitPNG(fullpath)
@@ -45,4 +45,4 @@ MagPlotter.PlotEnergyProjection(raw_image, analyzeDict, inputParams, plotInfo=pl
 MagPlotter.PlotSliceStatistics(raw_image, analyzeDict, inputParams, plotInfo=plotInfo, doThreshold=doThreshold,
                                doNormalize=doNormalization)
 MagPlotter.PlotBeamDistribution(raw_image, analyzeDict, inputParams, plotInfo=plotInfo, doThreshold=doThreshold,
-                                doNormalize=doNormalization, style=2)
+                                doNormalize=doNormalization, style=0)

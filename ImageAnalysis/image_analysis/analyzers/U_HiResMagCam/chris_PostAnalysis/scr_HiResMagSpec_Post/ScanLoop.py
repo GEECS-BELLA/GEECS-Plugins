@@ -11,13 +11,13 @@ import online_analysis.HTU.HiResMagSpec_LabView as MagSpecCaller
 # Define necessary constants and filepaths
 doOverwrite = True
 
-data_day = 9
-data_month = 8
+data_day = 25#29#9
+data_month = 7#6#8
 data_year = 2023
-scan_number = 9
+scan_number = 25#23#9
 superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
-image_name = "UC_TestCam"
-#image_name = "U_HiResMagCam"
+#image_name = "UC_TestCam"
+image_name = "U_HiResMagCam"
 
 num_shots = DirectoryFunc.GetNumberOfShots(superpath, scan_number, image_name)
 shot_arr = np.array(range(num_shots)) + 1

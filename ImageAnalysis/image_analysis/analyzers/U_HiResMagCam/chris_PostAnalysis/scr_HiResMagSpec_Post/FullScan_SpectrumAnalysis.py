@@ -9,22 +9,22 @@ import online_analysis.HTU.OnlineAnalysisModules.DirectoryModules as DirectoryFu
 import online_analysis.HTU.OnlineAnalysisModules.CedossMathTools as MathTools
 
 # Define constants and filepaths
-"""
+
 data_day = 29
 data_month = 6
 data_year = 2023
 scan_number = 23
 superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
 image_name = "U_HiResMagCam"
-"""
 
+"""
 data_day = 9
 data_month = 8
 data_year = 2023
 scan_number = 9
 superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
 image_name = "UC_TestCam"
-
+"""
 tdms_output_filepath = TDMSFuncs.CompileFilename(data_day, data_month, data_year, scan_number)
 
 # Check if tdms output file exists
@@ -57,27 +57,32 @@ else:
                  [camera_charge, '>=', 5]]
     filter = MathTools.GetInequalityIndices(inputList)
 
+    plotInfo = DirectoryFunc.CompilePlotInfo(data_day, data_month, data_year, scan_number, shot=None,
+                                             cameraStr="U_HiResMagSpec")
+
     # Get to work plotting!
     plt.set_cmap('plasma')
     plt.scatter(peak_energy, peak_charge, marker="s", c=energy_spread, s=4, label="All Shots")
     plt.scatter(peak_energy[filter], peak_charge[filter], marker="o", c=energy_spread[filter], label="Good Shots")
     plt.xlabel("Energy at Peak Charge (MeV)")
-    plt.ylabel("Peak Charge (pC/um*MeV)")
+    plt.ylabel("Peak Charge (pC/MeV)")
     plt.colorbar(label="Energy Spread (MeV)")
     plt.scatter(np.average(peak_energy[filter]), np.average(peak_charge[filter]), marker="+", s=80, c="k", label="Average")
     plt.xlim([min(peak_energy[filter])*0.95, max(peak_energy[filter])*1.05])
     #plt.ylim([min(peak_charge[filter])*0.9, max(peak_charge[filter])*1.1])
     plt.legend()
+    plt.title(plotInfo)
     plt.show()
 
     plt.set_cmap('plasma')
     plt.scatter(average_energy, peak_charge, marker="s", c=energy_spread, s=4, label="All Shots")
     plt.scatter(average_energy[filter], peak_charge[filter], marker="o", c=energy_spread[filter], label="Good Shots")
     plt.xlabel("Average Energy (MeV)")
-    plt.ylabel("Peak Charge (pC/um*MeV)")
+    plt.ylabel("Peak Charge (pC/MeV)")
     plt.colorbar(label="Energy Spread (MeV)")
     plt.scatter(np.average(average_energy[filter]), np.average(peak_charge[filter]), marker="+", s=80, c="k",
                 label="Average")
     plt.xlim([min(average_energy[filter])*0.95, max(average_energy[filter])*1.05])
     plt.legend()
+    plt.title(plotInfo)
     plt.show()
