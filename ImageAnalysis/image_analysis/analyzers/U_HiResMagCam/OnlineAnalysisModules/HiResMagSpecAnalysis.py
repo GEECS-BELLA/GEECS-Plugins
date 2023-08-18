@@ -14,18 +14,8 @@ import numpy as np
 import time
 from scipy import optimize
 
-try:
-    import OnlineAnalysisModules.CedossMathTools as MathTools
-    import OnlineAnalysisModules.EnergyAxisLookup_HiRes as EnergyAxisLookup
-    #print("Imported Via GEECS-PythonAPI.online_analysis.HTU")
-except ImportError:
-    try:
-        import online_analysis.HTU.OnlineAnalysisModules.CedossMathTools as MathTools
-        import online_analysis.HTU.OnlineAnalysisModules.EnergyAxisLookup_HiRes as EnergyAxisLookup
-        #print("Imported Via GEECS-PythonAPI")
-    except ImportError:
-        print("Modules not found!  Check your paths!")
-
+from . import CedossMathTools as MathTools
+from . import EnergyAxisLookup_HiRes as EnergyAxisLookup
 
 def PrintTime(label, time_in, doPrint=False):
     if doPrint:
