@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, Union, Type, Any
-from .types import Array2D
 if TYPE_CHECKING:
+    from .types import Array2D
     import numpy as np
 
 class ImageAnalyzer:
