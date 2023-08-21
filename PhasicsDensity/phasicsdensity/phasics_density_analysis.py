@@ -16,7 +16,8 @@ from itertools import product
 import warnings
 
 import numpy as np
-from numpy.typing import NDArray
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
 
 from scipy.sparse import csr_array
 from scipy.sparse.linalg import lsqr
