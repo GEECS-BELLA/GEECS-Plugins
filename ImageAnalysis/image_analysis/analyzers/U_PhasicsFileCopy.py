@@ -4,13 +4,14 @@ from typing import TYPE_CHECKING, Optional, Any, Union, Sequence
 from pathlib import Path
 if TYPE_CHECKING:
     from numpy.typing import NDArray
+    from ..types import Array2D, QuantityArray2D
 
 import numpy as np
 from scipy.optimize import curve_fit
 
 from warnings import warn
 
-from ..types import Array2D, QuantityArray2D
+
 from ..base import ImageAnalyzer
 from ..utils import ROI, read_imaq_image, NotAPath
 

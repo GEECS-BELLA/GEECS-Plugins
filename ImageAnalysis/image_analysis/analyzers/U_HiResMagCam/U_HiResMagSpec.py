@@ -20,8 +20,8 @@ from typing import Optional, Any, TYPE_CHECKING
 import numpy as np
 if TYPE_CHECKING:
     from numpy.typing import NDArray
+    from ImageAnalysis.image_analysis.types import Array2D
 
-from ImageAnalysis.image_analysis.types import Array2D
 from ...base import ImageAnalyzer
 
 # Either importing with the path set to GEECS-PythonAPI (as is the case for post-analysis scripts elsewhere)
