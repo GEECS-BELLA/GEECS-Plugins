@@ -6,8 +6,8 @@ from argparse import ArgumentParser
 from datetime import datetime
 
 from typing import TYPE_CHECKING, Any, Optional, Union
-from .types import Array2D, ImageSubject, DeviceName, MetricName, RunID, ScanNumber, ShotNumber
 if TYPE_CHECKING:
+    from .types import Array2D, ImageSubject, DeviceName, MetricName, RunID, ScanNumber, ShotNumber
     from numpy.typing import NDArray
     from .image_analyzers.base import ImageAnalyzer
     ShotKey = tuple[RunID, ScanNumber, ShotNumber]
