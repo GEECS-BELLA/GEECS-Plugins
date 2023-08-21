@@ -33,7 +33,8 @@ fullpath = DirectoryFunc.CompileFileLocation(superpath, scan_number, shot_number
 raw_image = pngTools.nBitPNG(fullpath)
 
 start = time.perf_counter()
-returned_image, analyzeDict, inputParams = MagSpecCaller.HiResMagSpec_Dictionary(raw_image)
+#returned_image, analyzeDict, inputParams = MagSpecCaller.HiResMagSpec_Dictionary(raw_image)
+returned_image, analyzeDict, inputParams = MagSpecCaller.U_HiResMagSpecImageAnalyzer().analyze_image(raw_image)
 print("Elapsed Time: ", time.perf_counter() - start, "s")
 print(analyzeDict)
 
