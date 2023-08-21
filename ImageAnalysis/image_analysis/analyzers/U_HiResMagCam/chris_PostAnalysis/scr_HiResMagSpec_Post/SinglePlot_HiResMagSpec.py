@@ -10,13 +10,13 @@ import sys
 import os
 import time
 
-rootpath = os.path.abspath("../../../../../")
+rootpath = os.path.abspath("../../../../../../")
 sys.path.insert(0, rootpath)
 
-import image_analysis.analyzers.U_HiResMagCam.chris_PostAnalysis.mod_ImageProcessing.pngTools as pngTools
-import image_analysis.analyzers.U_HiResMagCam.chris_PostAnalysis.mod_DataPlotting.HiResMagSpecPlotter as MagPlotter
-import image_analysis.analyzers.U_HiResMagCam.OnlineAnalysisModules.DirectoryModules as DirectoryFunc
-import image_analysis.analyzers.U_HiResMagCam.U_HiResMagSpec as MagSpecCaller
+import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.chris_PostAnalysis.mod_ImageProcessing.pngTools as pngTools
+import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.chris_PostAnalysis.mod_DataPlotting.HiResMagSpecPlotter as MagPlotter
+import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.OnlineAnalysisModules.DirectoryModules as DirectoryFunc
+import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.U_HiResMagSpec as MagSpecCaller
 
 
 data_day = 29  # 29#9
