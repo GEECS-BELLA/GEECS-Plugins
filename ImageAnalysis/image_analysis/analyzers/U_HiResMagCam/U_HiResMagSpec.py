@@ -33,7 +33,20 @@ def HiResMagSpec_LabView(image):
     """ Interface to the image analysis
     """
     returned_image, MagSpecDict, inputParams = U_HiResMagSpecImageAnalyzer().analyze_image(image)
-    values = array('d', MagSpecDict.values())
+    #values = array('d', MagSpecDict.values())
+    values = array('d', [  MagSpecDict["Clipped-Percentage"],
+                           MagSpecDict["Saturation-Counts"],
+                           MagSpecDict["Charge-On-Camera"],
+                           MagSpecDict["Peak-Charge"],
+                           MagSpecDict["Peak-Charge-Energy"],
+                           MagSpecDict["Average-Energy"],
+                           MagSpecDict["Energy-Spread"],
+                           MagSpecDict["Energy-Spread-Percent"],
+                           MagSpecDict["Average-Beam-Size"],
+                           MagSpecDict["Projected-Beam-Size"],
+                           MagSpecDict["Beam-Tilt"],
+                           MagSpecDict["Beam-Intercept"],
+                           MagSpecDict["Beam-Intercept-100MeV"]])
     return (returned_image, list(values))
 
 class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
