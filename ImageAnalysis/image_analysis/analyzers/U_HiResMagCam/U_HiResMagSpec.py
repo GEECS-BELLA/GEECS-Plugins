@@ -13,11 +13,13 @@ The imports a bit ugly, but haven't had a chance to debug how paths work in the 
 
 @ Chris
 """
+from __future__ import annotations
 
 from array import array
-from typing import Optional, Any
+from typing import Optional, Any, TYPE_CHECKING
 import numpy as np
-from numpy.typing import NDArray
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
 
 from ImageAnalysis.image_analysis.types import Array2D
 from ...base import ImageAnalyzer
