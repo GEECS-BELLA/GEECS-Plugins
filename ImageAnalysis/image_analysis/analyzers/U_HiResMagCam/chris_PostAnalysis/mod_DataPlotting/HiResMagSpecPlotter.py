@@ -12,8 +12,8 @@ import matplotlib.colors as colors
 
 #import HiResAnalysisModules.HiResMagSpecAnalysis as MagSpec
 #import HiResAnalysisModules.EnergyAxisLookup_HiRes as EnergyAxisLookup
-import online_analysis.HTU.OnlineAnalysisModules.HiResMagSpecAnalysis as MagSpec
-import online_analysis.HTU.OnlineAnalysisModules.EnergyAxisLookup_HiRes as EnergyAxisLookup
+import image_analysis.analyzers.U_HiResMagCam.OnlineAnalysisModules.HiResMagSpecAnalysis as MagSpec
+import image_analysis.analyzers.U_HiResMagCam.OnlineAnalysisModules.EnergyAxisLookup_HiRes as EnergyAxisLookup
 
 
 def PlotEnergyProjection(image, analyzeDict, inputParams, plotInfo=None,

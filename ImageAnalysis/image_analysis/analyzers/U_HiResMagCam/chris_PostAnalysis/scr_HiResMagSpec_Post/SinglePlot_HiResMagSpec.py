@@ -7,13 +7,16 @@ Analyzes a single image of HiResMagCam and displays plots
 """
 
 import sys
+import os
 import time
 
-sys.path.insert(0, "../../")
-import chris_PostAnalysis.mod_ImageProcessing.pngTools as pngTools
-import chris_PostAnalysis.mod_DataPlotting.HiResMagSpecPlotter as MagPlotter
-import online_analysis.HTU.OnlineAnalysisModules.DirectoryModules as DirectoryFunc
-import online_analysis.HTU.HiResMagSpec_LabView as MagSpecCaller
+rootpath = os.path.abspath("../../../../../")
+sys.path.insert(0, rootpath)
+
+import image_analysis.analyzers.U_HiResMagCam.chris_PostAnalysis.mod_ImageProcessing.pngTools as pngTools
+import image_analysis.analyzers.U_HiResMagCam.chris_PostAnalysis.mod_DataPlotting.HiResMagSpecPlotter as MagPlotter
+import image_analysis.analyzers.U_HiResMagCam.OnlineAnalysisModules.DirectoryModules as DirectoryFunc
+import image_analysis.analyzers.U_HiResMagCam.U_HiResMagSpec as MagSpecCaller
 
 
 data_day = 29  # 29#9
