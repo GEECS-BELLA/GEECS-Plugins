@@ -20,7 +20,7 @@ def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
     # the left 12 bits for the data, which is given in the sbit header. 
     # PNG readers don't account for this, so we right shift manually.
     bitdepth = info['bitdepth']
-    image = np.fromiter(rows, (np.dtype(f'u{bitdepth // 8}'), width))
+    image = np.array(list(rows), f'uint{bitdepth:d}')
 
     if png_reader.sbit is None:
         return image
