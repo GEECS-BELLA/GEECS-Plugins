@@ -12,17 +12,9 @@ would be nice to separate this unit test from the operation of building this ene
 
 from __future__ import annotations
 import unittest
-import sys
-import os
-# import time
 import numpy as np
-import matplotlib.pyplot as plt
 
-rootpath = os.path.abspath("../../../")
-sys.path.insert(0, rootpath)
-
-import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.U_HiResMagSpec as MagSpecCaller
-
+import image_analysis.analyzers.U_HiResMagCam.U_HiResMagSpec as MagSpecCaller
 
 def generate_elliptical_gaussian(amplitude, height, width, center_x, center_y, sigma_x, sigma_y, angle_deg):
     x = np.arange(0, width, 1, float)
@@ -76,20 +68,19 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
         # plt.imshow(elliptical_gaussian_array)
         # plt.show()
 
-        self.assertTrue((abs(analyzeDict["Clipped-Percentage"] - 0.42678) < 1e-4)
-                        and (analyzeDict["Saturation-Counts"] == 49)
-                        and (abs(analyzeDict["Charge-On-Camera"] - 671992.75) < 1e-1)
-                        and (abs(analyzeDict["Peak-Charge"] - 48442.74) < 1e-1)
-                        and (abs(analyzeDict["Peak-Charge-Energy"] - 89.51816) < 1e-4)
-                        and (abs(analyzeDict["Average-Energy"] - 89.53399) < 1e-4)
-                        and (abs(analyzeDict["Energy-Spread"] - 0.09497) < 1e-4)
-                        and (abs(analyzeDict["Energy-Spread-Percent"] - 0.00106076) < 1e-6)
-                        and (abs(analyzeDict["Average-Beam-Size"] - 3.21847) < 1e-4)
-                        and (abs(analyzeDict["Projected-Beam-Size"] - 4.07075) < 1e-4)
-                        and (abs(analyzeDict["Beam-Tilt"] - 19.30100) < 1e-4)
-                        and (abs(analyzeDict["Beam-Intercept"] - (-1703.46109)) < 1e-4)
-                        and (abs(analyzeDict["Beam-Intercept-100MeV"] - 226.63913) < 1e-4))
-
+        self.assertAlmostEqual(analyzeDict["Clipped-Percentage"], 0.42678, delta=1e-4)
+        self.assertEqual(analyzeDict["Saturation-Counts"], 49)
+        self.assertAlmostEqual(analyzeDict["Charge-On-Camera"], 671992.75, delta=1e-1)
+        self.assertAlmostEqual(analyzeDict["Peak-Charge"], 48442.74, delta=1e-1)
+        self.assertAlmostEqual(analyzeDict["Peak-Charge-Energy"], 89.51816, delta=1e-4)
+        self.assertAlmostEqual(analyzeDict["Average-Energy"], 89.53399, delta=1e-4)
+        self.assertAlmostEqual(analyzeDict["Energy-Spread"], 0.09497, delta=1e-4)
+        self.assertAlmostEqual(analyzeDict["Energy-Spread-Percent"], 0.00106076, delta=1e-6)
+        self.assertAlmostEqual(analyzeDict["Average-Beam-Size"], 3.21847, delta=1e-4)
+        self.assertAlmostEqual(analyzeDict["Projected-Beam-Size"], 4.07075, delta=1e-4)
+        self.assertAlmostEqual(analyzeDict["Beam-Tilt"], 19.30100, delta=1e-4)
+        self.assertAlmostEqual(analyzeDict["Beam-Intercept"], -1703.46109, delta=1e-4)
+        self.assertAlmostEqual(analyzeDict["Beam-Intercept-100MeV"], 226.63913, delta=1e-4)
 
 if __name__ == '__main__':
     unittest.main()
