@@ -22,32 +22,35 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
     from ImageAnalysis.image_analysis.types import Array2D
 
-from ...base import ImageAnalyzer
+#from ...base import ImageAnalyzer
+import sys
+sys.path.append(r"C:\GEECS\Developers Version\source\GEECS-Plugins\ImageAnalysis\image_analysis")
+from base import ImageAnalyzer
 
 # Either importing with the path set to GEECS-PythonAPI (as is the case for post-analysis scripts elsewhere)
 #  or importing with the path set to this location (which is the case for when run on LabView)
 
+# from .OnlineAnalysisModules import HiResMagSpecAnalysis as MagSpecAnalysis
 from .OnlineAnalysisModules import HiResMagSpecAnalysis as MagSpecAnalysis
-
-def HiResMagSpec_LabView(image):
-    """ Interface to the image analysis
-    """
-    returned_image, MagSpecDict, inputParams = U_HiResMagSpecImageAnalyzer().analyze_image(image)
-    #values = array('d', MagSpecDict.values())
-    values = array('d', [  MagSpecDict["Clipped-Percentage"],
-                           MagSpecDict["Saturation-Counts"],
-                           MagSpecDict["Charge-On-Camera"],
-                           MagSpecDict["Peak-Charge"],
-                           MagSpecDict["Peak-Charge-Energy"],
-                           MagSpecDict["Average-Energy"],
-                           MagSpecDict["Energy-Spread"],
-                           MagSpecDict["Energy-Spread-Percent"],
-                           MagSpecDict["Average-Beam-Size"],
-                           MagSpecDict["Projected-Beam-Size"],
-                           MagSpecDict["Beam-Tilt"],
-                           MagSpecDict["Beam-Intercept"],
-                           MagSpecDict["Beam-Intercept-100MeV"]])
-    return (returned_image, list(values))
+# def HiResMagSpec_LabView(image):
+    # """ Interface to the image analysis
+    # """
+    # returned_image, MagSpecDict, inputParams = U_HiResMagSpecImageAnalyzer().analyze_image(image)
+    # #values = array('d', MagSpecDict.values())
+    # values = array('d', [  MagSpecDict["Clipped-Percentage"],
+                           # MagSpecDict["Saturation-Counts"],
+                           # MagSpecDict["Charge-On-Camera"],
+                           # MagSpecDict["Peak-Charge"],
+                           # MagSpecDict["Peak-Charge-Energy"],
+                           # MagSpecDict["Average-Energy"],
+                           # MagSpecDict["Energy-Spread"],
+                           # MagSpecDict["Energy-Spread-Percent"],
+                           # MagSpecDict["Average-Beam-Size"],
+                           # MagSpecDict["Projected-Beam-Size"],
+                           # MagSpecDict["Beam-Tilt"],
+                           # MagSpecDict["Beam-Intercept"],
+                           # MagSpecDict["Beam-Intercept-100MeV"]])
+    # return (returned_image, list(values))
 
 class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
 
