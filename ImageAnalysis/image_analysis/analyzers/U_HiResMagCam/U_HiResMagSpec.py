@@ -1,15 +1,5 @@
 """
-Mon 8-7-2023
-
-A wrapper function to call my Hi Res Mag Spec Analysis in the framework of the Labview code.
-
-Inputs an image and outputs a list of doubles. For the "_LabView" function.
-
-The "_Dictionary" function is the same, just the list of doubles is instead a dictionary
-
-All constants are defined in the function.
-
-The imports a bit ugly, but haven't had a chance to debug how paths work in the LabView implementation.  Works though.
+Class definition for mag spec analysis 
 
 @ Chris
 """

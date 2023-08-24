@@ -1,6 +1,6 @@
 import numpy as np
 
-def HiResMagSpec_LabView(image):
+def HiResMagSpec_LabView(image,background=None):
     """
     Mon 8-7-2023
 
@@ -21,26 +21,36 @@ def HiResMagSpec_LabView(image):
     from analyzers.U_HiResMagCam.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer as U_HiResMagSpecImageAnalyzer
     returned_image, MagSpecDict, inputParams = U_HiResMagSpecImageAnalyzer().analyze_image(image)
    
-    values = np.array([
-                MagSpecDict["Clipped-Percentage"],
-                MagSpecDict["Saturation-Counts"],
-                MagSpecDict["Charge-On-Camera"],
-                MagSpecDict["Peak-Charge"],
-                MagSpecDict["Peak-Charge-Energy"],
-                MagSpecDict["Average-Energy"],
-                MagSpecDict["Energy-Spread"],
-                MagSpecDict["Energy-Spread-Percent"],
-                MagSpecDict["Average-Beam-Size"],
-                MagSpecDict["Projected-Beam-Size"],
-                MagSpecDict["Beam-Tilt"],
-                MagSpecDict["Beam-Intercept"],
-                MagSpecDict["Beam-Intercept-100MeV"]
-            ])
-   
-    return (returned_image, list(values))
+        # Define the keys for which values need to be extracted
+    keys_of_interest = [
+            "Clipped-Percentage",
+            "Saturation-Counts",
+            "Charge-On-Camera",
+            "Peak-Charge",
+            "Peak-Charge-Energy",
+            "Average-Energy",
+            "Energy-Spread",
+            "Energy-Spread-Percent",
+            "Average-Beam-Size",
+            "Projected-Beam-Size",
+            "Beam-Tilt",
+            "Beam-Intercept",
+            "Beam-Intercept-100MeV"
+        ]
+
+    values = np.array([MagSpecDict[key] for key in keys_of_interest]).astype(np.float64)
     
+    result=(returned_image, values, np.zeros((2, 2), dtype=np.float64))
     
-def execute(device_type, image, background):
+    return result
+    
+# Dictionary to map device types to their respective analysis functions
+DEVICE_FUNCTIONS = {
+    "UC_TestCam": HiResMagSpec_LabView,
+    # Add more device types as needed...
+}
+ 
+def analyze_labview_image(device_type, image, background):
     """
     Main function to analyze an image based on the device type.
 
@@ -48,8 +58,7 @@ def execute(device_type, image, background):
     -----------
     device_type : str
         Type of the device, e.g., "UC_TestCam". This is used to 
-        select out the specific device using if/else statement.
-        to do: switch to use a dictionary
+        select out the specific device 
     image : numpy.ndarray
         The image to be analyzed.
     background : numpy.ndarray
@@ -64,6 +73,10 @@ def execute(device_type, image, background):
         - 2D double array
 
     """
-    if device_type=="UC_TestCam":
-        result=HiResMagSpec_LabView(image)
-        return result[0],result[1],np.zeros((2, 2), dtype=np.float64)
+    
+    func= DEVICE_FUNCTIONS.get(device_type)
+    if func:
+        result=func(image,background)
+        return result
+    else:
+        raise ValueError(f"Unknown device type: {device_type}")
