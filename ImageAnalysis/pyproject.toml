@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "imageanalysis"
+version = "0.1.0"
+description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
+authors = ["Reinier van Mourik <reinier.vanmourik@tausystems.com>"]
+readme = "README.md"
+packages = [{include = "image_analysis"}]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.13"
+
+# numeric libraries
+numpy = "^1.25.0"
+scipy = "^1.9"
+Pint = "0.22"
+
+# image libraries
+pypng = "^0.20220715.0"
+imageio = "^2.31.1"
+scikit-image = "^0.21"
+
+# internal libraries
+phasicsdensity = { path = "../PhasicsDensity", develop = true }
+
+[tool.poetry.group.dev.dependencies]
+spyder-kernels = ">=2.4.0,<2.5.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

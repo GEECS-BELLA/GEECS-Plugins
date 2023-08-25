@@ -2,14 +2,14 @@ import time
 import calendar as cal
 from pathlib import Path
 from typing import Optional, Any
-from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.transport.magnets.steering import Steering, SteeringSupply
-from geecs_api.devices.HTU.diagnostics.screens import Screen
-from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
-from geecs_api.devices.HTU.diagnostics.cameras import Camera
-from geecs_api.tools.interfaces.prompts import text_input
-from geecs_api.tools.scans.scan_data import ScanData
+from geecs_python_api.controls.interface import GeecsDatabase
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.HTU.transport.magnets.steering import Steering, SteeringSupply
+from geecs_python_api.controls.devices.HTU.diagnostics.screens import Screen
+from geecs_python_api.controls.devices.HTU.diagnostics import EBeamDiagnostics
+from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
+from geecs_python_api.tools.interfaces.prompts import text_input
+from geecs_python_api.analysis.images.scans.scan_data import ScanData
 from geecs_api.tools.scans import scan_analysis as sa
 
 

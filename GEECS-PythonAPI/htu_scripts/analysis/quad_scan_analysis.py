@@ -5,16 +5,16 @@ from numpy.polynomial.polynomial import polyfit
 from pathlib import Path
 import matplotlib.pyplot as plt
 from typing import Any, Optional
-from geecs_api.api_defs import ScanTag
-import geecs_api.experiment.htu as htu
-from geecs_api.tools.scans.scan_data import ScanData
-from geecs_api.tools.interfaces.prompts import text_input
-from geecs_api.tools.scans.scan_images import ScanImages
-from geecs_api.tools.scans import ScanAnalysis
-from geecs_api.tools.images.filtering import FiltersParameters
-from geecs_api.tools.interfaces.exports import save_py
-from geecs_api.tools.images.displays import polyfit_label
-# from geecs_api.devices.HTU.transport.magnets import Quads
+from geecs_python_api.controls.api_defs import ScanTag
+import geecs_python_api.controls.experiment.htu as htu
+from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.tools.interfaces.prompts import text_input
+from geecs_python_api.analysis.images.scans.scan_images import ScanImages
+from geecs_python_api.analysis.images.scans import ScanAnalysis
+from geecs_python_api.tools.images.filtering import FiltersParameters
+from geecs_python_api.tools.interfaces.exports import save_py
+from geecs_python_api.tools.images.displays import polyfit_label
+# from geecs_python_api.controls.devices.HTU.transport.magnets import Quads
 
 
 class QuadAnalysis(ScanAnalysis):

@@ -1,6 +1,6 @@
 import yaml
 import pandas as pd
-from geecs_api.devices.HTU.transport.hexapod_pmq import PMQ
+from geecs_python_api.controls.devices.HTU.transport.hexapod_pmq import PMQ
 
 
 def pmq_alignment(hexa: PMQ, opt_method: str = 'bayes', norm: bool = True):
