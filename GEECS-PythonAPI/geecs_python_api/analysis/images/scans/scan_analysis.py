@@ -353,8 +353,8 @@ if __name__ == '__main__':
 
     # scan analysis
     # --------------------------------------------------------------------------
-    _path = _scan_analysis.analyze(_variable, initial_filtering=_filters, ask_rerun=False, blind_loads=True,
-                                   store_images=False, store_scalars=False, save_plots=False, save=True)
+    _path = _scan_analysis.analyze(_variable, initial_filtering=_filters, ask_rerun=True, blind_loads=True,
+                                   store_images=False, store_scalars=False, save_plots=False, save=False)
 
     _scan_analysis.render(physical_units=False, x_label='Current [A]',
                           show_xy=True, show_fwhms=True, show_deltas=True,

@@ -27,6 +27,7 @@ from geecs_python_api.tools.interfaces.prompts import text_input
 from image_analysis.analyzers.UC_BeamSpot import UC_BeamSpotImageAnalyzer
 from image_analysis.utils import ROI as ImageAnalyzerROI
 
+
 class ScanImages:
     fig_size = (int(round(screeninfo.get_monitors()[0].width / 540. * 10) / 10),
                 int(round(screeninfo.get_monitors()[0].height / 450. * 10) / 10))
@@ -338,7 +339,7 @@ class ScanImages:
         # image_analysis contains keys filter_pars, positions, filters, arrays, 
         # metrics, flags. These should all be empty in self.analysis, so the 
         # update action shouldn't overwrite anything. Assert that this is the case.
-        assert all(not self.analysis[k] for k in image_analysis)
+        assert all((k not in self.analysis) or (not self.analysis[k]) for k in image_analysis)
         self.analysis.update(image_analysis)
 
     def analyze_profiles(self):
