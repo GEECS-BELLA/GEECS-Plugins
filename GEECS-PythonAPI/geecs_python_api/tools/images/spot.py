@@ -94,8 +94,8 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
     bd_bkg = guess_background - 2 * np.abs(guess_background)
     bounds = (np.array([bd_bkg, 0.5 * guess_amplitude, x_data[0], 0.1 * guess_std]),
               np.array([np.max(y_data), 2 * guess_amplitude, x_data[-1], 10 * guess_std]))
-    if not all(bounds[0] <= np.array(guess)) or not all(np.array(guess) <= bounds[1]):
-        print('fit guess out of bound!')
+    # if not all(bounds[0] <= np.array(guess)) or not all(np.array(guess) <= bounds[1]):
+    #     print('fit guess out of bound!')
 
     # noinspection PyTypeChecker
     opt, err, fit = fit_distribution(x_data, y_data, fit_type='gaussian', guess=guess, bounds=bounds)

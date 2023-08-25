@@ -166,6 +166,14 @@ class ScanAnalysis:
         if save:
             export_file_path = self.scan_data.get_analysis_folder() / f'scan_analysis_{self.device_name}'
             save_py(file_path=export_file_path, data=self.data_dict)
+            export_file_path = Path(str(export_file_path) + '.dat')
+            file_size = export_file_path.stat().st_size
+            while True:
+                if export_file_path.stat().st_size > file_size:
+                    file_size = export_file_path.stat().st_size
+                    time.sleep(1.)
+                else:
+                    break
             print(f'Data exported to:\n\t{export_file_path}.dat')
         else:
             export_file_path = None
