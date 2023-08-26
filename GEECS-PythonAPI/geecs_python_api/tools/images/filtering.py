@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.ndimage as simg
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Optional, Union
 from dataclasses import dataclass
 from tkinter import filedialog
 from skimage.measure import label, regionprops
@@ -58,7 +58,6 @@ def clip_outliers(image: np.ndarray,
     image_clipped[image_clipped > thresh] = thresh
 
     return image_clipped
-
 
 
 def check_roi(images: Path, initial_roi: Optional[np.ndarray] = None, camera_name: Optional[str] = None,

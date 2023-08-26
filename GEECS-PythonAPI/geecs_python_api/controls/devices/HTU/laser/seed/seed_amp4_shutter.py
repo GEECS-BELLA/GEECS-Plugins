@@ -40,7 +40,7 @@ class SeedAmp4Shutter(GeecsDevice):
     def state_shutter(self) -> Optional[bool]:
         return self._state_value(self.var_amp4)
 
-    def is_inserted(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[bool, AsyncResult]]:
+    def is_inserted(self, exec_timeout: float = 2.0) -> Optional[Union[bool, AsyncResult]]:
         return self.get(self.var_amp4, exec_timeout=exec_timeout, sync=True)
 
     def _set_shutter(self, value: bool, exec_timeout: float = 10.0) -> Optional[Union[bool, AsyncResult]]:

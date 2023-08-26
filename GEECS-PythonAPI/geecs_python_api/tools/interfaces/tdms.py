@@ -33,6 +33,13 @@ def read_geecs_tdms(file_path: Path) \
         return None, None
 
 
+def geecs_tdms_dict_to_panda(data_dict: dict[str, dict[str, npt.ArrayLike]]) -> pd.DataFrame:
+    data_frame: pd.DataFrame = pd.concat(map(pd.DataFrame, data_dict.values()),
+                                         keys=data_dict.keys(),
+                                         axis=1).set_index('Shotnumber')
+    return data_frame
+
+
 if __name__ == '__main__':
     _file_path = Path(r'Z:\data\Undulator\Y2023\04-Apr\23_0427\scans\Scan012\Scan012.tdms')
     _data_dict, _data_frame = read_geecs_tdms(_file_path)

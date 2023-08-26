@@ -6,7 +6,6 @@ import calendar as cal
 from pathlib import Path
 from datetime import datetime as dtime, date
 from typing import Optional, Union, Any
-import matplotlib.pyplot as plt
 from configparser import ConfigParser, NoSectionError
 from geecs_python_api.controls.api_defs import SysPath, ScanTag
 import geecs_python_api.controls.experiment.htu as htu
