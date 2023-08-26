@@ -12,6 +12,7 @@ from geecs_python_api.tools.distributions.fit_utility import fit_distribution
 from image_analysis.tools.filtering import basic_filter
 from image_analysis.tools.spot import n_sigma_window, fwhm
 
+
 def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
                   x_window: Optional[tuple[int, int]] = None,
                   y_window: Optional[tuple[int, int]] = None) -> Optional[dict[str, Any]]:

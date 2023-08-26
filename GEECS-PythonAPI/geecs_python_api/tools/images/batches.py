@@ -45,7 +45,7 @@ def average_images(images_folder: Union[Path, str], n_images: int = 0, file_exte
 def list_files(folder: Union[Path, str], n_files: Optional[int] = None, file_extension: str = '.png') -> list[Path]:
     # file extension
     if not file_extension:
-        return None
+        return []
 
     folder = Path(folder)
     file_extension = file_extension.lower().strip()

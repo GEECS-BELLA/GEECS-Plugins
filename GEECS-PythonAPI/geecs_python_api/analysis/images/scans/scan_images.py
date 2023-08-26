@@ -322,9 +322,8 @@ class ScanImages:
         image_analyzer = UC_BeamSpotImageAnalyzer(
             # image is already cropped to self.camera_roi but this is currently
             # passed to save in the analysis dict
-            camera_roi = ImageAnalyzerROI(left=self.camera_roi[0], right=self.camera_roi[1] + 1,
-                                          top=self.camera_roi[2], bottom=self.camera_roi[3] + 1
-                                         ),
+            camera_roi=ImageAnalyzerROI(left=self.camera_roi[0], right=self.camera_roi[1] + 1,
+                                        top=self.camera_roi[2], bottom=self.camera_roi[3] + 1),
             contrast=filtering.contrast,
             hp_median=filtering.hp_median, 
             hp_threshold=filtering.hp_threshold,
@@ -550,7 +549,7 @@ class ScanImages:
             -> tuple[Union[tuple[int, int], np.ndarray], float]:
         rot_deg: int = analysis['camera']['r90']
         # raw_shape_ij: tuple[int, int] = analysis['camera']['raw_shape_ij']
-        roi_ij: tuple[int, int] = analysis['filters']['roi']
+        roi_ij: list[int, int, int, int] = analysis['filters']['roi']
         um_per_pix: float = analysis['camera']['um_per_pix']
         target_raw_ij: tuple[int, int] = analysis['camera']['target_raw_ij']
 
@@ -755,25 +754,25 @@ if __name__ == '__main__':
                                                 ellipse=False),
             plots=True, store_images=False, save=True)
     else:
-        rots = 1
+        _rots = 1
         raw = np.zeros((7, 5))
-        roi = [2, 3, 1, 4]
-        raw[roi[2]:roi[3] + 1, roi[0]:roi[1] + 1] = \
-            np.reshape(np.arange((roi[1] - roi[0] + 1) * (roi[3] - roi[2] + 1)) + 1,
-                       (roi[3] - roi[2] + 1, roi[1] - roi[0] + 1))
+        _roi = [2, 3, 1, 4]
+        raw[_roi[2]:_roi[3] + 1, _roi[0]:_roi[1] + 1] = \
+            np.reshape(np.arange((_roi[1] - _roi[0] + 1) * (_roi[3] - _roi[2] + 1)) + 1,
+                       (_roi[3] - _roi[2] + 1, _roi[1] - _roi[0] + 1))
         print(f'raw:\n{raw}')
 
-        sub = raw[roi[2]:roi[3] + 1, roi[0]:roi[1] + 1]
+        sub = raw[_roi[2]:_roi[3] + 1, _roi[0]:_roi[1] + 1]
         print(f'sub:\n{sub}')
 
-        rot = np.rot90(sub, rots)
+        rot = np.rot90(sub, _rots)
         print(f'rot:\n{rot}')
 
         p_subs = [(2, 1), (0, 2), (1, 0), (1, 1)]
-        p_sub = p_subs[rots]
+        p_sub = p_subs[_rots]
         print(f'point in rot {p_sub}: {rot[p_sub]}')
 
-        p_raw = ScanImages.processed_to_original_ij(p_sub, roi, rots * 90)
+        p_raw = ScanImages.processed_to_original_ij(p_sub, _roi, _rots * 90)
         print(f'point in raw {p_raw}: {raw[p_raw]}')
 
     print('done')
