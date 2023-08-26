@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Python interface to GEECS control system"
 authors = ["Guillaume Plateau <guillaume.plateau@tausystems.com>"]
 readme = "README.md"
-packages = [{include = "geecs_python_api"}]
+packages = [{include = "geecs_python_api"},
+            {include = "labview_interface"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.13"

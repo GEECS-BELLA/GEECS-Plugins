@@ -1,4 +1,4 @@
-from interface_api.labview_bridge.event import Publisher
+from labview_interface.labview_bridge.event import Publisher
 import socket
 import select
 import threading
