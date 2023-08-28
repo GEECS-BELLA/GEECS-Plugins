@@ -7,17 +7,17 @@ readme = "README.md"
 packages = [{include = "image_analysis"}]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.13"
+python = ">=3.7,<3.11"
 
 # numeric libraries
-numpy = "^1.25.0"
-scipy = "^1.9"
-Pint = "0.22"
+numpy = "^1.21"
+scipy = "^1.7"
+Pint = ">=0.18,<=0.22"
 
 # image libraries
 pypng = "^0.20220715.0"
 imageio = "^2.31.1"
-scikit-image = "^0.21"
+scikit-image = ">=0.19,<1.0"
 
 # internal libraries
 phasicsdensity = { path = "../PhasicsDensity", develop = true }

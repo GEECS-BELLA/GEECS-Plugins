@@ -8,7 +8,7 @@ packages = [{include = "geecs_python_api"},
             {include = "labview_interface"}]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.13"
+python = ">=3.9,<3.11"
 
 # numerical packages
 numpy = "^1.21"
@@ -18,7 +18,7 @@ scipy = "^1.9"
 nptdms = "^1.7.0"
 
 # image libraries
-scikit-image = "^0.21"
+scikit-image = ">=0.21,<1.0"
 opencv-python = "~4.7"
 pypng = "^0.20220715.0"
 screeninfo = "^0.8.1"
