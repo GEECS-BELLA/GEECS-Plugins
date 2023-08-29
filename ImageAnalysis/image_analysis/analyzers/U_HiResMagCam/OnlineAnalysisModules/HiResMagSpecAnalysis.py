@@ -69,6 +69,7 @@ def AnalyzeImage(inputImage, inputParams):
         beamAngle = float(0)
         beamIntercept = float(0)
         projectedBeamSize = float(0)
+        optimization_factor = float(0)
     else:
         peakCharge = CalculateMaximumCharge(charge_arr)
         currentTime = PrintTime(" Peak Charge:", currentTime, doPrint=doPrint)
@@ -81,6 +82,11 @@ def AnalyzeImage(inputImage, inputParams):
 
         peakChargeEnergy = CalculatePeakEnergy(charge_arr, energy_arr)
         currentTime = PrintTime(" Energy at Peak Charge:", currentTime, doPrint=doPrint)
+
+        central_energy = inputParams["Optimization-Central-Energy"]
+        bandwidth_energy = inputParams["Optimization-Bandwidth-Energy"]
+        optimization_factor = CalculateOptimizationFactor(charge_arr, energy_arr, central_energy, bandwidth_energy)
+        currentTime = PrintTime(" Optimization Factor:", currentTime, doPrint=doPrint)
 
         doTransverse = inputParams["Do-Transverse-Calculation"]
         if doTransverse:
@@ -120,7 +126,8 @@ def AnalyzeImage(inputImage, inputParams):
         "Projected-Beam-Size": float(projectedBeamSize),
         "Beam-Tilt": float(beamAngle),
         "Beam-Intercept": float(beamIntercept),
-        "Beam-Intercept-100MeV": float(100 * beamAngle + beamIntercept)
+        "Beam-Intercept-100MeV": float(100 * beamAngle + beamIntercept),
+        "Optimization-Factor": float(optimization_factor)
     }
     return image, magSpecDict, np.vstack((energy_arr, charge_arr))
 
@@ -274,3 +281,9 @@ def FitTransverseGaussianSlices(axis_arr, slice_arr):
         error = np.sum(np.square(slice_arr - func))
         err_fit = np.sqrt(error) * 1e3
     return sigma_fit, x0_fit, amp_fit, err_fit
+
+
+def CalculateOptimizationFactor(charge_arr, energy_arr, central_energy, bandwidth_energy):
+    gaussian_weight_function = Gaussian(energy_arr, 1.0, bandwidth_energy, central_energy)
+    optimization_factor = np.sum(charge_arr * gaussian_weight_function)
+    return optimization_factor
