@@ -9,7 +9,7 @@ Created on Fri Feb  3 10:44:15 2023
 from __future__ import annotations
 
 from math import sqrt, cos, sin, pi
-from typing import Optional, TYPE_CHECKING, Annotated, Any, Generic
+from typing import Optional, TYPE_CHECKING, NewType
 
 from itertools import product
 
@@ -19,7 +19,7 @@ import numpy as np
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-from scipy.sparse import csr_array
+from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import lsqr
 from scipy.interpolate import RegularGridInterpolator
 from scipy.optimize import leastsq
@@ -31,8 +31,9 @@ ureg = UnitRegistry()
 Q_ = ureg.Quantity
 if TYPE_CHECKING:
     from pint import Quantity
-    SpatialFrequencyQuantity = Annotated[Quantity, '[length]**-1]']
-    LengthQuantity = Annotated[Quantity, '[length]']
+    SpatialFrequencyQuantity = NewType('SpatialFrequencyQuantity', Quantity) # [length]**-1
+    LengthQuantity = NewType('LengthQuantity', Quantity) # [length]
+    DensityQuantity = NewType('DensityQuantity', Quantity) # [length]**-3
 
 import abel
 
@@ -298,8 +299,8 @@ class PhasicsImageAnalyzer:
                 return 1.0 * (R < self.diffraction_spot_crop_radius)
                 # return np.exp(-np.square(R) / (2 * (self.diffraction_spot_crop_radius/2)**2))
                 # return (  (np.abs(X * Y) < (self.diffraction_spot_crop_radius / np.sqrt(2) / 3)**2)
-                #         * (R < self.diffraction_spot_crop_radius)
-                #        ) 
+                #        * (R < self.diffraction_spot_crop_radius)
+                #       ) 
 
             NU_X, NU_Y = np.meshgrid(self.freq_x, self.freq_y)
     #        IMG_cropped = self.parent.IMG * ((np.square(NU_X - self.spatial_frequency.nu_x) + np.square(NU_Y - self.spatial_frequency.nu_y)) < self.parent.diffraction_spot_crop_radius**2)
@@ -434,7 +435,7 @@ class PhasicsImageAnalyzer:
         col_ind.append(to_flattened_index(0, 0))
         b.append(0.0)
 
-        A = csr_array((data, 
+        A = csr_matrix((data, 
                        (row_ind, col_ind)
                       ), shape=(len(self.wavefront_gradients) * self.shape[0] * self.shape[1] + 1, 
                                 self.shape[0] * self.shape[1]
@@ -558,7 +559,7 @@ class PhasicsImageAnalyzer:
         phase_map = Q_(2 * np.pi, 'radian') * self.wavefront / wavelength
         return phase_map.to_base_units()
 
-    def calculate_density(self, wavefront: np.ndarray, wavelength=Q_(800, 'nm')) -> Annotated[Quantity, '[length]**-3]']:
+    def calculate_density(self, wavefront: np.ndarray, wavelength=Q_(800, 'nm')) -> DensityQuantity:
         """ Convert the wavefront into a density map, using equation for plasma refraction.
 
         Parameters
