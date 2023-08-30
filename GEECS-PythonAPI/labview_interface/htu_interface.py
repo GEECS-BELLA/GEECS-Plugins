@@ -5,14 +5,13 @@ import time
 
 
 # collect experiment info
-base_path, is_local = HtuExp.initialize('Undulator')
-# htu = HtuExp(laser=False, jet=False, diagnostics=True, transport=True)
+htu = HtuExp(get_info=True)
 
 
 def htu_consumer(call: str = ''):
     call = call.split(',')
     if call[0].lower() == 'emq_alignment':
-        calculate_steering_currents(base_path, is_local)
+        calculate_steering_currents(htu)
 
 
 if __name__ == "__main__":
@@ -26,5 +25,5 @@ if __name__ == "__main__":
         time.sleep(1.)
 
     # close
-    # htu.close()
+    htu.close()
     lvi.Bridge.disconnect()

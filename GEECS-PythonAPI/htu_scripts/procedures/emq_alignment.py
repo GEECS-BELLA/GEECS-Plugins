@@ -1,5 +1,4 @@
 import numpy as np
-from pathlib import Path
 from typing import Any
 from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.controls.experiment.experiment import Experiment
@@ -9,53 +8,54 @@ from geecs_python_api.controls.devices.HTU.transport.magnets import Steering
 from geecs_python_api.tools.interfaces.exports import load_py
 
 
-def calculate_steering_currents(base_path: Path, is_local: bool) -> dict[str: Any]:
+def calculate_steering_currents(exp: Experiment) -> dict[str: Any]:
     """
     Calculate required steering currents in S1 & S2 to center the e-beam through the EMQs
 
     This function ...
 
     Args:
-        base_path: base data directory for the experiment
-        is_local: indicates whether to attempt a connection to the database
+        exp: experiment object; does not need to be connected
 
     Returns:
         None
     """
-    # initialization
-    # --------------------------------------------------------------------------
+    # geecs devices initialization
+    # ----------------------------
     steer_1 = Steering(1)
     if (steer_1.dev_udp is None) or (not steer_1.dev_udp.bounded_cmd):
+        steer_1.close()
         return
 
     steer_2 = Steering(2)
     if (steer_2.dev_udp is None) or (not steer_2.dev_udp.bounded_cmd):
+        steer_1.close()
+        steer_2.close()
         return
 
-    steer_1.close()
-    steer_2.close()
+    # read steering magnets currents
+    # ----------------------------
+    S1_A = np.array([steer_1.get_current('horizontal'),
+                     steer_1.get_current('vertical')])
+    S2_A = np.array([steer_2.get_current('horizontal'),
+                     steer_2.get_current('vertical')])
 
-    return
+    # matrices [pix/A] (future: retrieve from analysis files)
+    # ----------------------------
+    DP_S1 = np.array([[-123.53, -19.45],
+                      [-8.23,  -100.67]])   # S1 onto DP screen
 
-    i1 = np.array([-5., -1.5])
-    i2 = np.array([-3., -0.5])
+    # DP_S2 = np.array([[-16.80, -0.11],
+    #                   [0.17, -7.17]])       # S2 onto DP screen (future: use to generate average correction)
 
-    # matrices
-    # --------------------------------------------------------------------------
-    D1 = np.array([[-123.53, -19.45],
-                   [-8.23,  -100.67]])
+    P1_S1 = np.array([[138.39, 16.19],
+                      [-2.78, -132.25]])    # S1 onto P1 screen
 
-    D2 = np.array([[-16.80, -0.11],
-                   [0.17, -7.17]])
+    P1_S2 = np.array([[91.41, 13.38],
+                      [1.95, -61.12]])      # S2 onto P1 screen
 
-    P1 = np.array([[138.39, 16.19],
-                   [-2.78, -132.25]])
-
-    P2 = np.array([[91.41, 13.38],
-                   [1.95, -61.12]])
-
-    # references
-    # --------------------------------------------------------------------------
+    # reference positions (future: pass scan tags to use as arguments)
+    # ----------------------------
     ref_files = []
     ref_dicts = {}
     ref_coms = []
@@ -63,8 +63,8 @@ def calculate_steering_currents(base_path: Path, is_local: bool) -> dict[str: An
     for cam, tag in zip(['DP', 'P1'], [ScanTag(2023, 7, 6, 21),
                                        ScanTag(2023, 7, 6, 22)]):
         # read refs
-        ref_folder = ScanData.build_folder_path(tag, base_path)
-        scan_data = ScanData(ref_folder, load_scalars=False, ignore_experiment_name=is_local)
+        ref_folder = ScanData.build_folder_path(tag, exp.base_path)
+        scan_data = ScanData(ref_folder, load_scalars=False, ignore_experiment_name=exp.is_local)
         scan_images = ScanImages(scan_data, cam)
         analysis_file = scan_images.save_folder / 'profiles_analysis.dat'
         ref_dict, _ = load_py(analysis_file, as_dict=True)
@@ -74,8 +74,8 @@ def calculate_steering_currents(base_path: Path, is_local: bool) -> dict[str: An
         ref_files.append(ref_folder)
         ref_dicts[cam] = ref_dict
 
-    # current positions
-    # --------------------------------------------------------------------------
+    # current positions (future: pass either scan tags of recent no-scans, or execute fresh no-scans)
+    # ----------------------------
     ini_files = []
     ini_dicts = {}
     ini_coms = []
@@ -83,8 +83,8 @@ def calculate_steering_currents(base_path: Path, is_local: bool) -> dict[str: An
     for cam, tag in zip(['DP', 'P1'], [ScanTag(2023, 8, 9, 14),
                                        ScanTag(2023, 8, 9, 15)]):
         # read positions
-        ini_folder = ScanData.build_folder_path(tag, base_path)
-        scan_data = ScanData(ini_folder, load_scalars=False, ignore_experiment_name=is_local)
+        ini_folder = ScanData.build_folder_path(tag, exp.base_path)
+        scan_data = ScanData(ini_folder, load_scalars=False, ignore_experiment_name=exp.is_local)
         scan_images = ScanImages(scan_data, cam)
         analysis_file = scan_images.save_folder / 'profiles_analysis.dat'
         ini_dict, _ = load_py(analysis_file, as_dict=True)
@@ -95,47 +95,48 @@ def calculate_steering_currents(base_path: Path, is_local: bool) -> dict[str: An
         ini_dicts[cam] = ini_dict
 
     # corrections
-    # --------------------------------------------------------------------------
+    # ----------------------------
     ref_coms = np.array(ref_coms)
     ini_coms = np.array(ini_coms)
 
     diff_pix = ref_coms - ini_coms
-    dDP = diff_pix[0]
-    dP1 = diff_pix[1]
+    dDP_pix = diff_pix[0]
+    dP1_pix = diff_pix[1]
 
-    iD1 = np.linalg.inv(D1)
-    iP2 = np.linalg.inv(P2)
+    inv_DP_S1 = np.linalg.inv(DP_S1)    # [A/pix]
+    inv_P1_S2 = np.linalg.inv(P1_S2)    # [A/pix]
 
-    di1 = np.dot(iD1, dDP)
-    di2 = np.dot(iP2, dP1 - np.dot(P1, di1))
+    dS1_A = np.dot(inv_DP_S1, dDP_pix)
+    dS2_A = np.dot(inv_P1_S2, dP1_pix - np.dot(P1_S1, dS1_A))
 
     ret_dict = {
-        'DP_correction_pix': dDP,
-        'P1_correction_pix': dP1,
-        'DP_correction_A': di1,
-        'P1_correction_A': di2,
-        'S1_new_currents': i1 + di1,
-        'S2_new_currents': i2 + di2,
+        'dDP_pix': dDP_pix,
+        'dP1_pix': dP1_pix,
+        'dS1_A': dS1_A,
+        'dS2_A': dS2_A,
+        'new_S1_A': S1_A + dS1_A,
+        'new_S2_A': S2_A + dS2_A,
     }
+
+    steer_1.close()
+    steer_2.close()
 
     return ret_dict
 
 
 if __name__ == '__main__':
-    _base_path, _is_local = Experiment.initialize('Undulator')
+    _ret_dict = calculate_steering_currents(Experiment('Undulator', get_info=True))
 
-    calculate_steering_currents(_base_path, _is_local)
+    print('corrections [pix]:')
+    print(f'DP:\n{_ret_dict["dDP_pix"]}')
+    print(f'P1:\n{_ret_dict["dP1_pix"]}')
 
-    # print('corrections [pix]:')
-    # print(f'DP:\n{dDP}')
-    # print(f'P1:\n{dP1}')
-    #
-    # print('corrections [A]:')
-    # print(f'S1:\n{di1}')
-    # print(f'S2:\n{di2}')
-    #
-    # print('new currents [A]:')
-    # print(f'S1:\n{i1 + di1}')
-    # print(f'S2:\n{i2 + di2}')
+    print('corrections [A]:')
+    print(f'S1:\n{_ret_dict["dS1_A"]}')
+    print(f'S2:\n{_ret_dict["dS2_A"]}')
+
+    print('new currents [A]:')
+    print(f'S1:\n{_ret_dict["new_S1_A"]}')
+    print(f'S2:\n{_ret_dict["new_S2_A"]}')
 
     print('done')

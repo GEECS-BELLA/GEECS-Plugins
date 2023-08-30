@@ -7,10 +7,20 @@ from geecs_python_api.controls.interface import GeecsDatabase, api_error
 
 
 class Experiment:
-    def __init__(self, name: str):
+    def __init__(self, name: str, get_info: bool = True):
         self.exp_name: str = name
         self.devs: dict[str, GeecsDevice] = {}
-        GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(self.exp_name)
+
+        self.base_path: Path
+        try:
+            env_dict: dict = dotenv_values()
+            self.base_path = Path(env_dict['DATA_BASE_PATH'])
+        except Exception:
+            self.base_path = Path(r'Z:\data')
+
+        self.is_local = (self.base_path.drive.lower() == 'c:')
+        if get_info and not self.is_local:
+            GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(self.exp_name)
 
     def close(self):
         for dev in self.devs.values():
@@ -50,17 +60,6 @@ class Experiment:
                     pass
 
     @staticmethod
-    def initialize(exp_name: str) -> tuple[Path, bool]:
-        base_path: Path
-        try:
-            env_dict: dict = dotenv_values()
-            base_path = Path(env_dict['DATA_BASE_PATH'])
-        except Exception:
-            base_path = Path(r'Z:\data')
-
-        is_local = (base_path.drive.lower() == 'c:')
+    def get_info(exp_name: str, is_local: bool = False):
         if not is_local:
             GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(exp_name)
-
-        return base_path, is_local
-
