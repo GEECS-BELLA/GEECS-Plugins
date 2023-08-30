@@ -122,7 +122,7 @@ def AnalyzeImage(inputImage, inputParams):
         "Beam-Intercept": float(beamIntercept),
         "Beam-Intercept-100MeV": float(100 * beamAngle + beamIntercept)
     }
-    return image, magSpecDict
+    return image, magSpecDict, np.vstack((energy_arr, charge_arr))
 
 
 def NormalizeImage(image, normalizationFactor):

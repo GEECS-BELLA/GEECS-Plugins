@@ -83,7 +83,7 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
             "Transverse-Slice-Binsize": self.transverse_slice_binsize,
         }
         processed_image = image.astype(np.float32)
-        returned_image, MagSpecDict = MagSpecAnalysis.AnalyzeImage(processed_image, inputParams)
+        returned_image, MagSpecDict, lineouts = MagSpecAnalysis.AnalyzeImage(processed_image, inputParams)
         unnormalized_image = returned_image / self.normalization_factor
         uint_image = unnormalized_image.astype(np.uint16)
-        return uint_image, MagSpecDict, inputParams
+        return uint_image, MagSpecDict, inputParams, lineouts

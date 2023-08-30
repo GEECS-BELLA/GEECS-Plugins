@@ -21,7 +21,7 @@ def HiResMagSpec_LabView(image,background=None):
     # from analyzers.U_HiResMagCam.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer as U_HiResMagSpecImageAnalyzer
     from image_analysis.analyzers.U_HiResMagCam.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer
 
-    returned_image, MagSpecDict, inputParams = U_HiResMagSpecImageAnalyzer().analyze_image(image)
+    returned_image, MagSpecDict, inputParams, lineouts = U_HiResMagSpecImageAnalyzer().analyze_image(image)
    
         # Define the keys for which values need to be extracted
     keys_of_interest = [
@@ -42,7 +42,9 @@ def HiResMagSpec_LabView(image,background=None):
 
     values = np.array([MagSpecDict[key] for key in keys_of_interest]).astype(np.float64)
     
+    # result=(returned_image, values, np.zeros((2, 2), dtype=np.float64))
     result=(returned_image, values, np.zeros((2, 2), dtype=np.float64))
+
     
     return result
     

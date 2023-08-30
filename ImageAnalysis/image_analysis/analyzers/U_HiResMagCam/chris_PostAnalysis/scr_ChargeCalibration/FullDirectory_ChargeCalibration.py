@@ -12,17 +12,19 @@ the info I need.  Mostly because I don't know how to store variables in consoles
 """
 
 import sys
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
-sys.path.insert(0, "../../")
-import chris_PostAnalysis.mod_ImageProcessing.ShotChargeReader as ChargeTDMS
-import chris_PostAnalysis.mod_ImageProcessing.pngTools as pngTools
-import online_analysis.HTU.OnlineAnalysisModules.DirectoryModules as DirectoryFunc
-import online_analysis.HTU.OnlineAnalysisModules.CedossMathTools as MathTools
-import online_analysis.HTU.OnlineAnalysisModules.HiResMagSpecAnalysis as MagSpecAnalysis
+rootpath = os.path.abspath("../../../../../../")
+sys.path.insert(0, rootpath)
 
+import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.chris_PostAnalysis.mod_ImageProcessing.pngTools as pngTools
+import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.chris_PostAnalysis.mod_ImageProcessing.ShotChargeReader as ChargeTDMS
+import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.OnlineAnalysisModules.DirectoryModules as DirectoryFunc
+import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.OnlineAnalysisModules.HiResMagSpecAnalysis as MagSpecAnalysis
+import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.OnlineAnalysisModules.CedossMathTools as MathTools
 
 # print("Not yet fixed with new API!!")
 # sys.exit()
@@ -51,9 +53,9 @@ elif sampleCase == 2:
 
 else:
     print("Pick a valid sample case!")
-    data_day = 0;
-    data_month = 0;
-    data_year = 0;
+    data_day = 0
+    data_month = 0
+    data_year = 0
     scan_number = 0
 
 superpath = DirectoryFunc.CompileDailyPath(data_day, data_month, data_year)
