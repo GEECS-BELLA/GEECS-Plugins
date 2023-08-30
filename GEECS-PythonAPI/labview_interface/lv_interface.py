@@ -5,7 +5,7 @@ import sys
 
 class Bridge:
     @staticmethod
-    def connect(timeout_sec=None, debug=False, mode='network'):
+    def connect(timeout_sec: float = 5., debug: bool = False, mode: str = 'local'):
         """ Connects to LabVIEW. """
         lvb.connect(timeout_sec, debug, mode)
 
@@ -20,9 +20,49 @@ class Bridge:
         lvb.disconnect()
 
     @staticmethod
-    def labview_handler(message=''):
+    def basic_labview_handler(message=''):
         """ Handles incoming LabVIEW messages """
         print('incoming: ' + message)
+
+    @staticmethod
+    def set_handler(callback):
+        lvb.lv_bridge.labview_handler = callback
+
+    @staticmethod
+    def set_app_id(name: str = 'LV_APP'):
+        lvb.lv_bridge.app_id = name
+
+    @staticmethod
+    def call_to_labview(method, value_type, value_check=None, value_index=0, attempts=5, pause=2.0, **kwargs):
+        done = False
+        values = None
+
+        for it in range(attempts):
+            try:
+                values = method(**kwargs)
+
+                if isinstance(values, tuple):
+                    value = values[value_index]
+                else:
+                    value = values
+
+                if isinstance(value, value_type):
+                    if value_check is not None:
+                        if value == value_check:
+                            done = True
+                            time.sleep(1.0)
+                            break
+                    else:  # being of the right type is enough
+                        done = True
+                        time.sleep(1.0)
+                        break
+
+            except Exception:
+                time.sleep(0.5)
+
+            time.sleep(pause)
+
+        return done, values
 
 
 def test_connection(timeout: float = 2.0, debug: bool = False):
@@ -43,11 +83,9 @@ def test_connection(timeout: float = 2.0, debug: bool = False):
 
 
 if __name__ == "__main__":
-    print('Welcome!')
-
     # set bridge handling
-    lvb.lv_bridge.labview_handler = Bridge.labview_handler
-    lvb.lv_bridge.app_id = 'HTU_APP'
+    Bridge.set_handler(Bridge.basic_labview_handler)
+    Bridge.set_app_id('HTU_APP')
 
     # test connection
     if len(sys.argv) == 3:

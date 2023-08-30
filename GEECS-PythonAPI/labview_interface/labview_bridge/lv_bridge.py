@@ -114,16 +114,12 @@ def listen_udp(host='localhost', port=44782, addresses=queue.Queue(), timeout_se
         return False
 
 
-def connect(timeout_sec=None, debug=False, mode='local'):
+def connect(timeout_sec: float = 5., debug: bool = False, mode: str = 'local'):
     """ Connects to LabVIEW. mode = 'local' or 'network' """
 
     if not lv_bridge.is_connected:
         # listen for UDP broadcast and collect remote IP and TCP port
-        if timeout_sec:
-            udp_timeout_sec = timeout_sec
-        else:
-            udp_timeout_sec = 5.0
-
+        udp_timeout_sec = timeout_sec
         udp_threads = []
         udp_found = False
         udp_queue = queue.Queue()
@@ -154,7 +150,7 @@ def connect(timeout_sec=None, debug=False, mode='local'):
                     udp_found = True
                     break
 
-            if (not udp_found) & (timeout_sec is not None):
+            if not udp_found:
                 lv_bridge.close()
                 raise ConnectionRefusedError
             elif udp_found:

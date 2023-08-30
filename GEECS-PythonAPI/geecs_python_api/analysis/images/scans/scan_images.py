@@ -739,7 +739,7 @@ if __name__ == '__main__':
     test = False
 
     if not test:
-        _base_path, is_local = htu.initialize()
+        _base_path, is_local = htu.HtuExp.initialize('Undulator')
         _base_tag = ScanTag(2023, 8, 9, 25)
         _camera = 'A3'
 
