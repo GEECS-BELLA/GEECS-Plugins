@@ -25,7 +25,12 @@ def calculate_steering_currents(base_path: Path, is_local: bool) -> dict[str: An
     # initialization
     # --------------------------------------------------------------------------
     steer_1 = Steering(1)
+    if (steer_1.dev_udp is None) or (not steer_1.dev_udp.bounded_cmd):
+        return
+
     steer_2 = Steering(2)
+    if (steer_2.dev_udp is None) or (not steer_2.dev_udp.bounded_cmd):
+        return
 
     steer_1.close()
     steer_2.close()
