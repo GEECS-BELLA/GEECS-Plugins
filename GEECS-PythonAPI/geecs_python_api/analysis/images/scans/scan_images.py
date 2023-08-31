@@ -744,7 +744,7 @@ if __name__ == '__main__':
         _camera = 'A3'
 
         _folder = ScanData.build_folder_path(_base_tag, htu.base_path)
-        _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_local)
+        _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_offline)
         _scan_images = ScanImages(_scan_data, _camera)
 
         _export_file_path, _data_dict = _scan_images.run_analysis_with_checks(

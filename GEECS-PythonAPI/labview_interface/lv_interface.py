@@ -1,4 +1,5 @@
 from labview_interface.labview_bridge import lv_bridge as lvb
+from typing import Union
 import time
 import sys
 
@@ -33,36 +34,28 @@ class Bridge:
         lvb.lv_bridge.app_id = name
 
     @staticmethod
-    def call_to_labview(method, value_type, value_check=None, value_index=0, attempts=5, pause=2.0, **kwargs):
-        done = False
-        values = None
+    def labview_call(target: str, method: str, keys: list[str], attempts=5, delay_between_attempts=1.0,
+                     sync=True, timeout_sec=5.0, debug=False, *args, **kwargs) -> tuple[bool, Union[dict, str]]:
+        ret: Union[dict, str] = ''
 
         for it in range(attempts):
             try:
-                values = method(**kwargs)
+                ret = lvb.bridge_com(target, method, [args[i] for i in range(len(args))] + [v for v in kwargs.values()],
+                                     sync=sync, timeout_sec=timeout_sec, debug=debug)
 
-                if isinstance(values, tuple):
-                    value = values[value_index]
+                if sync and isinstance(ret, dict) and all([k in ret for k in keys]):
+                    return True, ret
+                elif not sync:
+                    return True, {}
                 else:
-                    value = values
-
-                if isinstance(value, value_type):
-                    if value_check is not None:
-                        if value == value_check:
-                            done = True
-                            time.sleep(1.0)
-                            break
-                    else:  # being of the right type is enough
-                        done = True
-                        time.sleep(1.0)
-                        break
+                    break
 
             except Exception:
-                time.sleep(0.5)
+                pass
 
-            time.sleep(pause)
+            time.sleep(delay_between_attempts)
 
-        return done, values
+        return False, ret
 
 
 def test_connection(timeout: float = 2.0, debug: bool = False):

@@ -1,8 +1,7 @@
-from labview_interface.labview_bridge import lv_bridge as lvb
+from labview_interface.lv_interface import Bridge
 
 
 class UserInterface:
     @staticmethod
     def report(message: str):
-        print(message)
-
+        Bridge.labview_call('ui', 'report', ['error'], sync=False, message=message)

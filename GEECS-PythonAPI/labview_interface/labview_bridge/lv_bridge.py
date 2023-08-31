@@ -215,13 +215,13 @@ def disconnect():
 
 
 # e.g. bridge_com('box', 'set_do', [value, time], sync=sync)
-def bridge_com(class_name=None, method_name=None, list_args=None, sync=True, timeout_sec=None, debug=False):
+def bridge_com(target=None, method_name=None, list_args=None, sync=True, timeout_sec=None, debug=False):
     """ Send command to, and receive response from LabVIEW. """
     if not lv_bridge.is_connected:
         connect(2.0, False, 'network')
 
     tag = time.time_ns()
-    system_request = repr(tag) + ', ' + repr(sync) + f', {class_name}, {method_name}, {list_args}'
+    system_request = repr(tag) + ', ' + repr(sync) + f', {target}, {method_name}, {list_args}'
 
     if sync:
         try:

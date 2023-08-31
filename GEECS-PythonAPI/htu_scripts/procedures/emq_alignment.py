@@ -22,14 +22,14 @@ def calculate_steering_currents(exp: Experiment) -> dict[str: Any]:
     """
     # initialization
     # ----------------------------
-    if not exp.is_local:
+    if not exp.is_offline:
         steer_1 = Steering(1)
-        if (steer_1.dev_udp is None) or (not steer_1.dev_udp.bounded_cmd):
+        if (steer_1.supplies['horizontal'].dev_udp is None) or (steer_1.supplies['vertical'].dev_udp is None):
             steer_1.close()
             return
 
         steer_2 = Steering(2)
-        if (steer_2.dev_udp is None) or (not steer_2.dev_udp.bounded_cmd):
+        if (steer_2.supplies['horizontal'].dev_udp is None) or (steer_2.supplies['vertical'].dev_udp is None):
             steer_1.close()
             steer_2.close()
             return
@@ -67,7 +67,7 @@ def calculate_steering_currents(exp: Experiment) -> dict[str: Any]:
                                        ScanTag(2023, 7, 6, 22)]):
         # read refs
         ref_folder = ScanData.build_folder_path(tag, exp.base_path)
-        scan_data = ScanData(ref_folder, load_scalars=False, ignore_experiment_name=exp.is_local)
+        scan_data = ScanData(ref_folder, load_scalars=False, ignore_experiment_name=exp.is_offline)
         scan_images = ScanImages(scan_data, cam)
         analysis_file = scan_images.save_folder / 'profiles_analysis.dat'
         ref_dict, _ = load_py(analysis_file, as_dict=True)
@@ -87,7 +87,7 @@ def calculate_steering_currents(exp: Experiment) -> dict[str: Any]:
                                        ScanTag(2023, 8, 9, 15)]):
         # read positions
         ini_folder = ScanData.build_folder_path(tag, exp.base_path)
-        scan_data = ScanData(ini_folder, load_scalars=False, ignore_experiment_name=exp.is_local)
+        scan_data = ScanData(ini_folder, load_scalars=False, ignore_experiment_name=exp.is_offline)
         scan_images = ScanImages(scan_data, cam)
         analysis_file = scan_images.save_folder / 'profiles_analysis.dat'
         ini_dict, _ = load_py(analysis_file, as_dict=True)

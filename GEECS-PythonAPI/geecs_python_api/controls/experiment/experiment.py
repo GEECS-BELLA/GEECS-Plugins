@@ -18,8 +18,8 @@ class Experiment:
         except Exception:
             self.base_path = Path(r'Z:\data')
 
-        self.is_local = (self.base_path.drive.lower() == 'c:')
-        if get_info and not self.is_local:
+        self.is_offline = (self.base_path.drive.lower() == 'c:')
+        if get_info and not self.is_offline:
             GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(self.exp_name)
 
     def close(self):

@@ -338,7 +338,7 @@ if __name__ == '__main__':
     # _metric = 'mean'
 
     _folder = ScanData.build_folder_path(_base_tag, htu.base_path)
-    _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_local)
+    _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_offline)
     _scan_images = ScanImages(_scan_data, _camera)
     _scan_analysis = ScanAnalysis(_scan_data, _scan_images, _device)
 
