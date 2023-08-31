@@ -20,33 +20,36 @@ def calculate_steering_currents(exp: Experiment) -> dict[str: Any]:
     Returns:
         None
     """
-    # geecs devices initialization
+    # initialization
     # ----------------------------
-    steer_1 = Steering(1)
-    if (steer_1.dev_udp is None) or (not steer_1.dev_udp.bounded_cmd):
-        steer_1.close()
-        return
+    if not exp.is_local:
+        steer_1 = Steering(1)
+        if (steer_1.dev_udp is None) or (not steer_1.dev_udp.bounded_cmd):
+            steer_1.close()
+            return
 
-    steer_2 = Steering(2)
-    if (steer_2.dev_udp is None) or (not steer_2.dev_udp.bounded_cmd):
-        steer_1.close()
-        steer_2.close()
-        return
+        steer_2 = Steering(2)
+        if (steer_2.dev_udp is None) or (not steer_2.dev_udp.bounded_cmd):
+            steer_1.close()
+            steer_2.close()
+            return
 
-    # read steering magnets currents
-    # ----------------------------
-    S1_A = np.array([steer_1.get_current('horizontal'),
-                     steer_1.get_current('vertical')])
-    S2_A = np.array([steer_2.get_current('horizontal'),
-                     steer_2.get_current('vertical')])
+        S1_A = np.array([steer_1.get_current('horizontal'),
+                         steer_1.get_current('vertical')])
+        S2_A = np.array([steer_2.get_current('horizontal'),
+                         steer_2.get_current('vertical')])
+    else:
+        steer_1 = steer_2 = None
+        S1_A = np.zeros((2,))
+        S2_A = np.zeros((2,))
 
     # matrices [pix/A] (future: retrieve from analysis files)
     # ----------------------------
     DP_S1 = np.array([[-123.53, -19.45],
                       [-8.23,  -100.67]])   # S1 onto DP screen
 
-    # DP_S2 = np.array([[-16.80, -0.11],
-    #                   [0.17, -7.17]])       # S2 onto DP screen (future: use to generate average correction)
+    DP_S2 = np.array([[-16.80, -0.11],
+                      [0.17, -7.17]])       # S2 onto DP screen
 
     P1_S1 = np.array([[138.39, 16.19],
                       [-2.78, -132.25]])    # S1 onto P1 screen
@@ -103,11 +106,14 @@ def calculate_steering_currents(exp: Experiment) -> dict[str: Any]:
     dDP_pix = diff_pix[0]
     dP1_pix = diff_pix[1]
 
-    inv_DP_S1 = np.linalg.inv(DP_S1)    # [A/pix]
-    inv_P1_S2 = np.linalg.inv(P1_S2)    # [A/pix]
+    inv_DP_S1 = np.linalg.inv(DP_S1)        # [A/pix]
+    P1D1 = np.dot(P1_S1, inv_DP_S1)         # []
+    M = np.dot(P1D1, DP_S2) - P1_S2         # [pix/A]
+    inv_M = np.linalg.inv(M)                # [A/pix]
+    dM = np.dot(P1D1, dDP_pix) - dP1_pix    # [pix]
 
-    dS1_A = np.dot(inv_DP_S1, dDP_pix)
-    dS2_A = np.dot(inv_P1_S2, dP1_pix - np.dot(P1_S1, dS1_A))
+    dS1_A = np.dot(inv_DP_S1, dDP_pix - np.dot(DP_S2, np.dot(inv_M, dM)))
+    dS2_A = np.dot(inv_M, dM)
 
     ret_dict = {
         'dDP_pix': dDP_pix,
@@ -118,8 +124,9 @@ def calculate_steering_currents(exp: Experiment) -> dict[str: Any]:
         'new_S2_A': S2_A + dS2_A,
     }
 
-    steer_1.close()
-    steer_2.close()
+    if steer_1 is not None:
+        steer_1.close()
+        steer_2.close()
 
     return ret_dict
 
