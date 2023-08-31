@@ -592,6 +592,10 @@ class GeecsDevice:
                         dev_val = float(dev_val)
                     except Exception:
                         pass
+                    try:
+                        dev_val = np.safe_eval(dev_val)
+                    except Exception:
+                        pass
                     self.setpoints[var_alias] = dev_val
                     self.state[var_alias] = dev_val
 

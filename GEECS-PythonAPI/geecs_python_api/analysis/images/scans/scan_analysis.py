@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from progressbar import ProgressBar
 from typing import Union, NamedTuple, Any, Optional
 from geecs_python_api.controls.api_defs import ScanTag
-import geecs_python_api.controls.experiment.htu as htu
+from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.interface import api_error
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
@@ -327,7 +327,7 @@ class ScanAnalysis:
 if __name__ == '__main__':
     # initialization
     # --------------------------------------------------------------------------
-    _base_path, is_local = htu.initialize()
+    htu = HtuExp(get_info=True)
     _base_tag = ScanTag(2023, 8, 1, 29)
     _bkg_tag = ScanTag(2023, 8, 3, 18)
 
@@ -337,8 +337,8 @@ if __name__ == '__main__':
     _metric = 'median'
     # _metric = 'mean'
 
-    _folder = ScanData.build_folder_path(_base_tag, _base_path)
-    _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
+    _folder = ScanData.build_folder_path(_base_tag, htu.base_path)
+    _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_local)
     _scan_images = ScanImages(_scan_data, _camera)
     _scan_analysis = ScanAnalysis(_scan_data, _scan_images, _device)
 
