@@ -9,5 +9,5 @@ class UserInterface:
 
 class Handler:
     @staticmethod
-    def send_results(source: str, results: dict):
-        Bridge.labview_call('handler', 'results', [], sync=False, source=source, results=str(results))
+    def send_results(source: str, results: list):
+        Bridge.labview_call('handler', 'results', [], sync=False, source=source, results=results)
