@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Any
+from typing import Any, Union
 from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.controls.experiment.experiment import Experiment
 from geecs_python_api.analysis.images.scans.scan_images import ScanImages
@@ -8,7 +8,9 @@ from geecs_python_api.controls.devices.HTU.transport.magnets import Steering
 from geecs_python_api.tools.interfaces.exports import load_py
 
 
-def calculate_steering_currents(exp: Experiment) -> dict[str: Any]:
+def calculate_steering_currents(exp: Experiment,
+                                steer_1: Union[Steering, np.ndarray],
+                                steer_2: Union[Steering, np.ndarray]) -> dict[str: Any]:
     """
     Calculate required steering currents in S1 & S2 to center the e-beam through the EMQs
 
@@ -16,32 +18,25 @@ def calculate_steering_currents(exp: Experiment) -> dict[str: Any]:
 
     Args:
         exp: experiment object; does not need to be connected
+        steer_1: steering magnet object for S1, or 2-element array of S1 [X, Y] currents
+        steer_2: steering magnet object for S2, or 2-element array of S2 [X, Y] currents
 
     Returns:
         None
     """
     # initialization
     # ----------------------------
-    if not exp.is_offline:
-        steer_1 = Steering(1)
-        if (steer_1.supplies['horizontal'].dev_udp is None) or (steer_1.supplies['vertical'].dev_udp is None):
-            steer_1.close()
-            return
-
-        steer_2 = Steering(2)
-        if (steer_2.supplies['horizontal'].dev_udp is None) or (steer_2.supplies['vertical'].dev_udp is None):
-            steer_1.close()
-            steer_2.close()
-            return
-
+    if isinstance(steer_1, np.ndarray):
+        S1_A = steer_1[:2]
+    else:
         S1_A = np.array([steer_1.get_current('horizontal'),
                          steer_1.get_current('vertical')])
+
+    if isinstance(steer_2, np.ndarray):
+        S2_A = steer_2[:2]
+    else:
         S2_A = np.array([steer_2.get_current('horizontal'),
                          steer_2.get_current('vertical')])
-    else:
-        steer_1 = steer_2 = None
-        S1_A = np.zeros((2,))
-        S2_A = np.zeros((2,))
 
     # matrices [pix/A] (future: retrieve from analysis files)
     # ----------------------------
@@ -123,10 +118,6 @@ def calculate_steering_currents(exp: Experiment) -> dict[str: Any]:
         'new_S1_A': S1_A + dS1_A,
         'new_S2_A': S2_A + dS2_A,
     }
-
-    if steer_1 is not None:
-        steer_1.close()
-        steer_2.close()
 
     return ret_dict
 
