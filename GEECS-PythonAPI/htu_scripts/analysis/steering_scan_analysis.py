@@ -130,7 +130,7 @@ def render_steering_scan_analysis(data_dict: dict[str, Any]):
 if __name__ == '__main__':
     # initialization
     # --------------------------------------------------------------------------
-    _base_path, is_local = htu.initialize()
+    _base_path, is_local = htu.get_info()
     _base_tag = ScanTag(2023, 8, 3, 19)
     _bkg_tag = ScanTag(2023, 8, 3, 18)
 

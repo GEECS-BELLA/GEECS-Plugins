@@ -12,7 +12,7 @@ import matplotlib.patches as mpatches
 from progressbar import ProgressBar
 from typing import Optional, Any, Union
 from geecs_python_api.controls.api_defs import ScanTag
-import geecs_python_api.controls.experiment.htu as htu
+from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.tools.images.batches import list_files
 from geecs_python_api.controls.devices.geecs_device import api_error
 import geecs_python_api.tools.images.ni_vision as ni
@@ -739,12 +739,12 @@ if __name__ == '__main__':
     test = False
 
     if not test:
-        _base_path, is_local = htu.initialize()
+        htu = HtuExp(get_info=True)
         _base_tag = ScanTag(2023, 8, 9, 25)
         _camera = 'A3'
 
-        _folder = ScanData.build_folder_path(_base_tag, _base_path)
-        _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
+        _folder = ScanData.build_folder_path(_base_tag, htu.base_path)
+        _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_offline)
         _scan_images = ScanImages(_scan_data, _camera)
 
         _export_file_path, _data_dict = _scan_images.run_analysis_with_checks(

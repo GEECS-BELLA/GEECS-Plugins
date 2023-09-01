@@ -114,16 +114,12 @@ def listen_udp(host='localhost', port=44782, addresses=queue.Queue(), timeout_se
         return False
 
 
-def connect(timeout_sec=None, debug=False, mode='local'):
+def connect(timeout_sec: float = 5., debug: bool = False, mode: str = 'local'):
     """ Connects to LabVIEW. mode = 'local' or 'network' """
 
     if not lv_bridge.is_connected:
         # listen for UDP broadcast and collect remote IP and TCP port
-        if timeout_sec:
-            udp_timeout_sec = timeout_sec
-        else:
-            udp_timeout_sec = 5.0
-
+        udp_timeout_sec = timeout_sec
         udp_threads = []
         udp_found = False
         udp_queue = queue.Queue()
@@ -154,7 +150,7 @@ def connect(timeout_sec=None, debug=False, mode='local'):
                     udp_found = True
                     break
 
-            if (not udp_found) & (timeout_sec is not None):
+            if not udp_found:
                 lv_bridge.close()
                 raise ConnectionRefusedError
             elif udp_found:
@@ -219,13 +215,13 @@ def disconnect():
 
 
 # e.g. bridge_com('box', 'set_do', [value, time], sync=sync)
-def bridge_com(class_name=None, method_name=None, list_args=None, sync=True, timeout_sec=None, debug=False):
+def bridge_com(target=None, method_name=None, list_args=None, sync=True, timeout_sec=None, debug=False):
     """ Send command to, and receive response from LabVIEW. """
     if not lv_bridge.is_connected:
         connect(2.0, False, 'network')
 
     tag = time.time_ns()
-    system_request = repr(tag) + ', ' + repr(sync) + f', {class_name}, {method_name}, {list_args}'
+    system_request = repr(tag) + ', ' + repr(sync) + f', {target}, {method_name}, {list_args}'
 
     if sync:
         try:

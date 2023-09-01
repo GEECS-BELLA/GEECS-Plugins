@@ -1,14 +1,26 @@
 import socket
 from typing import Optional
+from pathlib import Path
+from dotenv import dotenv_values
 from geecs_python_api.controls.devices import GeecsDevice
 from geecs_python_api.controls.interface import GeecsDatabase, api_error
 
 
 class Experiment:
-    def __init__(self, name: str):
+    def __init__(self, name: str, get_info: bool = True):
         self.exp_name: str = name
         self.devs: dict[str, GeecsDevice] = {}
-        GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(self.exp_name)
+
+        self.base_path: Path
+        try:
+            env_dict: dict = dotenv_values()
+            self.base_path = Path(env_dict['DATA_BASE_PATH'])
+        except Exception:
+            self.base_path = Path(r'Z:\data')
+
+        self.is_offline = (self.base_path.drive.lower() == 'c:')
+        if get_info and not self.is_offline:
+            GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(self.exp_name)
 
     def close(self):
         for dev in self.devs.values():
@@ -46,3 +58,8 @@ class Experiment:
                     sock.close()
                 except Exception:
                     pass
+
+    @staticmethod
+    def get_info(exp_name: str, is_local: bool = False):
+        if not is_local:
+            GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(exp_name)

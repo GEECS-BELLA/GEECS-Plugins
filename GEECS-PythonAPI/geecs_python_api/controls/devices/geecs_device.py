@@ -366,9 +366,11 @@ class GeecsDevice:
         var_values = self._scan_values(var_alias, start_value, end_value, step_size, var_span)
 
         if use_alias:
+            # noinspection PyTypeChecker
             GeecsDevice.write_1D_scan_file(self.get_name(), var_alias, var_values, shots_per_step)
         else:
             var_name = self.find_var_by_alias(var_alias)
+            # noinspection PyTypeChecker
             GeecsDevice.write_1D_scan_file(self.get_name(), var_name, var_values, shots_per_step)
 
         comment = f'{var_alias} scan'
@@ -427,10 +429,10 @@ class GeecsDevice:
                 if ini_found:
                     try:
                         # make a copy and write content to it
-                        shutil.copy2(ini_file_path, ini_file_path + '~')
+                        shutil.copy2(ini_file_path, Path(str(ini_file_path) + '~'))
 
                         destination = open(ini_file_path, 'w')
-                        source = open(ini_file_path + '~', 'r')
+                        source = open(Path(str(ini_file_path) + '~'), 'r')
 
                         info_line_found = False
                         par_line_found = False
@@ -588,6 +590,10 @@ class GeecsDevice:
                     var_alias = self.find_alias_by_var(cmd_received[3:])
                     try:
                         dev_val = float(dev_val)
+                    except Exception:
+                        pass
+                    try:
+                        dev_val = np.safe_eval(dev_val)
                     except Exception:
                         pass
                     self.setpoints[var_alias] = dev_val
@@ -750,6 +756,7 @@ class GeecsDevice:
 
         # scan_folders: list[SysPath] = next(os.walk(os.path.join(data_folder, 'scans')))[1]
         scan_folders: list[Path] = next(os.walk(data_folder/'scans'))[1]
+        # noinspection PyTypeChecker
         scan_folders = [x for x in scan_folders if re.match(r'^Scan(?P<scan>\d{3})$', x)]
         if scan_folders:
             return int(scan_folders[-1][-3:])
