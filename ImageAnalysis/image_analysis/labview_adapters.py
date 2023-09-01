@@ -37,7 +37,8 @@ def HiResMagSpec_LabView(image,background=None):
             "Projected-Beam-Size",
             "Beam-Tilt",
             "Beam-Intercept",
-            "Beam-Intercept-100MeV"
+            "Beam-Intercept-100MeV",
+            "Optimization-Factor"
         ]
 
     values = np.array([MagSpecDict[key] for key in keys_of_interest]).astype(np.float64)
