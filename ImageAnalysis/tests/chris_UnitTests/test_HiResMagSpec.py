@@ -14,6 +14,11 @@ from __future__ import annotations
 import unittest
 import numpy as np
 
+# import sys
+# import os
+# rootpath = os.path.abspath("../../")
+# sys.path.insert(0, rootpath)
+
 import image_analysis.analyzers.U_HiResMagCam.U_HiResMagSpec as MagSpecCaller
 
 def generate_elliptical_gaussian(amplitude, height, width, center_x, center_y, sigma_x, sigma_y, angle_deg):
@@ -53,7 +58,7 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
         # print("Elapsed Time: ", time.perf_counter() - start, "s")
 
         # start = time.perf_counter()
-        returned_image, analyzeDict, inputParams = MagSpecCaller.U_HiResMagSpecImageAnalyzer(
+        returned_image, analyze_dict, input_params, lineouts = MagSpecCaller.U_HiResMagSpecImageAnalyzer(
             noise_threshold=100,
             edge_pixel_crop=1,
             saturation_value=4095,
@@ -61,26 +66,29 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
             transverse_calibration=1,
             do_transverse_calculation=True,
             transverse_slice_threshold=0.02,
-            transverse_slice_binsize=5).analyze_image(elliptical_gaussian_array)
+            transverse_slice_binsize=5,
+            optimization_central_energy=100.0,
+            optimization_bandwidth_energy=2.0).analyze_image(elliptical_gaussian_array)
         # print("Elapsed Time: ", time.perf_counter() - start, "s")
-        #print(analyzeDict)
+        # print(analyze_dict)
 
         # plt.imshow(elliptical_gaussian_array)
         # plt.show()
 
-        self.assertAlmostEqual(analyzeDict["Clipped-Percentage"], 0.42678, delta=1e-4)
-        self.assertEqual(analyzeDict["Saturation-Counts"], 49)
-        self.assertAlmostEqual(analyzeDict["Charge-On-Camera"], 671992.75, delta=1e-1)
-        self.assertAlmostEqual(analyzeDict["Peak-Charge"], 48442.74, delta=1e-1)
-        self.assertAlmostEqual(analyzeDict["Peak-Charge-Energy"], 89.51816, delta=1e-4)
-        self.assertAlmostEqual(analyzeDict["Average-Energy"], 89.53399, delta=1e-4)
-        self.assertAlmostEqual(analyzeDict["Energy-Spread"], 0.09497, delta=1e-4)
-        self.assertAlmostEqual(analyzeDict["Energy-Spread-Percent"], 0.00106076, delta=1e-6)
-        self.assertAlmostEqual(analyzeDict["Average-Beam-Size"], 3.21847, delta=1e-4)
-        self.assertAlmostEqual(analyzeDict["Projected-Beam-Size"], 4.07075, delta=1e-4)
-        self.assertAlmostEqual(analyzeDict["Beam-Tilt"], 19.30100, delta=1e-4)
-        self.assertAlmostEqual(analyzeDict["Beam-Intercept"], -1703.46109, delta=1e-4)
-        self.assertAlmostEqual(analyzeDict["Beam-Intercept-100MeV"], 226.63913, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["Clipped-Percentage"], 0.42678, delta=1e-4)
+        self.assertEqual(analyze_dict["Saturation-Counts"], 49)
+        self.assertAlmostEqual(analyze_dict["Charge-On-Camera"], 671992.75, delta=1e-1)
+        self.assertAlmostEqual(analyze_dict["Peak-Charge"], 48442.74, delta=1e-1)
+        self.assertAlmostEqual(analyze_dict["Peak-Charge-Energy"], 89.51816, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["Average-Energy"], 89.53399, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["Energy-Spread"], 0.09497, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["Energy-Spread-Percent"], 0.00106076, delta=1e-6)
+        self.assertAlmostEqual(analyze_dict["Average-Beam-Size"], 3.21847, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["Projected-Beam-Size"], 4.07075, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["Beam-Tilt"], 19.30100, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["Beam-Intercept"], -1703.46109, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["Beam-Intercept-100MeV"], 226.63913, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["Optimization-Factor"], 0.783622, delta=1e-4)
 
 if __name__ == '__main__':
     unittest.main()

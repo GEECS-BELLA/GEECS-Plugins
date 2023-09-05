@@ -8,9 +8,14 @@ inequalities.  This script just tests that it is working as intended.
 """
 from __future__ import annotations
 import unittest
-
 import numpy as np
-import image_analysis.analyzers.U_HiResMagCam.OnlineAnalysisModules.CedossMathTools as MathTools
+
+# import sys
+# import os
+# rootpath = os.path.abspath("../../")
+# sys.path.insert(0, rootpath)
+
+import image_analysis.analyzers.U_HiResMagCam.online_analysis_modules.math_tools as MathTools
 
 class TestMultiInequality(unittest.TestCase):
     
@@ -25,7 +30,7 @@ class TestMultiInequality(unittest.TestCase):
                     [testarr1, '<', value2],
                     [testarr2, '>=', testarr1]]  # [testarr2, '>', value2]]
 
-        trial1 = MathTools.GetInequalityIndices(inputList)
+        trial1 = MathTools.get_inequality_indices(inputList)
 
         self.assertTrue(np.all(trial1 == np.arange(50, 57)))
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 from array import array
 from typing import Optional, Any, TYPE_CHECKING
 import numpy as np
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
     from ...types import Array2D
@@ -20,12 +21,12 @@ from ...base import ImageAnalyzer
 # Either importing with the path set to GEECS-PythonAPI (as is the case for post-analysis scripts elsewhere)
 #  or importing with the path set to this location (which is the case for when run on LabView)
 
-from .OnlineAnalysisModules import HiResMagSpecAnalysis as MagSpecAnalysis
+from .online_analysis_modules import hi_res_mag_spec_analysis as analyze
 
 
 class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
 
-    def __init__(self, 
+    def __init__(self,
                  noise_threshold: int = 100,
                  edge_pixel_crop: int = 1,
                  saturation_value: int = 4095,
@@ -36,7 +37,7 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
                  transverse_slice_binsize: int = 5,
                  optimization_central_energy: float = 100.0,
                  optimization_bandwidth_energy: float = 2.0
-                ):
+                 ):
         """
         Parameters
         ----------
@@ -45,27 +46,30 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
         edge_pixel_crop: int
             Number of edge pixels to crop
         saturation_value: int
-            needs doc
+            The minimum value by which a pixel can be considered as "Saturated." The default is 2^12 - 1
         normalization_factor: float
-            Factor to go from camera counts to pC/MeV
-            Depends on trigger delay, exposure, and the threshold value for 
-            magspec analysis
+            Factor to go from camera counts to pC/MeV. Depends on trigger delay, exposure, and the threshold value for
+            magspec analysis. See chris_post_analysis/scripts_charge_calibration for how this is calculated
             default value comes from July 25th, Scan 24, HiResMagSpec, 
                 normalization_triggerdelay = 15.497208
                 normalization_exposure = 0.010000
-                normalization_thresholdvalue = 100 # 230
+                normalization_thresholdvalue = 100
         transverse_calibration: int
-            ums / pixel
+            Transverse resolution of the image in ums / pixel
         do_transverse_calculation: bool
-            needs doc
+            Set as True to perform the transverse beam size and beam tilt calculation.  Set as False to skip the
+            calculation.  This is the most time-intensive step, especially if the bin size is small.
         transverse_slice_threshold: float
-            needs doc
+            Only perform a transverse beam size calculation on a particular bin if the maximum of this bin is greater
+            than the maximum of the entire image multiplied by this factor.  Larger values result in more transverse
+            bins being skipped, and a factor of 0.0 results in every bin in the image being included.
         transverse_slice_binsize: int
-            needs doc
+            The bin size in number of transverse slices for the transverse calculation algorithm.  Larger bin size leads
+            to a faster calculation at the expense of a decreased resolution.
         optimization_central_energy: float
-            needs doc
+            For the XOpt algorithm, the central energy by which to optimize the beam onto for the Gaussian weight func.
         optimization_bandwidth_energy: float
-            needs doc
+            For the XOpt algorithm, the standard deviation from the central energy for the Gaussian weight function
         """
         self.noise_threshold = noise_threshold
         self.edge_pixel_crop = edge_pixel_crop
@@ -78,9 +82,9 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
         self.optimization_central_energy = optimization_central_energy
         self.optimization_bandwidth_energy = optimization_bandwidth_energy
 
-    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None) -> tuple[NDArray[np.uint16], dict[str, Any], dict[str, Any]]:
-
-        inputParams = {
+    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None) -> tuple[
+        NDArray[np.uint16], dict[str, Any], dict[str, Any]]:
+        input_params = {
             "Threshold-Value": self.noise_threshold,
             "Pixel-Crop": self.edge_pixel_crop,
             "Saturation-Value": self.saturation_value,
@@ -93,7 +97,7 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
             "Optimization-Bandwidth-Energy": self.optimization_bandwidth_energy
         }
         processed_image = image.astype(np.float32)
-        returned_image, MagSpecDict, lineouts = MagSpecAnalysis.AnalyzeImage(processed_image, inputParams)
+        returned_image, mag_spec_dict, lineouts = analyze.analyze_image(processed_image, input_params)
         unnormalized_image = returned_image / self.normalization_factor
         uint_image = unnormalized_image.astype(np.uint16)
-        return uint_image, MagSpecDict, inputParams, lineouts
+        return uint_image, mag_spec_dict, input_params, lineouts
