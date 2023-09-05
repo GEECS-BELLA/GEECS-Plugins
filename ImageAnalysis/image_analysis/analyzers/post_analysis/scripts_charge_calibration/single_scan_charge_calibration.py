@@ -17,14 +17,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
-rootpath = os.path.abspath("../../../../../../")
+rootpath = os.path.abspath("../../../../../")
 sys.path.insert(0, rootpath)
 
-import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.chris_post_analysis.modules_image_processing.pngTools as pngTools
-import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.chris_post_analysis.modules_image_processing.shot_charge_reader as charge_tdms
-import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.online_analysis_modules.directory_functions as directory_functions
-import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.online_analysis_modules.hi_res_mag_spec_analysis as mag_spec_analysis
-import ImageAnalysis.image_analysis.analyzers.U_HiResMagCam.online_analysis_modules.math_tools as math_tools
+import ImageAnalysis.image_analysis.analyzers.post_analysis.modules_image_processing.pngTools as pngTools
+import ImageAnalysis.image_analysis.analyzers.post_analysis.modules_image_processing.shot_charge_reader as charge_tdms
+import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.directory_functions as directory_functions
+import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.hi_res_mag_spec_analysis as mag_spec_analysis
+import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.math_tools as math_tools
 
 
 def linear(x, a):

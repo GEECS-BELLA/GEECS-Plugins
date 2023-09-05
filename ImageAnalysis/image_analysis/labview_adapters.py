@@ -19,7 +19,7 @@ def HiResMagSpec_LabView(image,background=None):
     
     #import the analysis class for the specific camera device instance
     # from analyzers.U_HiResMagCam.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer as U_HiResMagSpecImageAnalyzer
-    from image_analysis.analyzers.U_HiResMagCam.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer
+    from image_analysis.analyzers.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer
 
     returned_image, mag_spec_dict, input_params, lineouts = U_HiResMagSpecImageAnalyzer().analyze_image(image)
    

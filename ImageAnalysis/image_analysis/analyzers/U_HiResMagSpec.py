@@ -11,9 +11,9 @@ import numpy as np
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
-    from ...types import Array2D
+    from ..types import Array2D
 
-from ...base import ImageAnalyzer
+from ..base import ImageAnalyzer
 # import sys
 # sys.path.append(r"C:\GEECS\Developers Version\source\GEECS-Plugins\ImageAnalysis\image_analysis")
 # from base import ImageAnalyzer
@@ -49,7 +49,7 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
             The minimum value by which a pixel can be considered as "Saturated." The default is 2^12 - 1
         normalization_factor: float
             Factor to go from camera counts to pC/MeV. Depends on trigger delay, exposure, and the threshold value for
-            magspec analysis. See chris_post_analysis/scripts_charge_calibration for how this is calculated
+            magspec analysis. See post_analysis/scripts_charge_calibration for how this is calculated
             default value comes from July 25th, Scan 24, HiResMagSpec, 
                 normalization_triggerdelay = 15.497208
                 normalization_exposure = 0.010000
