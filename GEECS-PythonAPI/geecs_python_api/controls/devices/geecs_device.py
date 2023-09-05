@@ -374,16 +374,16 @@ class GeecsDevice:
             GeecsDevice.write_1D_scan_file(self.get_name(), var_name, var_values, shots_per_step)
 
         comment = f'{var_alias} scan'
-        return GeecsDevice.run_file_scan(self, comment, timeout)
+        return GeecsDevice.file_scan(self, comment, timeout)
 
     @staticmethod
-    def run_no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
-                    shots: int = 10, timeout: float = 300.) -> tuple[Path, int, bool, bool]:
+    def no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
+                shots: int = 10, timeout: float = 300.) -> tuple[Path, int, bool, bool]:
         cmd = f'ScanStart>>{comment}>>{shots}'
         return GeecsDevice._process_scan(cmd, comment, monitoring_device, timeout)
 
     @staticmethod
-    def run_file_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan', timeout: float = 300.)\
+    def file_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan', timeout: float = 300.)\
             -> tuple[Path, int, bool, bool]:
         cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
         return GeecsDevice._process_scan(cmd, comment, monitoring_device, timeout)
@@ -876,7 +876,7 @@ if __name__ == '__main__':
     # example for 1d scan (no object instantiated)
     GeecsDevice.write_1D_scan_file('U_S3H', 'Current', np.linspace(-1., 1., 5), shots_per_step=20)
     _next_folder, _next_scan, _accepted, _timed_out = \
-        GeecsDevice.run_file_scan(comment='U_S3H current scan (GeecsDevice demo)', timeout=300.)
+        GeecsDevice.file_scan(comment='U_S3H current scan (GeecsDevice demo)', timeout=300.)
 
     print(f'Scan folder (#{_next_scan}): {_next_folder}')
     print(f'Scan{"" if _accepted else " not"} accepted{"; Scan timed out!" if _timed_out else ""}')
@@ -886,7 +886,7 @@ if __name__ == '__main__':
 
     GeecsDevice.write_1D_scan_file(s3h.get_name(), 'Current', np.linspace(-1., 1., 5), shots_per_step=20)
     _next_folder, _next_scan, _accepted, _timed_out = \
-        GeecsDevice.run_file_scan(comment=f'{s3h.get_name()} current scan (GeecsDevice demo)', timeout=300.)
+        GeecsDevice.file_scan(comment=f'{s3h.get_name()} current scan (GeecsDevice demo)', timeout=300.)
 
     print(f'Scan folder (#{_next_scan}): {_next_folder}')
     print(f'Scan{"" if _accepted else " not"} accepted{"; Scan timed out!" if _timed_out else ""}')
