@@ -125,7 +125,7 @@ def set_position_and_run_screen_scan(s3: Steering, s4: Steering, h_curr, v_curr,
 
             if screens is None:
                 print('Starting no-scan...')
-                GeecsDevice.run_no_scan(monitoring_device=s3, comment=log_comment, timeout=300.)
+                GeecsDevice.no_scan(monitoring_device=s3, comment=log_comment, timeout=300.)
                 success = True
             else:
                 print(f'Starting screen scan ("{screens[1]}" to "{screens[2]}")...')

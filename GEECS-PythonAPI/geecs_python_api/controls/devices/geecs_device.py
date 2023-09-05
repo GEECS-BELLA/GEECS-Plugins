@@ -93,8 +93,6 @@ class GeecsDevice:
                 # print(f'Device "{self.dev_name}" found: {self.dev_ip}, {self.dev_port}')
                 try:
                     self.dev_tcp = TcpSubscriber(owner=self)
-                    self.connect_var_listener()
-                    self.register_var_listener_handler()
                 except Exception:
                     api_error.error('Failed creating TCP subscriber', 'GeecsDevice class, method "__init__"')
             else:
@@ -133,8 +131,6 @@ class GeecsDevice:
             if self.is_valid():
                 try:
                     self.dev_tcp = TcpSubscriber(owner=self)
-                    self.connect_var_listener()
-                    self.register_var_listener_handler()
                 except Exception:
                     api_error.error('Failed creating TCP subscriber', 'GeecsDevice class, method "__init__"')
             else:
@@ -156,13 +152,6 @@ class GeecsDevice:
 
     # Registrations
     # -----------------------------------------------------------------------------------------------------------
-    def connect_var_listener(self):
-        if self.is_valid() and not self.is_var_listener_connected():
-            self.dev_tcp.connect((self.dev_ip, self.dev_port))
-
-            if not self.dev_tcp.is_connected():
-                api_error.warning('Failed to connect TCP subscriber', f'GeecsDevice "{self.__dev_name}"')
-
     def is_var_listener_connected(self):
         return self.dev_tcp and self.dev_tcp.is_connected()
 
@@ -191,7 +180,10 @@ class GeecsDevice:
 
         if self.is_valid() and variables:
             try:
+                self.unregister_var_listener_handler()
                 subscribed = self.dev_tcp.subscribe(','.join(variables))
+                if subscribed:
+                    self.register_var_listener_handler()
             except Exception as ex:
                 api_error.error(str(ex), 'Class GeecsDevice, method "subscribe_var_values"')
 
@@ -374,16 +366,16 @@ class GeecsDevice:
             GeecsDevice.write_1D_scan_file(self.get_name(), var_name, var_values, shots_per_step)
 
         comment = f'{var_alias} scan'
-        return GeecsDevice.run_file_scan(self, comment, timeout)
+        return GeecsDevice.file_scan(self, comment, timeout)
 
     @staticmethod
-    def run_no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
-                    shots: int = 10, timeout: float = 300.) -> tuple[Path, int, bool, bool]:
+    def no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
+                shots: int = 10, timeout: float = 300.) -> tuple[Path, int, bool, bool]:
         cmd = f'ScanStart>>{comment}>>{shots}'
         return GeecsDevice._process_scan(cmd, comment, monitoring_device, timeout)
 
     @staticmethod
-    def run_file_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan', timeout: float = 300.)\
+    def file_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan', timeout: float = 300.)\
             -> tuple[Path, int, bool, bool]:
         cmd = f'FileScan>>{GeecsDevice.scan_file_path}'
         return GeecsDevice._process_scan(cmd, comment, monitoring_device, timeout)
@@ -876,7 +868,7 @@ if __name__ == '__main__':
     # example for 1d scan (no object instantiated)
     GeecsDevice.write_1D_scan_file('U_S3H', 'Current', np.linspace(-1., 1., 5), shots_per_step=20)
     _next_folder, _next_scan, _accepted, _timed_out = \
-        GeecsDevice.run_file_scan(comment='U_S3H current scan (GeecsDevice demo)', timeout=300.)
+        GeecsDevice.file_scan(comment='U_S3H current scan (GeecsDevice demo)', timeout=300.)
 
     print(f'Scan folder (#{_next_scan}): {_next_folder}')
     print(f'Scan{"" if _accepted else " not"} accepted{"; Scan timed out!" if _timed_out else ""}')
@@ -886,7 +878,7 @@ if __name__ == '__main__':
 
     GeecsDevice.write_1D_scan_file(s3h.get_name(), 'Current', np.linspace(-1., 1., 5), shots_per_step=20)
     _next_folder, _next_scan, _accepted, _timed_out = \
-        GeecsDevice.run_file_scan(comment=f'{s3h.get_name()} current scan (GeecsDevice demo)', timeout=300.)
+        GeecsDevice.file_scan(comment=f'{s3h.get_name()} current scan (GeecsDevice demo)', timeout=300.)
 
     print(f'Scan folder (#{_next_scan}): {_next_folder}')
     print(f'Scan{"" if _accepted else " not"} accepted{"; Scan timed out!" if _timed_out else ""}')

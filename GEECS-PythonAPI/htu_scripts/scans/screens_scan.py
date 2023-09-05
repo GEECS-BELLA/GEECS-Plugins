@@ -94,7 +94,7 @@ def screens_scan(e_diagnostics: EBeamDiagnostics,
         scan_comment: str = f'No-scan with beam on "{label}" ({camera.get_name()})'
         scan_comment: str = f'{log_comment}. {scan_comment}' if log_comment else scan_comment
         scan_path, _, _, _ = \
-            GeecsDevice.run_no_scan(monitoring_device=camera, comment=scan_comment, timeout=300.)
+            GeecsDevice.no_scan(monitoring_device=camera, comment=scan_comment, timeout=300.)
 
         # remove screen
         print(f'Removing {screen.var_alias} ({screen.controller.get_name()})...')

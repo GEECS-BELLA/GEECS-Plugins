@@ -29,7 +29,7 @@ class GasJet(GeecsDevice):
         self.trigger.subscribe_var_values()
         self.blade.subscribe_var_values()
 
-    def cleanup(self):
+    def close(self):
         self.stage.close()
         self.pressure.close()
         self.trigger.close()

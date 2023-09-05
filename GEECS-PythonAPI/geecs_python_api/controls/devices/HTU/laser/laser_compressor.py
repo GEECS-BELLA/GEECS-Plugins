@@ -27,9 +27,6 @@ class LaserCompressor(GeecsDevice):
         self.var_angle_1: str = self.var_names_by_index.get(1)[0]
         self.var_angle_2: str = self.var_names_by_index.get(2)[0]
 
-        # self.register_cmd_executed_handler()
-        # self.register_var_listener_handler()
-
     def state_angle_1(self) -> Optional[float]:
         return self._state_value(self.var_angle_1)
 

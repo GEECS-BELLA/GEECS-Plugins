@@ -34,6 +34,8 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
                  do_transverse_calculation: bool = True,
                  transverse_slice_threshold: float = 0.02,
                  transverse_slice_binsize: int = 5,
+                 optimization_central_energy: float = 100.0,
+                 optimization_bandwidth_energy: float = 2.0
                 ):
         """
         Parameters
@@ -60,6 +62,10 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
             needs doc
         transverse_slice_binsize: int
             needs doc
+        optimization_central_energy: float
+            needs doc
+        optimization_bandwidth_energy: float
+            needs doc
         """
         self.noise_threshold = noise_threshold
         self.edge_pixel_crop = edge_pixel_crop
@@ -69,6 +75,8 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
         self.do_transverse_calculation = do_transverse_calculation
         self.transverse_slice_threshold = transverse_slice_threshold
         self.transverse_slice_binsize = transverse_slice_binsize
+        self.optimization_central_energy = optimization_central_energy
+        self.optimization_bandwidth_energy = optimization_bandwidth_energy
 
     def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None) -> tuple[NDArray[np.uint16], dict[str, Any], dict[str, Any]]:
 
@@ -81,6 +89,8 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
             "Do-Transverse-Calculation": self.do_transverse_calculation,
             "Transverse-Slice-Threshold": self.transverse_slice_threshold,
             "Transverse-Slice-Binsize": self.transverse_slice_binsize,
+            "Optimization-Central-Energy": self.optimization_central_energy,
+            "Optimization-Bandwidth-Energy": self.optimization_bandwidth_energy
         }
         processed_image = image.astype(np.float32)
         returned_image, MagSpecDict, lineouts = MagSpecAnalysis.AnalyzeImage(processed_image, inputParams)

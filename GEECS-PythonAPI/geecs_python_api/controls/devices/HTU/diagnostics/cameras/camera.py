@@ -127,9 +127,9 @@ class Camera(GeecsDevice):
         file_path: Path = self.bkg_folder / file_name
 
         # save images
-        GeecsDevice.run_no_scan(monitoring_device=self,
-                                comment=f'{self.get_name()}: background collection',
-                                timeout=exec_timeout)
+        GeecsDevice.no_scan(monitoring_device=self,
+                            comment=f'{self.get_name()}: background collection',
+                            timeout=exec_timeout)
 
         # average image
         avg_image, _ = average_images(images_folder=os.path.join(next_scan_folder, self.get_name()))
@@ -175,9 +175,9 @@ class Camera(GeecsDevice):
         scan_name = os.path.basename(next_scan_folder)
 
         # save images
-        GeecsDevice.run_no_scan(monitoring_device=cameras[0],
-                                comment=', '.join([cam.get_name() for cam in cameras]) + ': background collection',
-                                timeout=exec_timeout)
+        GeecsDevice.no_scan(monitoring_device=cameras[0],
+                            comment=', '.join([cam.get_name() for cam in cameras]) + ': background collection',
+                            timeout=exec_timeout)
 
         # average images
         for camera in cameras:
