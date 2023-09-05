@@ -9,7 +9,7 @@ from geecs_python_api.controls.devices.HTU.diagnostics.e_imager import EImager
 from geecs_python_api.controls.devices.HTU.multi_channels import PlungersPLC
 from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.interfaces.exports import load_py
-from labview_interface.HTU.htu_classes import Handler
+from labview_interface.HTU.htu_classes import UserInterface, Handler
 
 
 def calculate_steering_currents(exp: Experiment,
@@ -32,6 +32,9 @@ def calculate_steering_currents(exp: Experiment,
     Returns:
         None
     """
+
+    UserInterface.report('Starting steering currents calculation...')
+
     # initialization
     # ----------------------------
     if isinstance(steer_1, np.ndarray):
@@ -45,6 +48,9 @@ def calculate_steering_currents(exp: Experiment,
     else:
         S2_A = np.array([steer_2.get_current('horizontal'),
                          steer_2.get_current('vertical')])
+
+    UserInterface.report(f'Active S1 currents [A]: ({S1_A[0]:.3f}, {S1_A[1]:.3f})')
+    UserInterface.report(f'Active S2 currents [A]: ({S2_A[0]:.3f}, {S2_A[1]:.3f})')
 
     # matrices [pix/A] (future: retrieve from analysis files)
     # ----------------------------
@@ -68,6 +74,9 @@ def calculate_steering_currents(exp: Experiment,
 
     for cam, tag in zip(['DP', 'P1'], [ScanTag(2023, 7, 6, 21),
                                        ScanTag(2023, 7, 6, 22)]):
+        UserInterface.report(f"Retrieving {cam}'s ref. position "
+                             f"({tag.month}/{tag.day}/{tag.year}, #{tag.number})...")
+
         # read refs
         ref_folder = ScanData.build_folder_path(tag, exp.base_path)
         scan_data = ScanData(ref_folder, load_scalars=False, ignore_experiment_name=exp.is_offline)
@@ -98,6 +107,7 @@ def calculate_steering_currents(exp: Experiment,
 
     # run no-scan on DP
     if dp_scan_tag is None:
+        UserInterface.report(f"Starting new no-scan for DP...")
         answer = Handler.question('Is DP screen inserted, and all upstream screens removed?',
                                   ['Yes', 'Cancel'])
         if (answer is None) or (answer == 'Cancel'):
@@ -119,6 +129,7 @@ def calculate_steering_currents(exp: Experiment,
 
         # analyze no-scan
         scan_data = ScanData(scan_info[0], ignore_experiment_name=exp.is_offline)
+        dp_scan_tag = scan_data.get_tag()
         scan_images = ScanImages(scan_data, 'DP')
         scan_images.run_analysis_with_checks(
             images=-1,
@@ -129,8 +140,9 @@ def calculate_steering_currents(exp: Experiment,
 
     # run no-scan on P1
     if p1_scan_tag is None:
+        UserInterface.report(f"Starting new no-scan for P1...")
         answer = Handler.question('Is P1 screen inserted, and all upstream screens removed?',
-                                           ['Yes', 'Cancel'])
+                                  ['Yes', 'Cancel'])
         if (answer is None) or (answer == 'Cancel'):
             return {}
 
@@ -150,6 +162,7 @@ def calculate_steering_currents(exp: Experiment,
 
         # analyze no-scan
         scan_data = ScanData(scan_info[0], ignore_experiment_name=exp.is_offline)
+        p1_scan_tag = scan_data.get_tag()
         scan_images = ScanImages(scan_data, 'P1')
         scan_images.run_analysis_with_checks(
             images=-1,
@@ -166,8 +179,12 @@ def calculate_steering_currents(exp: Experiment,
     ini_dicts = {}
     ini_coms = []
 
-    for cam, tag in zip(['DP', 'P1'], [ScanTag(2023, 8, 9, 14),
-                                       ScanTag(2023, 8, 9, 15)]):
+    # dp_scan_tag = ScanTag(2023, 8, 9, 14)
+    # p1_scan_tag = ScanTag(2023, 8, 9, 15)
+
+    for cam, tag in zip(['DP', 'P1'], [dp_scan_tag, p1_scan_tag]):
+        UserInterface.report(f"Retrieving {cam}'s position "
+                             f"({tag.month}/{tag.day}/{tag.year}, #{tag.number})...")
         # read positions
         ini_folder = ScanData.build_folder_path(tag, exp.base_path)
         scan_data = ScanData(ini_folder, load_scalars=False, ignore_experiment_name=exp.is_offline)
@@ -182,6 +199,7 @@ def calculate_steering_currents(exp: Experiment,
 
     # corrections
     # ----------------------------
+    UserInterface.report('Calculating recommended currents...')
     ref_coms = np.array(ref_coms)
     ini_coms = np.array(ini_coms)
 
@@ -206,6 +224,9 @@ def calculate_steering_currents(exp: Experiment,
         'new_S1_A': S1_A + dS1_A,
         'new_S2_A': S2_A + dS2_A,
     }
+
+    UserInterface.report(f'Recommended S1 [A]: ({S1_A[0] + dS1_A[0]:.3f}, {S1_A[1] + dS1_A[1]:.3f})')
+    UserInterface.report(f'Recommended S2 [A]: ({S2_A[0] + dS2_A[0]:.3f}, {S2_A[1] + dS2_A[1]:.3f})')
 
     return ret_dict
 

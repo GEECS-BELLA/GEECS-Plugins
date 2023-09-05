@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time
 import socket
 import select
 import struct
@@ -17,15 +18,11 @@ class TcpSubscriber:
         self.subscribed = False
 
         # initialize socket
+        self.sock = None
         self.unsubscribe_event = Event()
         self.host = ''
         self.port = -1
         self.connected = False
-
-        try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        except Exception:
-            self.sock = None
 
     def close(self):
         try:
@@ -34,18 +31,20 @@ class TcpSubscriber:
         except Exception:
             pass
 
-    def connect(self, ipv4: tuple[str, int] = ('', -1)) -> bool:
+    def connect(self) -> bool:
         """ Connects to "host/IP" on port "port". """
 
         try:
-            self.sock.connect(ipv4)
-            self.host = ipv4[0]
-            self.port = ipv4[1]
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.connect((self.owner.dev_ip, self.owner.dev_port))
+            self.host = self.owner.dev_ip
+            self.port = self.owner.dev_port
             self.connected = True
 
         except Exception:
             api_error.error(f'Failed to connect TCP client ({self.owner.get_name()})',
                             'TcpSubscriber class, method "connect"')
+            self.sock = None
             self.host = ''
             self.port = -1
             self.connected = False
@@ -78,7 +77,12 @@ class TcpSubscriber:
 
     def subscribe(self, cmd: str) -> bool:
         """ Subscribe to all variables listed in comma-separated string (e.g. 'varA,varB') """
+        self.unsubscribe()
         subscribed = False
+
+        self.close_sock()
+        self.connect()
+        time.sleep(.5)
 
         if self.connected:
             try:

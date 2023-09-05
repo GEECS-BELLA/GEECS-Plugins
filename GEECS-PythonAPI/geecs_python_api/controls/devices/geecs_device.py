@@ -93,8 +93,6 @@ class GeecsDevice:
                 # print(f'Device "{self.dev_name}" found: {self.dev_ip}, {self.dev_port}')
                 try:
                     self.dev_tcp = TcpSubscriber(owner=self)
-                    self.connect_var_listener()
-                    self.register_var_listener_handler()
                 except Exception:
                     api_error.error('Failed creating TCP subscriber', 'GeecsDevice class, method "__init__"')
             else:
@@ -133,8 +131,6 @@ class GeecsDevice:
             if self.is_valid():
                 try:
                     self.dev_tcp = TcpSubscriber(owner=self)
-                    self.connect_var_listener()
-                    self.register_var_listener_handler()
                 except Exception:
                     api_error.error('Failed creating TCP subscriber', 'GeecsDevice class, method "__init__"')
             else:
@@ -156,13 +152,6 @@ class GeecsDevice:
 
     # Registrations
     # -----------------------------------------------------------------------------------------------------------
-    def connect_var_listener(self):
-        if self.is_valid() and not self.is_var_listener_connected():
-            self.dev_tcp.connect((self.dev_ip, self.dev_port))
-
-            if not self.dev_tcp.is_connected():
-                api_error.warning('Failed to connect TCP subscriber', f'GeecsDevice "{self.__dev_name}"')
-
     def is_var_listener_connected(self):
         return self.dev_tcp and self.dev_tcp.is_connected()
 
@@ -191,7 +180,10 @@ class GeecsDevice:
 
         if self.is_valid() and variables:
             try:
+                self.unregister_var_listener_handler()
                 subscribed = self.dev_tcp.subscribe(','.join(variables))
+                if subscribed:
+                    self.register_var_listener_handler()
             except Exception as ex:
                 api_error.error(str(ex), 'Class GeecsDevice, method "subscribe_var_values"')
 
