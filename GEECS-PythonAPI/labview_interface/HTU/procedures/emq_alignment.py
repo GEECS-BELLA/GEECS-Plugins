@@ -1,16 +1,22 @@
 import numpy as np
-from typing import Any, Union
+from typing import Any, Union, Optional
 from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.controls.experiment.experiment import Experiment
 from geecs_python_api.analysis.images.scans.scan_images import ScanImages
 from geecs_python_api.analysis.images.scans.scan_data import ScanData
 from geecs_python_api.controls.devices.HTU.transport.magnets import Steering
+from geecs_python_api.controls.devices.HTU.diagnostics.e_imager import EImager
+from geecs_python_api.controls.devices.HTU.multi_channels import PlungersPLC
+from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.interfaces.exports import load_py
+from labview_interface.HTU.htu_classes import Handler
 
 
 def calculate_steering_currents(exp: Experiment,
                                 steer_1: Union[Steering, np.ndarray],
-                                steer_2: Union[Steering, np.ndarray]) -> dict[str: Any]:
+                                steer_2: Union[Steering, np.ndarray],
+                                dp_scan_tag: Optional[tuple[int, int, int, int]] = None,
+                                p1_scan_tag: Optional[tuple[int, int, int, int]] = None) -> dict[str: Any]:
     """
     Calculate required steering currents in S1 & S2 to center the e-beam through the EMQs
 
@@ -20,6 +26,8 @@ def calculate_steering_currents(exp: Experiment,
         exp: experiment object; does not need to be connected
         steer_1: steering magnet object for S1, or 2-element array of S1 [X, Y] currents
         steer_2: steering magnet object for S2, or 2-element array of S2 [X, Y] currents
+        dp_scan_tag: scan tag tuple (year, month, day, scan), or None i.e., collect a fresh no-scan on DP screen
+        p1_scan_tag: scan tag tuple (year, month, day, scan), or None i.e., collect a fresh no-scan on P1 screen
 
     Returns:
         None
@@ -72,8 +80,88 @@ def calculate_steering_currents(exp: Experiment,
         ref_files.append(ref_folder)
         ref_dicts[cam] = ref_dict
 
-    # current positions (future: pass either scan tags of recent no-scans, or execute fresh no-scans)
+    # current positions
     # ----------------------------
+    if isinstance(dp_scan_tag, tuple):
+        try:
+            dp_scan_tag = ScanTag(*dp_scan_tag)
+        except Exception:
+            dp_scan_tag = None
+
+    if isinstance(p1_scan_tag, tuple):
+        try:
+            p1_scan_tag = ScanTag(*p1_scan_tag)
+        except Exception:
+            p1_scan_tag = None
+
+    controller = None
+
+    # run no-scan on DP
+    if dp_scan_tag is None:
+        answer = Handler.question('Is DP screen inserted, and all upstream screens removed?',
+                                  ['Yes', 'Cancel'])
+        if (answer is None) or (answer == 'Cancel'):
+            return {}
+
+        controller = PlungersPLC()
+        dp_imager = EImager(camera_name='UC_DiagnosticsPhosphor',
+                            plunger_controller=controller,
+                            plunger_name='DiagnosticsPhosphor',
+                            tcp_subscription=True)
+        try:
+            scan_info = dp_imager.no_scan(dp_imager.screen, 'no-scan on DP for e-beam alignment on EMQs', shots=50)
+        except Exception:
+            dp_imager.close()
+            controller.close()
+            raise
+
+        dp_imager.close()
+
+        # analyze no-scan
+        scan_data = ScanData(scan_info[0], ignore_experiment_name=exp.is_offline)
+        scan_images = ScanImages(scan_data, 'DP')
+        scan_images.run_analysis_with_checks(
+            images=-1,
+            initial_filtering=FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3.,
+                                                denoise_cycles=0, gauss_filter=5., com_threshold=0.8,
+                                                bkg_image=None, box=True, ellipse=False),
+            plots=True, store_images=False, save=True)
+
+    # run no-scan on P1
+    if p1_scan_tag is None:
+        answer = Handler.question('Is P1 screen inserted, and all upstream screens removed?',
+                                           ['Yes', 'Cancel'])
+        if (answer is None) or (answer == 'Cancel'):
+            return {}
+
+        controller = PlungersPLC()
+        p1_imager = EImager(camera_name='UC_DiagnosticsPhosphor',
+                            plunger_controller=controller,
+                            plunger_name='DiagnosticsPhosphor',
+                            tcp_subscription=True)
+        try:
+            scan_info = p1_imager.no_scan(p1_imager.screen, 'no-scan on P1 for e-beam alignment on EMQs', shots=50)
+        except Exception:
+            p1_imager.close()
+            controller.close()
+            raise
+
+        p1_imager.close()
+
+        # analyze no-scan
+        scan_data = ScanData(scan_info[0], ignore_experiment_name=exp.is_offline)
+        scan_images = ScanImages(scan_data, 'P1')
+        scan_images.run_analysis_with_checks(
+            images=-1,
+            initial_filtering=FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3.,
+                                                denoise_cycles=0, gauss_filter=5., com_threshold=0.8,
+                                                bkg_image=None, box=True, ellipse=False),
+            plots=True, store_images=False, save=True)
+
+    if isinstance(controller, PlungersPLC):
+        controller.close()
+
+    # collect positions
     ini_files = []
     ini_dicts = {}
     ini_coms = []
@@ -123,7 +211,7 @@ def calculate_steering_currents(exp: Experiment,
 
 
 if __name__ == '__main__':
-    _ret_dict = calculate_steering_currents(Experiment('Undulator', get_info=True))
+    _ret_dict = calculate_steering_currents(Experiment('Undulator', get_info=True), np.zeros((2,)), np.zeros((2,)))
 
     print('corrections [pix]:')
     print(f'DP:\n{_ret_dict["dDP_pix"]}')

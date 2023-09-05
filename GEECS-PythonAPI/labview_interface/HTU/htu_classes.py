@@ -1,3 +1,4 @@
+from typing import Optional, Any
 from labview_interface.lv_interface import Bridge
 
 
@@ -11,3 +12,12 @@ class Handler:
     @staticmethod
     def send_results(source: str, results: list):
         Bridge.labview_call('handler', 'results', [], sync=False, source=source, results=results)
+
+    @staticmethod
+    def question(message: str, possible_answers: list) -> Optional[Any]:
+        success, answer = Bridge.labview_call('handler', 'question', ['answer'], sync=True, timeout_sec=600.,
+                                              message=message, possible_answers=possible_answers)
+        if success:
+            return answer['answer']
+        else:
+            return None

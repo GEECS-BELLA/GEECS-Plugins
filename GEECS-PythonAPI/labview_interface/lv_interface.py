@@ -59,6 +59,20 @@ class Bridge:
 
         return False, ret
 
+    @staticmethod
+    def python_error(warning: bool = False, code: int = 1, message: str = 'Python error!',
+                     attempts=5, delay_between_attempts=1.0) -> bool:
+        for it in range(attempts):
+            try:
+                lvb.bridge_com('', '<ERROR>', [warning, code, message], sync=False)
+                return True
+            except Exception:
+                pass
+
+            time.sleep(delay_between_attempts)
+
+        return False
+
 
 def flatten_dict(py_dict: dict) -> list:
     flat_dict = [[k, json.dumps(v.tolist()) if isinstance(v, np.ndarray) else v] for k, v in py_dict.items()]
