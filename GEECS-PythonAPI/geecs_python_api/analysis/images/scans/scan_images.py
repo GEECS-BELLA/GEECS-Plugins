@@ -23,7 +23,7 @@ from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
 from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.images.spot import spot_analysis, fwhm
 from geecs_python_api.tools.interfaces.prompts import text_input
-
+from labview_interface.HTU.htu_classes import Handler
 from image_analysis.analyzers.UC_BeamSpot import UC_BeamSpotImageAnalyzer
 from image_analysis.utils import ROI as ImageAnalyzerROI
 
@@ -121,7 +121,11 @@ class ScanImages:
 
     def run_analysis_with_checks(self, images: Union[int, list[Path]] = -1, initial_filtering=FiltersParameters(),
                                  profiles: tuple = ('com',), plots: bool = False, store_images: bool = True,
-                                 save_plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
+                                 save_plots: bool = False, save: bool = False, interface: str = 'console')\
+            -> tuple[Optional[Path], dict[str, Any]]:
+        """
+        interface: 'console' or 'labview'
+        """
 
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
@@ -139,17 +143,26 @@ class ScanImages:
                 api_error(str(ex), f'Failed to analyze {self.scan_data_folder.name}')
                 pass
 
-            repeat = text_input(f'Repeat analysis (adjust contrast/threshold)? : ',
-                                accepted_answers=['y', 'yes', 'n', 'no'])
+            if interface.lower() == 'labview':
+                repeat = Handler.question('Repeat analysis (adjust contrast/threshold)?', ['Yes', 'No'])
+            else:
+                repeat = text_input('Repeat analysis (adjust contrast/threshold)? : ',
+                                    accepted_answers=['y', 'yes', 'n', 'no'])
             if repeat.lower()[0] == 'n':
                 break
             else:
                 while True:
                     try:
-                        filtering.contrast = \
-                            float(text_input(f'New contrast value (old: {filtering.contrast:.3f}) : '))
-                        filtering.com_threshold = \
-                            float(text_input(f'New threshold value (old: {filtering.com_threshold:.3f}) : '))
+                        if interface.lower() == 'labview':
+                            filtering.contrast = \
+                                Handler.request_value(f'New contrast value (old: {filtering.contrast:.3f}):')
+                            filtering.com_threshold = \
+                                Handler.request_value(f'New threshold value (old: {filtering.com_threshold:.3f}):')
+                        else:
+                            filtering.contrast = \
+                                float(text_input(f'New contrast value (old: {filtering.contrast:.3f}) : '))
+                            filtering.com_threshold = \
+                                float(text_input(f'New threshold value (old: {filtering.com_threshold:.3f}) : '))
                         break
                     except Exception:
                         print('Contrast value must be a positive number (e.g. 1.3)')

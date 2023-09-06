@@ -21,3 +21,12 @@ class Handler:
             return answer['answer']
         else:
             return None
+
+    @staticmethod
+    def request_value(message: str, integer: bool = False) -> Optional[Any]:
+        success, answer = Bridge.labview_call('handler', 'value', ['answer'], sync=True, timeout_sec=600.,
+                                              message=message, integer=integer)
+        if success:
+            return answer['answer']
+        else:
+            return None

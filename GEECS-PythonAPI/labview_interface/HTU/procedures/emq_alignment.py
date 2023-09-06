@@ -136,7 +136,7 @@ def calculate_steering_currents(exp: Experiment,
             initial_filtering=FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3.,
                                                 denoise_cycles=0, gauss_filter=5., com_threshold=0.8,
                                                 bkg_image=None, box=True, ellipse=False),
-            plots=True, store_images=False, save=True)
+            plots=True, store_images=False, save=True, interface='labview')
 
     # run no-scan on P1
     if p1_scan_tag is None:
@@ -169,7 +169,7 @@ def calculate_steering_currents(exp: Experiment,
             initial_filtering=FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3.,
                                                 denoise_cycles=0, gauss_filter=5., com_threshold=0.8,
                                                 bkg_image=None, box=True, ellipse=False),
-            plots=True, store_images=False, save=True)
+            plots=True, store_images=False, save=True, interface='labview')
 
     if isinstance(controller, PlungersPLC):
         controller.close()

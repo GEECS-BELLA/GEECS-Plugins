@@ -42,25 +42,29 @@ def emq_alignment(call: list):
         ret = calculate_steering_currents(htu, steers[0], steers[1], call[1], call[2])
         Handler.send_results(call[0], flatten_dict(ret))
 
-        coerced = []
+        values = []
         for s in steers[:2]:
             for it, direction in enumerate(['horizontal', 'vertical']):
                 supply = s.supplies[direction]
                 var_alias = supply.var_aliases_by_name[supply.var_current][0]
-                coerced.append(supply.coerce_float(var_alias, '', ret[f'new_S{s.index}_A'][it]))
+                value = supply.coerce_float(var_alias, '', ret[f'new_S{s.index}_A'][it])
+                coerced = (round(abs(ret[f'new_S{s.index}_A'][it] - value) * 1000) == 0)
+                values.append((value, coerced))
 
         answer = Handler.question('Do you want to apply the recommended currents?\n'
-                                  f'Coerced S1 values [A]: {coerced[0]:.3f}, {coerced[1]:.3f}\n'
-                                  f'Coerced S2 values [A]: {coerced[2]:.3f}, {coerced[3]:.3f}',
+                                  f'S1 [A]: {values[0][0]:.3f}{" (coerced)" if values[0][1] else ""}, '
+                                  f'{values[1][0]:.3f}{" (coerced)" if values[1][1] else ""}\n'
+                                  f'S2 [A]: {values[2][0]:.3f}{" (coerced)" if values[2][1] else ""}, '
+                                  f'{values[3][0]:.3f}{" (coerced)" if values[3][1] else ""}',
                                   ['Yes', 'No'])
         if answer == 'Yes':
-            UserInterface.report(f'Applying S1 currents ({coerced[0]:.3f}, {coerced[1]:.3f})...')
-            steers[0].set_current('horizontal', coerced[0])
-            steers[0].set_current('vertical', coerced[1])
+            UserInterface.report(f'Applying S1 currents ({values[0][0]:.3f}, {values[1][0]:.3f})...')
+            steers[0].set_current('horizontal', values[0][0])
+            steers[0].set_current('vertical', values[1][0])
 
-            UserInterface.report(f'Applying S2 currents ({coerced[2]:.3f}, {coerced[3]:.3f})...')
-            steers[1].set_current('horizontal', coerced[2])
-            steers[1].set_current('vertical', coerced[3])
+            UserInterface.report(f'Applying S2 currents ({values[2]:.3f}, {values[3]:.3f})...')
+            steers[1].set_current('horizontal', values[2][0])
+            steers[1].set_current('vertical', values[3][0])
 
         [s.close() for s in steers[:2]]
         steers[:2] = [None] * 2
