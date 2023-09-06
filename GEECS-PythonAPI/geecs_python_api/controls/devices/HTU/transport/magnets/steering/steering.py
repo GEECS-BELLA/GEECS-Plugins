@@ -15,6 +15,7 @@ class Steering(GeecsDevice):
 
         super().__init__(f'steering_{index}', virtual=True)
 
+        self.index = index
         self.supplies = {'horizontal': SteeringSupply(index, 'Horizontal'),
                          'vertical': SteeringSupply(index, 'Vertical')}
 

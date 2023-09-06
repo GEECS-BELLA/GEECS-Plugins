@@ -71,7 +71,7 @@ class GeecsDevice:
 
         self.setpoints: dict[VarAlias, Any] = {}
         self.state: dict[VarAlias, Any] = {}
-        self.generic_vars = ['device status', 'device error', 'device preset']
+        self.generic_vars = ['Device Status', 'device error', 'device preset']
 
         # Message handling
         self.queue_cmds = Queue()
@@ -475,7 +475,7 @@ class GeecsDevice:
                 while True:
                     timed_out = (time.monotonic() - t0 > timeout)
                     if os.path.isfile(txt_file_path) \
-                            or (dev.is_valid() and dev.state[VarAlias('device status')] == 'no scan') \
+                            or (dev.is_valid() and dev.state[VarAlias('Device Status')] == 'no scan') \
                             or timed_out:
                         break
                     time.sleep(1.)
@@ -491,13 +491,13 @@ class GeecsDevice:
         return next_folder, next_scan, accepted, timed_out
 
     def get_status(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[float, AsyncResult]]:
-        return self.get('device status', exec_timeout=exec_timeout, sync=sync)
+        return self.get('Device Status', exec_timeout=exec_timeout, sync=sync)
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         return float(val_string)
 
     def interpret_generic_variables(self, var: str, val: str):
-        # ['device status', 'device error', 'device preset']
+        # ['Device Status', 'device error', 'device preset']
         self.state[VarAlias(var)] = val
 
     def dequeue_command(self):
@@ -677,12 +677,14 @@ class GeecsDevice:
                     var_span = (None, None)
 
             if var_span[0] and value < var_span[0]:
-                api_error.warning(f'{var_alias} value coerced from {value} to {var_span[0]}',
-                                  f'Class {self.__class_name}, method "{method}"')
+                if method:
+                    api_error.warning(f'{var_alias} value coerced from {value} to {var_span[0]}',
+                                      f'Class {self.__class_name}, method "{method}"')
                 value = var_span[0]
             if var_span[1] and value > var_span[1]:
-                api_error.warning(f'{var_alias} value coerced from {value} to {var_span[1]}',
-                                  f'Class {self.__class_name}, method "{method}"')
+                if method:
+                    api_error.warning(f'{var_alias} value coerced from {value} to {var_span[1]}',
+                                      f'Class {self.__class_name}, method "{method}"')
                 value = var_span[1]
         except Exception:
             api_error.error('Failed to coerce value')
@@ -777,7 +779,7 @@ class GeecsDevice:
             tdms_filepath = next_folder/f'Scan{next_scan:03d}.tdms'
             # if os.path.isdir(next_folder) and os.path.isfile(tdms_filepath) \
             #         and (not self.is_valid() or
-            #              (('device status' in self.state) and (self.state[VarAlias('device status')] == 'scan'))):
+            #              (('Device Status' in self.state) and (self.state[VarAlias('Device Status')] == 'scan'))):
             #     break
             if next_folder.is_dir() and tdms_filepath.is_file():
                 break

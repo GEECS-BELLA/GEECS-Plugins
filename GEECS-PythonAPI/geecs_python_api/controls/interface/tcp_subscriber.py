@@ -1,5 +1,4 @@
 from __future__ import annotations
-import time
 import socket
 import select
 import struct
@@ -77,12 +76,11 @@ class TcpSubscriber:
 
     def subscribe(self, cmd: str) -> bool:
         """ Subscribe to all variables listed in comma-separated string (e.g. 'varA,varB') """
-        self.unsubscribe()
-        subscribed = False
+        if self.is_connected():
+            self.close()
 
-        self.close_sock()
+        subscribed = False
         self.connect()
-        time.sleep(.5)
 
         if self.connected:
             try:
@@ -91,6 +89,7 @@ class TcpSubscriber:
                 size_pack = struct.pack('>i', subscription_len)
                 self.sock.sendall(size_pack + subscription_str)
 
+                self.unsubscribe_event.clear()
                 var_thread = Thread(target=self.async_listener)
                 var_thread.start()
                 subscribed = True
