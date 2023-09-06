@@ -53,13 +53,13 @@ class PhasicsDensityAnalysisTestCase(unittest.TestCase):
 
     def test_calculate_wavefront(self):
 
-        self.reconstructed_wavefront = -self.pia.calculate_wavefront(self.generate_test_interferogram())
+        self.reconstructed_wavefront = self.pia.calculate_wavefront(self.generate_test_interferogram())
         self.assertMaxWavefrontMinusBackgroundWithinRange()
 
     def test_calculate_wavefront_baffou(self):
 
         self.pia.reconstruction_method = 'baffou'
-        self.reconstructed_wavefront = -self.pia.calculate_wavefront(self.generate_test_interferogram())
+        self.reconstructed_wavefront = self.pia.calculate_wavefront(self.generate_test_interferogram())
         self.assertMaxWavefrontMinusBackgroundWithinRange()
 
 

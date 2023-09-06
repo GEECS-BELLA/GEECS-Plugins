@@ -347,7 +347,7 @@ class PhasicsImageAnalyzer:
 
         """
 
-        self.wavefront_gradients = [unwrap_phase(np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m))))
+        self.wavefront_gradients = [unwrap_phase(-np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m))))
                                     / (2 * np.pi * self.GRATING_CAMERA_DISTANCE)
                                     for IMG in self.diffraction_spot_IMGs
                                    ] 
