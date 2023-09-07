@@ -1,9 +1,11 @@
 from typing import Optional, Any
 from pathlib import Path
 from labview_interface.lv_interface import Bridge
+from geecs_python_api.controls.experiment.experiment import Experiment
 from geecs_python_api.controls.devices.HTU.gas_jet import GasJet
 from geecs_python_api.controls.devices.HTU.laser import Laser
 from geecs_python_api.controls.devices.HTU.transport import Steering
+from geecs_python_api.analysis.images.scans.scan_data import ScanData
 
 
 class UserInterface:
@@ -56,18 +58,20 @@ class LPA:
         UserInterface.report('Connecting to laser elements...')
         self.laser = Laser()
 
-    def z_scan(self, rough: bool = False) -> tuple[bool, Path]:
-        cancel: bool = False
+    def close(self):
+        self.jet.close()
+        self.laser.close()
 
-        z = self.jet.stage.get_position('z')
+    def z_scan(self, rough: bool = False) -> tuple[bool, Path]:
+        z = round(self.jet.stage.get_position('z'), 2)
         z_alias = self.jet.stage.get_axis_var_alias('z')
         lims = self.jet.stage.var_spans[z_alias]
 
         while True:
-            pars = [1, 1, 0.5, 20] if rough else [0.3, 0.3, 0.05, 20]
+            pars = [z - 1, z + 1, 0.5, 20] if rough else [z - 0.3, z + 0.3, 0.05, 20]
             values = Handler.request_values(f'{"Rough" if rough else "Fine"} Z-scan parameters:',
-                                            [('Start [mm]', 'float', lims[0], lims[1], z - pars[0]),
-                                             ('End [mm]', 'float', lims[0], lims[1], z + pars[1]),
+                                            [('Start [mm]', 'float', lims[0], lims[1], pars[0]),
+                                             ('End [mm]', 'float', lims[0], lims[1], pars[1]),
                                              ('Steps [mm]', 'float', 0, 10, pars[2]),
                                              ('Shots/Step', 'int', 1, 'inf', pars[3])])
 
@@ -75,14 +79,14 @@ class LPA:
             scan_folder, _, _, _ = self.jet.stage.scan(z_alias, values['Start [mm]'], values['End [mm]'],
                                                        values['Steps [mm]'], lims, values['Shots/Step'])
 
-            ok_scan = Handler.question('Do you want to repeat this Z-scan?', ['Yes', 'No', 'Cancel'])
-            if ok_scan == 'Cancel':
-                cancel = True
-                break
-            if ok_scan == 'No':
+            repeat = Handler.question('Do you want to repeat this Z-scan?', ['Yes', 'No', 'Cancel'])
+            cancel = (repeat == 'Cancel')
+            if repeat != 'Yes':
                 break
 
         return cancel, scan_folder
 
-    def z_scan_analysis(self, scan_path: Path):
+    @staticmethod
+    def z_scan_analysis(exp: Experiment, scan_path: Path):
+        scan_data = ScanData(scan_path, ignore_experiment_name=exp.is_offline)
         return

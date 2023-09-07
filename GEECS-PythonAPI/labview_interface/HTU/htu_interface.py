@@ -78,6 +78,8 @@ def emq_alignment(call: list):
 
 def lpa_initialization():
     cancel_msg = 'LPA initialization canceled'
+    lpa: Optional[LPA] = None
+
     try:
         if Handler.question('Are you ready to run an LPA initialization?', ['Yes', 'No']) == 'No':
             return
@@ -94,11 +96,15 @@ def lpa_initialization():
             if cancel:
                 UserInterface.report(cancel_msg)
                 return
-            lpa.z_scan_analysis(scan_folder)
+            lpa.z_scan_analysis(htu, scan_folder)
 
     except Exception as ex:
         UserInterface.report('LPA initialization failed')
         Bridge.python_error(message=str(ex))
+
+    finally:
+        if isinstance(lpa, LPA):
+            lpa.close()
 
 
 if __name__ == "__main__":
