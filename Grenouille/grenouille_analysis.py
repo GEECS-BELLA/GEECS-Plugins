@@ -87,6 +87,7 @@ class GrenouilleRetrieval:
         self.nonlinear_effect = nonlinear_effect
 
         self.number_of_iterations = number_of_iterations
+        self.pulse_center_wavelength = pulse_center_wavelength
         self.min_pulse_wavelength = min_pulse_wavelength
 
         # time step should be small enough so that Nyquist frequency is at least
@@ -112,8 +113,8 @@ class GrenouilleRetrieval:
             (vertical) and time delay (tau) on axis 1 (horizontal)
         grenouille_trace_center_wavelength : [length] Quantity
             center wavelength of the spectrometer axis (0, vertical). For the 
-            'second_harmonic_generation' nonlinear effect, this will be half
-            the wavelength of the pulse
+            'second_harmonic_generation' nonlinear effect, this will be around 
+            half the wavelength of the pulse
         grenouille_trace_wavelength_step : [length] Quantity
             resolution of spectrometer axis (0, vertical). 
         time_delay_step: [time] Quantity
@@ -123,7 +124,7 @@ class GrenouilleRetrieval:
             starting guess for E field pulse
         
         """
-        
+
         self.shape = grenouille_trace.shape
         self.grenouille_trace = grenouille_trace
 
@@ -137,7 +138,7 @@ class GrenouilleRetrieval:
                       / ureg.speed_of_light 
                       / (self.frequency_multiplier * self.grenouille_trace_wavelength_step)
                      )
-        
+
         self.time_axis_length = int(np.ceil(total_time / self.time_step))
 
         self._calculate_I_FROG()
@@ -181,22 +182,29 @@ class GrenouilleRetrieval:
                }[self.nonlinear_effect]
 
     def _calculate_I_FROG(self):
+        """
+        Place the Grenouille trace on the ω-τ grid.
+        
+        This involves 
+        - multiplying the Grenouille wavelength in case of harmonics
+        - converting the wavelength to angular frequency
+        - centering around the carrier frequency
+        
+
+        """
+        λ = invert_wavelength_angular_frequency(self.frequency_multiplier * (self.ω + invert_wavelength_angular_frequency(self.pulse_center_wavelength)))
         self.I_FROG = np.transpose(
-            np.fromiter((np.interp((invert_wavelength_angular_frequency(self.ω)),  self.grenouille_trace_λ, grenouille_trace_column, left=0.0, right=0.0)
+            np.fromiter((np.interp(λ,  self.grenouille_trace_λ, grenouille_trace_column, 
+                                   left=0.0, right=0.0
+                                  )
                         for grenouille_trace_column in self.grenouille_trace.T
                         ), (float, self.time_axis_length))
         )
 
     def _default_initial_E(self):
-        wavelength_FWHM = Q_(4, 'nm')
-        pulse_FWHM = Q_(30, 'fs')
-        omega_center = invert_wavelength_angular_frequency(self.wavelength_center)
-        omega_FWHM = omega_center/self.wavelength_center * wavelength_FWHM
-        E_FT = np.exp(-np.square(self.ω - omega_center) / (omega_FWHM**2 / (4 * np.log(2))))
+        pulse_FWHM = Q_(50, 'fs')
         pulse = np.exp(-np.square(self.t - self.t[-1] / 2) / (pulse_FWHM**2 / (4 * np.log(2))))
-        assert E_FT.check('')
-        assert pulse.check('')
-        return pulse.m * np.fft.ifft(np.fft.ifftshift(E_FT.m))
+        return pulse.m
 
     def _calculate_E_sig(self):
         """ Calculate E_sig(t, τ) = E(t) gate(E(t - τ))
