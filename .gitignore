@@ -1,4 +1,3 @@
-
 LogMaker 4 GoogleDocs/source/HTTplaceholders.ini
 LogMaker 4 GoogleDocs/source/HTTparameters.ini
 LogMaker 4 GoogleDocs/source/HTTcurrentvalues.ini
@@ -6,7 +5,10 @@ LogMaker 4 GoogleDocs/source/HTTplaceholders.ini
 LogMaker 4 GoogleDocs/source/HTTparameters.ini
 LogMaker 4 GoogleDocs/source/HTTcurrentvalues.ini
 LogMaker 4 GoogleDocs/source/frontpanel.png
-GEECS-PythonAPI/*.pyc
 GEECS-PythonAPI/*.xml
-PhasicsDensity/**/*.pyc
 *.pyc
+.env
+.vscode/
+.DS_Store
+.ipynb_checkpoints
+.idea

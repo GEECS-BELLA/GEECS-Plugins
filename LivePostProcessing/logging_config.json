@@ -1,0 +1,45 @@
+{
+    "version": 1, 
+    "formatters": {
+        "time_source_level_message": {
+            "format": "{asctime}\t{name}:{levelname}\t{message}",
+            "style": "{",
+            "validate": false
+        }
+    },
+    "filters": {},
+    "handlers": {
+        "live_run_analysis_file_handler": {
+            "class": "logging.FileHandler",
+            "level": "INFO",
+            "formatter": "time_source_level_message",
+            "filename": "c:/Users/ReiniervanMourik/OneDrive - Tau Systems Inc/data_science/230419_UC_UndulatorRad2_analysis/log/live_run_analysis.log"
+        },
+        "scan_analyzer_file_handler": {
+            "class": "logging.FileHandler",
+            "level": "INFO",
+            "formatter": "time_source_level_message",
+            "filename": "c:/Users/ReiniervanMourik/OneDrive - Tau Systems Inc/data_science/230419_UC_UndulatorRad2_analysis/log/scan_analyzer.log"
+        }
+    },
+    "loggers": {
+        "live_run_analysis": {
+            "level": "INFO",
+            "propagate": false,
+            "handlers": [
+                "live_run_analysis_file_handler"
+            ]
+        },
+        "scan_analyzer": {
+            "level": "INFO",
+            "propagate": false,
+            "handlers": [
+                "scan_analyzer_file_handler"
+            ]
+        }
+    },
+    "root": {
+        "level": "ERROR",
+        "handlers": []
+    }
+}

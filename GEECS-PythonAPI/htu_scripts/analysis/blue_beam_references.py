@@ -2,10 +2,10 @@ import os
 import calendar as cal
 from pathlib import Path
 from typing import Any
-from geecs_api.tools.interfaces.exports import load_py, save_py
-from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.tools.images.scan_images import ScanImages
+from geecs_python_api.tools.interfaces.exports import load_py, save_py
+from geecs_python_api.controls.interface import GeecsDatabase
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.analysis.images.scans.scan_images import ScanImages
 
 
 # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
@@ -30,12 +30,12 @@ analysis_path: Path = save_dir / 'beam_analysis.dat'
 analysis_dict, analysis_path = load_py(analysis_path, as_dict=True)
 
 # Targets
-com_of_avg_ij = [ScanImages.rotated_to_original_ij(pos, shape, rot90)
+com_of_avg_ij = [ScanImages.processed_to_original_ij(pos, shape, rot90)
                  for rot90, shape, pos in zip(analysis_dict['beam_analysis']['rot_90'],
                                               analysis_dict['beam_analysis']['raw_shape_ij'],
                                               analysis_dict['beam_analysis']['com_deltas_pix_avg_imgs'])]
 
-avg_of_coms_ij = [ScanImages.rotated_to_original_ij(pos, shape, rot90)
+avg_of_coms_ij = [ScanImages.processed_to_original_ij(pos, shape, rot90)
                   for rot90, shape, pos in zip(analysis_dict['beam_analysis']['rot_90'],
                                                analysis_dict['beam_analysis']['raw_shape_ij'],
                                                analysis_dict['beam_analysis']['com_deltas_pix_means'])]

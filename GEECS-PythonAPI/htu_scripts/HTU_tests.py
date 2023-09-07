@@ -3,10 +3,10 @@ import time
 import numpy as np
 import pandas as pd
 import shelve
-from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.diagnostics.ebeam_diagnostics import EBeamDiagnostics
-from geecs_api.devices.HTU.diagnostics import UndulatorStage
+from geecs_python_api.controls.interface import GeecsDatabase
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.HTU.diagnostics.ebeam_diagnostics import EBeamDiagnostics
+from geecs_python_api.controls.devices.HTU.diagnostics import UndulatorStage
 from scipy.io import savemat, loadmat
 import tkinter as tk
 from tkinter import filedialog

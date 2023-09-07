@@ -11,12 +11,13 @@ from skimage.measure import label, regionprops
 from skimage.morphology import closing, square
 from skimage.color import label2rgb
 from typing import Optional, Any, Union
-from geecs_api.api_defs import SysPath
-from geecs_api.tools.images.batches import list_images, average_images
-from geecs_api.devices.geecs_device import api_error
-import geecs_api.tools.images.ni_vision as ni
-from geecs_api.tools.images.filtering import clip_hot_pixels
-from geecs_api.tools.images.spot import spot_analysis, fwhm
+from geecs_python_api.controls.api_defs import SysPath
+from geecs_python_api.tools.images.batches import list_files, average_images
+from geecs_python_api.controls.devices.geecs_device import api_error
+import geecs_python_api.tools.images.ni_vision as ni
+from geecs_python_api.tools.images.spot import spot_analysis, fwhm
+
+from image_analysis.tools.filtering import clip_hot_pixels
 
 # base_path = Path(r'Z:\data')
 base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
@@ -142,7 +143,7 @@ def analyze_images(images_folder: SysPath, n_images: int = 0, file_extension: st
                    screen_label: str = '', hp_median: int = 2, hp_threshold: float = 3., denoise_cycles: int = 0,
                    gauss_filter: float = 5., com_threshold: float = 0.5) \
         -> tuple[list[dict[str, Any]], Optional[np.ndarray]]:
-    paths = list_images(images_folder, n_images, file_extension)
+    paths = list_files(images_folder, n_images, file_extension)
     analyses: list[dict[str, Any]] = []
     avg_image: Optional[np.ndarray] = None
     rot_90deg: int = int(round(rotate_deg / 90.))

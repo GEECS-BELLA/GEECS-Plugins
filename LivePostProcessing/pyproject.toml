@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "livepostprocessing"
+version = "0.1.0"
+description = "Application to run post-processing on images from BELLA HTU Scans."
+authors = ["Reinier van Mourik <reinier.vanmourik@tausystems.com>"]
+readme = "README.md"
+packages = [{include = "livepostprocessing"}]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.13"
+pandas = "^2.0"
+numpy = "^1.25.0"
+watchdog = "^3.0.0"
+wxPython = "^4.2.1"
+docstring-parser = "^0.15"
+scikit-image = "^0.21"
+pypng = "^0.20220715.0"
+imageio = "^2.31.1"
+GEECS-PythonAPI = { path = "../GEECS-PythonAPI", develop = true }
+
+[tool.poetry.group.dev.dependencies]
+spyder-kernels = "^2.4.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

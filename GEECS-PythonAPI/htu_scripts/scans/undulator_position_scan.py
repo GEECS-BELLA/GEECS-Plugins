@@ -2,11 +2,11 @@ import time
 import numpy as np
 import numpy.typing as npt
 from typing import Optional, Any
-from geecs_api.api_defs import SysPath
-from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.devices.HTU.transport.magnets import Steering
-from geecs_api.devices.HTU.diagnostics import EBeamDiagnostics
+from geecs_python_api.controls.api_defs import SysPath
+from geecs_python_api.controls.interface import GeecsDatabase
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.HTU.transport.magnets import Steering
+from geecs_python_api.controls.devices.HTU.diagnostics import EBeamDiagnostics
 from htu_scripts.scans.screens_scan import screens_scan
 
 
@@ -125,7 +125,7 @@ def set_position_and_run_screen_scan(s3: Steering, s4: Steering, h_curr, v_curr,
 
             if screens is None:
                 print('Starting no-scan...')
-                GeecsDevice.run_no_scan(monitoring_device=s3, comment=log_comment, timeout=300.)
+                GeecsDevice.no_scan(monitoring_device=s3, comment=log_comment, timeout=300.)
                 success = True
             else:
                 print(f'Starting screen scan ("{screens[1]}" to "{screens[2]}")...')

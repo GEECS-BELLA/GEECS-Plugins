@@ -5,13 +5,13 @@ import calendar as cal
 import matplotlib.pyplot as plt
 from progressbar import ProgressBar
 from typing import Any
-from geecs_api.tools.images.batches import list_images
-from geecs_api.tools.interfaces.exports import save_py, load_py
-from geecs_api.tools.scans.scan_data import ScanData
-from geecs_api.tools.images.scan_images import ScanImages
-from geecs_api.interface import GeecsDatabase
-from geecs_api.devices.geecs_device import GeecsDevice
-from geecs_api.tools.distributions.fit_utility import fit_distribution
+from geecs_python_api.tools.images.batches import list_files
+from geecs_python_api.tools.interfaces.exports import save_py, load_py
+from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.analysis.images.scans.scan_images import ScanImages
+from geecs_python_api.controls.interface import GeecsDatabase
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.tools.distributions.fit_utility import fit_distribution
 
 
 # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
@@ -60,7 +60,7 @@ if (analyze.lower()[0] == 'y') or (not dat_file.is_file()):
 
     # U9
     _scan_images_u9 = ScanImages(_scan, 'U9')
-    paths_u9 = list_images(_scan_images_u9.image_folder, -1, '.png')
+    paths_u9 = list_files(_scan_images_u9.image_folder, -1, '.png')
 
     u9_mean = np.zeros((len(paths_u9),))
     with ProgressBar(max_value=len(paths_u9)) as pb:
@@ -72,7 +72,7 @@ if (analyze.lower()[0] == 'y') or (not dat_file.is_file()):
     # Rad2
     _scan_images_rad2 = ScanImages(_scan, 'Rad2')
     _scan_images_rad2.camera_roi = np.array([1364, 2233, 482, 1251])
-    paths_rad2 = list_images(_scan_images_rad2.image_folder, -1, '.png')
+    paths_rad2 = list_files(_scan_images_rad2.image_folder, -1, '.png')
 
     rad2_mean = np.zeros((len(paths_rad2),))
     with ProgressBar(max_value=len(paths_rad2)) as pb:
