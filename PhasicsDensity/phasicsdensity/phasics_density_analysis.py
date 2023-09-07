@@ -328,6 +328,90 @@ class PhasicsImageAnalyzer:
         return self.diffraction_spot_IMGs
 
 
+    def _crop_diffraction_spots(self) -> list[NDArray]:
+
+        # if diffraction spot crop radius not given, infer it
+        if self.diffraction_spot_crop_radius is None:
+            self._set_diffraction_spot_crop_radius()
+
+        def _crop_diffraction_spot(center: SpatialFrequencyCoordinates) -> NDArray:
+            """ Crop an area of freq space around diffraction spot center, and translate it
+                to the middle of the image.
+            
+            Parameters
+            ----------
+            IMG : np.ndarray
+                Fourier-transformed QWLSI image.
+            center : SpatialFrequencyCoordinates
+                location of diffraction spot center
+    
+            Returns
+            -------
+            G_i : np.ndarray
+                image of same size as IMG, with diffraction spot in center and all
+                information not related to this spot cropped away.
+    
+            """
+            
+            # NU_X, NU_Y = np.meshgrid(self.freq_x, self.freq_y)
+            # IMG_cropped = self.IMG * ((np.square(NU_X - center.nu_x) + np.square(NU_Y - center.nu_y)) < self.diffraction_spot_crop_radius**2)
+            def crop_function(X, Y):
+                R = np.sqrt(np.square(X) + np.square(Y))
+                return 1.0 * (R < self.diffraction_spot_crop_radius)
+                # return np.exp(-np.square(R) / (2 * (self.diffraction_spot_crop_radius/2)**2))
+                # return (  (np.abs(X * Y) < (self.diffraction_spot_crop_radius / np.sqrt(2) / 3)**2)
+                #        * (R < self.diffraction_spot_crop_radius)
+                #       ) 
+
+            NU_X, NU_Y = np.meshgrid(self.freq_x, self.freq_y)
+    #        IMG_cropped = self.parent.IMG * ((np.square(NU_X - self.spatial_frequency.nu_x) + np.square(NU_Y - self.spatial_frequency.nu_y)) < self.parent.diffraction_spot_crop_radius**2)
+            IMG_cropped = self.IMG * crop_function(NU_X - center.nu_x, NU_Y - center.nu_y)
+
+            return IMG_cropped
+
+        self.diffraction_spot_IMGs = [_crop_diffraction_spot(center)
+                                      for center in self.diffraction_spot_centers
+                                     ]
+        
+        return self.diffraction_spot_IMGs
+
+    def _inverse_fourier_transform_with_centering(self) -> list[NDArray]:
+        """ Inverse fourier transform of cropped image, with Fourier-space
+            centering performed in the real space.
+            
+        Instead of centering the diffraction spot by translation (and 
+        necessarily, interpolation), take the inverse fourier transform and
+        then multiply by exp(-2*pi*i * nu * x)
+        
+        """
+        def _inverse_fourier_transform_with_centering_one_image(diffraction_spot_center: SpatialFrequencyCoordinates, IMG_cropped: np.ndarray) -> np.ndarray:
+            img = np.fft.ifft2(np.fft.ifftshift(IMG_cropped))
+            # shifting in the Fourier space by -diffraction_spot_center is
+            # multiplication by exp(2*pi*i*(-diffraction_spot_center)*x) in 
+            # real space
+            X, Y = np.meshgrid(np.arange(self.shape[1]) * self.CAMERA_RESOLUTION, 
+                               np.arange(self.shape[0]) * self.CAMERA_RESOLUTION
+                              ) 
+            img *= np.exp(1j * 2*np.pi * -(diffraction_spot_center.nu_x * X + diffraction_spot_center.nu_y * Y))
+            
+            return img
+        
+        self.diffraction_spot_inverses = [_inverse_fourier_transform_with_centering_one_image(diffraction_spot_center, IMG_cropped)
+                                          for diffraction_spot_center, IMG_cropped in zip(self.diffraction_spot_centers, self.diffraction_spot_IMGs)
+                                         ]
+
+        return self.diffraction_spot_inverses
+
+
+    def _obtain_wavefront_gradients(self) -> list[NDArray]:
+        
+        self.wavefront_gradients = [unwrap_phase(-np.angle(diffraction_spot_inverse.m))
+                                    / (2 * np.pi * self.GRATING_CAMERA_DISTANCE)
+                                    for diffraction_spot_inverse in self.diffraction_spot_inverses
+                                   ] 
+
+        return self.wavefront_gradients
+
     def _reconstruct_wavefront_gradients_from_cropped_centered_diffraction_FTs(self) -> list[NDArray]:
         """ Calculate the angle (argument) of the inverse FT of a diffraction 
             spot image.
@@ -347,7 +431,7 @@ class PhasicsImageAnalyzer:
 
         """
 
-        self.wavefront_gradients = [unwrap_phase(np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m))))
+        self.wavefront_gradients = [unwrap_phase(-np.angle(np.fft.ifft2(np.fft.ifftshift(IMG.m))))
                                     / (2 * np.pi * self.GRATING_CAMERA_DISTANCE)
                                     for IMG in self.diffraction_spot_IMGs
                                    ] 
@@ -537,9 +621,15 @@ class PhasicsImageAnalyzer:
         self._fourier_transform()
 
         # get cropped and centered FTs of each diffraction spot
-        self._crop_and_center_diffraction_spots()
+        # self._crop_and_center_diffraction_spots()
 
-        self._reconstruct_wavefront_gradients_from_cropped_centered_diffraction_FTs()
+#        self._reconstruct_wavefront_gradients_from_cropped_centered_diffraction_FTs()
+
+        self._crop_diffraction_spots()
+
+        self._inverse_fourier_transform_with_centering()
+
+        self._obtain_wavefront_gradients()
 
         # reconstruct wavefront from diffraction spot FTs
         if self.reconstruction_method == 'baffou':
