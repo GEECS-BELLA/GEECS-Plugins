@@ -23,9 +23,22 @@ class Handler:
             return None
 
     @staticmethod
-    def request_value(message: str, integer: bool = False) -> Optional[Any]:
-        success, answer = Bridge.labview_call('handler', 'value', ['answer'], sync=True, timeout_sec=600.,
-                                              message=message, integer=integer)
+    def request_values(message: str, values: list[tuple]) -> Optional[Any]:
+        """
+        Request values from LabVIEW interface
+
+        Args:
+            message: string to be presented to the user.
+            values: list of tuples describing the values to be collected
+            (label: str, type: str = 'bool'/'float'/'int'/'str', min value, max value);
+            use -inf or None for no minimum value; inf or None for no minimum value
+
+        Returns:
+            list of values
+        """
+        success, answer = Bridge.labview_call('handler', 'values', ['answer'], sync=True, timeout_sec=600.,
+                                              message=message, values=values)
+        # add support for initial value
         if success:
             return answer['answer']
         else:

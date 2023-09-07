@@ -25,8 +25,11 @@ def htu_consumer(call: str = ''):
 
     if call[0].lower() == 'test':
         UserInterface.report(f'Starting "{call[0]}"')
-        Bridge.python_error(False, 12345, 'Testing error message!')
-        answer = Handler.question('Test question, do you agree?', ['Yes', 'No'])
+        # Bridge.python_error(False, 12345, 'Testing error message!')
+        answer = Handler.request_values('Test request:', [('boolean1', 'bool', -2., None, 3),
+                                                          ('numeric', 'float', -1., 1., 1),
+                                                          ('boolean2', 'bool', -2., None, 3),
+                                                          ('string', 'str', '', '', 1)])
         print(f'Answer: {answer}')
 
     elif call[0].lower() == 'emq_alignment':

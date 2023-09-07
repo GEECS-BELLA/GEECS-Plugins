@@ -155,9 +155,9 @@ class ScanImages:
                     try:
                         if interface.lower() == 'labview':
                             filtering.contrast = \
-                                Handler.request_value(f'New contrast value (old: {filtering.contrast:.3f}):')
+                                Handler.request_values(f'New contrast value (old: {filtering.contrast:.3f}):')
                             filtering.com_threshold = \
-                                Handler.request_value(f'New threshold value (old: {filtering.com_threshold:.3f}):')
+                                Handler.request_values(f'New threshold value (old: {filtering.com_threshold:.3f}):')
                         else:
                             filtering.contrast = \
                                 float(text_input(f'New contrast value (old: {filtering.contrast:.3f}) : '))
