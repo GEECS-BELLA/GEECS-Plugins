@@ -1,9 +1,7 @@
 from geecs_python_api.controls.experiment.htu import HtuExp
-from geecs_python_api.controls.devices.HTU.gas_jet import GasJet
-from geecs_python_api.controls.devices.HTU.laser import Laser
 from geecs_python_api.controls.devices.HTU.transport import Steering
 from labview_interface.lv_interface import Bridge, flatten_dict
-from labview_interface.HTU.htu_classes import UserInterface, Handler
+from labview_interface.HTU.htu_classes import UserInterface, Handler, LPA
 from labview_interface.HTU.procedures.emq_alignment import calculate_steering_currents
 from typing import Optional
 import numpy as np
@@ -12,8 +10,6 @@ import time
 
 # HTU
 htu = HtuExp(get_info=True)
-jet: Optional[GasJet] = None
-laser: Optional[Laser] = None
 steers: list[Optional[Steering]] = [None] * 4
 
 
@@ -26,14 +22,17 @@ def htu_consumer(call: str = ''):
     if call[0].lower() == 'test':
         UserInterface.report(f'Starting "{call[0]}"')
         # Bridge.python_error(False, 12345, 'Testing error message!')
-        answer = Handler.request_values('Test request:', [('boolean1', 'bool', -2., None, 3),
-                                                          ('numeric', 'float', -1., 1., 1),
-                                                          ('boolean2', 'bool', -2., None, 3),
-                                                          ('string', 'str', '', '', 1)])
+        answer = Handler.request_values('Test request:', [('boolean1', 'bool', None, None, False),
+                                                          ('numeric', 'float', -1., 1., 0.),
+                                                          ('boolean2', 'bool', None, None, False),
+                                                          ('string', 'str', None, None, '')])
         print(f'Answer: {answer}')
 
     elif call[0].lower() == 'emq_alignment':
         emq_alignment(call)
+
+    elif call[0].lower() == 'lpa_initialization':
+        lpa_initialization()
 
     else:
         return
@@ -73,6 +72,32 @@ def emq_alignment(call: list):
         steers[:2] = [None] * 2
 
     except Exception as ex:
+        UserInterface.report('EMQs alignment failed')
+        Bridge.python_error(message=str(ex))
+
+
+def lpa_initialization():
+    cancel_msg = 'LPA initialization canceled'
+    try:
+        if Handler.question('Are you ready to run an LPA initialization?', ['Yes', 'No']) == 'No':
+            return
+
+        lpa = LPA()
+
+        # initial z-scan
+        run_scan = Handler.question('Next scan: rough Z-scan. Proceed?', ['Yes', 'Skip', 'Cancel'])
+        if run_scan == 'Cancel':
+            UserInterface.report(cancel_msg)
+            return
+        if run_scan == 'Yes':
+            cancel, scan_folder = lpa.z_scan(rough=True)
+            if cancel:
+                UserInterface.report(cancel_msg)
+                return
+            lpa.z_scan_analysis(scan_folder)
+
+    except Exception as ex:
+        UserInterface.report('LPA initialization failed')
         Bridge.python_error(message=str(ex))
 
 

@@ -154,10 +154,19 @@ class ScanImages:
                 while True:
                     try:
                         if interface.lower() == 'labview':
-                            filtering.contrast = \
-                                Handler.request_values(f'New contrast value (old: {filtering.contrast:.3f}):')
-                            filtering.com_threshold = \
-                                Handler.request_values(f'New threshold value (old: {filtering.com_threshold:.3f}):')
+                            keys = [('Contrast', 'float', 0, 'inf', filtering.contrast),
+                                    ('Median Filter Size', 'int', 0, 'inf', filtering.hp_median),
+                                    ('Median Filter Threshold', 'float', 0., 'inf', filtering.hp_threshold),
+                                    ('Denoising Cycles', 'int', 0, 'inf', filtering.denoise_cycles),
+                                    ('Gaussian Filter Size', 'float', 0, 'inf', filtering.gauss_filter),
+                                    ('Threshold', 'float', 0, 1, filtering.com_threshold),
+                                    ('Background Image', 'path', None, None, filtering.bkg_image),
+                                    ('Box', 'bool', None, None, filtering.box),
+                                    ('Ellipse', 'bool', None, None, filtering.ellipse)]
+                            values = Handler.request_values('New analysis parameters:', keys)
+                            for k, var in zip(keys, list(vars(filtering).keys())):
+                                if k[0] in values:
+                                    eval(f'filtering.{var} = values[k[0]]')
                         else:
                             filtering.contrast = \
                                 float(text_input(f'New contrast value (old: {filtering.contrast:.3f}) : '))
