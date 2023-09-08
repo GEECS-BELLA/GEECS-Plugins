@@ -44,10 +44,31 @@ def HiResMagSpec_LabView(image,background=None):
     result = (returned_image, values, np.zeros((2, 2), dtype=np.float64))
 
     return result
-    
+
+
+def UndulatorExitCam_LabView(image, background=None):
+    from image_analysis.analyzers.UC_UndulatorExitCam import UC_UndulatorExitCam
+    returned_image, mag_spec_dict, input_params, lineouts = UC_UndulatorExitCam().analyze_image(image)
+
+    # Define the keys for which values need to be extracted
+    keys_of_interest = [
+        "Saturation-Counts",
+        "Photon-Counts",
+        "Peak-Wavelength",
+        "Average-Wavelength",
+        "Wavelength-Spread",
+        "Optimization-Factor"
+    ]
+    values = np.array([mag_spec_dict[key] for key in keys_of_interest]).astype(np.float64)
+    return_lineouts = lineouts.astype(np.float64)
+    result = (returned_image, values, return_lineouts)
+
+    return result
+
 # Dictionary to map device types to their respective analysis functions
 DEVICE_FUNCTIONS = {
     "UC_TestCam": HiResMagSpec_LabView,
+    "UC_UndulatorExitCam": UndulatorExitCam_LabView,
     # Add more device types as needed...
 }
  
