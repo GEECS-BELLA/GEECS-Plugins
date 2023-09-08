@@ -2,9 +2,10 @@ from typing import Optional, Any, Union
 from pathlib import Path
 from labview_interface.lv_interface import Bridge
 from geecs_python_api.controls.experiment.experiment import Experiment
+from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.HTU.gas_jet import GasJet
 from geecs_python_api.controls.devices.HTU.laser import Laser
-from geecs_python_api.controls.devices.HTU.transport import Steering
+# from geecs_python_api.controls.devices.HTU.transport import Steering
 from geecs_python_api.analysis.images.scans.scan_data import ScanData
 
 
@@ -98,4 +99,12 @@ class LPA:
     @staticmethod
     def z_scan_analysis(exp: Experiment, scan_path: Path):
         scan_data = ScanData(scan_path, ignore_experiment_name=exp.is_offline)
-        return
+        magspec_data = scan_data.load_mag_spec_data()
+        return magspec_data
+
+
+if __name__ == "__main__":
+    _htu = HtuExp(get_info=True)
+    _scan_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
+    _magspec_data = LPA.z_scan_analysis(_htu, _scan_path)
+    print('done')

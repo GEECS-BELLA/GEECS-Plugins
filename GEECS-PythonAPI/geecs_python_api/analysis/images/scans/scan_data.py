@@ -8,7 +8,7 @@ from datetime import datetime as dtime, date
 from typing import Optional, Union, Any
 from configparser import ConfigParser, NoSectionError
 from geecs_python_api.controls.api_defs import SysPath, ScanTag
-import geecs_python_api.controls.experiment.htu as htu
+from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.tools.images.batches import list_files
 from geecs_python_api.controls.interface import api_error
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
@@ -197,11 +197,11 @@ class ScanData:
 
 
 if __name__ == '__main__':
-    _base_path, is_local = htu.initialize()
+    _htu = HtuExp(get_info=True)
     _base_tag = ScanTag(2023, 7, 6, 4)
 
-    _folder = ScanData.build_folder_path(_base_tag, _base_path)
-    _scan_data = ScanData(_folder, ignore_experiment_name=is_local)
+    _folder = ScanData.build_folder_path(_base_tag, _htu.base_path)
+    _scan_data = ScanData(_folder, ignore_experiment_name=_htu.is_offline)
 
     print('Loading mag spec data...')
     _magspec_data = _scan_data.load_mag_spec_data()
