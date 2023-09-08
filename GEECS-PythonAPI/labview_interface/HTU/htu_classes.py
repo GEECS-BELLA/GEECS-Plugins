@@ -1,4 +1,4 @@
-from typing import Optional, Any
+from typing import Optional, Any, Union
 from pathlib import Path
 from labview_interface.lv_interface import Bridge
 from geecs_python_api.controls.experiment.experiment import Experiment
@@ -37,7 +37,7 @@ class Handler:
             message: string to be presented to the user.
             values: list of tuples describing the values to be collected
             (label: str, type: str = 'bool'/'float'/'int'/'str', min value, max value, initial value);
-            use '-inf' or None for no minimum value; 'inf' or None for no minimum value
+            use '-inf' for no minimum value; 'inf' for no minimum value
 
         Returns:
             list of values
@@ -59,25 +59,34 @@ class LPA:
         self.laser = Laser()
 
     def close(self):
+        UserInterface.report('Disconnecting from gas jet elements...')
         self.jet.close()
+
+        UserInterface.report('Disconnecting from laser elements...')
         self.laser.close()
 
     def z_scan(self, rough: bool = False) -> tuple[bool, Path]:
         z = round(self.jet.stage.get_position('z'), 2)
-        z_alias = self.jet.stage.get_axis_var_alias('z')
+        z_alias = self.jet.stage.get_axis_var_alias(2)
         lims = self.jet.stage.var_spans[z_alias]
+        values: Union[dict, str]
 
         while True:
-            pars = [z - 1, z + 1, 0.5, 20] if rough else [z - 0.3, z + 0.3, 0.05, 20]
+            pars = [6, 11, 0.25, 10] if rough else [z - 1, z + 1, 0.1, 10]
             values = Handler.request_values(f'{"Rough" if rough else "Fine"} Z-scan parameters:',
                                             [('Start [mm]', 'float', lims[0], lims[1], pars[0]),
                                              ('End [mm]', 'float', lims[0], lims[1], pars[1]),
                                              ('Steps [mm]', 'float', 0, 10, pars[2]),
                                              ('Shots/Step', 'int', 1, 'inf', pars[3])])
+            if isinstance(values, str) and (values == 'Cancel'):
+                cancel = True
+                scan_folder = None
+                break
 
             UserInterface.report(f'Starting {"rough" if rough else "fine"} Z-scan...')
             scan_folder, _, _, _ = self.jet.stage.scan(z_alias, values['Start [mm]'], values['End [mm]'],
-                                                       values['Steps [mm]'], lims, values['Shots/Step'])
+                                                       values['Steps [mm]'], lims, values['Shots/Step'],
+                                                       comment=f'{"rough" if rough else "fine"} Z-scan')
 
             repeat = Handler.question('Do you want to repeat this Z-scan?', ['Yes', 'No', 'Cancel'])
             cancel = (repeat == 'Cancel')

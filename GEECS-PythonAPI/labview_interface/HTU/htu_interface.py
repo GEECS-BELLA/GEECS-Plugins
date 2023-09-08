@@ -21,11 +21,9 @@ def htu_consumer(call: str = ''):
 
     if call[0].lower() == 'test':
         UserInterface.report(f'Starting "{call[0]}"')
-        # Bridge.python_error(False, 12345, 'Testing error message!')
-        answer = Handler.request_values('Test request:', [('boolean1', 'bool', None, None, False),
-                                                          ('numeric', 'float', -1., 1., 0.),
-                                                          ('boolean2', 'bool', None, None, False),
-                                                          ('string', 'str', None, None, '')])
+        answer = Handler.request_values('Test request:', [('boolean1', 'bool', None, None, True),
+                                                          ('numeric', 'float', -1., 'inf', 2.5),
+                                                          ('path', 'str', None, None, 'abcdef')])
         print(f'Answer: {answer}')
 
     elif call[0].lower() == 'emq_alignment':
@@ -96,6 +94,8 @@ def lpa_initialization():
             if cancel:
                 UserInterface.report(cancel_msg)
                 return
+            else:
+                UserInterface.report(rf'Done ({scan_folder.name})')
             lpa.z_scan_analysis(htu, scan_folder)
 
     except Exception as ex:

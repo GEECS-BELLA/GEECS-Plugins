@@ -10,7 +10,7 @@ from geecs_python_api.controls.devices.HTU.diagnostics import EBeamDiagnostics
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
 from geecs_python_api.tools.interfaces.prompts import text_input
 from geecs_python_api.analysis.images.scans.scan_data import ScanData
-from geecs_python_api.analysis.images.scans import scan_analysis as sa
+import geecs_python_api.analysis.images.scans.scan_analysis as sa
 
 
 def steering_calibration(steering_magnets: list[int], screens: list[str],

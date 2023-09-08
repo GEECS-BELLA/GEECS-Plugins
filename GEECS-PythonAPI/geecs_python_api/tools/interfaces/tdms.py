@@ -1,4 +1,3 @@
-import os
 import pandas as pd
 import nptdms as tdms
 import numpy.typing as npt

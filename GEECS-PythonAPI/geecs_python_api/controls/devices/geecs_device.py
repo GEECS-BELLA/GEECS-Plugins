@@ -354,7 +354,7 @@ class GeecsDevice:
 
     def scan(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
              var_span: Optional[tuple[Optional[float], Optional[float]]] = None, shots_per_step: int = 10,
-             use_alias: bool = True, timeout: float = 60.) -> tuple[Path, int, bool, bool]:
+             comment: str = '', use_alias: bool = True, timeout: float = 60.) -> tuple[Path, int, bool, bool]:
         var_values = self._scan_values(var_alias, start_value, end_value, step_size, var_span)
 
         if use_alias:
@@ -365,7 +365,8 @@ class GeecsDevice:
             # noinspection PyTypeChecker
             GeecsDevice.write_1D_scan_file(self.get_name(), var_name, var_values, shots_per_step)
 
-        comment = f'{var_alias} scan'
+        if not comment:
+            comment = f'{var_alias} scan'
         return GeecsDevice.file_scan(self, comment, timeout)
 
     @staticmethod

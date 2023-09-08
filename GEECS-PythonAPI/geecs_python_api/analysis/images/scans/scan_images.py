@@ -134,8 +134,12 @@ class ScanImages:
                                       initial_filtering.denoise_cycles, initial_filtering.gauss_filter,
                                       initial_filtering.com_threshold, initial_filtering.bkg_image,
                                       initial_filtering.box, initial_filtering.ellipse)
-
+        repeat = 'yes'
         while True:
+            if repeat.lower()[0] == 'n':
+                break
+
+            # analyze
             try:
                 export_file_path, data_dict = \
                     self.analyze_image_batch(images, filtering, store_images, plots, profiles, save_plots, save)
@@ -143,6 +147,7 @@ class ScanImages:
                 api_error(str(ex), f'Failed to analyze {self.scan_data_folder.name}')
                 pass
 
+            # check with user
             if interface.lower() == 'labview':
                 repeat = Handler.question('Repeat analysis (adjust contrast/threshold)?', ['Yes', 'No'])
             else:
@@ -163,7 +168,12 @@ class ScanImages:
                                     ('Background Image', 'path', None, None, filtering.bkg_image),
                                     ('Box', 'bool', None, None, filtering.box),
                                     ('Ellipse', 'bool', None, None, filtering.ellipse)]
-                            values = Handler.request_values('New analysis parameters:', keys)
+
+                            values: Union[dict, str] = Handler.request_values('New analysis parameters:', keys)
+                            if isinstance(values, str) and (values == 'Cancel'):
+                                repeat = 'no'
+                                break
+
                             for k, var in zip(keys, list(vars(filtering).keys())):
                                 if k[0] in values:
                                     eval(f'filtering.{var} = values[k[0]]')
