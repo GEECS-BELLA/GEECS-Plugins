@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from typing import Optional, Any, Union
 from pathlib import Path
 from labview_interface.lv_interface import Bridge
@@ -13,6 +15,10 @@ class UserInterface:
     @staticmethod
     def report(message: str):
         Bridge.labview_call('ui', 'report', [], sync=False, message=message)
+
+    @staticmethod
+    def plots(source: str, results: list):
+        Bridge.labview_call('handler', 'results', [], sync=False, source=source, results=results)
 
 
 class Handler:
@@ -52,12 +58,15 @@ class Handler:
 
 
 class LPA:
-    def __init__(self):
-        UserInterface.report('Connecting to gas jet elements...')
-        self.jet = GasJet()
+    def __init__(self, is_offline: bool = False):
+        if is_offline:
+            self.jet = self.laser = None
+        else:
+            UserInterface.report('Connecting to gas jet elements...')
+            self.jet = GasJet()
 
-        UserInterface.report('Connecting to laser elements...')
-        self.laser = Laser()
+            UserInterface.report('Connecting to laser elements...')
+            self.laser = Laser()
 
     def close(self):
         UserInterface.report('Disconnecting from gas jet elements...')
@@ -96,15 +105,55 @@ class LPA:
 
         return cancel, scan_folder
 
-    @staticmethod
-    def z_scan_analysis(exp: Experiment, scan_path: Path):
+    def z_scan_analysis(self, exp: Experiment, scan_path: Path):
+        if self.jet is None:
+            device = 'U_ESP_JetXYZ'
+            variable = 'Position.Axis 3'
+        else:
+            device = self.jet.stage.get_name()
+            variable = self.jet.stage.get_axis_var_name(2)
+
         scan_data = ScanData(scan_path, ignore_experiment_name=exp.is_offline)
-        magspec_data = scan_data.load_mag_spec_data()
+        indexes, setpoints, matching = scan_data.bin_data(device, variable)
+        magspec_data = scan_data.analyze_mag_spec(indexes)
+
         return magspec_data
 
 
 if __name__ == "__main__":
     _htu = HtuExp(get_info=True)
     _scan_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
-    _magspec_data = LPA.z_scan_analysis(_htu, _scan_path)
+
+    lpa = LPA(_htu.is_offline)
+
+    _scan_data = ScanData(_scan_path, ignore_experiment_name=_htu.is_offline)
+    _indexes, _setpoints, _matching = _scan_data.bin_data('U_ESP_JetXYZ', 'Position.Axis 3')
+    _magspec_data = _scan_data.analyze_mag_spec(_indexes)
+
+    spec = 'hres'
+    plt.figure()
+    ax = plt.subplot(111)
+    im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['avg'], aspect='auto', origin='upper')
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes('right', size=0.2, pad=0.1)
+    plt.colorbar(im, cax=cax)
+    plt.title('mean')
+
+    plt.figure()
+    ax = plt.subplot(111)
+    im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['med'], aspect='auto', origin='upper')
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes('right', size=0.2, pad=0.1)
+    plt.colorbar(im, cax=cax)
+    plt.title('median')
+
+    plt.figure()
+    ax = plt.subplot(111)
+    im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['std'], aspect='auto', origin='upper')
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes('right', size=0.2, pad=0.1)
+    plt.colorbar(im, cax=cax)
+    plt.title('st. dev.')
+    plt.show(block=True)
+
     print('done')

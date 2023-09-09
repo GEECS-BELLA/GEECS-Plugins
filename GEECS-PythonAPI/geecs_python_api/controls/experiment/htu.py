@@ -90,10 +90,10 @@ class HtuExp(Experiment):
 
 
 if __name__ == '__main__':
-    Experiment.get_info('Undulator')
+    # Experiment.get_info('Undulator')
 
-    # htu = HtuExp(get_info=True)
-    # htu.connect()
-    # htu.close()
+    htu = HtuExp(get_info=True)
+    htu.connect()
+    htu.close()
 
     print('done')

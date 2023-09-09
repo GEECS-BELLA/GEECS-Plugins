@@ -48,6 +48,9 @@ def list_files(folder: Union[Path, str], n_files: Optional[int] = None, file_ext
         return []
 
     folder = Path(folder)
+    if not folder.exists():
+        return []
+
     file_extension = file_extension.lower().strip()
     if file_extension.startswith('.'):
         file_extension = file_extension[1:]

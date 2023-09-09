@@ -30,7 +30,7 @@ def htu_consumer(call: str = ''):
         emq_alignment(call)
 
     elif call[0].lower() == 'lpa_initialization':
-        lpa_initialization()
+        lpa_initialization(call)
 
     else:
         return
@@ -74,7 +74,7 @@ def emq_alignment(call: list):
         Bridge.python_error(message=str(ex))
 
 
-def lpa_initialization():
+def lpa_initialization(call: list):
     cancel_msg = 'LPA initialization canceled'
     lpa: Optional[LPA] = None
 
@@ -82,7 +82,7 @@ def lpa_initialization():
         if Handler.question('Are you ready to run an LPA initialization?', ['Yes', 'No']) == 'No':
             return
 
-        lpa = LPA()
+        lpa = LPA(htu.is_offline)
 
         # initial z-scan
         run_scan = Handler.question('Next scan: rough Z-scan. Proceed?', ['Yes', 'Skip', 'Cancel'])
@@ -96,7 +96,8 @@ def lpa_initialization():
                 return
             else:
                 UserInterface.report(rf'Done ({scan_folder.name})')
-            lpa.z_scan_analysis(htu, scan_folder)
+            magspec_data = lpa.z_scan_analysis(htu, scan_folder)
+            UserInterface.plots(call[0], [flatten_dict(d) for d in magspec_data.values()])
 
     except Exception as ex:
         UserInterface.report('LPA initialization failed')
