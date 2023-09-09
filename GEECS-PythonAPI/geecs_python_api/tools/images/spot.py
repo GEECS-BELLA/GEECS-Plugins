@@ -81,13 +81,14 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
     else:
         smoothed = savgol_filter(y_data, smoothing_window, 3)
 
-    if not guess_center:
-        guess_center = x_data[0] + \
-                       (simg.center_of_mass(smoothed)[0] + np.where(smoothed == np.max(smoothed))[0][0]) / 2.
+    if guess_center is None:
+        guess_center_pix = (simg.center_of_mass(smoothed)[0] + np.where(smoothed == np.max(smoothed))[0][0]) / 2.
+        guess_center = np.interp(guess_center_pix, np.arange(x_data.size, dtype=float), x_data)
 
-    if not guess_fwhm:
-        guess_fwhm = n_sigma_window(smoothed, fwhm(0.5))
-        guess_fwhm = guess_fwhm[1] - guess_fwhm[0]
+    if guess_fwhm is None:
+        guess_fwhm_pix = n_sigma_window(smoothed, fwhm(0.5))
+        guess_fwhm_pix = guess_fwhm_pix[1] - guess_fwhm_pix[0]
+        guess_fwhm = np.polyfit(np.arange(x_data.size, dtype=float), x_data, 1)[0] * guess_fwhm_pix
 
     guess_std = guess_fwhm / (2 * math.sqrt(2 * math.log(2.)))
 
@@ -98,29 +99,28 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
         guess_background = np.min(y_data)
 
     if isinstance(crop_sigma_radius, float):
-        radius: int = round(crop_sigma_radius * guess_std)
-        pos_guess_center = np.argmin(np.abs(x_data - guess_center))
-        window = [max(0, pos_guess_center - radius), min(x_data.size - 1, pos_guess_center + radius)]
-        x_to_fit = x_data[round(window[0]):round(window[1] + 1)]
-        y_to_fit = y_data[round(window[0]):round(window[1] + 1)]
-        pos_guess_center -= window[0]
-        guess_center = x_to_fit[pos_guess_center]
+        radius = crop_sigma_radius * guess_std
+        window = [guess_center - radius, guess_center + radius]
+        window_pix = [np.interp(window[0], x_data, np.arange(x_data.size, dtype=float)),
+                      np.interp(window[1], x_data, np.arange(x_data.size, dtype=float))]
+        x_to_fit = x_data[round(window_pix[0]):round(window_pix[1] + 1)]
+        y_to_fit = y_data[round(window_pix[0]):round(window_pix[1] + 1)]
     else:
-        window = [0, x_data.size - 1]
         x_to_fit = x_data
         y_to_fit = y_data
 
     guess = [guess_background, guess_amplitude, guess_center, guess_std]
-    bd_bkg = guess_background - 2 * np.abs(guess_background)
+    # bd_bkg = guess_background - 2 * np.abs(guess_background)
+    bd_bkg_low = guess_background - 0.5 * guess_amplitude
+    bd_bkg_high = guess_background + 0.5 * guess_amplitude
 
-    # bounds = (np.array([bd_bkg, 0.5 * guess_amplitude, x_data[0], 0.1 * guess_std]),
-    #           np.array([np.max(y_data), 2 * guess_amplitude, x_data[-1], 10 * guess_std]))
-    bounds = (np.array([bd_bkg, 0.5 * guess_amplitude, x_to_fit[0], 0.1 * guess_std]),
-              np.array([np.max(y_to_fit), 2 * guess_amplitude, x_to_fit[-1], 10 * guess_std]))
+    # bounds = (np.array([bd_bkg_low, 0.5 * guess_amplitude, x_to_fit[0], 0.1 * guess_std]),
+    #           np.array([np.max(y_to_fit), 2 * guess_amplitude, x_to_fit[-1], 10 * guess_std]))
+    bounds = (np.array([bd_bkg_low, 0.5 * guess_amplitude, x_to_fit[0], 0.1 * guess_std]),
+              np.array([bd_bkg_high, 2 * guess_amplitude, x_to_fit[-1], 10 * guess_std]))
 
     # noinspection PyTypeChecker
     opt, err, fit = fit_distribution(x_to_fit, y_to_fit, fit_type='gaussian', guess=guess, bounds=bounds)
-    opt[2] += window[0]
     fit = gaussian_fit(x_data, *opt)
     return opt, err, fit
 
