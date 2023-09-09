@@ -4,6 +4,7 @@ import inspect
 import numpy as np
 import calendar as cal
 from pathlib import Path
+from scipy.signal import savgol_filter
 from datetime import datetime as dtime, date
 from typing import Optional, Union, Any, NamedTuple
 from configparser import ConfigParser, NoSectionError
@@ -13,6 +14,7 @@ from geecs_python_api.tools.images.batches import list_files
 from geecs_python_api.controls.interface import api_error
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
+from geecs_python_api.tools.images.spot import profile_fit
 from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
 
 
@@ -242,12 +244,12 @@ class ScanData:
 
     def analyze_mag_spec(self, indexes: list[np.ndarray]) -> dict[str, dict[str, np.ndarray]]:
         magspec_data = self.load_mag_spec_data()
-        if not magspec_data['full']['specs']:
+        if not magspec_data['full']['specs'].size > 0:
             return {}
 
         axis_MeV: dict[str, np.ndarray] = {
             'full': magspec_data['full']['specs'][0, :, 0] * 1000.,
-            'hres': magspec_data['hres']['specs'][0, :, 0] * 1000.}
+            'hres': magspec_data['hres']['specs'][0, :, 0]}
 
         avg_spec_full_pC = np.zeros((len(indexes), axis_MeV['full'].size))
         med_spec_full_pC = np.zeros((len(indexes), axis_MeV['full'].size))
@@ -261,6 +263,12 @@ class ScanData:
             avg_spec_full_pC[it, :] = np.mean(magspec_data['full']['specs'][i_group, :, 1], axis=0)
             med_spec_full_pC[it, :] = np.median(magspec_data['full']['specs'][i_group, :, 1], axis=0)
             std_spec_full_pC[it, :] = np.std(magspec_data['full']['specs'][i_group, :, 1], axis=0)
+            for spec in magspec_data['full']['specs']:
+                smoothed = savgol_filter(spec[:, 1], 20, 3)
+                opt_x, err_x, fit_x = profile_fit(spec[:, 0], spec[:, 1],
+                                                  guess_center=spec[np.argmax(smoothed), 0],
+                                                  smoothing_window=20,
+                                                  crop_sigma_radius=6.)
 
             avg_spec_hres_pC[it, :] = np.mean(magspec_data['hres']['specs'][i_group, :, 1], axis=0)
             med_spec_hres_pC[it, :] = np.median(magspec_data['hres']['specs'][i_group, :, 1], axis=0)

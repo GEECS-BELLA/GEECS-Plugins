@@ -137,7 +137,7 @@ if __name__ == "__main__":
     divider = make_axes_locatable(ax)
     cax = divider.append_axes('right', size=0.2, pad=0.1)
     plt.colorbar(im, cax=cax)
-    plt.title('mean')
+    ax.set_title('mean')
 
     plt.figure()
     ax = plt.subplot(111)
@@ -145,7 +145,7 @@ if __name__ == "__main__":
     divider = make_axes_locatable(ax)
     cax = divider.append_axes('right', size=0.2, pad=0.1)
     plt.colorbar(im, cax=cax)
-    plt.title('median')
+    ax.set_title('median')
 
     plt.figure()
     ax = plt.subplot(111)
@@ -153,7 +153,7 @@ if __name__ == "__main__":
     divider = make_axes_locatable(ax)
     cax = divider.append_axes('right', size=0.2, pad=0.1)
     plt.colorbar(im, cax=cax)
-    plt.title('st. dev.')
+    ax.set_title('st. dev.')
     plt.show(block=True)
 
     print('done')
