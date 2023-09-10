@@ -257,10 +257,11 @@ class ScanData:
         full_specs_fits = {'opt_pars': np.zeros((n_specs, 4)),
                            'err_pars': np.zeros((n_specs, 4)),
                            'fits': np.zeros((n_specs, magspec_data['full']['specs'].shape[1]))}
+        smooth_full = np.zeros((n_specs, magspec_data['full']['specs'].shape[1]))
         for it, spec in enumerate(magspec_data['full']['specs']):
-            smoothed = savgol_filter(spec[:, 1], 20, 3)
+            smooth_full[it, :] = savgol_filter(spec[:, 1], 20, 3)
             opt_pars, err_pars, fit = profile_fit(spec[:, 0] * 1000., spec[:, 1],
-                                                  guess_center=spec[np.argmax(smoothed), 0] * 1000.,
+                                                  guess_center=spec[np.argmax(smooth_full[it, :]), 0] * 1000.,
                                                   smoothing_window=20,
                                                   crop_sigma_radius=10.)
             full_specs_fits['opt_pars'][it, :] = opt_pars
@@ -272,10 +273,11 @@ class ScanData:
         hres_specs_fits = {'opt_pars': np.zeros((n_specs, 4)),
                            'err_pars': np.zeros((n_specs, 4)),
                            'fits': np.zeros((n_specs, magspec_data['hres']['specs'].shape[1]))}
+        smooth_hres = np.zeros((n_specs, magspec_data['hres']['specs'].shape[1]))
         for it, spec in enumerate(magspec_data['hres']['specs']):
-            smoothed = savgol_filter(spec[:, 1], 20, 3)
+            smooth_hres[it, :] = savgol_filter(spec[:, 1], 20, 3)
             opt_pars, err_pars, fit = profile_fit(spec[:, 0], spec[:, 1],
-                                                  guess_center=spec[np.argmax(smoothed), 0],
+                                                  guess_center=spec[np.argmax(smooth_hres[it, :]), 0],
                                                   crop_sigma_radius=10.)
             hres_specs_fits['opt_pars'][it, :] = opt_pars
             hres_specs_fits['err_pars'][it, :] = err_pars
@@ -320,9 +322,9 @@ class ScanData:
             spec_full_stats['med_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
             spec_full_stats['std_fwhm_MeV'][it] = np.std(full_specs_fits['opt_pars'][i_group, 3], axis=0)
             spec_full_stats['std_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
-            spec_full_stats['avg_peak_fit_pC'][it] = np.mean(np.max(full_specs_fits['fits'][i_group, :], axis=1))
-            spec_full_stats['med_peak_fit_pC'][it] = np.median(np.max(full_specs_fits['fits'][i_group, :], axis=1))
-            spec_full_stats['std_peak_fit_pC'][it] = np.std(np.max(full_specs_fits['fits'][i_group, :], axis=1))
+            spec_full_stats['avg_peak_fit_pC'][it] = np.mean(np.max(smooth_full[i_group, :], axis=1))
+            spec_full_stats['med_peak_fit_pC'][it] = np.median(np.max(smooth_full[i_group, :], axis=1))
+            spec_full_stats['std_peak_fit_pC'][it] = np.std(np.max(smooth_full[i_group, :], axis=1))
 
             avg_spec_hres_pC[it, :] = np.mean(magspec_data['hres']['specs'][i_group, :, 1], axis=0)
             med_spec_hres_pC[it, :] = np.median(magspec_data['hres']['specs'][i_group, :, 1], axis=0)
@@ -336,9 +338,9 @@ class ScanData:
             spec_hres_stats['med_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
             spec_hres_stats['std_fwhm_MeV'][it] = np.std(hres_specs_fits['opt_pars'][i_group, 3], axis=0)
             spec_hres_stats['std_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
-            spec_hres_stats['avg_peak_fit_pC'][it] = np.mean(np.max(hres_specs_fits['fits'][i_group, :], axis=1))
-            spec_hres_stats['med_peak_fit_pC'][it] = np.median(np.max(hres_specs_fits['fits'][i_group, :], axis=1))
-            spec_hres_stats['std_peak_fit_pC'][it] = np.std(np.max(hres_specs_fits['fits'][i_group, :], axis=1))
+            spec_hres_stats['avg_peak_fit_pC'][it] = np.mean(np.max(smooth_hres[i_group, :], axis=1))
+            spec_hres_stats['med_peak_fit_pC'][it] = np.median(np.max(smooth_hres[i_group, :], axis=1))
+            spec_hres_stats['std_peak_fit_pC'][it] = np.std(np.max(smooth_hres[i_group, :], axis=1))
 
         spec_full_pC = {'avg': avg_spec_full_pC,
                         'med': med_spec_full_pC,
