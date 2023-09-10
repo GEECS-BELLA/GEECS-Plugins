@@ -292,9 +292,15 @@ class ScanData:
                            'avg_fwhm_MeV': np.zeros((len(indexes),)),
                            'med_fwhm_MeV': np.zeros((len(indexes),)),
                            'std_fwhm_MeV': np.zeros((len(indexes),)),
+                           'avg_dE/E': np.zeros((len(indexes),)),
+                           'med_dE/E': np.zeros((len(indexes),)),
+                           'std_dE/E': np.zeros((len(indexes),)),
                            'avg_peak_fit_pC': np.zeros((len(indexes),)),
                            'med_peak_fit_pC': np.zeros((len(indexes),)),
-                           'std_peak_fit_pC': np.zeros((len(indexes),))}
+                           'std_peak_fit_pC': np.zeros((len(indexes),)),
+                           'avg_peak_fit_MeV': np.zeros((len(indexes),)),
+                           'med_peak_fit_MeV': np.zeros((len(indexes),)),
+                           'std_peak_fit_MeV': np.zeros((len(indexes),))}
 
         avg_spec_hres_pC = np.zeros((len(indexes), axis_MeV['hres'].size))
         med_spec_hres_pC = np.zeros((len(indexes), axis_MeV['hres'].size))
@@ -305,9 +311,15 @@ class ScanData:
                            'avg_fwhm_MeV': np.zeros((len(indexes),)),
                            'med_fwhm_MeV': np.zeros((len(indexes),)),
                            'std_fwhm_MeV': np.zeros((len(indexes),)),
+                           'avg_dE/E': np.zeros((len(indexes),)),
+                           'med_dE/E': np.zeros((len(indexes),)),
+                           'std_dE/E': np.zeros((len(indexes),)),
                            'avg_peak_fit_pC': np.zeros((len(indexes),)),
                            'med_peak_fit_pC': np.zeros((len(indexes),)),
-                           'std_peak_fit_pC': np.zeros((len(indexes),))}
+                           'std_peak_fit_pC': np.zeros((len(indexes),)),
+                           'avg_peak_fit_MeV': np.zeros((len(indexes),)),
+                           'med_peak_fit_MeV': np.zeros((len(indexes),)),
+                           'std_peak_fit_MeV': np.zeros((len(indexes),))}
 
         for it, i_group in enumerate(indexes):
             avg_spec_full_pC[it, :] = np.mean(magspec_data['full']['specs'][i_group, :, 1], axis=0)
@@ -322,9 +334,21 @@ class ScanData:
             spec_full_stats['med_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
             spec_full_stats['std_fwhm_MeV'][it] = np.std(full_specs_fits['opt_pars'][i_group, 3], axis=0)
             spec_full_stats['std_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
+            spec_full_stats['avg_dE/E'][it] = \
+                np.mean(full_specs_fits['opt_pars'][i_group, 2] / full_specs_fits['opt_pars'][i_group, 3], axis=0)
+            spec_full_stats['med_dE/E'][it] = \
+                np.median(full_specs_fits['opt_pars'][i_group, 2] / full_specs_fits['opt_pars'][i_group, 3], axis=0)
+            spec_full_stats['std_dE/E'][it] = \
+                np.std(full_specs_fits['opt_pars'][i_group, 2] / full_specs_fits['opt_pars'][i_group, 3], axis=0)
             spec_full_stats['avg_peak_fit_pC'][it] = np.mean(np.max(smooth_full[i_group, :], axis=1))
             spec_full_stats['med_peak_fit_pC'][it] = np.median(np.max(smooth_full[i_group, :], axis=1))
             spec_full_stats['std_peak_fit_pC'][it] = np.std(np.max(smooth_full[i_group, :], axis=1))
+            spec_full_stats['avg_peak_fit_MeV'][it] = \
+                np.mean(axis_MeV['full'][np.argmax(smooth_full[i_group, :], axis=1)])
+            spec_full_stats['med_peak_fit_MeV'][it] = \
+                np.median(axis_MeV['full'][np.argmax(smooth_full[i_group, :], axis=1)])
+            spec_full_stats['std_peak_fit_MeV'][it] = \
+                np.std(axis_MeV['full'][np.argmax(smooth_full[i_group, :], axis=1)])
 
             avg_spec_hres_pC[it, :] = np.mean(magspec_data['hres']['specs'][i_group, :, 1], axis=0)
             med_spec_hres_pC[it, :] = np.median(magspec_data['hres']['specs'][i_group, :, 1], axis=0)
@@ -338,9 +362,21 @@ class ScanData:
             spec_hres_stats['med_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
             spec_hres_stats['std_fwhm_MeV'][it] = np.std(hres_specs_fits['opt_pars'][i_group, 3], axis=0)
             spec_hres_stats['std_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
+            spec_hres_stats['avg_dE/E'][it] = \
+                np.mean(hres_specs_fits['opt_pars'][i_group, 2] / hres_specs_fits['opt_pars'][i_group, 3], axis=0)
+            spec_hres_stats['med_dE/E'][it] = \
+                np.median(hres_specs_fits['opt_pars'][i_group, 2] / hres_specs_fits['opt_pars'][i_group, 3], axis=0)
+            spec_hres_stats['std_dE/E'][it] = \
+                np.std(hres_specs_fits['opt_pars'][i_group, 2] / hres_specs_fits['opt_pars'][i_group, 3], axis=0)
             spec_hres_stats['avg_peak_fit_pC'][it] = np.mean(np.max(smooth_hres[i_group, :], axis=1))
             spec_hres_stats['med_peak_fit_pC'][it] = np.median(np.max(smooth_hres[i_group, :], axis=1))
             spec_hres_stats['std_peak_fit_pC'][it] = np.std(np.max(smooth_hres[i_group, :], axis=1))
+            spec_hres_stats['avg_peak_fit_MeV'][it] = \
+                np.mean(axis_MeV['full'][np.argmax(smooth_full[i_group, :], axis=1)])
+            spec_hres_stats['med_peak_fit_MeV'][it] = \
+                np.median(axis_MeV['full'][np.argmax(smooth_full[i_group, :], axis=1)])
+            spec_hres_stats['std_peak_fit_MeV'][it] = \
+                np.std(axis_MeV['full'][np.argmax(smooth_full[i_group, :], axis=1)])
 
         spec_full_pC = {'avg': avg_spec_full_pC,
                         'med': med_spec_full_pC,

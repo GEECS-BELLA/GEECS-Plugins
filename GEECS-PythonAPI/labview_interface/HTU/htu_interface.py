@@ -96,8 +96,10 @@ def lpa_initialization(call: list):
                 return
             else:
                 UserInterface.report(rf'Done ({scan_folder.name})')
-            magspec_data = lpa.z_scan_analysis(htu, scan_folder)
-            UserInterface.plots(call[0], [flatten_dict(d) for d in magspec_data.values()])
+            magspec_data, objective = lpa.z_scan_analysis(htu, scan_folder)
+            recommended = np.argmax(objective)
+            Handler.question(f'Proceed the recommended Z-position ({recommended:.3f} mm)?', ['Yes', 'No'])
+            # UserInterface.plots(call[0], [flatten_dict(d) for d in magspec_data.values()])
 
     except Exception as ex:
         UserInterface.report('LPA initialization failed')

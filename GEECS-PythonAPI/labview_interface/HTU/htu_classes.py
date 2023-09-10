@@ -1,3 +1,4 @@
+import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from typing import Optional, Any, Union
@@ -82,7 +83,7 @@ class LPA:
         values: Union[dict, str]
 
         while True:
-            pars = [6, 11, 0.25, 10] if rough else [z - 1, z + 1, 0.1, 10]
+            pars = [6, 11, 0.25, 20] if rough else [z - 1, z + 1, 0.1, 20]
             values = Handler.request_values(f'{"Rough" if rough else "Fine"} Z-scan parameters:',
                                             [('Start [mm]', 'float', lims[0], lims[1], pars[0]),
                                              ('End [mm]', 'float', lims[0], lims[1], pars[1]),
@@ -105,7 +106,7 @@ class LPA:
 
         return cancel, scan_folder
 
-    def z_scan_analysis(self, exp: Experiment, scan_path: Path):
+    def z_scan_analysis(self, exp: Experiment, scan_path: Path) -> tuple[dict[str, dict[str, np.ndarray]], np.ndarray]:
         if self.jet is None:
             device = 'U_ESP_JetXYZ'
             variable = 'Position.Axis 3'
@@ -117,7 +118,15 @@ class LPA:
         indexes, setpoints, matching = scan_data.bin_data(device, variable)
         magspec_data = scan_data.analyze_mag_spec(indexes)
 
-        return magspec_data
+        obj_1 = magspec_data['spec_hres_stats']['med_dE/E']
+        obj_1 = np.min(obj_1) / obj_1
+        obj_2 = magspec_data['spec_hres_stats']['med_peak_fit_pC']
+        obj_2 = obj_2 / np.max(obj_2)
+        obj_3 = magspec_data['spec_hres_stats']['med_peak_fit_MeV']
+        obj_3 = 1 - np.abs(obj_3 / 100. - 1)
+        objective = obj_1 * obj_2 * obj_3
+
+        return magspec_data, objective
 
 
 if __name__ == "__main__":
@@ -125,35 +134,36 @@ if __name__ == "__main__":
     _scan_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
 
     lpa = LPA(_htu.is_offline)
+    lpa.z_scan_analysis(_htu, _scan_path)
 
-    _scan_data = ScanData(_scan_path, ignore_experiment_name=_htu.is_offline)
-    _indexes, _setpoints, _matching = _scan_data.bin_data('U_ESP_JetXYZ', 'Position.Axis 3')
-    _magspec_data = _scan_data.analyze_mag_spec(_indexes)
-
-    spec = 'hres'
-    plt.figure()
-    ax = plt.subplot(111)
-    im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['avg'], aspect='auto', origin='upper')
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes('right', size=0.2, pad=0.1)
-    plt.colorbar(im, cax=cax)
-    ax.set_title('mean')
-
-    plt.figure()
-    ax = plt.subplot(111)
-    im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['med'], aspect='auto', origin='upper')
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes('right', size=0.2, pad=0.1)
-    plt.colorbar(im, cax=cax)
-    ax.set_title('median')
-
-    plt.figure()
-    ax = plt.subplot(111)
-    im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['std'], aspect='auto', origin='upper')
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes('right', size=0.2, pad=0.1)
-    plt.colorbar(im, cax=cax)
-    ax.set_title('st. dev.')
-    plt.show(block=True)
+    # _scan_data = ScanData(_scan_path, ignore_experiment_name=_htu.is_offline)
+    # _indexes, _setpoints, _matching = _scan_data.bin_data('U_ESP_JetXYZ', 'Position.Axis 3')
+    # _magspec_data = _scan_data.analyze_mag_spec(_indexes)
+    #
+    # spec = 'hres'
+    # plt.figure()
+    # ax = plt.subplot(111)
+    # im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['avg'], aspect='auto', origin='upper')
+    # divider = make_axes_locatable(ax)
+    # cax = divider.append_axes('right', size=0.2, pad=0.1)
+    # plt.colorbar(im, cax=cax)
+    # ax.set_title('mean')
+    #
+    # plt.figure()
+    # ax = plt.subplot(111)
+    # im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['med'], aspect='auto', origin='upper')
+    # divider = make_axes_locatable(ax)
+    # cax = divider.append_axes('right', size=0.2, pad=0.1)
+    # plt.colorbar(im, cax=cax)
+    # ax.set_title('median')
+    #
+    # plt.figure()
+    # ax = plt.subplot(111)
+    # im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['std'], aspect='auto', origin='upper')
+    # divider = make_axes_locatable(ax)
+    # cax = divider.append_axes('right', size=0.2, pad=0.1)
+    # plt.colorbar(im, cax=cax)
+    # ax.set_title('st. dev.')
+    # plt.show(block=True)
 
     print('done')
