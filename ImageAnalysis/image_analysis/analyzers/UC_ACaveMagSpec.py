@@ -19,16 +19,25 @@ if TYPE_CHECKING:
     from ..types import Array2D
 
 from ..base import ImageAnalyzer
-from .online_analysis_modules import acave_mag_spec_analysis as analyze
+from .online_analysis_modules import mag_spec_analysis as analyze
+
+
+def get_acave3_analysis_crop(camera_image: Array2D) -> Array2D:
+    y_start = 112
+    y_end = 278
+    x_start = 23
+    x_end = 1072
+    crop_image = camera_image[y_start:y_end, x_start:x_end]
+    return crop_image
 
 
 class UC_ACaveMagSpecImageAnalyzer(ImageAnalyzer):
 
     def __init__(self,
                  noise_threshold: int = 100,                            # CONFIRM IF THIS WORKS
-                 edge_pixel_crop: int = 1,
+                 edge_pixel_crop: int = 0,
                  saturation_value: int = 4095,
-                 normalization_factor: float = 7.643283839778091e-07,   # NEED TO CALCULATE
+                 normalization_factor: float = 1.0,  # 7.643283839778091e-07,   # NEED TO CALCULATE
                  transverse_calibration: int = 129.4,
                  do_transverse_calculation: bool = True,                # IS THIS ANALYSIS USEFUL HERE?
                  transverse_slice_threshold: float = 0.02,              # ^^
@@ -69,6 +78,8 @@ class UC_ACaveMagSpecImageAnalyzer(ImageAnalyzer):
         optimization_bandwidth_energy: float
             For the XOpt algorithm, the standard deviation from the central energy for the Gaussian weight function
         """
+        super().__init__()
+        self.mag_spec_name = 'acave3'
         self.noise_threshold = noise_threshold
         self.edge_pixel_crop = edge_pixel_crop
         self.saturation_value = saturation_value
@@ -83,6 +94,7 @@ class UC_ACaveMagSpecImageAnalyzer(ImageAnalyzer):
     def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None) -> tuple[
         NDArray[np.uint16], dict[str, Any], dict[str, Any]]:
         input_params = {
+            "Mag-Spec-Name": self.mag_spec_name,
             "Threshold-Value": self.noise_threshold,
             "Pixel-Crop": self.edge_pixel_crop,
             "Saturation-Value": self.saturation_value,
@@ -95,7 +107,8 @@ class UC_ACaveMagSpecImageAnalyzer(ImageAnalyzer):
             "Optimization-Bandwidth-Energy": self.optimization_bandwidth_energy
         }
         processed_image = image.astype(np.float32)
-        returned_image, mag_spec_dict, lineouts = analyze.analyze_image(processed_image, input_params)
+        cropped_image = get_acave3_analysis_crop(processed_image)
+        returned_image, mag_spec_dict, lineouts = analyze.analyze_image(cropped_image, input_params)
         unnormalized_image = returned_image / self.normalization_factor
         uint_image = unnormalized_image.astype(np.uint16)
         return uint_image, mag_spec_dict, input_params, lineouts

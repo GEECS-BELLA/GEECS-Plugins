@@ -21,7 +21,7 @@ from ..base import ImageAnalyzer
 # Either importing with the path set to GEECS-PythonAPI (as is the case for post-analysis scripts elsewhere)
 #  or importing with the path set to this location (which is the case for when run on LabView)
 
-from .online_analysis_modules import hi_res_mag_spec_analysis as analyze
+from .online_analysis_modules import mag_spec_analysis as analyze
 
 
 class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
@@ -71,6 +71,8 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
         optimization_bandwidth_energy: float
             For the XOpt algorithm, the standard deviation from the central energy for the Gaussian weight function
         """
+        super().__init__()
+        self.mag_spec_name = 'hires'
         self.noise_threshold = noise_threshold
         self.edge_pixel_crop = edge_pixel_crop
         self.saturation_value = saturation_value
@@ -85,6 +87,7 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
     def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None) -> tuple[
         NDArray[np.uint16], dict[str, Any], dict[str, Any]]:
         input_params = {
+            "Mag-Spec-Name": self.mag_spec_name,
             "Threshold-Value": self.noise_threshold,
             "Pixel-Crop": self.edge_pixel_crop,
             "Saturation-Value": self.saturation_value,
