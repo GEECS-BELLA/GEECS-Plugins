@@ -104,9 +104,11 @@ def lpa_initialization(call: list):
             results = lpa.z_scan_analysis(htu, scan_folder)
             UserInterface.clear_plots(call[0])
             Handler.send_results('z-scan', flatten_dict(results))
-            # recommended = np.argmax(objective)
-            # Handler.question(f'Proceed the recommended Z-position ({recommended:.3f} mm)?', ['Yes', 'No'])
-            # UserInterface.plots(call[0], [flatten_dict(d) for d in magspec_data.values()])
+
+            recommended = results['global obj']['best']
+            answer = Handler.question(f'Proceed the recommended Z-position ({recommended:.3f} mm)?', ['Yes', 'No'])
+            if answer == 'Yes':
+                lpa.jet.stage.set_position('Z', round(recommended, 3))
 
     except Exception as ex:
         UserInterface.report('LPA initialization failed')

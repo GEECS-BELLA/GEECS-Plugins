@@ -122,20 +122,36 @@ class LPA:
         indexes, setpoints, matching = scan_data.bin_data(device, variable)
         magspec_data = scan_data.analyze_mag_spec(indexes)
 
+        objs = {}
+        obj_1 = magspec_data['spec_hres_stats']['med_dE/E']
+        objs['dE/E obj'] = np.min(obj_1) / obj_1
+        obj_2 = magspec_data['spec_hres_stats']['med_peak_smooth_pC/MeV']
+        objs['pC/MeV obj'] = obj_2 / np.max(obj_2)
+        obj_3 = magspec_data['spec_hres_stats']['med_peak_smooth_MeV']
+        objs['100 MeV obj'] = 1 - np.abs(obj_3 / 100. - 1)**2
+        g_obj = (objs['dE/E obj'] + 2 * objs['pC/MeV obj'] + objs['100 MeV obj']) / 4.
+        g_obj_pars = np.polyfit(setpoints, g_obj, round(setpoints.size / 2))
+        g_obj_fit_x = np.linspace(setpoints[0], setpoints[-1], 1000)
+        g_obj_fit_y = np.polyval(g_obj_pars, g_obj_fit_x)
+        g_obj_x = g_obj_fit_x[np.argmax(g_obj_fit_y)]
+        objs['global obj'] = {'sources': ['med_dE/E', 'med_peak_smooth_pC/MeV', 'med_peak_smooth_MeV'],
+                              'weights': [2., 3., 1.],
+                              'values': g_obj,
+                              'fit pars': g_obj_pars,
+                              'fit x': g_obj_fit_x,
+                              'fit y': g_obj_fit_y,
+                              'best': g_obj_x
+                              }
+
         magspec_data = {
             'setpoints': setpoints,
             'indexes': indexes,
             'axis_MeV': magspec_data['axis_MeV']['hres'],
             **magspec_data['spec_hres_pC/MeV'],
-            **magspec_data['spec_hres_stats']
+            **magspec_data['spec_hres_stats'],
+            **magspec_data['spec_hres_stats'],
+            **objs
         }
-
-        # obj_1 = magspec_data['spec_hres_stats']['med_dE/E']
-        # analysis['dE/E objective'] = np.min(obj_1) / obj_1
-        # obj_2 = magspec_data['spec_hres_stats']['med_peak_fit_pC']
-        # analysis['pC/MeV objective'] = obj_2 / np.max(obj_2)
-        # obj_3 = magspec_data['spec_hres_stats']['med_peak_fit_MeV']
-        # analysis['100 MeV objective'] = 1 - np.abs(obj_3 / 100. - 1)
 
         return magspec_data
 
@@ -147,24 +163,15 @@ if __name__ == "__main__":
     lpa = LPA(_htu.is_offline)
     _analysis = lpa.z_scan_analysis(_htu, _scan_path)
 
-    for objective in ['dE/E objective', 'pC/MeV objective', '100 MeV objective']:
+    for objective in ['dE/E obj', 'pC/MeV obj', '100 MeV obj']:
         plt.figure(figsize=(6.4, 4.8))
         plt.plot(_analysis['setpoints'], _analysis[objective])
         plt.title(objective)
 
-    global_objective: np.ndarray = \
-        (2 * _analysis['dE/E objective'] +
-         3 * _analysis['pC/MeV objective'] +
-         1 * _analysis['100 MeV objective']) / 6
-
-    _fit_x = np.linspace(_analysis['setpoints'][0], _analysis['setpoints'][-1], 100)
-    _fit_pars = np.polyfit(_analysis['setpoints'], global_objective, round(global_objective.size / 2.))
-    _fit_y = np.polyval(_fit_pars, _fit_x)
-
     plt.figure(figsize=(6.4, 4.8))
-    plt.plot(_analysis['setpoints'], global_objective)
-    plt.plot(_fit_x, _fit_y)
-    plt.title('Global Objective')
+    plt.plot(_analysis['setpoints'], _analysis['global obj']['values'])
+    plt.plot(_analysis['global obj']['fit x'], _analysis['global obj']['fit y'])
+    plt.title(f'global objective {_analysis["global obj"]["best"]:.3f}')
 
     plt.show(block=True)
 
@@ -181,5 +188,6 @@ if __name__ == "__main__":
     # plt.colorbar(im, cax=cax)
     # ax.set_title('mean')
 
-    lpa.close()
+    if not _htu.is_offline:
+        lpa.close()
     print('done')
