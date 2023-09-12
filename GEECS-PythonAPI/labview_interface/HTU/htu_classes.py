@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+# from mpl_toolkits.axes_grid1 import make_axes_locatable
 from typing import Optional, Any, Union
 from pathlib import Path
 from labview_interface.lv_interface import Bridge
@@ -18,8 +18,12 @@ class UserInterface:
         Bridge.labview_call('ui', 'report', [], sync=False, message=message)
 
     @staticmethod
-    def plots(source: str, results: list):
-        Bridge.labview_call('handler', 'results', [], sync=False, source=source, results=results)
+    def add_plots(source: str, plots: list):
+        Bridge.labview_call('ui', 'add_plots', [], sync=False, source=source, plots=plots)
+
+    @staticmethod
+    def clear_plots(source: str):
+        Bridge.labview_call('ui', 'clear_plots', [], sync=False, source=source)
 
 
 class Handler:
@@ -106,7 +110,7 @@ class LPA:
 
         return cancel, scan_folder
 
-    def z_scan_analysis(self, exp: Experiment, scan_path: Path) -> tuple[dict[str, dict[str, np.ndarray]], np.ndarray, np.ndarray]:
+    def z_scan_analysis(self, exp: Experiment, scan_path: Path) -> dict[str, np.ndarray]:
         if self.jet is None:
             device = 'U_ESP_JetXYZ'
             variable = 'Position.Axis 3'
@@ -118,31 +122,50 @@ class LPA:
         indexes, setpoints, matching = scan_data.bin_data(device, variable)
         magspec_data = scan_data.analyze_mag_spec(indexes)
 
-        obj_1 = magspec_data['spec_hres_stats']['med_dE/E']
-        obj_1 = np.min(obj_1) / obj_1
-        obj_2 = magspec_data['spec_hres_stats']['med_peak_fit_pC']
-        obj_2 = obj_2 / np.max(obj_2)
-        obj_3 = magspec_data['spec_hres_stats']['med_peak_fit_MeV']
-        obj_3 = 1 - np.abs(obj_3 / 100. - 1)
-        # objective = obj_1 * obj_2 * obj_3
-        # objective = obj_1 * obj_2**2 * obj_3**2
-        objective = (obj_1 + 3 * obj_2 + 2 * obj_3) / 9
+        magspec_data = {
+            'setpoints': setpoints,
+            'indexes': indexes,
+            'axis_MeV': magspec_data['axis_MeV']['hres'],
+            **magspec_data['spec_hres_pC/MeV'],
+            **magspec_data['spec_hres_stats']
+        }
 
-        return magspec_data, setpoints, objective
+        # obj_1 = magspec_data['spec_hres_stats']['med_dE/E']
+        # analysis['dE/E objective'] = np.min(obj_1) / obj_1
+        # obj_2 = magspec_data['spec_hres_stats']['med_peak_fit_pC']
+        # analysis['pC/MeV objective'] = obj_2 / np.max(obj_2)
+        # obj_3 = magspec_data['spec_hres_stats']['med_peak_fit_MeV']
+        # analysis['100 MeV objective'] = 1 - np.abs(obj_3 / 100. - 1)
+
+        return magspec_data
 
 
 if __name__ == "__main__":
     _htu = HtuExp(get_info=True)
-    _scan_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data\Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
+    _scan_path = Path(_htu.base_path / r'Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
 
     lpa = LPA(_htu.is_offline)
-    _, _setpoints, _objective = lpa.z_scan_analysis(_htu, _scan_path)
-    _obj_fit = np.polyfit(_setpoints, _objective, 4)
-    _fit_x = np.linspace(_setpoints[0], _setpoints[-1], 100)
-    _fit_y = np.polyval(_obj_fit, _fit_x)
+    _analysis = lpa.z_scan_analysis(_htu, _scan_path)
+
+    for objective in ['dE/E objective', 'pC/MeV objective', '100 MeV objective']:
+        plt.figure(figsize=(6.4, 4.8))
+        plt.plot(_analysis['setpoints'], _analysis[objective])
+        plt.title(objective)
+
+    global_objective: np.ndarray = \
+        (2 * _analysis['dE/E objective'] +
+         3 * _analysis['pC/MeV objective'] +
+         1 * _analysis['100 MeV objective']) / 6
+
+    _fit_x = np.linspace(_analysis['setpoints'][0], _analysis['setpoints'][-1], 100)
+    _fit_pars = np.polyfit(_analysis['setpoints'], global_objective, round(global_objective.size / 2.))
+    _fit_y = np.polyval(_fit_pars, _fit_x)
+
     plt.figure(figsize=(6.4, 4.8))
-    plt.plot(_setpoints, _objective)
+    plt.plot(_analysis['setpoints'], global_objective)
     plt.plot(_fit_x, _fit_y)
+    plt.title('Global Objective')
+
     plt.show(block=True)
 
     # _scan_data = ScanData(_scan_path, ignore_experiment_name=_htu.is_offline)
@@ -152,27 +175,11 @@ if __name__ == "__main__":
     # spec = 'hres'
     # plt.figure()
     # ax = plt.subplot(111)
-    # im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['avg'], aspect='auto', origin='upper')
+    # im = ax.imshow(_magspec_data['spec_hres_pC']['avg'], aspect='auto', origin='upper')
     # divider = make_axes_locatable(ax)
     # cax = divider.append_axes('right', size=0.2, pad=0.1)
     # plt.colorbar(im, cax=cax)
     # ax.set_title('mean')
-    #
-    # plt.figure()
-    # ax = plt.subplot(111)
-    # im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['med'], aspect='auto', origin='upper')
-    # divider = make_axes_locatable(ax)
-    # cax = divider.append_axes('right', size=0.2, pad=0.1)
-    # plt.colorbar(im, cax=cax)
-    # ax.set_title('median')
-    #
-    # plt.figure()
-    # ax = plt.subplot(111)
-    # im = ax.imshow(_magspec_data[f'spec_{spec}_pC']['std'], aspect='auto', origin='upper')
-    # divider = make_axes_locatable(ax)
-    # cax = divider.append_axes('right', size=0.2, pad=0.1)
-    # plt.colorbar(im, cax=cax)
-    # ax.set_title('st. dev.')
-    # plt.show(block=True)
 
+    lpa.close()
     print('done')

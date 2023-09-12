@@ -1,11 +1,12 @@
+import time
+import numpy as np
+from typing import Optional
+from pathlib import Path
 from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.HTU.transport import Steering
 from labview_interface.lv_interface import Bridge, flatten_dict
 from labview_interface.HTU.htu_classes import UserInterface, Handler, LPA
 from labview_interface.HTU.procedures.emq_alignment import calculate_steering_currents
-from typing import Optional
-import numpy as np
-import time
 
 
 # HTU
@@ -90,15 +91,21 @@ def lpa_initialization(call: list):
             UserInterface.report(cancel_msg)
             return
         if run_scan == 'Yes':
-            cancel, scan_folder = lpa.z_scan(rough=True)
+            # cancel, scan_folder = lpa.z_scan(rough=True)
+            cancel = False
+            scan_folder = Path(htu.base_path / r'Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
             if cancel:
                 UserInterface.report(cancel_msg)
                 return
             else:
                 UserInterface.report(rf'Done ({scan_folder.name})')
-            magspec_data, objective = lpa.z_scan_analysis(htu, scan_folder)
-            recommended = np.argmax(objective)
-            Handler.question(f'Proceed the recommended Z-position ({recommended:.3f} mm)?', ['Yes', 'No'])
+
+            UserInterface.report('Running analysis...')
+            results = lpa.z_scan_analysis(htu, scan_folder)
+            UserInterface.clear_plots(call[0])
+            Handler.send_results('z-scan', flatten_dict(results))
+            # recommended = np.argmax(objective)
+            # Handler.question(f'Proceed the recommended Z-position ({recommended:.3f} mm)?', ['Yes', 'No'])
             # UserInterface.plots(call[0], [flatten_dict(d) for d in magspec_data.values()])
 
     except Exception as ex:
