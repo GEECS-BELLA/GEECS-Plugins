@@ -21,7 +21,7 @@ from .online_analysis_modules import photon_spectrometer_analyzer as analyze
 
 class UC_UndulatorExitCam(ImageAnalyzer):
     def __init__(self,
-                 noise_threshold: int = 100,
+                 noise_threshold: int = 50,
                  edge_pixel_crop: int = 0,
                  saturation_value: int = 4095,
                  calibration_image_tilt: float = 1.1253,

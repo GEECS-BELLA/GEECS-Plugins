@@ -56,15 +56,23 @@ def analyze_image(input_image, input_params, do_print=False):
 
     minimum_wavelength = input_params["Minimum-Wavelength"]
     crop_wavelength_array, crop_spectrum_array = crop_spectrum(wavelength_array, spectrum_array, minimum_wavelength)
-    peak_wavelength = get_peak_wavelength(crop_wavelength_array, crop_spectrum_array)
-    average_wavelength = get_average_wavelength(crop_wavelength_array, crop_spectrum_array)
-    wavelength_spread = get_wavelength_spread(crop_wavelength_array, crop_spectrum_array, average_wavelength=average_wavelength)
-    current_time = print_time(" Spectrum Stats", current_time, do_print=do_print)
 
-    target_wavelength = input_params["Optimization-Central-Wavelength"]
-    target_bandwidth = input_params["Optimization-Bandwidth-Wavelength"]
-    optimization_factor = calculate_optimization_factor(crop_wavelength_array, crop_spectrum_array, target_wavelength, target_bandwidth)
-    print_time(" Optimization Factor", current_time, do_print=do_print)
+    if np.sum(crop_spectrum_array) == 0:
+        peak_wavelength = 0
+        average_wavelength = 0
+        wavelength_spread = 0
+        optimization_factor = 0
+
+    else:
+        peak_wavelength = get_peak_wavelength(crop_wavelength_array, crop_spectrum_array)
+        average_wavelength = get_average_wavelength(crop_wavelength_array, crop_spectrum_array)
+        wavelength_spread = get_wavelength_spread(crop_wavelength_array, crop_spectrum_array, average_wavelength=average_wavelength)
+        current_time = print_time(" Spectrum Stats", current_time, do_print=do_print)
+
+        target_wavelength = input_params["Optimization-Central-Wavelength"]
+        target_bandwidth = input_params["Optimization-Bandwidth-Wavelength"]
+        optimization_factor = calculate_optimization_factor(crop_wavelength_array, crop_spectrum_array, target_wavelength, target_bandwidth)
+        print_time(" Optimization Factor", current_time, do_print=do_print)
 
     exit_cam_dict = {
         "Saturation-Counts": saturation_number,
