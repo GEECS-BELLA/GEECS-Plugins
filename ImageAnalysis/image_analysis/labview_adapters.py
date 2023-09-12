@@ -1,57 +1,66 @@
 import numpy as np
 
 def HiResMagSpec_LabView(image,background=None):
-    """
-    Mon 8-7-2023
+    from image_analysis.analyzers.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer
 
-    A wrapper function to call my Hi Res Mag Spec Analysis in the framework of the Labview code.
-
-    Inputs an image and outputs a list of doubles. For the "_LabView" function.
-
-    The "_Dictionary" function is the same, just the list of doubles is instead a dictionary
-
-    All constants are defined in the function.
-
-    The imports a bit ugly, but haven't had a chance to debug how paths work in the LabView implementation.  Works though.
-
-    @ Chris
-    """
-    
-    #import the analysis class for the specific camera device instance
-    # from analyzers.U_HiResMagCam.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer as U_HiResMagSpecImageAnalyzer
-    from image_analysis.analyzers.U_HiResMagCam.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer
-
-    returned_image, MagSpecDict, inputParams, lineouts = U_HiResMagSpecImageAnalyzer().analyze_image(image)
-   
-        # Define the keys for which values need to be extracted
-    keys_of_interest = [
-            "Clipped-Percentage",
-            "Saturation-Counts",
-            "Charge-On-Camera",
-            "Peak-Charge",
-            "Peak-Charge-Energy",
-            "Average-Energy",
-            "Energy-Spread",
-            "Energy-Spread-Percent",
-            "Average-Beam-Size",
-            "Projected-Beam-Size",
-            "Beam-Tilt",
-            "Beam-Intercept",
-            "Beam-Intercept-100MeV",
-            "Optimization-Factor"
-        ]
-
-    values = np.array([MagSpecDict[key] for key in keys_of_interest]).astype(np.float64)
-    
-    # result=(returned_image, values, np.zeros((2, 2), dtype=np.float64))
-    result=(returned_image, values, np.zeros((2, 2), dtype=np.float64))
-
-    
+    returned_image, mag_spec_dict, input_params, lineouts = U_HiResMagSpecImageAnalyzer().analyze_image(image)
+    result = (returned_image, MagSpecDictionaryParse(mag_spec_dict), np.zeros((2, 2), dtype=np.float64))
     return result
-    
+
+
+def ACaveMagCam3_LabView(image, background=None):
+    from image_analysis.analyzers.UC_ACaveMagSpec import UC_ACaveMagSpecImageAnalyzer
+
+    returned_image, mag_spec_dict, input_params, lineouts = UC_ACaveMagSpecImageAnalyzer().analyze_image(image)
+    result = (returned_image, MagSpecDictionaryParse(mag_spec_dict), np.zeros((2, 2), dtype=np.float64))
+    return result
+
+
+def MagSpecDictionaryParse(mag_spec_dict):
+    keys_of_interest = [
+        "Clipped-Percentage",
+        "Saturation-Counts",
+        "Charge-On-Camera",
+        "Peak-Charge",
+        "Peak-Charge-Energy",
+        "Average-Energy",
+        "Energy-Spread",
+        "Energy-Spread-Percent",
+        "Average-Beam-Size",
+        "Projected-Beam-Size",
+        "Beam-Tilt",
+        "Beam-Intercept",
+        "Beam-Intercept-100MeV",
+        "Optimization-Factor"
+    ]
+    values = np.array([mag_spec_dict[key] for key in keys_of_interest]).astype(np.float64)
+    return values
+
+
+def UndulatorExitCam_LabView(image, background=None):
+    from image_analysis.analyzers.UC_UndulatorExitCam import UC_UndulatorExitCam
+    returned_image, mag_spec_dict, input_params, lineouts = UC_UndulatorExitCam().analyze_image(image)
+
+    # Define the keys for which values need to be extracted
+    keys_of_interest = [
+        "Saturation-Counts",
+        "Photon-Counts",
+        "Peak-Wavelength",
+        "Average-Wavelength",
+        "Wavelength-Spread",
+        "Optimization-Factor"
+    ]
+    values = np.array([mag_spec_dict[key] for key in keys_of_interest]).astype(np.float64)
+    return_lineouts = lineouts.astype(np.float64)
+    result = (returned_image, values, return_lineouts)
+
+    return result
+
 # Dictionary to map device types to their respective analysis functions
 DEVICE_FUNCTIONS = {
     "UC_TestCam": HiResMagSpec_LabView,
+    "UC_ACaveMagCam3": ACaveMagCam3_LabView,
+    "UC_UndulatorExitCam": UndulatorExitCam_LabView,
     # Add more device types as needed...
 }
  
