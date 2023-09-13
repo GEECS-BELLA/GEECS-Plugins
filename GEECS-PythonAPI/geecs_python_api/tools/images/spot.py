@@ -10,7 +10,7 @@ from geecs_python_api.controls.interface import api_error
 from geecs_python_api.tools.distributions.fit_utility import fit_distribution, gaussian_fit
 
 from image_analysis.tools.filtering import basic_filter
-from image_analysis.tools.spot import n_sigma_window, fwhm
+from image_analysis.tools.spot import n_sigma_window, fwhm, fwhm_to_std
 
 
 def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
@@ -90,7 +90,7 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
         guess_fwhm_pix = guess_fwhm_pix[1] - guess_fwhm_pix[0]
         guess_fwhm = np.polyfit(np.arange(x_data.size, dtype=float), x_data, 1)[0] * guess_fwhm_pix
 
-    guess_std = guess_fwhm / (2 * math.sqrt(2 * math.log(2.)))
+    guess_std = fwhm_to_std(guess_fwhm)
 
     if guess_amplitude is None:
         guess_amplitude = np.max(y_data) - np.min(y_data)

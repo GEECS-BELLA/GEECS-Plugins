@@ -6,6 +6,7 @@ from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.HTU.transport import Steering
 from labview_interface.lv_interface import Bridge, flatten_dict
 from labview_interface.HTU.htu_classes import UserInterface, Handler, LPA
+from geecs_python_api.controls.devices.HTU.gas_jet import GasJet
 from labview_interface.HTU.procedures.emq_alignment import calculate_steering_currents
 
 
@@ -27,8 +28,14 @@ def htu_consumer(call: str = ''):
                                                           ('path', 'str', None, None, 'abcdef')])
         print(f'Answer: {answer}')
 
-    elif call[0].lower() == 'emq_alignment':
+    elif call[0].lower() == 'set':
         emq_alignment(call)
+
+    elif call[0].lower() == 'emq_alignment':
+        if call[1] == 'z':
+            jet = GasJet()
+            jet.stage.set_position(call[1], call[2])
+            jet.close()
 
     elif call[0].lower() == 'lpa_initialization':
         lpa_initialization(call)

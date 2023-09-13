@@ -39,16 +39,16 @@ class ScanAnalysis:
                 blind_loads: bool = False, store_images: bool = True, store_scalars: bool = True,
                 save_plots: bool = False, save: bool = False) -> Optional[Path]:
         analyses: list[dict[str, Any]] = []
-
         scan_scalars: dict[str, Any] = self.scan_data.data_dict
+
+        # scan parameters & binning
+        indexes, setpoints, matching = self.scan_data.bin_data(self.device_name, variable)
+
         if not store_scalars:
             if hasattr(self.scan_data, 'data_dict'):
                 del self.scan_data.data_dict
             if hasattr(self.scan_data, 'data_frame'):
                 del self.scan_data.data_frame
-
-        # scan parameters & binning
-        indexes, setpoints, matching = self.scan_data.bin_data(self.device_name, variable)
 
         # list images for each step
         def build_file_name(shot: int):

@@ -121,27 +121,8 @@ class LPA:
         scan_data = ScanData(scan_path, ignore_experiment_name=exp.is_offline)
         indexes, setpoints, matching = scan_data.bin_data(device, variable)
         magspec_data = scan_data.analyze_mag_spec(indexes)
-
-        objs = {}
-        obj_1 = magspec_data['spec_hres_stats']['med_dE/E']
-        objs['dE/E obj'] = np.min(obj_1) / obj_1
-        obj_2 = magspec_data['spec_hres_stats']['med_peak_smooth_pC/MeV']
-        objs['pC/MeV obj'] = obj_2 / np.max(obj_2)
-        obj_3 = magspec_data['spec_hres_stats']['med_peak_smooth_MeV']
-        objs['100 MeV obj'] = 1 - np.abs(obj_3 / 100. - 1)**2
-        g_obj = (objs['dE/E obj'] + 2 * objs['pC/MeV obj'] + objs['100 MeV obj']) / 4.
-        g_obj_pars = np.polyfit(setpoints, g_obj, round(setpoints.size / 2))
-        g_obj_fit_x = np.linspace(setpoints[0], setpoints[-1], 1000)
-        g_obj_fit_y = np.polyval(g_obj_pars, g_obj_fit_x)
-        g_obj_x = g_obj_fit_x[np.argmax(g_obj_fit_y)]
-        objs['global obj'] = {'sources': ['med_dE/E', 'med_peak_smooth_pC/MeV', 'med_peak_smooth_MeV'],
-                              'weights': [2., 3., 1.],
-                              'values': g_obj,
-                              'fit pars': g_obj_pars,
-                              'fit x': g_obj_fit_x,
-                              'fit y': g_obj_fit_y,
-                              'best': g_obj_x
-                              }
+        objs = self.objective_analysis(setpoints, magspec_data,
+                                       dE_weight=1., pC_weight=2., MeV_weight=1.)
 
         magspec_data = {
             'setpoints': setpoints,
@@ -154,6 +135,35 @@ class LPA:
         }
 
         return magspec_data
+
+    @staticmethod
+    def objective_analysis(setpoints: np.ndarray, magspec_data: dict[str, dict[str, np.ndarray]],
+                           dE_weight: float = 1., pC_weight: float = 2., MeV_weight: float = 1.) -> dict[str, Any]:
+        objs = {}
+        obj_1 = magspec_data['spec_hres_stats']['med_dE/E']
+        objs['dE/E obj'] = np.min(obj_1) / obj_1
+        obj_2 = magspec_data['spec_hres_stats']['med_peak_smooth_pC/MeV']
+        objs['pC/MeV obj'] = obj_2 / np.max(obj_2)
+        obj_3 = magspec_data['spec_hres_stats']['med_peak_smooth_MeV']
+        objs['100 MeV obj'] = 1 - np.abs(obj_3 / 100. - 1)**2
+        g_obj = (dE_weight * objs['dE/E obj'] +
+                 pC_weight * objs['pC/MeV obj'] +
+                 MeV_weight * objs['100 MeV obj']) / (dE_weight + pC_weight + MeV_weight)
+        g_obj_pars = np.polyfit(setpoints, g_obj, round(setpoints.size / 2))
+        g_obj_fit_x = np.linspace(setpoints[0], setpoints[-1], 1000)
+        g_obj_fit_y = np.polyval(g_obj_pars, g_obj_fit_x)
+        g_obj_x = g_obj_fit_x[np.argmax(g_obj_fit_y)]
+        objs['global obj'] = {'src_raw': ['med_dE/E', 'med_peak_smooth_pC/MeV', 'med_peak_smooth_MeV'],
+                              'src_norm': ['dE/E obj', 'pC/MeV obj', '100 MeV obj'],
+                              'weights': [2., 3., 1.],
+                              'setpoints': setpoints,
+                              'values': g_obj,
+                              'fit pars': g_obj_pars,
+                              'fit x': g_obj_fit_x,
+                              'fit y': g_obj_fit_y,
+                              'best': g_obj_x
+                              }
+        return objs
 
 
 if __name__ == "__main__":
