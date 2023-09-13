@@ -1,7 +1,6 @@
 """ @author: Guillaume Plateau, TAU Systems """
 
 import os
-import math
 import numpy as np
 from typing import Optional, Any
 import scipy.ndimage as simg
@@ -10,7 +9,15 @@ from geecs_python_api.controls.interface import api_error
 from geecs_python_api.tools.distributions.fit_utility import fit_distribution, gaussian_fit
 
 from image_analysis.tools.filtering import basic_filter
-from image_analysis.tools.spot import n_sigma_window, fwhm, fwhm_to_std
+from image_analysis.tools.spot import n_sigma_window
+
+
+def fwhm_to_std(width):
+    return width / (2 * np.sqrt(2 * np.log(2)))
+
+
+def std_to_fwhm(sd):
+    return sd * 2 * np.sqrt(2 * np.log(2))
 
 
 def spot_analysis(image: np.ndarray, positions: list[tuple[int, int, str]],
@@ -86,7 +93,7 @@ def profile_fit(x_data: np.ndarray, y_data: np.ndarray,
         guess_center = np.interp(guess_center_pix, np.arange(x_data.size, dtype=float), x_data)
 
     if guess_fwhm is None:
-        guess_fwhm_pix = n_sigma_window(smoothed, fwhm(0.5))
+        guess_fwhm_pix = n_sigma_window(smoothed, std_to_fwhm(0.5))
         guess_fwhm_pix = guess_fwhm_pix[1] - guess_fwhm_pix[0]
         guess_fwhm = np.polyfit(np.arange(x_data.size, dtype=float), x_data, 1)[0] * guess_fwhm_pix
 
@@ -148,13 +155,13 @@ if __name__ == "__main__":
 
     # img, _ = avg_tiff(img_dir=f_path, min_imgs=1)
     # x_opt, y_opt, x_fit, y_fit = spot_analysis(img)
-    # x_lim = [round((x_opt[2] - 2*fwhm(x_opt[3])) / 10) * 10, round((x_opt[2] + 2*fwhm(x_opt[3])) / 10) * 10]
-    # y_lim = [round((y_opt[2] - 2*fwhm(y_opt[3])) / 10) * 10, round((y_opt[2] + 2*fwhm(y_opt[3])) / 10) * 10]
+    # x_lim = [round((x_opt[2] - 2*std_to_fwhm(x_opt[3])) / 10) * 10, round((x_opt[2] + 2*std_to_fwhm(x_opt[3])) / 10) * 10]
+    # y_lim = [round((y_opt[2] - 2*std_to_fwhm(y_opt[3])) / 10) * 10, round((y_opt[2] + 2*std_to_fwhm(y_opt[3])) / 10) * 10]
     #
     # fig = plt.figure()
     # fig.add_subplot(121)
     # plt.plot(x_fit[0], x_fit[1], 'b-', label='data')
-    # plt.plot(x_fit[0], x_fit[2], 'r-', label='fit (FWHM = %.1f)' % fwhm(x_opt[3]))
+    # plt.plot(x_fit[0], x_fit[2], 'r-', label='fit (FWHM = %.1f)' % std_to_fwhm(x_opt[3]))
     # plt.gca().set_xlim(x_lim)
     # plt.xlabel('X-axis')
     # plt.ylabel('Amplitude')
@@ -162,7 +169,7 @@ if __name__ == "__main__":
     #
     # fig.add_subplot(122)
     # plt.plot(y_fit[0], y_fit[1], 'b-', label='data')
-    # plt.plot(y_fit[0], y_fit[2], 'r-', label='fit (FWHM = %.1f)' % fwhm(y_opt[3]))
+    # plt.plot(y_fit[0], y_fit[2], 'r-', label='fit (FWHM = %.1f)' % std_to_fwhm(y_opt[3]))
     # plt.gca().set_xlim(y_lim)
     # plt.xlabel('Y-axis')
     # plt.ylabel('Amplitude')

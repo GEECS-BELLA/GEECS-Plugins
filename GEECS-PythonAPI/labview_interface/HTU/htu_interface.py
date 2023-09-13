@@ -1,7 +1,7 @@
 import time
 import numpy as np
 from typing import Optional
-from pathlib import Path
+# from pathlib import Path
 from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.HTU.transport import Steering
 from labview_interface.lv_interface import Bridge, flatten_dict
@@ -83,7 +83,6 @@ def emq_alignment(call: list):
 
 
 def lpa_initialization(call: list):
-    cancel_msg = 'LPA initialization canceled'
     lpa: Optional[LPA] = None
 
     try:
@@ -92,30 +91,34 @@ def lpa_initialization(call: list):
 
         lpa = LPA(htu.is_offline)
 
-        # initial z-scan
-        run_scan = Handler.question('Next scan: rough Z-scan. Proceed?', ['Yes', 'Skip', 'Cancel'])
-        if run_scan == 'Cancel':
-            UserInterface.report(cancel_msg)
-            return
-        if run_scan == 'Yes':
-            # cancel, scan_folder = lpa.z_scan(rough=True)
-            cancel = False
-            scan_folder = Path(htu.base_path / r'Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
-            if cancel:
-                UserInterface.report(cancel_msg)
-                return
-            else:
-                UserInterface.report(rf'Done ({scan_folder.name})')
+        # rough Z-scan
+        # --------------------------------------------------
+        rough = True
+        pos = round(lpa.jet.stage.get_position('Z'), 2)
+        var_alias = lpa.jet.stage.get_axis_var_alias(2)
+        min_max_step_steps = (6, 11, 0.25, 20) if rough else (pos - 1, pos + 1, 0.1, 20)
+        if lpa.jet is None:
+            device = 'U_ESP_JetXYZ'
+            variable = 'Position.Axis 3'
+        else:
+            device = lpa.jet.stage.get_name()
+            variable = lpa.jet.stage.get_axis_var_name(2)
 
-            UserInterface.report('Running analysis...')
-            results = lpa.z_scan_analysis(htu, scan_folder)
-            UserInterface.clear_plots(call[0])
-            Handler.send_results('z-scan', flatten_dict(results))
+        lpa.manage_scan(var_alias, min_max_step_steps, 'mm', 3, 'Z', rough, call[0], device, variable, htu)
 
-            recommended = results['global obj']['best']
-            answer = Handler.question(f'Proceed the recommended Z-position ({recommended:.3f} mm)?', ['Yes', 'No'])
-            if answer == 'Yes':
-                lpa.jet.stage.set_position('Z', round(recommended, 3))
+        # X-scan
+        # --------------------------------------------------
+        rough = False
+        var_alias = lpa.jet.stage.get_axis_var_alias(0)
+        min_max_step_steps = (5, 8, 0.4, 20) if rough else (5.5, 7.5, 0.1, 20)
+        if lpa.jet is None:
+            device = 'U_ESP_JetXYZ'
+            variable = 'Position.Axis 1'
+        else:
+            device = lpa.jet.stage.get_name()
+            variable = lpa.jet.stage.get_axis_var_name(2)
+
+        lpa.manage_scan(var_alias, min_max_step_steps, 'mm', 3, 'X', rough, call[0], device, variable, htu)
 
     except Exception as ex:
         UserInterface.report('LPA initialization failed')
