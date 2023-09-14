@@ -16,11 +16,10 @@ class HttExp(Experiment):
         # Singleton
         if self.__initialized:
             return
-        self.__initialized = True
 
         super().__init__('Thomson', get_info)
-
         self.pressure: Optional[GeecsDevice] = None
+        self.__initialized = True
 
     def connect(self, pressure: bool = True):
         # Devices

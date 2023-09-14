@@ -10,20 +10,21 @@ class LaserDump(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(LaserDump, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
+
         super().__init__('U_PLC')
 
         self.var_spans = {VarAlias('OAP -Chamber-Beam-Dump'): (None, None)}
         self.build_var_dicts()
         self.var_dump: str = self.var_names_by_index.get(0)[0]
 
-        # self.register_cmd_executed_handler()
-        # self.register_var_listener_handler()
+        self.__initialized = True
 
     def state_dump(self) -> Optional[bool]:
         return self._state_value(self.var_dump)

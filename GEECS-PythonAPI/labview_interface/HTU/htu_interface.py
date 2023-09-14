@@ -1,6 +1,6 @@
 import time
 import numpy as np
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 # from pathlib import Path
 from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.HTU.transport import Steering
@@ -8,6 +8,11 @@ from labview_interface.lv_interface import Bridge, flatten_dict
 from labview_interface.HTU.htu_classes import UserInterface, Handler, LPA
 from geecs_python_api.controls.devices.HTU.gas_jet import GasJet
 from labview_interface.HTU.procedures.emq_alignment import calculate_steering_currents
+
+from image_analysis.analyzers.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer
+
+if TYPE_CHECKING:
+    from image_analysis.types import Array2D
 
 
 # HTU
@@ -29,13 +34,17 @@ def htu_consumer(call: str = ''):
         print(f'Answer: {answer}')
 
     elif call[0].lower() == 'set':
-        emq_alignment(call)
+        if call[1] == 'z':
+            UserInterface.report('Connecting to gas jet...')
+            jet = GasJet()
+            time.sleep(1.)
+            UserInterface.report(f'Setting {call[1]} = {call[2]:.3f} mm')
+            jet.stage.set_position(call[1], call[2])
+            UserInterface.report('Disconnecting...')
+            jet.close()
 
     elif call[0].lower() == 'emq_alignment':
-        if call[1] == 'z':
-            jet = GasJet()
-            jet.stage.set_position(call[1], call[2])
-            jet.close()
+        emq_alignment(call)
 
     elif call[0].lower() == 'lpa_initialization':
         lpa_initialization(call)
@@ -93,32 +102,38 @@ def lpa_initialization(call: list):
 
         # rough Z-scan
         # --------------------------------------------------
-        rough = True
-        pos = round(lpa.jet.stage.get_position('Z'), 2)
-        var_alias = lpa.jet.stage.get_axis_var_alias(2)
-        min_max_step_steps = (6, 11, 0.25, 20) if rough else (pos - 1, pos + 1, 0.1, 20)
-        if lpa.jet is None:
+        if htu.is_offline:
+            pos = 8.5
             device = 'U_ESP_JetXYZ'
-            variable = 'Position.Axis 3'
+            var_name = 'Position.Axis 3'
         else:
-            device = lpa.jet.stage.get_name()
-            variable = lpa.jet.stage.get_axis_var_name(2)
+            pos = round(lpa.jet.stage.get_position('Z'), 2)
+            # device = lpa.jet.stage
+            device = 'U_ESP_JetXYZ'
+            var_name = lpa.jet.stage.get_axis_var_name(2)
 
-        lpa.manage_scan(var_alias, min_max_step_steps, 'mm', 3, 'Z', rough, call[0], device, variable, htu)
+        rough = True
+        min_max_step_steps = (6, 11, 0.25, 20) if rough else (pos - 1, pos + 1, 0.1, 20)
+
+        lpa.manage_scan(htu, device, var_name, min_max_step_steps,
+                        units='mm', precision=3, label='Z', rough=rough, call=call[0],
+                        dE_weight=6., pC_weight=3., MeV_weight=1.)
 
         # X-scan
         # --------------------------------------------------
-        rough = False
-        var_alias = lpa.jet.stage.get_axis_var_alias(0)
-        min_max_step_steps = (5, 8, 0.4, 20) if rough else (5.5, 7.5, 0.1, 20)
-        if lpa.jet is None:
-            device = 'U_ESP_JetXYZ'
-            variable = 'Position.Axis 1'
-        else:
-            device = lpa.jet.stage.get_name()
-            variable = lpa.jet.stage.get_axis_var_name(2)
-
-        lpa.manage_scan(var_alias, min_max_step_steps, 'mm', 3, 'X', rough, call[0], device, variable, htu)
+        # rough = False
+        # var_name = lpa.jet.stage.get_axis_var_name(0)
+        # min_max_step_steps = (5, 8, 0.4, 20) if rough else (5.5, 7.5, 0.1, 20)
+        # if lpa.jet is None:
+        #     device = 'U_ESP_JetXYZ'
+        #     variable = 'Position.Axis 1'
+        # else:
+        #     device = lpa.jet.stage.get_name()
+        #     variable = lpa.jet.stage.get_axis_var_name(2)
+        #
+        # lpa.manage_scan(htu, device, var_name, min_max_step_steps,
+        #                 units='mm', precision=3, label='X', rough=rough, call=call[0],
+        #                 dE_weight=6., pC_weight=3., MeV_weight=1.)
 
     except Exception as ex:
         UserInterface.report('LPA initialization failed')
@@ -130,15 +145,20 @@ def lpa_initialization(call: list):
 
 
 if __name__ == "__main__":
-    # set bridge handling (before connecting)
-    Bridge.set_handler(htu_consumer)
-    Bridge.set_app_id('HTU_APP')
+    spec_analyzer = U_HiResMagSpecImageAnalyzer(normalization_factor=1.)
+    # noinspection PyTypeChecker
+    magspec_analysis = spec_analyzer.analyze_image(1000 * np.random.random((20, 200)))
 
-    # connect
-    Bridge.connect(2., debug=True, mode='local')
-    while Bridge.is_connected():
-        time.sleep(1.)
-
-    # close
-    htu.close()
-    Bridge.disconnect()
+    print('done')
+    # # set bridge handling (before connecting)
+    # Bridge.set_handler(htu_consumer)
+    # Bridge.set_app_id('HTU_APP')
+    #
+    # # connect
+    # Bridge.connect(2., debug=True, mode='local')
+    # while Bridge.is_connected():
+    #     time.sleep(1.)
+    #
+    # # close
+    # htu.close()
+    # Bridge.disconnect()

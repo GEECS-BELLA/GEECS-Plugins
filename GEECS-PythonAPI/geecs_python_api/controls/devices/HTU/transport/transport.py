@@ -10,12 +10,14 @@ class Transport(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(Transport, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self, subscribe: bool = True):
         if self.__initialized:
             return
-        self.__initialized = True
+
         super().__init__('transport', virtual=True)
 
         self.pmq = PMQ()
@@ -34,6 +36,18 @@ class Transport(GeecsDevice):
             self.steer_3.subscribe_var_values()
             self.steer_4.subscribe_var_values()
             self.quads.subscribe_var_values()
+
+        self.__initialized = True
+
+    def init_resources(self):
+        if self.__initialized:
+            self.pmq.init_resources()
+            self.chicane.init_resources()
+            self.steer_1.init_resources()
+            self.steer_2.init_resources()
+            self.steer_3.init_resources()
+            self.steer_4.init_resources()
+            self.quads.init_resources()
 
     def close(self):
         self.pmq.close()

@@ -11,12 +11,14 @@ class PumpShutters(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(PumpShutters, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
+
         super().__init__('U_1Wire_148')
 
         self.var_spans = {VarAlias('Gaia Stop North Position'): (None, None),
@@ -28,6 +30,8 @@ class PumpShutters(GeecsDevice):
                           VarAlias('Gaia Beamblock 3-South Position'): (None, None),
                           VarAlias('Gaia Beamblock 4-South Position'): (None, None)}
         self.build_var_dicts()
+
+        self.__initialized = True
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         if val_string.lower() == 'inserted':

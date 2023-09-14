@@ -16,7 +16,6 @@ class HtuExp(Experiment):
         # Singleton
         if self.__initialized:
             return
-        self.__initialized = True
 
         super().__init__('Undulator', get_info)
 
@@ -24,6 +23,8 @@ class HtuExp(Experiment):
         self.jet: Optional[GasJet] = None
         self.diagnostics: Optional[Diagnostics] = None
         self.transport: Optional[Transport] = None
+
+        self.__initialized = True
 
     def connect(self, laser: bool = True, jet: bool = True, diagnostics: bool = True, transport: bool = True):
         # Devices

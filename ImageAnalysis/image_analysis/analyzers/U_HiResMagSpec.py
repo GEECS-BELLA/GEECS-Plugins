@@ -84,8 +84,8 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
         self.optimization_central_energy = optimization_central_energy
         self.optimization_bandwidth_energy = optimization_bandwidth_energy
 
-    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None) -> tuple[
-        NDArray[np.uint16], dict[str, Any], dict[str, Any]]:
+    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None) \
+            -> tuple[NDArray[np.uint16], dict[str, Any], dict[str, Any]]:
         input_params = {
             "Mag-Spec-Name": self.mag_spec_name,
             "Threshold-Value": self.noise_threshold,

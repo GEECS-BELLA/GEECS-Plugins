@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 from typing import Optional, Any, Union
 from pathlib import Path
 from labview_interface.lv_interface import Bridge, flatten_dict
-from geecs_python_api.controls.api_defs import VarAlias
 from geecs_python_api.controls.experiment.experiment import Experiment
 from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.HTU.gas_jet import GasJet
 from geecs_python_api.controls.devices.HTU.laser import Laser
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 # from geecs_python_api.controls.devices.HTU.transport import Steering
 from geecs_python_api.analysis.images.scans.scan_data import ScanData
 
@@ -81,9 +81,9 @@ class LPA:
         UserInterface.report('Disconnecting from laser elements...')
         self.laser.close()
 
-    @staticmethod
-    def manage_scan(var_alias: VarAlias, min_max_step_steps: tuple, units: str, precision: int, label: str,
-                    rough: bool, call: str, device: str, variable: str, exp: Experiment):
+    def manage_scan(self, exp: Experiment, device: Union[GeecsDevice, str], var_name: str,
+                    min_max_step_steps: tuple, units: str, precision: int, label: str, rough: bool, call: str,
+                    dE_weight: float = 1., pC_weight: float = 1., MeV_weight: float = 1.):
         cancel_msg = 'LPA initialization canceled'
         run_scan = Handler.question(f'Next scan: rough {label}-scan. Proceed?', ['Yes', 'Skip', 'Cancel'])
 
@@ -92,9 +92,11 @@ class LPA:
             return
 
         if run_scan == 'Yes':
-            cancel, scan_folder = lpa.dev_scan(var_alias, min_max_step_steps, units, label, rough)
-            # cancel = False
-            # scan_folder = Path(htu.base_path / r'Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
+            if isinstance(device, GeecsDevice):
+                cancel, scan_folder = self.dev_scan(device, var_name, min_max_step_steps, units, label, rough)
+            else:
+                cancel = False
+                scan_folder = Path(exp.base_path / r'Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
             if cancel:
                 UserInterface.report(cancel_msg)
                 return
@@ -102,7 +104,9 @@ class LPA:
                 UserInterface.report(rf'Done ({scan_folder.name})')
 
             UserInterface.report('Running analysis...')
-            results = lpa.dev_scan_analysis(device, variable, exp, scan_folder)
+            dev_name = device.get_name() if isinstance(device, GeecsDevice) else device
+            results = self.dev_scan_analysis(dev_name, var_name, exp, scan_folder, dE_weight, pC_weight, MeV_weight)
+            results['global obj']['precision'] = np.array([precision])
             UserInterface.clear_plots(call)
             Handler.send_results(f'{label.lower()}-scan', flatten_dict(results))
 
@@ -110,11 +114,16 @@ class LPA:
             answer = Handler.question(f'Proceed the recommended {label}-position ({recommended:.{precision}f} mm)?',
                                       ['Yes', 'No'])
             if answer == 'Yes':
-                lpa.jet.stage.set_position('Z', round(recommended, 3))
+                self.jet.stage.set_position('Z', round(recommended, 3))
 
-    def dev_scan(self, var_alias: VarAlias, min_max_step_steps: tuple,
+    @staticmethod
+    def dev_scan(device: GeecsDevice, var_name: str, min_max_step_steps: tuple,
                  units: str, label: str, rough: bool) -> tuple[bool, Optional[Path]]:
-        lims = self.jet.stage.var_spans[var_alias]
+        var_alias = device.find_alias_by_var(var_name)
+        if var_alias in device.var_spans:
+            lims = device.var_spans[var_alias]
+        else:
+            lims = (None, None)
         values: Union[dict, str]
 
         while True:
@@ -129,9 +138,9 @@ class LPA:
                 break
 
             UserInterface.report(f'Starting {"rough" if rough else "fine"} {label}-scan...')
-            scan_folder, _, _, _ = self.jet.stage.scan(var_alias, values[f'Start [{units}]'], values[f'End [{units}]'],
-                                                       values[f'Steps [{units}]'], lims, values['Shots/Step'],
-                                                       comment=f'{"rough" if rough else "fine"} Z-scan')
+            scan_folder, _, _, _ = device.scan(var_alias, values[f'Start [{units}]'], values[f'End [{units}]'],
+                                               values[f'Steps [{units}]'], lims, values['Shots/Step'],
+                                               comment=f'{"rough" if rough else "fine"} Z-scan')
 
             repeat = Handler.question(f'Do you want to repeat this {label}-scan?', ['Yes', 'No', 'Cancel'])
             cancel = (repeat == 'Cancel')
@@ -140,12 +149,13 @@ class LPA:
 
         return cancel, scan_folder
 
-    def dev_scan_analysis(self, device: str, variable: str, exp: Experiment, scan_path: Path) -> dict[str, np.ndarray]:
+    def dev_scan_analysis(self, device: str, variable: str, exp: Experiment, scan_path: Path,
+                          dE_weight: float = 1., pC_weight: float = 1., MeV_weight: float = 1.)\
+            -> dict[str, np.ndarray]:
         scan_data = ScanData(scan_path, ignore_experiment_name=exp.is_offline)
         indexes, setpoints, matching = scan_data.bin_data(device, variable)
         magspec_data = scan_data.analyze_mag_spec(indexes)
-        objs = self.objective_analysis(setpoints, magspec_data,
-                                       dE_weight=6., pC_weight=3., MeV_weight=1.)
+        objs = self.objective_analysis(setpoints, magspec_data, dE_weight, pC_weight, MeV_weight)
 
         magspec_data = {
             'setpoints': setpoints,
@@ -200,34 +210,9 @@ class LPA:
 
         return cancel, scan_folder
 
-    def jet_scan_analysis(self, axis: int, exp: Experiment, scan_path: Path) -> dict[str, np.ndarray]:
-        if self.jet is None:
-            device = 'U_ESP_JetXYZ'
-            variable = f'Position.Axis {axis + 1}'
-        else:
-            device = self.jet.stage.get_name()
-            variable = self.jet.stage.get_axis_var_name(axis)
-
-        scan_data = ScanData(scan_path, ignore_experiment_name=exp.is_offline)
-        indexes, setpoints, matching = scan_data.bin_data(device, variable)
-        magspec_data = scan_data.analyze_mag_spec(indexes)
-        objs = self.objective_analysis(setpoints, magspec_data, dE_weight=6., pC_weight=3., MeV_weight=1.)
-
-        magspec_data = {
-            'setpoints': setpoints,
-            'indexes': indexes,
-            'axis_MeV': magspec_data['axis_MeV']['hres'],
-            **magspec_data['spec_hres_pC/MeV'],
-            **magspec_data['spec_hres_stats'],
-            **magspec_data['spec_hres_stats'],
-            **objs
-        }
-
-        return magspec_data
-
     @staticmethod
     def objective_analysis(setpoints: np.ndarray, magspec_data: dict[str, dict[str, np.ndarray]],
-                           dE_weight: float = 1., pC_weight: float = 2., MeV_weight: float = 1.) -> dict[str, Any]:
+                           dE_weight: float = 1., pC_weight: float = 1., MeV_weight: float = 1.) -> dict[str, Any]:
         def norm(dist: np.ndarray, inv: bool = False) -> np.ndarray:
             dist -= np.min(dist)
             dist /= np.max(dist)
@@ -254,7 +239,7 @@ class LPA:
         g_obj_x = g_obj_fit_x[np.argmax(g_obj_fit_y)]
         objs['global obj'] = {'src_raw': ['med_dE/E', 'med_peak_smooth_pC/MeV', 'med_peak_smooth_MeV'],
                               'src_norm': ['dE/E obj', 'pC/MeV obj', '100 MeV obj'],
-                              'weights': [2., 3., 1.],
+                              'weights': [dE_weight, pC_weight, MeV_weight],
                               'setpoints': setpoints,
                               'values': g_obj,
                               'fit pars': g_obj_pars,

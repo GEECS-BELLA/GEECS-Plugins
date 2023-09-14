@@ -11,12 +11,13 @@ class Quads(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(Quads, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
 
         super().__init__('U_EMQTripletBipolar')
 
@@ -45,8 +46,7 @@ class Quads(GeecsDevice):
 
         self.aliases_enable = [self.var_aliases_by_name[self.vars_enable[i]][0] for i in range(3)]
 
-        # self.register_cmd_executed_handler()
-        # self.register_var_listener_handler()
+        self.__initialized = True
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         if var_alias in self.aliases_enable:  # status

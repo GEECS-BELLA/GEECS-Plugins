@@ -12,12 +12,14 @@ class Pump(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(Pump, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
+
         super().__init__('U_1HzShiftedBox')
 
         self.var_spans = {VarAlias('gaia lamp timing'): (500., 750.)}  # us
@@ -25,6 +27,8 @@ class Pump(GeecsDevice):
         self.var_timing: str = self.var_names_by_index.get(0)[0]
 
         self.shutters = PumpShutters()
+
+        self.__initialized = True
 
     def close(self):
         self.shutters.close()

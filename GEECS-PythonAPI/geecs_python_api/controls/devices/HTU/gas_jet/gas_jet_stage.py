@@ -15,12 +15,13 @@ class GasJetStage(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(GasJetStage, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
 
         super().__init__(GasJetStage.name)
 
@@ -29,8 +30,7 @@ class GasJetStage(GeecsDevice):
                           VarAlias('Jet_Z (mm)'): (0., 25.)}
         self.build_var_dicts()
 
-        # self.register_cmd_executed_handler()
-        # self.register_var_listener_handler()
+        self.__initialized = True
 
     def get_axis_var_name(self, axis: int) -> str:
         if axis < 0 or axis > 2:
@@ -111,7 +111,8 @@ class GasJetStage(GeecsDevice):
 
         if not out_of_bound:
             var_alias = self.get_axis_var_alias(axis)
-            return self.scan(var_alias, start_value, end_value, step_size, None, shots_per_step, use_alias, timeout)
+            return self.scan(var_alias, start_value, end_value, step_size, None, shots_per_step,
+                             'jet scan', use_alias, timeout)
         else:
             return None
 
