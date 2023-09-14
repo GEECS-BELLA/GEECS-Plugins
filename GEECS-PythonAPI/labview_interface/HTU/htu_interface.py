@@ -1,18 +1,12 @@
 import time
 import numpy as np
-from typing import TYPE_CHECKING, Optional
-# from pathlib import Path
+from typing import Optional
 from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.HTU.transport import Steering
 from labview_interface.lv_interface import Bridge, flatten_dict
 from labview_interface.HTU.htu_classes import UserInterface, Handler, LPA
 from geecs_python_api.controls.devices.HTU.gas_jet import GasJet
 from labview_interface.HTU.procedures.emq_alignment import calculate_steering_currents
-
-from image_analysis.analyzers.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer
-
-if TYPE_CHECKING:
-    from image_analysis.types import Array2D
 
 
 # HTU
@@ -145,20 +139,15 @@ def lpa_initialization(call: list):
 
 
 if __name__ == "__main__":
-    spec_analyzer = U_HiResMagSpecImageAnalyzer(normalization_factor=1.)
-    # noinspection PyTypeChecker
-    magspec_analysis = spec_analyzer.analyze_image(1000 * np.random.random((20, 200)))
+    # set bridge handling (before connecting)
+    Bridge.set_handler(htu_consumer)
+    Bridge.set_app_id('HTU_APP')
 
-    print('done')
-    # # set bridge handling (before connecting)
-    # Bridge.set_handler(htu_consumer)
-    # Bridge.set_app_id('HTU_APP')
-    #
-    # # connect
-    # Bridge.connect(2., debug=True, mode='local')
-    # while Bridge.is_connected():
-    #     time.sleep(1.)
-    #
-    # # close
-    # htu.close()
-    # Bridge.disconnect()
+    # connect
+    Bridge.connect(2., debug=True, mode='local')
+    while Bridge.is_connected():
+        time.sleep(1.)
+
+    # close
+    htu.close()
+    Bridge.disconnect()

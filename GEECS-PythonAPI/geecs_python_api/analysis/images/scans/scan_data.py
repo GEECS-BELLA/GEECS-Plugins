@@ -13,9 +13,11 @@ from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.tools.images.batches import list_files
 from geecs_python_api.controls.interface import api_error
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+import geecs_python_api.tools.images.ni_vision as ni
 from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
 from geecs_python_api.tools.images.spot import profile_fit
 from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
+from image_analysis.analyzers.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer
 
 
 class ScanData:
@@ -224,154 +226,186 @@ class ScanData:
 
     def load_mag_spec_data(self) -> dict[str, Any]:
         magspec_dict = {'full': {}, 'hres': {}}
-        magspec_dict['full']['paths'] = list_files(self.__folder / 'U_BCaveMagSpec-interpSpec', -1, '.txt')
-        magspec_dict['hres']['paths'] = list_files(self.__folder / 'U_HiResMagCam-interpSpec', -1, '.txt')
 
-        for key in ['full', 'hres']:
-            specs = []
-            shots = []
-            for path in magspec_dict[key]['paths']:
-                try:
+        magspec_dict['hres']['txt_files'] = False
+        path_hres_source: Path
+
+        if (self.__folder / 'U_HiResMagCam').exists():
+            path_hres_source = self.__folder / 'U_HiResMagCam'
+        elif (self.__folder / 'UC_TestCam').exists():
+            path_hres_source = self.__folder / 'UC_TestCam'
+        elif (self.__folder / 'U_HiResMagCam-interpSpec').exists():
+            path_hres_source = self.__folder / 'U_HiResMagCam-interpSpec'
+            magspec_dict['hres']['txt_files'] = True
+        else:
+            return {}
+
+        magspec_dict['hres']['paths'] = list_files(path_hres_source, -1,
+                                                   '.txt' if magspec_dict['hres']['txt_files'] else '.png')
+        shots = []
+        specs = []
+
+        for path in magspec_dict['hres']['paths']:
+            try:
+                shots.append(int(path.name[-7:-4]))
+                if magspec_dict['hres']['txt_files']:
                     specs.append(np.loadtxt(path, skiprows=1))
-                    shots.append(int(path.name[-7:-4]))
-                except Exception:
-                    continue
+            except Exception:
+                continue
 
-            magspec_dict[key]['specs'] = np.array(specs)
-            magspec_dict[key]['shots'] = np.array(shots)
+        magspec_dict['hres']['specs'] = np.array(specs)  # empty for now if loading raw images
+        magspec_dict['hres']['shots'] = np.array(shots)
 
         return magspec_dict
 
     def analyze_mag_spec(self, indexes: list[np.ndarray]) -> dict[str, dict[str, np.ndarray]]:
         # load raw data
         magspec_data = self.load_mag_spec_data()
-        if not magspec_data['full']['specs'].size > 0:
-            return {}
 
-        axis_MeV: dict[str, np.ndarray] = {
-            'full': magspec_data['full']['specs'][0, :, 0] * 1000.,
-            'hres': magspec_data['hres']['specs'][0, :, 0]}
+        hres_stats = {'avg_MeV': np.zeros((len(indexes),)),
+                      'med_MeV': np.zeros((len(indexes),)),
+                      'std_MeV': np.zeros((len(indexes),)),
+                      'avg_fwhm_MeV': np.zeros((len(indexes),)),
+                      'med_fwhm_MeV': np.zeros((len(indexes),)),
+                      'std_fwhm_MeV': np.zeros((len(indexes),)),
+                      'avg_dE/E': np.zeros((len(indexes),)),
+                      'med_dE/E': np.zeros((len(indexes),)),
+                      'std_dE/E': np.zeros((len(indexes),)),
+                      'avg_peak_smooth_pC/MeV': np.zeros((len(indexes),)),
+                      'med_peak_smooth_pC/MeV': np.zeros((len(indexes),)),
+                      'std_peak_smooth_pC/MeV': np.zeros((len(indexes),)),
+                      'avg_peak_smooth_MeV': np.zeros((len(indexes),)),
+                      'med_peak_smooth_MeV': np.zeros((len(indexes),)),
+                      'std_peak_smooth_MeV': np.zeros((len(indexes),))}
 
-        # fit all full-spectra
-        n_specs = magspec_data['full']['specs'].shape[0]
-        full_specs_fits = {'opt_pars': np.zeros((n_specs, 4)),
-                           'err_pars': np.zeros((n_specs, 4)),
-                           'fits': np.zeros((n_specs, magspec_data['full']['specs'].shape[1]))}
-        smooth_full = np.zeros((n_specs, magspec_data['full']['specs'].shape[1]))
-        for it, spec in enumerate(magspec_data['full']['specs']):
-            smooth_full[it, :] = savgol_filter(spec[:, 1], 20, 3)
-            opt_pars, err_pars, fit = profile_fit(spec[:, 0] * 1000., spec[:, 1],
-                                                  guess_center=spec[np.argmax(smooth_full[it, :]), 0] * 1000.,
-                                                  smoothing_window=20,
-                                                  crop_sigma_radius=10.)
-            full_specs_fits['opt_pars'][it, :] = opt_pars
-            full_specs_fits['err_pars'][it, :] = err_pars
-            full_specs_fits['fits'][it, :] = fit
+        # text files or images?
+        if magspec_data['hres']['txt_files']:
+            if not magspec_data['full']['specs'].size > 0:
+                return {}
 
-        # fit all high-resolution spectra
-        n_specs = magspec_data['hres']['specs'].shape[0]
-        hres_specs_fits = {'opt_pars': np.zeros((n_specs, 4)),
-                           'err_pars': np.zeros((n_specs, 4)),
-                           'fits': np.zeros((n_specs, magspec_data['hres']['specs'].shape[1]))}
-        smooth_hres = np.zeros((n_specs, magspec_data['hres']['specs'].shape[1]))
-        for it, spec in enumerate(magspec_data['hres']['specs']):
-            smooth_hres[it, :] = savgol_filter(spec[:, 1], 20, 3)
-            opt_pars, err_pars, fit = profile_fit(spec[:, 0], spec[:, 1],
-                                                  guess_center=spec[np.argmax(smooth_hres[it, :]), 0],
-                                                  crop_sigma_radius=10.)
-            hres_specs_fits['opt_pars'][it, :] = opt_pars
-            hres_specs_fits['err_pars'][it, :] = err_pars
-            hres_specs_fits['fits'][it, :] = fit
+            axis_MeV: np.ndarray = magspec_data['hres']['specs'][0, :, 0]
 
-        avg_spec_full_pC = np.zeros((len(indexes), axis_MeV['full'].size))
-        med_spec_full_pC = np.zeros((len(indexes), axis_MeV['full'].size))
-        std_spec_full_pC = np.zeros((len(indexes), axis_MeV['full'].size))
-        spec_full_stats = {'avg_MeV': np.zeros((len(indexes),)),
-                           'med_MeV': np.zeros((len(indexes),)),
-                           'std_MeV': np.zeros((len(indexes),)),
-                           'avg_fwhm_MeV': np.zeros((len(indexes),)),
-                           'med_fwhm_MeV': np.zeros((len(indexes),)),
-                           'std_fwhm_MeV': np.zeros((len(indexes),)),
-                           'avg_dE/E': np.zeros((len(indexes),)),
-                           'med_dE/E': np.zeros((len(indexes),)),
-                           'std_dE/E': np.zeros((len(indexes),)),
-                           'avg_peak_smooth_pC/MeV': np.zeros((len(indexes),)),
-                           'med_peak_smooth_pC/MeV': np.zeros((len(indexes),)),
-                           'std_peak_smooth_pC/MeV': np.zeros((len(indexes),)),
-                           'avg_peak_smooth_MeV': np.zeros((len(indexes),)),
-                           'med_peak_smooth_MeV': np.zeros((len(indexes),)),
-                           'std_peak_smooth_MeV': np.zeros((len(indexes),))}
+            # fit all full-spectra
+            if magspec_data['full']:
+                n_specs = magspec_data['full']['specs'].shape[0]
+                full_specs_fits = {'opt_pars': np.zeros((n_specs, 4)),
+                                   'err_pars': np.zeros((n_specs, 4)),
+                                   'fits': np.zeros((n_specs, magspec_data['full']['specs'].shape[1]))}
+                smooth_full = np.zeros((n_specs, magspec_data['full']['specs'].shape[1]))
+                for it, spec in enumerate(magspec_data['full']['specs']):
+                    smooth_full[it, :] = savgol_filter(spec[:, 1], 20, 3)
+                    opt_pars, err_pars, fit = profile_fit(spec[:, 0] * 1000., spec[:, 1],
+                                                          guess_center=spec[np.argmax(smooth_full[it, :]), 0] * 1000.,
+                                                          smoothing_window=20,
+                                                          crop_sigma_radius=10.)
+                    full_specs_fits['opt_pars'][it, :] = opt_pars
+                    full_specs_fits['err_pars'][it, :] = err_pars
+                    full_specs_fits['fits'][it, :] = fit
 
-        avg_spec_hres_pC = np.zeros((len(indexes), axis_MeV['hres'].size))
-        med_spec_hres_pC = np.zeros((len(indexes), axis_MeV['hres'].size))
-        std_spec_hres_pC = np.zeros((len(indexes), axis_MeV['hres'].size))
-        spec_hres_stats = {'avg_MeV': np.zeros((len(indexes),)),
-                           'med_MeV': np.zeros((len(indexes),)),
-                           'std_MeV': np.zeros((len(indexes),)),
-                           'avg_fwhm_MeV': np.zeros((len(indexes),)),
-                           'med_fwhm_MeV': np.zeros((len(indexes),)),
-                           'std_fwhm_MeV': np.zeros((len(indexes),)),
-                           'avg_dE/E': np.zeros((len(indexes),)),
-                           'med_dE/E': np.zeros((len(indexes),)),
-                           'std_dE/E': np.zeros((len(indexes),)),
-                           'avg_peak_smooth_pC/MeV': np.zeros((len(indexes),)),
-                           'med_peak_smooth_pC/MeV': np.zeros((len(indexes),)),
-                           'std_peak_smooth_pC/MeV': np.zeros((len(indexes),)),
-                           'avg_peak_smooth_MeV': np.zeros((len(indexes),)),
-                           'med_peak_smooth_MeV': np.zeros((len(indexes),)),
-                           'std_peak_smooth_MeV': np.zeros((len(indexes),))}
+            # fit all high-resolution spectra
+            n_specs = magspec_data['hres']['specs'].shape[0]
+            hres_specs_fits = {'opt_pars': np.zeros((n_specs, 4)),
+                               'err_pars': np.zeros((n_specs, 4)),
+                               'fits': np.zeros((n_specs, magspec_data['hres']['specs'].shape[1]))}
+            smooth_hres = np.zeros((n_specs, magspec_data['hres']['specs'].shape[1]))
+            for it, spec in enumerate(magspec_data['hres']['specs']):
+                smooth_hres[it, :] = savgol_filter(spec[:, 1], 20, 3)
+                opt_pars, err_pars, fit = profile_fit(spec[:, 0], spec[:, 1],
+                                                      guess_center=spec[np.argmax(smooth_hres[it, :]), 0],
+                                                      crop_sigma_radius=10.)
+                hres_specs_fits['opt_pars'][it, :] = opt_pars
+                hres_specs_fits['err_pars'][it, :] = err_pars
+                hres_specs_fits['fits'][it, :] = fit
 
-        for avg_spec, med_spec, std_spec, stats, lbl, fits, smooth in \
-                [(avg_spec_full_pC, med_spec_full_pC, std_spec_full_pC, spec_full_stats,
-                  'full', full_specs_fits, smooth_full),
-                 (avg_spec_hres_pC, med_spec_hres_pC, std_spec_hres_pC, spec_hres_stats,
-                  'hres', hres_specs_fits, smooth_hres)]:
+            avg_hres_pC = np.zeros((len(indexes), axis_MeV.size))
+            med_hres_pC = np.zeros((len(indexes), axis_MeV.size))
+            std_hres_pC = np.zeros((len(indexes), axis_MeV.size))
+
             for it, i_group in enumerate(indexes):
-                avg_spec[it, :] = np.mean(magspec_data[lbl]['specs'][i_group, :, 1], axis=0)
-                med_spec[it, :] = np.median(magspec_data[lbl]['specs'][i_group, :, 1], axis=0)
-                std_spec[it, :] = np.std(magspec_data[lbl]['specs'][i_group, :, 1], axis=0)
-                stats['avg_MeV'][it] = np.mean(fits['opt_pars'][i_group, 2], axis=0)
-                stats['med_MeV'][it] = np.median(fits['opt_pars'][i_group, 2], axis=0)
-                stats['std_MeV'][it] = np.std(fits['opt_pars'][i_group, 2], axis=0)
-                stats['avg_fwhm_MeV'][it] = np.mean(fits['opt_pars'][i_group, 3], axis=0)
-                stats['avg_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
-                stats['med_fwhm_MeV'][it] = np.median(fits['opt_pars'][i_group, 3], axis=0)
-                stats['med_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
-                stats['std_fwhm_MeV'][it] = np.std(fits['opt_pars'][i_group, 3], axis=0)
-                stats['std_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
-                stats['avg_dE/E'][it] = \
-                    np.mean(100 * fits['opt_pars'][i_group, 3] / fits['opt_pars'][i_group, 2], axis=0)
-                stats['med_dE/E'][it] = \
-                    np.median(100 * fits['opt_pars'][i_group, 3] / fits['opt_pars'][i_group, 2], axis=0)
-                stats['std_dE/E'][it] = \
-                    np.std(100 * fits['opt_pars'][i_group, 3] / fits['opt_pars'][i_group, 2], axis=0)
-                stats['avg_peak_smooth_pC/MeV'][it] = np.mean(np.max(smooth[i_group, :], axis=1))
-                stats['med_peak_smooth_pC/MeV'][it] = np.median(np.max(smooth[i_group, :], axis=1))
-                stats['std_peak_smooth_pC/MeV'][it] = np.std(np.max(smooth[i_group, :], axis=1))
-                stats['avg_peak_smooth_MeV'][it] = \
-                    np.mean(axis_MeV['full'][np.argmax(smooth[i_group, :], axis=1)])
-                stats['med_peak_smooth_MeV'][it] = \
-                    np.median(axis_MeV['full'][np.argmax(smooth[i_group, :], axis=1)])
-                stats['std_peak_smooth_MeV'][it] = \
-                    np.std(axis_MeV['full'][np.argmax(smooth[i_group, :], axis=1)])
+                avg_hres_pC[it, :] = np.mean(magspec_data['hres']['specs'][i_group, :, 1], axis=0)
+                med_hres_pC[it, :] = np.median(magspec_data['hres']['specs'][i_group, :, 1], axis=0)
+                std_hres_pC[it, :] = np.std(magspec_data['hres']['specs'][i_group, :, 1], axis=0)
+                hres_stats['avg_MeV'][it] = np.mean(hres_specs_fits['opt_pars'][i_group, 2], axis=0)
+                hres_stats['med_MeV'][it] = np.median(hres_specs_fits['opt_pars'][i_group, 2], axis=0)
+                hres_stats['std_MeV'][it] = np.std(hres_specs_fits['opt_pars'][i_group, 2], axis=0)
+                hres_stats['avg_fwhm_MeV'][it] = np.mean(hres_specs_fits['opt_pars'][i_group, 3], axis=0)
+                hres_stats['avg_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
+                hres_stats['med_fwhm_MeV'][it] = np.median(hres_specs_fits['opt_pars'][i_group, 3], axis=0)
+                hres_stats['med_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
+                hres_stats['std_fwhm_MeV'][it] = np.std(hres_specs_fits['opt_pars'][i_group, 3], axis=0)
+                hres_stats['std_fwhm_MeV'][it] *= 2 * np.sqrt(2 * np.log(2))
+                hres_stats['avg_dE/E'][it] = np.mean(100 * hres_specs_fits['opt_pars'][i_group, 3]
+                                                     / hres_specs_fits['opt_pars'][i_group, 2], axis=0)
+                hres_stats['med_dE/E'][it] = np.median(100 * hres_specs_fits['opt_pars'][i_group, 3]
+                                                       / hres_specs_fits['opt_pars'][i_group, 2], axis=0)
+                hres_stats['std_dE/E'][it] = np.std(100 * hres_specs_fits['opt_pars'][i_group, 3]
+                                                    / hres_specs_fits['opt_pars'][i_group, 2], axis=0)
+                hres_stats['avg_peak_smooth_pC/MeV'][it] = np.mean(np.max(smooth_hres[i_group, :], axis=1))
+                hres_stats['med_peak_smooth_pC/MeV'][it] = np.median(np.max(smooth_hres[i_group, :], axis=1))
+                hres_stats['std_peak_smooth_pC/MeV'][it] = np.std(np.max(smooth_hres[i_group, :], axis=1))
+                hres_stats['avg_peak_smooth_MeV'][it] = np.mean(axis_MeV[np.argmax(smooth_hres[i_group, :], axis=1)])
+                hres_stats['med_peak_smooth_MeV'][it] = np.median(axis_MeV[np.argmax(smooth_hres[i_group, :], axis=1)])
+                hres_stats['std_peak_smooth_MeV'][it] = np.std(axis_MeV[np.argmax(smooth_hres[i_group, :], axis=1)])
 
-        spec_full_pC = {'avg': avg_spec_full_pC,
-                        'med': med_spec_full_pC,
-                        'std': std_spec_full_pC}
-        spec_hres_pC = {'avg': avg_spec_hres_pC,
-                        'med': med_spec_hres_pC,
-                        'std': std_spec_hres_pC}
+        else:
+            spec_analyzer = U_HiResMagSpecImageAnalyzer()
+
+            # noinspection PyTypeChecker
+            analysis = spec_analyzer.analyze_image(ni.read_imaq_image(magspec_data['hres']['paths'][0]))
+            axis_MeV: np.ndarray = analysis[3][0, :]
+            # stats_keys = list(analysis[1].keys())
+
+            avg_hres_pC = np.zeros((len(indexes), axis_MeV.size))
+            med_hres_pC = np.zeros((len(indexes), axis_MeV.size))
+            std_hres_pC = np.zeros((len(indexes), axis_MeV.size))
+
+            for it, i_group in enumerate(indexes):
+                specs = []
+                stats = []
+                for path in np.array(magspec_data['hres']['paths'])[i_group]:
+                    try:
+                        # noinspection PyTypeChecker
+                        analysis = spec_analyzer.analyze_image(ni.read_imaq_image(path))
+                        specs.append(analysis[3])
+                        stats.append(list(analysis[1].values()))
+                    except Exception:
+                        continue
+
+                avg_hres_pC[it, :] = np.mean(np.array(specs)[:, 1, :], axis=0)
+                med_hres_pC[it, :] = np.median(np.array(specs)[:, 1, :], axis=0)
+                std_hres_pC[it, :] = np.std(np.array(specs)[:, 1, :], axis=0)
+
+                avg_stats = np.mean(stats, axis=0)
+                med_stats = np.mean(stats, axis=0)
+                std_stats = np.std(stats, axis=0)
+                hres_stats['avg_MeV'][it] = avg_stats[5]
+                hres_stats['med_MeV'][it] = med_stats[5]
+                hres_stats['std_MeV'][it] = std_stats[5]
+                hres_stats['avg_fwhm_MeV'][it] = avg_stats[6] * 2 * np.sqrt(2 * np.log(2))
+                hres_stats['med_fwhm_MeV'][it] = med_stats[5] * 2 * np.sqrt(2 * np.log(2))
+                hres_stats['std_fwhm_MeV'][it] = std_stats[5] * 2 * np.sqrt(2 * np.log(2))
+                hres_stats['avg_dE/E'][it] = avg_stats[7] * 100
+                hres_stats['med_dE/E'][it] = med_stats[7] * 100
+                hres_stats['std_dE/E'][it] = std_stats[7] * 100
+                hres_stats['avg_peak_smooth_pC/MeV'][it] = avg_stats[3]
+                hres_stats['med_peak_smooth_pC/MeV'][it] = med_stats[3]
+                hres_stats['std_peak_smooth_pC/MeV'][it] = std_stats[3]
+                hres_stats['avg_peak_smooth_MeV'][it] = avg_stats[4]
+                hres_stats['med_peak_smooth_MeV'][it] = med_stats[4]
+                hres_stats['std_peak_smooth_MeV'][it] = med_stats[4]
+
+        spec_hres_pC = {'avg': avg_hres_pC,
+                        'med': med_hres_pC,
+                        'std': std_hres_pC}
 
         return {'axis_MeV': axis_MeV,
-                'spec_full_pC/MeV': spec_full_pC,
                 'spec_hres_pC/MeV': spec_hres_pC,
-                'spec_full_stats': spec_full_stats,
-                'spec_hres_stats': spec_hres_stats}
+                'spec_hres_stats': hres_stats}
 
 
 if __name__ == '__main__':
     _htu = HtuExp(get_info=True)
-    _base_tag = ScanTag(2023, 7, 6, 4)
+    _base_tag = ScanTag(2023, 8, 9, 4)
 
     _folder = ScanData.build_folder_path(_base_tag, _htu.base_path)
     _scan_data = ScanData(_folder, ignore_experiment_name=_htu.is_offline)
