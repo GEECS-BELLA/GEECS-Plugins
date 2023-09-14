@@ -58,7 +58,7 @@ def UndulatorExitCam_LabView(image, background=None):
 
 # Dictionary to map device types to their respective analysis functions
 DEVICE_FUNCTIONS = {
-    "UC_TestCam": HiResMagSpec_LabView,
+    "UC_HiResMagCam": HiResMagSpec_LabView,
     "UC_ACaveMagCam3": ACaveMagCam3_LabView,
     "UC_UndulatorExitCam": UndulatorExitCam_LabView,
     # Add more device types as needed...
