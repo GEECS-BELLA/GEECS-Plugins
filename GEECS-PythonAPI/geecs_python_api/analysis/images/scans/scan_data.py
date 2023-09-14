@@ -382,8 +382,8 @@ class ScanData:
                 hres_stats['med_MeV'][it] = med_stats[5]
                 hres_stats['std_MeV'][it] = std_stats[5]
                 hres_stats['avg_fwhm_MeV'][it] = avg_stats[6] * 2 * np.sqrt(2 * np.log(2))
-                hres_stats['med_fwhm_MeV'][it] = med_stats[5] * 2 * np.sqrt(2 * np.log(2))
-                hres_stats['std_fwhm_MeV'][it] = std_stats[5] * 2 * np.sqrt(2 * np.log(2))
+                hres_stats['med_fwhm_MeV'][it] = med_stats[6] * 2 * np.sqrt(2 * np.log(2))
+                hres_stats['std_fwhm_MeV'][it] = std_stats[6] * 2 * np.sqrt(2 * np.log(2))
                 hres_stats['avg_dE/E'][it] = avg_stats[7] * 100
                 hres_stats['med_dE/E'][it] = med_stats[7] * 100
                 hres_stats['std_dE/E'][it] = std_stats[7] * 100
