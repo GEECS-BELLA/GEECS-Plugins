@@ -6,7 +6,7 @@ Class definition for mag spec analysis
 from __future__ import annotations
 
 from array import array
-from typing import Optional, Any, TYPE_CHECKING
+from typing import Optional, Any, TYPE_CHECKING, Union
 import numpy as np
 
 if TYPE_CHECKING:
@@ -84,23 +84,34 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
         self.optimization_central_energy = optimization_central_energy
         self.optimization_bandwidth_energy = optimization_bandwidth_energy
 
-    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None) -> tuple[
-        NDArray[np.uint16], dict[str, Any], dict[str, Any]]:
-        input_params = {
-            "Mag-Spec-Name": self.mag_spec_name,
-            "Threshold-Value": self.noise_threshold,
-            "Pixel-Crop": self.edge_pixel_crop,
-            "Saturation-Value": self.saturation_value,
-            "Normalization-Factor": self.normalization_factor,
-            "Transverse-Calibration": self.transverse_calibration,
-            "Do-Transverse-Calculation": self.do_transverse_calculation,
-            "Transverse-Slice-Threshold": self.transverse_slice_threshold,
-            "Transverse-Slice-Binsize": self.transverse_slice_binsize,
-            "Optimization-Central-Energy": self.optimization_central_energy,
-            "Optimization-Bandwidth-Energy": self.optimization_bandwidth_energy
-        }
+    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None,
+                      ) -> dict[str, Union[float, np.ndarray]]:
+        input_params = self.build_input_parameter_dictionary()
         processed_image = image.astype(np.float32)
         returned_image, mag_spec_dict, lineouts = analyze.analyze_image(processed_image, input_params)
         unnormalized_image = returned_image / self.normalization_factor
         uint_image = unnormalized_image.astype(np.uint16)
-        return uint_image, mag_spec_dict, input_params, lineouts
+
+        return_dictionary = {
+            "processed_image_uint16": uint_image,
+            "analyzer_return_dictionary": mag_spec_dict,
+            "analyzer_return_lineouts": lineouts,
+            "analyzer_input_parameters": input_params
+        }
+        return return_dictionary
+
+    def build_input_parameter_dictionary(self) -> dict:
+        input_params = {
+            "magspec_name_str": self.mag_spec_name,
+            "noise_threshold_int": self.noise_threshold,
+            "edge_crop_pixels": self.edge_pixel_crop,
+            "saturation_value_int": self.saturation_value,
+            "charge_normalization_factor_pC/count": self.normalization_factor,
+            "transverse_calibration_factor_um/pixel": self.transverse_calibration,
+            "optimization_central_energy_MeV": self.optimization_central_energy,
+            "optimization_bandwidth_energy_MeV": self.optimization_bandwidth_energy,
+            "do_transverse_calibration_bool": self.do_transverse_calculation,
+            "transverse_slice_threshold_factor": self.transverse_slice_threshold,
+            "transverse_slice_bin_size_pixels": self.transverse_slice_binsize,
+        }
+        return input_params
