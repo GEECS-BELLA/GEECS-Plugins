@@ -352,7 +352,7 @@ class ScanData:
 
             # noinspection PyTypeChecker
             analysis = spec_analyzer.analyze_image(ni.read_imaq_image(magspec_data['hres']['paths'][0]))
-            axis_MeV: np.ndarray = analysis[3][0, :]
+            axis_MeV = np.array(analysis[3][0, :])
             # stats_keys = list(analysis[1].keys())
 
             avg_hres_pC = np.zeros((len(indexes), axis_MeV.size))
