@@ -155,17 +155,19 @@ class LPA:
         scan_data = ScanData(scan_path, ignore_experiment_name=exp.is_offline)
         indexes, setpoints, matching = scan_data.bin_data(device, variable)
         magspec_data = scan_data.analyze_mag_spec(indexes)
-        objs = self.objective_analysis(setpoints, magspec_data, dE_weight, pC_weight, MeV_weight)
+        if magspec_data:
+            objs = self.objective_analysis(setpoints, magspec_data, dE_weight, pC_weight, MeV_weight)
 
-        magspec_data = {
-            'setpoints': setpoints,
-            'indexes': indexes,
-            # 'axis_MeV': np.array(list(magspec_data['axis_MeV'])),
-            'axis_MeV': magspec_data['axis_MeV'],
-            **magspec_data['spec_hres_pC/MeV'],
-            **magspec_data['spec_hres_stats'],
-            **objs
-        }
+            magspec_data = {
+                'setpoints': setpoints,
+                'indexes': indexes,
+                'axis_MeV': magspec_data['axis_MeV'],
+                **magspec_data['spec_hres_pC/MeV'],
+                **magspec_data['spec_hres_stats'],
+                **objs }
+
+        else:
+            magspec_data = { 'setpoints': setpoints, 'indexes': indexes }
 
         return magspec_data
 
@@ -214,6 +216,8 @@ class LPA:
     def objective_analysis(setpoints: np.ndarray, magspec_data: dict[str, dict[str, np.ndarray]],
                            dE_weight: float = 1., pC_weight: float = 1., MeV_weight: float = 1.) -> dict[str, Any]:
         def norm(dist: np.ndarray, inv: bool = False) -> np.ndarray:
+            if inv:
+                dist[np.where(dist == 0)[0]] = np.max(dist)
             dist -= np.min(dist)
             dist /= np.max(dist)
             if inv:
@@ -221,32 +225,60 @@ class LPA:
             return dist
 
         objs = {}
-        obj_1 = magspec_data['spec_hres_stats']['med_dE/E']
-        objs['dE/E obj'] = norm(obj_1, inv=True)
+        obj_fit_x = np.linspace(setpoints[0], setpoints[-1], 1000)
+        src_raw = [''] * 3
 
-        obj_2 = magspec_data['spec_hres_stats']['med_peak_smooth_pC/MeV']
-        objs['pC/MeV obj'] = norm(obj_2)
+        # dE/E (use statistical value if available)
+        if all(magspec_data['spec_hres_stats']['med_weighted_dE/E'] == 0):
+            src_raw[0] = 'med_fit_dE/E'
+        else:
+            src_raw[0] = 'med_weighted_dE/E'
 
-        obj_3 = magspec_data['spec_hres_stats']['med_peak_smooth_MeV']
-        objs['100 MeV obj'] = norm(np.abs(obj_3 - 100), inv=True)
+        obj_1 = magspec_data['spec_hres_stats'][src_raw[0]]
+        obj_1 = norm(obj_1, inv=True)
+        obj_fit_1 = np.polyval(np.polyfit(setpoints, obj_1, round(setpoints.size / 2)), obj_fit_x)
+        objs['dE/E obj'] = {'data': np.stack([setpoints, obj_1]),
+                            'fit': np.stack([obj_fit_x, obj_fit_1])}
 
-        g_obj = (dE_weight * objs['dE/E obj'] +
-                 pC_weight * objs['pC/MeV obj'] +
-                 MeV_weight * objs['100 MeV obj']) / (dE_weight + pC_weight + MeV_weight)
+        # pC/MeV (use statistical value if available)
+        if all(magspec_data['spec_hres_stats']['med_peak_charge_pC/MeV'] == 0):
+            src_raw[1] = 'med_peak_smooth_pC/MeV'
+        else:
+            src_raw[1] = 'med_peak_charge_pC/MeV'
+
+        obj_2 = magspec_data['spec_hres_stats'][src_raw[1]]
+        obj_2 = norm(obj_2)
+        obj_fit_2 = np.polyval(np.polyfit(setpoints, obj_2, round(setpoints.size / 2)), obj_fit_x)
+        objs['pC/MeV obj'] = {'data': np.stack([setpoints, obj_2]),
+                              'fit': np.stack([obj_fit_x, obj_fit_2])}
+
+        # MeV (use statistical value if available)
+        if all(magspec_data['spec_hres_stats']['med_peak_charge_MeV'] == 0):
+            src_raw[2] = 'med_peak_smooth_MeV'
+        else:
+            src_raw[2] = 'med_peak_charge_MeV'
+
+        obj_3 = magspec_data['spec_hres_stats'][src_raw[2]]
+        obj_3 = norm(np.abs(obj_3 - 100), inv=True)
+        obj_fit_3 = np.polyval(np.polyfit(setpoints, obj_3, round(setpoints.size / 2)), obj_fit_x)
+        objs['100 MeV obj'] = {'data': np.stack([setpoints, obj_3]),
+                               'fit': np.stack([obj_fit_x, obj_fit_3])}
+
+        # Global objective
+        g_obj = (dE_weight * objs['dE/E obj']['data'][1, :] +
+                 pC_weight * objs['pC/MeV obj']['data'][1, :] +
+                 MeV_weight * objs['100 MeV obj']['data'][1, :]) / (dE_weight + pC_weight + MeV_weight)
 
         g_obj_pars = np.polyfit(setpoints, g_obj, round(setpoints.size / 2))
-        g_obj_fit_x = np.linspace(setpoints[0], setpoints[-1], 1000)
-        g_obj_fit_y = np.polyval(g_obj_pars, g_obj_fit_x)
-        g_obj_x = g_obj_fit_x[np.argmax(g_obj_fit_y)]
+        g_obj_fit = np.polyval(g_obj_pars, obj_fit_x)
+        g_obj_x = obj_fit_x[np.argmax(g_obj_fit)]
 
-        objs['global obj'] = {'src_raw': ['med_dE/E', 'med_peak_smooth_pC/MeV', 'med_peak_smooth_MeV'],
+        objs['global obj'] = {'src_raw': src_raw,
                               'src_norm': ['dE/E obj', 'pC/MeV obj', '100 MeV obj'],
                               'weights': [dE_weight, pC_weight, MeV_weight],
                               'setpoints': setpoints,
-                              'values': g_obj,
-                              'fit pars': g_obj_pars,
-                              'fit x': g_obj_fit_x,
-                              'fit y': g_obj_fit_y,
+                              'data': np.stack([setpoints, g_obj]),
+                              'fit': np.stack([obj_fit_x, g_obj_fit]),
                               'best': g_obj_x
                               }
         return objs
@@ -267,17 +299,19 @@ if __name__ == "__main__":
 
     _analysis = lpa.dev_scan_analysis(_device, _variable, _htu, _scan_path)
 
-    for objective in ['dE/E obj', 'pC/MeV obj', '100 MeV obj']:
+    if 'global obj' in _analysis:
+        for objective in ['dE/E obj', 'pC/MeV obj', '100 MeV obj']:
+            plt.figure(figsize=(6.4, 4.8))
+            plt.plot(_analysis[objective]['data'][0, :], _analysis[objective]['data'][1, :])
+            plt.plot(_analysis[objective]['fit'][0, :], _analysis[objective]['fit'][1, :])
+            plt.title(objective)
+
         plt.figure(figsize=(6.4, 4.8))
-        plt.plot(_analysis['setpoints'], _analysis[objective])
-        plt.title(objective)
+        plt.plot(_analysis['global obj']['data'][0, :], _analysis['global obj']['data'][1, :])
+        plt.plot(_analysis['global obj']['fit'][0, :], _analysis['global obj']['fit'][1, :])
+        plt.title(f'global objective {_analysis["global obj"]["best"]:.3f}')
 
-    plt.figure(figsize=(6.4, 4.8))
-    plt.plot(_analysis['setpoints'], _analysis['global obj']['values'])
-    plt.plot(_analysis['global obj']['fit x'], _analysis['global obj']['fit y'])
-    plt.title(f'global objective {_analysis["global obj"]["best"]:.3f}')
-
-    plt.show(block=True)
+        plt.show(block=True)
 
     # _scan_data = ScanData(_scan_path, ignore_experiment_name=_htu.is_offline)
     # _indexes, _setpoints, _matching = _scan_data.bin_data('U_ESP_JetXYZ', 'Position.Axis 3')
