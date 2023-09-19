@@ -656,7 +656,11 @@ class PhasicsImageAnalyzer:
         phase_map = Q_(2 * np.pi, 'radian') * self.wavefront / wavelength
         return phase_map.to_base_units()
 
-    def calculate_density(self, wavefront: np.ndarray, wavelength=Q_(800, 'nm')) -> DensityQuantity:
+    def calculate_density(self, 
+                          wavefront: np.ndarray, 
+                          wavelength = Q_(800, 'nm'), 
+                          image_resolution: Optional[LengthQuantity] = None
+                         ) -> DensityQuantity:
         """ Convert the wavefront into a density map, using equation for plasma refraction.
 
         Parameters
@@ -665,6 +669,9 @@ class PhasicsImageAnalyzer:
             A wavefront, with [length] units, as produced by PhasicsImageAnalyzer.calculate_wavefront().
             Should be background-subtracted, and baselined, i.e. wavefront should be 0 where there's no plasma
         wavelength : [length] Quantity
+        image_resolution: [length] Quantity or None
+            the real-world length represented by a pixel, which can be different from CAMERA_RESOLUTION if there 
+            are optics between object and grating/camera. If None (default), same as self.CAMERA_RESOLUTION. 
 
         Returns
         -------
@@ -675,6 +682,9 @@ class PhasicsImageAnalyzer:
             The center row in this array (row = (numrows - 1) // 2) represents the cylinder axis.
 
         """
+        if image_resolution is None:
+            image_resolution = self.CAMERA_RESOLUTION
+        
         # unit-aware version of abel.Transform()
         @ureg.wraps('nm/pixel', 'nm')
         def abel_transform_ua(wavefront):
@@ -689,7 +699,7 @@ class PhasicsImageAnalyzer:
         # a slice of the cylindrically symmetric optical path length disturbance profile
         # As the optical path disturbance is given in nanometers, and this slice gives the contribution of one
         # pixel's distance to the total wavefront shift, this is in units of [length]/[length], or dimensionless.
-        self.optical_path_change_per_distance = abel_transform_ua(wavefront) / (self.CAMERA_RESOLUTION/ureg.pixel)
+        self.optical_path_change_per_distance = abel_transform_ua(wavefront) / (image_resolution / ureg.pixel)
 
         # from https://www.ipp.mpg.de/2882460/anleitung.pdf:
         #   phi = lambda*e^2/(4 pi c^2 e0 me) integrate(n(z) dz)
