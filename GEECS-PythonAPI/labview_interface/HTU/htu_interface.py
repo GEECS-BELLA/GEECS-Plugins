@@ -111,7 +111,7 @@ def lpa_initialization(call: list):
 
         lpa.manage_scan(htu, device, var_name, min_max_step_steps,
                         units='mm', precision=3, label='Z', rough=rough, call=call[0],
-                        dE_weight=6., pC_weight=3., MeV_weight=1.)
+                        dE_weight=1., pC_weight=6., MeV_weight=2.)
 
         # X-scan
         # --------------------------------------------------

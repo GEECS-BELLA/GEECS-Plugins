@@ -106,11 +106,17 @@ class LPA:
             UserInterface.report('Running analysis...')
             dev_name = device.get_name() if isinstance(device, GeecsDevice) else device
             results = self.dev_scan_analysis(dev_name, var_name, exp, scan_folder, dE_weight, pC_weight, MeV_weight)
-            results['global obj']['precision'] = np.array([precision])
+            results['precision'] = np.array([precision])
+            if 'weight-based objs' in results:
+                results['weight-based objs']['global obj']['precision'] = np.array([precision])
+                recommended = results['weight-based objs']['global obj']['best']
+            else:
+                results['fit-based objs']['global obj']['precision'] = np.array([precision])
+                recommended = results['fit-based objs']['global obj']['best']
+
             UserInterface.clear_plots(call)
             Handler.send_results(f'{label.lower()}-scan', flatten_dict(results))
 
-            recommended = results['global obj']['best']
             answer = Handler.question(f'Proceed the recommended {label}-position ({recommended:.{precision}f} mm)?',
                                       ['Yes', 'No'])
             if answer == 'Yes':
@@ -164,10 +170,11 @@ class LPA:
                 'axis_MeV': magspec_data['axis_MeV'],
                 **magspec_data['spec_hres_pC/MeV'],
                 **magspec_data['spec_hres_stats'],
-                **objs }
+                **objs
+            }
 
         else:
-            magspec_data = { 'setpoints': setpoints, 'indexes': indexes }
+            magspec_data = {'setpoints': setpoints, 'indexes': indexes}
 
         return magspec_data
 
@@ -233,6 +240,7 @@ class LPA:
                                      [['med_weighted_dE/E', 'med_peak_charge_pC/MeV', 'med_peak_charge_MeV'],
                                       ['med_fit_dE/E', 'med_peak_smooth_pC/MeV', 'med_peak_smooth_MeV']]):
             g_obj = np.zeros((setpoints.size,), dtype=float)
+            obj_vals = np.zeros((3, setpoints.size))
 
             for it, (src, weight) in enumerate(zip(sources, weights)):
                 if (magspec_data['spec_hres_stats'][src] != 0).any():
@@ -246,8 +254,9 @@ class LPA:
                         obj = norm(np.sqrt(np.abs(obj - 100)), inv=True)
 
                     obj_fit = np.polyval(np.polyfit(setpoints, obj, round(setpoints.size / 2)), obj_fit_x)
-                    objs[obj_type][f'{src.split("_")[-1]} obj'] = { 'data': np.stack([setpoints, obj]),
-                                                                    'fit': np.stack([obj_fit_x, obj_fit]) }
+                    objs[obj_type][f'{src.split("_")[-1]} obj'] = {'data': np.stack([setpoints, obj]),
+                                                                   'fit': np.stack([obj_fit_x, obj_fit])}
+                    obj_vals[it] = obj
                     g_obj += (weight * obj)
 
             g_obj /= np.sum(weights)
@@ -262,11 +271,13 @@ class LPA:
             objs[obj_type]['global obj'] = {
                 'source raw': sources,
                 'source norm': [f'{src.split("_")[-1]} obj' for src in sources],
+                'source vals': obj_vals,
                 'weights': weights,
                 'setpoints': setpoints,
                 'data': np.stack([setpoints, g_obj]),
                 'fit': np.stack([obj_fit_x, g_obj_fit]),
-                'best': g_obj_best }
+                'best': g_obj_best
+            }
 
         return objs
 
