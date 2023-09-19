@@ -67,8 +67,8 @@ class PhasicsImageAnalyzer:
 
     Methods
     -------
-    calculate_phase_map(img)
-        runs all steps of the phase map reconstruction from a Phasics image img.
+    calculate_wavefront(interferogram)
+        runs all steps of the wavefront reconstruction from a Phasics interferogram.
 
     """
 
@@ -152,7 +152,7 @@ class PhasicsImageAnalyzer:
         
         """
         fftshift = ureg.wraps('=A', ('=A', None))(np.fft.fftshift)
-        self.IMG = np.fft.fftshift(np.fft.fft2(self.img))
+        self.IMG = np.fft.fftshift(np.fft.fft2(self.interferogram))
         self.freq_x = fftshift(np.fft.fftfreq(self.shape[1], d=self.CAMERA_RESOLUTION))
         self.freq_y = fftshift(np.fft.fftfreq(self.shape[0], d=self.CAMERA_RESOLUTION))
         
@@ -602,7 +602,7 @@ class PhasicsImageAnalyzer:
     
 
     
-    def calculate_wavefront(self, img: np.ndarray) -> np.ndarray:
+    def calculate_wavefront(self, interferogram: np.ndarray) -> np.ndarray:
         """ Analyze cropped Phasics quadriwave shearing image
         
         Takes a cropped image and runs the full algorithm on it to obtain the
@@ -623,8 +623,8 @@ class PhasicsImageAnalyzer:
 
         # take 2D Fourier transform of image, shifted so that freq = 0, 0 is 
         # in the middle of the image.
-        self.img = img
-        self.shape = img.shape
+        self.interferogram = interferogram
+        self.shape = interferogram.shape
         self._fourier_transform()
 
         # get cropped and centered FTs of each diffraction spot
@@ -651,8 +651,8 @@ class PhasicsImageAnalyzer:
         return W
 
 
-    def calculate_phase_map(self, img: np.ndarray, wavelength=Q_(800, 'nm')):
-        self.calculate_wavefront(img)
+    def calculate_phase_map(self, interferogram: np.ndarray, wavelength=Q_(800, 'nm')):
+        self.calculate_wavefront(interferogram)
         phase_map = Q_(2 * np.pi, 'radian') * self.wavefront / wavelength
         return phase_map.to_base_units()
 
