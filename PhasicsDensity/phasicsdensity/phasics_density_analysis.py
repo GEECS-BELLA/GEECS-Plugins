@@ -72,16 +72,6 @@ class PhasicsImageAnalyzer:
 
     """
 
-    # pixel size of camera
-    CAMERA_RESOLUTION = Q_(4.8555, 'micrometer')
-    # distance between chessboard grating and camera. Corresponds to d in [1]
-    GRATING_CAMERA_DISTANCE = Q_(0.841, 'millimeter')
-    # the period of the grating, i.e. the length of a 0-pi unit, or twice the
-    # distance between apertures. Corresponds to Λ in [1], or 2*d in [2]
-    GRATING_PERIOD = Q_(59.3, 'micrometer')
-    # the angle relative to horizontal of the fringe pattern
-    CAMERA_TILT = Q_(0.52871, 'radians')
-    
     @property
     def diffraction_spot_centers(self):
         """ Returns the 4 diffraction spot centers in the Fourier transform
@@ -108,12 +98,26 @@ class PhasicsImageAnalyzer:
                ]
 
     def __init__(self,
-                 reconstruction_method = 'baffou',
+                 camera_resolution: Quantity = Q_(7.40, 'micrometer'),
+                 grating_camera_distance: Quantity = Q_(0.841, 'millimeter'),
+                 grating_period: Quantity = Q_(59.4714, 'um'),
+                 camera_tilt: Quantity = Q_(30.1264, 'deg'),
+                 reconstruction_method: str = 'velghe',
                  diffraction_spot_crop_radius: Optional[Quantity] = None
                 ):
         """ 
         Parameters
         ----------
+        camera_resolution : [length] Quantity
+            pixel size of camera
+        grating_camera_distance : [length] Quantity
+            distance between chessboard grating and camera. Corresponds to d in [1]
+        grating_period : [length] Quantity
+            the period of the grating, i.e. the length of a 0-pi unit, or twice the
+            distance between apertures. Corresponds to Λ in [1], or 2*d in [2]
+        camera_tilt : [angle] Quantity
+            the angle of the fringe pattern relative to horizontal
+
         reconstruction_method : 'baffou' or 'velghe'
             which method to use for the step of combining the various spot FTs
             into a final phase map.
@@ -126,10 +130,13 @@ class PhasicsImageAnalyzer:
             If None, find the maximum radius that causes no overlap.
 
         """
+        self.CAMERA_RESOLUTION = camera_resolution
+        self.GRATING_CAMERA_DISTANCE = grating_camera_distance
+        self.GRATING_PERIOD = grating_period
+        self.CAMERA_TILT = camera_tilt
 
         self.reconstruction_method = reconstruction_method
         self.diffraction_spot_crop_radius = diffraction_spot_crop_radius
-
     
     def _fourier_transform(self) -> tuple[NDArray[np.complex_], Quantity, Quantity]:
         """ Takes the fourier transform of an image and shifts it.
