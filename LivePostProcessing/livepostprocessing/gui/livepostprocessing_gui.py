@@ -3,14 +3,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, get_type_hints, Callable, Any, Type, NamedTuple
 from pathlib import Path
-from dataclasses import dataclass
 
 from docstring_parser import parse_from_object as parse_docstring_from_object
 from docstring_parser import DocstringStyle
 
 from .frame import MainFrame
-from ..image_analyzers.base import ROI
-from ..utils import NotAPath
+
+from image_analysis.utils import ROI, NotAPath
 
 from wx import App
 import wx.propgrid as pg
