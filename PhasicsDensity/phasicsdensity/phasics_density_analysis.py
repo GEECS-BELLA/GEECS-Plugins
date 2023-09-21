@@ -29,6 +29,7 @@ from skimage.restoration import unwrap_phase
 from pint import UnitRegistry
 ureg = UnitRegistry()
 Q_ = ureg.Quantity
+
 if TYPE_CHECKING:
     from pint import Quantity
     SpatialFrequencyQuantity = NewType('SpatialFrequencyQuantity', Quantity) # [length]**-1
@@ -45,9 +46,9 @@ SpatialFrequencyCoordinates = namedtuple('SpatialFrequencyCoordinates', ['nu_x',
 class PhasicsImageAnalyzer:
     """ An engine that can analyze a Phasics image and return its phase map.
 
-    General usage, with `img` an image from the HTU Gasjet Phasics camera 
+    General usage, with `interferogram` an image from the HTU Gasjet Phasics camera 
        pia = PhasicsImageAnalyzer()
-       phase_map = pia.calculate_phase_map(pia.crop_image(img))
+       phase_map = pia.calculate_wavefront(interferogram)
 
 
     [1] G. Baffou, “Quantitative phase microscopy using quadriwave lateral shearing 
@@ -103,7 +104,8 @@ class PhasicsImageAnalyzer:
                  grating_period: Quantity = Q_(59.4714, 'um'),
                  camera_tilt: Quantity = Q_(30.1264, 'deg'),
                  reconstruction_method: str = 'velghe',
-                 diffraction_spot_crop_radius: Optional[Quantity] = None
+                 diffraction_spot_crop_radius: Optional[Quantity] = None,
+                 unit_registry: Optional[UnitRegistry] = None,
                 ):
         """ 
         Parameters
@@ -129,6 +131,10 @@ class PhasicsImageAnalyzer:
             radius of disc around spot center to use for each spot's FT.
             If None, find the maximum radius that causes no overlap.
 
+        unit_registry : UnitRegistry or None
+            Use an existing Pint unit registry, such as when called from another 
+            package
+
         """
         self.CAMERA_RESOLUTION = camera_resolution
         self.GRATING_CAMERA_DISTANCE = grating_camera_distance
@@ -138,6 +144,12 @@ class PhasicsImageAnalyzer:
         self.reconstruction_method = reconstruction_method
         self.diffraction_spot_crop_radius = diffraction_spot_crop_radius
     
+        if unit_registry is not None:
+            # overwrite module-wide ureg and Quantity
+            global ureg, Q_
+            ureg = unit_registry
+            Q_ = ureg.Quantity
+
     def _fourier_transform(self) -> tuple[NDArray[np.complex_], Quantity, Quantity]:
         """ Takes the fourier transform of an image and shifts it.
 
@@ -702,12 +714,12 @@ class PhasicsImageAnalyzer:
         self.optical_path_change_per_distance = abel_transform_ua(wavefront) / (image_resolution / ureg.pixel)
 
         # from https://www.ipp.mpg.de/2882460/anleitung.pdf:
-        #   phi = lambda*e^2/(4 pi c^2 e0 me) integrate(n(z) dz)
-        # with phi/2pi = wavefront/lambda, and C = e^2/(4 pi c^2 e0 me)
+        #   phi = -lambda*e^2/(4 pi c^2 e0 me) integrate(n(z) dz)
+        # with phi/2pi = wavefront/lambda, and C = -e^2/(4 pi c^2 e0 me)
         #   2pi/lambda * d(wavefront)/dz = C * lambda * density
         #   density = 2pi/lambda^2 / C * d(wavefront)/dz
 
-        C = ureg.elementary_charge**2 / (4 *np.pi * ureg.speed_of_light**2 * ureg.vacuum_permittivity * ureg.electron_mass)
+        C = -(ureg.elementary_charge**2 / (4 *np.pi * ureg.speed_of_light**2 * ureg.vacuum_permittivity * ureg.electron_mass))
         self.density = 2 * np.pi / wavelength**2 / C * self.optical_path_change_per_distance
 
         return self.density

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 from multiprocessing import Pool
-from pathlib import Path
 from argparse import ArgumentParser
-from datetime import datetime
 
 from typing import TYPE_CHECKING, Any, Optional, Union
+from .types import Array2D, ImageSubject, DeviceName, MetricName, RunID, ScanNumber, ShotNumber
 if TYPE_CHECKING:
-    from .types import Array2D, ImageSubject, DeviceName, MetricName, RunID, ScanNumber, ShotNumber
     from numpy.typing import NDArray
-    from .image_analyzers.base import ImageAnalyzer
+    from image_analysis.base import ImageAnalyzer
     ShotKey = tuple[RunID, ScanNumber, ShotNumber]
     DeviceMetricKey = tuple[DeviceName, MetricName]
     AnalysisDict = dict[DeviceMetricKey, Union[float, NDArray]]
@@ -18,13 +16,11 @@ import numpy as np
 from imageio.v3 import imwrite
 
 from .orm import Scan, SFile
-from .image_analyzers.U_PhasicsFileCopy import U_PhasicsFileCopyImageAnalyzer
-from .image_analyzers.UC_UndulatorRad2 import UC_UndulatorRad2ImageAnalyzer
+from image_analysis.analyzers.U_PhasicsFileCopy import U_PhasicsFileCopyImageAnalyzer
 
 class ScanAnalyzer:
     image_analyzer_classes: dict[DeviceName, type[ImageAnalyzer]] = {
         DeviceName('U_PhasicsFileCopy'): U_PhasicsFileCopyImageAnalyzer,
-        DeviceName('UC_UndulatorRad2'): UC_UndulatorRad2ImageAnalyzer,
     }
 
     def __init__(self, image_analyzer_kwargs: Optional[dict[DeviceName, dict[str, Any]]] = None):
@@ -79,6 +75,8 @@ class ScanAnalyzer:
 
         for shot_key, analysis in self.scan_metrics.items():
             run_id, scan_number, shot_number = shot_key
+            assert ((run_id == self.scan.run_id) and (scan_number == self.scan.number)), "self.scan_metrics run_id/scan_number don't match self.scan"
+
             for (device_name, metric_name), metric_value in analysis.items():
 
                 def make_filename(ext: str):
@@ -96,9 +94,9 @@ class ScanAnalyzer:
                 elif np.ndim(metric_value) == 1:
                     np.savetxt(make_filename('dat'), metric_value, header=metric_name)
                 
-                # save 2d arrays as png images
+                # save 2d arrays as tif images
                 elif np.ndim(metric_value) == 2:
-                    imwrite(make_filename('png'), metric_value)
+                    imwrite(make_filename('tif'), metric_value)
 
         s_file.save_s_file()
 

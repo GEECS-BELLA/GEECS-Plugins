@@ -3,14 +3,19 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, get_type_hints, Callable, Any, Type, NamedTuple
 from pathlib import Path
-from dataclasses import dataclass
 
 from docstring_parser import parse_from_object as parse_docstring_from_object
 from docstring_parser import DocstringStyle
 
+
+from pint import Quantity  # for image_analyzer_parameter_pg_property_map
+# Q_ is used when converting pg_property from string to Quantity, and it needs
+# to be the same object as used in the `ImageAnalyzer`s
+from image_analysis import Q_
+
 from .frame import MainFrame
-from ..image_analyzers.base import ROI
-from ..utils import NotAPath
+
+from image_analysis.utils import ROI, NotAPath
 
 from wx import App
 import wx.propgrid as pg
@@ -60,20 +65,21 @@ class LivePostProcessingGUI(MainFrame):
         int: ImageAnalyzerParameterPGPropertyConverter(pg.IntProperty, int, int),
         float: ImageAnalyzerParameterPGPropertyConverter(pg.FloatProperty, float, float),
         str: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, str, str),
-        Path: ImageAnalyzerParameterPGPropertyConverter(pg.FileProperty, 
+        Path: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, 
             lambda path: str(path) if path else '', 
             # property value is a string
-            lambda pv: Path(pv) if pv else NotAPath()
+            lambda pv: Path(pv) if pv else NotAPath(),
         ),
         ROI: ImageAnalyzerParameterPGPropertyConverter(pg.ArrayStringProperty,
             lambda roi: [str(roi.top), str(roi.bottom), str(roi.left), str(roi.right)],
             # property value is a list of string
             lambda pvs: ROI(*[(int(pv) if pv.lower() != 'none' else None) for pv in pvs])
-        ),    
+        ),
+        Quantity: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, str, Q_),
     }
 
     def m_analyze_device_checklist_OnCheckListBoxSelect( self, event: wx.CommandEvent ):
-        """ Load image analyzer config and background.
+        """ Load image analyzer config.
         """
         device_name: str = event.GetString()
 
@@ -167,9 +173,19 @@ class LivePostProcessingGUI(MainFrame):
         self.m_image_analyzer_propertyGrid.Enable()
 
     def m_run_scan_analysis_Button_OnButtonClick( self, event: wx.CommandEvent ):
-        print(f"Run single scan not yet implemented.")
-        event.Skip()
+        self.m_run_live_analysis_Button.Disable()
+        self.m_run_scan_analysis_Button.Disable()
+        self.SetStatusText("Running Scan analysis...")
 
+        self.scan_analyzer.analyze_scan(self.m_runID_text.Value, int(self.m_scanNumber_textCtrl.Value))
+        self.scan_analyzer.save_scan_metrics()
+
+        self.m_run_live_analysis_Button.Enable()
+        self.m_run_scan_analysis_Button.Enable()
+        self.SetStatusText("Finished scan analysis")
+
+
+        
 
     def print_event( self, event ):
         print(f"{type(event)=}\n{event.EventObject=}\n{event.EventType=}")
