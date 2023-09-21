@@ -167,9 +167,19 @@ class LivePostProcessingGUI(MainFrame):
         self.m_image_analyzer_propertyGrid.Enable()
 
     def m_run_scan_analysis_Button_OnButtonClick( self, event: wx.CommandEvent ):
-        print(f"Run single scan not yet implemented.")
-        event.Skip()
+        self.m_run_live_analysis_Button.Disable()
+        self.m_run_scan_analysis_Button.Disable()
+        self.SetStatusText("Running Scan analysis...")
 
+        self.scan_analyzer.analyze_scan(self.m_runID_text.Value, int(self.m_scanNumber_textCtrl.Value))
+        self.scan_analyzer.save_scan_metrics()
+
+        self.m_run_live_analysis_Button.Enable()
+        self.m_run_scan_analysis_Button.Enable()
+        self.SetStatusText("Finished scan analysis")
+
+
+        
 
     def print_event( self, event ):
         print(f"{type(event)=}\n{event.EventObject=}\n{event.EventType=}")
