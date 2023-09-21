@@ -46,9 +46,9 @@ SpatialFrequencyCoordinates = namedtuple('SpatialFrequencyCoordinates', ['nu_x',
 class PhasicsImageAnalyzer:
     """ An engine that can analyze a Phasics image and return its phase map.
 
-    General usage, with `img` an image from the HTU Gasjet Phasics camera 
+    General usage, with `interferogram` an image from the HTU Gasjet Phasics camera 
        pia = PhasicsImageAnalyzer()
-       phase_map = pia.calculate_phase_map(pia.crop_image(img))
+       phase_map = pia.calculate_wavefront(interferogram)
 
 
     [1] G. Baffou, “Quantitative phase microscopy using quadriwave lateral shearing 
@@ -714,12 +714,12 @@ class PhasicsImageAnalyzer:
         self.optical_path_change_per_distance = abel_transform_ua(wavefront) / (image_resolution / ureg.pixel)
 
         # from https://www.ipp.mpg.de/2882460/anleitung.pdf:
-        #   phi = lambda*e^2/(4 pi c^2 e0 me) integrate(n(z) dz)
-        # with phi/2pi = wavefront/lambda, and C = e^2/(4 pi c^2 e0 me)
+        #   phi = -lambda*e^2/(4 pi c^2 e0 me) integrate(n(z) dz)
+        # with phi/2pi = wavefront/lambda, and C = -e^2/(4 pi c^2 e0 me)
         #   2pi/lambda * d(wavefront)/dz = C * lambda * density
         #   density = 2pi/lambda^2 / C * d(wavefront)/dz
 
-        C = ureg.elementary_charge**2 / (4 *np.pi * ureg.speed_of_light**2 * ureg.vacuum_permittivity * ureg.electron_mass)
+        C = -(ureg.elementary_charge**2 / (4 *np.pi * ureg.speed_of_light**2 * ureg.vacuum_permittivity * ureg.electron_mass))
         self.density = 2 * np.pi / wavelength**2 / C * self.optical_path_change_per_distance
 
         return self.density
