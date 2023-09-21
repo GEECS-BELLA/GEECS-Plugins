@@ -110,6 +110,10 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
                            for filepath in self.background_path.iterdir()
                            if filepath.suffix.lower() in ['.png', '.tif']
                           ]
+
+            if len(backgrounds) == 0:
+                raise ValueError(f"No backgrounds found in {self.background_path}")
+            
             return sum(backgrounds) / len(backgrounds)
 
         else: 
@@ -120,16 +124,16 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
         # first check if it's explicitly set
         if self.background is not None:
             return self.background
-        
+
         # next check for background_path
-        elif self.background_path is not None:
+        elif self.background_path:
             if (self.background_path, self.roi) not in self.background_cache:
                 self.background_cache[(self.background_path, self.roi)] = self.calculate_background_from_path()
             return self.background_cache[(self.background_path, self.roi)]
 
         else:
             if self.on_no_background == 'ignore':
-                pass
+                return 0
 
             elif self.on_no_background == 'raise':
                 raise ValueError("No background wavefront. Use set_background(wavefront), where wavefront is "
@@ -137,6 +141,7 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
                                 )
             elif self.on_no_background == 'warn':
                 warn("No background wavefront. Returning wavefront with no background subtraction.")
+                return 0
 
             else:
                 raise ValueError(f"Unknown value for on_no_background: {self.on_no_background}. Should be one of 'raise', 'warn', or 'ignore'")
