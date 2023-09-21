@@ -18,7 +18,7 @@ import wx.propgrid as pg
 class MainFrame ( wx.Frame ):
 
     def __init__( self, parent ):
-        wx.Frame.__init__ ( self, parent, id = wx.ID_ANY, title = u"Live Run Analysis", pos = wx.DefaultPosition, size = wx.Size( 500,565 ), style = wx.DEFAULT_FRAME_STYLE|wx.TAB_TRAVERSAL )
+        wx.Frame.__init__ ( self, parent, id = wx.ID_ANY, title = u"HTU Live Postprocessing", pos = wx.DefaultPosition, size = wx.Size( 500,565 ), style = wx.DEFAULT_FRAME_STYLE|wx.TAB_TRAVERSAL )
 
         self.SetSizeHints( wx.DefaultSize, wx.DefaultSize )
 
@@ -76,19 +76,38 @@ class MainFrame ( wx.Frame ):
 
         b_image_analyzers.Add( self.m_analyze_device_label, 0, wx.ALL, 5 )
 
-        bSizer6 = wx.BoxSizer( wx.HORIZONTAL )
+        b_image_analyzers_widgets = wx.BoxSizer( wx.HORIZONTAL )
 
         m_analyze_device_checklistChoices = [u"1", u"2"]
         self.m_analyze_device_checklist = wx.CheckListBox( self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, m_analyze_device_checklistChoices, 0 )
         self.m_analyze_device_checklist.SetMinSize( wx.Size( -1,400 ) )
 
-        bSizer6.Add( self.m_analyze_device_checklist, 2, wx.ALL, 5 )
+        b_image_analyzers_widgets.Add( self.m_analyze_device_checklist, 1, wx.ALL, 5 )
 
-        self.m_image_analyzer_propertyGrid = pg.PropertyGrid(self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.propgrid.PG_DEFAULT_STYLE)
-        bSizer6.Add( self.m_image_analyzer_propertyGrid, 2, wx.ALL, 5 )
+        b_image_analyzer_properties = wx.BoxSizer( wx.VERTICAL )
+
+        self.m_image_analyzer_propertyGrid = pg.PropertyGridManager(self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.propgrid.PGMAN_DEFAULT_STYLE|wx.propgrid.PG_DESCRIPTION)
+        self.m_image_analyzer_propertyGrid.SetExtraStyle( wx.propgrid.PG_EX_MODE_BUTTONS )
+        b_image_analyzer_properties.Add( self.m_image_analyzer_propertyGrid, 1, wx.ALL|wx.EXPAND, 5 )
+
+        self.m_image_analyzer_propertyGrid_old = pg.PropertyGrid(self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.propgrid.PG_DEFAULT_STYLE)
+        self.m_image_analyzer_propertyGrid_old.Enable( False )
+        self.m_image_analyzer_propertyGrid_old.Hide()
+
+        b_image_analyzer_properties.Add( self.m_image_analyzer_propertyGrid_old, 1, wx.ALL|wx.EXPAND, 5 )
+
+        self.m_property_help_text = wx.TextCtrl( self, wx.ID_ANY, u"Click on a property to get more information", wx.DefaultPosition, wx.DefaultSize, wx.TE_MULTILINE|wx.TE_READONLY )
+        self.m_property_help_text.Enable( False )
+        self.m_property_help_text.Hide()
+        self.m_property_help_text.SetMaxSize( wx.Size( -1,75 ) )
+
+        b_image_analyzer_properties.Add( self.m_property_help_text, 1, wx.ALL|wx.EXPAND, 5 )
 
 
-        b_image_analyzers.Add( bSizer6, 1, wx.EXPAND, 5 )
+        b_image_analyzers_widgets.Add( b_image_analyzer_properties, 2, wx.EXPAND, 5 )
+
+
+        b_image_analyzers.Add( b_image_analyzers_widgets, 1, wx.EXPAND, 5 )
 
         bBackground = wx.BoxSizer( wx.HORIZONTAL )
 
@@ -124,6 +143,7 @@ class MainFrame ( wx.Frame ):
         self.m_analyze_device_checklist.Bind( wx.EVT_LISTBOX, self.m_analyze_device_checklist_OnCheckListBoxSelect )
         self.m_analyze_device_checklist.Bind( wx.EVT_CHECKLISTBOX, self.m_analyze_device_checklist_OnCheckListBoxToggled )
         self.m_image_analyzer_propertyGrid.Bind( pg.EVT_PG_CHANGED, self.m_image_analyzer_propertyGrid_OnPropertyGridChanged )
+        self.m_image_analyzer_propertyGrid_old.Bind( pg.EVT_PG_CHANGED, self.m_image_analyzer_propertyGrid_OnPropertyGridChanged )
         self.m_background_filePicker.Bind( wx.EVT_FILEPICKER_CHANGED, self.m_background_filePicker_OnFileChanged )
 
     def __del__( self ):
@@ -148,6 +168,7 @@ class MainFrame ( wx.Frame ):
 
     def m_image_analyzer_propertyGrid_OnPropertyGridChanged( self, event ):
         event.Skip()
+
 
     def m_background_filePicker_OnFileChanged( self, event ):
         event.Skip()
