@@ -33,9 +33,9 @@ class Handler:
         Bridge.labview_call('handler', 'results', [], sync=False, source=source, results=results)
 
     @staticmethod
-    def question(message: str, possible_answers: list) -> Optional[Any]:
+    def question(message: str, possible_answers: list, modal: bool = True) -> Optional[Any]:
         success, answer = Bridge.labview_call('handler', 'question', ['answer'], sync=True, timeout_sec=600.,
-                                              message=message, possible_answers=possible_answers)
+                                              message=message, possible_answers=possible_answers, modal=modal)
         if success:
             return answer['answer']
         else:
