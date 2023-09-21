@@ -14,7 +14,7 @@ from imageio.v3 import imread
 if TYPE_CHECKING:
     from os import PathLike
     from numpy.typing import NDArray
-    from .types import ImageSubject, ImageFolderName, DeviceName
+from .types import ImageSubject, ImageFolderName, DeviceName
 
 import pandas as pd
 import numpy as np
