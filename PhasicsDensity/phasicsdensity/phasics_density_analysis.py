@@ -29,6 +29,7 @@ from skimage.restoration import unwrap_phase
 from pint import UnitRegistry
 ureg = UnitRegistry()
 Q_ = ureg.Quantity
+
 if TYPE_CHECKING:
     from pint import Quantity
     SpatialFrequencyQuantity = NewType('SpatialFrequencyQuantity', Quantity) # [length]**-1
@@ -103,7 +104,8 @@ class PhasicsImageAnalyzer:
                  grating_period: Quantity = Q_(59.4714, 'um'),
                  camera_tilt: Quantity = Q_(30.1264, 'deg'),
                  reconstruction_method: str = 'velghe',
-                 diffraction_spot_crop_radius: Optional[Quantity] = None
+                 diffraction_spot_crop_radius: Optional[Quantity] = None,
+                 unit_registry: Optional[UnitRegistry] = None,
                 ):
         """ 
         Parameters
@@ -129,6 +131,10 @@ class PhasicsImageAnalyzer:
             radius of disc around spot center to use for each spot's FT.
             If None, find the maximum radius that causes no overlap.
 
+        unit_registry : UnitRegistry or None
+            Use an existing Pint unit registry, such as when called from another 
+            package
+
         """
         self.CAMERA_RESOLUTION = camera_resolution
         self.GRATING_CAMERA_DISTANCE = grating_camera_distance
@@ -138,6 +144,12 @@ class PhasicsImageAnalyzer:
         self.reconstruction_method = reconstruction_method
         self.diffraction_spot_crop_radius = diffraction_spot_crop_radius
     
+        if unit_registry is not None:
+            # overwrite module-wide ureg and Quantity
+            global ureg, Q_
+            ureg = unit_registry
+            Q_ = ureg.Quantity
+
     def _fourier_transform(self) -> tuple[NDArray[np.complex_], Quantity, Quantity]:
         """ Takes the fourier transform of an image and shifts it.
 

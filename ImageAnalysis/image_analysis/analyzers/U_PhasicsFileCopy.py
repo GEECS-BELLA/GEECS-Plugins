@@ -7,15 +7,16 @@ if TYPE_CHECKING:
     from ..types import Array2D, QuantityArray2D
 
 import numpy as np
+from pint import Quantity
 from scipy.optimize import curve_fit
 
 from warnings import warn
 
-
 from ..base import ImageAnalyzer
 from ..utils import ROI, read_imaq_image, NotAPath
 
-from phasicsdensity.phasics_density_analysis import PhasicsImageAnalyzer, ureg
+from phasicsdensity.phasics_density_analysis import PhasicsImageAnalyzer
+from .. import ureg, Q_
 
 class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
 
@@ -123,11 +124,22 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
             else:
                 raise ValueError(f"Unknown value for on_no_background: {self.on_no_background}. Should be one of 'raise', 'warn', or 'ignore'")
 
+    def _initialize_phasics_image_analyzer(self):
+        self.phasics_image_analyzer = PhasicsImageAnalyzer(
+            reconstruction_method='velghe',
+            camera_resolution=self.camera_resolution,
+            grating_camera_distance=self.grating_camera_distance,
+            grating_period=self.grating_period,
+            camera_tilt=self.camera_tilt,
+            # pass image_analysis unit registry to PhasicsImageAnalyzer
+            unit_registry=ureg,
+        )
+
     def analyze_image(self, image: Array2D) -> dict[str, float|NDArray]:
         """ Calculate metrics from U_PhasicsFileCopy
         """
-        pia = PhasicsImageAnalyzer(reconstruction_method='velghe')
-        wavefront = pia.calculate_wavefront(self.roi.crop(image))
+        
+        self._initialize_phasics_image_analyzer()
 
         # subtract background
         wavefront -= self._get_background_wavefront()
