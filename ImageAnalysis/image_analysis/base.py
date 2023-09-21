@@ -50,7 +50,7 @@ class ImageAnalyzer:
                 super().__init__()
         
         """
-        pass
+        self.enable = True
 
     def analyze_image(self, 
                       image: Array2D, 
