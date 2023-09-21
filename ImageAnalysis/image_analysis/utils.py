@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
 import numpy as np
 import png
@@ -127,9 +127,24 @@ class ROI:
     def crop(self, image: np.ndarray):
         return image[self.top:self.bottom, self.left:self.right]
 
+    def __str__(self):
+        return repr(self)
+
+    def __repr__(self):
+        return f"ROI({self.top}, {self.bottom}, {self.left}, {self.right})"
+    
 
 class NotAPath(Path().__class__):
     """ A Path instance that evaluates to false in, for example, if statements.
     """
     def __bool__(self):
+        return False
+
+    def is_file(self):
+        return False
+
+    def is_dir(self):
+        return False
+
+    def exists(self):
         return False
