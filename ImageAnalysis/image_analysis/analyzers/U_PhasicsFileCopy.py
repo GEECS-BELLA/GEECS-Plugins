@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Any, Union, Sequence
+from typing import TYPE_CHECKING, Optional
 from pathlib import Path
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
     from ..types import Array2D, QuantityArray2D
@@ -25,6 +26,14 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
                  medium: str = 'plasma',
                  background_path: Path = NotAPath(),
                  on_no_background: str = 'warn',
+
+                 laser_wavelength: Quantity = Q_(800, 'nanometer'),
+                 camera_resolution: Quantity = Q_(7.40, 'micrometer'),
+                 image_resolution: Quantity = Q_(4.74, 'micrometer'),
+                 grating_camera_distance: Quantity = Q_(0.841, 'millimeter'),
+                 grating_period: Quantity = Q_(59.4714, 'um'),
+                 camera_tilt: Quantity = Q_(30.1264, 'deg'),
+
                 ):
         """
         Parameters
@@ -44,6 +53,21 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
                 'ignore': return wavefrtont with no background subtraction and don't
                           issue warning.
 
+        laser_wavelength : [length] Quantity
+            of imaging laser
+        camera_resolution : [length] Quantity
+            pixel size of camera
+        image_resolution : [length] Quantity
+            the real-world length represented by a pixel, which can be different from camera_resolution if there 
+            are optics between object and grating/camera. 
+        grating_camera_distance : [length] Quantity
+            distance between chessboard grating and camera. Corresponds to d in [1]
+        grating_period : [length] Quantity
+            the period of the grating, i.e. the length of a 0-pi unit, or twice the
+            distance between apertures. Corresponds to Λ in [1], or 2*d in [2]
+        camera_tilt : [angle] Quantity
+            the angle of the fringe pattern relative to horizontal
+
         """
 
         self.roi = roi
@@ -55,25 +79,17 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
         self.background_path: Path = background_path
         self.background_cache: dict[tuple[Path, ROI], Array2D] = {}
 
-    def calculate_wavefront(self, image: Array2D):
-        """ Convenience function to invoke PhasicsImageAnalyzer.
-        
-        For example to generate backgrounds.
-        
-        Expects uncropped image, i.e. applies same cropbox as analyze_image() does.
-        
-        Parameters
-        ----------
-        image : Array2D
-            A U_PhasicsFileCopy image
+        self.laser_wavelength = laser_wavelength
+        self.image_resolution = image_resolution
 
-        Returns
-        -------
-        wavefront : Array2D with units [length] (optical path difference)
+        self.camera_resolution = camera_resolution
+        self.grating_camera_distance = grating_camera_distance
+        self.grating_period = grating_period
+        self.camera_tilt = camera_tilt
+        
+        self.phasics_image_analyzer = None
 
-        """
-        pia = PhasicsImageAnalyzer(reconstruction_method='velghe')
-        return pia.calculate_wavefront(self.roi.crop(image))
+        super().__init__()
 
     def set_background(self, wavefront: QuantityArray2D):
         """ Set background wavefront, as produced by 
