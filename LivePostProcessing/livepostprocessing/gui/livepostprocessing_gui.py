@@ -69,7 +69,8 @@ class LivePostProcessingGUI(MainFrame):
             lambda roi: [str(roi.top), str(roi.bottom), str(roi.left), str(roi.right)],
             # property value is a list of string
             lambda pvs: ROI(*[(int(pv) if pv.lower() != 'none' else None) for pv in pvs])
-        ),    
+        ),
+        Quantity: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, str, Q_),
     }
 
     def m_analyze_device_checklist_OnCheckListBoxSelect( self, event: wx.CommandEvent ):
