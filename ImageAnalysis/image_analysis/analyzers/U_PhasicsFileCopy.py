@@ -98,12 +98,13 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
         self.background = wavefront
 
     def calculate_background_from_path(self):
+
         def _calculate_background_from_filepath(filepath: Path) -> QuantityArray2D:
-            return self.calculate_wavefront(self.roi.crop(read_imaq_image(filepath)))
+            return self.phasics_image_analyzer.calculate_wavefront(self.roi.crop(read_imaq_image(filepath)))
 
         if self.background_path.is_file():
             return _calculate_background_from_filepath(self.background_path)
-        
+
         elif self.background_path.is_dir():
             backgrounds = [_calculate_background_from_filepath(filepath)
                            for filepath in self.background_path.iterdir()
@@ -156,6 +157,8 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
         """
         
         self._initialize_phasics_image_analyzer()
+        
+        wavefront = self.phasics_image_analyzer.calculate_wavefront(self.roi.crop(image))
 
         # subtract background
         wavefront -= self._get_background_wavefront()
@@ -165,7 +168,7 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
 
         # 2d array of electron density with units [length]^-3
         # center row ((num_rows - 1) // 2) represents cylinder axis.
-        density = pia.calculate_density(wavefront)
+        density = self.phasics_image_analyzer.calculate_density(wavefront, wavelength=self.laser_wavelength, image_resolution=self.image_resolution)
         # 1d array of electron density with units [length]^-3
         center_density_lineout = density[(density.shape[0] - 1) // 2, :]
 
@@ -264,11 +267,11 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
                 'peak_density_cm-3': center_density_lineout.max().m_as('cm^-3'),
 
                 'density_lineout_fit_A1_cm-3': density_lineout_fit_result['A1'].m_as('cm^-3'),
-                'density_lineout_fit_x1_mm': (density_lineout_fit_result['x1'] * pia.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
-                'density_lineout_fit_w_mm': (density_lineout_fit_result['w'] * pia.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_x1_mm': (density_lineout_fit_result['x1'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_w_mm': (density_lineout_fit_result['w'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
                 'density_lineout_fit_A2_cm-3': density_lineout_fit_result['A1'].m_as('cm^-3'),
-                'density_lineout_fit_x2_mm': (density_lineout_fit_result['x2'] * pia.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
-                'density_lineout_fit_sigma_mm': (density_lineout_fit_result['sigma'] * pia.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
-                'density_lineout_fit_x3_mm': (density_lineout_fit_result['x3'] * pia.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
-                'density_lineout_fit_x4_mm': (density_lineout_fit_result['x4'] * pia.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_x2_mm': (density_lineout_fit_result['x2'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_sigma_mm': (density_lineout_fit_result['sigma'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_x3_mm': (density_lineout_fit_result['x3'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_x4_mm': (density_lineout_fit_result['x4'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
                }
