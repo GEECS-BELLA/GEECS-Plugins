@@ -1,11 +1,16 @@
 """
-Class definition for mag spec analysis 
+Class definition for a cave mag spec analysis
+
+This still needs a lot of work, and most of it is a copy-paste of the hi res version.  If enough of the analysis itself
+is a copy-paste, then consider making either a single analysis module with particular inputs or have a class with two
+daughter classes for each analysis.
+
+Also, we are working with ACaveMagSpec's Cam3
 
 @ Chris
 """
 from __future__ import annotations
 
-from array import array
 from typing import Optional, Any, TYPE_CHECKING, Union
 import numpy as np
 
@@ -14,29 +19,31 @@ if TYPE_CHECKING:
     from ..types import Array2D
 
 from ..base import ImageAnalyzer
-# import sys
-# sys.path.append(r"C:\GEECS\Developers Version\source\GEECS-Plugins\ImageAnalysis\image_analysis")
-# from base import ImageAnalyzer
-
-# Either importing with the path set to GEECS-PythonAPI (as is the case for post-analysis scripts elsewhere)
-#  or importing with the path set to this location (which is the case for when run on LabView)
-
 from .online_analysis_modules import mag_spec_analysis as analyze
 
 
-class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
+def get_acave3_analysis_crop(camera_image: Array2D) -> Array2D:
+    y_start = 112
+    y_end = 278
+    x_start = 23
+    x_end = 1072
+    crop_image = camera_image[y_start:y_end, x_start:x_end]
+    return crop_image
+
+
+class UC_ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
 
     def __init__(self,
-                 noise_threshold: int = 100,
-                 edge_pixel_crop: int = 1,
+                 noise_threshold: int = 100,                            # CONFIRM IF THIS WORKS
+                 edge_pixel_crop: int = 0,
                  saturation_value: int = 4095,
-                 normalization_factor: float = 7.643283839778091e-07,
-                 transverse_calibration: int = 43,
-                 do_transverse_calculation: bool = True,
-                 transverse_slice_threshold: float = 0.02,
-                 transverse_slice_binsize: int = 5,
-                 optimization_central_energy: float = 100.0,
-                 optimization_bandwidth_energy: float = 2.0
+                 normalization_factor: float = 1.0,  # 7.643283839778091e-07,   # NEED TO CALCULATE
+                 transverse_calibration: int = 129.4,
+                 do_transverse_calculation: bool = True,                # IS THIS ANALYSIS USEFUL HERE?
+                 transverse_slice_threshold: float = 0.02,              # ^^
+                 transverse_slice_binsize: int = 5,                     #
+                 optimization_central_energy: float = 100.0,            # IS THIS ANALYSIS USEFUL HERE?
+                 optimization_bandwidth_energy: float = 2.0             # ^^
                  ):
         """
         Parameters
@@ -50,7 +57,7 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
         normalization_factor: float
             Factor to go from camera counts to pC/MeV. Depends on trigger delay, exposure, and the threshold value for
             magspec analysis. See post_analysis/scripts_charge_calibration for how this is calculated
-            default value comes from July 25th, Scan 24, HiResMagSpec, 
+            default value comes from July 25th, Scan 24, HiResMagSpec,
                 normalization_triggerdelay = 15.497208
                 normalization_exposure = 0.010000
                 normalization_thresholdvalue = 100
@@ -72,7 +79,7 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
             For the XOpt algorithm, the standard deviation from the central energy for the Gaussian weight function
         """
         super().__init__()
-        self.mag_spec_name = 'hires'
+        self.mag_spec_name = 'acave3'
         self.noise_threshold = noise_threshold
         self.edge_pixel_crop = edge_pixel_crop
         self.saturation_value = saturation_value
@@ -102,7 +109,7 @@ class U_HiResMagSpecImageAnalyzer(ImageAnalyzer):
 
     def build_input_parameter_dictionary(self) -> dict:
         input_params = {
-            "magspec_name_str": self.mag_spec_name,
+            "mag_spec_name_str": self.mag_spec_name,
             "noise_threshold_int": self.noise_threshold,
             "edge_crop_pixels": self.edge_pixel_crop,
             "saturation_value_int": self.saturation_value,

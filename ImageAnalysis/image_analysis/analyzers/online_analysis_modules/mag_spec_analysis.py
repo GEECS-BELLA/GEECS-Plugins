@@ -85,7 +85,7 @@ def analyze_image(input_image, input_params, do_print=False):
     image = np.copy(image[::-1, ::-1])
     current_time = print_time(" Rotate Image", current_time, do_print=do_print)
 
-    mag_spec_name = input_params["magspec_name_str"]
+    mag_spec_name = input_params["mag_spec_name_str"]
     image_width = np.shape(image)[1]
     pixel_arr = np.linspace(0, image_width, image_width)
     energy_arr = energy_axis_lookup.return_energy_axis(pixel_arr, mag_spec_name)

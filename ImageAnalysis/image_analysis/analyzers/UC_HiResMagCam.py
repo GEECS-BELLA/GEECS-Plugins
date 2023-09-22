@@ -1,17 +1,12 @@
 """
-Class definition for a cave mag spec analysis
-
-This still needs a lot of work, and most of it is a copy-paste of the hi res version.  If enough of the analysis itself
-is a copy-paste, then consider making either a single analysis module with particular inputs or have a class with two
-daughter classes for each analysis.
-
-Also, we are working with ACaveMagSpec's Cam3
+Class definition for mag spec analysis 
 
 @ Chris
 """
 from __future__ import annotations
 
-from typing import Optional, Any, TYPE_CHECKING
+from array import array
+from typing import Optional, Any, TYPE_CHECKING, Union
 import numpy as np
 
 if TYPE_CHECKING:
@@ -19,31 +14,29 @@ if TYPE_CHECKING:
     from ..types import Array2D
 
 from ..base import ImageAnalyzer
+# import sys
+# sys.path.append(r"C:\GEECS\Developers Version\source\GEECS-Plugins\ImageAnalysis\image_analysis")
+# from base import ImageAnalyzer
+
+# Either importing with the path set to GEECS-PythonAPI (as is the case for post-analysis scripts elsewhere)
+#  or importing with the path set to this location (which is the case for when run on LabView)
+
 from .online_analysis_modules import mag_spec_analysis as analyze
 
 
-def get_acave3_analysis_crop(camera_image: Array2D) -> Array2D:
-    y_start = 112
-    y_end = 278
-    x_start = 23
-    x_end = 1072
-    crop_image = camera_image[y_start:y_end, x_start:x_end]
-    return crop_image
-
-
-class UC_ACaveMagSpecImageAnalyzer(ImageAnalyzer):
+class UC_HiResMagCamImageAnalyzer(ImageAnalyzer):
 
     def __init__(self,
-                 noise_threshold: int = 100,                            # CONFIRM IF THIS WORKS
-                 edge_pixel_crop: int = 0,
+                 noise_threshold: int = 100,
+                 edge_pixel_crop: int = 1,
                  saturation_value: int = 4095,
-                 normalization_factor: float = 1.0,  # 7.643283839778091e-07,   # NEED TO CALCULATE
-                 transverse_calibration: int = 129.4,
-                 do_transverse_calculation: bool = True,                # IS THIS ANALYSIS USEFUL HERE?
-                 transverse_slice_threshold: float = 0.02,              # ^^
-                 transverse_slice_binsize: int = 5,                     #
-                 optimization_central_energy: float = 100.0,            # IS THIS ANALYSIS USEFUL HERE?
-                 optimization_bandwidth_energy: float = 2.0             # ^^
+                 normalization_factor: float = 7.643283839778091e-07,
+                 transverse_calibration: int = 43,
+                 do_transverse_calculation: bool = True,
+                 transverse_slice_threshold: float = 0.02,
+                 transverse_slice_binsize: int = 5,
+                 optimization_central_energy: float = 100.0,
+                 optimization_bandwidth_energy: float = 2.0
                  ):
         """
         Parameters
@@ -57,7 +50,7 @@ class UC_ACaveMagSpecImageAnalyzer(ImageAnalyzer):
         normalization_factor: float
             Factor to go from camera counts to pC/MeV. Depends on trigger delay, exposure, and the threshold value for
             magspec analysis. See post_analysis/scripts_charge_calibration for how this is calculated
-            default value comes from July 25th, Scan 24, HiResMagSpec,
+            default value comes from July 25th, Scan 24, HiResMagSpec, 
                 normalization_triggerdelay = 15.497208
                 normalization_exposure = 0.010000
                 normalization_thresholdvalue = 100
@@ -79,7 +72,7 @@ class UC_ACaveMagSpecImageAnalyzer(ImageAnalyzer):
             For the XOpt algorithm, the standard deviation from the central energy for the Gaussian weight function
         """
         super().__init__()
-        self.mag_spec_name = 'acave3'
+        self.mag_spec_name = 'hires'
         self.noise_threshold = noise_threshold
         self.edge_pixel_crop = edge_pixel_crop
         self.saturation_value = saturation_value
@@ -91,24 +84,34 @@ class UC_ACaveMagSpecImageAnalyzer(ImageAnalyzer):
         self.optimization_central_energy = optimization_central_energy
         self.optimization_bandwidth_energy = optimization_bandwidth_energy
 
-    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None) -> tuple[
-        NDArray[np.uint16], dict[str, Any], dict[str, Any]]:
-        input_params = {
-            "Mag-Spec-Name": self.mag_spec_name,
-            "Threshold-Value": self.noise_threshold,
-            "Pixel-Crop": self.edge_pixel_crop,
-            "Saturation-Value": self.saturation_value,
-            "Normalization-Factor": self.normalization_factor,
-            "Transverse-Calibration": self.transverse_calibration,
-            "Do-Transverse-Calculation": self.do_transverse_calculation,
-            "Transverse-Slice-Threshold": self.transverse_slice_threshold,
-            "Transverse-Slice-Binsize": self.transverse_slice_binsize,
-            "Optimization-Central-Energy": self.optimization_central_energy,
-            "Optimization-Bandwidth-Energy": self.optimization_bandwidth_energy
-        }
+    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None,
+                      ) -> dict[str, Union[float, np.ndarray]]:
+        input_params = self.build_input_parameter_dictionary()
         processed_image = image.astype(np.float32)
-        cropped_image = get_acave3_analysis_crop(processed_image)
-        returned_image, mag_spec_dict, lineouts = analyze.analyze_image(cropped_image, input_params)
+        returned_image, mag_spec_dict, lineouts = analyze.analyze_image(processed_image, input_params)
         unnormalized_image = returned_image / self.normalization_factor
         uint_image = unnormalized_image.astype(np.uint16)
-        return uint_image, mag_spec_dict, input_params, lineouts
+
+        return_dictionary = {
+            "processed_image_uint16": uint_image,
+            "analyzer_return_dictionary": mag_spec_dict,
+            "analyzer_return_lineouts": lineouts,
+            "analyzer_input_parameters": input_params
+        }
+        return return_dictionary
+
+    def build_input_parameter_dictionary(self) -> dict:
+        input_params = {
+            "mag_spec_name_str": self.mag_spec_name,
+            "noise_threshold_int": self.noise_threshold,
+            "edge_crop_pixels": self.edge_pixel_crop,
+            "saturation_value_int": self.saturation_value,
+            "charge_normalization_factor_pC/count": self.normalization_factor,
+            "transverse_calibration_factor_um/pixel": self.transverse_calibration,
+            "optimization_central_energy_MeV": self.optimization_central_energy,
+            "optimization_bandwidth_energy_MeV": self.optimization_bandwidth_energy,
+            "do_transverse_calibration_bool": self.do_transverse_calculation,
+            "transverse_slice_threshold_factor": self.transverse_slice_threshold,
+            "transverse_slice_bin_size_pixels": self.transverse_slice_binsize,
+        }
+        return input_params

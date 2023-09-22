@@ -26,35 +26,35 @@ def print_time(label, start_time, do_print=False):
 def analyze_image(input_image, input_params, do_print=False):
     current_time = time.perf_counter()
 
-    num_pixel_crop = input_params["Pixel-Crop"]
+    num_pixel_crop = input_params["edge_crop_pixels"]
     if num_pixel_crop > 0:
         roi_image = input_image[num_pixel_crop: -num_pixel_crop, num_pixel_crop: -num_pixel_crop]
     else:
         roi_image = input_image
 
-    saturation_value = input_params["Saturation-Value"]
+    saturation_value = input_params["saturation_value_int"]
     saturation_number = saturation_check(roi_image, saturation_value)
     current_time = print_time(" Saturation Check:", current_time, do_print=do_print)
 
-    threshold = input_params["Threshold-Value"]
+    threshold = input_params["noise_threshold_int"]
     image = threshold_reduction(roi_image, threshold)
     current_time = print_time(" Threshold Subtraction", current_time, do_print=do_print)
 
     total_photons = np.sum(image)
     current_time = print_time(" Total Photon Counts", current_time, do_print=do_print)
 
-    tilt_angle = input_params["Image-Tilt"]
+    tilt_angle = input_params["image_tilt_calibration_degrees"]
     # rotated_image = ndimage.rotate(image, tilt_angle, reshape=False)
     rotated_image = rotate_image(image, tilt_angle)
     # rotated_image = image
     current_time = print_time(" Image Rotation", current_time, do_print=do_print)
 
-    calibration_factor = input_params["Wavelength-Calibration"]
-    zeroth_order_position = input_params["0th-Order-Calibration"]
+    calibration_factor = input_params["wavelength_calibration_nm/pixel"]
+    zeroth_order_position = input_params["zeroth_order_calibration_pixel"]
     wavelength_array, spectrum_array = get_spectrum_lineouts(rotated_image, calibration_factor, zeroth_order_position)
     current_time = print_time(" Spectrum Lineouts", current_time, do_print=do_print)
 
-    minimum_wavelength = input_params["Minimum-Wavelength"]
+    minimum_wavelength = input_params["minimum_wavelength_nm"]
     crop_wavelength_array, crop_spectrum_array = crop_spectrum(wavelength_array, spectrum_array, minimum_wavelength)
 
     if np.sum(crop_spectrum_array) == 0:
@@ -69,18 +69,18 @@ def analyze_image(input_image, input_params, do_print=False):
         wavelength_spread = get_wavelength_spread(crop_wavelength_array, crop_spectrum_array, average_wavelength=average_wavelength)
         current_time = print_time(" Spectrum Stats", current_time, do_print=do_print)
 
-        target_wavelength = input_params["Optimization-Central-Wavelength"]
-        target_bandwidth = input_params["Optimization-Bandwidth-Wavelength"]
+        target_wavelength = input_params["optimization_central_wavelength_nm"]
+        target_bandwidth = input_params["optimization_bandwidth_wavelength_nm"]
         optimization_factor = calculate_optimization_factor(crop_wavelength_array, crop_spectrum_array, target_wavelength, target_bandwidth)
         print_time(" Optimization Factor", current_time, do_print=do_print)
 
     exit_cam_dict = {
-        "Saturation-Counts": saturation_number,
-        "Photon-Counts": total_photons,
-        "Peak-Wavelength": peak_wavelength,
-        "Average-Wavelength": average_wavelength,
-        "Wavelength-Spread": wavelength_spread,
-        "Optimization-Factor": optimization_factor,
+        "camera_saturation_counts": saturation_number,
+        "camera_total_intensity_counts": total_photons,
+        "peak_wavelength_nm": peak_wavelength,
+        "average_wavelength_nm": average_wavelength,
+        "wavelength_spread_weighted_rms_nm": wavelength_spread,
+        "optimization_factor": optimization_factor,
     }
     return rotated_image, exit_cam_dict, np.vstack((wavelength_array, spectrum_array))
 
