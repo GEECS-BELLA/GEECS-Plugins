@@ -1,17 +1,15 @@
 import time
 import numpy as np
-from typing import Optional
 from geecs_python_api.controls.experiment.htu import HtuExp
-from geecs_python_api.controls.devices.HTU.transport import Steering
-from labview_interface.lv_interface import Bridge, flatten_dict
-from labview_interface.HTU.htu_classes import UserInterface, Handler, LPA
+from labview_interface.lv_interface import Bridge
+from labview_interface.HTU.htu_classes import UserInterface, Handler
 from geecs_python_api.controls.devices.HTU.gas_jet import GasJet
-from labview_interface.HTU.procedures.emq_alignment import calculate_steering_currents
+from labview_interface.HTU.procedures.emq_alignment import align_EMQs
+from labview_interface.HTU.procedures.lpa_linear_optimization import optimize_lpa
 
 
 # HTU
 htu = HtuExp(get_info=True)
-steers: list[Optional[Steering]] = [None] * 4
 
 
 def htu_consumer(call: str = ''):
@@ -29,113 +27,21 @@ def htu_consumer(call: str = ''):
 
     elif call[0].lower() == 'set':
         if call[1] == 'z':
-            UserInterface.report('Connecting to gas jet...')
             jet = GasJet()
-            time.sleep(1.)
-            UserInterface.report(f'Setting {call[1]} = {call[2]:.3f} mm')
             jet.stage.set_position(call[1], call[2])
-            UserInterface.report('Disconnecting...')
+            time.sleep(.1)
+            z = jet.stage.get_position(call[1])
+            UserInterface.report(f'Done. {call[1].upper()} = {z:.3f} mm')
             jet.close()
 
     elif call[0].lower() == 'emq_alignment':
-        emq_alignment(call)
+        align_EMQs(htu, call)
 
     elif call[0].lower() == 'lpa_initialization':
-        lpa_initialization(call)
+        optimize_lpa(htu, call)
 
     else:
         return
-
-
-def emq_alignment(call: list):
-    try:
-        steers[:2] = [Steering(i + 1) for i in range(2)]
-        ret = calculate_steering_currents(htu, steers[0], steers[1], call[1], call[2])
-        Handler.send_results(call[0], flatten_dict(ret))
-
-        values = []
-        for s in steers[:2]:
-            for it, direction in enumerate(['horizontal', 'vertical']):
-                supply = s.supplies[direction]
-                var_alias = supply.var_aliases_by_name[supply.var_current][0]
-                value = supply.coerce_float(var_alias, '', ret[f'new_S{s.index}_A'][it])
-                coerced = (round(abs(ret[f'new_S{s.index}_A'][it] - value) * 1000) == 0)
-                values.append((value, coerced))
-
-        answer = Handler.question('Do you want to apply the recommended currents?\n'
-                                  f'S1 [A]: {values[0][0]:.3f}{" (coerced)" if values[0][1] else ""}, '
-                                  f'{values[1][0]:.3f}{" (coerced)" if values[1][1] else ""}\n'
-                                  f'S2 [A]: {values[2][0]:.3f}{" (coerced)" if values[2][1] else ""}, '
-                                  f'{values[3][0]:.3f}{" (coerced)" if values[3][1] else ""}',
-                                  ['Yes', 'No'])
-        if answer == 'Yes':
-            UserInterface.report(f'Applying S1 currents ({values[0][0]:.3f}, {values[1][0]:.3f})...')
-            steers[0].set_current('horizontal', values[0][0])
-            steers[0].set_current('vertical', values[1][0])
-
-            UserInterface.report(f'Applying S2 currents ({values[2]:.3f}, {values[3]:.3f})...')
-            steers[1].set_current('horizontal', values[2][0])
-            steers[1].set_current('vertical', values[3][0])
-
-        [s.close() for s in steers[:2]]
-        steers[:2] = [None] * 2
-
-    except Exception as ex:
-        UserInterface.report('EMQs alignment failed')
-        Bridge.python_error(message=str(ex))
-
-
-def lpa_initialization(call: list):
-    lpa: Optional[LPA] = None
-
-    try:
-        if Handler.question('Are you ready to run an LPA initialization?', ['Yes', 'No']) == 'No':
-            return
-
-        lpa = LPA(htu.is_offline)
-
-        # rough Z-scan
-        # --------------------------------------------------
-        if htu.is_offline:
-            pos = 8.5
-            device = 'U_ESP_JetXYZ'
-            var_name = 'Position.Axis 3'
-        else:
-            pos = round(lpa.jet.stage.get_position('Z'), 2)
-            # device = lpa.jet.stage
-            device = 'U_ESP_JetXYZ'
-            var_name = lpa.jet.stage.get_axis_var_name(2)
-
-        rough = True
-        min_max_step_steps = (6, 11, 0.25, 20) if rough else (pos - 1, pos + 1, 0.1, 20)
-
-        lpa.manage_scan(htu, device, var_name, min_max_step_steps,
-                        units='mm', precision=3, label='Z', rough=rough, call=call[0],
-                        dE_weight=1., pC_weight=6., MeV_weight=2.)
-
-        # X-scan
-        # --------------------------------------------------
-        # rough = False
-        # var_name = lpa.jet.stage.get_axis_var_name(0)
-        # min_max_step_steps = (5, 8, 0.4, 20) if rough else (5.5, 7.5, 0.1, 20)
-        # if lpa.jet is None:
-        #     device = 'U_ESP_JetXYZ'
-        #     variable = 'Position.Axis 1'
-        # else:
-        #     device = lpa.jet.stage.get_name()
-        #     variable = lpa.jet.stage.get_axis_var_name(2)
-        #
-        # lpa.manage_scan(htu, device, var_name, min_max_step_steps,
-        #                 units='mm', precision=3, label='X', rough=rough, call=call[0],
-        #                 dE_weight=6., pC_weight=3., MeV_weight=1.)
-
-    except Exception as ex:
-        UserInterface.report('LPA initialization failed')
-        Bridge.python_error(message=str(ex))
-
-    finally:
-        if isinstance(lpa, LPA):
-            lpa.close()
 
 
 if __name__ == "__main__":

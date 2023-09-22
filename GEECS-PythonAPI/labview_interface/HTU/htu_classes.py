@@ -9,7 +9,6 @@ from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.HTU.gas_jet import GasJet
 from geecs_python_api.controls.devices.HTU.laser import Laser
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-# from geecs_python_api.controls.devices.HTU.transport import Steering
 from geecs_python_api.analysis.images.scans.scan_data import ScanData
 
 
@@ -34,7 +33,7 @@ class Handler:
 
     @staticmethod
     def question(message: str, possible_answers: list, modal: bool = True) -> Optional[Any]:
-        success, answer = Bridge.labview_call('handler', 'question', ['answer'], sync=True, timeout_sec=600.,
+        success, answer = Bridge.labview_call('handler', 'question', ['answer'], sync=True, timeout_sec=900.,
                                               message=message, possible_answers=possible_answers, modal=modal)
         if success:
             return answer['answer']
@@ -68,59 +67,48 @@ class LPA:
         if is_offline:
             self.jet = self.laser = None
         else:
-            UserInterface.report('Connecting to gas jet elements...')
             self.jet = GasJet()
-
-            UserInterface.report('Connecting to laser elements...')
             self.laser = Laser()
+            UserInterface.report('System connected')
 
     def close(self):
-        UserInterface.report('Disconnecting from gas jet elements...')
         self.jet.close()
-
-        UserInterface.report('Disconnecting from laser elements...')
         self.laser.close()
+        UserInterface.report('System disconnected')
 
     def manage_scan(self, exp: Experiment, device: Union[GeecsDevice, str], var_name: str,
                     min_max_step_steps: tuple, units: str, precision: int, label: str, rough: bool, call: str,
-                    dE_weight: float = 1., pC_weight: float = 1., MeV_weight: float = 1.):
-        cancel_msg = 'LPA initialization canceled'
-        run_scan = Handler.question(f'Next scan: rough {label}-scan. Proceed?', ['Yes', 'Skip', 'Cancel'])
+                    dE_weight: float = 1., pC_weight: float = 1., MeV_weight: float = 1.) -> Optional[float]:
+        if isinstance(device, GeecsDevice):
+            cancel, scan_folder = self.dev_scan(device, var_name, min_max_step_steps, units, label, rough)
+        else:
+            cancel = False
+            scan_folder = Path(exp.base_path / r'Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
 
-        if run_scan == 'Cancel':
-            UserInterface.report(cancel_msg)
-            return
+        if cancel:
+            UserInterface.report('LPA initialization canceled by user')
+            return None
+        else:
+            UserInterface.report(rf'Done ({scan_folder.name})')
 
-        if run_scan == 'Yes':
-            if isinstance(device, GeecsDevice):
-                cancel, scan_folder = self.dev_scan(device, var_name, min_max_step_steps, units, label, rough)
-            else:
-                cancel = False
-                scan_folder = Path(exp.base_path / r'Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
-            if cancel:
-                UserInterface.report(cancel_msg)
-                return
-            else:
-                UserInterface.report(rf'Done ({scan_folder.name})')
+        UserInterface.report('Running analysis...')
+        dev_name = device.get_name() if isinstance(device, GeecsDevice) else device
+        results = self.dev_scan_analysis(dev_name, var_name, exp, scan_folder, dE_weight, pC_weight, MeV_weight)
+        results['precision'] = np.array([precision])
 
-            UserInterface.report('Running analysis...')
-            dev_name = device.get_name() if isinstance(device, GeecsDevice) else device
-            results = self.dev_scan_analysis(dev_name, var_name, exp, scan_folder, dE_weight, pC_weight, MeV_weight)
-            results['precision'] = np.array([precision])
-            if 'weight-based objs' in results:
-                results['weight-based objs']['global obj']['precision'] = np.array([precision])
-                recommended = results['weight-based objs']['global obj']['best']
-            else:
-                results['fit-based objs']['global obj']['precision'] = np.array([precision])
-                recommended = results['fit-based objs']['global obj']['best']
+        recommended: float
+        if 'weight-based objs' in results:
+            results['weight-based objs']['global obj']['precision'] = np.array([precision])
+            recommended = results['weight-based objs']['global obj']['best']
+        else:
+            results['fit-based objs']['global obj']['precision'] = np.array([precision])
+            recommended = results['fit-based objs']['global obj']['best']
 
-            UserInterface.clear_plots(call)
-            Handler.send_results(f'{label.lower()}-scan', flatten_dict(results))
+        UserInterface.clear_plots(call)
+        Handler.send_results(f'{label.lower()}-scan', flatten_dict(results))
+        UserInterface.report(f'Done. Recommended: {label} = {recommended:.{precision}f} mm')
 
-            answer = Handler.question(f'Proceed the recommended {label}-position ({recommended:.{precision}f} mm)?',
-                                      ['Yes', 'No'])
-            if answer == 'Yes':
-                self.jet.stage.set_position('Z', round(recommended, 3))
+        return recommended
 
     @staticmethod
     def dev_scan(device: GeecsDevice, var_name: str, min_max_step_steps: tuple,
@@ -177,47 +165,6 @@ class LPA:
             magspec_data = {'setpoints': setpoints, 'indexes': indexes}
 
         return magspec_data
-
-    def jet_scan(self, axis: int, rough: bool = False) -> tuple[bool, Optional[Path]]:
-        pos = round(self.jet.stage.get_position(axis), 2)
-        axis_alias = self.jet.stage.get_axis_var_alias(axis)
-        lims = self.jet.stage.var_spans[axis_alias]
-        values: Union[dict, str]
-
-        if axis == 0:  # X-axis
-            pars = [5, 8, 0.4, 20] if rough else [5.5, 7.5, 0.1, 20]
-            lbl = 'X'
-        elif axis == 1:  # Y-axis
-            pars = [-8, -8.5, 0.05, 20] if rough else [-8.2, -8.5, 0.015, 20]
-            lbl = 'Y'
-        elif axis == 2:  # Z-axis
-            pars = [6, 11, 0.25, 20] if rough else [pos - 1, pos + 1, 0.1, 20]
-            lbl = 'Z'
-        else:
-            return True, None
-
-        while True:
-            values = Handler.request_values(f'{"Rough" if rough else "Fine"} {lbl}-scan parameters:',
-                                            [('Start [mm]', 'float', lims[0], lims[1], pars[0]),
-                                             ('End [mm]', 'float', lims[0], lims[1], pars[1]),
-                                             ('Steps [mm]', 'float', 0, 10, pars[2]),
-                                             ('Shots/Step', 'int', 1, 'inf', pars[3])])
-            if isinstance(values, str) and (values == 'Cancel'):
-                cancel = True
-                scan_folder = None
-                break
-
-            UserInterface.report(f'Starting {"rough" if rough else "fine"} {lbl}-scan...')
-            scan_folder, _, _, _ = self.jet.stage.scan(axis_alias, values['Start [mm]'], values['End [mm]'],
-                                                       values['Steps [mm]'], lims, values['Shots/Step'],
-                                                       comment=f'{"rough" if rough else "fine"} Z-scan')
-
-            repeat = Handler.question(f'Do you want to repeat this {lbl}-scan?', ['Yes', 'No', 'Cancel'])
-            cancel = (repeat == 'Cancel')
-            if repeat != 'Yes':
-                break
-
-        return cancel, scan_folder
 
     @staticmethod
     def objective_analysis(setpoints: np.ndarray, magspec_data: dict[str, dict[str, np.ndarray]],
