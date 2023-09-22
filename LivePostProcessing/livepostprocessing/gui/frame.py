@@ -96,35 +96,11 @@ class MainFrame ( wx.Frame ):
 
         b_image_analyzer_properties.Add( self.m_image_analyzer_propertyGrid_old, 1, wx.ALL|wx.EXPAND, 5 )
 
-        self.m_property_help_text = wx.TextCtrl( self, wx.ID_ANY, u"Click on a property to get more information", wx.DefaultPosition, wx.DefaultSize, wx.TE_MULTILINE|wx.TE_READONLY )
-        self.m_property_help_text.Enable( False )
-        self.m_property_help_text.Hide()
-        self.m_property_help_text.SetMaxSize( wx.Size( -1,75 ) )
-
-        b_image_analyzer_properties.Add( self.m_property_help_text, 1, wx.ALL|wx.EXPAND, 5 )
-
 
         b_image_analyzers_widgets.Add( b_image_analyzer_properties, 2, wx.EXPAND, 5 )
 
 
         b_image_analyzers.Add( b_image_analyzers_widgets, 1, wx.EXPAND, 5 )
-
-        bBackground = wx.BoxSizer( wx.HORIZONTAL )
-
-        self.m_background_label = wx.StaticText( self, wx.ID_ANY, u"Background", wx.DefaultPosition, wx.DefaultSize, 0 )
-        self.m_background_label.Wrap( -1 )
-
-        self.m_background_label.Hide()
-
-        bBackground.Add( self.m_background_label, 0, wx.ALL, 5 )
-
-        self.m_background_filePicker = wx.FilePickerCtrl( self, wx.ID_ANY, wx.EmptyString, u"Select a file", u"*.*", wx.DefaultPosition, wx.DefaultSize, wx.FLP_DEFAULT_STYLE )
-        self.m_background_filePicker.Hide()
-
-        bBackground.Add( self.m_background_filePicker, 1, wx.ALL, 5 )
-
-
-        b_image_analyzers.Add( bBackground, 0, wx.EXPAND, 5 )
 
 
         bSizer1.Add( b_image_analyzers, 1, wx.BOTTOM|wx.EXPAND|wx.LEFT, 5 )
@@ -144,7 +120,6 @@ class MainFrame ( wx.Frame ):
         self.m_analyze_device_checklist.Bind( wx.EVT_CHECKLISTBOX, self.m_analyze_device_checklist_OnCheckListBoxToggled )
         self.m_image_analyzer_propertyGrid.Bind( pg.EVT_PG_CHANGED, self.m_image_analyzer_propertyGrid_OnPropertyGridChanged )
         self.m_image_analyzer_propertyGrid_old.Bind( pg.EVT_PG_CHANGED, self.m_image_analyzer_propertyGrid_OnPropertyGridChanged )
-        self.m_background_filePicker.Bind( wx.EVT_FILEPICKER_CHANGED, self.m_background_filePicker_OnFileChanged )
 
     def __del__( self ):
         pass
@@ -169,8 +144,5 @@ class MainFrame ( wx.Frame ):
     def m_image_analyzer_propertyGrid_OnPropertyGridChanged( self, event ):
         event.Skip()
 
-
-    def m_background_filePicker_OnFileChanged( self, event ):
-        event.Skip()
 
 
