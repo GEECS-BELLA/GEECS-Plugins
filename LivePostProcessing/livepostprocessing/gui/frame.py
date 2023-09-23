@@ -90,11 +90,24 @@ class MainFrame ( wx.Frame ):
         self.m_image_analyzer_propertyGrid.SetExtraStyle( wx.propgrid.PG_EX_MODE_BUTTONS )
         b_image_analyzer_properties.Add( self.m_image_analyzer_propertyGrid, 1, wx.ALL|wx.EXPAND, 5 )
 
-        self.m_image_analyzer_propertyGrid_old = pg.PropertyGrid(self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.propgrid.PG_DEFAULT_STYLE)
-        self.m_image_analyzer_propertyGrid_old.Enable( False )
-        self.m_image_analyzer_propertyGrid_old.Hide()
+        self.m_staticText5 = wx.StaticText( self, wx.ID_ANY, u"Image analyzer configuration", wx.DefaultPosition, wx.DefaultSize, 0 )
+        self.m_staticText5.Wrap( -1 )
 
-        b_image_analyzer_properties.Add( self.m_image_analyzer_propertyGrid_old, 1, wx.ALL|wx.EXPAND, 5 )
+        b_image_analyzer_properties.Add( self.m_staticText5, 0, wx.ALL, 5 )
+
+        self.m_config_filePicker = wx.FilePickerCtrl( self, wx.ID_ANY, wx.EmptyString, u"Select image analyzer configuration file", u"*.*", wx.DefaultPosition, wx.DefaultSize, wx.FLP_DEFAULT_STYLE )
+        b_image_analyzer_properties.Add( self.m_config_filePicker, 0, wx.ALL|wx.EXPAND, 5 )
+
+        b_load_save_config = wx.BoxSizer( wx.HORIZONTAL )
+
+        self.m_loadconfig_button = wx.Button( self, wx.ID_ANY, u"Load", wx.DefaultPosition, wx.DefaultSize, 0 )
+        b_load_save_config.Add( self.m_loadconfig_button, 0, wx.ALL, 5 )
+
+        self.m_saveconfig_button = wx.Button( self, wx.ID_ANY, u"Save", wx.DefaultPosition, wx.DefaultSize, 0 )
+        b_load_save_config.Add( self.m_saveconfig_button, 0, wx.ALL, 5 )
+
+
+        b_image_analyzer_properties.Add( b_load_save_config, 0, wx.EXPAND, 5 )
 
 
         b_image_analyzers_widgets.Add( b_image_analyzer_properties, 2, wx.EXPAND, 5 )
@@ -119,7 +132,8 @@ class MainFrame ( wx.Frame ):
         self.m_analyze_device_checklist.Bind( wx.EVT_LISTBOX, self.m_analyze_device_checklist_OnCheckListBoxSelect )
         self.m_analyze_device_checklist.Bind( wx.EVT_CHECKLISTBOX, self.m_analyze_device_checklist_OnCheckListBoxToggled )
         self.m_image_analyzer_propertyGrid.Bind( pg.EVT_PG_CHANGED, self.m_image_analyzer_propertyGrid_OnPropertyGridChanged )
-        self.m_image_analyzer_propertyGrid_old.Bind( pg.EVT_PG_CHANGED, self.m_image_analyzer_propertyGrid_OnPropertyGridChanged )
+        self.m_loadconfig_button.Bind( wx.EVT_BUTTON, self.m_loadconfig_button_OnButtonClick )
+        self.m_saveconfig_button.Bind( wx.EVT_BUTTON, self.m_saveconfig_button_OnButtonClick )
 
     def __del__( self ):
         pass
@@ -144,5 +158,10 @@ class MainFrame ( wx.Frame ):
     def m_image_analyzer_propertyGrid_OnPropertyGridChanged( self, event ):
         event.Skip()
 
+    def m_loadconfig_button_OnButtonClick( self, event ):
+        event.Skip()
+
+    def m_saveconfig_button_OnButtonClick( self, event ):
+        event.Skip()
 
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from docstring_parser import parse_from_object as parse_docstring_from_object
 from docstring_parser import DocstringStyle
 
+from configparser import ConfigParser
 
 from pint import Quantity  # for image_analyzer_parameter_pg_property_map
 # Q_ is used when converting pg_property from string to Quantity, and it needs
@@ -78,11 +79,7 @@ class LivePostProcessingGUI(MainFrame):
         Quantity: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, str, Q_),
     }
 
-    def m_analyze_device_checklist_OnCheckListBoxSelect( self, event: wx.CommandEvent ):
-        """ Load image analyzer config.
-        """
-        device_name: str = event.GetString()
-
+    def _populate_property_grid(self, device_name: str):
         # get list of parameters and their types from the image analyzer's __init__
         image_analyzer = self.scan_analyzer.image_analyzers[device_name]
         image_analyzer_parameter_types = get_type_hints(image_analyzer.__init__)
@@ -117,7 +114,10 @@ class LivePostProcessingGUI(MainFrame):
                 print(f"Don't know how to make grid property from parameter {parameter_name} of type {parameter_type}")
 
         
-        
+    def m_analyze_device_checklist_OnCheckListBoxSelect( self, event: wx.CommandEvent ):
+        """ Load image analyzer config.
+        """
+        self._populate_property_grid(event.GetString())
 
 
     def m_image_analyzer_propertyGrid_OnPropertyGridChanged( self, event: pg.PropertyGridEvent ):
@@ -185,7 +185,12 @@ class LivePostProcessingGUI(MainFrame):
         self.SetStatusText("Finished scan analysis")
 
 
-        
+    def m_loadconfig_button_OnButtonClick( self, event: wx.CommandEvent ):
+        # TODO: update property values
+        self.scan_analyzer.load_image_analyzer_config(self.m_config_filePicker.GetPath())
+
+    def m_saveconfig_button_OnButtonClick( self, event: wx.CommandEvent ):
+        self.scan_analyzer.save_image_analyzer_config(self.m_config_filePicker.GetPath())
 
     def print_event( self, event ):
         print(f"{type(event)=}\n{event.EventObject=}\n{event.EventType=}")

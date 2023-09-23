@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     ShotKey = tuple[RunID, ScanNumber, ShotNumber]
     DeviceMetricKey = tuple[DeviceName, MetricName]
     AnalysisDict = dict[DeviceMetricKey, Union[float, NDArray]]
+    from pathlib import Path
 
 import numpy as np
 from imageio.v3 import imwrite
@@ -106,6 +107,12 @@ class ScanAnalyzer:
         """
         s_file = SFile(self.scan)
         s_file.upload_data_to_cloud()
+
+    def save_image_analyzer_config(self, config_filename: str|Path):
+        raise NotImplementedError("not yet implemented")
+    
+    def load_image_analyzer_config(self, config_filename: str|Path):
+        raise NotImplementedError("not yet implemented")
 
 
 if __name__ == '__main__':
