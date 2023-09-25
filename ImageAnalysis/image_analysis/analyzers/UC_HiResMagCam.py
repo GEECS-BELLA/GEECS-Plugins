@@ -49,7 +49,7 @@ class UC_HiResMagCamImageAnalyzer(ImageAnalyzer):
             The minimum value by which a pixel can be considered as "Saturated." The default is 2^12 - 1
         normalization_factor: float
             Factor to go from camera counts to pC/MeV. Depends on trigger delay, exposure, and the threshold value for
-            magspec analysis. See post_analysis/scripts_charge_calibration for how this is calculated
+            magspec analysis. See calibration_scripts/scripts_charge_calibration for how this is calculated
             default value comes from July 25th, Scan 24, HiResMagSpec, 
                 normalization_triggerdelay = 15.497208
                 normalization_exposure = 0.010000

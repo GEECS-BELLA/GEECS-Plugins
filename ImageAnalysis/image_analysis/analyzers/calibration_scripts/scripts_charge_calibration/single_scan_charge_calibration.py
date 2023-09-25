@@ -20,15 +20,18 @@ from scipy.optimize import curve_fit
 rootpath = os.path.abspath("../../../../../")
 sys.path.insert(0, rootpath)
 
-import ImageAnalysis.image_analysis.analyzers.post_analysis.modules_image_processing.pngTools as pngTools
-import ImageAnalysis.image_analysis.analyzers.post_analysis.modules_image_processing.shot_charge_reader as charge_tdms
+import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.pngTools as pngTools
+import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.shot_charge_reader as charge_tdms
+import ImageAnalysis.image_analysis.analyzers.UC_HiResMagCam as mag_spec_caller
 import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.directory_functions as directory_functions
-import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.hi_res_mag_spec_analysis as mag_spec_analysis
+import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.mag_spec_analysis as mag_spec_analysis
 import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.math_tools as math_tools
 
 
 def linear(x, a):
     return a * x
+
+
 # Locate the scan directory
 
 
@@ -58,18 +61,17 @@ else:
 super_path = directory_functions.compile_daily_path(data_day, data_month, data_year)
 image_name = "U_HiResMagCam"
 
-inputParams = {
-    "Threshold-Value": 100,  # Careful attention to this value for the normalization!
-    "Pixel-Crop": 1,
-    "Saturation-Value": 4095,
-    "Normalization-Factor": 1,  # NO NORMALIZATION HERE
-    "Transverse-Calibration": 43,
-    "Do-Transverse-Calculation": False,  # False if you want to skip
-    "Transverse-Slice-Threshold": 0.02,
-    "Transverse-Slice-Binsize": 5,
-    "Optimization-Central-Energy": 100.0,
-    "Optimization-Bandwidth-Energy": 2.0
-}
+inputParams = mag_spec_caller.UC_HiResMagCamImageAnalyzer(
+    noise_threshold=100,
+    edge_pixel_crop=1,
+    saturation_value=4095,
+    normalization_factor=1,  # 7.643283839778091e-07,
+    transverse_calibration=43,
+    do_transverse_calculation=False,  # True,
+    transverse_slice_threshold=0.02,
+    transverse_slice_binsize=5,
+    optimization_central_energy=100.0,
+    optimization_bandwidth_energy=2.0).build_input_parameter_dictionary()
 
 num_shots = directory_functions.get_number_of_shots(super_path, scan_number, image_name)
 shot_arr = np.array(range(num_shots)) + 1
@@ -85,16 +87,17 @@ for i in range(len(shot_arr)):
     shot_number = shot_arr[i]
     if doPrint:
         print("Shot Number:", shot_number)
-    fullpath = directory_functions.compile_file_location(super_path, scan_number, shot_number, image_name, suffix=".png")
+    fullpath = directory_functions.compile_file_location(super_path, scan_number, shot_number, image_name,
+                                                         suffix=".png")
     image = pngTools.nBitPNG(fullpath)
     if doPrint:
         print("Loaded")
 
     processed_image = image.astype(np.float32)
     returned_image, MagSpecDict, lineouts = mag_spec_analysis.analyze_image(processed_image, inputParams)
-    clipping_arr[i] = MagSpecDict['Clipped-Percentage']
-    saturation_arr[i] = MagSpecDict['Saturation-Counts']
-    camera_counts_arr[i] = MagSpecDict['Charge-On-Camera']
+    clipping_arr[i] = MagSpecDict['camera_clipping_factor']
+    saturation_arr[i] = MagSpecDict['camera_saturation_counts']
+    camera_counts_arr[i] = MagSpecDict['total_charge_pC']
     if doPrint:
         print("Clipped Percentage:", clipping_arr[i])
         print("Saturation Counts:", saturation_arr[i])

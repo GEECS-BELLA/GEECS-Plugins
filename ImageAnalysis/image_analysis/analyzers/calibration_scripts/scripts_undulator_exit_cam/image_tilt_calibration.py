@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 rootpath = os.path.abspath("../../../../")
 sys.path.insert(0, rootpath)
-import image_analysis.analyzers.post_analysis.modules_image_processing.pngTools as pngTools
+import image_analysis.analyzers.calibration_scripts.modules_image_processing.pngTools as pngTools
 
 
 def find_two_peaks(input_image):
@@ -51,8 +51,8 @@ threshold = 100
 wavelength = 450  # nm
 min_wavelength = 150
 
-# shot_array = np.arange(11, 34 + 1)
-shot_array = np.array([11])
+shot_array = np.arange(11, 34 + 1)
+# shot_array = np.array([11])
 num_shots = len(shot_array)
 tilt_values = np.zeros(num_shots)
 calibration_values = np.zeros(num_shots)
