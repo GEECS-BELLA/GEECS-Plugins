@@ -206,14 +206,14 @@ class GrenouilleRetrieval:
         pulse = np.exp(-np.square(self.t - self.t[-1] / 2) / (pulse_FWHM**2 / (4 * np.log(2))))
         return pulse.m
 
-    def _calculate_E_sig(self):
+    def _calculate_E_sig_from_E(self, E: np.ndarray) -> np.ndarray:
         """ Calculate E_sig(t, τ) = E(t) gate(E(t - τ))
             
             gate(E(t)) depends on the non-linear effect.
         """
 
-        E_interpolator_real = InterpolatedUnivariateSpline(self.t.m_as('sec'), self.E.real, ext='zeros')
-        E_interpolator_imag = InterpolatedUnivariateSpline(self.t.m_as('sec'), self.E.imag, ext='zeros')
+        E_interpolator_real = InterpolatedUnivariateSpline(self.t.m_as('sec'), E.real, ext='zeros')
+        E_interpolator_imag = InterpolatedUnivariateSpline(self.t.m_as('sec'), E.imag, ext='zeros')
 
         def gate(t):
 
@@ -223,7 +223,7 @@ class GrenouilleRetrieval:
                         + np.square(E_interpolator_imag(t.m_as('sec')))
                        )
             def gate_second_harmonic_generation(t):
-                """ gate(t) = |E(t)| """
+                """ gate(t) = E(t) """
                 return E_interpolator_real(t.m_as('sec')) + 1j * E_interpolator_imag(t.m_as('sec'))
 
             return {'self_diffraction': gate_self_diffraction,
@@ -234,13 +234,16 @@ class GrenouilleRetrieval:
             """ Return E(t) * gate(E(t-τ)) for a given tau
                 i.e. single column of E_sig(t, tau)
             """
-            return self.E * gate(self.t - τ)
+            return E * gate(self.t - τ)
 
-        self.E_sig_tτ = np.transpose(
+        return np.transpose(
             np.fromiter((E_sig_column(τ) for τ in self.τ), 
                         (np.complex128, len(self.t))
                        )
         )
+
+    def _calculate_E_sig(self):
+        self.E_sig_tτ = self._calculate_E_sig_from_E(self.E)
 
     def _calculate_FT_E_sig(self):
         self.E_sig_ωτ = np.fft.fftshift(np.fft.fft(self.E_sig_tτ, axis=0), axes=(0,))
