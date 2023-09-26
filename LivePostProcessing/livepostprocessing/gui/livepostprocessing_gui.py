@@ -16,7 +16,7 @@ from image_analysis import Q_
 
 from .frame import MainFrame
 
-from image_analysis.utils import ROI, NotAPath
+from image_analysis.utils import ROI
 
 from wx import App
 import wx.propgrid as pg
@@ -66,10 +66,10 @@ class LivePostProcessingGUI(MainFrame):
         int: ImageAnalyzerParameterPGPropertyConverter(pg.IntProperty, int, int),
         float: ImageAnalyzerParameterPGPropertyConverter(pg.FloatProperty, float, float),
         str: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, str, str),
-        Path: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, 
+        Path: ImageAnalyzerParameterPGPropertyConverter(pg.FileProperty, 
             lambda path: str(path) if path else '', 
             # property value is a string
-            lambda pv: Path(pv) if pv else NotAPath(),
+            lambda pv: Path(pv) if pv else Path('NUL'),
         ),
         ROI: ImageAnalyzerParameterPGPropertyConverter(pg.ArrayStringProperty,
             lambda roi: [str(roi.top), str(roi.bottom), str(roi.left), str(roi.right)],
