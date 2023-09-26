@@ -64,7 +64,7 @@ class MainFrame ( wx.Frame ):
         fgSizer1.Add( self.m_run_scan_analysis_Button, 0, wx.ALL|wx.EXPAND, 5 )
 
 
-        bSizer1.Add( fgSizer1, 1, wx.EXPAND|wx.LEFT|wx.TOP, 5 )
+        bSizer1.Add( fgSizer1, 0, wx.EXPAND|wx.LEFT|wx.TOP, 5 )
 
         self.m_staticline1 = wx.StaticLine( self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.LI_HORIZONTAL )
         bSizer1.Add( self.m_staticline1, 0, wx.EXPAND |wx.ALL, 5 )
@@ -95,7 +95,7 @@ class MainFrame ( wx.Frame ):
 
         b_image_analyzer_properties.Add( self.m_staticText5, 0, wx.ALL, 5 )
 
-        self.m_config_filePicker = wx.FilePickerCtrl( self, wx.ID_ANY, wx.EmptyString, u"Select image analyzer configuration file", u"*.*", wx.DefaultPosition, wx.DefaultSize, wx.FLP_DEFAULT_STYLE )
+        self.m_config_filePicker = wx.FilePickerCtrl( self, wx.ID_ANY, wx.EmptyString, u"Select image analyzer configuration file", u"*.*", wx.DefaultPosition, wx.DefaultSize, wx.FLP_USE_TEXTCTRL )
         b_image_analyzer_properties.Add( self.m_config_filePicker, 0, wx.ALL|wx.EXPAND, 5 )
 
         b_load_save_config = wx.BoxSizer( wx.HORIZONTAL )

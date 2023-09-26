@@ -158,7 +158,6 @@ class LivePostProcessingGUI(MainFrame):
         self.m_stop_live_analysis_Button.Enable()
 
         self.m_analyze_device_checklist.Disable()
-        self.m_background_filePicker.Disable()
         self.m_image_analyzer_propertyGrid.Disable()
 
     def m_stop_live_analysis_Button_OnButtonClick( self, event: wx.CommandEvent ):
@@ -169,7 +168,6 @@ class LivePostProcessingGUI(MainFrame):
         self.m_stop_live_analysis_Button.Disable()
         
         self.m_analyze_device_checklist.Enable()
-        self.m_background_filePicker.Enable()
         self.m_image_analyzer_propertyGrid.Enable()
 
     def m_run_scan_analysis_Button_OnButtonClick( self, event: wx.CommandEvent ):
