@@ -91,6 +91,7 @@ class LivePostProcessingGUI(MainFrame):
         }
 
         self.m_image_analyzer_propertyGrid.Clear()
+        image_analyzer_propertyGrid_page = self.m_image_analyzer_propertyGrid.AddPage("image_analyzer_properties")
         for parameter_name, parameter_type in image_analyzer_parameter_types.items():
             if parameter_type in self.image_analyzer_parameter_pg_property_map:
                 # get the ImageAnalyzerParameterPGPropertyConverter instance for this type
@@ -98,7 +99,7 @@ class LivePostProcessingGUI(MainFrame):
                 # get parameter value from image analyzer and convert it for the PGProperty
                 property_grid_value = image_analyzer_parameter_pg_property_converter.parameter_value_to_pg_property_value(getattr(image_analyzer, parameter_name))
                 # add new PGProperty to the PropertyGrid
-                property_grid_item = self.m_image_analyzer_propertyGrid.Append( 
+                property_grid_item = image_analyzer_propertyGrid_page.Append( 
                     image_analyzer_parameter_pg_property_converter.pg_property_subclass(
                         label=parameter_name, name=parameter_name, 
                         value=property_grid_value,
@@ -188,9 +189,14 @@ class LivePostProcessingGUI(MainFrame):
     def m_loadconfig_button_OnButtonClick( self, event: wx.CommandEvent ):
         # TODO: update property values
         self.scan_analyzer.load_image_analyzer_config(self.m_config_filePicker.GetPath())
+        if self.m_analyze_device_checklist.GetSelections():
+            self._populate_property_grid(self.m_analyze_device_checklist.GetString(self.m_analyze_device_checklist.GetSelections()[0]))
+        self.SetStatusText("Loaded configuration.")
+
 
     def m_saveconfig_button_OnButtonClick( self, event: wx.CommandEvent ):
         self.scan_analyzer.save_image_analyzer_config(self.m_config_filePicker.GetPath())
+        self.SetStatusText("Saved configuration.")
 
     def print_event( self, event ):
         print(f"{type(event)=}\n{event.EventObject=}\n{event.EventType=}")
