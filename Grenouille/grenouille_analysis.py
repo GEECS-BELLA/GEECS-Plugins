@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
+from scipy.optimize import least_squares
 
 def invert_wavelength_angular_frequency(wavelength_or_angular_frequency):
     return Q_(2*np.pi, 'radians') * ureg.speed_of_light / wavelength_or_angular_frequency
@@ -263,10 +264,49 @@ class GrenouilleRetrieval:
             self.E = trapz_ua(self.E_sig_tτ, self.τ).m
 
         def _calculate_next_E_by_generalized_projection_along_gradient():
-            raise NotImplementedError()
+            
+            def resid(E_est):
+                E_sig_est = self._calculate_E_sig_from_E(E_est)
+                return np.abs(self.E_sig_tτ - E_sig_est).flatten()
+
+            REAL = 1; IMAG = 2; 
+            dEi = 1e-6
+            Z0 = np.sum(np.square(resid(self.E)))
+
+            def dZdEi(i, real_or_imag):
+                dE = np.zeros(len(self.E)); 
+                if real_or_imag == REAL: 
+                    dE[i] += dEi
+                elif real_or_imag == IMAG:
+                    dE[i] += 1j * dEi
+                Z = np.sum(np.square(resid(self.E + dE)))
+                return (Z - Z0) / dEi
+            
+            dZdE = (  np.array([dZdEi(i, REAL) for i in range(len(self.E))]) 
+                    + 1j * np.array([dZdEi(i, IMAG) for i in range(len(self.E))]) 
+                   )
+
+            def loss(beta):
+                return resid(self.E + beta * dZdE)
+            
+            solution = least_squares(loss, 0.0)
+
+            self.E += solution.x * dZdE
 
         def _calculate_next_E_by_generalized_projection_full_minimization():
-            raise NotImplementedError()
+            def loss(E_split_in_real_imag):
+                E_real, E_imag = E_split_in_real_imag.reshape((2, -1))
+                E_sig_est = self._calculate_E_sig_from_E(E_real + 1j * E_imag)
+
+                return np.abs(self.E_sig_tτ - E_sig_est).flatten()
+
+            solution = least_squares(loss, 
+                                     np.concatenate([self.E.real, self.E.imag]),
+                                     method='lm'
+                                    )
+            E_real, E_imag = solution.x.reshape((2, -1))
+
+            self.E = E_real + 1j * E_imag
 
         return {'integration': _calculate_next_E_by_integration,
                 'generalized_projection/along_gradient': _calculate_next_E_by_generalized_projection_along_gradient,
