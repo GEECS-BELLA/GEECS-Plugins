@@ -8,7 +8,6 @@ if TYPE_CHECKING:
     from ..types import Array2D, QuantityArray2D
 
 import numpy as np
-from pint import Quantity
 from scipy.optimize import curve_fit
 
 from warnings import warn
@@ -17,14 +16,14 @@ from ..base import ImageAnalyzer
 from ..utils import ROI, read_imaq_image, NotAPath
 
 from phasicsdensity.phasics_density_analysis import PhasicsImageAnalyzer
-from .. import ureg, Q_
+from .. import ureg, Q_, Quantity
 
 class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
 
     def __init__(self, 
                  roi: ROI = ROI(top=None, bottom=317, left=118, right=1600), 
                  medium: str = 'plasma',
-                 background_path: Path = NotAPath(),
+                 background_path: Path = Path('NUL'),
                  on_no_background: str = 'warn',
 
                  laser_wavelength: Quantity = Q_(800, 'nanometer'),
@@ -126,7 +125,7 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
             return self.background
 
         # next check for background_path
-        elif self.background_path:
+        elif (self.background_path and self.background_path != Path('nul')):
             if (self.background_path, self.roi) not in self.background_cache:
                 self.background_cache[(self.background_path, self.roi)] = self.calculate_background_from_path()
             return self.background_cache[(self.background_path, self.roi)]

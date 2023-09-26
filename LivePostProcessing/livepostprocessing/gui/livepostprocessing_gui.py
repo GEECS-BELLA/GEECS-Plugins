@@ -7,15 +7,15 @@ from pathlib import Path
 from docstring_parser import parse_from_object as parse_docstring_from_object
 from docstring_parser import DocstringStyle
 
+from configparser import ConfigParser
 
-from pint import Quantity  # for image_analyzer_parameter_pg_property_map
 # Q_ is used when converting pg_property from string to Quantity, and it needs
 # to be the same object as used in the `ImageAnalyzer`s
-from image_analysis import Q_
+from image_analysis import ureg, Q_, Quantity
 
 from .frame import MainFrame
 
-from image_analysis.utils import ROI, NotAPath
+from image_analysis.utils import ROI
 
 from wx import App
 import wx.propgrid as pg
@@ -65,10 +65,10 @@ class LivePostProcessingGUI(MainFrame):
         int: ImageAnalyzerParameterPGPropertyConverter(pg.IntProperty, int, int),
         float: ImageAnalyzerParameterPGPropertyConverter(pg.FloatProperty, float, float),
         str: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, str, str),
-        Path: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, 
+        Path: ImageAnalyzerParameterPGPropertyConverter(pg.FileProperty, 
             lambda path: str(path) if path else '', 
             # property value is a string
-            lambda pv: Path(pv) if pv else NotAPath(),
+            lambda pv: Path(pv) if pv else Path('NUL'),
         ),
         ROI: ImageAnalyzerParameterPGPropertyConverter(pg.ArrayStringProperty,
             lambda roi: [str(roi.top), str(roi.bottom), str(roi.left), str(roi.right)],
@@ -78,11 +78,7 @@ class LivePostProcessingGUI(MainFrame):
         Quantity: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, str, Q_),
     }
 
-    def m_analyze_device_checklist_OnCheckListBoxSelect( self, event: wx.CommandEvent ):
-        """ Load image analyzer config.
-        """
-        device_name: str = event.GetString()
-
+    def _populate_property_grid(self, device_name: str):
         # get list of parameters and their types from the image analyzer's __init__
         image_analyzer = self.scan_analyzer.image_analyzers[device_name]
         image_analyzer_parameter_types = get_type_hints(image_analyzer.__init__)
@@ -94,6 +90,7 @@ class LivePostProcessingGUI(MainFrame):
         }
 
         self.m_image_analyzer_propertyGrid.Clear()
+        image_analyzer_propertyGrid_page = self.m_image_analyzer_propertyGrid.AddPage("image_analyzer_properties")
         for parameter_name, parameter_type in image_analyzer_parameter_types.items():
             if parameter_type in self.image_analyzer_parameter_pg_property_map:
                 # get the ImageAnalyzerParameterPGPropertyConverter instance for this type
@@ -101,7 +98,7 @@ class LivePostProcessingGUI(MainFrame):
                 # get parameter value from image analyzer and convert it for the PGProperty
                 property_grid_value = image_analyzer_parameter_pg_property_converter.parameter_value_to_pg_property_value(getattr(image_analyzer, parameter_name))
                 # add new PGProperty to the PropertyGrid
-                property_grid_item = self.m_image_analyzer_propertyGrid.Append( 
+                property_grid_item = image_analyzer_propertyGrid_page.Append( 
                     image_analyzer_parameter_pg_property_converter.pg_property_subclass(
                         label=parameter_name, name=parameter_name, 
                         value=property_grid_value,
@@ -117,7 +114,10 @@ class LivePostProcessingGUI(MainFrame):
                 print(f"Don't know how to make grid property from parameter {parameter_name} of type {parameter_type}")
 
         
-        
+    def m_analyze_device_checklist_OnCheckListBoxSelect( self, event: wx.CommandEvent ):
+        """ Load image analyzer config.
+        """
+        self._populate_property_grid(event.GetString())
 
 
     def m_image_analyzer_propertyGrid_OnPropertyGridChanged( self, event: pg.PropertyGridEvent ):
@@ -158,7 +158,6 @@ class LivePostProcessingGUI(MainFrame):
         self.m_stop_live_analysis_Button.Enable()
 
         self.m_analyze_device_checklist.Disable()
-        self.m_background_filePicker.Disable()
         self.m_image_analyzer_propertyGrid.Disable()
 
     def m_stop_live_analysis_Button_OnButtonClick( self, event: wx.CommandEvent ):
@@ -169,7 +168,6 @@ class LivePostProcessingGUI(MainFrame):
         self.m_stop_live_analysis_Button.Disable()
         
         self.m_analyze_device_checklist.Enable()
-        self.m_background_filePicker.Enable()
         self.m_image_analyzer_propertyGrid.Enable()
 
     def m_run_scan_analysis_Button_OnButtonClick( self, event: wx.CommandEvent ):
@@ -185,7 +183,17 @@ class LivePostProcessingGUI(MainFrame):
         self.SetStatusText("Finished scan analysis")
 
 
-        
+    def m_loadconfig_button_OnButtonClick( self, event: wx.CommandEvent ):
+        # TODO: update property values
+        self.scan_analyzer.load_image_analyzer_config(self.m_config_filePicker.GetPath())
+        if self.m_analyze_device_checklist.GetSelections():
+            self._populate_property_grid(self.m_analyze_device_checklist.GetString(self.m_analyze_device_checklist.GetSelections()[0]))
+        self.SetStatusText("Loaded configuration.")
+
+
+    def m_saveconfig_button_OnButtonClick( self, event: wx.CommandEvent ):
+        self.scan_analyzer.save_image_analyzer_config(self.m_config_filePicker.GetPath())
+        self.SetStatusText("Saved configuration.")
 
     def print_event( self, event ):
         print(f"{type(event)=}\n{event.EventObject=}\n{event.EventType=}")
