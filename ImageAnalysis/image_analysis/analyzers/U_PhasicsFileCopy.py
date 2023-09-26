@@ -8,7 +8,6 @@ if TYPE_CHECKING:
     from ..types import Array2D, QuantityArray2D
 
 import numpy as np
-from pint import Quantity
 from scipy.optimize import curve_fit
 
 from warnings import warn
@@ -17,7 +16,7 @@ from ..base import ImageAnalyzer
 from ..utils import ROI, read_imaq_image, NotAPath
 
 from phasicsdensity.phasics_density_analysis import PhasicsImageAnalyzer
-from .. import ureg, Q_
+from .. import ureg, Q_, Quantity
 
 class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
 

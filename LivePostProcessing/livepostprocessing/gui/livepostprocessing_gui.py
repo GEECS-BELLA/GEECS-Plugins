@@ -9,10 +9,9 @@ from docstring_parser import DocstringStyle
 
 from configparser import ConfigParser
 
-from pint import Quantity  # for image_analyzer_parameter_pg_property_map
 # Q_ is used when converting pg_property from string to Quantity, and it needs
 # to be the same object as used in the `ImageAnalyzer`s
-from image_analysis import Q_
+from image_analysis import ureg, Q_, Quantity
 
 from .frame import MainFrame
 
