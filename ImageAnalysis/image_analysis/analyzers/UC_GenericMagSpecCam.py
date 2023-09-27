@@ -66,10 +66,6 @@ def return_analyzer_from_config_file(input_config_filename):
     return analyzer
 
 
-def roi_image(image, roi):
-    return image[roi[0]:roi[1], roi[2]:roi[3]]
-
-
 class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
 
     def __init__(self,
@@ -124,15 +120,10 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
         super().__init__()
 
         self.mag_spec_name = mag_spec_name
-        if self.mag_spec_name == 'hires':
-            default_input_config = 'default_hiresmagcam_settings.ini'
-        elif self.mag_spec_name == 'acave3':
-            default_input_config = 'default_acavemagcam3_settings.ini'
-        else:
-            raise ValueError("MagSpecCam analyzer created with incorrect device name.")
 
-        # I initialize ROI here instead of passing it through the class initialization because I don't want to
-        # have to import ROI from utils for every script that wants to run this analysis.  This is an opinion though
+        # NOTE: Not using the ROI class in utils because this is slightly more cumbersome to interface with the outside,
+        # but it is an option to have self.roi as an ROI class and just pass in a List[int] into __init__ and return a
+        # List[int] in the input_parameters dictionary.  Or, just import utils.ROI everywhere and deal with it.
         self.roi = roi
 
         self.noise_threshold = noise_threshold
@@ -145,12 +136,16 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
         self.optimization_central_energy = optimization_central_energy
         self.optimization_bandwidth_energy = optimization_bandwidth_energy
 
+        # NOTE: Could make these into the super class?
         self.do_print = False
         self.computational_clock_time = time.perf_counter()
 
+    def roi_image(self, image):
+        return image[self.roi[0]:self.roi[1], self.roi[2]:self.roi[3]]
+
     def analyze_image(self, input_image: Array2D, auxiliary_data: Optional[dict] = None,
                       ) -> dict[str, Union[float, np.ndarray]]:
-        processed_image = roi_image(input_image.astype(np.float32), self.roi)
+        processed_image = self.roi_image(input_image.astype(np.float32))
 
         saturation_number = analyze.saturation_check(processed_image, self.saturation_value)
         self.print_time(" Saturation Check:")
