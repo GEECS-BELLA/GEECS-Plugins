@@ -1,18 +1,59 @@
 import numpy as np
 
-def hi_res_mag_spec_labview(image,background=None):
-    from image_analysis.analyzers.UC_HiResMagCam import UC_HiResMagCamImageAnalyzer
 
-    results = UC_HiResMagCamImageAnalyzer().analyze_image(image)
+def hi_res_mag_spec_labview(image,background=None):
+    # mag_spec_name = 'hires'
+    # default_input_config = 'config_files\default_hiresmagcam_settings.ini'
+    # current_directory = os.path.dirname(os.path.abspath(__file__))
+    # config_filename = os.path.join(current_directory, default_input_config)
+    # return generic_mag_spec_cam_labview(image, mag_spec_name, config_filename, background)
+
+    # from image_analysis.analyzers.UC_HiResMagCam import UC_HiResMagCamImageAnalyzer
+    # results = UC_HiResMagCamImageAnalyzer().analyze_image(image)
+    # return parse_mag_spec_results(results)
+
+    import image_analysis.analyzers.UC_GenericMagSpecCam as mag_cam_analyzers
+    analyzer = mag_cam_analyzers.return_default_hi_res_mag_cam_analyzer()
+    results = analyzer.analyze_image(image)
     return parse_mag_spec_results(results)
 
 
 def acave_cam3_mag_spec_labview(image, background=None):
-    from image_analysis.analyzers.UC_ACaveMagCam3 import UC_ACaveMagCam3ImageAnalyzer
+    # from image_analysis.analyzers.UC_ACaveMagCam3 import UC_ACaveMagCam3ImageAnalyzer
+    # results = UC_ACaveMagCam3ImageAnalyzer().analyze_image(image)
+    # return parse_mag_spec_results(results)
 
-    results = UC_ACaveMagCam3ImageAnalyzer().analyze_image(image)
+    import image_analysis.analyzers.UC_GenericMagSpecCam as mag_cam_analyzers
+    analyzer = mag_cam_analyzers.return_default_acave_mag_cam3_analyzer()
+    results = analyzer.analyze_image(image)
     return parse_mag_spec_results(results)
 
+"""
+def generic_mag_spec_cam_labview(image, mag_spec_name, input_config_filename, background=None):
+    from image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
+
+    config = configparser.ConfigParser()
+    config.read(input_config_filename)
+    analyzer = UC_GenericMagSpecCamAnalyzer(
+        mag_spec_name=mag_spec_name,
+        roi_top=int(config.get('roi','top')),
+        roi_bottom=int(config.get('roi', 'bottom')),
+        roi_left=int(config.get('roi', 'left')),
+        roi_right=int(config.get('roi', 'right')),
+        noise_threshold=int(config.get('settings', 'noise_threshold')),
+        edge_pixel_crop=int(config.get('settings', 'edge_pixel_crop')),
+        saturation_value=int(config.get('settings', 'saturation_value')),
+        normalization_factor=float(config.get('settings', 'normalization_factor')),
+        transverse_calibration=float(config.get('settings', 'transverse_calibration')),
+        do_transverse_calculation=bool(config.get('settings', 'do_transverse_calculation')),
+        transverse_slice_threshold=float(config.get('settings', 'transverse_slice_threshold')),
+        transverse_slice_binsize=int(config.get('settings', 'transverse_slice_binsize')),
+        optimization_central_energy=float(config.get('settings', 'optimization_central_energy')),
+        optimization_bandwidth_energy=float(config.get('settings', 'optimization_bandwidth_energy')))
+    results = analyzer.analyze_image(image)
+
+    return parse_mag_spec_results(results)
+"""
 
 def parse_mag_spec_results(mag_spec_results):
     returned_image = mag_spec_results['processed_image_uint16']

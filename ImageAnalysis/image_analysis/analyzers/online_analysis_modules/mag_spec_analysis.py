@@ -66,7 +66,13 @@ def analyze_image(input_image, input_params, do_print=False):
 
     num_pixel_crop = input_params["edge_crop_pixels"]
     if num_pixel_crop > 0:
-        roi_image = input_image[num_pixel_crop: -num_pixel_crop, num_pixel_crop: -num_pixel_crop]
+        #roi_image = input_image[num_pixel_crop: -num_pixel_crop, num_pixel_crop: -num_pixel_crop]
+        y_start = 1
+        y_end = 327
+        x_start = 1
+        x_end = 1287
+        roi_image = input_image[y_start:y_end, x_start:x_end]
+        print(np.shape(input_image), np.shape(roi_image))
     else:
         roi_image = input_image
 

@@ -14,12 +14,14 @@ from __future__ import annotations
 import unittest
 import numpy as np
 
-# import sys
-# import os
-# rootpath = os.path.abspath("../../")
-# sys.path.insert(0, rootpath)
+import sys
+import os
+rootpath = os.path.abspath("../../")
+sys.path.insert(0, rootpath)
 
-import image_analysis.analyzers.UC_HiResMagCam as mag_spec_caller
+# import image_analysis.analyzers.UC_HiResMagCam as mag_spec_caller
+import image_analysis.analyzers.UC_GenericMagSpecCam as mag_spec_caller
+
 import image_analysis.labview_adapters as labview_function_caller
 
 def generate_elliptical_gaussian(amplitude, height, width, center_x, center_y, sigma_x, sigma_y, angle_deg):
@@ -59,6 +61,7 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
         # print("Elapsed Time: ", time.perf_counter() - start, "s")
 
         # start = time.perf_counter()
+        """
         results = mag_spec_caller.UC_HiResMagCamImageAnalyzer(
             noise_threshold=100,
             edge_pixel_crop=1,
@@ -70,7 +73,8 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
             transverse_slice_binsize=5,
             optimization_central_energy=100.0,
             optimization_bandwidth_energy=2.0).analyze_image(elliptical_gaussian_array)
-
+        """
+        results = mag_spec_caller.return_default_hi_res_mag_cam_analyzer().analyze_image(elliptical_gaussian_array)
         # print("Elapsed Time: ", time.perf_counter() - start, "s")
         # print(analyze_dict)
 
