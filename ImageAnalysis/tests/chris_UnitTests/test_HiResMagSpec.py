@@ -14,10 +14,10 @@ from __future__ import annotations
 import unittest
 import numpy as np
 
-import sys
-import os
-rootpath = os.path.abspath("../../")
-sys.path.insert(0, rootpath)
+# import sys
+# import os
+# rootpath = os.path.abspath("../../")
+# sys.path.insert(0, rootpath)
 
 # import image_analysis.analyzers.UC_HiResMagCam as mag_spec_caller
 import image_analysis.analyzers.UC_GenericMagSpecCam as mag_spec_caller
@@ -61,19 +61,6 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
         # print("Elapsed Time: ", time.perf_counter() - start, "s")
 
         # start = time.perf_counter()
-        """
-        results = mag_spec_caller.UC_HiResMagCamImageAnalyzer(
-            noise_threshold=100,
-            edge_pixel_crop=1,
-            saturation_value=4095,
-            normalization_factor=1,
-            transverse_calibration=1,
-            do_transverse_calculation=True,
-            transverse_slice_threshold=0.02,
-            transverse_slice_binsize=5,
-            optimization_central_energy=100.0,
-            optimization_bandwidth_energy=2.0).analyze_image(elliptical_gaussian_array)
-        """
         test_analyzer = mag_spec_caller.UC_GenericMagSpecCamAnalyzer(
             mag_spec_name = 'hires',
             roi = [1, -1, 1, -1],
