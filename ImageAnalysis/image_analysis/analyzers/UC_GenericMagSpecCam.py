@@ -10,8 +10,9 @@ Can be initialized in 1 of 3 ways:
 """
 from __future__ import annotations
 
-from typing import Optional, Any, TYPE_CHECKING, Union
+from typing import Optional, Any, TYPE_CHECKING, Union, List
 import numpy as np
+import time
 import configparser
 import os
 
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 from ..base import ImageAnalyzer
 # from ..utils import ROI
 from .online_analysis_modules import mag_spec_analysis as analyze
+from .online_analysis_modules import mag_spec_energy_axis as energy_axis_lookup
 
 
 def return_default_hi_res_mag_cam_analyzer():
@@ -72,8 +74,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
 
     def __init__(self,
                  mag_spec_name: str = 'NA',
-                 #roi: ROI = ROI(top=None, bottom=None, left=None, right=None),
-                 roi = [None, None, None, None],
+                 roi: List[int] = [None, None, None, None],             # ROI(top, bottom, left, right)
                  noise_threshold: int = 0,                            # CONFIRM IF THIS WORKS
                  saturation_value: int = 4095,
                  normalization_factor: float = 1.0,  # 7.643283839778091e-07,   # NEED TO CALCULATE
@@ -94,8 +95,6 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
                 acave3
         noise_threshold: int
             Large enough to remove noise level
-        edge_pixel_crop: int
-            Number of edge pixels to crop
         saturation_value: int
             The minimum value by which a pixel can be considered as "Saturated." The default is 2^12 - 1
         normalization_factor: float
@@ -146,21 +145,116 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
         self.optimization_central_energy = optimization_central_energy
         self.optimization_bandwidth_energy = optimization_bandwidth_energy
 
-    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None,
+        self.do_print = False
+        self.computational_clock_time = time.perf_counter()
+
+    def analyze_image(self, input_image: Array2D, auxiliary_data: Optional[dict] = None,
                       ) -> dict[str, Union[float, np.ndarray]]:
-        input_params = self.build_input_parameter_dictionary()
+        processed_image = roi_image(input_image.astype(np.float32), self.roi)
 
-        processed_image = roi_image(image.astype(np.float32), self.roi)
+        saturation_number = analyze.saturation_check(processed_image, self.saturation_value)
+        self.print_time(" Saturation Check:")
 
-        returned_image, mag_spec_dict, lineouts = analyze.analyze_image(processed_image, input_params)
-        unnormalized_image = returned_image / self.normalization_factor
+        image = analyze.threshold_reduction(processed_image, self.noise_threshold)
+        self.print_time(" Threshold Subtraction")
+
+        image = analyze.normalize_image(image, self.normalization_factor)
+        self.print_time(" Normalize Image:")
+
+        image = np.copy(image[::-1, ::-1])
+        self.print_time(" Rotate Image")
+
+        image_width = np.shape(image)[1]
+        pixel_arr = np.linspace(0, image_width, image_width)
+        energy_arr = energy_axis_lookup.return_energy_axis(pixel_arr, self.mag_spec_name)
+        self.print_time(" Calculated Energy Axis:")
+
+        charge_on_camera = np.sum(image)
+        self.print_time(" Charge on Camera")
+
+        clipped_percentage = analyze.calculate_clipped_percentage(image)
+        self.print_time(" Calculate Clipped Percentage")
+
+        charge_arr = analyze.calculate_charge_density_distribution(image, self.transverse_calibration)
+        self.print_time(" Charge Projection:")
+
+        if charge_on_camera == 0:
+            peak_charge = 0.0
+            average_energy = 0.0
+            energy_spread = 0.0
+            peak_charge_energy = 0.0
+            average_beam_size = 0.0
+            beam_angle = 0.0
+            beam_intercept = 0.0
+            projected_beam_size = 0.0
+            optimization_factor = 0.0
+        else:
+            peak_charge = analyze.calculate_maximum_charge(charge_arr)
+            self.print_time(" Peak Charge:")
+
+            average_energy = analyze.calculate_average_energy(charge_arr, energy_arr)
+            self.print_time(" Average Energy:")
+
+            energy_spread = analyze.calculate_standard_deviation_energy(charge_arr, energy_arr, average_energy)
+            self.print_time(" Energy Spread:")
+
+            peak_charge_energy = analyze.calculate_peak_energy(charge_arr, energy_arr)
+            self.print_time(" Energy at Peak Charge:")
+
+            optimization_factor = analyze.calculate_optimization_factor(
+                charge_arr, energy_arr, self.optimization_central_energy, self.optimization_bandwidth_energy)
+            self.print_time(" Optimization Factor:")
+
+            if self.do_transverse_calculation:
+                sigma_arr, x0_arr, amp_arr, err_arr = analyze.transverse_slice_loop(
+                    image,
+                    calibration_factor=self.transverse_calibration,
+                    threshold=self.transverse_slice_threshold,
+                    binsize=self.transverse_slice_binsize)
+                self.print_time(" Gaussian Fits for each Slice:")
+
+                average_beam_size = analyze.calculate_average_size(sigma_arr, amp_arr)
+                self.print_time(" Average Beam Size:")
+
+                linear_fit = analyze.fit_beam_angle(x0_arr, amp_arr, energy_arr)
+                self.print_time(" Beam Angle Fit:")
+
+                beam_angle = linear_fit[0]
+                beam_intercept = linear_fit[1]
+                projected_axis, projected_arr, projected_beam_size = analyze.calculate_projected_beam_size(image,
+                                                                                            self.transverse_calibration)
+                projected_beam_size = projected_beam_size * self.transverse_calibration
+                self.print_time(" Projected Size:")
+            else:
+                average_beam_size = 0.0
+                projected_beam_size = 0.0
+                beam_angle = 0.0
+                beam_intercept = 0.0
+
+        mag_spec_dict = {
+            "camera_clipping_factor": clipped_percentage,
+            "camera_saturation_counts": saturation_number,
+            "total_charge_pC": charge_on_camera,
+            "peak_charge_pc/MeV": peak_charge,
+            "peak_charge_energy_MeV": peak_charge_energy,
+            "weighted_average_energy_MeV": average_energy,
+            "energy_spread_weighted_rms_MeV": energy_spread,
+            "energy_spread_percent": energy_spread / average_energy * 100,
+            "weighted_average_beam_size_um": average_beam_size,
+            "projected_beam_size_um": projected_beam_size,
+            "beam_tilt_um/MeV": beam_angle,
+            "beam_tilt_intercept_um": beam_intercept,
+            "beam_tilt_intercept_100MeV_um": 100 * beam_angle + beam_intercept,
+            "optimization_factor": optimization_factor,
+        }
+
+        unnormalized_image = image / self.normalization_factor
         uint_image = unnormalized_image.astype(np.uint16)
-
         return_dictionary = {
             "processed_image_uint16": uint_image,
             "analyzer_return_dictionary": mag_spec_dict,
-            "analyzer_return_lineouts": lineouts,
-            "analyzer_input_parameters": input_params
+            "analyzer_return_lineouts": np.vstack((energy_arr, charge_arr)),
+            "analyzer_input_parameters": self.build_input_parameter_dictionary()
         }
         return return_dictionary
 
@@ -169,7 +263,6 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
             "mag_spec_name_str": self.mag_spec_name,
             "roi_bounds_pixel": self.roi,
             "noise_threshold_int": self.noise_threshold,
-            "edge_crop_pixels": 0,
             "saturation_value_int": self.saturation_value,
             "charge_normalization_factor_pC/count": self.normalization_factor,
             "transverse_calibration_factor_um/pixel": self.transverse_calibration,
@@ -180,3 +273,8 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
             "transverse_slice_bin_size_pixels": self.transverse_slice_binsize,
         }
         return input_params
+
+    def print_time(self, label):
+        if self.do_print:
+            print(label, time.perf_counter() - self.computational_clock_time)
+            self.computational_clock_time = time.perf_counter()
