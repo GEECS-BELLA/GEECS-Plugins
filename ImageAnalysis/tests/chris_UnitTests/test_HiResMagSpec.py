@@ -74,7 +74,20 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
             optimization_central_energy=100.0,
             optimization_bandwidth_energy=2.0).analyze_image(elliptical_gaussian_array)
         """
-        results = mag_spec_caller.return_default_hi_res_mag_cam_analyzer().analyze_image(elliptical_gaussian_array)
+        test_analyzer = mag_spec_caller.UC_GenericMagSpecCamAnalyzer(
+            mag_spec_name = 'hires',
+            roi = [1, -1, 1, -1],
+            noise_threshold = 100,  # CONFIRM IF THIS WORKS
+            saturation_value=4095,
+            normalization_factor=1,
+            transverse_calibration=1,
+            do_transverse_calculation=True,
+            transverse_slice_threshold=0.02,
+            transverse_slice_binsize=5,
+            optimization_central_energy=100.0,
+            optimization_bandwidth_energy=2.0)
+        results = test_analyzer.analyze_image(elliptical_gaussian_array)
+        # results = mag_spec_caller.return_default_hi_res_mag_cam_analyzer().analyze_image(elliptical_gaussian_array)
         # print("Elapsed Time: ", time.perf_counter() - start, "s")
         # print(analyze_dict)
 
@@ -101,17 +114,17 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
 
         # Here I am only checking that the labview wrapper function is working properly by checking the output shapes
 
-        current_input_parameters = mag_spec_caller.UC_HiResMagCamImageAnalyzer().build_input_parameter_dictionary()
-        current_edge_pixel_crop = current_input_parameters["edge_crop_pixels"]
+        test_default_analyzer = mag_spec_caller.return_default_hi_res_mag_cam_analyzer()
+        input_parameters = test_default_analyzer.build_input_parameter_dictionary()
+        default_roi = input_parameters['roi_bounds_pixel']
+        test_array_shape = np.shape(elliptical_gaussian_array[default_roi[0]:default_roi[1],default_roi[2]:default_roi[3]])
 
         camera_name = "UC_HiResMagCam"
         returned_image_labview, analyze_dict_labview, lineouts_labview = labview_function_caller.analyze_labview_image(
             camera_name, elliptical_gaussian_array, background=None)
-        np.testing.assert_array_equal(np.shape(returned_image_labview),
-                                      np.array([height - 2*current_edge_pixel_crop, width - 2*current_edge_pixel_crop]))
+        np.testing.assert_array_equal(np.shape(returned_image_labview),test_array_shape)
         np.testing.assert_array_equal(np.shape(analyze_dict_labview), np.array([14, ]))
-        np.testing.assert_array_equal(np.shape(lineouts_labview),
-                                      np.array([2, width - 2*current_edge_pixel_crop]))
+        np.testing.assert_array_equal(np.shape(lineouts_labview), np.array([2, test_array_shape[1]]))
 
 
 if __name__ == '__main__':

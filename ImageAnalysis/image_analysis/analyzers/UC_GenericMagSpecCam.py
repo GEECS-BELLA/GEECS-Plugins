@@ -167,6 +167,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
     def build_input_parameter_dictionary(self) -> dict:
         input_params = {
             "mag_spec_name_str": self.mag_spec_name,
+            "roi_bounds_pixel": self.roi,
             "noise_threshold_int": self.noise_threshold,
             "edge_crop_pixels": 0,
             "saturation_value_int": self.saturation_value,
