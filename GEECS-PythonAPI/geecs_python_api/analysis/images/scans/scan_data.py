@@ -17,7 +17,7 @@ import geecs_python_api.tools.images.ni_vision as ni
 from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
 from geecs_python_api.tools.images.spot import profile_fit, std_to_fwhm
 from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
-from image_analysis.analyzers.U_HiResMagSpec import U_HiResMagSpecImageAnalyzer
+from image_analysis.analyzers import default_analyzer_generators
 
 
 class ScanData:
@@ -354,7 +354,7 @@ class ScanData:
                 hres_stats['std_peak_smooth_MeV'][it] = np.std(axis_MeV[np.argmax(smooth_hres[i_group, :], axis=1)])
 
         else:
-            spec_analyzer = U_HiResMagSpecImageAnalyzer()
+            spec_analyzer = default_analyzer_generators.return_default_hi_res_mag_cam_analyzer()
 
             # noinspection PyTypeChecker
             analysis = spec_analyzer.analyze_image(ni.read_imaq_image(magspec_data['hres']['paths'][0]))
