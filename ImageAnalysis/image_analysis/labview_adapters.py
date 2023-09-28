@@ -2,16 +2,16 @@ import numpy as np
 
 
 def hi_res_mag_spec_labview(image,background=None):
-    import image_analysis.analyzers.UC_GenericMagSpecCam as mag_cam_analyzers
+    import image_analysis.analyzers.default_analyzer_generators as generator
 
-    results = mag_cam_analyzers.return_default_hi_res_mag_cam_analyzer().analyze_image(image)
+    results = generator.return_default_hi_res_mag_cam_analyzer().analyze_image(image)
     return parse_mag_spec_results(results)
 
 
 def acave_cam3_mag_spec_labview(image, background=None):
-    import image_analysis.analyzers.UC_GenericMagSpecCam as mag_cam_analyzers
+    import image_analysis.analyzers.default_analyzer_generators as generator
 
-    results = mag_cam_analyzers.return_default_acave_mag_cam3_analyzer().analyze_image(image)
+    results = generator.return_default_acave_mag_cam3_analyzer().analyze_image(image)
     return parse_mag_spec_results(results)
 
 

@@ -14,30 +14,14 @@ from typing import Optional, Any, TYPE_CHECKING, Union, List
 import numpy as np
 import time
 import configparser
-import os
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
     from ..types import Array2D
 
 from ..base import ImageAnalyzer
-# from ..utils import ROI
 from .online_analysis_modules import mag_spec_analysis as analyze
 from .online_analysis_modules import mag_spec_energy_axis as energy_axis_lookup
-
-
-def return_default_hi_res_mag_cam_analyzer():
-    default_input_config = '..\config_files\default_hiresmagcam_settings.ini'
-    current_directory = os.path.dirname(os.path.abspath(__file__))
-    config_filename = os.path.join(current_directory, default_input_config)
-    return return_analyzer_from_config_file(config_filename)
-
-
-def return_default_acave_mag_cam3_analyzer():
-    default_input_config = '..\config_files\default_acavemagcam3_settings.ini'
-    current_directory = os.path.dirname(os.path.abspath(__file__))
-    config_filename = os.path.join(current_directory, default_input_config)
-    return return_analyzer_from_config_file(config_filename)
 
 
 def return_analyzer_from_config_file(input_config_filename):
@@ -48,7 +32,6 @@ def return_analyzer_from_config_file(input_config_filename):
     roi_bottom = int(config.get('roi', 'bottom')),
     roi_left = int(config.get('roi', 'left')),
     roi_right = int(config.get('roi', 'right')),
-    #analyzer_roi = ROI(top=roi_top, bottom=roi_bottom, left=roi_left, right=roi_right)
     analyzer_roi = np.array([roi_top, roi_bottom, roi_left, roi_right]).reshape(-1)
 
     analyzer = UC_GenericMagSpecCamAnalyzer(
@@ -89,6 +72,9 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
             Current accepted values are:
                 hires
                 acave3
+        roi: List[int]
+            The bounds by which the input image is cropped when the analyze_image function is called.  Given as a list
+            of four integers, arranged as [top, bottom, left, right].
         noise_threshold: int
             Large enough to remove noise level
         saturation_value: int
@@ -120,12 +106,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
         super().__init__()
 
         self.mag_spec_name = mag_spec_name
-
-        # NOTE: Not using the ROI class in utils because this is slightly more cumbersome to interface with the outside,
-        # but it is an option to have self.roi as an ROI class and just pass in a List[int] into __init__ and return a
-        # List[int] in the input_parameters dictionary.  Or, just import utils.ROI everywhere and deal with it.
         self.roi = roi
-
         self.noise_threshold = noise_threshold
         self.saturation_value = saturation_value
         self.normalization_factor = normalization_factor
@@ -136,7 +117,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
         self.optimization_central_energy = optimization_central_energy
         self.optimization_bandwidth_energy = optimization_bandwidth_energy
 
-        # NOTE: Could make these into the super class?
+        # Set do_print to True for debugging information
         self.do_print = False
         self.computational_clock_time = time.perf_counter()
 
