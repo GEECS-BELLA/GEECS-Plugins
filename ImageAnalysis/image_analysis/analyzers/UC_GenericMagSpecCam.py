@@ -24,7 +24,7 @@ from .online_analysis_modules import mag_spec_analysis as analyze
 from .online_analysis_modules import mag_spec_energy_axis as energy_axis_lookup
 
 
-def return_analyzer_from_config_file(input_config_filename):
+def return_analyzer_from_config_file(input_config_filename) -> UC_GenericMagSpecCamAnalyzer:
     config = configparser.ConfigParser()
     config.read(input_config_filename)
 
@@ -158,6 +158,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
             peak_charge = 0.0
             average_energy = 0.0
             energy_spread = 0.0
+            energy_spread_percent = 0.0
             peak_charge_energy = 0.0
             average_beam_size = 0.0
             beam_angle = 0.0
@@ -172,6 +173,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
             self.print_time(" Average Energy:")
 
             energy_spread = analyze.calculate_standard_deviation_energy(charge_arr, energy_arr, average_energy)
+            energy_spread_percent = energy_spread / average_energy * 100
             self.print_time(" Energy Spread:")
 
             peak_charge_energy = analyze.calculate_peak_energy(charge_arr, energy_arr)
@@ -215,7 +217,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
             "peak_charge_energy_MeV": peak_charge_energy,
             "weighted_average_energy_MeV": average_energy,
             "energy_spread_weighted_rms_MeV": energy_spread,
-            "energy_spread_percent": energy_spread / average_energy * 100,
+            "energy_spread_percent": energy_spread_percent,
             "weighted_average_beam_size_um": average_beam_size,
             "projected_beam_size_um": projected_beam_size,
             "beam_tilt_um/MeV": beam_angle,
