@@ -30,7 +30,7 @@ def calculate_clipped_percentage(image):
     if max_val != 0:
         return np.max(clip_check) / max_val
     else:
-        return 1.1
+        return 1.
 
 
 def calculate_projected_beam_size(image, calibration_factor):
