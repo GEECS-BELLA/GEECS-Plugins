@@ -125,7 +125,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
         return image[self.roi[0]:self.roi[1], self.roi[2]:self.roi[3]]
 
     def analyze_image(self, input_image: Array2D, auxiliary_data: Optional[dict] = None,
-                      ) -> dict[str, Union[float, np.ndarray]]:
+                      ) -> dict[str, Union[dict, np.ndarray]]:
         processed_image = self.roi_image(input_image.astype(np.float32))
 
         saturation_number = analyze.saturation_check(processed_image, self.saturation_value)
