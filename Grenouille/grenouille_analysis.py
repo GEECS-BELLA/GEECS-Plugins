@@ -158,6 +158,7 @@ class GrenouilleRetrieval:
             self._replace_FT_E_sig_magnitude()
             self._calculate_inverse_FT_E_sig()
             self._calculate_next_E()
+            self._center_and_zero_phase_E()
 
         return self.E
 
@@ -343,12 +344,19 @@ class GrenouilleRetrieval:
                 'generalized_projection/full_minimization': _calculate_next_E_by_generalized_projection_full_minimization,
                }[self.calculate_next_E_method]()
 
+    def _center_and_zero_phase_E(self):
+        # center E around t = 0
+        center_of_mass = (self.E_t * np.abs(self.E)).sum() / np.abs(self.E).sum()
+        self.E = np.interp(self.E_t,  self.E_t - center_of_mass, self.E, left=0.0, right=0.0)
+        
+        # zero the phase at t = 0
+        self.E *= np.exp(-1j * np.angle(self.E[(len(self.E) - 1) // 2]))
 
     def simulate_grenouille_trace(self, E, grenouille_trace_shape):
         self.shape = grenouille_trace_shape
         self.E = E
         self._calculate_E_sig()
-        
+
         # spectrogram(ω, τ), for ω = -Ny..Ny
         spectrogram = np.square(np.abs(np.fft.fftshift(np.fft.fft(self.E_sig_tτ, axis=0), axes=(0,))))
 
