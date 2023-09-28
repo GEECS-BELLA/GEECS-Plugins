@@ -1,30 +1,31 @@
 from __future__ import annotations
 
 from multiprocessing import Pool
-from pathlib import Path
 from argparse import ArgumentParser
-from datetime import datetime
 
-from typing import TYPE_CHECKING, Any, Optional, Union
+from configparser import ConfigParser
+from inspect import signature
+
+from typing import TYPE_CHECKING, Any, Optional, Union, get_type_hints, Callable
+from .types import Array2D, ImageSubject, DeviceName, MetricName, RunID, ScanNumber, ShotNumber
 if TYPE_CHECKING:
-    from .types import Array2D, ImageSubject, DeviceName, MetricName, RunID, ScanNumber, ShotNumber
     from numpy.typing import NDArray
-    from .image_analyzers.base import ImageAnalyzer
+    from image_analysis.base import ImageAnalyzer
     ShotKey = tuple[RunID, ScanNumber, ShotNumber]
     DeviceMetricKey = tuple[DeviceName, MetricName]
     AnalysisDict = dict[DeviceMetricKey, Union[float, NDArray]]
+    from pathlib import Path
 
 import numpy as np
 from imageio.v3 import imwrite
 
 from .orm import Scan, SFile
-from .image_analyzers.U_PhasicsFileCopy import U_PhasicsFileCopyImageAnalyzer
-from .image_analyzers.UC_UndulatorRad2 import UC_UndulatorRad2ImageAnalyzer
+from image_analysis.analyzers.U_PhasicsFileCopy import U_PhasicsFileCopyImageAnalyzer
+from image_analysis.utils import ROI
 
 class ScanAnalyzer:
     image_analyzer_classes: dict[DeviceName, type[ImageAnalyzer]] = {
         DeviceName('U_PhasicsFileCopy'): U_PhasicsFileCopyImageAnalyzer,
-        DeviceName('UC_UndulatorRad2'): UC_UndulatorRad2ImageAnalyzer,
     }
 
     def __init__(self, image_analyzer_kwargs: Optional[dict[DeviceName, dict[str, Any]]] = None):
@@ -79,6 +80,8 @@ class ScanAnalyzer:
 
         for shot_key, analysis in self.scan_metrics.items():
             run_id, scan_number, shot_number = shot_key
+            assert ((run_id == self.scan.run_id) and (scan_number == self.scan.number)), "self.scan_metrics run_id/scan_number don't match self.scan"
+
             for (device_name, metric_name), metric_value in analysis.items():
 
                 def make_filename(ext: str):
@@ -96,9 +99,9 @@ class ScanAnalyzer:
                 elif np.ndim(metric_value) == 1:
                     np.savetxt(make_filename('dat'), metric_value, header=metric_name)
                 
-                # save 2d arrays as png images
+                # save 2d arrays as tif images
                 elif np.ndim(metric_value) == 2:
-                    imwrite(make_filename('png'), metric_value)
+                    imwrite(make_filename('tif'), metric_value)
 
         s_file.save_s_file()
 
@@ -109,6 +112,54 @@ class ScanAnalyzer:
         s_file = SFile(self.scan)
         s_file.upload_data_to_cloud()
 
+    def save_image_analyzer_config(self, config_filename: str|Path):
+        """ Save image analyzer parameters to a .ini style file
+        
+        """
+        config_parser = ConfigParser()
+        # set option-rename to identity function instead of (the default) str.lower in order to preserve case
+        config_parser.optionxform = str
+
+        # how to convert parameters of different types to a string in the config file. 
+        # default is str
+        object_to_config_string_functions: dict[type, Callable] = {
+            ROI: lambda roi: f"{roi.top}, {roi.bottom}, {roi.left}, {roi.right}"
+        }
+
+        for device, image_analyzer in self.image_analyzers.items():
+            config_parser.add_section(device)
+            for parameter_name in signature(image_analyzer.__init__).parameters:
+                if parameter_name == 'self':
+                    continue
+                parameter_value = getattr(image_analyzer, parameter_name)
+                parameter_value_str = object_to_config_string_functions.get(type(parameter_value), str)(parameter_value)
+                config_parser[device][parameter_name] = parameter_value_str
+
+        with open(config_filename, 'w') as f:
+            config_parser.write(f)
+
+    def load_image_analyzer_config(self, config_filename: str|Path):
+        config_parser = ConfigParser()
+        # set option-rename to identity function instead of (the default) str.lower in order to preserve case
+        config_parser.optionxform = str
+
+        # how to convert parameters of different types to a string in the config file. 
+        # default is to call the parameter's constructor
+        config_string_to_object_functions: dict[type, Callable] = {
+            ROI: lambda config_string: ROI(*[(int(config_string_part.strip()) if config_string_part.strip().lower() != 'none' else None) 
+                                             for config_string_part in config_string.split(',')
+                                            ]
+                                          ),
+        }
+
+        with open(config_filename, 'r') as f:
+            config_parser.read_file(f)
+
+        for device_name in config_parser.sections():
+            image_analyzer_parameter_types = get_type_hints(self.image_analyzers[device_name].__init__)
+            for parameter_name, parameter_value_str in config_parser[device_name].items():
+                parameter_value = config_string_to_object_functions.get(image_analyzer_parameter_types[parameter_name], image_analyzer_parameter_types[parameter_name])(parameter_value_str)
+                setattr(self.image_analyzers[device_name], parameter_name, parameter_value)
 
 if __name__ == '__main__':
     ap = ArgumentParser()

@@ -11,12 +11,14 @@ class LaserCompressor(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(LaserCompressor, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
+
         super().__init__('U_CompAerotech')
 
         self.var_spans = {VarAlias('Grating separation (um)'): (40000., 46000.),
@@ -26,6 +28,8 @@ class LaserCompressor(GeecsDevice):
         self.var_separation: str = self.var_names_by_index.get(0)[0]
         self.var_angle_1: str = self.var_names_by_index.get(1)[0]
         self.var_angle_2: str = self.var_names_by_index.get(2)[0]
+
+        self.__initialized = True
 
     def state_angle_1(self) -> Optional[float]:
         return self._state_value(self.var_angle_1)

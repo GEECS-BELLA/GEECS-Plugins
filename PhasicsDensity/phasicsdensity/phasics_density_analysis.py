@@ -29,6 +29,7 @@ from skimage.restoration import unwrap_phase
 from pint import UnitRegistry
 ureg = UnitRegistry()
 Q_ = ureg.Quantity
+
 if TYPE_CHECKING:
     from pint import Quantity
     SpatialFrequencyQuantity = NewType('SpatialFrequencyQuantity', Quantity) # [length]**-1
@@ -45,9 +46,9 @@ SpatialFrequencyCoordinates = namedtuple('SpatialFrequencyCoordinates', ['nu_x',
 class PhasicsImageAnalyzer:
     """ An engine that can analyze a Phasics image and return its phase map.
 
-    General usage, with `img` an image from the HTU Gasjet Phasics camera 
+    General usage, with `interferogram` an image from the HTU Gasjet Phasics camera 
        pia = PhasicsImageAnalyzer()
-       phase_map = pia.calculate_phase_map(pia.crop_image(img))
+       phase_map = pia.calculate_wavefront(interferogram)
 
 
     [1] G. Baffou, “Quantitative phase microscopy using quadriwave lateral shearing 
@@ -67,21 +68,11 @@ class PhasicsImageAnalyzer:
 
     Methods
     -------
-    calculate_phase_map(img)
-        runs all steps of the phase map reconstruction from a Phasics image img.
+    calculate_wavefront(interferogram)
+        runs all steps of the wavefront reconstruction from a Phasics interferogram.
 
     """
 
-    # pixel size of camera
-    CAMERA_RESOLUTION = Q_(4.8555, 'micrometer')
-    # distance between chessboard grating and camera. Corresponds to d in [1]
-    GRATING_CAMERA_DISTANCE = Q_(0.841, 'millimeter')
-    # the period of the grating, i.e. the length of a 0-pi unit, or twice the
-    # distance between apertures. Corresponds to Λ in [1], or 2*d in [2]
-    GRATING_PERIOD = Q_(59.3, 'micrometer')
-    # the angle relative to horizontal of the fringe pattern
-    CAMERA_TILT = Q_(0.52871, 'radians')
-    
     @property
     def diffraction_spot_centers(self):
         """ Returns the 4 diffraction spot centers in the Fourier transform
@@ -108,12 +99,27 @@ class PhasicsImageAnalyzer:
                ]
 
     def __init__(self,
-                 reconstruction_method = 'baffou',
-                 diffraction_spot_crop_radius: Optional[Quantity] = None
+                 camera_resolution: Quantity = Q_(7.40, 'micrometer'),
+                 grating_camera_distance: Quantity = Q_(0.841, 'millimeter'),
+                 grating_period: Quantity = Q_(59.4714, 'um'),
+                 camera_tilt: Quantity = Q_(30.1264, 'deg'),
+                 reconstruction_method: str = 'velghe',
+                 diffraction_spot_crop_radius: Optional[Quantity] = None,
+                 unit_registry: Optional[UnitRegistry] = None,
                 ):
         """ 
         Parameters
         ----------
+        camera_resolution : [length] Quantity
+            pixel size of camera
+        grating_camera_distance : [length] Quantity
+            distance between chessboard grating and camera. Corresponds to d in [1]
+        grating_period : [length] Quantity
+            the period of the grating, i.e. the length of a 0-pi unit, or twice the
+            distance between apertures. Corresponds to Λ in [1], or 2*d in [2]
+        camera_tilt : [angle] Quantity
+            the angle of the fringe pattern relative to horizontal
+
         reconstruction_method : 'baffou' or 'velghe'
             which method to use for the step of combining the various spot FTs
             into a final phase map.
@@ -125,12 +131,25 @@ class PhasicsImageAnalyzer:
             radius of disc around spot center to use for each spot's FT.
             If None, find the maximum radius that causes no overlap.
 
+        unit_registry : UnitRegistry or None
+            Use an existing Pint unit registry, such as when called from another 
+            package
+
         """
+        self.CAMERA_RESOLUTION = camera_resolution
+        self.GRATING_CAMERA_DISTANCE = grating_camera_distance
+        self.GRATING_PERIOD = grating_period
+        self.CAMERA_TILT = camera_tilt
 
         self.reconstruction_method = reconstruction_method
         self.diffraction_spot_crop_radius = diffraction_spot_crop_radius
-
     
+        if unit_registry is not None:
+            # overwrite module-wide ureg and Quantity
+            global ureg, Q_
+            ureg = unit_registry
+            Q_ = ureg.Quantity
+
     def _fourier_transform(self) -> tuple[NDArray[np.complex_], Quantity, Quantity]:
         """ Takes the fourier transform of an image and shifts it.
 
@@ -145,7 +164,7 @@ class PhasicsImageAnalyzer:
         
         """
         fftshift = ureg.wraps('=A', ('=A', None))(np.fft.fftshift)
-        self.IMG = np.fft.fftshift(np.fft.fft2(self.img))
+        self.IMG = np.fft.fftshift(np.fft.fft2(self.interferogram))
         self.freq_x = fftshift(np.fft.fftfreq(self.shape[1], d=self.CAMERA_RESOLUTION))
         self.freq_y = fftshift(np.fft.fftfreq(self.shape[0], d=self.CAMERA_RESOLUTION))
         
@@ -595,7 +614,7 @@ class PhasicsImageAnalyzer:
     
 
     
-    def calculate_wavefront(self, img: np.ndarray) -> np.ndarray:
+    def calculate_wavefront(self, interferogram: np.ndarray) -> np.ndarray:
         """ Analyze cropped Phasics quadriwave shearing image
         
         Takes a cropped image and runs the full algorithm on it to obtain the
@@ -616,8 +635,8 @@ class PhasicsImageAnalyzer:
 
         # take 2D Fourier transform of image, shifted so that freq = 0, 0 is 
         # in the middle of the image.
-        self.img = img
-        self.shape = img.shape
+        self.interferogram = interferogram
+        self.shape = interferogram.shape
         self._fourier_transform()
 
         # get cropped and centered FTs of each diffraction spot
@@ -644,12 +663,16 @@ class PhasicsImageAnalyzer:
         return W
 
 
-    def calculate_phase_map(self, img: np.ndarray, wavelength=Q_(800, 'nm')):
-        self.calculate_wavefront(img)
+    def calculate_phase_map(self, interferogram: np.ndarray, wavelength=Q_(800, 'nm')):
+        self.calculate_wavefront(interferogram)
         phase_map = Q_(2 * np.pi, 'radian') * self.wavefront / wavelength
         return phase_map.to_base_units()
 
-    def calculate_density(self, wavefront: np.ndarray, wavelength=Q_(800, 'nm')) -> DensityQuantity:
+    def calculate_density(self, 
+                          wavefront: np.ndarray, 
+                          wavelength = Q_(800, 'nm'), 
+                          image_resolution: Optional[LengthQuantity] = None
+                         ) -> DensityQuantity:
         """ Convert the wavefront into a density map, using equation for plasma refraction.
 
         Parameters
@@ -658,6 +681,9 @@ class PhasicsImageAnalyzer:
             A wavefront, with [length] units, as produced by PhasicsImageAnalyzer.calculate_wavefront().
             Should be background-subtracted, and baselined, i.e. wavefront should be 0 where there's no plasma
         wavelength : [length] Quantity
+        image_resolution: [length] Quantity or None
+            the real-world length represented by a pixel, which can be different from CAMERA_RESOLUTION if there 
+            are optics between object and grating/camera. If None (default), same as self.CAMERA_RESOLUTION. 
 
         Returns
         -------
@@ -668,6 +694,9 @@ class PhasicsImageAnalyzer:
             The center row in this array (row = (numrows - 1) // 2) represents the cylinder axis.
 
         """
+        if image_resolution is None:
+            image_resolution = self.CAMERA_RESOLUTION
+        
         # unit-aware version of abel.Transform()
         @ureg.wraps('nm/pixel', 'nm')
         def abel_transform_ua(wavefront):
@@ -682,15 +711,15 @@ class PhasicsImageAnalyzer:
         # a slice of the cylindrically symmetric optical path length disturbance profile
         # As the optical path disturbance is given in nanometers, and this slice gives the contribution of one
         # pixel's distance to the total wavefront shift, this is in units of [length]/[length], or dimensionless.
-        self.optical_path_change_per_distance = abel_transform_ua(wavefront) / (self.CAMERA_RESOLUTION/ureg.pixel)
+        self.optical_path_change_per_distance = abel_transform_ua(wavefront) / (image_resolution / ureg.pixel)
 
         # from https://www.ipp.mpg.de/2882460/anleitung.pdf:
-        #   phi = lambda*e^2/(4 pi c^2 e0 me) integrate(n(z) dz)
-        # with phi/2pi = wavefront/lambda, and C = e^2/(4 pi c^2 e0 me)
+        #   phi = -lambda*e^2/(4 pi c^2 e0 me) integrate(n(z) dz)
+        # with phi/2pi = wavefront/lambda, and C = -e^2/(4 pi c^2 e0 me)
         #   2pi/lambda * d(wavefront)/dz = C * lambda * density
         #   density = 2pi/lambda^2 / C * d(wavefront)/dz
 
-        C = ureg.elementary_charge**2 / (4 *np.pi * ureg.speed_of_light**2 * ureg.vacuum_permittivity * ureg.electron_mass)
+        C = -(ureg.elementary_charge**2 / (4 *np.pi * ureg.speed_of_light**2 * ureg.vacuum_permittivity * ureg.electron_mass))
         self.density = 2 * np.pi / wavelength**2 / C * self.optical_path_change_per_distance
 
         return self.density

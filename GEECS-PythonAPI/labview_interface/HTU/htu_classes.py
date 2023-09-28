@@ -3,12 +3,12 @@ import matplotlib.pyplot as plt
 # from mpl_toolkits.axes_grid1 import make_axes_locatable
 from typing import Optional, Any, Union
 from pathlib import Path
-from labview_interface.lv_interface import Bridge
+from labview_interface.lv_interface import Bridge, flatten_dict
 from geecs_python_api.controls.experiment.experiment import Experiment
 from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.HTU.gas_jet import GasJet
 from geecs_python_api.controls.devices.HTU.laser import Laser
-# from geecs_python_api.controls.devices.HTU.transport import Steering
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.analysis.images.scans.scan_data import ScanData
 
 
@@ -32,9 +32,9 @@ class Handler:
         Bridge.labview_call('handler', 'results', [], sync=False, source=source, results=results)
 
     @staticmethod
-    def question(message: str, possible_answers: list) -> Optional[Any]:
-        success, answer = Bridge.labview_call('handler', 'question', ['answer'], sync=True, timeout_sec=600.,
-                                              message=message, possible_answers=possible_answers)
+    def question(message: str, possible_answers: list, modal: bool = True) -> Optional[Any]:
+        success, answer = Bridge.labview_call('handler', 'question', ['answer'], sync=True, timeout_sec=900.,
+                                              message=message, possible_answers=possible_answers, modal=modal)
         if success:
             return answer['answer']
         else:
@@ -67,111 +67,199 @@ class LPA:
         if is_offline:
             self.jet = self.laser = None
         else:
-            UserInterface.report('Connecting to gas jet elements...')
             self.jet = GasJet()
-
-            UserInterface.report('Connecting to laser elements...')
             self.laser = Laser()
+            UserInterface.report('System connected')
 
     def close(self):
-        UserInterface.report('Disconnecting from gas jet elements...')
         self.jet.close()
-
-        UserInterface.report('Disconnecting from laser elements...')
         self.laser.close()
+        UserInterface.report('System disconnected')
 
-    def z_scan(self, rough: bool = False) -> tuple[bool, Path]:
-        z = round(self.jet.stage.get_position('z'), 2)
-        z_alias = self.jet.stage.get_axis_var_alias(2)
-        lims = self.jet.stage.var_spans[z_alias]
+    def manage_scan(self, exp: Experiment, device: Union[GeecsDevice, str], var_name: str,
+                    min_max_step_steps: tuple, units: str, precision: int, label: str, rough: bool, call: str,
+                    dE_weight: float = 1., pC_weight: float = 1., MeV_weight: float = 1.) -> Optional[float]:
+        if isinstance(device, GeecsDevice):
+            cancel, scan_folder = self.dev_scan(device, var_name, min_max_step_steps, units, label, rough)
+        else:
+            cancel = False
+            scan_folder = Path(exp.base_path / r'Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
+
+        if cancel:
+            UserInterface.report('LPA initialization canceled by user')
+            return None
+        else:
+            UserInterface.report(rf'Done ({scan_folder.name})')
+
+        UserInterface.report('Running analysis...')
+        dev_name = device.get_name() if isinstance(device, GeecsDevice) else device
+        results = self.dev_scan_analysis(dev_name, var_name, exp, scan_folder, dE_weight, pC_weight, MeV_weight)
+        results['precision'] = np.array([precision])
+
+        recommended: float
+        if 'weight-based objs' in results:
+            results['weight-based objs']['global obj']['precision'] = np.array([precision])
+            recommended = results['weight-based objs']['global obj']['best']
+        else:
+            results['fit-based objs']['global obj']['precision'] = np.array([precision])
+            recommended = results['fit-based objs']['global obj']['best']
+
+        UserInterface.clear_plots(call)
+        Handler.send_results(f'{label.lower()}-scan', flatten_dict(results))
+        UserInterface.report(f'Done. Recommended: {label} = {recommended:.{precision}f} mm')
+
+        return recommended
+
+    @staticmethod
+    def dev_scan(device: GeecsDevice, var_name: str, min_max_step_steps: tuple,
+                 units: str, label: str, rough: bool) -> tuple[bool, Optional[Path]]:
+        var_alias = device.find_alias_by_var(var_name)
+        if var_alias in device.var_spans:
+            lims = device.var_spans[var_alias]
+        else:
+            lims = (None, None)
         values: Union[dict, str]
 
         while True:
-            pars = [6, 11, 0.25, 20] if rough else [z - 1, z + 1, 0.1, 20]
-            values = Handler.request_values(f'{"Rough" if rough else "Fine"} Z-scan parameters:',
-                                            [('Start [mm]', 'float', lims[0], lims[1], pars[0]),
-                                             ('End [mm]', 'float', lims[0], lims[1], pars[1]),
-                                             ('Steps [mm]', 'float', 0, 10, pars[2]),
-                                             ('Shots/Step', 'int', 1, 'inf', pars[3])])
+            values = Handler.request_values(f'{"Rough" if rough else "Fine"} {label}-scan parameters:',
+                                            [(f'Start [{units}]', 'float', lims[0], lims[1], min_max_step_steps[0]),
+                                             (f'End [{units}]', 'float', lims[0], lims[1], min_max_step_steps[1]),
+                                             (f'Steps [{units}]', 'float', 0, 10, min_max_step_steps[2]),
+                                             ('Shots/Step', 'int', 1, 'inf', min_max_step_steps[3])])
             if isinstance(values, str) and (values == 'Cancel'):
                 cancel = True
                 scan_folder = None
                 break
 
-            UserInterface.report(f'Starting {"rough" if rough else "fine"} Z-scan...')
-            scan_folder, _, _, _ = self.jet.stage.scan(z_alias, values['Start [mm]'], values['End [mm]'],
-                                                       values['Steps [mm]'], lims, values['Shots/Step'],
-                                                       comment=f'{"rough" if rough else "fine"} Z-scan')
+            UserInterface.report(f'Starting {"rough" if rough else "fine"} {label}-scan...')
+            scan_folder, _, _, _ = device.scan(var_alias, values[f'Start [{units}]'], values[f'End [{units}]'],
+                                               values[f'Steps [{units}]'], lims, values['Shots/Step'],
+                                               comment=f'{"rough" if rough else "fine"} Z-scan')
 
-            repeat = Handler.question('Do you want to repeat this Z-scan?', ['Yes', 'No', 'Cancel'])
+            repeat = Handler.question(f'Do you want to repeat this {label}-scan?', ['Yes', 'No', 'Cancel'])
             cancel = (repeat == 'Cancel')
             if repeat != 'Yes':
                 break
 
         return cancel, scan_folder
 
-    def z_scan_analysis(self, exp: Experiment, scan_path: Path) -> dict[str, np.ndarray]:
-        if self.jet is None:
-            device = 'U_ESP_JetXYZ'
-            variable = 'Position.Axis 3'
-        else:
-            device = self.jet.stage.get_name()
-            variable = self.jet.stage.get_axis_var_name(2)
-
+    def dev_scan_analysis(self, device: str, variable: str, exp: Experiment, scan_path: Path,
+                          dE_weight: float = 1., pC_weight: float = 1., MeV_weight: float = 1.)\
+            -> dict[str, np.ndarray]:
         scan_data = ScanData(scan_path, ignore_experiment_name=exp.is_offline)
         indexes, setpoints, matching = scan_data.bin_data(device, variable)
         magspec_data = scan_data.analyze_mag_spec(indexes)
+        if magspec_data:
+            objs = self.objective_analysis(setpoints, magspec_data, dE_weight, pC_weight, MeV_weight)
 
-        objs = {}
-        obj_1 = magspec_data['spec_hres_stats']['med_dE/E']
-        objs['dE/E obj'] = np.min(obj_1) / obj_1
-        obj_2 = magspec_data['spec_hres_stats']['med_peak_smooth_pC/MeV']
-        objs['pC/MeV obj'] = obj_2 / np.max(obj_2)
-        obj_3 = magspec_data['spec_hres_stats']['med_peak_smooth_MeV']
-        objs['100 MeV obj'] = 1 - np.abs(obj_3 / 100. - 1)**2
-        g_obj = (objs['dE/E obj'] + 2 * objs['pC/MeV obj'] + objs['100 MeV obj']) / 4.
-        g_obj_pars = np.polyfit(setpoints, g_obj, round(setpoints.size / 2))
-        g_obj_fit_x = np.linspace(setpoints[0], setpoints[-1], 1000)
-        g_obj_fit_y = np.polyval(g_obj_pars, g_obj_fit_x)
-        g_obj_x = g_obj_fit_x[np.argmax(g_obj_fit_y)]
-        objs['global obj'] = {'sources': ['med_dE/E', 'med_peak_smooth_pC/MeV', 'med_peak_smooth_MeV'],
-                              'weights': [2., 3., 1.],
-                              'values': g_obj,
-                              'fit pars': g_obj_pars,
-                              'fit x': g_obj_fit_x,
-                              'fit y': g_obj_fit_y,
-                              'best': g_obj_x
-                              }
+            magspec_data = {
+                'setpoints': setpoints,
+                'indexes': indexes,
+                'axis_MeV': magspec_data['axis_MeV'],
+                **magspec_data['spec_hres_pC/MeV'],
+                **magspec_data['spec_hres_stats'],
+                **objs
+            }
 
-        magspec_data = {
-            'setpoints': setpoints,
-            'indexes': indexes,
-            'axis_MeV': magspec_data['axis_MeV']['hres'],
-            **magspec_data['spec_hres_pC/MeV'],
-            **magspec_data['spec_hres_stats'],
-            **magspec_data['spec_hres_stats'],
-            **objs
-        }
+        else:
+            magspec_data = {'setpoints': setpoints, 'indexes': indexes}
 
         return magspec_data
+
+    @staticmethod
+    def objective_analysis(setpoints: np.ndarray, magspec_data: dict[str, dict[str, np.ndarray]],
+                           dE_weight: float = 1., pC_weight: float = 1., MeV_weight: float = 1.) -> dict[str, Any]:
+        def norm(dist: np.ndarray, inv: bool = False) -> np.ndarray:
+            if inv:
+                dist[np.where(dist == 0)[0]] = np.max(dist)
+            dist -= np.min(dist)
+            dist /= np.max(dist)
+            if inv:
+                dist = 1 - dist
+            return dist
+
+        objs_types = ['weight-based objs', 'fit-based objs']
+        objs = {objs_types[0]: {}, objs_types[1]: {}}
+        obj_fit_x = np.linspace(setpoints[0], setpoints[-1], 1000)
+        weights = [dE_weight, pC_weight, MeV_weight]
+
+        for obj_type, sources in zip(objs_types,
+                                     [['med_weighted_dE/E', 'med_peak_charge_pC/MeV', 'med_peak_charge_MeV'],
+                                      ['med_fit_dE/E', 'med_peak_smooth_pC/MeV', 'med_peak_smooth_MeV']]):
+            g_obj = np.zeros((setpoints.size,), dtype=float)
+            obj_vals = np.zeros((3, setpoints.size))
+
+            for it, (src, weight) in enumerate(zip(sources, weights)):
+                if (magspec_data['spec_hres_stats'][src] != 0).any():
+                    obj = magspec_data['spec_hres_stats'][src]
+                    if it == 0:
+                        obj = norm(obj, inv=True)
+                    if it == 1:
+                        obj = norm(obj)
+                    if it == 2:
+                        # obj = norm(np.abs(obj - 100), inv=True)
+                        obj = norm(np.sqrt(np.abs(obj - 100)), inv=True)
+
+                    obj_fit = np.polyval(np.polyfit(setpoints, obj, round(setpoints.size / 2)), obj_fit_x)
+                    objs[obj_type][f'{src.split("_")[-1]} obj'] = {'data': np.stack([setpoints, obj]),
+                                                                   'fit': np.stack([obj_fit_x, obj_fit])}
+                    obj_vals[it] = obj
+                    g_obj += (weight * obj)
+
+            g_obj /= np.sum(weights)
+
+            try:
+                g_obj_fit = np.polyval(np.polyfit(setpoints, g_obj, round(setpoints.size / 2)), obj_fit_x)
+                g_obj_best = obj_fit_x[np.argmax(g_obj_fit)]
+            except Exception:
+                g_obj_fit = np.zeros(obj_fit_x.shape, dtype=float)
+                g_obj_best = obj_fit_x[obj_fit_x.size // 2]
+
+            objs[obj_type]['global obj'] = {
+                'source raw': sources,
+                'source norm': [f'{src.split("_")[-1]} obj' for src in sources],
+                'source vals': obj_vals,
+                'weights': weights,
+                'setpoints': setpoints,
+                'data': np.stack([setpoints, g_obj]),
+                'fit': np.stack([obj_fit_x, g_obj_fit]),
+                'best': g_obj_best
+            }
+
+        return objs
 
 
 if __name__ == "__main__":
     _htu = HtuExp(get_info=True)
+    # _scan_path = Path(_htu.base_path / r'Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
     _scan_path = Path(_htu.base_path / r'Undulator\Y2023\07-Jul\23_0706\scans\Scan004')
 
     lpa = LPA(_htu.is_offline)
-    _analysis = lpa.z_scan_analysis(_htu, _scan_path)
+    if lpa.jet is None:
+        _device = 'U_ESP_JetXYZ'
+        _variable = 'Position.Axis 3'
+    else:
+        _device = lpa.jet.stage.get_name()
+        _variable = lpa.jet.stage.get_axis_var_name(2)
 
-    for objective in ['dE/E obj', 'pC/MeV obj', '100 MeV obj']:
-        plt.figure(figsize=(6.4, 4.8))
-        plt.plot(_analysis['setpoints'], _analysis[objective])
-        plt.title(objective)
+    _analysis = lpa.dev_scan_analysis(_device, _variable, _htu, _scan_path)
 
-    plt.figure(figsize=(6.4, 4.8))
-    plt.plot(_analysis['setpoints'], _analysis['global obj']['values'])
-    plt.plot(_analysis['global obj']['fit x'], _analysis['global obj']['fit y'])
-    plt.title(f'global objective {_analysis["global obj"]["best"]:.3f}')
+    for obj_t in ['weight-based objs', 'fit-based objs']:
+        if obj_t in _analysis:
+            for objective in ['dE/E obj', 'pC/MeV obj', 'MeV obj']:
+                plt.figure(figsize=(6.4, 4.8))
+                plt.plot(_analysis[obj_t][objective]['data'][0, :],
+                         _analysis[obj_t][objective]['data'][1, :])
+                plt.plot(_analysis[obj_t][objective]['fit'][0, :],
+                         _analysis[obj_t][objective]['fit'][1, :])
+                plt.title(objective)
+
+            plt.figure(figsize=(6.4, 4.8))
+            plt.plot(_analysis[obj_t]['global obj']['data'][0, :],
+                     _analysis[obj_t]['global obj']['data'][1, :])
+            plt.plot(_analysis[obj_t]['global obj']['fit'][0, :],
+                     _analysis[obj_t]['global obj']['fit'][1, :])
+            plt.title(f'global objective ({obj_t.split(" objs")[0]}) {_analysis[obj_t]["global obj"]["best"]:.3f}')
 
     plt.show(block=True)
 

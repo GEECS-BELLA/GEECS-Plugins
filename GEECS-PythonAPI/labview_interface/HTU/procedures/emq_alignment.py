@@ -10,6 +10,50 @@ from geecs_python_api.controls.devices.HTU.multi_channels import PlungersPLC
 from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.interfaces.exports import load_py
 from labview_interface.HTU.htu_classes import UserInterface, Handler
+from labview_interface.lv_interface import Bridge, flatten_dict
+
+
+def align_EMQs(exp: Experiment, call: list):
+    steers = [None] * 2
+    try:
+        UserInterface.report('Connecting to steering magnets...')
+        steers = [Steering(i + 1) for i in range(2)]
+        ret = calculate_steering_currents(exp, steers[0], steers[1], call[1], call[2])
+        Handler.send_results(call[0], flatten_dict(ret))
+
+        values = []
+        for s in steers:
+            for it, direction in enumerate(['horizontal', 'vertical']):
+                supply = s.supplies[direction]
+                var_alias = supply.var_aliases_by_name[supply.var_current][0]
+                value = supply.coerce_float(var_alias, '', ret[f'new_S{s.index}_A'][it])
+                coerced = (round(abs(ret[f'new_S{s.index}_A'][it] - value) * 1000) == 0)
+                values.append((value, coerced))
+
+        answer = Handler.question('Do you want to apply the recommended currents?\n'
+                                  f'S1 [A]: {values[0][0]:.3f}{" (coerced)" if values[0][1] else ""}, '
+                                  f'{values[1][0]:.3f}{" (coerced)" if values[1][1] else ""}\n'
+                                  f'S2 [A]: {values[2][0]:.3f}{" (coerced)" if values[2][1] else ""}, '
+                                  f'{values[3][0]:.3f}{" (coerced)" if values[3][1] else ""}',
+                                  ['Yes', 'No'])
+        if answer == 'Yes':
+            UserInterface.report(f'Applying S1 currents ({values[0][0]:.3f}, {values[1][0]:.3f})...')
+            steers[0].set_current('horizontal', values[0][0])
+            steers[0].set_current('vertical', values[1][0])
+
+            UserInterface.report(f'Applying S2 currents ({values[2]:.3f}, {values[3]:.3f})...')
+            steers[1].set_current('horizontal', values[2][0])
+            steers[1].set_current('vertical', values[3][0])
+
+    except Exception as ex:
+        UserInterface.report('EMQs alignment failed')
+        Bridge.python_error(message=str(ex))
+
+    finally:
+        UserInterface.report('Disconnecting from steering magnets...')
+        for steer in steers:
+            if isinstance(steer, Steering):
+                steer.close()
 
 
 def calculate_steering_currents(exp: Experiment,

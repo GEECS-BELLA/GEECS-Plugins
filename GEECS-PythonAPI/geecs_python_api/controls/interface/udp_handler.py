@@ -66,8 +66,9 @@ class UdpHandler:
         try:
             self.sock_cmd.sendto(msg.encode('ascii'), ipv4)
             sent = True
-        except Exception:
-            api_error.error('Failed to send UDP message', f'Class "UdpHandler", method "{inspect.stack()[0][3]}"')
+        except Exception as ex:
+            api_error.error(f'Failed to send UDP message ({ex})',
+                            f'Class "UdpHandler", method "{inspect.stack()[0][3]}"')
 
         return sent
 

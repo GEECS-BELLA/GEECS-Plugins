@@ -13,12 +13,13 @@ class EBeamDiagnostics(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(EBeamDiagnostics, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
         super().__init__('beam_diagnostics', virtual=True)
 
         self.undulator_stage = UndulatorStage()
@@ -47,6 +48,14 @@ class EBeamDiagnostics(GeecsDevice):
         self.undulator_stage.subscribe_var_values()
         for imager in self.imagers.values():
             imager.screen.subscribe_var_values()
+
+        self.__initialized = True
+
+    def init_resources(self):
+        if self.__initialized:
+            [obj.init_resources() for obj in self.imagers.values()]
+            self.undulator_stage.init_resources()
+            [controller.init_resources() for controller in self.controllers]
 
     def close(self):
         [obj.close() for obj in self.imagers.values()]

@@ -10,15 +10,21 @@ class Diagnostics(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(Diagnostics, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
-        super().__init__('diagnostics', virtual=True)
 
+        super().__init__('diagnostics', virtual=True)
         self.e_beam = EBeamDiagnostics()
+        self.__initialized = True
+
+    def init_resources(self):
+        if self.__initialized:
+            self.e_beam.init_resources()
 
     def close(self):
         self.e_beam.close()

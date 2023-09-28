@@ -30,7 +30,7 @@ xopt = "^1.4.1"
 mysql-connector = "^2.2.9"
 
 # internal libraries
-ImageAnalysis = { path = "../ImageAnalysis" }
+ImageAnalysis = { path = "../ImageAnalysis", develop = true }
 
 [tool.poetry.group.dev.dependencies]
 spyder-kernels = ">=2.4.0,<2.5.0"

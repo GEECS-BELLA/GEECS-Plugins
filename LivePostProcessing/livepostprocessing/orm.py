@@ -24,8 +24,10 @@ import pandas as pd
 import numpy as np
 
 from .utils import (find_device_image_folders, read_scalar_data, parse_run_date, 
-                    find_undulator_folder, read_imaq_image
+                    find_undulator_folder
                    ) 
+
+from image_analysis.utils import read_imaq_image
 
 undulator_data_folder = find_undulator_folder()
 

@@ -13,17 +13,21 @@ class SeedAmp4Shutter(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(SeedAmp4Shutter, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
+
         super().__init__('U_1Wire_148')
 
         self.var_spans = {VarAlias('Revo-North Shutter'): (None, None)}
         self.build_var_dicts()
         self.var_amp4: str = self.var_names_by_index.get(0)[0]
+
+        self.__initialized = True
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         if val_string.lower() == 'inserted':

@@ -11,12 +11,13 @@ class GasJet(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(GasJet, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
 
         super().__init__('gas_jet', virtual=True)
         self.stage = GasJetStage()
@@ -28,6 +29,15 @@ class GasJet(GeecsDevice):
         self.pressure.subscribe_var_values()
         self.trigger.subscribe_var_values()
         self.blade.subscribe_var_values()
+
+        self.__initialized = True
+
+    def init_resources(self):
+        if self.__initialized:
+            self.stage.init_resources()
+            self.pressure.init_resources()
+            self.trigger.init_resources()
+            self.blade.init_resources()
 
     def close(self):
         self.stage.close()

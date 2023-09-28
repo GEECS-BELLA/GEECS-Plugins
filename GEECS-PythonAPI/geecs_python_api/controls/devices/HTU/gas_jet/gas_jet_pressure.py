@@ -13,12 +13,13 @@ class GasJetPressure(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(GasJetPressure, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
 
         super().__init__('U_HP_Daq')
 
@@ -26,8 +27,7 @@ class GasJetPressure(GeecsDevice):
         self.build_var_dicts()
         self.var_pressure: str = self.var_names_by_index.get(0)[0]
 
-        # self.register_cmd_executed_handler()
-        # self.register_var_listener_handler()
+        self.__initialized = True
 
     def interpret_value(self, var_alias: VarAlias, val_string: str) -> Any:
         return 100. * float(val_string)
