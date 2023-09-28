@@ -18,7 +18,7 @@ def optimize_lpa(exp: Experiment, call: list):
         for label, rough in zip(['Z', 'X', 'Compressor', 'Pressure'],
                                 [True, False, True, False]):
             run_scan = Handler.question(f'Next scan: rough {label if len(label) == 1 else label.lower()}'
-                                        f'-scan. Proceed?', ['Yes', 'Skip', 'Cancel'])
+                                        f'-scan. Proceed?', ['Yes', 'Skip', 'Cancel'], modal=False)
 
             if run_scan == 'Cancel':
                 UserInterface.report('LPA initialization canceled by user')
@@ -58,7 +58,8 @@ def optimize_lpa(exp: Experiment, call: list):
                     # device = lpa.jet.stage
                     device = lpa.jet.stage.get_name()
                     var_name = lpa.jet.stage.get_axis_var_name(axis)
-                    pos = round(lpa.jet.stage.get_position(label), precision)
+                    # pos = round(lpa.jet.stage.get_position(label), precision)
+                    pos = default_pos[axis]
 
                 if label == 'X':
                     min_max_step_steps = (5, 8, 0.4, 20) if rough else (5.5, 7.5, 0.1, 20)

@@ -358,7 +358,7 @@ class ScanData:
 
             # noinspection PyTypeChecker
             analysis = spec_analyzer.analyze_image(ni.read_imaq_image(magspec_data['hres']['paths'][0]))
-            axis_MeV = np.array(analysis[3][0, :])
+            axis_MeV = np.array(analysis['analyzer_return_lineouts'][0, :])
             # stats_keys = list(analysis[1].keys())
 
             avg_hres_pC = np.zeros((len(indexes), axis_MeV.size))
@@ -375,10 +375,10 @@ class ScanData:
                     try:
                         # noinspection PyTypeChecker
                         analysis = spec_analyzer.analyze_image(ni.read_imaq_image(path))
-                        specs.append(np.array(analysis[3]))
+                        specs.append(np.array(analysis['analyzer_return_lineouts']))
                         # charge.append(np.sum(specs[-1][1, :]))
 
-                        stats.append(list(analysis[1].values()))
+                        stats.append(list(analysis['analyzer_return_dictionary'].values()))
                         smooth_hres.append(savgol_filter(specs[-1][1, :], 20, 3))
 
                         if np.sum(specs[-1][1, :]) > 40:
@@ -399,7 +399,7 @@ class ScanData:
                 std_hres_pC[it, :] = np.std(np.array(specs)[:, 1, :], axis=0)
 
                 avg_stats = np.mean(stats, axis=0)
-                med_stats = np.mean(stats, axis=0)
+                med_stats = np.median(stats, axis=0)
                 std_stats = np.std(stats, axis=0)
 
                 hres_stats['avg_weighted_mean_MeV'][it] = avg_stats[5]
@@ -408,9 +408,9 @@ class ScanData:
                 hres_stats['avg_weighted_rms_MeV'][it] = avg_stats[6]
                 hres_stats['med_weighted_rms_MeV'][it] = med_stats[6]
                 hres_stats['std_weighted_rms_MeV'][it] = std_stats[6]
-                hres_stats['avg_weighted_dE/E'][it] = avg_stats[7] * 100
-                hres_stats['med_weighted_dE/E'][it] = med_stats[7] * 100
-                hres_stats['std_weighted_dE/E'][it] = std_stats[7] * 100
+                hres_stats['avg_weighted_dE/E'][it] = avg_stats[7]
+                hres_stats['med_weighted_dE/E'][it] = med_stats[7]
+                hres_stats['std_weighted_dE/E'][it] = std_stats[7]
                 hres_stats['avg_peak_charge_pC/MeV'][it] = avg_stats[3]
                 hres_stats['med_peak_charge_pC/MeV'][it] = med_stats[3]
                 hres_stats['std_peak_charge_pC/MeV'][it] = std_stats[3]
