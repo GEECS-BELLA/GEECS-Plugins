@@ -104,6 +104,7 @@ class GrenouilleRetrieval:
                         grenouille_trace_center_wavelength: Quantity = Q_(400, 'nm'),
                         grenouille_trace_wavelength_step: Quantity = Q_(0.0798546, 'nm'),
                         time_delay_step: Quantity = Q_(0.893676, 'fs'),
+                        pulse_duration: Quantity = Q_(800, 'fs'),
                         initial_E: Optional[np.ndarray] = None,
                        ):
         """
@@ -121,6 +122,8 @@ class GrenouilleRetrieval:
         time_delay_step: [time] Quantity
             resolution of time_delay (tau) axis (1, horizontal). The center 
             of the axis should represent tau = 0
+        pulse_duration: [time] Quantity
+            length of the reconstructed pulse
         initial_E : complex np.ndarray of length grenouille_trace.shape[0]
             starting guess for E field pulse
         
@@ -132,6 +135,7 @@ class GrenouilleRetrieval:
         self.grenouille_trace_center_wavelength = grenouille_trace_center_wavelength
         self.grenouille_trace_wavelength_step = grenouille_trace_wavelength_step
         self.time_delay_step = time_delay_step
+        self.pulse_duration = pulse_duration
 
         # total time, i.e. length of time axis, should be such that it matches
         # (roughly) the resolution of grenouille trace wavelength resolution
@@ -165,6 +169,14 @@ class GrenouilleRetrieval:
     def t(self) -> QuantityArray:
         return np.arange(self.time_axis_length) * self.time_step
     
+    @property
+    def E_t(self) -> QuantityArray:
+        """ Time axis for self.E. Will be padded to len(self.t) for calculations
+        """
+        # make it an odd length, so there is a t=0 point
+        E_t_length = int(np.ceil((self.pulse_duration / self.time_step).m_as('') / 2)) * 2 + 1
+        return (np.arange(E_t_length) - (E_t_length - 1) // 2) * self.time_step
+
     @property
     def τ(self) -> QuantityArray:
         return (np.arange(self.shape[1]) - ((self.shape[1] - 1) / 2)) * self.time_delay_step
@@ -204,17 +216,33 @@ class GrenouilleRetrieval:
 
     def _default_initial_E(self):
         pulse_FWHM = Q_(50, 'fs')
-        pulse = np.exp(-np.square(self.t - self.t[-1] / 2) / (pulse_FWHM**2 / (4 * np.log(2))))
+        pulse = np.exp(-np.square(self.E_t) / (pulse_FWHM**2 / (4 * np.log(2))))
         return pulse.m
 
-    def _calculate_E_sig_from_E(self, E: np.ndarray) -> np.ndarray:
+    def _calculate_E_sig_from_E(self, E: np.ndarray, 
+                                E_t: Optional[QuantityArray] = None, 
+                                E_sig_t: Optional[QuantityArray] = None
+                               ) -> np.ndarray:
         """ Calculate E_sig(t, τ) = E(t) gate(E(t - τ))
             
             gate(E(t)) depends on the non-linear effect.
-        """
 
-        E_interpolator_real = InterpolatedUnivariateSpline(self.t.m_as('sec'), E.real, ext='zeros')
-        E_interpolator_imag = InterpolatedUnivariateSpline(self.t.m_as('sec'), E.imag, ext='zeros')
+        Parameters
+        ----------
+        E : complex E-field
+        E_t : [time] Quantity array
+            time axis corresponding to E. default self.E_t
+        E_sig_t: [time] Quantity array
+            time axis of resulting E_sig(t, τ) 2d array
+        """
+        if E_t is None:
+            E_t = self.E_t
+
+        if E_sig_t is None:
+            E_sig_t = self.t
+
+        E_interpolator_real = InterpolatedUnivariateSpline(E_t.m_as('sec'), E.real, ext='zeros')
+        E_interpolator_imag = InterpolatedUnivariateSpline(E_t.m_as('sec'), E.imag, ext='zeros')
 
         def gate(t):
 
@@ -231,15 +259,17 @@ class GrenouilleRetrieval:
                     'second_harmonic_generation': gate_second_harmonic_generation,
                    }[self.nonlinear_effect](t)
 
+        E_at_E_sig_t = E_interpolator_real(E_sig_t.m_as('sec')) + 1j*E_interpolator_imag(E_sig_t.m_as('sec'))
+
         def E_sig_column(τ):
             """ Return E(t) * gate(E(t-τ)) for a given tau
-                i.e. single column of E_sig(t, tau)
+                i.e. single column of E_sig(t, τ)
             """
-            return E * gate(self.t - τ)
+            return E_at_E_sig_t * gate(E_sig_t - τ)
 
         return np.transpose(
             np.fromiter((E_sig_column(τ) for τ in self.τ), 
-                        (np.complex128, len(self.t))
+                        (np.complex128, len(E_sig_t))
                        )
         )
 
@@ -261,7 +291,7 @@ class GrenouilleRetrieval:
             @ureg.wraps('=A*B', ('=A', '=B'))
             def trapz_ua(Y, x):
                 return np.trapz(Y, x, axis=1)
-            self.E = trapz_ua(self.E_sig_tτ, self.τ).m
+            self.E = np.interp(self.E_t,   self.t, trapz_ua(self.E_sig_tτ, self.τ).m)
 
         def _calculate_next_E_by_generalized_projection_along_gradient():
             
