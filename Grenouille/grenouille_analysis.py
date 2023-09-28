@@ -144,7 +144,7 @@ class GrenouilleRetrieval:
                       / (self.frequency_multiplier * self.grenouille_trace_wavelength_step)
                      )
 
-        self.time_axis_length = int(np.ceil(total_time / self.time_step))
+        self.time_axis_length = int(np.ceil((total_time / self.time_step) / 2)) * 2 + 1
 
         self._calculate_I_FROG()
         if initial_E is None:
@@ -168,8 +168,10 @@ class GrenouilleRetrieval:
 
     @property
     def t(self) -> QuantityArray:
-        return np.arange(self.time_axis_length) * self.time_step
-    
+        """ Time axis for the Esig(t, τ) 2D array
+        """
+        return (np.arange(self.time_axis_length) - (self.time_axis_length - 1) / 2) * self.time_step
+
     @property
     def E_t(self) -> QuantityArray:
         """ Time axis for self.E. Will be padded to len(self.t) for calculations
