@@ -169,12 +169,12 @@ class GrenouilleRetrieval:
             self.E = initial_E
 
         for iteration in range(self.number_of_iterations):
-            self._calculate_E_sig()
-            self._calculate_FT_E_sig()
-            self._replace_FT_E_sig_magnitude()
-            self._calculate_inverse_FT_E_sig()
-            self._calculate_next_E()
-            self._center_and_zero_phase_E()
+            self.E_sig_tτ = self._calculate_E_sig()
+            self.E_sig_ωτ = self._calculate_FT_E_sig()
+            self.E_sig_ωτ = self._replace_FT_E_sig_magnitude()
+            self.E_sig_tτ = self._calculate_inverse_FT_E_sig()
+            self.E = self._calculate_next_E()
+            self.E = self._center_and_zero_phase_E()
 
         return self.E
 
@@ -299,10 +299,20 @@ class GrenouilleRetrieval:
         self.E_sig_ωτ = np.fft.fftshift(np.fft.fft(self.E_sig_tτ, axis=0), axes=(0,))
 
     def _replace_FT_E_sig_magnitude(self):
-        self.E_sig_ωτ *= np.sqrt(self.I_FROG) / np.clip(np.abs(self.E_sig_ωτ), 1e-15, np.inf)
+        return self.E_sig_ωτ * np.sqrt(self.I_FROG) / np.clip(np.abs(self.E_sig_ωτ), 1e-15, np.inf)
 
-    def _calculate_inverse_FT_E_sig(self):
-        self.E_sig_tτ = np.fft.ifft(np.fft.ifftshift(self.E_sig_ωτ, axes=(0,)), axis=0)
+    def _calculate_inverse_FT_E_sig(self, E_sig_ωτ = None):
+        if E_sig_ωτ is None:
+            E_sig_ωτ = self.E_sig_ωτ
+        return np.fft.ifft(np.fft.ifftshift(E_sig_ωτ, axes=(0,)), axis=0)
+
+    def _calculate_next_E(self, E_sig_tτ = None, E_current = None):
+
+        if E_sig_tτ is None:
+            E_sig_tτ = self.E_sig_tτ
+
+        if E_current is None:
+            E_current = self.E
 
     def _calculate_next_E(self):
         
@@ -362,13 +372,19 @@ class GrenouilleRetrieval:
                 'generalized_projection/full_minimization': _calculate_next_E_by_generalized_projection_full_minimization,
                }[self.calculate_next_E_method]()
 
-    def _center_and_zero_phase_E(self):
+    def _center_and_zero_phase_E(self, E = None):
+
+        if E is None:
+            E = self.E
+
         # center E around t = 0
-        center_of_mass = (self.E_t * np.abs(self.E)).sum() / np.abs(self.E).sum()
-        self.E = np.interp(self.E_t,  self.E_t - center_of_mass, self.E, left=0.0, right=0.0)
+        center_of_mass = (self.E_t * np.abs(E)).sum() / np.abs(E).sum()
+        E = np.interp(self.E_t,  self.E_t - center_of_mass, E, left=0.0, right=0.0)
         
         # zero the phase at t = 0
-        self.E *= np.exp(-1j * np.angle(self.E[(len(self.E) - 1) // 2]))
+        E *= np.exp(-1j * np.angle(E[(len(E) - 1) // 2]))
+
+        return E
 
     def simulate_grenouille_trace(self, E, grenouille_trace_shape):
         self.shape = grenouille_trace_shape
