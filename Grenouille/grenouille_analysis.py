@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
-from scipy.optimize import least_squares
+from scipy.optimize import least_squares, minimize
 
 def invert_wavelength_angular_frequency(wavelength_or_angular_frequency):
     return Q_(2*np.pi, 'radians') * ureg.speed_of_light / wavelength_or_angular_frequency
@@ -238,12 +238,12 @@ class GrenouilleRetrieval:
         pulse = np.exp(-np.square(self.E_t) / (pulse_FWHM**2 / (4 * np.log(2))))
         return pulse.m
 
-    def _calculate_E_sig_from_E(self, E: np.ndarray, 
+    def _calculate_E_sig_from_E_with_interpolation(self, E: np.ndarray, 
                                 E_t: Optional[QuantityArray] = None, 
                                 E_sig_t: Optional[QuantityArray] = None
                                ) -> np.ndarray:
         """ Calculate E_sig(t, τ) = E(t) gate(E(t - τ))
-            
+
             gate(E(t)) depends on the non-linear effect.
 
         Parameters
@@ -292,11 +292,130 @@ class GrenouilleRetrieval:
                        )
         )
 
-    def _calculate_E_sig(self):
-        self.E_sig_tτ = self._calculate_E_sig_from_E(self.E)
+    def _calculate_E_sig_from_E_exact_time_steps(self, E: np.ndarray) -> np.ndarray:
+        """ Calculate E_sig(t, τ) = E(t) gate(E(t - τ))
 
-    def _calculate_FT_E_sig(self):
-        self.E_sig_ωτ = np.fft.fftshift(np.fft.fft(self.E_sig_tτ, axis=0), axes=(0,))
+            gate(E(t)) depends on the non-linear effect.
+
+            Assumes time_step is an integer multiple of time_delay_step
+
+        Parameters
+        ----------
+        E : complex E-field
+        """
+        
+        E_on_E_sig_t_axis = self._pad_to_t_axis(E)
+
+        # calculate gate(E), which depends on the nonlinear effect
+        if self.nonlinear_effect == 'self_diffraction':
+            gate_E = np.square(np.abs(E_on_E_sig_t_axis))
+        elif self.nonlinear_effect == 'second_harmonic_generation':
+            gate_E = E_on_E_sig_t_axis.copy()
+
+        # calculate E_sig(t, τ) = E(t) gate(E(t - τ))
+
+        return np.transpose(
+            np.fromiter(
+                (E_on_E_sig_t_axis * shift_1d_array(gate_E, num_time_steps_shift)
+                 for num_time_steps_shift 
+                 in (np.arange(len(self.τ)) - (len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
+                ), (np.complex128, len(self.t))
+            )
+        )
+
+    def _calculate_Z_from_E(self, E: np.ndarray):
+        """ Calculate sum(|E_sig(t,τ) - E(t)E(t-τ))|^2)
+
+        At the step where E(t) is calculated from E_sig(t,τ) (after it has been
+        inverse-FT'd from the modified E_sig(ω,τ) ), for the generalized_projection
+        methods Z is the objective to minimize.
+
+        """
+        return np.sum(np.square(np.abs(self.E_sig_tτ - self._calculate_E_sig(self._pad_to_t_axis(E)))))
+
+    def _calculate_dZdE_from_E_exact_time_steps(self, E: np.ndarray):
+
+        pad_len_on_either_side = (len(self.t) - len(E)) // 2
+        E_on_t_axis = self._pad_to_t_axis(E)        
+        assert len(self.t) - len(E) == 2 * pad_len_on_either_side
+
+        # dZ/dRe(E[l])
+        dZ_dReE = np.zeros(len(E_on_t_axis))
+        # dZ/dIm(E[l])
+        dZ_dImE = np.zeros(len(E_on_t_axis))
+
+        tsf = self.time_step_time_delay_step_factor
+
+        # for l in range(len(E)):
+        #     for j in range(self.E_sig_tτ.shape[1]):
+        #         # j is index to self.E_sig_tτ, while τj is self.τ[j] / self.time_delay_step
+        #         τj = j - ((self.shape[1] - 1) // 2)
+        #         assert abs(τj - self.τ[j] / self.time_delay_step) < 1e-6
+
+        #         if 0 <= l - tsf * τj < len(E):
+        #             diff_E_sig = self.E_sig_tτ[l, j] - E[l] * E[l - tsf * τj]
+        #             dZ_dReE[l] += (  2 * np.real(diff_E_sig) * (-np.real(E[l - tsf * τj]))
+        #                            + 2 * np.imag(diff_E_sig) * (-np.imag(E[l - tsf * τj]))
+        #                           )
+        #             dZ_dImE[l] += (  2 * np.real(diff_E_sig) * (+np.imag(E[l - tsf * τj]))
+        #                            + 2 * np.imag(diff_E_sig) * (-np.real(E[l - tsf * τj]))
+        #                           )
+
+        #         if 0 <= l + tsf * τj < len(E):
+        #             diff_E_sig = self.E_sig_tτ[l + tsf * τj, j] - E[l + tsf * τj] * E[l]
+        #             dZ_dReE[l] += (  2 * np.real(diff_E_sig) * (-np.real(E[l + tsf * τj]))
+        #                            + 2 * np.imag(diff_E_sig) * (-np.imag(E[l + tsf * τj]))
+        #                           )
+        #             dZ_dImE[l] += (  2 * np.real(diff_E_sig) * (+np.imag(E[l + tsf * τj]))
+        #                            + 2 * np.imag(diff_E_sig) * (-np.real(E[l + tsf * τj]))
+        #                           )
+
+        for j in range(self.E_sig_tτ.shape[1]):
+            # j is index to self.E_sig_tτ, while τj is self.τ[j] / self.time_delay_step
+            τj = j - ((self.shape[1] - 1) // 2)
+            assert abs(τj - self.τ[j] / self.time_delay_step) < 1e-6
+
+            E_shifted = shift_1d_array(E_on_t_axis, tsf * τj)
+            diff_E_sig = self.E_sig_tτ[:, j] - (E_on_t_axis * E_shifted)
+            dZ_dReE += (  2 * np.real(diff_E_sig) * (-np.real(E_shifted))
+                        + 2 * np.imag(diff_E_sig) * (-np.imag(E_shifted))
+                       )
+            dZ_dImE += (  2 * np.real(diff_E_sig) * (+np.imag(E_shifted))
+                        + 2 * np.imag(diff_E_sig) * (-np.real(E_shifted))
+                       )
+
+            E_shifted = shift_1d_array(E_on_t_axis, -tsf * τj)
+            diff_E_sig = shift_1d_array(self.E_sig_tτ[:, j], -tsf * τj) - E_shifted * E_on_t_axis
+            dZ_dReE += (  2 * np.real(diff_E_sig) * (-np.real(E_shifted))
+                        + 2 * np.imag(diff_E_sig) * (-np.imag(E_shifted))
+                       )
+            dZ_dImE += (  2 * np.real(diff_E_sig) * (+np.imag(E_shifted))
+                        + 2 * np.imag(diff_E_sig) * (-np.real(E_shifted))
+                       )
+
+        # crop relevant section if E was padded at the start of this method
+        if pad_len_on_either_side > 0:
+            dZ_dReE = dZ_dReE[pad_len_on_either_side:-pad_len_on_either_side]
+            dZ_dImE = dZ_dImE[pad_len_on_either_side:-pad_len_on_either_side]
+
+        return dZ_dReE, dZ_dImE
+
+    def _calculate_E_sig(self, E: np.ndarray = None):
+        # select E_sig calculation method depending on whether time step is 
+        # integer multiple of time_delay_step
+
+        if E is None:
+            E = self.E
+
+        if self.time_step_time_delay_step_factor is None:
+            return self._calculate_E_sig_from_E_with_interpolation(E)
+        else:
+            return self._calculate_E_sig_from_E_exact_time_steps(E)
+
+    def _calculate_FT_E_sig(self, E_sig_tτ = None):
+        if E_sig_tτ is None:
+            E_sig_tτ = self.E_sig_tτ
+        return np.fft.fftshift(np.fft.fft(E_sig_tτ, axis=0), axes=(0,))
 
     def _replace_FT_E_sig_magnitude(self):
         return self.E_sig_ωτ * np.sqrt(self.I_FROG) / np.clip(np.abs(self.E_sig_ωτ), 1e-15, np.inf)
@@ -323,49 +442,87 @@ class GrenouilleRetrieval:
             self.E = np.interp(self.E_t,   self.t, trapz_ua(self.E_sig_tτ, self.τ).m)
 
         def _calculate_next_E_by_generalized_projection_along_gradient():
-            
-            def resid(E_est):
-                E_sig_est = self._calculate_E_sig_from_E(E_est)
-                return np.abs(self.E_sig_tτ - E_sig_est).flatten()
 
-            REAL = 1; IMAG = 2; 
-            dEi = 1e-6
-            Z0 = np.sum(np.square(resid(self.E)))
+            if self.time_step_time_delay_step_factor is None:
 
-            def dZdEi(i, real_or_imag):
-                dE = np.zeros(len(self.E)); 
-                if real_or_imag == REAL: 
-                    dE[i] += dEi
-                elif real_or_imag == IMAG:
-                    dE[i] += 1j * dEi
-                Z = np.sum(np.square(resid(self.E + dE)))
-                return (Z - Z0) / dEi
-            
-            dZdE = (  np.array([dZdEi(i, REAL) for i in range(len(self.E))]) 
-                    + 1j * np.array([dZdEi(i, IMAG) for i in range(len(self.E))]) 
-                   )
+                E_sig_tτ_at_E_t = np.transpose(
+                    np.fromiter((np.interp(self.E_t,  self.t, E_sig_tτ_col, left=0.0, right=0.0)
+                                for E_sig_tτ_col in E_sig_tτ.T
+                                ), (np.complex128, len(self.E_t))
+                            )
+                )
 
-            def loss(beta):
-                return resid(self.E + beta * dZdE)
-            
-            solution = least_squares(loss, 0.0)
+                def resid(E_est):
+                    E_sig_est = self._calculate_E_sig_from_E(E_est, E_t=self.E_t, E_sig_t=self.E_t)
+                    return np.abs(E_sig_tτ_at_E_t - E_sig_est).flatten()
 
-            self.E += solution.x * dZdE
+                REAL = 1; IMAG = 2; 
+                dEi = 1e-6
+                Z0 = np.sum(np.square(resid(E_current)))
+
+                def dZdEi(i, real_or_imag):
+                    dE = np.zeros(len(E_current), np.complex128); 
+                    if real_or_imag == REAL: 
+                        dE[i] += dEi
+                    elif real_or_imag == IMAG:
+                        dE[i] += 1j * dEi
+                    Z = np.sum(np.square(resid(E_current + dE)))
+                    return (Z - Z0) / dEi
+
+                dZdE = (  np.array([dZdEi(i, REAL) for i in range(len(E_current))]) 
+                        + 1j * np.array([dZdEi(i, IMAG) for i in range(len(E_current))]) 
+                    )
+
+                def loss(beta):
+                    return resid(E_current + beta * dZdE)
+
+                solution = least_squares(loss, 0.0)
+                beta = solution.x
+
+                return E_current + beta * dZdE
+
+            else:  # self.time_step_time_delay_step_factor is not None
+
+                dZdReE, dZdImE = self._calculate_dZdE_from_E_exact_time_steps(E_current)
+
+                def fun(β):
+                    return self._calculate_Z_from_E(E_current + β * (dZdReE + 1j * dZdImE))
+                
+                def jac(β):
+                    # dZ/dβ = dZ/dE|E=E' . dZ/dE|E=E0, where E' = E0 + β * (dZdE|E=E0)
+                    dZ_dE_Re_Ep, dZ_dE_Im_Ep = self._calculate_dZdE_from_E_exact_time_steps(E_current + β * (dZdReE + 1j * dZdImE))
+                    return np.dot(dZ_dE_Re_Ep, dZdReE) + np.dot(dZ_dE_Im_Ep, dZdImE)
+
+                solution = minimize(fun, 0.0, jac=jac)
+                beta = solution.x
+
+                return E_current + beta * (dZdReE + 1j * dZdImE)
 
         def _calculate_next_E_by_generalized_projection_full_minimization():
-            def loss(E_split_in_real_imag):
+            # def loss(E_split_in_real_imag):
+            #     E_real, E_imag = E_split_in_real_imag.reshape((2, -1))
+            #     E_sig_est = self._calculate_E_sig(E_real + 1j * E_imag)
+
+            #     return np.abs(E_sig_tτ - E_sig_est).flatten()
+
+            # solution = least_squares(loss, 
+            #                          np.concatenate([E_current.real, E_current.imag]),
+            #                          method='lm'
+            #                         )
+
+            def fun(E_split_in_real_imag):
                 E_real, E_imag = E_split_in_real_imag.reshape((2, -1))
-                E_sig_est = self._calculate_E_sig_from_E(E_real + 1j * E_imag)
+                return self._calculate_Z_from_E(E_real + 1j * E_imag)
 
-                return np.abs(self.E_sig_tτ - E_sig_est).flatten()
+            def jac(E_split_in_real_imag):
+                E_real, E_imag = E_split_in_real_imag.reshape((2, -1))
+                return np.concatenate(self._calculate_dZdE_from_E_exact_time_steps(E_real + 1j * E_imag))
 
-            solution = least_squares(loss, 
-                                     np.concatenate([self.E.real, self.E.imag]),
-                                     method='lm'
-                                    )
+            solution = minimize(fun, np.concatenate([self.E.real, self.E.imag]), jac=jac, method='Newton-CG')
+
             E_real, E_imag = solution.x.reshape((2, -1))
 
-            self.E = E_real + 1j * E_imag
+            return E_real + 1j * E_imag
 
         return {'integration': _calculate_next_E_by_integration,
                 'generalized_projection/along_gradient': _calculate_next_E_by_generalized_projection_along_gradient,
@@ -386,6 +543,17 @@ class GrenouilleRetrieval:
 
         return E
 
+    def _pad_to_t_axis(self, E: np.ndarray):
+        """
+        pad E(t) to be on self.t time axis. 
+        Verifies that the E(t) axis lies on the self.t axis as expected.
+        """
+        pad_len_on_either_side = (len(self.t) - len(E)) // 2
+        E_on_t_axis = np.pad(E, ((pad_len_on_either_side, pad_len_on_either_side)))
+        assert len(E_on_t_axis) == len(self.t)
+
+        return E_on_t_axis
+
     def simulate_grenouille_trace(self, E, grenouille_trace_shape):
         self.shape = grenouille_trace_shape
         self.E = E
@@ -404,6 +572,27 @@ class GrenouilleRetrieval:
                 ), (float, self.shape[0])
             )     
         )
+
+
+def shift_1d_array(arr: np.ndarray, num_steps: int) -> np.ndarray:
+    """ Roll items in a 1D array num_steps to the right, padding with zeros
+    
+    A version of the np.roll function (for 1D only) where instead of wrapping
+    values around to the front (or back), zeros are inserted.
+
+    Parameters
+    ----------
+    arr : 1d np.ndarray
+    num_steps : int
+        positive for right shift, negative for left shift
+
+    """
+    if arr.ndim != 1:
+        raise ValueError("expected 1d array")
+    if num_steps > 0:
+        return np.roll(np.pad(arr, (0, num_steps)), num_steps)[:-num_steps]
+    else:
+        return np.roll(np.pad(arr, (-num_steps, 0)), num_steps)[-num_steps:]
 
 
 if __name__ == "__main__":
