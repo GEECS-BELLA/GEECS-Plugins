@@ -433,13 +433,18 @@ class GrenouilleRetrieval:
         if E_current is None:
             E_current = self.E
 
-    def _calculate_next_E(self):
-        
         def _calculate_next_E_by_integration():
-            @ureg.wraps('=A*B', ('=A', '=B'))
-            def trapz_ua(Y, x):
-                return np.trapz(Y, x, axis=1)
-            self.E = np.interp(self.E_t,   self.t, trapz_ua(self.E_sig_tτ, self.τ).m)
+            @ureg.wraps('=A*B', ('=A', '=B', None))
+            def trapz_ua(Y, x, axis=0):
+                return np.trapz(Y, x, axis=axis)
+            E = np.interp(self.E_t,   self.t, trapz_ua(E_sig_tτ, self.τ, axis=1))
+            
+            if self.nonlinear_effect == 'self_diffraction':
+                raise NotImplementedError()
+            elif self.nonlinear_effect == 'second_harmonic_generation':
+                E /= np.sqrt(trapz_ua(E, self.E_t))
+
+            return E.m_as('')
 
         def _calculate_next_E_by_generalized_projection_along_gradient():
 
