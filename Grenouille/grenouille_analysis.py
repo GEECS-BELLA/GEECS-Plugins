@@ -86,14 +86,6 @@ class GrenouilleRetrieval:
         self.number_of_iterations = number_of_iterations
         self.pulse_center_wavelength = pulse_center_wavelength
 
-        # time step should be small enough so that Nyquist frequency is at least
-        # equal to frequency corresponding to min_wavelength
-        self.time_step = ((invert_wavelength_angular_frequency(self.min_pulse_wavelength)
-                          # convert to sampling rate, in 1/[time]
-                           * 2 / Q_(2*np.pi, 'radian')
-                          # invert to get time step
-                          ) ** -1
-                         )
         # min_pulse_wavelength: [length] Quantity
         #     The minimum wavelength of the pulse spectrum to resolve. This 
         #     determines the time step and the angular frequency of E_sig axis 0
@@ -136,6 +128,29 @@ class GrenouilleRetrieval:
         self.grenouille_trace_wavelength_step = grenouille_trace_wavelength_step
         self.time_delay_step = time_delay_step
         self.pulse_duration = pulse_duration
+
+
+        # maximum time step of E_sig(t, tau) t axis
+        # time step should be small enough so that Nyquist frequency is at least
+        # equal to frequency corresponding to minimum resolvable wavelength
+        maximum_time_step = ((invert_wavelength_angular_frequency(self.min_pulse_wavelength)
+                             # convert to sampling rate, in 1/[time]
+                             * 2 / Q_(2*np.pi, 'radian')
+                             # invert to get time step
+                             ) ** -1
+                            )
+
+        # if the calculated E_sig(t, tau) t step is smaller than a few times the 
+        # tau step (time_delay_step), it's computationally advantageous to make it an 
+        # integer part of time_delay_step
+        if maximum_time_step < 5 * self.time_delay_step:
+            self.time_step_time_delay_step_factor = int(np.ceil((self.time_delay_step / maximum_time_step).m_as('')))
+            self.time_step = self.time_delay_step / self.time_step_time_delay_step_factor
+
+        # otherwise use it as is
+        else:
+            self.time_step_time_delay_step_factor = None
+            self.time_step = maximum_time_step
 
         # total time, i.e. length of time axis, should be such that it matches
         # (roughly) the resolution of grenouille trace wavelength resolution
@@ -182,7 +197,7 @@ class GrenouilleRetrieval:
 
     @property
     def τ(self) -> QuantityArray:
-        return (np.arange(self.shape[1]) - ((self.shape[1] - 1) / 2)) * self.time_delay_step
+        return (np.arange(self.shape[1]) - ((self.shape[1] - 1) // 2)) * self.time_delay_step
 
     @property
     def ω(self) -> QuantityArray:
