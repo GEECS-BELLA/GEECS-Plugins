@@ -8,6 +8,7 @@ Created on Fri Feb  3 10:44:15 2023
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, NewType, Optional
+from math import ceil
 
 from pint import UnitRegistry
 ureg = UnitRegistry()
@@ -144,7 +145,7 @@ class GrenouilleRetrieval:
         # tau step (time_delay_step), it's computationally advantageous to make it an 
         # integer part of time_delay_step
         if maximum_time_step < 5 * self.time_delay_step:
-            self.time_step_time_delay_step_factor = int(np.ceil((self.time_delay_step / maximum_time_step).m_as('')))
+            self.time_step_time_delay_step_factor = int(ceil((self.time_delay_step / maximum_time_step)))
             self.time_step = self.time_delay_step / self.time_step_time_delay_step_factor
 
         # otherwise use it as is
@@ -159,7 +160,7 @@ class GrenouilleRetrieval:
                       / (self.frequency_multiplier * self.grenouille_trace_wavelength_step)
                      )
 
-        self.time_axis_length = int(np.ceil((total_time / self.time_step) / 2)) * 2 + 1
+        self.time_axis_length = int(ceil((total_time / self.time_step) / 2)) * 2 + 1
 
         self._calculate_I_FROG()
         if initial_E is None:
@@ -192,7 +193,7 @@ class GrenouilleRetrieval:
         """ Time axis for self.E. Will be padded to len(self.t) for calculations
         """
         # make it an odd length, so there is a t=0 point
-        E_t_length = int(np.ceil((self.pulse_duration / self.time_step).m_as('') / 2)) * 2 + 1
+        E_t_length = int(ceil((self.pulse_duration / self.time_step) / 2)) * 2 + 1
         return (np.arange(E_t_length) - (E_t_length - 1) // 2) * self.time_step
 
     @property
