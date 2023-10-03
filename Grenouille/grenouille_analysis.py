@@ -41,7 +41,6 @@ class GrenouilleRetrieval:
                  nonlinear_effect: str = "second_harmonic_generation",
                  number_of_iterations: int = 100,
                  pulse_center_wavelength: Quantity = Q_(800, 'nm'),
-                 min_pulse_wavelength: Quantity = Q_(700, 'nm'), 
                 ):
         """
         Parameters
@@ -63,9 +62,6 @@ class GrenouilleRetrieval:
             Maximum number of iterations
         pulse_center_wavelength : [length] Quantity
             the center, or carrier, wavelength of the laser pulse.
-        min_pulse_wavelength: [length] Quantity
-            The minimum wavelength of the pulse spectrum to resolve. This 
-            determines the time step and the angular frequency of E_sig axis 0
         """
 
 
@@ -89,7 +85,6 @@ class GrenouilleRetrieval:
 
         self.number_of_iterations = number_of_iterations
         self.pulse_center_wavelength = pulse_center_wavelength
-        self.min_pulse_wavelength = min_pulse_wavelength
 
         # time step should be small enough so that Nyquist frequency is at least
         # equal to frequency corresponding to min_wavelength
@@ -99,6 +94,11 @@ class GrenouilleRetrieval:
                           # invert to get time step
                           ) ** -1
                          )
+        # min_pulse_wavelength: [length] Quantity
+        #     The minimum wavelength of the pulse spectrum to resolve. This 
+        #     determines the time step and the angular frequency of E_sig axis 0
+        self.min_pulse_wavelength = 7/8 * self.pulse_center_wavelength
+
 
     def calculate_pulse(self, grenouille_trace: np.ndarray, 
                         grenouille_trace_center_wavelength: Quantity = Q_(400, 'nm'),
