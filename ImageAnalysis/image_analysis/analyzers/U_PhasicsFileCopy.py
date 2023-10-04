@@ -258,18 +258,26 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
                 p0 = estimate_parameters()
 
             (A1, x1, w,   A2, x2, sigma,   x3, x4), pcov = curve_fit(density_profile, x, lineout, p0) 
-            
+
             return A1, x1, w,   A2, x2, sigma,   x3, x4
 
-        density_lineout_fit_result = dict(zip(['A1', 'x1', 'w',  'A2', 'x2', 'sigma',  'x3', 'x4'], 
-                                              fit_density_lineout(center_density_lineout)
-                                         ))
+        try:
+            density_lineout_fit_result = dict(zip(['A1', 'x1', 'w',  'A2', 'x2', 'sigma',  'x3', 'x4'], 
+                                                fit_density_lineout(center_density_lineout)
+                                            ))
+        except ValueError as err:
+            warn(f"Error during fit_density_lineout: {err}")
+            density_lineout_fit_result = {}
 
-        return {'wavefront_nm': wavefront.m_as('nm'), 
-                'density_map_cm-3': density.m_as('cm^-3'),
-                'density_lineout_cm-3': center_density_lineout.m_as('cm^-3'),
-                'peak_density_cm-3': center_density_lineout.max().m_as('cm^-3'),
-
+        # Compile analysis results
+        analysis_results = {'wavefront_nm': wavefront.m_as('nm'), 
+                            'density_map_cm-3': density.m_as('cm^-3'),
+                            'density_lineout_cm-3': center_density_lineout.m_as('cm^-3'),
+                            'peak_density_cm-3': center_density_lineout.max().m_as('cm^-3'),
+                           }
+        
+        if density_lineout_fit_result:
+            analysis_results.update({
                 'density_lineout_fit_A1_cm-3': density_lineout_fit_result['A1'].m_as('cm^-3'),
                 'density_lineout_fit_x1_mm': (density_lineout_fit_result['x1'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
                 'density_lineout_fit_w_mm': (density_lineout_fit_result['w'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
@@ -278,4 +286,17 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
                 'density_lineout_fit_sigma_mm': (density_lineout_fit_result['sigma'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
                 'density_lineout_fit_x3_mm': (density_lineout_fit_result['x3'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
                 'density_lineout_fit_x4_mm': (density_lineout_fit_result['x4'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
-               }
+            })
+        else:
+            analysis_results.update({
+                'density_lineout_fit_A1_cm-3': 0.0,
+                'density_lineout_fit_x1_mm': 0.0,
+                'density_lineout_fit_w_mm': 0.0,
+                'density_lineout_fit_A2_cm-3': 0.0,
+                'density_lineout_fit_x2_mm': 0.0,
+                'density_lineout_fit_sigma_mm': 0.0,
+                'density_lineout_fit_x3_mm': 0.0,
+                'density_lineout_fit_x4_mm': 0.0,
+            })
+
+        return analysis_results
