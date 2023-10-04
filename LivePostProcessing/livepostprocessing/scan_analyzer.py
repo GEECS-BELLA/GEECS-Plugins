@@ -52,6 +52,8 @@ class ScanAnalyzer:
 
         pool = Pool(6)
 
+        self.save_image_analyzer_config(self.scan.analysis_path / "image_analyzer_config.ini")
+
         for shot_number, shot in self.scan.shots.items():
             # analyze devices that have an image for this shot and have an image_analyzer.
             shot_key = (RunID(run_id), ScanNumber(scan_number), ShotNumber(shot_number))
@@ -61,7 +63,7 @@ class ScanAnalyzer:
                     continue
 
                 try:
-                    analysis: dict[str, float|NDArray] = self.image_analyzers[device_name].analyze_image(
+                    analysis: dict[str, Union[float, NDArray]] = self.image_analyzers[device_name].analyze_image(
                         Array2D(shot.images[device_name][ImageSubject('raw')].load())
                     )
                 except Exception as err:
