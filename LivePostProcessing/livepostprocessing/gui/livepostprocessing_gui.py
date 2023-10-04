@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, get_type_hints, Callable, Any, Type, NamedTuple
+from typing import TYPE_CHECKING, get_type_hints, Callable, Any, Type, NamedTuple, Union
 from pathlib import Path
+from os import getenv
 
 from docstring_parser import parse_from_object as parse_docstring_from_object
 from docstring_parser import DocstringStyle
-
-from configparser import ConfigParser
 
 # Q_ is used when converting pg_property from string to Quantity, and it needs
 # to be the same object as used in the `ImageAnalyzer`s
@@ -34,6 +33,13 @@ class LivePostProcessingGUI(MainFrame):
         # keep a single ScanAnalyzer in this GUI
         self.scan_analyzer = ScanAnalyzer()
 
+        # load config from AppData
+        if self.image_analyzers_config_cache_path.exists():
+            self.load_image_analyzers_config(self.image_analyzers_config_cache_path)
+        else:
+            self.image_analyzers_config_cache_path.parent.mkdir()
+            self.save_image_analyzers_config(self.image_analyzers_config_cache_path)
+
         self.populate_analyze_device_checklist()
         # set runID field to today's run folder
         self.m_runID_text.Value = datetime.now().strftime("%y_%m%d")
@@ -43,6 +49,21 @@ class LivePostProcessingGUI(MainFrame):
         self.m_analyze_device_checklist.SetItems(device_names)
         self.m_analyze_device_checklist.SetCheckedStrings(device_names)
 
+    @property
+    def image_analyzers_config_cache_path(self) -> Path:
+        """ The path where the current image analyzer config is saved. 
+
+        Config is loaded from this file at startup, and 
+        """
+        return Path(getenv('APPDATA')) / 'LivePostProcessing' / "image_analyzer_config.ini"
+
+    def save_image_analyzers_config(self, filename: Union[Path, str]):
+        self.scan_analyzer.save_image_analyzer_config(filename)
+
+    def load_image_analyzers_config(self, filename: Union[Path, str]):
+        self.scan_analyzer.load_image_analyzer_config(filename)
+        if self.m_analyze_device_checklist.GetSelections():
+            self._populate_property_grid(self.m_analyze_device_checklist.GetString(self.m_analyze_device_checklist.GetSelections()[0]))
 
     # ## event handlers
 
@@ -65,7 +86,7 @@ class LivePostProcessingGUI(MainFrame):
         int: ImageAnalyzerParameterPGPropertyConverter(pg.IntProperty, int, int),
         float: ImageAnalyzerParameterPGPropertyConverter(pg.FloatProperty, float, float),
         str: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, str, str),
-        Path: ImageAnalyzerParameterPGPropertyConverter(pg.FileProperty, 
+        Path: ImageAnalyzerParameterPGPropertyConverter(pg.StringProperty, 
             lambda path: str(path) if path else '', 
             # property value is a string
             lambda pv: Path(pv) if pv else Path('NUL'),
@@ -136,6 +157,8 @@ class LivePostProcessingGUI(MainFrame):
 
         setattr(image_analyzer, property_name, image_analyzer_parameter_value)
 
+        self.save_image_analyzers_config(self.image_analyzers_config_cache_path)
+
     def m_analyze_device_checklist_OnCheckListBoxToggled( self, event: wx.CommandEvent ):
         """ Enable or disable image analyzer
         """
@@ -184,15 +207,12 @@ class LivePostProcessingGUI(MainFrame):
 
 
     def m_loadconfig_button_OnButtonClick( self, event: wx.CommandEvent ):
-        # TODO: update property values
-        self.scan_analyzer.load_image_analyzer_config(self.m_config_filePicker.GetPath())
-        if self.m_analyze_device_checklist.GetSelections():
-            self._populate_property_grid(self.m_analyze_device_checklist.GetString(self.m_analyze_device_checklist.GetSelections()[0]))
+        self.load_image_analyzers_config(self.m_config_filePicker.GetPath())
+        self.save_image_analyzers_config(self.image_analyzers_config_cache_path)
         self.SetStatusText("Loaded configuration.")
 
-
     def m_saveconfig_button_OnButtonClick( self, event: wx.CommandEvent ):
-        self.scan_analyzer.save_image_analyzer_config(self.m_config_filePicker.GetPath())
+        self.save_image_analyzers_config(self.m_config_filePicker.GetPath())
         self.SetStatusText("Saved configuration.")
 
     def print_event( self, event ):
