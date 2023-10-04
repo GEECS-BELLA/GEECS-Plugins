@@ -21,7 +21,7 @@ from geecs_python_api.analysis.images.scans.scan_data import ScanData
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
 from geecs_python_api.tools.images.filtering import FiltersParameters
-from geecs_python_api.tools.images.spot import spot_analysis, fwhm
+from geecs_python_api.tools.images.spot import spot_analysis, std_to_fwhm
 from geecs_python_api.tools.interfaces.prompts import text_input
 from labview_interface.HTU.htu_classes import Handler
 from image_analysis.analyzers.UC_BeamSpot import UC_BeamSpotImageAnalyzer
@@ -134,8 +134,12 @@ class ScanImages:
                                       initial_filtering.denoise_cycles, initial_filtering.gauss_filter,
                                       initial_filtering.com_threshold, initial_filtering.bkg_image,
                                       initial_filtering.box, initial_filtering.ellipse)
-
+        repeat = 'yes'
         while True:
+            if repeat.lower()[0] == 'n':
+                break
+
+            # analyze
             try:
                 export_file_path, data_dict = \
                     self.analyze_image_batch(images, filtering, store_images, plots, profiles, save_plots, save)
@@ -143,6 +147,7 @@ class ScanImages:
                 api_error(str(ex), f'Failed to analyze {self.scan_data_folder.name}')
                 pass
 
+            # check with user
             if interface.lower() == 'labview':
                 repeat = Handler.question('Repeat analysis (adjust contrast/threshold)?', ['Yes', 'No'])
             else:
@@ -154,10 +159,24 @@ class ScanImages:
                 while True:
                     try:
                         if interface.lower() == 'labview':
-                            filtering.contrast = \
-                                Handler.request_value(f'New contrast value (old: {filtering.contrast:.3f}):')
-                            filtering.com_threshold = \
-                                Handler.request_value(f'New threshold value (old: {filtering.com_threshold:.3f}):')
+                            keys = [('Contrast', 'float', 0, 'inf', filtering.contrast),
+                                    ('Median Filter Size', 'int', 0, 'inf', filtering.hp_median),
+                                    ('Median Filter Threshold', 'float', 0., 'inf', filtering.hp_threshold),
+                                    ('Denoising Cycles', 'int', 0, 'inf', filtering.denoise_cycles),
+                                    ('Gaussian Filter Size', 'float', 0, 'inf', filtering.gauss_filter),
+                                    ('Threshold', 'float', 0, 1, filtering.com_threshold),
+                                    ('Background Image', 'path', None, None, filtering.bkg_image),
+                                    ('Box', 'bool', None, None, filtering.box),
+                                    ('Ellipse', 'bool', None, None, filtering.ellipse)]
+
+                            values: Union[dict, str] = Handler.request_values('New analysis parameters:', keys)
+                            if isinstance(values, str) and (values == 'Cancel'):
+                                repeat = 'no'
+                                break
+
+                            for k, var in zip(keys, list(vars(filtering).keys())):
+                                if k[0] in values:
+                                    eval(f'filtering.{var} = values[k[0]]')
                         else:
                             filtering.contrast = \
                                 float(text_input(f'New contrast value (old: {filtering.contrast:.3f}) : '))
@@ -394,7 +413,7 @@ class ScanImages:
                     pos_ij = analysis['positions'][f'{pos}_ij']
                     profile = analysis['metrics']['profiles'][pos]
                     fit_mean_ij = (profile['y']['opt'][2], profile['x']['opt'][2])
-                    fit_fwhm_ij = (fwhm(profile['y']['opt'][3]), fwhm(profile['x']['opt'][3]))
+                    fit_fwhm_ij = (std_to_fwhm(profile['y']['opt'][3]), std_to_fwhm(profile['x']['opt'][3]))
 
                     if f'{pos}_ij' in self.summary['positions_roi']['data']:
                         self.summary['positions_roi']['data'][f'{pos}_ij'] = \
@@ -670,7 +689,7 @@ class ScanImages:
                               label=rf'X-data ({um_per_pix:.2f} $\mu$m/pix)')
                     ax_x.plot(analysis['metrics']['profiles'][profile]['x']['axis'],
                               analysis['metrics']['profiles'][profile]['x']['fit'], 'm-',
-                              label=f"FWHM: {fwhm(analysis['metrics']['profiles'][profile]['x']['opt'][3]):.1f}")
+                              label=f"FWHM: {std_to_fwhm(analysis['metrics']['profiles'][profile]['x']['opt'][3]):.1f}")
                     ax_x.legend(loc='best', prop={'size': 8})
 
                     ax_y.plot(analysis['metrics']['profiles'][profile]['y']['axis'],
@@ -678,7 +697,7 @@ class ScanImages:
                               label=rf'Y-data ({um_per_pix:.2f} $\mu$m/pix)')
                     ax_y.plot(analysis['metrics']['profiles'][profile]['y']['axis'],
                               analysis['metrics']['profiles'][profile]['y']['fit'], 'm-',
-                              label=f"FWHM: {fwhm(analysis['metrics']['profiles'][profile]['y']['opt'][3]):.1f}")
+                              label=f"FWHM: {std_to_fwhm(analysis['metrics']['profiles'][profile]['y']['opt'][3]):.1f}")
                     ax_y.legend(loc='best', prop={'size': 8})
 
                     # plot & save
@@ -717,7 +736,7 @@ class ScanImages:
                                         label=rf'y$_0$ [pix] = {pos_ij[0]}, $\delta$x = {roi_raw[0]}')
                         axs[it, 1].plot(profile['x']['axis'], profile['x']['fit'], 'm-',
                                         label=r'$\mu_x$ = ' + f"{profile['x']['opt'][2]:.1f}, " +
-                                              r'$\sigma_x$ = ' + f"{fwhm(profile['x']['opt'][3]):.1f}")
+                                              r'$\sigma_x$ = ' + f"{std_to_fwhm(profile['x']['opt'][3]):.1f}")
                         axs[it, 1].legend(loc='best', prop={'size': 8})
                         if it == 0:
                             axs[it, 1].set_title(rf'{um_per_pix:.2f} $\mu$m/pix')
@@ -725,7 +744,7 @@ class ScanImages:
                                         label=rf'x$_0$ [pix] = {pos_ij[1]}, $\delta$y = {roi_raw[2]}')
                         axs[it, 2].plot(profile['y']['axis'], profile['y']['fit'], 'm-',
                                         label=r'$\mu_y$ = ' + f"{profile['y']['opt'][2]:.1f}, " +
-                                              r'$\sigma_y$ = ' + f"{fwhm(profile['y']['opt'][3]):.1f}")
+                                              r'$\sigma_y$ = ' + f"{std_to_fwhm(profile['y']['opt'][3]):.1f}")
                         axs[it, 2].legend(loc='best', prop={'size': 8})
                         if it == 0:
                             axs[it, 2].set_title(rf'{um_per_pix:.2f} $\mu$m/pix')

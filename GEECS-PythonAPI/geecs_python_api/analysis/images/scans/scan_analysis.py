@@ -1,17 +1,14 @@
 import os
 import time
-import inspect
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 from progressbar import ProgressBar
-from typing import Union, NamedTuple, Any, Optional
+from typing import Union, Any, Optional
 from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.controls.experiment.htu import HtuExp
-from geecs_python_api.controls.interface import api_error
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
-from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
 from geecs_python_api.analysis.images.scans.scan_images import ScanImages
 from geecs_python_api.analysis.images.scans.scan_data import ScanData
 from geecs_python_api.tools.images.batches import average_images
@@ -27,8 +24,6 @@ class ScanAnalysis:
         self.scan_images: ScanImages = scan_images
 
         self.device_name: str = key_device.get_name() if isinstance(key_device, GeecsDevice) else key_device
-        self.key_data = self.scan_data.data_dict[self.device_name]
-
         self.data_dict: dict[str, Any] = {}
         # data_dict = {
         #     'indexes': indexes,
@@ -44,50 +39,21 @@ class ScanAnalysis:
                 blind_loads: bool = False, store_images: bool = True, store_scalars: bool = True,
                 save_plots: bool = False, save: bool = False) -> Optional[Path]:
         analyses: list[dict[str, Any]] = []
-
         scan_scalars: dict[str, Any] = self.scan_data.data_dict
+
+        # scan parameters & binning
+        indexes, setpoints, matching = self.scan_data.bin_data(self.device_name, variable)
+
         if not store_scalars:
             if hasattr(self.scan_data, 'data_dict'):
                 del self.scan_data.data_dict
             if hasattr(self.scan_data, 'data_frame'):
                 del self.scan_data.data_frame
 
-        # scan parameters & binning
-        measured: BinningResults = unsupervised_binning(self.key_data[variable], self.key_data['shot #'])
-
-        Expected = NamedTuple('Expected',
-                              start=float,
-                              end=float,
-                              steps=int,
-                              shots=int,
-                              setpoints=np.ndarray,
-                              indexes=list)
-        start = float(self.scan_data.scan_info['Start'])
-        end = float(self.scan_data.scan_info['End'])
-        steps: int = 1 + round(np.abs(end - start) / float(self.scan_data.scan_info['Step size']))
-        shots: int = int(self.scan_data.scan_info['Shots per step'])
-        expected = Expected(start=start, end=end, steps=steps, shots=shots,
-                            setpoints=np.linspace(float(self.scan_data.scan_info['Start']),
-                                                  float(self.scan_data.scan_info['End']), steps),
-                            indexes=[np.arange(p * shots, (p+1) * shots) for p in range(steps)])
-
-        matching = all([inds.size == expected.shots for inds in measured.indexes])
-        matching = matching and (len(measured.indexes) == expected.steps)
-        if not matching:
-            api_error.warning(f'Observed data binning does not match expected scan parameters (.ini)',
-                              f'Function "{inspect.stack()[0][3]}"')
-
         # list images for each step
         def build_file_name(shot: int):
             return self.scan_images.image_folder / \
                 f'Scan{self.scan_data.get_tag().number:03d}_{self.scan_images.camera_name}_{shot:03d}.png'
-
-        if matching:
-            indexes = expected.indexes
-            setpoints = expected.setpoints
-        else:
-            indexes = measured.indexes
-            setpoints = measured.avg_x
 
         paths: list[list[Path]] = \
             [[build_file_name(ind+1) for ind in np.sort(inds) if build_file_name(ind+1).is_file()] for inds in indexes]

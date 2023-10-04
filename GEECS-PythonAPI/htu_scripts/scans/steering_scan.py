@@ -36,29 +36,29 @@ from geecs_python_api.analysis.images.scans.scan_data import ScanData
 #             self.supply_name = steering_supply
 
 
-def steering_scan(e_transport: , scan_images: ScanImages, steering_supply: Union[SteeringSupply, str]):
-    """
-    Container for data analysis of a set of images collected at an undulator station.
-
-    scan (ScanImages object): analysis object for the relevant scan
-    steering_supply (SteeringSupply | str), either of:
-        - SteeringSupply object
-        - GEECS device name of the relevant steering magnet supply
-    """
-
-    self.scan_images: ScanImages = scan_images
-    self.supply: Optional[SteeringSupply] = None
-
-    # Steering supply
-    if isinstance(steering_supply, SteeringSupply):
-        self.supply = steering_supply
-        self.supply_name: str = steering_supply.get_name()
-        self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
-    elif isinstance(steering_supply, str) and re.match(r'U_S[1-4][HV]', steering_supply):  # device name
-        self.supply_name = steering_supply
-        self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
-    else:
-        self.supply_name = steering_supply
+# def steering_scan(e_transport: , scan_images: ScanImages, steering_supply: Union[SteeringSupply, str]):
+#     """
+#     Container for data analysis of a set of images collected at an undulator station.
+#
+#     scan (ScanImages object): analysis object for the relevant scan
+#     steering_supply (SteeringSupply | str), either of:
+#         - SteeringSupply object
+#         - GEECS device name of the relevant steering magnet supply
+#     """
+#
+#     self.scan_images: ScanImages = scan_images
+#     self.supply: Optional[SteeringSupply] = None
+#
+#     # Steering supply
+#     if isinstance(steering_supply, SteeringSupply):
+#         self.supply = steering_supply
+#         self.supply_name: str = steering_supply.get_name()
+#         self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
+#     elif isinstance(steering_supply, str) and re.match(r'U_S[1-4][HV]', steering_supply):  # device name
+#         self.supply_name = steering_supply
+#         self.axis = 'x' if self.supply_name[-1] == 'H' else 'y'
+#     else:
+#         self.supply_name = steering_supply
 
 
 if __name__ == '__main__':

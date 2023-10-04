@@ -13,12 +13,14 @@ class PMQ(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(PMQ, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
+
         super().__init__('U_Hexapod')
 
         self.var_spans = {VarAlias('xpos'): (-1., 1.),  # [mm]
@@ -28,6 +30,8 @@ class PMQ(GeecsDevice):
                           VarAlias('vangle'): (-.5, .5),
                           VarAlias('wangle'): (-.5, .5)}
         self.build_var_dicts()
+
+        self.__initialized = True
 
     def get_position_var_name(self, axis: int) -> str:
         if axis < 0 or axis > 2:

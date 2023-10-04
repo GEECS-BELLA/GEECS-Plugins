@@ -12,18 +12,21 @@ class GasJetBlade(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(GasJetBlade, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
 
         super().__init__('U_ModeImagerESP')
 
         self.var_spans = {VarAlias('JetBlade'): (-17.5, -16.)}
         self.build_var_dicts()
         self.var_depth = self.var_names_by_index.get(0)[0]
+
+        self.__initialized = True
 
     def state_depth(self) -> Optional[float]:
         return self._state_value(self.var_depth)

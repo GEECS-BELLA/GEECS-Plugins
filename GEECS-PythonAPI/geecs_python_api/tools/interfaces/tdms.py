@@ -1,13 +1,11 @@
-import os
+import numpy as np
 import pandas as pd
 import nptdms as tdms
-import numpy.typing as npt
 from typing import Optional
 from pathlib import Path
 
 
-def read_geecs_tdms(file_path: Path) \
-        -> tuple[Optional[dict[str, dict[str, npt.ArrayLike]]], Optional[pd.DataFrame]]:
+def read_geecs_tdms(file_path: Path) -> Optional[dict[str, dict[str, np.ndarray]]]:
     file_extension: str = file_path.suffix.lower()
 
     if file_path.is_file() and (file_extension == '.tdms'):
@@ -23,17 +21,13 @@ def read_geecs_tdms(file_path: Path) \
                          for device_name, variables
                          in [(group.name, group.channels()) for group in f_tdms.groups()]}
 
-        data_frame: pd.DataFrame = pd.concat(map(pd.DataFrame, data_dict.values()),
-                                             keys=data_dict.keys(),
-                                             axis=1).set_index('Shotnumber')
-
-        return data_dict, data_frame
+        return data_dict
 
     else:
-        return None, None
+        return None
 
 
-def geecs_tdms_dict_to_panda(data_dict: dict[str, dict[str, npt.ArrayLike]]) -> pd.DataFrame:
+def geecs_tdms_dict_to_panda(data_dict: dict[str, dict[str, np.ndarray]]) -> pd.DataFrame:
     data_frame: pd.DataFrame = pd.concat(map(pd.DataFrame, data_dict.values()),
                                          keys=data_dict.keys(),
                                          axis=1).set_index('Shotnumber')
@@ -42,5 +36,5 @@ def geecs_tdms_dict_to_panda(data_dict: dict[str, dict[str, npt.ArrayLike]]) -> 
 
 if __name__ == '__main__':
     _file_path = Path(r'Z:\data\Undulator\Y2023\04-Apr\23_0427\scans\Scan012\Scan012.tdms')
-    _data_dict, _data_frame = read_geecs_tdms(_file_path)
+    _data_dict = read_geecs_tdms(_file_path)
     print('Done')

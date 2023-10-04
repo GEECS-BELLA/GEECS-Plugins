@@ -14,7 +14,7 @@ from imageio.v3 import imread
 if TYPE_CHECKING:
     from os import PathLike
     from numpy.typing import NDArray
-    from .types import ImageSubject, ImageFolderName, DeviceName
+from .types import ImageSubject, ImageFolderName, DeviceName
 
 import pandas as pd
 import numpy as np
@@ -271,9 +271,3 @@ def iterate_scan_folders(start_folder_path: Union[str, PathLike], recursion_leve
             yield from iterate_scan_folders(subfolder_path, recursion_level=subfolder_level)
 
 
-
-class NotAPath(Path().__class__):
-    """ A Path instance that evaluates to false in, for example, if statements.
-    """
-    def __bool__(self):
-        return False

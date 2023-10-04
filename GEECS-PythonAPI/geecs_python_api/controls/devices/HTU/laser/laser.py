@@ -11,12 +11,13 @@ class Laser(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(Laser, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
 
         super().__init__('laser', virtual=True)
 
@@ -29,6 +30,14 @@ class Laser(GeecsDevice):
         self.seed.amp4_shutter.subscribe_var_values()
         self.pump.subscribe_var_values()
         self.pump.shutters.subscribe_var_values()
+
+        self.__initialized = True
+
+    def init_resources(self):
+        if self.__initialized:
+            self.compressor.init_resources()
+            self.seed.init_resources()
+            self.pump.init_resources()
 
     def close(self):
         self.compressor.close()

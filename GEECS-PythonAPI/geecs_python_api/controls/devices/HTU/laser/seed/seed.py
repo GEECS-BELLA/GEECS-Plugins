@@ -9,15 +9,21 @@ class Seed(GeecsDevice):
         if not hasattr(cls, 'instance'):
             cls.instance = super(Seed, cls).__new__(cls)
             cls.instance.__initialized = False
+        else:
+            cls.instance.init_resources()
         return cls.instance
 
     def __init__(self):
         if self.__initialized:
             return
-        self.__initialized = True
-        super().__init__('seed', virtual=True)
 
+        super().__init__('seed', virtual=True)
         self.amp4_shutter = SeedAmp4Shutter()
+        self.__initialized = True
+
+    def init_resources(self):
+        if self.__initialized:
+            self.amp4_shutter.init_resources()
 
     def close(self):
         self.amp4_shutter.close()

@@ -9,8 +9,8 @@ class TDMSTestCase(TestCase):
         test_tdms_path = Path(__file__).parents[2]/"data"/"Scan012.tdms"
         
         # check reading a tdms Path
-        data_dict, data_dataframe = read_geecs_tdms(test_tdms_path)
+        data_dict = read_geecs_tdms(test_tdms_path)
         
         # providing a string path should fail on getting Path attributes
         with self.assertRaises(AttributeError):
-            data_dict, data_dataframe = read_geecs_tdms(str(test_tdms_path))
+            data_dict = read_geecs_tdms(str(test_tdms_path))

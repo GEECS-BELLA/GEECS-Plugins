@@ -74,8 +74,18 @@ class Bridge:
         return False
 
 
-def flatten_dict(py_dict: dict) -> list:
-    flat_dict = [[k, json.dumps(v.tolist()) if isinstance(v, np.ndarray) else v] for k, v in py_dict.items()]
+def flatten_dict(py_obj) -> list:
+    def flatten_obj(obj):
+        if isinstance(obj, np.ndarray):
+            return json.dumps(obj.tolist())
+        elif isinstance(obj, list):
+            return json.dumps(np.array(obj).tolist())
+        elif isinstance(obj, dict):
+            return flatten_dict(obj)
+        else:
+            return obj
+
+    flat_dict = [[k, flatten_dict(v) if isinstance(v, dict) else flatten_obj(v)] for k, v in py_obj.items()]
     flat_dict = [val for items in flat_dict for val in items]
     return flat_dict
 

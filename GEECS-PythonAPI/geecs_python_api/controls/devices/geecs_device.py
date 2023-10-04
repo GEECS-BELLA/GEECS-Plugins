@@ -48,21 +48,6 @@ class GeecsDevice:
         self.__dev_virtual = virtual or not self.__dev_name
         self.__class_name = re.search(r'\w+\'>$', str(self.__class__))[0][:-2]
 
-        # Communications
-        self.dev_tcp: Optional[TcpSubscriber] = None
-        self.dev_udp: Optional[UdpHandler]
-        self.mc_port: int = 0
-        self.mc_port = GeecsDevice.exp_info['MC_port']  # needed to initialize dev_udp
-
-        self.dev_udp: Optional[UdpHandler]
-        if not self.__dev_virtual:
-            self.dev_udp = UdpHandler(owner=self)
-        else:
-            self.dev_udp = None
-
-        self.dev_ip: str = ''
-        self.dev_port: int = 0
-
         # Variables
         self.dev_vars = {}
         self.var_spans: dict[VarAlias, tuple[Optional[float], Optional[float]]] = {}
@@ -72,6 +57,9 @@ class GeecsDevice:
         self.setpoints: dict[VarAlias, Any] = {}
         self.state: dict[VarAlias, Any] = {}
         self.generic_vars = ['Device Status', 'device error', 'device preset']
+
+        if not self.__dev_virtual:
+            self.list_variables(GeecsDevice.exp_info['devices'])
 
         # Message handling
         self.queue_cmds = Queue()
@@ -85,20 +73,18 @@ class GeecsDevice:
         self.queue_tcp_msgs = Queue()
         self.notifier_tcp_msgs = Condition()
 
+        # Communications
+        self.mc_port: int = GeecsDevice.exp_info['MC_port']  # needed to initialize dev_udp
+
+        self.dev_ip: str = ''
+        self.dev_port: int = 0
         if not self.__dev_virtual:
             self.dev_ip, self.dev_port = GeecsDatabase.find_device(self.__dev_name)
-            self.register_cmd_executed_handler()
 
-            if self.is_valid():
-                # print(f'Device "{self.dev_name}" found: {self.dev_ip}, {self.dev_port}')
-                try:
-                    self.dev_tcp = TcpSubscriber(owner=self)
-                except Exception:
-                    api_error.error('Failed creating TCP subscriber', 'GeecsDevice class, method "__init__"')
-            else:
-                api_error.warning(f'Device "{self.__dev_name}" not found', 'GeecsDevice class, method "__init__"')
+        self.dev_tcp: Optional[TcpSubscriber] = None
+        self.dev_udp: Optional[UdpHandler] = None
 
-            self.list_variables(GeecsDevice.exp_info['devices'])
+        self.init_resources()
 
         # Data
         self.data_root_path: Path = GeecsDevice.exp_info['data_path']
@@ -106,17 +92,42 @@ class GeecsDevice:
         if not GeecsDevice.appdata_path.is_dir():
             os.makedirs(GeecsDevice.appdata_path)
 
+    def init_resources(self):
+        if not self.__dev_virtual:
+            if self.dev_udp is None:
+                self.dev_udp = UdpHandler(owner=self)
+                self.register_cmd_executed_handler()
+
+                if self.is_valid():
+                    if self.dev_tcp is None:
+                        try:
+                            self.dev_tcp = TcpSubscriber(owner=self)
+                        except Exception:
+                            api_error.error('Failed creating TCP subscriber', 'GeecsDevice class, method "__init__"')
+                else:
+                    api_error.warning(f'Device "{self.__dev_name}" not found', 'GeecsDevice class, method "__init__"')
+        else:
+            try:
+                self.close()
+            except Exception:
+                pass
+
+            self.dev_udp = None
+            self.dev_tcp = None
+
     def close(self):
         mh.flush_queue(self.queue_udp_msgs)
         mh.flush_queue(self.queue_tcp_msgs)
 
         self.stop_waiting_for_all_cmds()
 
-        if self.dev_udp:
+        if self.dev_udp is not None:
             self.dev_udp.close()
+            self.dev_udp = None
 
-        if self.dev_tcp:
+        if self.dev_tcp is not None:
             self.dev_tcp.close()
+            self.dev_tcp = None
 
     def reconnect(self):
         try:
@@ -354,7 +365,7 @@ class GeecsDevice:
 
     def scan(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
              var_span: Optional[tuple[Optional[float], Optional[float]]] = None, shots_per_step: int = 10,
-             use_alias: bool = True, timeout: float = 60.) -> tuple[Path, int, bool, bool]:
+             comment: str = '', use_alias: bool = True, timeout: float = 60.) -> tuple[Path, int, bool, bool]:
         var_values = self._scan_values(var_alias, start_value, end_value, step_size, var_span)
 
         if use_alias:
@@ -365,7 +376,8 @@ class GeecsDevice:
             # noinspection PyTypeChecker
             GeecsDevice.write_1D_scan_file(self.get_name(), var_name, var_values, shots_per_step)
 
-        comment = f'{var_alias} scan'
+        if not comment:
+            comment = f'{var_alias} scan'
         return GeecsDevice.file_scan(self, comment, timeout)
 
     @staticmethod
