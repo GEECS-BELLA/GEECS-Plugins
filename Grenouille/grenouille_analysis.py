@@ -118,7 +118,7 @@ class GrenouilleRetrieval:
         pulse_duration: [time] Quantity
             length of the reconstructed pulse
         initial_E : complex np.ndarray of length grenouille_trace.shape[0]
-            starting guess for E field pulse
+            starting guess for E field pulse, on the 
         
         """
 
@@ -297,31 +297,50 @@ class GrenouilleRetrieval:
 
             gate(E(t)) depends on the non-linear effect.
 
-            Assumes time_step is an integer multiple of time_delay_step
+            Assumes time_step is an integer divisor of time_delay_step
 
         Parameters
         ----------
         E : complex E-field
         """
-        
-        E_on_E_sig_t_axis = self._pad_to_t_axis(E)
+
+        # pad E so that shifting by τ fits
+        pad_len_on_either_side = self.time_step_time_delay_step_factor * ((len(self.τ) - 1) // 2) + 1
+        E_padded = np.pad(E, (pad_len_on_either_side,) * 2)
+        # test that padding and shifting gives the expected result, with an array 1..len(E) padded and shifted by the maximum shifts
+        assert shift_1d_array(np.pad(np.arange(len(E)) + 1, (pad_len_on_either_side,) * 2), 
+                              (-(len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
+                             )[0] in [1, 0]
+        assert shift_1d_array(np.pad(np.arange(len(E)) + 1, (self.time_step_time_delay_step_factor * (len(self.τ) - 1) // 2,) * 2), 
+                              (len(self.τ) - 1 - (len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
+                             )[0] in [len(E), 0]
 
         # calculate gate(E), which depends on the nonlinear effect
         if self.nonlinear_effect == 'self_diffraction':
-            gate_E = np.square(np.abs(E_on_E_sig_t_axis))
+            gate_E = np.square(np.abs(E_padded))
         elif self.nonlinear_effect == 'second_harmonic_generation':
-            gate_E = E_on_E_sig_t_axis.copy()
+            gate_E = E_padded.copy()
 
         # calculate E_sig(t, τ) = E(t) gate(E(t - τ))
 
-        return np.transpose(
+        E_sig_tτ_on_E_padded = np.transpose(
             np.fromiter(
-                (E_on_E_sig_t_axis * shift_1d_array(gate_E, num_time_steps_shift)
+                (E_padded * shift_1d_array(gate_E, num_time_steps_shift)
                  for num_time_steps_shift 
                  in (np.arange(len(self.τ)) - (len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
-                ), (np.complex128, len(self.t))
+                ), (np.complex128, len(E_padded))
             )
         )
+
+        # now pad E_sig_tτ, with shape (len(E_padded), len(self.τ)), to shape
+        # (len(self.t), len(self.τ))
+        pad_lengths = (((len(self.t) - len(E_padded)) // 2,) * 2,  # axis 0
+                       (0, 0),  # axis 1
+                      )
+        E_sig_tτ = np.pad(E_sig_tτ_on_E_padded, pad_lengths)
+        assert E_sig_tτ.shape == (len(self.t), len(self.τ))
+
+        return E_sig_tτ
 
     def _calculate_Z_from_E(self, E: np.ndarray):
         """ Calculate sum(|E_sig(t,τ) - E(t)E(t-τ))|^2)
@@ -331,18 +350,23 @@ class GrenouilleRetrieval:
         methods Z is the objective to minimize.
 
         """
-        return np.sum(np.square(np.abs(self.E_sig_tτ - self._calculate_E_sig(self._pad_to_t_axis(E)))))
+        return np.sum(np.square(np.abs(self.E_sig_tτ - self._calculate_E_sig(E))))
 
     def _calculate_dZdE_from_E_exact_time_steps(self, E: np.ndarray):
 
-        pad_len_on_either_side = (len(self.t) - len(E)) // 2
-        E_on_t_axis = self._pad_to_t_axis(E)        
-        assert len(self.t) - len(E) == 2 * pad_len_on_either_side
+        pad_len_on_either_side = self.time_step_time_delay_step_factor * ((len(self.τ) - 1) // 2) + 1
+        E_padded = np.pad(E, (pad_len_on_either_side,) * 2)
+
+        # To compare E_shifted * E_padded with self.E_sig_tτ[:, j], the latter
+        # needs to be cropped. 
+        # TODO: better would be to give E_sig_tτ its own axis
+        slice_t_to_E_padded = slice((len(self.t) - len(E_padded)) // 2, len(self.t) - (len(self.t) - len(E_padded)) // 2)
+        assert np.all(np.abs(self.t[slice_t_to_E_padded][pad_len_on_either_side:(len(E_padded) - pad_len_on_either_side)] - np.pad(self.E_t,  (pad_len_on_either_side,) * 2)[pad_len_on_either_side:(len(E_padded) - pad_len_on_either_side)]) < Q_(1e-6, 'fs'))
 
         # dZ/dRe(E[l])
-        dZ_dReE = np.zeros(len(E_on_t_axis))
+        dZ_dReE = np.zeros(len(E_padded))
         # dZ/dIm(E[l])
-        dZ_dImE = np.zeros(len(E_on_t_axis))
+        dZ_dImE = np.zeros(len(E_padded))
 
         tsf = self.time_step_time_delay_step_factor
 
@@ -375,8 +399,8 @@ class GrenouilleRetrieval:
             τj = j - ((self.shape[1] - 1) // 2)
             assert abs(τj - self.τ[j] / self.time_delay_step) < 1e-6
 
-            E_shifted = shift_1d_array(E_on_t_axis, tsf * τj)
-            diff_E_sig = self.E_sig_tτ[:, j] - (E_on_t_axis * E_shifted)
+            E_shifted = shift_1d_array(E_padded, tsf * τj)
+            diff_E_sig = self.E_sig_tτ[slice_t_to_E_padded, j] - E_padded * E_shifted
             dZ_dReE += (  2 * np.real(diff_E_sig) * (-np.real(E_shifted))
                         + 2 * np.imag(diff_E_sig) * (-np.imag(E_shifted))
                        )
@@ -384,8 +408,8 @@ class GrenouilleRetrieval:
                         + 2 * np.imag(diff_E_sig) * (-np.real(E_shifted))
                        )
 
-            E_shifted = shift_1d_array(E_on_t_axis, -tsf * τj)
-            diff_E_sig = shift_1d_array(self.E_sig_tτ[:, j], -tsf * τj) - E_shifted * E_on_t_axis
+            E_shifted = shift_1d_array(E_padded, -tsf * τj)
+            diff_E_sig = shift_1d_array(self.E_sig_tτ[slice_t_to_E_padded, j], -tsf * τj) - E_shifted * E_padded
             dZ_dReE += (  2 * np.real(diff_E_sig) * (-np.real(E_shifted))
                         + 2 * np.imag(diff_E_sig) * (-np.imag(E_shifted))
                        )
