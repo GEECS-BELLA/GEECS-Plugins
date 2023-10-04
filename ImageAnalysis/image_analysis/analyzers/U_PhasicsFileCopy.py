@@ -237,23 +237,23 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
                         break
                 else:
                     raise ValueError("Could not estimate lorentzian width")
-                
+
                 # set the split for the downramp as x_max + 6. 
                 # NOTE this is specific to this calibration and this setup! Not 
                 # generally a great way to do this.
                 x_max_downramp = x_max + 6 + np.argmax(lineout[x_max + 6:])
                 max_density_downramp = lineout[x_max_downramp]
                 for sigma in range(1, len(lineout) - x_max_downramp):
-                    if lineout[x_max_downramp + sigma] < np.exp(-0.5):
+                    if lineout[x_max_downramp + sigma] < np.exp(-0.5) * max_density_downramp:
                         break
                 else:
                     raise ValueError("could not estimate gaussian width")
-                
+
                 return [max_density, x_max, w,
                         max_density_downramp, x_max_downramp, sigma,
                         x_max, x_max + 6,
                     ]
-                
+
             if p0 is None:
                 p0 = estimate_parameters()
 
