@@ -1,5 +1,0 @@
-numpy
-scipy
-Pint
-scikit-image
-PyAbel

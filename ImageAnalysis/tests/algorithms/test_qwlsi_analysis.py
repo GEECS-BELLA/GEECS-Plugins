@@ -5,25 +5,25 @@ from typing import NamedTuple
 
 import numpy as np
 
-from phasicsdensity.phasics_density_analysis import PhasicsImageAnalyzer, ureg
-Q_ = ureg.Quantity
+from image_analysis.algorithms.qwlsi import QWLSIImageAnalyzer
+from image_analysis import ureg, Q_
 
-class PhasicsDensityAnalysisTestCase(unittest.TestCase):
+class QWLSIAnalysisTestCase(unittest.TestCase):
 
     def setUp(self):
-        self.pia = PhasicsImageAnalyzer(reconstruction_method='velghe')
+        self.qia = QWLSIImageAnalyzer(reconstruction_method='velghe')
 
     def generate_test_interferogram(self):
 
-        self.pia.CAMERA_RESOLUTION = Q_(4.0, 'um')
-        self.pia.GRATING_CAMERA_DISTANCE = Q_(1.0, 'mm')
+        self.qia.CAMERA_RESOLUTION = Q_(4.0, 'um')
+        self.qia.GRATING_CAMERA_DISTANCE = Q_(1.0, 'mm')
 
-        x = np.arange(128) * self.pia.CAMERA_RESOLUTION
-        y = np.arange(96) * self.pia.CAMERA_RESOLUTION
-        x0 = 50 * self.pia.CAMERA_RESOLUTION
-        y0 = 30 * self.pia.CAMERA_RESOLUTION
-        x_sig = 20 * self.pia.CAMERA_RESOLUTION
-        y_sig = 10 * self.pia.CAMERA_RESOLUTION
+        x = np.arange(128) * self.qia.CAMERA_RESOLUTION
+        y = np.arange(96) * self.qia.CAMERA_RESOLUTION
+        x0 = 50 * self.qia.CAMERA_RESOLUTION
+        y0 = 30 * self.qia.CAMERA_RESOLUTION
+        x_sig = 20 * self.qia.CAMERA_RESOLUTION
+        y_sig = 10 * self.qia.CAMERA_RESOLUTION
         wavefront_ampl = Q_(3000, 'nm')
 
         X, Y = np.meshgrid(x, y)
@@ -37,9 +37,9 @@ class PhasicsDensityAnalysisTestCase(unittest.TestCase):
 
         interferogram = sum([
             np.cos(2*np.pi * (dsc.nu_x * X + dsc.nu_y * Y)
-                    - 2*np.pi * self.pia.GRATING_CAMERA_DISTANCE * (dsc.nu_x * grad_wavefront.x + dsc.nu_y * grad_wavefront.y)
+                    - 2*np.pi * self.qia.GRATING_CAMERA_DISTANCE * (dsc.nu_x * grad_wavefront.x + dsc.nu_y * grad_wavefront.y)
                   )
-            for dsc in self.pia.diffraction_spot_centers
+            for dsc in self.qia.diffraction_spot_centers
         ]).m
 
         return interferogram
@@ -53,13 +53,13 @@ class PhasicsDensityAnalysisTestCase(unittest.TestCase):
 
     def test_calculate_wavefront(self):
 
-        self.reconstructed_wavefront = self.pia.calculate_wavefront(self.generate_test_interferogram())
+        self.reconstructed_wavefront = self.qia.calculate_wavefront(self.generate_test_interferogram())
         self.assertMaxWavefrontMinusBackgroundWithinRange()
 
     def test_calculate_wavefront_baffou(self):
 
-        self.pia.reconstruction_method = 'baffou'
-        self.reconstructed_wavefront = self.pia.calculate_wavefront(self.generate_test_interferogram())
+        self.qia.reconstruction_method = 'baffou'
+        self.reconstructed_wavefront = self.qia.calculate_wavefront(self.generate_test_interferogram())
         self.assertMaxWavefrontMinusBackgroundWithinRange()
 
 

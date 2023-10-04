@@ -122,29 +122,33 @@ files = [
 
 [[package]]
 name = "debugpy"
-version = "1.6.7.post1"
+version = "1.7.0"
 description = "An implementation of the Debug Adapter Protocol for Python"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "debugpy-1.6.7.post1-cp310-cp310-macosx_11_0_x86_64.whl", hash = "sha256:903bd61d5eb433b6c25b48eae5e23821d4c1a19e25c9610205f5aeaccae64e32"},
-    {file = "debugpy-1.6.7.post1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d16882030860081e7dd5aa619f30dec3c2f9a421e69861125f83cc372c94e57d"},
-    {file = "debugpy-1.6.7.post1-cp310-cp310-win32.whl", hash = "sha256:eea8d8cfb9965ac41b99a61f8e755a8f50e9a20330938ad8271530210f54e09c"},
-    {file = "debugpy-1.6.7.post1-cp310-cp310-win_amd64.whl", hash = "sha256:85969d864c45f70c3996067cfa76a319bae749b04171f2cdeceebe4add316155"},
-    {file = "debugpy-1.6.7.post1-cp37-cp37m-macosx_11_0_x86_64.whl", hash = "sha256:890f7ab9a683886a0f185786ffbda3b46495c4b929dab083b8c79d6825832a52"},
-    {file = "debugpy-1.6.7.post1-cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d4ac7a4dba28801d184b7fc0e024da2635ca87d8b0a825c6087bb5168e3c0d28"},
-    {file = "debugpy-1.6.7.post1-cp37-cp37m-win32.whl", hash = "sha256:3370ef1b9951d15799ef7af41f8174194f3482ee689988379763ef61a5456426"},
-    {file = "debugpy-1.6.7.post1-cp37-cp37m-win_amd64.whl", hash = "sha256:65b28435a17cba4c09e739621173ff90c515f7b9e8ea469b92e3c28ef8e5cdfb"},
-    {file = "debugpy-1.6.7.post1-cp38-cp38-macosx_11_0_x86_64.whl", hash = "sha256:92b6dae8bfbd497c90596bbb69089acf7954164aea3228a99d7e43e5267f5b36"},
-    {file = "debugpy-1.6.7.post1-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:72f5d2ecead8125cf669e62784ef1e6300f4067b0f14d9f95ee00ae06fc7c4f7"},
-    {file = "debugpy-1.6.7.post1-cp38-cp38-win32.whl", hash = "sha256:f0851403030f3975d6e2eaa4abf73232ab90b98f041e3c09ba33be2beda43fcf"},
-    {file = "debugpy-1.6.7.post1-cp38-cp38-win_amd64.whl", hash = "sha256:3de5d0f97c425dc49bce4293df6a04494309eedadd2b52c22e58d95107e178d9"},
-    {file = "debugpy-1.6.7.post1-cp39-cp39-macosx_11_0_x86_64.whl", hash = "sha256:38651c3639a4e8bbf0ca7e52d799f6abd07d622a193c406be375da4d510d968d"},
-    {file = "debugpy-1.6.7.post1-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:038c51268367c9c935905a90b1c2d2dbfe304037c27ba9d19fe7409f8cdc710c"},
-    {file = "debugpy-1.6.7.post1-cp39-cp39-win32.whl", hash = "sha256:4b9eba71c290852f959d2cf8a03af28afd3ca639ad374d393d53d367f7f685b2"},
-    {file = "debugpy-1.6.7.post1-cp39-cp39-win_amd64.whl", hash = "sha256:973a97ed3b434eab0f792719a484566c35328196540676685c975651266fccf9"},
-    {file = "debugpy-1.6.7.post1-py2.py3-none-any.whl", hash = "sha256:1093a5c541af079c13ac8c70ab8b24d1d35c8cacb676306cf11e57f699c02926"},
-    {file = "debugpy-1.6.7.post1.zip", hash = "sha256:fe87ec0182ef624855d05e6ed7e0b7cb1359d2ffa2a925f8ec2d22e98b75d0ca"},
+    {file = "debugpy-1.7.0-cp310-cp310-macosx_11_0_x86_64.whl", hash = "sha256:17ad9a681aca1704c55b9a5edcb495fa8f599e4655c9872b7f9cf3dc25890d48"},
+    {file = "debugpy-1.7.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1285920a3f9a75f5d1acf59ab1b9da9ae6eb9a05884cd7674f95170c9cafa4de"},
+    {file = "debugpy-1.7.0-cp310-cp310-win32.whl", hash = "sha256:a6f43a681c5025db1f1c0568069d1d1bad306a02e7c36144912b26d9c90e4724"},
+    {file = "debugpy-1.7.0-cp310-cp310-win_amd64.whl", hash = "sha256:9e9571d831ad3c75b5fb6f3efcb71c471cf2a74ba84af6ac1c79ce00683bed4b"},
+    {file = "debugpy-1.7.0-cp311-cp311-macosx_11_0_universal2.whl", hash = "sha256:538765a41198aa88cc089295b39c7322dd598f9ef1d52eaae12145c63bf9430a"},
+    {file = "debugpy-1.7.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c7e8cf91f8f3f9b5fad844dd88427b85d398bda1e2a0cd65d5a21312fcbc0c6f"},
+    {file = "debugpy-1.7.0-cp311-cp311-win32.whl", hash = "sha256:18a69f8e142a716310dd0af6d7db08992aed99e2606108732efde101e7c65e2a"},
+    {file = "debugpy-1.7.0-cp311-cp311-win_amd64.whl", hash = "sha256:7515a5ba5ee9bfe956685909c5f28734c1cecd4ee813523363acfe3ca824883a"},
+    {file = "debugpy-1.7.0-cp37-cp37m-macosx_11_0_x86_64.whl", hash = "sha256:bc8da67ade39d9e75608cdb8601d07e63a4e85966e0572c981f14e2cf42bcdef"},
+    {file = "debugpy-1.7.0-cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a5036e918c6ba8fc4c4f1fd0207d81db634431a02f0dc2ba51b12fd793c8c9de"},
+    {file = "debugpy-1.7.0-cp37-cp37m-win32.whl", hash = "sha256:d5be95b3946a4d7b388e45068c7b75036ac5a610f41014aee6cafcd5506423ad"},
+    {file = "debugpy-1.7.0-cp37-cp37m-win_amd64.whl", hash = "sha256:0e90314a078d4e3f009520c8387aba8f74c3034645daa7a332a3d1bb81335756"},
+    {file = "debugpy-1.7.0-cp38-cp38-macosx_11_0_x86_64.whl", hash = "sha256:1565fd904f9571c430adca597771255cff4f92171486fced6f765dcbdfc8ec8d"},
+    {file = "debugpy-1.7.0-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6516f36a2e95b3be27f171f12b641e443863f4ad5255d0fdcea6ae0be29bb912"},
+    {file = "debugpy-1.7.0-cp38-cp38-win32.whl", hash = "sha256:2b0e489613bc066051439df04c56777ec184b957d6810cb65f235083aef7a0dc"},
+    {file = "debugpy-1.7.0-cp38-cp38-win_amd64.whl", hash = "sha256:7bf0b4bbd841b2397b6a8de15da9227f1164f6d43ceee971c50194eaed930a9d"},
+    {file = "debugpy-1.7.0-cp39-cp39-macosx_11_0_x86_64.whl", hash = "sha256:ad22e1095b9977af432465c1e09132ba176e18df3834b1efcab1a449346b350b"},
+    {file = "debugpy-1.7.0-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f625e427f21423e5874139db529e18cb2966bdfcc1cb87a195538c5b34d163d1"},
+    {file = "debugpy-1.7.0-cp39-cp39-win32.whl", hash = "sha256:18bca8429d6632e2d3435055416d2d88f0309cc39709f4f6355c8d412cc61f24"},
+    {file = "debugpy-1.7.0-cp39-cp39-win_amd64.whl", hash = "sha256:dc8a12ac8b97ef3d6973c6679a093138c7c9b03eb685f0e253269a195f651559"},
+    {file = "debugpy-1.7.0-py2.py3-none-any.whl", hash = "sha256:f6de2e6f24f62969e0f0ef682d78c98161c4dca29e9fb05df4d2989005005502"},
+    {file = "debugpy-1.7.0.zip", hash = "sha256:676911c710e85567b17172db934a71319ed9d995104610ce23fd74a07f66e6f6"},
 ]
 
 [[package]]
@@ -286,13 +290,13 @@ test = ["ipykernel", "nbformat", "nose (>=0.10.1)", "numpy (>=1.17)", "pygments"
 
 [[package]]
 name = "jedi"
-version = "0.19.0"
+version = "0.19.1"
 description = "An autocompletion tool for Python that can be used for text editors."
 optional = false
 python-versions = ">=3.6"
 files = [
-    {file = "jedi-0.19.0-py2.py3-none-any.whl", hash = "sha256:cb8ce23fbccff0025e9386b5cf85e892f94c9b822378f8da49970471335ac64e"},
-    {file = "jedi-0.19.0.tar.gz", hash = "sha256:bcf9894f1753969cbac8022a8c2eaee06bfa3724e4192470aaffe7eb6272b0c4"},
+    {file = "jedi-0.19.1-py2.py3-none-any.whl", hash = "sha256:e983c654fe5c02867aef4cdfce5a2fbb4a50adc0af145f70504238f18ef5e7e0"},
+    {file = "jedi-0.19.1.tar.gz", hash = "sha256:cf0496f3651bc65d7174ac1b7d043eff454892c708a87d1b683e57b569927ffd"},
 ]
 
 [package.dependencies]
@@ -301,7 +305,7 @@ parso = ">=0.8.3,<0.9.0"
 [package.extras]
 docs = ["Jinja2 (==2.11.3)", "MarkupSafe (==1.1.1)", "Pygments (==2.8.1)", "alabaster (==0.7.12)", "babel (==2.9.1)", "chardet (==4.0.0)", "commonmark (==0.8.1)", "docutils (==0.17.1)", "future (==0.18.2)", "idna (==2.10)", "imagesize (==1.2.0)", "mock (==1.0.1)", "packaging (==20.9)", "pyparsing (==2.4.7)", "pytz (==2021.1)", "readthedocs-sphinx-ext (==2.1.4)", "recommonmark (==0.5.0)", "requests (==2.25.1)", "six (==1.15.0)", "snowballstemmer (==2.1.0)", "sphinx (==1.8.5)", "sphinx-rtd-theme (==0.4.3)", "sphinxcontrib-serializinghtml (==1.1.4)", "sphinxcontrib-websupport (==1.2.4)", "urllib3 (==1.26.4)"]
 qa = ["flake8 (==5.0.4)", "mypy (==0.971)", "types-setuptools (==67.2.0.1)"]
-testing = ["Django (<3.1)", "attrs", "colorama", "docopt", "pytest (<7.0.0)"]
+testing = ["Django", "attrs", "colorama", "docopt", "pytest (<7.0.0)"]
 
 [[package]]
 name = "jupyter-client"
@@ -361,13 +365,13 @@ traitlets = "*"
 
 [[package]]
 name = "nest-asyncio"
-version = "1.5.7"
+version = "1.5.8"
 description = "Patch asyncio to allow nested event loops"
 optional = false
 python-versions = ">=3.5"
 files = [
-    {file = "nest_asyncio-1.5.7-py3-none-any.whl", hash = "sha256:5301c82941b550b3123a1ea772ba9a1c80bad3a182be8c1a5ae6ad3be57a9657"},
-    {file = "nest_asyncio-1.5.7.tar.gz", hash = "sha256:6a80f7b98f24d9083ed24608977c09dd608d83f91cccc24c9d2cba6d10e01c10"},
+    {file = "nest_asyncio-1.5.8-py3-none-any.whl", hash = "sha256:accda7a339a70599cb08f9dd09a67e0c2ef8d8d6f4c07f96ab203f2ae254e48d"},
+    {file = "nest_asyncio-1.5.8.tar.gz", hash = "sha256:25aa2ca0d2a5b5531956b9e273b45cf664cae2b145101d73b86b199978d48fdb"},
 ]
 
 [[package]]
@@ -430,13 +434,13 @@ files = [
 
 [[package]]
 name = "packaging"
-version = "23.1"
+version = "23.2"
 description = "Core utilities for Python packages"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "packaging-23.1-py3-none-any.whl", hash = "sha256:994793af429502c4ea2ebf6bf664629d07c1a9fe974af92966e4b8d2df7edc61"},
-    {file = "packaging-23.1.tar.gz", hash = "sha256:a392980d2b6cffa644431898be54b0045151319d1e7ec34f0cfed48767dd334f"},
+    {file = "packaging-23.2-py3-none-any.whl", hash = "sha256:8c491190033a9af7e1d931d0b5dacc2ef47509b34dd0de67ed209b5203fc88c7"},
+    {file = "packaging-23.2.tar.gz", hash = "sha256:048fb0e9405036518eaaf48a55953c750c11e1a1b68e0dd1a9d62ed0c092cfc5"},
 ]
 
 [[package]]
@@ -467,26 +471,6 @@ files = [
 
 [package.dependencies]
 ptyprocess = ">=0.5"
-
-[[package]]
-name = "phasicsdensity"
-version = "0.1.0"
-description = ""
-optional = false
-python-versions = ">=3.7,<3.11"
-files = []
-develop = true
-
-[package.dependencies]
-numpy = "^1.21"
-Pint = ">=0.18,<=0.22"
-pyabel = ">=0.9,<1.0"
-scikit-image = ">=0.19,<1.0"
-scipy = "^1.7"
-
-[package.source]
-type = "directory"
-url = "../PhasicsDensity"
 
 [[package]]
 name = "pickleshare"
@@ -1091,13 +1075,13 @@ files = [
 
 [[package]]
 name = "wcwidth"
-version = "0.2.6"
+version = "0.2.8"
 description = "Measures the displayed width of unicode strings in a terminal"
 optional = false
 python-versions = "*"
 files = [
-    {file = "wcwidth-0.2.6-py2.py3-none-any.whl", hash = "sha256:795b138f6875577cd91bba52baf9e445cd5118fd32723b460e30a0af30ea230e"},
-    {file = "wcwidth-0.2.6.tar.gz", hash = "sha256:a5220780a404dbe3353789870978e472cfe477761f06ee55077256e509b156d0"},
+    {file = "wcwidth-0.2.8-py2.py3-none-any.whl", hash = "sha256:77f719e01648ed600dfa5402c347481c0992263b81a027344f3e1ba25493a704"},
+    {file = "wcwidth-0.2.8.tar.gz", hash = "sha256:8705c569999ffbb4f6a87c6d1b80f324bd6db952f5eb0b95bc07517f4c1813d4"},
 ]
 
 [[package]]
@@ -1129,4 +1113,4 @@ testing = ["big-O", "flake8 (<5)", "jaraco.functools", "jaraco.itertools", "more
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.7,<3.11"
-content-hash = "a55eac61e0c342580448b37558c6c604ce7c969cb686ab8df0eabfb8b2e16f46"
+content-hash = "bde11f1cbdfb0f989ce2fd73057ca87276ea234c1fc156e3df7bff2853b99a6a"

@@ -26,9 +26,7 @@ from scipy.optimize import leastsq
 
 from skimage.restoration import unwrap_phase
 
-from pint import UnitRegistry
-ureg = UnitRegistry()
-Q_ = ureg.Quantity
+from .. import ureg, Q_
 
 if TYPE_CHECKING:
     from pint import Quantity
@@ -41,14 +39,17 @@ import abel
 from collections import namedtuple
 SpatialFrequencyCoordinates = namedtuple('SpatialFrequencyCoordinates', ['nu_x', 'nu_y'])
 
-#%% PhasicsImageAnalyzer class
+#%% QWLSIImageAnalyzer class
 
-class PhasicsImageAnalyzer:
-    """ An engine that can analyze a Phasics image and return its phase map.
+class QWLSIImageAnalyzer:
+    """ An engine that can analyze a QWLSI image and return its phase map.
+
+    QWLSI is Quadriwave Lateral Shearing Interferometry, which is used by the
+    Phasics camera.
 
     General usage, with `interferogram` an image from the HTU Gasjet Phasics camera 
-       pia = PhasicsImageAnalyzer()
-       phase_map = pia.calculate_wavefront(interferogram)
+       qia = QWLSIImageAnalyzer()
+       wavefront = qia.calculate_wavefront(interferogram)
 
 
     [1] G. Baffou, “Quantitative phase microscopy using quadriwave lateral shearing 
@@ -69,7 +70,7 @@ class PhasicsImageAnalyzer:
     Methods
     -------
     calculate_wavefront(interferogram)
-        runs all steps of the wavefront reconstruction from a Phasics interferogram.
+        runs all steps of the wavefront reconstruction from a QWLSI interferogram.
 
     """
 
@@ -105,7 +106,6 @@ class PhasicsImageAnalyzer:
                  camera_tilt: Quantity = Q_(30.1264, 'deg'),
                  reconstruction_method: str = 'velghe',
                  diffraction_spot_crop_radius: Optional[Quantity] = None,
-                 unit_registry: Optional[UnitRegistry] = None,
                 ):
         """ 
         Parameters
@@ -131,9 +131,6 @@ class PhasicsImageAnalyzer:
             radius of disc around spot center to use for each spot's FT.
             If None, find the maximum radius that causes no overlap.
 
-        unit_registry : UnitRegistry or None
-            Use an existing Pint unit registry, such as when called from another 
-            package
 
         """
         self.CAMERA_RESOLUTION = camera_resolution
@@ -144,12 +141,6 @@ class PhasicsImageAnalyzer:
         self.reconstruction_method = reconstruction_method
         self.diffraction_spot_crop_radius = diffraction_spot_crop_radius
     
-        if unit_registry is not None:
-            # overwrite module-wide ureg and Quantity
-            global ureg, Q_
-            ureg = unit_registry
-            Q_ = ureg.Quantity
-
     def _fourier_transform(self) -> tuple[NDArray[np.complex_], Quantity, Quantity]:
         """ Takes the fourier transform of an image and shifts it.
 
@@ -615,7 +606,7 @@ class PhasicsImageAnalyzer:
 
     
     def calculate_wavefront(self, interferogram: np.ndarray) -> np.ndarray:
-        """ Analyze cropped Phasics quadriwave shearing image
+        """ Analyze cropped quadriwave shearing image
         
         Takes a cropped image and runs the full algorithm on it to obtain the
         reconstructed phase map. 
@@ -623,7 +614,7 @@ class PhasicsImageAnalyzer:
         Parameters
         ----------
         img : np.ndarray
-            Phasics image, already cropped to region of interest.
+            QWLSI image, already cropped to region of interest.
 
         Returns
         -------
@@ -678,7 +669,7 @@ class PhasicsImageAnalyzer:
         Parameters
         ----------
         wavefront : 2d array, units [length]
-            A wavefront, with [length] units, as produced by PhasicsImageAnalyzer.calculate_wavefront().
+            A wavefront, with [length] units, as produced by QWLSIImageAnalyzer.calculate_wavefront().
             Should be background-subtracted, and baselined, i.e. wavefront should be 0 where there's no plasma
         wavelength : [length] Quantity
         image_resolution: [length] Quantity or None

@@ -15,7 +15,7 @@ from warnings import warn
 from ..base import ImageAnalyzer
 from ..utils import ROI, read_imaq_image, NotAPath
 
-from phasicsdensity.phasics_density_analysis import PhasicsImageAnalyzer
+from image_analysis.algorithms.qwlsi import QWLSIImageAnalyzer
 from .. import ureg, Q_, Quantity
 
 class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
@@ -86,7 +86,7 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
         self.grating_period = grating_period
         self.camera_tilt = camera_tilt
         
-        self.phasics_image_analyzer = None
+        self.qwlsi_image_analyzer = None
 
         super().__init__()
 
@@ -99,7 +99,7 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
     def calculate_background_from_path(self):
 
         def _calculate_background_from_filepath(filepath: Path) -> QuantityArray2D:
-            return self.phasics_image_analyzer.calculate_wavefront(self.roi.crop(read_imaq_image(filepath)))
+            return self.qwlsi_image_analyzer.calculate_wavefront(self.roi.crop(read_imaq_image(filepath)))
 
         if self.background_path.is_file():
             return _calculate_background_from_filepath(self.background_path)
@@ -136,7 +136,7 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
 
             elif self.on_no_background == 'raise':
                 raise ValueError("No background wavefront. Use set_background(wavefront), where wavefront is "
-                                 "obtained with calculate_wavefront(phasics_image)"
+                                 "obtained with calculate_wavefront(interferogram)"
                                 )
             elif self.on_no_background == 'warn':
                 warn("No background wavefront. Returning wavefront with no background subtraction.")
@@ -145,24 +145,22 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
             else:
                 raise ValueError(f"Unknown value for on_no_background: {self.on_no_background}. Should be one of 'raise', 'warn', or 'ignore'")
 
-    def _initialize_phasics_image_analyzer(self):
-        self.phasics_image_analyzer = PhasicsImageAnalyzer(
+    def _initialize_qwlsi_image_analyzer(self):
+        self.qwlsi_image_analyzer = QWLSIImageAnalyzer(
             reconstruction_method='velghe',
             camera_resolution=self.camera_resolution,
             grating_camera_distance=self.grating_camera_distance,
             grating_period=self.grating_period,
             camera_tilt=self.camera_tilt,
-            # pass image_analysis unit registry to PhasicsImageAnalyzer
-            unit_registry=ureg,
         )
 
     def analyze_image(self, image: Array2D) -> dict[str, float|NDArray]:
         """ Calculate metrics from U_PhasicsFileCopy
         """
         
-        self._initialize_phasics_image_analyzer()
+        self._initialize_qwlsi_image_analyzer()
         
-        wavefront = self.phasics_image_analyzer.calculate_wavefront(self.roi.crop(image))
+        wavefront = self.qwlsi_image_analyzer.calculate_wavefront(self.roi.crop(image))
 
         # subtract background
         wavefront -= self._get_background_wavefront()
@@ -172,7 +170,7 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
 
         # 2d array of electron density with units [length]^-3
         # center row ((num_rows - 1) // 2) represents cylinder axis.
-        density = self.phasics_image_analyzer.calculate_density(wavefront, wavelength=self.laser_wavelength, image_resolution=self.image_resolution)
+        density = self.qwlsi_image_analyzer.calculate_density(wavefront, wavelength=self.laser_wavelength, image_resolution=self.image_resolution)
         # 1d array of electron density with units [length]^-3
         center_density_lineout = density[(density.shape[0] - 1) // 2, :]
 
@@ -279,13 +277,13 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
         if density_lineout_fit_result:
             analysis_results.update({
                 'density_lineout_fit_A1_cm-3': density_lineout_fit_result['A1'].m_as('cm^-3'),
-                'density_lineout_fit_x1_mm': (density_lineout_fit_result['x1'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
-                'density_lineout_fit_w_mm': (density_lineout_fit_result['w'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_x1_mm': (density_lineout_fit_result['x1'] * self.qwlsi_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_w_mm': (density_lineout_fit_result['w'] * self.qwlsi_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
                 'density_lineout_fit_A2_cm-3': density_lineout_fit_result['A1'].m_as('cm^-3'),
-                'density_lineout_fit_x2_mm': (density_lineout_fit_result['x2'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
-                'density_lineout_fit_sigma_mm': (density_lineout_fit_result['sigma'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
-                'density_lineout_fit_x3_mm': (density_lineout_fit_result['x3'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
-                'density_lineout_fit_x4_mm': (density_lineout_fit_result['x4'] * self.phasics_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_x2_mm': (density_lineout_fit_result['x2'] * self.qwlsi_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_sigma_mm': (density_lineout_fit_result['sigma'] * self.qwlsi_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_x3_mm': (density_lineout_fit_result['x3'] * self.qwlsi_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
+                'density_lineout_fit_x4_mm': (density_lineout_fit_result['x4'] * self.qwlsi_image_analyzer.CAMERA_RESOLUTION/ureg.px).m_as('mm'),
             })
         else:
             analysis_results.update({
