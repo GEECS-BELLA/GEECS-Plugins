@@ -9,11 +9,11 @@
     },
     "filters": {},
     "handlers": {
-        "live_run_analysis_file_handler": {
+        "livepostprocessing_file_handler": {
             "class": "logging.FileHandler",
             "level": "INFO",
             "formatter": "time_source_level_message",
-            "filename": "log/live_run_analysis.log"
+            "filename": "log/livepostprocessing.log"
         },
         "scan_analyzer_file_handler": {
             "class": "logging.FileHandler",
@@ -23,11 +23,11 @@
         }
     },
     "loggers": {
-        "live_run_analysis": {
+        "livepostprocessing": {
             "level": "INFO",
             "propagate": false,
             "handlers": [
-                "live_run_analysis_file_handler"
+                "livepostprocessing_file_handler"
             ]
         },
         "scan_analyzer": {
