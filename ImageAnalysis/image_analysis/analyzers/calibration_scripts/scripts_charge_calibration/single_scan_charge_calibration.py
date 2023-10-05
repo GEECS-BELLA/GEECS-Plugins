@@ -22,9 +22,8 @@ sys.path.insert(0, rootpath)
 
 import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.pngTools as pngTools
 import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.shot_charge_reader as charge_tdms
-import ImageAnalysis.image_analysis.analyzers.UC_HiResMagCam as mag_spec_caller
+import ImageAnalysis.image_analysis.analyzers.UC_GenericMagSpecCam as mag_spec_caller
 import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.directory_functions as directory_functions
-import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.mag_spec_analysis as mag_spec_analysis
 import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.math_tools as math_tools
 
 
@@ -61,9 +60,10 @@ else:
 super_path = directory_functions.compile_daily_path(data_day, data_month, data_year)
 image_name = "U_HiResMagCam"
 
-inputParams = mag_spec_caller.UC_HiResMagCamImageAnalyzer(
+calibration_analyzer = mag_spec_caller.UC_GenericMagSpecCamAnalyzer(
+    mag_spec_name='hires',
     noise_threshold=100,
-    edge_pixel_crop=1,
+    roi=[1, -1, 1, -1],
     saturation_value=4095,
     normalization_factor=1,  # 7.643283839778091e-07,
     transverse_calibration=43,
@@ -71,7 +71,9 @@ inputParams = mag_spec_caller.UC_HiResMagCamImageAnalyzer(
     transverse_slice_threshold=0.02,
     transverse_slice_binsize=5,
     optimization_central_energy=100.0,
-    optimization_bandwidth_energy=2.0).build_input_parameter_dictionary()
+    optimization_bandwidth_energy=2.0)
+
+input_params = calibration_analyzer.build_input_parameter_dictionary()
 
 num_shots = directory_functions.get_number_of_shots(super_path, scan_number, image_name)
 shot_arr = np.array(range(num_shots)) + 1
@@ -93,11 +95,11 @@ for i in range(len(shot_arr)):
     if doPrint:
         print("Loaded")
 
-    processed_image = image.astype(np.float32)
-    returned_image, MagSpecDict, lineouts = mag_spec_analysis.analyze_image(processed_image, inputParams)
-    clipping_arr[i] = MagSpecDict['camera_clipping_factor']
-    saturation_arr[i] = MagSpecDict['camera_saturation_counts']
-    camera_counts_arr[i] = MagSpecDict['total_charge_pC']
+    analyzer_returns = calibration_analyzer.analyze_image(image)
+    mag_spec_dict = analyzer_returns["analyzer_return_dictionary"]
+    clipping_arr[i] = mag_spec_dict['camera_clipping_factor']
+    saturation_arr[i] = mag_spec_dict['camera_saturation_counts']
+    camera_counts_arr[i] = mag_spec_dict['total_charge_pC']
     if doPrint:
         print("Clipped Percentage:", clipping_arr[i])
         print("Saturation Counts:", saturation_arr[i])
