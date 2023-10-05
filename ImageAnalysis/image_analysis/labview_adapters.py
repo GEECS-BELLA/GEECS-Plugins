@@ -1,16 +1,13 @@
 import numpy as np
+import image_analysis.analyzers.default_analyzer_generators as generator
 
 
-def hi_res_mag_spec_labview(image,background=None):
-    import image_analysis.analyzers.default_analyzer_generators as generator
-
+def hi_res_mag_spec_labview(image, background=None):
     results = generator.return_default_hi_res_mag_cam_analyzer().analyze_image(image)
     return parse_mag_spec_results(results)
 
 
 def acave_cam3_mag_spec_labview(image, background=None):
-    import image_analysis.analyzers.default_analyzer_generators as generator
-
     results = generator.return_default_acave_mag_cam3_analyzer().analyze_image(image)
     return parse_mag_spec_results(results)
 
@@ -20,11 +17,11 @@ def parse_mag_spec_results(mag_spec_results):
     mag_spec_dict = mag_spec_results['analyzer_return_dictionary']
     returned_lineouts = mag_spec_results['analyzer_return_lineouts'].astype(np.float64)
     labview_return = (
-        returned_image, MagSpecDictionaryParse(mag_spec_dict), returned_lineouts)
+        returned_image, mag_spec_dictionary_parse(mag_spec_dict), returned_lineouts)
     return labview_return
 
 
-def MagSpecDictionaryParse(mag_spec_dict):
+def mag_spec_dictionary_parse(mag_spec_dict):
     keys_of_interest = [
         "camera_clipping_factor",
         "camera_saturation_counts",
@@ -46,9 +43,7 @@ def MagSpecDictionaryParse(mag_spec_dict):
 
 
 def undulator_exit_cam_labview(image, background=None):
-    from image_analysis.analyzers.UC_UndulatorExitCam import UC_UndulatorExitCam
-
-    results = UC_UndulatorExitCam().analyze_image(image)
+    results = generator.return_default_undulator_exit_cam_analyzer().analyze_image(image)
     returned_image = results['processed_image_uint16']
     spec_dict = results['analyzer_return_dictionary']
     return_lineouts = results['analyzer_return_lineouts']
@@ -66,6 +61,7 @@ def undulator_exit_cam_labview(image, background=None):
 
     return result
 
+
 # Dictionary to map device types to their respective analysis functions
 DEVICE_FUNCTIONS = {
     "UC_HiResMagCam": hi_res_mag_spec_labview,
@@ -73,7 +69,8 @@ DEVICE_FUNCTIONS = {
     "UC_UndulatorExitCam": undulator_exit_cam_labview,
     # Add more device types as needed...
 }
- 
+
+
 def analyze_labview_image(device_type, image, background):
     """
     Main function to analyze an image based on the device type.
@@ -98,9 +95,9 @@ def analyze_labview_image(device_type, image, background):
 
     """
     
-    func= DEVICE_FUNCTIONS.get(device_type)
+    func = DEVICE_FUNCTIONS.get(device_type)
     if func:
-        result=func(image,background)
+        result = func(image, background)
         return result
     else:
         raise ValueError(f"Unknown device type: {device_type}")
