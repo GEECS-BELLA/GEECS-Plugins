@@ -35,10 +35,12 @@ class U_FROG_GrenouilleImageAnalyzer(ImageAnalyzer):
             half the wavelength of the pulse
         grenouille_trace_wavelength_step : [length] Quantity
             resolution of spectrometer axis (0, vertical). 
-        time_delay_step: [time] Quantity
+        grenouille_trace_time_delay_step: [time] Quantity
             resolution of time_delay (tau) axis (1, horizontal). The center 
             of the axis should represent tau = 0
         """
+
+        super().__init__()
 
         self.pulse_center_wavelength = pulse_center_wavelength
         self.grenouille_trace_center_wavelength = grenouille_trace_center_wavelength
@@ -70,9 +72,10 @@ class U_FROG_GrenouilleImageAnalyzer(ImageAnalyzer):
         fwhm_area = erf(np.sqrt(np.log(2))) # approx 76%
         cumulative_power_normalized = np.cumsum(power) / np.sum(power)
         time_intervals = np.interp(cumulative_power_normalized + fwhm_area,  cumulative_power_normalized, self.grenouille_retrieval.E_t, left=Q_('nan fs'), right=Q_('nan fs')) - self.grenouille_retrieval.E_t
-        _76_percent_interval = np.min(time_intervals)
+        _76_percent_interval = np.nanmin(time_intervals)
 
-        analysis_results = {'pulse_E_field_AU': np.rec.fromarrays([self.grenouille_retrieval.E_t, pulse], names=["time_fs", "pulse_E_field_AU"]),
+        analysis_results = {'pulse_E_field_AU': np.rec.fromarrays([self.grenouille_retrieval.E_t.m_as('fs'), pulse.real, pulse.imag], names=["time_fs", "E_real_AU", "E_imag_AU"]),
+                            'peak_power_AU': np.max(np.square(np.abs(pulse))),
                             'fwhm_fs': fwhm.m_as('fs'),
                             '76%_interval_fs': _76_percent_interval.m_as('fs'), 
                            }
