@@ -20,9 +20,9 @@ class U_FROG_GrenouilleImageAnalyzer(ImageAnalyzer):
     """
     def __init__(self, 
                  pulse_center_wavelength: Quantity = Q_(800, 'nm'),
-                 grenouille_trace_center_wavelength: Quantity = Q_(400, 'nm'),
-                 grenouille_trace_wavelength_step: Quantity = Q_(0.0798546, 'nm'),
-                 grenouille_trace_time_delay_step: Quantity = Q_(0.893676, 'fs'),
+                 grenouille_trace_center_wavelength: Quantity = Q_(410.4, 'nm'),
+                 grenouille_trace_wavelength_step: Quantity = Q_(0.157, 'nm'),
+                 grenouille_trace_time_delay_step: Quantity = Q_(0.931, 'fs'),
                 ):
         """
         Parameters
