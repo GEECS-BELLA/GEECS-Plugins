@@ -10,9 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, NewType, Optional
 from math import ceil
 
-from pint import UnitRegistry
-ureg = UnitRegistry()
-Q_ = ureg.Quantity
+from .. import ureg, Q_
 
 if TYPE_CHECKING:
     from pint import Quantity
@@ -99,7 +97,7 @@ class GrenouilleRetrieval:
                         time_delay_step: Quantity = Q_(0.893676, 'fs'),
                         pulse_duration: Quantity = Q_(800, 'fs'),
                         initial_E: Optional[np.ndarray] = None,
-                       ):
+                       ) -> np.ndarray[np.complex128]:
         """
         Parameters
         ----------
