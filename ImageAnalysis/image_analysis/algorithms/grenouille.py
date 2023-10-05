@@ -38,7 +38,7 @@ class GrenouilleRetrieval:
     def __init__(self, 
                  calculate_next_E_method: str = "integration",
                  nonlinear_effect: str = "second_harmonic_generation",
-                 number_of_iterations: int = 100,
+                 max_number_of_iterations: int = 100,
                  pulse_center_wavelength: Quantity = Q_(800, 'nm'),
                 ):
         """
@@ -82,7 +82,7 @@ class GrenouilleRetrieval:
                             )
         self.nonlinear_effect = nonlinear_effect
 
-        self.number_of_iterations = number_of_iterations
+        self.max_number_of_iterations = max_number_of_iterations
         self.pulse_center_wavelength = pulse_center_wavelength
 
         # min_pulse_wavelength: [length] Quantity
@@ -166,13 +166,17 @@ class GrenouilleRetrieval:
         else:
             self.E = initial_E
 
-        for iteration in range(self.number_of_iterations):
+        for iteration in range(self.max_number_of_iterations):
             self.E_sig_tτ = self._calculate_E_sig()
             self.E_sig_ωτ = self._calculate_FT_E_sig()
             self.E_sig_ωτ = self._replace_FT_E_sig_magnitude()
             self.E_sig_tτ = self._calculate_inverse_FT_E_sig()
+            prev_E = self.E
             self.E = self._calculate_next_E()
             self.E = self._center_and_zero_phase_E()
+            # stop if self.E isn't changing much anymore.
+            if np.sum(np.abs(self.E - prev_E)) / np.sum(np.abs(prev_E)) < 1e-3:
+                break
 
         return self.E
 

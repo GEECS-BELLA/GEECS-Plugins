@@ -48,7 +48,7 @@ class U_FROG_GrenouilleImageAnalyzer(ImageAnalyzer):
         self.grenouille_retrieval = GrenouilleRetrieval(
             calculate_next_E_method='generalized_projection/along_gradient',
             nonlinear_effect='second_harmonic_generation',
-            number_of_iterations=100,
+            max_number_of_iterations=100,
             pulse_center_wavelength=self.pulse_center_wavelength,
         )
 
