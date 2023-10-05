@@ -21,11 +21,13 @@ from imageio.v3 import imwrite
 
 from .orm import Scan, SFile
 from image_analysis.analyzers.U_PhasicsFileCopy import U_PhasicsFileCopyImageAnalyzer
+from image_analysis.analyzers.U_FROG_Grenouille import U_FROG_GrenouilleImageAnalyzer
 from image_analysis.utils import ROI
 
 class ScanAnalyzer:
     image_analyzer_classes: dict[DeviceName, type[ImageAnalyzer]] = {
         DeviceName('U_PhasicsFileCopy'): U_PhasicsFileCopyImageAnalyzer,
+        DeviceName('U_FROG_Grenouille'): U_FROG_GrenouilleImageAnalyzer,
     }
 
     def __init__(self, image_analyzer_kwargs: Optional[dict[DeviceName, dict[str, Any]]] = None):
