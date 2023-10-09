@@ -21,7 +21,7 @@ rootpath = os.path.abspath("../../../../../")
 sys.path.insert(0, rootpath)
 
 import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.pngTools as pngTools
-import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.shot_charge_reader as charge_tdms
+import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.shot_charge_reader as charge_reader
 import ImageAnalysis.image_analysis.analyzers.UC_GenericMagSpecCam as mag_spec_caller
 import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.directory_functions as directory_functions
 import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.math_tools as math_tools
@@ -29,9 +29,6 @@ import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.math_tools
 
 def linear(x, a):
     return a * x
-
-
-# Locate the scan directory
 
 
 doPrint = False
@@ -113,7 +110,7 @@ for i in range(len(shot_arr)):
     print("Saturation Counts:", saturation_arr[i])
    """
 
-    picoscope_charge_arr[i] = charge_tdms.get_shot_charge(super_path, scan_number, shot_number)
+    picoscope_charge_arr[i] = charge_reader.get_shot_charge(super_path, scan_number, shot_number)
     if doPrint:
         print("Picoscope Charge:", picoscope_charge_arr[i])
 print()
@@ -148,27 +145,27 @@ both_picoscope_charge_arr = picoscope_charge_arr[both_pass]
 both_camera_counts_arr = camera_counts_arr[both_pass]
 
 # A polyfit is alright, but we would want the y-intercept to be zero
-lfit = np.polyfit(both_camera_counts_arr, both_picoscope_charge_arr, 1)
-# So instead we just fit to a linear function and change the lfit values to this fit
-popt, pcov = curve_fit(linear, both_camera_counts_arr, both_picoscope_charge_arr)
-lfit[0] = popt[0]
-lfit[1] = 0
-print("Fit Values:", lfit)
+linear_fit = np.polyfit(both_camera_counts_arr, both_picoscope_charge_arr, 1)
+# So instead we just fit to a linear function and change the linear_fit values to this fit
+p_opt, p_cov = curve_fit(linear, both_camera_counts_arr, both_picoscope_charge_arr)
+linear_fit[0] = p_opt[0]
+linear_fit[1] = 0
+print("Fit Values:", linear_fit)
 
 print("Calibration Constants:")
-tdms_filepath = charge_tdms.compile_tdms_filepath(super_path, scan_number)
-charge_tdms.print_normalization(num_shots, tdms_filepath)
-print("const_normalization_factor =", lfit[0])
+tdms_filepath = charge_reader.compile_tdms_filepath(super_path, scan_number)
+charge_reader.print_normalization(num_shots, tdms_filepath)
+print("const_normalization_factor =", linear_fit[0])
 
 axis = np.linspace(min(camera_counts_arr), max(camera_counts_arr), 50)
-slope = axis * lfit[0] + lfit[1]
-# slope2 = axis * MagSpecAnalysis.const_normalization_factor + lfit[1]
+slope = axis * linear_fit[0] + linear_fit[1]
+# slope2 = axis * MagSpecAnalysis.const_normalization_factor + linear_fit[1]
 
 plt.scatter(camera_counts_arr, picoscope_charge_arr, color="r", marker="o", label="All Shots")
 plt.scatter(both_camera_counts_arr, both_picoscope_charge_arr, color="b", marker="o", label="Good Shots")
 plt.scatter(clip_camera_counts_arr, clip_picoscope_charge_arr, color="k", marker="1", label="Not Clipped")
 plt.scatter(sat_camera_counts_arr, sat_picoscope_charge_arr, color="k", marker="2", label="Unsaturated")
-plt.plot(axis, slope, c='k', ls='dashed', label="Fit: " + '{:.3e}'.format(lfit[0]))
+plt.plot(axis, slope, c='k', ls='dashed', label="Fit: " + '{:.3e}'.format(linear_fit[0]))
 # plt.plot(axis, slope2, c = 'g', ls = 'dashed', label="Old Calibration")
 if normalizationCheck:
     plt.xlabel("Calibrated Camera Charge (pC)")

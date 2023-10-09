@@ -21,7 +21,6 @@ import numpy as np
 
 import image_analysis.analyzers.default_analyzer_generators as default_generator
 import image_analysis.analyzers.UC_GenericMagSpecCam as mag_spec_caller
-
 import image_analysis.labview_adapters as labview_function_caller
 
 
@@ -113,8 +112,8 @@ class TestACaveMagCam3Analyze(unittest.TestCase):
         camera_name = "UC_ACaveMagCam3"
         big_elliptical_gaussian = generate_elliptical_gaussian(amplitude, 113, 24, center_x, center_y, sigma_x,
                                                                sigma_y, angle_deg)
-        test_array_shape = np.shape(big_elliptical_gaussian[default_roi[0]:default_roi[1],default_roi[2]:default_roi[3]])
-
+        test_array_shape = np.shape(big_elliptical_gaussian[default_roi[0]:default_roi[1],
+                                    default_roi[2]:default_roi[3]])
         returned_image_labview, analyze_dict_labview, lineouts_labview = labview_function_caller.analyze_labview_image(
             camera_name, big_elliptical_gaussian, background=None)
         np.testing.assert_array_equal(np.shape(returned_image_labview), test_array_shape)

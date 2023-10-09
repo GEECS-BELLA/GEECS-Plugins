@@ -1,22 +1,20 @@
 """
 Class definition for mag spec cam
 
-Can be initialized in 1 of 3 ways:
-1 - return a default configuration using one of the built-in functions.  Used by the LabView adapters and is a quick setup
-2 - return an analyzer from a custom configuration file.  Just need the config file path and the rest is built
-3 - initialize the class using the kwargs themselves.  A little trickier if you want to use the ROI, but also valid
+Analyzer can be initialized through either providing the input parameters through __init__, by providing a config file
+that defines the input parameters, or by calling a respective function in default_analyzer_generators to initialize an
+analyzer class through a default config file.
 
 @ Chris
 """
 from __future__ import annotations
 
-from typing import Optional, Any, TYPE_CHECKING, Union, List
+from typing import Optional, TYPE_CHECKING, Union, List
 import numpy as np
 import time
 import configparser
 
 if TYPE_CHECKING:
-    from numpy.typing import NDArray
     from ..types import Array2D
 
 from ..base import ImageAnalyzer
@@ -53,16 +51,16 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
 
     def __init__(self,
                  mag_spec_name: str = 'NA',
-                 roi: List[int] = [None, None, None, None],             # ROI(top, bottom, left, right)
-                 noise_threshold: int = 0,                            # CONFIRM IF THIS WORKS
+                 roi: List[int] = [None, None, None, None],  # ROI(top, bottom, left, right)
+                 noise_threshold: int = 0,  # CONFIRM IF THIS WORKS
                  saturation_value: int = 4095,
                  normalization_factor: float = 1.0,  # 7.643283839778091e-07,   # NEED TO CALCULATE
                  transverse_calibration: float = 1.0,
-                 do_transverse_calculation: bool = True,                # IS THIS ANALYSIS USEFUL HERE?
-                 transverse_slice_threshold: float = 0,              # ^^
-                 transverse_slice_binsize: int = 10,                     #
-                 optimization_central_energy: float = 100.0,            # IS THIS ANALYSIS USEFUL HERE?
-                 optimization_bandwidth_energy: float = 2.0             # ^^
+                 do_transverse_calculation: bool = True,  # IS THIS ANALYSIS USEFUL HERE?
+                 transverse_slice_threshold: float = 0,  # ^^
+                 transverse_slice_binsize: int = 10,  #
+                 optimization_central_energy: float = 100.0,  # IS THIS ANALYSIS USEFUL HERE?
+                 optimization_bandwidth_energy: float = 2.0  # ^^
                  ):
         """
         Parameters
@@ -199,9 +197,8 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
 
                 beam_angle = linear_fit[0]
                 beam_intercept = linear_fit[1]
-                projected_axis, projected_arr, projected_beam_size = analyze.calculate_projected_beam_size(image,
-                                                                                            self.transverse_calibration)
-                projected_beam_size = projected_beam_size * self.transverse_calibration
+                projected_calculations = analyze.calculate_projected_beam_size(image, self.transverse_calibration)
+                projected_beam_size = projected_calculations[2] * self.transverse_calibration
                 self.print_time(" Projected Size:")
             else:
                 average_beam_size = 0.0
