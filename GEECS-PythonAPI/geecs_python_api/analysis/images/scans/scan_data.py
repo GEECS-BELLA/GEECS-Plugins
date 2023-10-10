@@ -368,7 +368,8 @@ class ScanData:
 
             for it, i_group in enumerate(indexes):
                 specs = []
-                stats = []
+                # analysis results for the shots in this parameter step group
+                analyzer_returns: list[dict[str, Union[float, int]]] = []
                 smooth_hres = []
                 hres_specs_fits = {'opt_pars': [], 'err_pars': [], 'fits': []}
                 for path in np.array(magspec_data['hres']['paths'])[i_group]:
@@ -378,7 +379,7 @@ class ScanData:
                         specs.append(np.array(analysis['analyzer_return_lineouts']))
                         # charge.append(np.sum(specs[-1][1, :]))
 
-                        stats.append(list(analysis['analyzer_return_dictionary'].values()))
+                        analyzer_returns.append(analysis['analyzer_return_dictionary'])
                         smooth_hres.append(savgol_filter(specs[-1][1, :], 20, 3))
 
                         if np.sum(specs[-1][1, :]) > 40:
@@ -398,25 +399,17 @@ class ScanData:
                 med_hres_pC[it, :] = np.median(np.array(specs)[:, 1, :], axis=0)
                 std_hres_pC[it, :] = np.std(np.array(specs)[:, 1, :], axis=0)
 
-                avg_stats = np.mean(stats, axis=0)
-                med_stats = np.median(stats, axis=0)
-                std_stats = np.std(stats, axis=0)
-
-                hres_stats['avg_weighted_mean_MeV'][it] = avg_stats[5]
-                hres_stats['med_weighted_mean_MeV'][it] = med_stats[5]
-                hres_stats['std_weighted_mean_MeV'][it] = std_stats[5]
-                hres_stats['avg_weighted_rms_MeV'][it] = avg_stats[6]
-                hres_stats['med_weighted_rms_MeV'][it] = med_stats[6]
-                hres_stats['std_weighted_rms_MeV'][it] = std_stats[6]
-                hres_stats['avg_weighted_dE/E'][it] = avg_stats[7]
-                hres_stats['med_weighted_dE/E'][it] = med_stats[7]
-                hres_stats['std_weighted_dE/E'][it] = std_stats[7]
-                hres_stats['avg_peak_charge_pC/MeV'][it] = avg_stats[3]
-                hres_stats['med_peak_charge_pC/MeV'][it] = med_stats[3]
-                hres_stats['std_peak_charge_pC/MeV'][it] = std_stats[3]
-                hres_stats['avg_peak_charge_MeV'][it] = avg_stats[4]
-                hres_stats['med_peak_charge_MeV'][it] = med_stats[4]
-                hres_stats['std_peak_charge_MeV'][it] = med_stats[4]
+                for spec_analyzer_metric, hres_stats_metric in [
+                     ('weighted_average_energy_MeV', 'weighted_mean_MeV'), 
+                     ('energy_spread_weighted_rms_MeV', 'weighted_rms_MeV'), 
+                     ('energy_spread_percent', 'weighted_dE/E'), 
+                     ('peak_charge_pc/MeV', 'peak_charge_pC/MeV'), 
+                     ('peak_charge_energy_MeV', 'peak_charge_MeV'),
+                    ]:
+                    analyzer_returns_this_metric = [analyzer_return_per_shot[spec_analyzer_metric] for analyzer_return_per_shot in analyzer_returns]
+                    hres_stats[f"avg_{hres_stats_metric}"][it] = np.mean(analyzer_returns_this_metric)
+                    hres_stats[f"med_{hres_stats_metric}"][it] = np.median(analyzer_returns_this_metric)
+                    hres_stats[f"std_{hres_stats_metric}"][it] = np.std(analyzer_returns_this_metric)
 
                 if hres_specs_fits['opt_pars'].any():
                     hres_stats['avg_fit_mean_MeV'][it] = np.mean(hres_specs_fits['opt_pars'][:, 2], axis=0)
