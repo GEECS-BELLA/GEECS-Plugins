@@ -167,7 +167,7 @@ class ScanData:
         else:
             return {}
 
-    def bin_data(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
+    def group_shots_by_scan_parameter(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
         dev_data = self.get_device_data(device)
         if not dev_data:
             return [], None, False
@@ -181,29 +181,28 @@ class ScanData:
                               shots=int,
                               setpoints=np.ndarray,
                               indexes=list)
-        start = float(self.scan_info['Start'])
-        end = float(self.scan_info['End'])
-        steps: int = 1 + round(np.abs(end - start) / float(self.scan_info['Step size']))
-        shots: int = int(self.scan_info['Shots per step'])
-        expected = Expected(start=start, end=end, steps=steps, shots=shots,
-                            setpoints=np.linspace(float(self.scan_info['Start']),
-                                                  float(self.scan_info['End']), steps),
-                            indexes=[np.arange(p * shots, (p+1) * shots) for p in range(steps)])
+        parameter_start = float(self.scan_info['Start'])
+        parameter_end = float(self.scan_info['End'])
+        num_steps: int = 1 + round(np.abs(parameter_end - parameter_start) / float(self.scan_info['Step size']))
+        num_shots_per_step: int = int(self.scan_info['Shots per step'])
+        expected = Expected(start=parameter_start, end=parameter_end, steps=num_steps, shots=num_shots_per_step,
+                            setpoints=np.linspace(parameter_start, parameter_end, num_steps),
+                            indexes=[np.arange(p * num_shots_per_step, (p+1) * num_shots_per_step) for p in range(num_steps)])
 
-        matching = all([inds.size == expected.shots for inds in measured.indexes])
-        matching = matching and (len(measured.indexes) == expected.steps)
-        if not matching:
+        parameter_avgs_match_setpoints = all([inds.size == expected.shots for inds in measured.indexes])
+        parameter_avgs_match_setpoints = parameter_avgs_match_setpoints and (len(measured.indexes) == expected.steps)
+        if not parameter_avgs_match_setpoints:
             api_error.warning(f'Observed data binning does not match expected scan parameters (.ini)',
                               f'Function "{inspect.stack()[0][3]}"')
 
-        if matching:
+        if parameter_avgs_match_setpoints:
             indexes = expected.indexes
             setpoints = expected.setpoints
         else:
             indexes = measured.indexes
             setpoints = measured.avg_x
 
-        return indexes, setpoints, matching
+        return indexes, setpoints, parameter_avgs_match_setpoints
 
     def load_scan_info(self):
         config_parser = ConfigParser()

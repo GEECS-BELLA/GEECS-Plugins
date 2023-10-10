@@ -42,7 +42,7 @@ class ScanAnalysis:
         scan_scalars: dict[str, Any] = self.scan_data.data_dict
 
         # scan parameters & binning
-        indexes, setpoints, matching = self.scan_data.bin_data(self.device_name, variable)
+        indexes, setpoints, matching = self.scan_data.group_shots_by_scan_parameter(self.device_name, variable)
 
         if not store_scalars:
             if hasattr(self.scan_data, 'data_dict'):
