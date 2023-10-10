@@ -252,9 +252,10 @@ class ScanData:
         shots = []
         specs = []
 
+        image_filename_regex = re.compile(r".*_(\d{3,})\.\w+$")
         for path in magspec_dict['hres']['paths']:
             try:
-                shots.append(int(path.name[-7:-4]))
+                shots.append(int(image_filename_regex.match(path.name).group(1)))
                 if magspec_dict['hres']['txt_files']:
                     specs.append(np.loadtxt(path, skiprows=1))
             except Exception:
