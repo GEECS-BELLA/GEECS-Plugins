@@ -228,11 +228,11 @@ class GrenouilleRetrieval:
         """
         λ = invert_wavelength_angular_frequency(self.frequency_multiplier * (self.ω + invert_wavelength_angular_frequency(self.pulse_center_wavelength)))
         self.I_FROG = np.transpose(
-            np.fromiter((np.interp(λ,  self.grenouille_trace_λ, grenouille_trace_column, 
-                                   left=0.0, right=0.0
-                                  )
-                        for grenouille_trace_column in self.grenouille_trace.T
-                        ), (float, self.time_axis_length))
+            [np.interp(λ,  self.grenouille_trace_λ, grenouille_trace_column, 
+                       left=0.0, right=0.0
+                      )
+             for grenouille_trace_column in self.grenouille_trace.T
+            ]
         )
 
     def _default_initial_E(self):
@@ -288,11 +288,7 @@ class GrenouilleRetrieval:
             """
             return E_at_E_sig_t * gate(E_sig_t - τ)
 
-        return np.transpose(
-            np.fromiter((E_sig_column(τ) for τ in self.τ), 
-                        (np.complex128, len(E_sig_t))
-                       )
-        )
+        return np.transpose([E_sig_column(τ) for τ in self.τ])
 
     def _calculate_E_sig_from_E_exact_time_steps(self, E: np.ndarray) -> np.ndarray:
         """ Calculate E_sig(t, τ) = E(t) gate(E(t - τ))
@@ -326,12 +322,10 @@ class GrenouilleRetrieval:
         # calculate E_sig(t, τ) = E(t) gate(E(t - τ))
 
         E_sig_tτ_on_E_padded = np.transpose(
-            np.fromiter(
-                (E_padded * shift_1d_array(gate_E, num_time_steps_shift)
-                 for num_time_steps_shift 
-                 in (np.arange(len(self.τ)) - (len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
-                ), (np.complex128, len(E_padded))
-            )
+            [E_padded * shift_1d_array(gate_E, num_time_steps_shift)
+             for num_time_steps_shift 
+             in (np.arange(len(self.τ)) - (len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
+            ]
         )
 
         # now pad E_sig_tτ, with shape (len(E_padded), len(self.τ)), to shape
@@ -477,10 +471,9 @@ class GrenouilleRetrieval:
             if self.time_step_time_delay_step_factor is None:
 
                 E_sig_tτ_at_E_t = np.transpose(
-                    np.fromiter((np.interp(self.E_t,  self.t, E_sig_tτ_col, left=0.0, right=0.0)
-                                for E_sig_tτ_col in E_sig_tτ.T
-                                ), (np.complex128, len(self.E_t))
-                            )
+                    [np.interp(self.E_t,  self.t, E_sig_tτ_col, left=0.0, right=0.0)
+                     for E_sig_tτ_col in E_sig_tτ.T
+                    ]
                 )
 
                 def resid(E_est):
@@ -595,13 +588,11 @@ class GrenouilleRetrieval:
 
         # interpolate I_frog at lambda
         return np.transpose(
-            np.fromiter(
-                (np.interp(invert_wavelength_angular_frequency(self.frequency_multiplier * self.grenouille_trace_λ), 
-                           self.ω, spectrogram_column, left=0.0, right=0.0
-                          )
-                 for spectrogram_column in spectrogram.T
-                ), (float, self.shape[0])
-            )     
+            [np.interp(invert_wavelength_angular_frequency(self.frequency_multiplier * self.grenouille_trace_λ), 
+                       self.ω, spectrogram_column, left=0.0, right=0.0
+                      )
+             for spectrogram_column in spectrogram.T
+            ]
         )
 
 
