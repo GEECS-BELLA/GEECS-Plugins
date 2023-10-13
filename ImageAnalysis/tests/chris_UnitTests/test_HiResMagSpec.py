@@ -19,7 +19,7 @@ import numpy as np
 # rootpath = os.path.abspath("../../")
 # sys.path.insert(0, rootpath)
 
-import image_analysis.analyzers.default_analyzer_generators as default_generator
+import image_analysis.analyzers.default_analyzer_initialization as default_analyzer
 import image_analysis.analyzers.UC_GenericMagSpecCam as mag_spec_caller
 import image_analysis.labview_adapters as labview_function_caller
 
@@ -101,7 +101,7 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
 
         # Here I am only checking that the labview wrapper function is working properly by checking the output shapes
 
-        test_default_analyzer = default_generator.return_default_hi_res_mag_cam_analyzer()
+        test_default_analyzer = default_analyzer.return_default_hi_res_mag_cam_analyzer()
         input_parameters = test_default_analyzer.build_input_parameter_dictionary()
         default_roi = input_parameters['roi_bounds_pixel']
         test_array_shape = np.shape(

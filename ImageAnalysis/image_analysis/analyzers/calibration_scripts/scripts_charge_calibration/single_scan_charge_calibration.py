@@ -102,14 +102,6 @@ for i in range(len(shot_arr)):
         print("Saturation Counts:", saturation_arr[i])
         print("Camera Counts:", camera_counts_arr[i])
 
-    """
-    clipping_arr[i] = MagSpecAnalysis.CalculateClippedPercentage(image)
-    print("Clipped Percentage:", clipping_arr[i])
-    max_pixel_value = 4095
-    saturation_arr[i] = MagSpecAnalysis.SaturationCheck(image, max_pixel_value)
-    print("Saturation Counts:", saturation_arr[i])
-   """
-
     picoscope_charge_arr[i] = charge_reader.get_shot_charge(super_path, scan_number, shot_number)
     if doPrint:
         print("Picoscope Charge:", picoscope_charge_arr[i])
@@ -144,9 +136,7 @@ both_pass = math_tools.get_inequality_indices(all_conditions)
 both_picoscope_charge_arr = picoscope_charge_arr[both_pass]
 both_camera_counts_arr = camera_counts_arr[both_pass]
 
-# A polyfit is alright, but we would want the y-intercept to be zero
-linear_fit = np.polyfit(both_camera_counts_arr, both_picoscope_charge_arr, 1)
-# So instead we just fit to a linear function and change the linear_fit values to this fit
+linear_fit = np.zeros(2)
 p_opt, p_cov = curve_fit(linear, both_camera_counts_arr, both_picoscope_charge_arr)
 linear_fit[0] = p_opt[0]
 linear_fit[1] = 0

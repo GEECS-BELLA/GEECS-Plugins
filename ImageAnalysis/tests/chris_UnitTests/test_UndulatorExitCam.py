@@ -16,7 +16,7 @@ import cv2
 # rootpath = os.path.abspath("../../")
 # sys.path.insert(0, rootpath)
 
-import image_analysis.analyzers.default_analyzer_generators as default_generator
+import image_analysis.analyzers.default_analyzer_initialization as default_analyzer
 import image_analysis.analyzers.UC_UndulatorExitCam as analyzer_caller
 import image_analysis.labview_adapters as labview_function_caller
 
@@ -87,7 +87,7 @@ class TestUndulatorExitCamAnalyze(unittest.TestCase):
 
         # Check that the default config file works
 
-        test_default_analyzer = default_generator.return_default_undulator_exit_cam_analyzer()
+        test_default_analyzer = default_analyzer.return_default_undulator_exit_cam_analyzer()
         input_parameters = test_default_analyzer.build_input_parameter_dictionary()
         default_roi = input_parameters['roi_bounds_pixel']
         np.testing.assert_array_equal(np.array(default_roi), np.array([0, 1025, 0, 1281]))

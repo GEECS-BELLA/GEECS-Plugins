@@ -1,14 +1,14 @@
 import numpy as np
-import image_analysis.analyzers.default_analyzer_generators as generator
+import image_analysis.analyzers.default_analyzer_initialization as default_analyzers
 
 
 def hi_res_mag_spec_labview(image, background=None):
-    results = generator.return_default_hi_res_mag_cam_analyzer().analyze_image(image)
+    results = default_analyzers.return_default_hi_res_mag_cam_analyzer().analyze_image(image)
     return parse_mag_spec_results(results)
 
 
 def acave_cam3_mag_spec_labview(image, background=None):
-    results = generator.return_default_acave_mag_cam3_analyzer().analyze_image(image)
+    results = default_analyzers.return_default_acave_mag_cam3_analyzer().analyze_image(image)
     return parse_mag_spec_results(results)
 
 
@@ -43,7 +43,7 @@ def mag_spec_dictionary_parse(mag_spec_dict):
 
 
 def undulator_exit_cam_labview(image, background=None):
-    results = generator.return_default_undulator_exit_cam_analyzer().analyze_image(image)
+    results = default_analyzers.return_default_undulator_exit_cam_analyzer().analyze_image(image)
     returned_image = results['processed_image_uint16']
     spec_dict = results['analyzer_return_dictionary']
     return_lineouts = results['analyzer_return_lineouts']
