@@ -20,6 +20,8 @@ import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.optimize import least_squares, minimize
 
+from timeit import default_timer as timer
+
 def invert_wavelength_angular_frequency(wavelength_or_angular_frequency):
     return Q_(2*np.pi, 'radians') * ureg.speed_of_light / wavelength_or_angular_frequency
 
@@ -39,6 +41,7 @@ class GrenouilleRetrieval:
                  calculate_next_E_method: str = "integration",
                  nonlinear_effect: str = "second_harmonic_generation",
                  max_number_of_iterations: int = 100,
+                 max_computation_time: Quantity = Q_(3, 'minutes'),
                  pulse_center_wavelength: Quantity = Q_(800, 'nm'),
                 ):
         """
@@ -83,6 +86,7 @@ class GrenouilleRetrieval:
         self.nonlinear_effect = nonlinear_effect
 
         self.max_number_of_iterations = max_number_of_iterations
+        self.max_computation_time = max_computation_time
         self.pulse_center_wavelength = pulse_center_wavelength
 
         # min_pulse_wavelength: [length] Quantity
@@ -166,6 +170,8 @@ class GrenouilleRetrieval:
         else:
             self.E = initial_E
 
+        start = timer()
+
         for iteration in range(self.max_number_of_iterations):
             self.E_sig_tτ = self._calculate_E_sig()
             self.E_sig_ωτ = self._calculate_FT_E_sig()
@@ -176,6 +182,9 @@ class GrenouilleRetrieval:
             self.E = self._center_and_zero_phase_E()
             # stop if self.E isn't changing much anymore.
             if np.sum(np.abs(self.E - prev_E)) / np.sum(np.abs(prev_E)) < 1e-3:
+                break
+
+            if timer() - start > self.max_computation_time.m_as('seconds'):
                 break
 
         return self.E
@@ -228,11 +237,11 @@ class GrenouilleRetrieval:
         """
         λ = invert_wavelength_angular_frequency(self.frequency_multiplier * (self.ω + invert_wavelength_angular_frequency(self.pulse_center_wavelength)))
         self.I_FROG = np.transpose(
-            np.fromiter((np.interp(λ,  self.grenouille_trace_λ, grenouille_trace_column, 
-                                   left=0.0, right=0.0
-                                  )
-                        for grenouille_trace_column in self.grenouille_trace.T
-                        ), (float, self.time_axis_length))
+            [np.interp(λ,  self.grenouille_trace_λ, grenouille_trace_column, 
+                       left=0.0, right=0.0
+                      )
+             for grenouille_trace_column in self.grenouille_trace.T
+            ]
         )
 
     def _default_initial_E(self):
@@ -262,6 +271,11 @@ class GrenouilleRetrieval:
         if E_sig_t is None:
             E_sig_t = self.t
 
+        # TODO: handle units of E (InterpolatedUnivariateSpline strips units)
+        # but for now make sure it's dimensionless.
+        if isinstance(E, Q_):
+            E = E.m_as('')
+        
         E_interpolator_real = InterpolatedUnivariateSpline(E_t.m_as('sec'), E.real, ext='zeros')
         E_interpolator_imag = InterpolatedUnivariateSpline(E_t.m_as('sec'), E.imag, ext='zeros')
 
@@ -288,11 +302,7 @@ class GrenouilleRetrieval:
             """
             return E_at_E_sig_t * gate(E_sig_t - τ)
 
-        return np.transpose(
-            np.fromiter((E_sig_column(τ) for τ in self.τ), 
-                        (np.complex128, len(E_sig_t))
-                       )
-        )
+        return np.transpose([E_sig_column(τ) for τ in self.τ])
 
     def _calculate_E_sig_from_E_exact_time_steps(self, E: np.ndarray) -> np.ndarray:
         """ Calculate E_sig(t, τ) = E(t) gate(E(t - τ))
@@ -326,12 +336,10 @@ class GrenouilleRetrieval:
         # calculate E_sig(t, τ) = E(t) gate(E(t - τ))
 
         E_sig_tτ_on_E_padded = np.transpose(
-            np.fromiter(
-                (E_padded * shift_1d_array(gate_E, num_time_steps_shift)
-                 for num_time_steps_shift 
-                 in (np.arange(len(self.τ)) - (len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
-                ), (np.complex128, len(E_padded))
-            )
+            [E_padded * shift_1d_array(gate_E, num_time_steps_shift)
+             for num_time_steps_shift 
+             in (np.arange(len(self.τ)) - (len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
+            ]
         )
 
         # now pad E_sig_tτ, with shape (len(E_padded), len(self.τ)), to shape
@@ -441,7 +449,7 @@ class GrenouilleRetrieval:
     def _calculate_FT_E_sig(self, E_sig_tτ = None):
         if E_sig_tτ is None:
             E_sig_tτ = self.E_sig_tτ
-        return np.fft.fftshift(np.fft.fft(E_sig_tτ, axis=0), axes=(0,))
+        return self.time_step.m_as('fs') * np.fft.fftshift(np.fft.fft(E_sig_tτ, axis=0), axes=(0,))
 
     def _replace_FT_E_sig_magnitude(self):
         return self.E_sig_ωτ * np.sqrt(self.I_FROG) / np.clip(np.abs(self.E_sig_ωτ), 1e-15, np.inf)
@@ -449,7 +457,7 @@ class GrenouilleRetrieval:
     def _calculate_inverse_FT_E_sig(self, E_sig_ωτ = None):
         if E_sig_ωτ is None:
             E_sig_ωτ = self.E_sig_ωτ
-        return np.fft.ifft(np.fft.ifftshift(E_sig_ωτ, axes=(0,)), axis=0)
+        return 1/self.time_step.m_as('fs') * np.fft.ifft(np.fft.ifftshift(E_sig_ωτ, axes=(0,)), axis=0)
 
     def _calculate_next_E(self, E_sig_tτ = None, E_current = None):
 
@@ -477,10 +485,9 @@ class GrenouilleRetrieval:
             if self.time_step_time_delay_step_factor is None:
 
                 E_sig_tτ_at_E_t = np.transpose(
-                    np.fromiter((np.interp(self.E_t,  self.t, E_sig_tτ_col, left=0.0, right=0.0)
-                                for E_sig_tτ_col in E_sig_tτ.T
-                                ), (np.complex128, len(self.E_t))
-                            )
+                    [np.interp(self.E_t,  self.t, E_sig_tτ_col, left=0.0, right=0.0)
+                     for E_sig_tτ_col in E_sig_tτ.T
+                    ]
                 )
 
                 def resid(E_est):
@@ -579,29 +586,70 @@ class GrenouilleRetrieval:
         pad E(t) to be on self.t time axis. 
         Verifies that the E(t) axis lies on the self.t axis as expected.
         """
-        pad_len_on_either_side = (len(self.t) - len(E)) // 2
+        pad_len_on_either_side = (self.time_axis_length - len(E)) // 2
         E_on_t_axis = np.pad(E, ((pad_len_on_either_side, pad_len_on_either_side)))
-        assert len(E_on_t_axis) == len(self.t)
+        assert len(E_on_t_axis) == self.time_axis_length
 
         return E_on_t_axis
 
-    def simulate_grenouille_trace(self, E, grenouille_trace_shape):
-        self.shape = grenouille_trace_shape
-        self.E = E
-        self._calculate_E_sig()
+    def simulate_grenouille_trace(self, 
+                                  E: np.ndarray, 
+                                  E_time_step: Quantity,
+                                  grenouille_trace_shape: tuple[int, int],
+                                  grenouille_trace_center_wavelength: Quantity = Q_(400, 'nm'),
+                                  grenouille_trace_wavelength_step: Quantity = Q_(0.0798546, 'nm'),
+                                  grenouille_trace_time_delay_step: Quantity = Q_(0.893676, 'fs'),
+                                 ):
+        """ Generate a Grenouille image from a given pulse E-field
 
-        # spectrogram(ω, τ), for ω = -Ny..Ny
-        spectrogram = np.square(np.abs(np.fft.fftshift(np.fft.fft(self.E_sig_tτ, axis=0), axes=(0,))))
+        Parameters
+        ----------
+        E : np.ndarray of dtype complex
+            The complex E-field pulse envelope
+        E_time_step: [time] Quantity
+            Time step of the E-field array
+        grenouille_trace_shape : tuple[int, int]
+            Desired shape of the Grenouille trace, where wavelength is on the 0
+            axis, and time_delay is on the 1 axis
+        grenouille_trace_center_wavelength: [length] Quantity
+            The wavelength corresponding to halfway up the wavelength (0, vertical)
+            axis. If the nonlinear effect causes frequency-doubling, this will
+            be roughly half the carrier frequency.
+        grenouille_trace_wavelength_step: [length] Quantity
+            The step along the wavelength (0, vertical) axis
+        grenouille_trace_time_delay_step: [time] Quantity
+            The step along the time delay (1, horizontal) axis. The center of the
+            axis is assumed to be 0 fs. 
+
+        """
+
+        self.shape = grenouille_trace_shape
+        self.grenouille_trace_center_wavelength = grenouille_trace_center_wavelength
+        self.grenouille_trace_wavelength_step = grenouille_trace_wavelength_step
+        self.time_delay_step = grenouille_trace_time_delay_step
+
+        self.time_step = E_time_step
+
+        # total time, i.e. length of time axis, should be such that it matches
+        # (roughly) the resolution of grenouille trace wavelength resolution
+        total_time = ((self.frequency_multiplier * self.grenouille_trace_center_wavelength)**2 
+                      / ureg.speed_of_light 
+                      / (self.frequency_multiplier * self.grenouille_trace_wavelength_step)
+                     )
+
+        self.time_axis_length = int(ceil((total_time / self.time_step) / 2)) * 2 + 1
+
+        E_sig_tτ = self._calculate_E_sig_from_E_with_interpolation(E, E_t = np.arange(len(E)) * self.time_step)
+        E_sig_ωτ = self._calculate_FT_E_sig(E_sig_tτ)
+        spectrogram = np.square(np.abs(E_sig_ωτ))
 
         # interpolate I_frog at lambda
         return np.transpose(
-            np.fromiter(
-                (np.interp(invert_wavelength_angular_frequency(self.frequency_multiplier * self.grenouille_trace_λ), 
-                           self.ω, spectrogram_column, left=0.0, right=0.0
-                          )
-                 for spectrogram_column in spectrogram.T
-                ), (float, self.shape[0])
-            )     
+            [np.interp(invert_wavelength_angular_frequency(self.frequency_multiplier * self.grenouille_trace_λ) - invert_wavelength_angular_frequency(self.pulse_center_wavelength), 
+                       self.ω, spectrogram_column, left=0.0, right=0.0
+                      )
+             for spectrogram_column in spectrogram.T
+            ]
         )
 
 

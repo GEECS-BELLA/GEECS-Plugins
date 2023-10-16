@@ -20,8 +20,12 @@ pypng = "^0.20220715.0"
 imageio = "^2.31.1"
 scikit-image = ">=0.19,<1.0"
 
+# other
+boto3 = "^1.28"
+
 [tool.poetry.group.dev.dependencies]
 spyder-kernels = ">=2.4.0,<2.5.0"
+matplotlib = "^3.0"
 
 [build-system]
 requires = ["poetry-core"]
