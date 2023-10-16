@@ -444,7 +444,7 @@ class GrenouilleRetrieval:
     def _calculate_FT_E_sig(self, E_sig_tτ = None):
         if E_sig_tτ is None:
             E_sig_tτ = self.E_sig_tτ
-        return np.fft.fftshift(np.fft.fft(E_sig_tτ, axis=0), axes=(0,))
+        return self.time_step.m_as('fs') * np.fft.fftshift(np.fft.fft(E_sig_tτ, axis=0), axes=(0,))
 
     def _replace_FT_E_sig_magnitude(self):
         return self.E_sig_ωτ * np.sqrt(self.I_FROG) / np.clip(np.abs(self.E_sig_ωτ), 1e-15, np.inf)
@@ -452,7 +452,7 @@ class GrenouilleRetrieval:
     def _calculate_inverse_FT_E_sig(self, E_sig_ωτ = None):
         if E_sig_ωτ is None:
             E_sig_ωτ = self.E_sig_ωτ
-        return np.fft.ifft(np.fft.ifftshift(E_sig_ωτ, axes=(0,)), axis=0)
+        return 1/self.time_step.m_as('fs') * np.fft.ifft(np.fft.ifftshift(E_sig_ωτ, axes=(0,)), axis=0)
 
     def _calculate_next_E(self, E_sig_tτ = None, E_current = None):
 
