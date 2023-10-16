@@ -20,6 +20,8 @@ import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.optimize import least_squares, minimize
 
+from timeit import default_timer as timer
+
 def invert_wavelength_angular_frequency(wavelength_or_angular_frequency):
     return Q_(2*np.pi, 'radians') * ureg.speed_of_light / wavelength_or_angular_frequency
 
@@ -39,6 +41,7 @@ class GrenouilleRetrieval:
                  calculate_next_E_method: str = "integration",
                  nonlinear_effect: str = "second_harmonic_generation",
                  max_number_of_iterations: int = 100,
+                 max_computation_time: Quantity = Q_(3, 'minutes'),
                  pulse_center_wavelength: Quantity = Q_(800, 'nm'),
                 ):
         """
@@ -83,6 +86,7 @@ class GrenouilleRetrieval:
         self.nonlinear_effect = nonlinear_effect
 
         self.max_number_of_iterations = max_number_of_iterations
+        self.max_computation_time = max_computation_time
         self.pulse_center_wavelength = pulse_center_wavelength
 
         # min_pulse_wavelength: [length] Quantity
@@ -166,6 +170,8 @@ class GrenouilleRetrieval:
         else:
             self.E = initial_E
 
+        start = timer()
+
         for iteration in range(self.max_number_of_iterations):
             self.E_sig_tτ = self._calculate_E_sig()
             self.E_sig_ωτ = self._calculate_FT_E_sig()
@@ -176,6 +182,9 @@ class GrenouilleRetrieval:
             self.E = self._center_and_zero_phase_E()
             # stop if self.E isn't changing much anymore.
             if np.sum(np.abs(self.E - prev_E)) / np.sum(np.abs(prev_E)) < 1e-3:
+                break
+
+            if timer() - start > self.max_computation_time.m_as('seconds'):
                 break
 
         return self.E
