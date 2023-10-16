@@ -4,8 +4,8 @@ import unittest
 
 import numpy as np
 
-from grenouille_for_aws_lambda.grenouille import GrenouilleRetrieval
-from grenouille_for_aws_lambda import ureg, Q_
+from image_analysis.algorithms.grenouille import GrenouilleRetrieval
+from image_analysis import ureg, Q_
 
 class GrenouilleAnalysisTestCase(unittest.TestCase):
    
