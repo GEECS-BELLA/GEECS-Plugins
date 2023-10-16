@@ -15,6 +15,9 @@ from .. import ureg, Q_, Quantity
 from scipy.signal import peak_widths
 from scipy.special import erf
 
+import boto3
+import json
+
 class U_FROG_GrenouilleImageAnalyzer(ImageAnalyzer):
     """ ImageAnalyzer for Grenouille
     """
@@ -54,13 +57,7 @@ class U_FROG_GrenouilleImageAnalyzer(ImageAnalyzer):
             pulse_center_wavelength=self.pulse_center_wavelength,
         )
 
-    def analyze_image(self, grenouille_trace: Array2D, auxiliary_data: dict | None = None) -> dict[str, Union[float, NDArray]]:
-        pulse: NDArray[np.complex128] = self.grenouille_retrieval.calculate_pulse(grenouille_trace, 
-                                            grenouille_trace_center_wavelength=self.grenouille_trace_center_wavelength,
-                                            grenouille_trace_wavelength_step=self.grenouille_trace_wavelength_step,
-                                            time_delay_step=self.grenouille_trace_time_delay_step,
-                                        )
-        
+    def _compile_analysis_results(self, pulse: np.ndarray, E_t: Quantity) -> dict:
         # measurements on pulse
         # FWHM 
         power = np.square(np.abs(pulse))
@@ -71,13 +68,60 @@ class U_FROG_GrenouilleImageAnalyzer(ImageAnalyzer):
         # shortest interval containing 76% of power, which is equal to FWHM for a Gaussian pulse
         fwhm_area = erf(np.sqrt(np.log(2))) # approx 76%
         cumulative_power_normalized = np.cumsum(power) / np.sum(power)
-        time_intervals = np.interp(cumulative_power_normalized + fwhm_area,  cumulative_power_normalized, self.grenouille_retrieval.E_t, left=Q_('nan fs'), right=Q_('nan fs')) - self.grenouille_retrieval.E_t
+        time_intervals = np.interp(cumulative_power_normalized + fwhm_area,  cumulative_power_normalized, E_t, left=Q_('nan fs'), right=Q_('nan fs')) - E_t
         _76_percent_interval = np.nanmin(time_intervals)
 
-        analysis_results = {'pulse_E_field_AU': np.rec.fromarrays([self.grenouille_retrieval.E_t.m_as('fs'), pulse.real, pulse.imag], names=["time_fs", "E_real_AU", "E_imag_AU"]),
-                            'peak_power_AU': np.max(np.square(np.abs(pulse))),
-                            'fwhm_fs': fwhm.m_as('fs'),
-                            '76%_interval_fs': _76_percent_interval.m_as('fs'), 
-                           }
+        return {'pulse_E_field_AU': np.rec.fromarrays([E_t.m_as('fs'), pulse.real, pulse.imag], names=["time_fs", "E_real_AU", "E_imag_AU"]),
+                'peak_power_AU': np.max(np.square(np.abs(pulse))),
+                'fwhm_fs': fwhm.m_as('fs'),
+                '76%_interval_fs': _76_percent_interval.m_as('fs'), 
+               }
+
+
+    def analyze_image(self, grenouille_trace: Array2D, auxiliary_data: dict | None = None) -> dict[str, Union[float, NDArray]]:
+        pulse: NDArray[np.complex128] = self.grenouille_retrieval.calculate_pulse(grenouille_trace, 
+                                            grenouille_trace_center_wavelength=self.grenouille_trace_center_wavelength,
+                                            grenouille_trace_wavelength_step=self.grenouille_trace_wavelength_step,
+                                            time_delay_step=self.grenouille_trace_time_delay_step,
+                                        )
         
-        return analysis_results
+        return self._compile_analysis_results(pulse, self.grenouille_retrieval.E_t)
+    
+
+
+class U_FROG_GrenouilleAWSLambdaImageAnalyzer(U_FROG_GrenouilleImageAnalyzer):
+    """ ImageAnalyzer for U_FROG_Grenouille that uses AWS Lambda function
+    """
+
+    def analyze_image(self, grenouille_trace: Array2D, auxiliary_data: dict | None = None) -> dict[str, Union[float, NDArray]]:
+        client = boto3.client('lambda')
+
+        # TODO: upload grenouille_trace to S3 and put its key in the body. 
+
+        body = { # just test image and parameters for now
+        's3_key': 'BELLA/23_0518/0027/00000070/U_FROG_Grenouille/raw.png',  
+        'grenouille_trace_center_wavelength_nm': 410.4,
+        'grenouille_trace_wavelength_step_nm': 0.157,
+        'time_delay_step_fs': 0.931,
+        'pulse_duration_fs': 800,
+        'pulse_center_wavelength_nm': 800,
+        'max_computation_time_sec': 30
+        }
+
+        payload = {
+            "body": json.dumps(body),
+            "version": "2.0",
+        }
+
+        response = client.invoke(
+            FunctionName="arn:aws:lambda:us-west-1:460578213037:function:calculate_pulse_from_grenouille_trace",
+            Payload=json.dumps(payload).encode('utf-8'),
+            InvocationType='RequestResponse',  # It's not the Lambda invocation that's asynchronous, just analyze_image()
+        )
+
+        result = json.loads(response['Payload'].read())
+
+        pulse = np.array([e_real + 1j * e_imag for e_real, e_imag in result['pulse_E_field_AU_real_imag']])
+        E_t = Q_(np.arange(result['time_fs']['len']) * result['time_fs']['step'] + result['time_fs']['start'], 'femtosecond')
+
+        return self._compile_analysis_results(pulse, E_t)
