@@ -93,6 +93,10 @@ class U_FROG_GrenouilleAWSLambdaImageAnalyzer(U_FROG_GrenouilleImageAnalyzer):
     """ ImageAnalyzer for U_FROG_Grenouille that uses AWS Lambda function
     """
 
+    # this ImageAnalyzer's analyze_image sends a request to AWS Lambda and waits
+    # for its response, so it should be run asynchronously
+    run_analyze_image_asynchronously = True
+
     def analyze_image(self, grenouille_trace: Array2D, auxiliary_data: dict | None = None) -> dict[str, Union[float, NDArray]]:
         client = boto3.client('lambda')
 

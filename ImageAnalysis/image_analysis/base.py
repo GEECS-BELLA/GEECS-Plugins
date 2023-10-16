@@ -14,6 +14,10 @@ class ImageAnalyzer:
 
     """
 
+    # whether a subclass ImageAnalyzer's analyze_image should be run 
+    # asynchronously, for example if it waits for an external process
+    run_analyze_image_asynchronously = False
+
     def __init__(self):
         """ Initializes this ImageAnalyzer, with Analyzer parameters as kwargs
         
@@ -50,7 +54,12 @@ class ImageAnalyzer:
                 super().__init__()
         
         """
+        # an attribute that is set by LivePostProcessing GUI
+        # TODO: this doesn't belong here. ScanAnalyzer should manage it's own 
+        # list of enabled ImageAnalyzers. 
         self.enable = True
+        # 
+
 
     def analyze_image(self, 
                       image: Array2D, 
