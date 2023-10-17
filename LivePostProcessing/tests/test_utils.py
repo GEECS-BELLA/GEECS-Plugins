@@ -1,10 +1,11 @@
-from unittest import TestCase
-import livepostprocessing.utils as utils
+import unittest
+from image_analysis.utils import read_imaq_image
+from livepostprocessing.utils import find_undulator_folder
 import numpy as np
 
-class TestReadIMAQImage(TestCase):
+class TestReadIMAQImage(unittest.TestCase):
     def test_get_undulator_folder(self):
-        undulator_folder = utils.find_undulator_folder()
+        undulator_folder = find_undulator_folder()
         self.assertEqual(undulator_folder.parts[-2:], ('data', 'Undulator'))
     
     def test_read_png_image(self):
@@ -12,11 +13,11 @@ class TestReadIMAQImage(TestCase):
             handles this correctly.
         
         """
-        image_filename = (utils.find_undulator_folder() / '22_0929' / 'Scan027' / 
+        image_filename = (find_undulator_folder() / 'Y2022' / '09-Sep' / '22_0929' / 'scans' / 'Scan027' / 
                           'UC_GhostUpstream' / 'Scan027_UC_GhostUpstream_178.png'
                          )
 
-        image = utils.read_imaq_image(image_filename)
+        image = read_imaq_image(image_filename)
         image_values = np.sort(np.unique(image))
 
         # we expect that the values are 0, 1, 2, ... 
@@ -29,3 +30,5 @@ class TestReadIMAQImage(TestCase):
     def test_write_png_image(self):
         pass
 
+if __name__ == "__main__":
+    unittest.main()
