@@ -151,7 +151,7 @@ class ScanAnalyzer:
         with open(config_filename, 'w') as f:
             config_parser.write(f)
 
-    def load_image_analyzer_config(self, config_filename: str|Path):
+    def load_image_analyzer_config(self, config_filename: Union[str, Path]):
         config_parser = ConfigParser()
         # set option-rename to identity function instead of (the default) str.lower in order to preserve case
         config_parser.optionxform = str
