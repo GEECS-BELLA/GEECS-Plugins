@@ -48,6 +48,11 @@ class ScanAnalyzer:
             for device_name, image_analyzer_class in self.image_analyzer_classes.items()
         }
 
+        # allow GUI to enable/disable certain image analyzers
+        self.enable_image_analyzer: dict[DeviceName: bool] = {
+            device_name: True
+            for device_name in self.image_analyzers
+        }
     def analyze_scan(self, run_id: str, scan_number: int):
         self.scan = Scan(run_id, scan_number)
         self.scan_metrics: dict[ShotKey, AnalysisDict] = {}

@@ -54,12 +54,7 @@ class ImageAnalyzer:
                 super().__init__()
         
         """
-        # an attribute that is set by LivePostProcessing GUI
-        # TODO: this doesn't belong here. ScanAnalyzer should manage it's own 
-        # list of enabled ImageAnalyzers. 
-        self.enable = True
-        # 
-
+        pass
 
     def analyze_image(self, 
                       image: Array2D, 

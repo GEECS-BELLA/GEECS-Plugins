@@ -162,7 +162,7 @@ class LivePostProcessingGUI(MainFrame):
     def m_analyze_device_checklist_OnCheckListBoxToggled( self, event: wx.CommandEvent ):
         """ Enable or disable image analyzer
         """
-        self.scan_analyzer.image_analyzers[event.GetString()].enable = self.m_analyze_device_checklist.IsChecked(event.GetInt())
+        self.scan_analyzer.enable_image_analyzer[event.GetString()] = self.m_analyze_device_checklist.IsChecked(event.GetInt())
 
     def m_background_filePicker_OnFileChanged( self, event: wx.FileDirPickerEvent ):
         """ Update image analyzer background 
