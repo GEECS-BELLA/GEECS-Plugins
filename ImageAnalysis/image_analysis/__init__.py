@@ -1,4 +1,5 @@
 # package-wide unit registry
-from pint import UnitRegistry
-ureg = UnitRegistry()
+import pint
+ureg = pint.UnitRegistry()
+pint.set_application_registry(ureg)
 Quantity = Q_ = ureg.Quantity
