@@ -29,25 +29,26 @@ from .utils import (find_device_image_folders, read_scalar_data, parse_run_date,
 
 from image_analysis.utils import read_imaq_image
 
-undulator_data_folder = find_undulator_folder()
-
 
 class Scan:
     """ Represents an undulator scan
     
     """
 
-    def __init__(self, run_date: Union[str, date], scan: int, create_image_directory=True):
+    def __init__(self, run_date: Union[str, date], scan: int, create_image_directory=True, experiment_data_folder: Optional[Union[Path, str]] = None):
         """
         Parameters
         ----------
         run_date : str|date
             A run date either as a date or datetime object, or a string 
             representing the date in a parseable format or as '23_0412' format
-            used in the undulator data.
+            used in the BELLA experiment data.
         scan : int
             the scan number
-            
+        create_image_directory : bool
+            whether to walk the image folders to discover image files
+        experiment_folder : Path
+            A folder containing experiment data, such as Z:/data/Undulator
         """
         
         # date of this run.
@@ -60,6 +61,13 @@ class Scan:
 
         # scan number
         self.number: int = scan
+
+        # experiment folder
+        # TODO: make more general than Undulator experiment
+        if experiment_data_folder is None:
+            self.experiment_data_folder = find_undulator_folder()
+        else:
+            self.experiment_data_folder = Path(experiment_data_folder)
 
         # scalar data
         self.scalar_data = pd.DataFrame([], 
@@ -132,7 +140,7 @@ class Scan:
 
     @property
     def path(self) -> Path:
-        return (undulator_data_folder/f"Y{self.run_date:%Y}"/self.run_date.strftime('%m-%b')/
+        return (self.experiment_data_folder/f"Y{self.run_date:%Y}"/self.run_date.strftime('%m-%b')/
                 self.run_id/'scans'/f"Scan{self.number:03d}"
                )
 

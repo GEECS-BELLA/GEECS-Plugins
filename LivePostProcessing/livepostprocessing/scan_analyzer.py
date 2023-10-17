@@ -30,7 +30,10 @@ class ScanAnalyzer:
         DeviceName('U_FROG_Grenouille'): U_FROG_GrenouilleImageAnalyzer,
     }
 
-    def __init__(self, image_analyzer_kwargs: Optional[dict[DeviceName, dict[str, Any]]] = None):
+    def __init__(self, 
+                 image_analyzer_kwargs: Optional[dict[DeviceName, dict[str, Any]]] = None,
+                 experiment_data_folder: Optional[Union[Path, str]] = None,
+                ):
         """ 
         Parameters
         ----------
@@ -38,6 +41,9 @@ class ScanAnalyzer:
             keyword arguments for the various image analysers, in the form
                 {'device1': {'kwarg1': 1.234, 'kwarg2': True}}
         
+        experiment_data_folder : Path
+            A folder containing experiment data, such as Z:/data/Undulator        
+
         """
         if image_analyzer_kwargs is None:
             image_analyzer_kwargs = {}
@@ -53,12 +59,23 @@ class ScanAnalyzer:
             device_name: True
             for device_name in self.image_analyzers
         }
-    def analyze_scan(self, run_id: str, scan_number: int):
-        self.scan = Scan(run_id, scan_number)
-        self.scan_metrics: dict[ShotKey, AnalysisDict] = {}
 
         pool = Pool(6)
 
+        # experiment folder
+        # TODO: make more general than Undulator experiment
+        if experiment_data_folder is None:
+            self.experiment_data_folder = find_undulator_folder()
+        else:
+            self.experiment_data_folder = Path(experiment_data_folder)
+
+
+    def analyze_scan(self, run_id: str, scan_number: int) -> None:
+        self.scan = Scan(run_id, scan_number, experiment_data_folder=self.experiment_data_folder)
+        self.scan_metrics: dict[ShotKey, AnalysisDict] = {}
+
+        # save config to this Scan's analysis folder
+        self.scan.analysis_path.mkdir(parents=True, exist_ok=True)
         self.save_image_analyzer_config(self.scan.analysis_path / "image_analyzer_config.ini")
 
         for shot_number, shot in self.scan.shots.items():
