@@ -139,7 +139,7 @@ class ScanAnalyzer:
             # each device gets its own section
             config_parser.add_section(device)
             # start the section with an enable option, which corresponds to having checkbox marked in the GUI
-            config_parser[device]['enable'] = self.enable_image_analyzer[device]
+            config_parser[device]['enable'] = str(self.enable_image_analyzer[device])
             # add values of the image_analyzer's parameters
             for parameter_name in signature(image_analyzer.__init__).parameters:
                 if parameter_name == 'self':
@@ -173,7 +173,9 @@ class ScanAnalyzer:
             for parameter_name, parameter_value_str in config_parser[device_name].items():
                 # special option in each device section which relates to having checkbox marked in GUI
                 if parameter_name == 'enable': 
-                    self.enable_image_analyzer[device_name] = True
+                    self.enable_image_analyzer[device_name] = {'true': True,
+                                                               'false': False,
+                                                              }[parameter_value_str.lower()]
                 # otherwise set image_analyzer's parameter to value in config file
                 else:
                     parameter_value = config_string_to_object_functions.get(image_analyzer_parameter_types[parameter_name], image_analyzer_parameter_types[parameter_name])(parameter_value_str)
