@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from multiprocessing import Pool
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from argparse import ArgumentParser
+from pathlib import Path
 
 from configparser import ConfigParser
 from inspect import signature
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     DeviceMetricKey = tuple[DeviceName, MetricName]
     AnalysisDict = dict[DeviceMetricKey, Union[float, NDArray]]
     from pathlib import Path
+    from concurrent.futures import Future
 
 import numpy as np
 from imageio.v3 import imwrite
@@ -23,6 +25,7 @@ from .orm import Scan, SFile
 from image_analysis.analyzers.U_PhasicsFileCopy import U_PhasicsFileCopyImageAnalyzer
 from image_analysis.analyzers.U_FROG_Grenouille import U_FROG_GrenouilleImageAnalyzer
 from image_analysis.utils import ROI
+from .utils import find_undulator_folder
 
 class ScanAnalyzer:
     image_analyzer_classes: dict[DeviceName, type[ImageAnalyzer]] = {
@@ -32,6 +35,8 @@ class ScanAnalyzer:
 
     def __init__(self, 
                  image_analyzer_kwargs: Optional[dict[DeviceName, dict[str, Any]]] = None,
+                 num_processes: int = 5,
+                 num_threads: int = 100,
                  experiment_data_folder: Optional[Union[Path, str]] = None,
                 ):
         """ 
@@ -40,7 +45,12 @@ class ScanAnalyzer:
         image_analyzer_kwargs : Optional[dict[DeviceName, dict[str, Any]]]
             keyword arguments for the various image analysers, in the form
                 {'device1': {'kwarg1': 1.234, 'kwarg2': True}}
-        
+        num_processes : int
+            number of processes running ImageAnalyzer.analyze_image() calls with 
+            run_async = False, for local evaluation.
+        num_async_workers : int
+            number of threads running ImageAnalyzer.analyze_image() calls with 
+            run_async = True, for external process evaluation.
         experiment_data_folder : Path
             A folder containing experiment data, such as Z:/data/Undulator        
 
@@ -60,7 +70,8 @@ class ScanAnalyzer:
             for device_name in self.image_analyzers
         }
 
-        pool = Pool(6)
+        self.num_processes = num_processes
+        self.num_threads = num_threads
 
         # experiment folder
         # TODO: make more general than Undulator experiment
@@ -78,24 +89,33 @@ class ScanAnalyzer:
         self.scan.analysis_path.mkdir(parents=True, exist_ok=True)
         self.save_image_analyzer_config(self.scan.analysis_path / "image_analyzer_config.ini")
 
-        for shot_number, shot in self.scan.shots.items():
-            # analyze devices that have an image for this shot and have an image_analyzer.
-            shot_key = (RunID(run_id), ScanNumber(scan_number), ShotNumber(shot_number))
-            self.scan_metrics[shot_key] = {}
-            for device_name in (shot.images.keys() & self.image_analyzers.keys()):
-                if not self.image_analyzers[device_name].enable:
-                    continue
+        with ProcessPoolExecutor(self.num_processes) as process_pool, ThreadPoolExecutor(self.num_threads) as thread_pool:
 
-                try:
-                    analysis: dict[str, Union[float, NDArray]] = self.image_analyzers[device_name].analyze_image(
-                        Array2D(shot.images[device_name][ImageSubject('raw')].load())
-                    )
-                except Exception as err:
-                    print(f"Error while analyzing {run_id}/Scan{scan_number:03d}/Shot{shot_number:03d}/{device_name}: {err}")
-                    analysis = {}
+            image_analysis_result_futures: dict[Future[dict[str, Union[float, NDArray]]], tuple[ShotNumber, DeviceName]] = {}
+
+            # submit image analysis jobs
+            for shot_number, shot in self.scan.shots.items():
+                # analyze devices that have an image for this shot and have an image_analyzer.
+                shot_key = (RunID(run_id), ScanNumber(scan_number), ShotNumber(shot_number))
+                self.scan_metrics[shot_key] = {}
+                for device_name in (shot.images.keys() & self.image_analyzers.keys()):
+                    if not self.enable_image_analyzer[device_name]:
+                        continue
+
+                    image = Array2D(shot.images[device_name][ImageSubject('raw')].load())
+                    if self.image_analyzers[device_name].run_analyze_image_asynchronously:
+                        analysis_result_future = thread_pool.submit(self.image_analyzers[device_name].analyze_image, image)
+                    else:
+                        analysis_result_future = process_pool.submit(self.image_analyzers[device_name].analyze_image, image)
+                    image_analysis_result_futures[analysis_result_future] = (shot_number, device_name)
+
+            # process finished analysis
+            for analysis_result_future in as_completed(image_analysis_result_futures):
+                shot_number, device_name = image_analysis_result_futures[analysis_result_future]
+                analysis_result = analysis_result_future.result()
 
                 self.scan_metrics[shot_key].update({(device_name, metric_name): metric_value 
-                                                    for metric_name, metric_value in analysis.items()
+                                                    for metric_name, metric_value in analysis_result.items()
                                                   })
 
     def save_scan_metrics(self):
