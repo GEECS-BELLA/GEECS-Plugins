@@ -55,7 +55,7 @@ class ScanAnalyzer:
         }
 
         # allow GUI to enable/disable certain image analyzers
-        self.enable_image_analyzer: dict[DeviceName: bool] = {
+        self.enable_image_analyzer: dict[DeviceName, bool] = {
             device_name: True
             for device_name in self.image_analyzers
         }
