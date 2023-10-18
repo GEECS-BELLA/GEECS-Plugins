@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import as_completed as futures_as_completed
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -14,9 +15,9 @@ if TYPE_CHECKING:
     from image_analysis.base import ImageAnalyzer
     ShotKey = tuple[RunID, ScanNumber, ShotNumber]
     DeviceMetricKey = tuple[DeviceName, MetricName]
-    AnalysisDict = dict[DeviceMetricKey, Union[float, NDArray]]
     from pathlib import Path
     from concurrent.futures import Future
+    from collections.abc import Generator
 
 import numpy as np
 from imageio.v3 import imwrite
@@ -26,6 +27,17 @@ from image_analysis.analyzers.U_PhasicsFileCopy import U_PhasicsFileCopyImageAna
 from image_analysis.analyzers.U_FROG_Grenouille import U_FROG_GrenouilleImageAnalyzer
 from image_analysis.utils import ROI
 from .utils import find_undulator_folder
+
+import logging
+import logging.config
+import json
+logging.config.dictConfig(
+    json.load(
+        (Path(__file__).parents[1] / "logging_config.json")
+            .open()
+    )
+)
+logger = logging.getLogger("scan_analyzer")
 
 class ScanAnalyzer:
     image_analyzer_classes: dict[DeviceName, type[ImageAnalyzer]] = {
@@ -83,40 +95,90 @@ class ScanAnalyzer:
 
     def analyze_scan(self, run_id: str, scan_number: int) -> None:
         self.scan = Scan(run_id, scan_number, experiment_data_folder=self.experiment_data_folder)
-        self.scan_metrics: dict[ShotKey, AnalysisDict] = {}
 
         # save config to this Scan's analysis folder
         self.scan.analysis_path.mkdir(parents=True, exist_ok=True)
         self.save_image_analyzer_config(self.scan.analysis_path / "image_analyzer_config.ini")
 
-        with ProcessPoolExecutor(self.num_processes) as process_pool, ThreadPoolExecutor(self.num_threads) as thread_pool:
+        # functions to process analysis results
+        s_file = SFile(self.scan)
 
-            image_analysis_result_futures: dict[Future[dict[str, Union[float, NDArray]]], tuple[ShotNumber, DeviceName]] = {}
+        def process_success(shot_number: ShotNumber, device_name: DeviceName, analysis_result: dict[MetricName, Union[float, np.ndarray]]):
+            """ Save analysis_results to s-file and disk
+            """
+            try:
+                for metric_name, metric_value in analysis_result.items():
+                    def make_filename(ext: str):
+                        filefolder = (self.scan.analysis_path / f"Scan{self.scan.number:03d}" / 
+                                    f"{device_name}-{metric_name}"
+                                    )
+                        filefolder.mkdir(parents=True, exist_ok=True)
+                        return filefolder / f"Scan{self.scan.number:03d}_{device_name}-{metric_name}_{shot_number:03d}.{ext}"
 
-            # submit image analysis jobs
+                    # save scalars to s_file
+                    if np.ndim(metric_value) == 0:
+                        s_file.scalar_data.loc[(run_id, scan_number, shot_number), (device_name, metric_name)] = metric_value
+
+                    # save 1d arrays to text files
+                    elif np.ndim(metric_value) == 1:
+                        np.savetxt(make_filename('dat'), metric_value, header=metric_name)
+
+                    # save 2d arrays as tif images
+                    elif np.ndim(metric_value) == 2:
+                        imwrite(make_filename('tif'), metric_value)
+
+                logger.info(f"Finished processing analysis result {run_id}/Scan{scan_number:03d}/Shot{shot_number:03d}/{device_name}")
+
+            except Exception as exception:
+                logger.error(f"Error while processing analysis result {run_id}/Scan{scan_number:03d}/Shot{shot_number:03d}/{device_name}: {exception}")
+
+        def process_error(shot_number: ShotNumber, device_name: DeviceName, exception: Exception):
+            logger.error(f"Error while analyzing {run_id}/Scan{scan_number:03d}/Shot{shot_number:03d}/{device_name}: {exception}")
+
+        def iterate_image_objects() -> Generator[tuple[ShotNumber, DeviceName], None, None]:
+            """ Iterate over Shot Image objects that need to be processed
+            """
             for shot_number, shot in self.scan.shots.items():
                 # analyze devices that have an image for this shot and have an image_analyzer.
-                shot_key = (RunID(run_id), ScanNumber(scan_number), ShotNumber(shot_number))
-                self.scan_metrics[shot_key] = {}
                 for device_name in (shot.images.keys() & self.image_analyzers.keys()):
                     if not self.enable_image_analyzer[device_name]:
                         continue
 
-                    image = Array2D(shot.images[device_name][ImageSubject('raw')].load())
+                    yield shot_number, device_name
+                
+            num_images_to_process = sum(1 for _ in iterate_image_objects())
+
+        try:
+
+            num_images_processed = 0
+
+            with ProcessPoolExecutor(self.num_processes) as process_pool, ThreadPoolExecutor(self.num_threads) as thread_pool:
+
+                image_analysis_result_futures: dict[Future[dict[str, Union[float, NDArray]]], tuple[ShotNumber, DeviceName]] = {}
+
+                # submit image analysis jobs
+                for shot_number, device_name in iterate_image_objects():
+                    image = Array2D(self.scan.shots[shot_number].images[device_name][ImageSubject('raw')].load())
                     if self.image_analyzers[device_name].run_analyze_image_asynchronously:
                         analysis_result_future = thread_pool.submit(self.image_analyzers[device_name].analyze_image, image)
                     else:
                         analysis_result_future = process_pool.submit(self.image_analyzers[device_name].analyze_image, image)
                     image_analysis_result_futures[analysis_result_future] = (shot_number, device_name)
 
-            # process finished analysis
-            for analysis_result_future in as_completed(image_analysis_result_futures):
-                shot_number, device_name = image_analysis_result_futures[analysis_result_future]
-                analysis_result = analysis_result_future.result()
+                # process finished analysis
+                for analysis_result_future in futures_as_completed(image_analysis_result_futures):
+                    shot_number, device_name = image_analysis_result_futures[analysis_result_future]
 
-                self.scan_metrics[shot_key].update({(device_name, metric_name): metric_value 
-                                                    for metric_name, metric_value in analysis_result.items()
-                                                  })
+                    if exception := analysis_result_future.exception() is not None:
+                        process_error(shot_number, device_name, exception)
+                    else:
+                        process_success(shot_number, device_name, analysis_result_future.result())
+
+                    num_images_processed += 1
+
+        finally:
+            s_file.save_s_file()
+
 
     def save_scan_metrics(self):
         """ Saves floats to s_file and arrays to analysis folder.
@@ -229,11 +291,11 @@ if __name__ == '__main__':
                     help="scan number"
                    ) 
 
-    ap.add_argument("--no-save", 
-                    dest='no_save',
-                    action='store_true',
-                    help="Do not save to s-file after analysis",
-                   )
+    # ap.add_argument("--no-save", 
+    #                 dest='no_save',
+    #                 action='store_true',
+    #                 help="Do not save to s-file after analysis",
+    #                )
     
     ap.add_argument("--no-upload", 
                     dest='no_upload',
@@ -245,8 +307,7 @@ if __name__ == '__main__':
 
     sa = ScanAnalyzer()
     sa.analyze_scan(args.run_id, args.scan)
-    if not args.no_save:
-        sa.save_scan_metrics()
+    # if not args.no_save:
+    #     sa.save_scan_metrics()
     if not args.no_upload:
         sa.upload_scan_metrics()
-

@@ -56,15 +56,15 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
         except Exception as err:
             logger.error(f"Error in analyze_scan({date_folder_name}, {scan_number:d}): {err}")
 
-        try:
-            self.scan_analyzer.save_scan_metrics()
-        except Exception as err:
-            logger.error(f"Error in save_scan_metrics() on scan {date_folder_name}:Scan{scan_number:03d}: {err}")
+        # try:
+        #     self.scan_analyzer.save_scan_metrics()
+        # except Exception as err:
+        #     logger.error(f"Error in save_scan_metrics() on scan {date_folder_name}:Scan{scan_number:03d}: {err}")
 
-        try:
-            self.scan_analyzer.upload_scan_metrics()
-        except Exception as err:
-            logger.error(f"Error in upload_scan_metrics() on scan {date_folder_name}:Scan{scan_number:03d}: {err}")
+        # try:
+        #     self.scan_analyzer.upload_scan_metrics()
+        # except Exception as err:
+        #     logger.error(f"Error in upload_scan_metrics() on scan {date_folder_name}:Scan{scan_number:03d}: {err}")
 
         logger.info(f"Finished analysis on scan {date_folder_name}:Scan{scan_number:03d}")
 
