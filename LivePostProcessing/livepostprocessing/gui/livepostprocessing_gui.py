@@ -47,7 +47,7 @@ class LivePostProcessingGUI(MainFrame):
     def populate_analyze_device_checklist(self):
         device_names: list[str] = list(self.scan_analyzer.image_analyzers.keys())
         self.m_analyze_device_checklist.SetItems(device_names)
-        self.m_analyze_device_checklist.SetCheckedStrings(device_names)
+        self.m_analyze_device_checklist.SetCheckedStrings(filter(lambda device_name: self.scan_analyzer.enable_image_analyzer[device_name], device_names))
 
     @property
     def image_analyzers_config_cache_path(self) -> Path:
@@ -162,7 +162,7 @@ class LivePostProcessingGUI(MainFrame):
     def m_analyze_device_checklist_OnCheckListBoxToggled( self, event: wx.CommandEvent ):
         """ Enable or disable image analyzer
         """
-        self.scan_analyzer.image_analyzers[event.GetString()].enable = self.m_analyze_device_checklist.IsChecked(event.GetInt())
+        self.scan_analyzer.enable_image_analyzer[event.GetString()] = self.m_analyze_device_checklist.IsChecked(event.GetInt())
 
     def m_background_filePicker_OnFileChanged( self, event: wx.FileDirPickerEvent ):
         """ Update image analyzer background 
