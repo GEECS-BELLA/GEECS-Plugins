@@ -145,8 +145,8 @@ class ScanAnalyzer:
                         continue
 
                     yield shot_number, device_name
-                
-            num_images_to_process = sum(1 for _ in iterate_image_objects())
+
+        num_images_to_process = sum(1 for _ in iterate_image_objects())
 
         try:
 
