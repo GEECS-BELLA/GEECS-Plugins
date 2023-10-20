@@ -3,6 +3,7 @@ from pathlib import Path
 from configparser import ConfigParser
 from shutil import rmtree
 from typing import NamedTuple
+import logging
 
 import pandas as pd
 import numpy as np
@@ -17,6 +18,8 @@ from image_analysis.algorithms.grenouille import GrenouilleRetrieval
 from image_analysis.algorithms.qwlsi import QWLSIImageAnalyzer
 
 experiment_data_folder = Path(__file__).parent / 'data' / 'experiment'
+run_id = "00_0101"
+scan_number = 1
 
 class TestScanAnalyzer(unittest.TestCase):
     def _create_test_data(self):
@@ -126,9 +129,21 @@ class TestScanAnalyzer(unittest.TestCase):
     def setUp(self):
         self._create_test_data()
 
+    def _analyze_scan_and_assert_files_created(self):
+        with self.assertLogs('scan_analyzer', logging.INFO):
+            self.sa.analyze_scan(run_id, scan_number)
+        self.assertTrue((self.sa.scan.analysis_path / "U_PhasicsFileCopy-wavefront_nm" / f"Scan{scan_number:03d}_U_PhasicsFileCopy-wavefront_nm_001.tif").exists())
+        self.assertTrue((self.sa.scan.analysis_path / "U_FROG_Grenouille-pulse_E_field_AU"/ f"Scan{scan_number:03d}_U_FROG_Grenouille-pulse_E_field_AU_001.dat").exists())
+        
+        updated_s_file_data = pd.read_csv(self.sa.scan.analysis_path.parent / f"s{scan_number:d}.txt", sep='\t')
+        self.assertIn("U_PhasicsFileCopy peak_density_cm-3", updated_s_file_data.columns)
+        self.assertIn("U_FROG_Grenouille fwhm_fs", updated_s_file_data.columns)
+
     def test_analyze_scan(self):
-        sa = ScanAnalyzer(experiment_data_folder=experiment_data_folder)
-        sa.analyze_scan("00_0101", 1)
+        self.sa = ScanAnalyzer(experiment_data_folder=experiment_data_folder)
+
+        self._analyze_scan_and_assert_files_created()
+
 
     def tearDown(self) -> None:
         rmtree(experiment_data_folder)
