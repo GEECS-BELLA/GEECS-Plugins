@@ -109,9 +109,7 @@ class ScanAnalyzer:
             try:
                 for metric_name, metric_value in analysis_result.items():
                     def make_filename(ext: str):
-                        filefolder = (self.scan.analysis_path / f"Scan{self.scan.number:03d}" / 
-                                    f"{device_name}-{metric_name}"
-                                    )
+                        filefolder = self.scan.analysis_path / f"{device_name}-{metric_name}"
                         filefolder.mkdir(parents=True, exist_ok=True)
                         return filefolder / f"Scan{self.scan.number:03d}_{device_name}-{metric_name}_{shot_number:03d}.{ext}"
 
