@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def read_double_array(file_path):
     try:
         double_array = np.loadtxt(file_path, delimiter='\t')
@@ -19,6 +20,7 @@ if __name__ == "__main__":
     # filename = 'energy vs pixel HiResMagCam 800 mT.tsv'
     energy_file = super_path + filename
     energy_array = read_double_array(energy_file)
+    func = []
     if energy_array.size > 0:
         print("Array of doubles:", energy_array)
         axis = np.arange(0, len(energy_array))
