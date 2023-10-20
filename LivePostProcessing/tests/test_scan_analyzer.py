@@ -144,6 +144,11 @@ class TestScanAnalyzer(unittest.TestCase):
 
         self._analyze_scan_and_assert_files_created()
 
+    def test_analyze_scan_with_lambda(self):
+        self.sa = ScanAnalyzer(experiment_data_folder=experiment_data_folder)
+        self.sa.image_analyzers['U_FROG_Grenouille'] = U_FROG_GrenouilleAWSLambdaImageAnalyzer()
+
+        self._analyze_scan_and_assert_files_created()
 
     def tearDown(self) -> None:
         rmtree(experiment_data_folder)
