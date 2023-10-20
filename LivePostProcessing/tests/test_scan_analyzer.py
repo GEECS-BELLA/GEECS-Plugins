@@ -16,6 +16,7 @@ from livepostprocessing.orm import Scan
 from image_analysis import ureg, Q_, Quantity
 from image_analysis.algorithms.grenouille import GrenouilleRetrieval
 from image_analysis.algorithms.qwlsi import QWLSIImageAnalyzer
+from image_analysis.analyzers.U_FROG_Grenouille import U_FROG_GrenouilleAWSLambdaImageAnalyzer
 
 experiment_data_folder = Path(__file__).parent / 'data' / 'experiment'
 run_id = "00_0101"
@@ -24,17 +25,22 @@ scan_number = 1
 class TestScanAnalyzer(unittest.TestCase):
     def _create_test_data(self):
     
-        run_id = "00_0101"
-        scan_number = 1
+
         # create scan directory 
         scan = Scan(run_id, scan_number, experiment_data_folder=experiment_data_folder)
         scan.path.mkdir(parents=True, exist_ok=True)
         scan.analysis_path.mkdir(parents=True, exist_ok=True)
 
         def _write_one_shot_scandata_file():
-            scan_data = pd.DataFrame([
-                pd.Series({'Shotnumber': 1, 'Bin #': 1, 'scan': scan_number}, name=(run_id, scan_number, 1))
-            ]).rename_axis(index=['run_id', 'scan', 'shot'])
+            def generate_shot_data(num_shots=1):
+                shot_data = {'Bin #': 1, 'scan': scan_number}
+                for shot_number in range(1, num_shots + 1):
+                    shot_data['Shotnumber'] = shot_number
+                    for device_name in ['U_FROG_Grenouille', 'U_PhasicsFileCopy']:
+                        shot_data[f"{device_name} shot #"] = shot_number
+                    yield pd.Series(shot_data, name=(run_id, scan_number, shot_number))
+            scan_data = pd.DataFrame(generate_shot_data(1)).rename_axis(index=['run_id', 'scan', 'shot'])
+
             scan_data.to_csv(scan.path / f"ScanDataScan{scan_number:03d}.txt", sep='\t', index=False)
             scan_data.to_csv(scan.analysis_path.parent / f"s{scan_number:d}.txt", sep='\t', index=False)
 
