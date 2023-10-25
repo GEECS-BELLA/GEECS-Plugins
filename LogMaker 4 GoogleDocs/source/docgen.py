@@ -373,7 +373,7 @@ def appendToLog(templateID,documentID,search,servicevar):
     request = {
         "function": 'appendTemplate', 
         "parameters": [templateID,documentID],
-        "devMode": False
+        "devMode": True
     }
     # If no search term is provided, 
     # or the search term ain't in the document,
