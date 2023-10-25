@@ -201,9 +201,9 @@ class Scan:
 
                     for filepath in (self.path/image_folder_name).iterdir():
                         # ignore certain files.
-                        if filepath.name in ['Thumbs.db']:
+                        if filepath.name in ['Thumbs.db'] or filepath.suffix in ['.tdms_index']:
                             continue
-
+                        
                         m = image_filename_regex.match(filepath.name)
                         if m is not None:
                             # make sure there isn't more than one file related to this shot/device/subject.

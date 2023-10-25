@@ -14,6 +14,7 @@ from imageio.v3 import imread
 if TYPE_CHECKING:
     from os import PathLike
     from numpy.typing import NDArray
+    from collections.abc import Generator
 from .types import ImageSubject, ImageFolderName, DeviceName
 
 import pandas as pd
@@ -216,7 +217,7 @@ def parse_run_date(run_date: str):
             raise ValueError(f"Could not parse run_date '{run_date}'")
 
 
-def iterate_scan_folders(start_folder_path: Union[str, PathLike], recursion_level: Optional[str] = None):
+def iterate_scan_folders(start_folder_path: Union[str, PathLike], recursion_level: Optional[str] = None) -> Generator[Path, None, None]:
     r""" Searches the Undulator data folder for ScanXXX folders. 
 
     Specifically, those that look like
