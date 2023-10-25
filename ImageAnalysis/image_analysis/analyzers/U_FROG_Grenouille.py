@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Optional, Union, TYPE_CHECKING
 from io import BytesIO
 from time import time_ns
+import builtins
 
 import numpy as np
 if TYPE_CHECKING:
@@ -133,6 +134,9 @@ class U_FROG_GrenouilleAWSLambdaImageAnalyzer(U_FROG_GrenouilleImageAnalyzer):
         )
 
         result = json.loads(response['Payload'].read())
+
+        if 'errorType' in result:
+            raise getattr(builtins, result['errorType'])(result['errorMessage'])
 
         pulse = np.array([e_real + 1j * e_imag for e_real, e_imag in result['pulse_E_field_AU_real_imag']])
         E_t = Q_(np.arange(result['time_fs']['len']) * result['time_fs']['step'] + result['time_fs']['start'], 'femtosecond')
