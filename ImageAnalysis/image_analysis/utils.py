@@ -38,6 +38,8 @@ def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
 
     if file_path.suffix.lower() == '.png':
         return read_imaq_png_image(file_path)
+    elif file_path.suffix.lower() == '.npy':
+        return np.load(file_path)
     else:
         return imread(file_path)
 
