@@ -71,7 +71,7 @@ class U_FROG_GrenouilleImageAnalyzer(ImageAnalyzer):
         # shortest interval containing 76% of power, which is equal to FWHM for a Gaussian pulse
         fwhm_area = erf(np.sqrt(np.log(2))) # approx 76%
         cumulative_power_normalized = np.cumsum(power) / np.sum(power)
-        time_intervals = np.interp(cumulative_power_normalized + fwhm_area,  cumulative_power_normalized, E_t, left=Q_('nan fs'), right=Q_('nan fs')) - E_t
+        time_intervals = np.interp(cumulative_power_normalized + fwhm_area,  cumulative_power_normalized, E_t, left=Q_(np.nan, 'fs'), right=Q_(np.nan, 'fs')) - E_t
         _76_percent_interval = np.nanmin(time_intervals)
 
         return {'pulse_E_field_AU': np.rec.fromarrays([E_t.m_as('fs'), pulse.real, pulse.imag], names=["time_fs", "E_real_AU", "E_imag_AU"]),
