@@ -1,0 +1,81 @@
+data:
+  U_Hexapod_vangle:
+    '1': 0.918390881
+    '2': -0.4527508748
+    '3': -1.0
+  U_Hexapod_wangle:
+    '1': -0.503305683
+    '2': 0.3592190928
+    '3': 1.0
+  U_Hexapod_ypos:
+    '1': -0.3204975915
+    '2': 0.8170792134
+    '3': -1.0
+  U_Hexapod_zpos:
+    '1': 0.1250887666
+    '2': -0.4397209882
+    '3': 1.0
+  f:
+    '1': 0.0
+    '2': 0.0
+    '3': 0.0
+  xopt_error:
+    '1': false
+    '2': false
+    '3': false
+  xopt_runtime:
+    '1': 4.384390583
+    '2': 4.437317125
+    '3': 4.4889485
+evaluator:
+  function: __main__.geecs_measurement
+  function_kwargs:
+    normalize: true
+    shots_per_step: 11
+  max_workers: 1
+  vectorized: false
+generator:
+  acq:
+    beta: 0.1
+    monte_carlo_samples: 128
+    proximal_lengthscales: null
+    use_transformed_proximal_weights: true
+  model:
+    covar_modules: {}
+    custom_constructor: null
+    mean_modules: {}
+    name: standard
+    use_low_noise_prior: true
+  n_initial: 2
+  name: upper_confidence_bound
+  optim:
+    max_travel_distances: null
+    num_restarts: 20
+    raw_samples: 20
+    sequential: true
+    use_turbo: false
+  use_cuda: false
+vocs:
+  constants: {}
+  constraints: {}
+  linked_variables: {}
+  objectives:
+    f: MAXIMIZE
+  variables:
+    U_Hexapod_vangle:
+    - -1.0
+    - 1.0
+    U_Hexapod_wangle:
+    - -1.0
+    - 1.0
+    U_Hexapod_ypos:
+    - -1.0
+    - 1.0
+    U_Hexapod_zpos:
+    - -1.0
+    - 1.0
+xopt:
+  asynch: false
+  dump_file: bayes.yaml
+  max_evaluations: null
+  strict: false
