@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk  # Import the themed tkinter module
 from tkinter import filedialog
 import yaml
+import os
 
 class MyGUI(tk.Frame):
     def __init__(self, master=None, backend=None,geecs_interface=None, root_window=None):
@@ -188,7 +189,7 @@ class MyGUI(tk.Frame):
         elif default:
             setter_func(default)
         
-    def load_controls_config(self,filepath):
+    def load_controls_config(self,filename):
         # Clear all current controls
         while self.controls:
             last_control_set = self.controls.pop()
@@ -197,6 +198,8 @@ class MyGUI(tk.Frame):
                 widget.destroy()
         
         try:
+            directory='config_files'
+            filepath = os.path.join(directory, filename)
             # Read and parse the TSV file
             with open(filepath, newline='') as tsvfile:
                 reader = csv.reader(tsvfile, delimiter='\t')  # Specify tab delimiter

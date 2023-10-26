@@ -1,31 +1,38 @@
 data:
-  U_Hexapod_vangle:
-    '1': 0.9266077797
-    '2': -0.0147287218
-  U_Hexapod_wangle:
-    '1': -0.3652167219
-    '2': -0.7459360788
-  U_Hexapod_ypos:
-    '1': 0.3698556598
-    '2': -0.5511205579
-  U_Hexapod_zpos:
-    '1': 0.4504848345
-    '2': 0.4230657595
+  UC_BeamLineIn_exposure:
+    '1': -0.508978541
+    '2': 0.4060765579
+    '3': 0.7496592411
+    '4': 1.0
+    '5': 1.0
+    '6': 1.0
   f:
-    '1': 0.0
-    '2': 0.0
+    '1': 8.900702
+    '2': 24.876766
+    '3': 31.13168
+    '4': 35.496666
+    '5': 35.448956
+    '6': 35.511963
   xopt_error:
     '1': false
     '2': false
+    '3': false
+    '4': false
+    '5': false
+    '6': false
   xopt_runtime:
-    '1': 4.383146125
-    '2': 4.570036583
+    '1': 4.785572667
+    '2': 6.246576708
+    '3': 5.730977958
+    '4': 5.901971958
+    '5': 5.790478417
+    '6': 5.752064458
 evaluator:
   function: __main__.geecs_measurement
   function_kwargs:
-    disable_sets: true
+    disable_sets: false
     normalize: true
-    shots_per_step: 11
+    shots_per_step: 5
   max_workers: 1
   vectorized: false
 generator:
@@ -56,16 +63,7 @@ vocs:
   objectives:
     f: MAXIMIZE
   variables:
-    U_Hexapod_vangle:
-    - -1.0
-    - 1.0
-    U_Hexapod_wangle:
-    - -1.0
-    - 1.0
-    U_Hexapod_ypos:
-    - -1.0
-    - 1.0
-    U_Hexapod_zpos:
+    UC_BeamLineIn_exposure:
     - -1.0
     - 1.0
 xopt:

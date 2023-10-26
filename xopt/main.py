@@ -46,6 +46,7 @@ if __name__ == "__main__":
     import numpy as np
     def geecs_measurement(input_dict, normalize=None,shots_per_step=None,disable_sets=False):
         print(input_dict)
+        print('shots_per_step',shots_per_step)
         geecs_interface = GeecsXoptInterface()
         obj_device=geecs_interface.objective_function_devices[0]
         obj_var=geecs_interface.objective_function_variables[0]
@@ -89,8 +90,9 @@ if __name__ == "__main__":
         for i in range(shots_per_step):
             print('shot num', i)
             value=obj_device.get(obj_var)
+            print(value)
             values.append(value)
-            value = geecs_interface.calcTransmission(setpoint)
+            # value = geecs_interface.calcTransmission(setpoint)
             
         result=np.median(values)
 
