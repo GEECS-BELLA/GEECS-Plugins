@@ -323,10 +323,10 @@ class GrenouilleRetrieval:
         # test that padding and shifting gives the expected result, with an array 1..len(E) padded and shifted by the maximum shifts
         assert shift_1d_array(np.pad(np.arange(len(E)) + 1, (pad_len_on_either_side,) * 2), 
                               (-(len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
-                             )[0] in [1, 0]
-        assert shift_1d_array(np.pad(np.arange(len(E)) + 1, (self.time_step_time_delay_step_factor * (len(self.τ) - 1) // 2,) * 2), 
+                             )[0] in [1, 0], "shift_1d_array(pad(1..len(E)), maximally to the left) falls off left edge."
+        assert shift_1d_array(np.pad(np.arange(len(E)) + 1, (pad_len_on_either_side,) * 2), 
                               (len(self.τ) - 1 - (len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
-                             )[0] in [len(E), 0]
+                             )[-1] in [len(E), 0], "shift_1d_array(pad(1..Len(E)), maximally to the right) falls off right edge."
 
         # calculate gate(E), which depends on the nonlinear effect
         if self.nonlinear_effect == 'self_diffraction':
