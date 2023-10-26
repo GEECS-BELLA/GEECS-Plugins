@@ -25,6 +25,8 @@ class MyGUI(tk.Frame):
         self.opt_steps_var = tk.IntVar()
         self.shots_per_step_var = tk.IntVar()
         self.opt_method_var = tk.StringVar()
+        self.disable_sets_var = tk.BooleanVar()
+        
         
         self.create_widgets()
 
@@ -42,7 +44,9 @@ class MyGUI(tk.Frame):
             'opt_steps': 20,
             'shots_per_step': 10,
             'opt_target_device': 'device',
-            'opt_target_var_name': 'var'
+            'opt_target_var_name': 'var',
+            'disable_sets': True
+            
         }
         self.trace_vars()
         self.set_default_values()
@@ -78,7 +82,8 @@ class MyGUI(tk.Frame):
             ("Optimization Steps:", self.opt_steps_var, tk.IntVar, tk.Entry, 10),
             ("Shots per step:", self.shots_per_step_var, tk.IntVar, tk.Entry, 10),
             ("Objective Device:", self.opt_target_device_var, tk.StringVar, tk.Entry, 15),
-            ("Objective Var:", self.opt_target_var_name_var, tk.StringVar, tk.Entry, 15)
+            ("Objective Var:", self.opt_target_var_name_var, tk.StringVar, tk.Entry, 15),
+            ("Disable sets", self.disable_sets_var, tk.BooleanVar, tk.Checkbutton, None),
         ]
 
     
@@ -167,6 +172,8 @@ class MyGUI(tk.Frame):
         self.set_from_yaml(master_config['objective_target'], 'device_variable', self.opt_target_var_name_var.set, 'default_variable_name')
         self.set_from_yaml(master_config, 'optimization_steps', self.opt_steps_var.set, 20)
         self.set_from_yaml(master_config, 'shots_per_step', self.shots_per_step_var.set, 20)
+        self.set_from_yaml(master_config, 'disable_sets', self.disable_sets_var.set, True)
+        
 
     def get_filepath(self, file_type, file_pattern, title):
         return filedialog.askopenfilename(filetypes=[(file_type, file_pattern)], title=title)
@@ -220,7 +227,8 @@ class MyGUI(tk.Frame):
             'opt_steps':  self.opt_steps_var.get(),
             'shots_per_step': self.shots_per_step_var.get(),
             'opt_target_device': self.opt_target_device_var.get(),
-            'opt_target_var_name':self.opt_target_var_name_var.get()
+            'opt_target_var_name':self.opt_target_var_name_var.get(),
+            'disable_sets':self.disable_sets_var.get()
         }
         self.backend.set_config_params(new_params)
         self.backend.configure_yaml(self.geecs_interface.backend_vocs)
@@ -296,7 +304,7 @@ class MyGUI(tk.Frame):
                 "variable_name": variable_entry.get(),
                 "min_value": min_entry.get(),
                 "max_value": max_entry.get(),
-                "last_value": last_value_entry.get()
+                "last_value": last_value_entry.get(),
             }
             all_controls_data.append(control_data)
 

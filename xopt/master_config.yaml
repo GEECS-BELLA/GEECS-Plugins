@@ -6,4 +6,4 @@ generator:
   name: 
 optimization_steps: 21
 shots_per_step: 11
-  
+disable_sets: False

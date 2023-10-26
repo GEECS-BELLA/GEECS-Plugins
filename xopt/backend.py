@@ -29,7 +29,8 @@ class MyBackend:
             'opt_steps': None,
             'shots_per_step':None,
             'opt_target_device': None,
-            'opt_target_var_name':None
+            'opt_target_var_name':None,
+            'disable_sets': False
         }
         
         self.bayes_UCB_config = {
@@ -80,7 +81,7 @@ class MyBackend:
 
         self.yaml_config = yaml.safe_load(YAML)
         
-        self.yaml_config['evaluator']['function_kwargs'] = {'normalize': self.config_params['normalize'],'shots_per_step': self.config_params['shots_per_step']}
+        self.yaml_config['evaluator']['function_kwargs'] = {'normalize': self.config_params['normalize'],'shots_per_step': self.config_params['shots_per_step'],'disable_sets': self.config_params['disable_sets']}
                 
         for tag in backend_vocs.keys():
             print(tag)
