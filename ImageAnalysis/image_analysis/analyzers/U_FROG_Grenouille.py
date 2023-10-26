@@ -66,7 +66,10 @@ class U_FROG_GrenouilleImageAnalyzer(ImageAnalyzer):
         power = np.square(np.abs(pulse))
         peak_i = np.argmax(power)
         fwhms_i, _, _, _ = peak_widths(power, [peak_i])
-        fwhm = fwhms_i[0] * self.grenouille_retrieval.time_step
+
+        time_step: Quantity = E_t[1] - E_t[0]
+        assert np.allclose(np.diff(E_t), time_step), "E_t isn't regularly spaced"
+        fwhm = fwhms_i[0] * time_step
 
         # shortest interval containing 76% of power, which is equal to FWHM for a Gaussian pulse
         fwhm_area = erf(np.sqrt(np.log(2))) # approx 76%
@@ -112,7 +115,7 @@ class U_FROG_GrenouilleAWSLambdaImageAnalyzer(U_FROG_GrenouilleImageAnalyzer):
             f.seek(0)
             s3.Bucket("tausystems-taumeasurement-image").upload_fileobj(f, s3_key)
 
-        body = { # just test image and parameters for now
+        body = { 
             's3_key': s3_key,  
             'grenouille_trace_center_wavelength_nm': self.grenouille_trace_center_wavelength.m_as('nanometer'),
             'grenouille_trace_wavelength_step_nm': self.grenouille_trace_wavelength_step.m_as('nanometer'),
