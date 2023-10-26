@@ -10,8 +10,9 @@ Functions for generic math and statistics
 import numpy as np
 from scipy import optimize
 
+
 def get_inequality_indices(input_list):
-    #input_list=[['input_array1', 'input_sign1', 'input_compare1']]
+    # input_list=[['input_array1', 'input_sign1', 'input_compare1']]
 
     return_indices = None
     for i in range(len(input_list)):
@@ -49,17 +50,20 @@ def get_inequality_indices(input_list):
     return return_indices
 
 
-def fit_data_something(data, axis, function, guess = [0., 0., 0.]):
-    errfunc = lambda p, x, y: function(p, x) - y
+def fit_data_something(data, axis, function, guess=[0., 0., 0.]):
+    error_function = lambda p, x, y: function(p, x) - y
     p0 = guess
-    p1, success = optimize.leastsq(errfunc, p0[:], args=(axis, data))
+    p1, success = optimize.leastsq(error_function, p0[:], args=(axis, data))
     return p1
+
 
 def func_linear(p, x):
     return p[0]*x + p[1]
 
+
 def func_gaussian(p, x):
     return p[0]*np.exp(-.5*np.square(x-p[2])/np.square(p[1]))
+
 
 def func_gaussian_offset(p, x):
     return p[0]*(np.exp(-.5*np.square(x-p[2])/np.square(p[1]))+p[3]/p[0])
