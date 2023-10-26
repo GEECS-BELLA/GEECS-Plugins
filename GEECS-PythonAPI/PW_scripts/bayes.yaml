@@ -1,0 +1,82 @@
+data:
+  f:
+    '1': 1213.0
+    '2': 1336.0
+    '3': 1628.0
+    '4': 1377.0
+    '5': 1707.0
+    '6': 1693.0
+    '7': 1742.0
+    '8': 272.0
+    '9': 1765.0
+  var1:
+    '1': 0.7254748973
+    '2': 0.6031935466
+    '3': 0.3341729285
+    '4': -0.191995967
+    '5': 0.2175501318
+    '6': 0.1624540955
+    '7': 0.2119642174
+    '8': -1.0
+    '9': 0.1722691252
+  xopt_error:
+    '1': false
+    '2': false
+    '3': false
+    '4': false
+    '5': false
+    '6': false
+    '7': false
+    '8': false
+    '9': false
+  xopt_runtime:
+    '1': 6.7120547
+    '2': 6.0060904
+    '3': 6.5018232
+    '4': 6.7687520999
+    '5': 6.6077742999
+    '6': 5.6561983
+    '7': 5.6821126001
+    '8': 6.6771396999
+    '9': 6.6323616001
+evaluator:
+  function: __main__.geecs_measurement
+  function_kwargs: {}
+  max_workers: 1
+  vectorized: false
+generator:
+  acq:
+    beta: 0.1
+    monte_carlo_samples: 128
+    proximal_lengthscales: null
+    use_transformed_proximal_weights: true
+  model:
+    covar_modules: {}
+    custom_constructor: null
+    mean_modules: {}
+    name: standard
+    use_low_noise_prior: true
+  n_initial: 2
+  name: upper_confidence_bound
+  optim:
+    max_travel_distances: null
+    num_restarts: 20
+    raw_samples: 20
+    sequential: true
+    use_turbo: false
+  use_cuda: false
+vocs:
+  constants: {}
+  constraints: {}
+  linked_variables: {}
+  objectives:
+    f: MAXIMIZE
+  variables:
+    var1:
+    - -1.0
+    - 1.0
+xopt:
+  asynch: false
+  dump_file: bayes.yaml
+  max_evaluations: null
+  strict: false
