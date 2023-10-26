@@ -13,6 +13,7 @@ class OptimizationTab(tk.Frame):
         self.geecs_interface=geecs_interface
         self.abort_flag = False
         self.resume_flag = False
+        self.disable_sets = False
         
     
         # Create a frame for the control buttons, which will be positioned at the bottom
@@ -32,7 +33,7 @@ class OptimizationTab(tk.Frame):
         self.reset_button = tk.Button(self.control_frame, text="Reset Optimization", command=self.reset_optimization)
         self.reset_button.grid(row=0, column=3, padx=10, pady=10)
         
-
+        
         # Create a container frame for the first plot
         self.plot_container1 = tk.Frame(self, width=500, height=400, bg="white")  # Set the desired width and height
         self.plot_container1.grid_propagate(False)  # Prevent the container from resizing to fit its contents

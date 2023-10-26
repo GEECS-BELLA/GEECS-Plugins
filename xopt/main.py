@@ -43,18 +43,21 @@ def main():
 
 if __name__ == "__main__":
     
-    def geecs_measurement(input_dict, normalize=None,shots_per_step=None,):
+    import numpy as np
+    def geecs_measurement(input_dict, normalize=None,shots_per_step=None,disable_sets=False):
         print(input_dict)
         geecs_interface = GeecsXoptInterface()
         obj_device=geecs_interface.objective_function_devices[0]
         obj_var=geecs_interface.objective_function_variables[0]
-
+        
+        print('disable_sets',disable_sets)
+        
         for i in list(input_dict.keys()):
             try:
                 set_val = float(input_dict[i])
-                print("in geecs measurement")
-                print(set_val)
-                print(i)
+                # print("in geecs measurement")
+                # print(set_val)
+                # print(i)
                 if normalize:
                     set_val = geecs_interface.unnormalize_controls(i, set_val)
 
@@ -63,7 +66,12 @@ if __name__ == "__main__":
 
                 # Simulate the set command.
                 # self.devices[i]["GEECS_Object"].set(self.devices[i]["variable"], set_val)
-                # geecs_interface.devices[i]["GEECS_Object"].set(geecs_interface.devices[i]["variable"], set_val)
+                
+                if disable_sets:
+                    print('setting of controls turned off')
+                else:
+                    print('setting of controls turned on')
+                    geecs_interface.devices[i]["GEECS_Object"].set(geecs_interface.devices[i]["variable"], set_val)
                 time.sleep(0)
 
             except Exception as e:
@@ -79,15 +87,14 @@ if __name__ == "__main__":
         
         values=[]
         for i in range(shots_per_step):
-            print('shot num')
-            print(i)
-            print(obj_device)
+            print('shot num', i)
             value=obj_device.get(obj_var)
             values.append(value)
-            print(value)
-            # value = geecs_interface.calcTransmission(setpoint)
+            value = geecs_interface.calcTransmission(setpoint)
+            
+        result=np.median(values)
 
-        return {'f': value}
+        return {'f': result}
 
     main()
     
