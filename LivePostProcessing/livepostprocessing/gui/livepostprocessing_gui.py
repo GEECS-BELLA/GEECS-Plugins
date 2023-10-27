@@ -58,7 +58,7 @@ class LivePostProcessingGUI(MainFrame):
     def populate_analyze_device_checklist(self):
         device_names: list[str] = list(self.scan_analyzer.image_analyzers.keys())
         self.m_analyze_device_checklist.SetItems(device_names)
-        self.m_analyze_device_checklist.SetCheckedStrings(filter(lambda device_name: self.scan_analyzer.enable_image_analyzer[device_name], device_names))
+        self.m_analyze_device_checklist.SetCheckedStrings([device_name for device_name in device_names if self.scan_analyzer.enable_image_analyzer[device_name]])
 
     @property
     def image_analyzers_config_cache_path(self) -> Path:
@@ -73,6 +73,10 @@ class LivePostProcessingGUI(MainFrame):
 
     def load_image_analyzers_config(self, filename: Union[Path, str]):
         self.scan_analyzer.load_image_analyzer_config(filename)
+        # check device names whose image analyzers are enabled
+        print(self.scan_analyzer.enable_image_analyzer)
+        self.populate_analyze_device_checklist()
+        # if any device is selected, update the property grid
         if self.m_analyze_device_checklist.GetSelections():
             self._populate_property_grid(self.m_analyze_device_checklist.GetString(self.m_analyze_device_checklist.GetSelections()[0]))
 
