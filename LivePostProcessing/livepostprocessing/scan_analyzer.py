@@ -48,7 +48,7 @@ class ScanAnalyzer:
     def __init__(self, 
                  image_analyzer_kwargs: Optional[dict[DeviceName, dict[str, Any]]] = None,
                  num_processes: int = 5,
-                 num_threads: int = 100,
+                 num_threads: int = 10,
                  experiment_data_folder: Optional[Union[Path, str]] = None,
                 ):
         """ 
