@@ -174,6 +174,7 @@ class LivePostProcessingGUI(MainFrame):
         """ Enable or disable image analyzer
         """
         self.scan_analyzer.enable_image_analyzer[event.GetString()] = self.m_analyze_device_checklist.IsChecked(event.GetInt())
+        self.save_image_analyzers_config(self.image_analyzers_config_cache_path)
 
     def m_background_filePicker_OnFileChanged( self, event: wx.FileDirPickerEvent ):
         """ Update image analyzer background 
