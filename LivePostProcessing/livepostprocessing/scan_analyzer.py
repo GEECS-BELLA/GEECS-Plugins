@@ -94,6 +94,14 @@ class ScanAnalyzer:
 
 
     def analyze_scan(self, run_id: str, scan_number: int) -> None:
+        """Send images in scan to image analyzers and save results to disk and s-file
+
+        Parameters
+        ----------
+        run_id : str
+        scan_number : int
+
+        """
         self.scan = Scan(run_id, scan_number, experiment_data_folder=self.experiment_data_folder)
 
         # save config to this Scan's analysis folder
@@ -167,8 +175,8 @@ class ScanAnalyzer:
                 for analysis_result_future in futures_as_completed(image_analysis_result_futures):
                     shot_number, device_name = image_analysis_result_futures[analysis_result_future]
 
-                    if exception := analysis_result_future.exception() is not None:
-                        process_error(shot_number, device_name, exception)
+                    if analysis_result_future.exception():
+                        process_error(shot_number, device_name, analysis_result_future.exception())
                     else:
                         process_success(shot_number, device_name, analysis_result_future.result())
 
@@ -226,6 +234,7 @@ class ScanAnalyzer:
                                              for config_string_part in config_string.split(',')
                                             ]
                                           ),
+            bool: lambda config_string: {'true': True, 'false': False}[config_string.lower()],
         }
 
         with open(config_filename, 'r') as f:
