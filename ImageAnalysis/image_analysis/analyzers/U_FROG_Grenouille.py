@@ -1,5 +1,8 @@
 from __future__ import annotations
-from typing import Union, TYPE_CHECKING
+from typing import Optional, Union, TYPE_CHECKING
+from io import BytesIO
+from time import time_ns
+import builtins
 
 import numpy as np
 if TYPE_CHECKING:
@@ -63,12 +66,15 @@ class U_FROG_GrenouilleImageAnalyzer(ImageAnalyzer):
         power = np.square(np.abs(pulse))
         peak_i = np.argmax(power)
         fwhms_i, _, _, _ = peak_widths(power, [peak_i])
-        fwhm = fwhms_i[0] * self.grenouille_retrieval.time_step
+
+        time_step: Quantity = E_t[1] - E_t[0]
+        assert np.allclose(np.diff(E_t), time_step), "E_t isn't regularly spaced"
+        fwhm = fwhms_i[0] * time_step
 
         # shortest interval containing 76% of power, which is equal to FWHM for a Gaussian pulse
         fwhm_area = erf(np.sqrt(np.log(2))) # approx 76%
         cumulative_power_normalized = np.cumsum(power) / np.sum(power)
-        time_intervals = np.interp(cumulative_power_normalized + fwhm_area,  cumulative_power_normalized, E_t, left=Q_('nan fs'), right=Q_('nan fs')) - E_t
+        time_intervals = np.interp(cumulative_power_normalized + fwhm_area,  cumulative_power_normalized, E_t, left=Q_(np.nan, 'fs'), right=Q_(np.nan, 'fs')) - E_t
         _76_percent_interval = np.nanmin(time_intervals)
 
         return {'pulse_E_field_AU': np.rec.fromarrays([E_t.m_as('fs'), pulse.real, pulse.imag], names=["time_fs", "E_real_AU", "E_imag_AU"]),
@@ -97,19 +103,26 @@ class U_FROG_GrenouilleAWSLambdaImageAnalyzer(U_FROG_GrenouilleImageAnalyzer):
     # for its response, so it should be run asynchronously
     run_analyze_image_asynchronously = True
 
-    def analyze_image(self, grenouille_trace: Array2D, auxiliary_data: dict | None = None) -> dict[str, Union[float, NDArray]]:
-        client = boto3.client('lambda')
+    def analyze_image(self, grenouille_trace: Array2D, auxiliary_data: Optional[dict] = None) -> dict[str, Union[float, NDArray]]:
+        boto3_session = boto3.Session()
+        
+        s3 = boto3_session.resource('s3')
+        lambda_client = boto3_session.client('lambda')
 
-        # TODO: upload grenouille_trace to S3 and put its key in the body. 
+        s3_key = f"temp/calculate_pulse_from_grenouille_trace/{time_ns():d}.npy"
+        with BytesIO() as f:
+            np.save(f, grenouille_trace, allow_pickle=False)
+            f.seek(0)
+            s3.Bucket("tausystems-taumeasurement-image").upload_fileobj(f, s3_key)
 
-        body = { # just test image and parameters for now
-        's3_key': 'BELLA/23_0518/0027/00000070/U_FROG_Grenouille/raw.png',  
-        'grenouille_trace_center_wavelength_nm': 410.4,
-        'grenouille_trace_wavelength_step_nm': 0.157,
-        'time_delay_step_fs': 0.931,
-        'pulse_duration_fs': 800,
-        'pulse_center_wavelength_nm': 800,
-        'max_computation_time_sec': 30
+        body = { 
+            's3_key': s3_key,  
+            'grenouille_trace_center_wavelength_nm': self.grenouille_trace_center_wavelength.m_as('nanometer'),
+            'grenouille_trace_wavelength_step_nm': self.grenouille_trace_wavelength_step.m_as('nanometer'),
+            'time_delay_step_fs': self.grenouille_trace_time_delay_step.m_as('femtosecond'),
+            'pulse_duration_fs': 800,
+            'pulse_center_wavelength_nm': 800,
+            'max_computation_time_sec': 30
         }
 
         payload = {
@@ -117,13 +130,16 @@ class U_FROG_GrenouilleAWSLambdaImageAnalyzer(U_FROG_GrenouilleImageAnalyzer):
             "version": "2.0",
         }
 
-        response = client.invoke(
+        response = lambda_client.invoke(
             FunctionName="arn:aws:lambda:us-west-1:460578213037:function:calculate_pulse_from_grenouille_trace",
             Payload=json.dumps(payload).encode('utf-8'),
             InvocationType='RequestResponse',  # It's not the Lambda invocation that's asynchronous, just analyze_image()
         )
 
         result = json.loads(response['Payload'].read())
+
+        if 'errorType' in result:
+            raise getattr(builtins, result['errorType'])(result['errorMessage'])
 
         pulse = np.array([e_real + 1j * e_imag for e_real, e_imag in result['pulse_E_field_AU_real_imag']])
         E_t = Q_(np.arange(result['time_fs']['len']) * result['time_fs']['step'] + result['time_fs']['start'], 'femtosecond')

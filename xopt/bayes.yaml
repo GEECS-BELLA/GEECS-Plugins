@@ -1,0 +1,73 @@
+data:
+  UC_BeamLineIn_exposure:
+    '1': -0.508978541
+    '2': 0.4060765579
+    '3': 0.7496592411
+    '4': 1.0
+    '5': 1.0
+    '6': 1.0
+  f:
+    '1': 8.900702
+    '2': 24.876766
+    '3': 31.13168
+    '4': 35.496666
+    '5': 35.448956
+    '6': 35.511963
+  xopt_error:
+    '1': false
+    '2': false
+    '3': false
+    '4': false
+    '5': false
+    '6': false
+  xopt_runtime:
+    '1': 4.785572667
+    '2': 6.246576708
+    '3': 5.730977958
+    '4': 5.901971958
+    '5': 5.790478417
+    '6': 5.752064458
+evaluator:
+  function: __main__.geecs_measurement
+  function_kwargs:
+    disable_sets: false
+    normalize: true
+    shots_per_step: 5
+  max_workers: 1
+  vectorized: false
+generator:
+  acq:
+    beta: 0.1
+    monte_carlo_samples: 128
+    proximal_lengthscales: null
+    use_transformed_proximal_weights: true
+  model:
+    covar_modules: {}
+    custom_constructor: null
+    mean_modules: {}
+    name: standard
+    use_low_noise_prior: true
+  n_initial: 2
+  name: upper_confidence_bound
+  optim:
+    max_travel_distances: null
+    num_restarts: 20
+    raw_samples: 20
+    sequential: true
+    use_turbo: false
+  use_cuda: false
+vocs:
+  constants: {}
+  constraints: {}
+  linked_variables: {}
+  objectives:
+    f: MAXIMIZE
+  variables:
+    UC_BeamLineIn_exposure:
+    - -1.0
+    - 1.0
+xopt:
+  asynch: false
+  dump_file: bayes.yaml
+  max_evaluations: null
+  strict: false

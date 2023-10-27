@@ -1,0 +1,9 @@
+controls_file: beamlineIn.txt
+objective_target:
+  device_name: UC_BeamLineIn
+  device_variable: meancounts
+generator:
+  name: 
+optimization_steps: 21
+shots_per_step: 5
+disable_sets: False
