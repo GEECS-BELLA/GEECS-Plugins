@@ -215,7 +215,6 @@ class LivePostProcessingGUI(MainFrame):
         self.SetStatusText("Running Scan analysis...")
 
         self.scan_analyzer.analyze_scan(self.m_runID_text.Value, int(self.m_scanNumber_textCtrl.Value))
-        self.scan_analyzer.save_scan_metrics()
 
         self.m_run_live_analysis_Button.Enable()
         self.m_run_scan_analysis_Button.Enable()

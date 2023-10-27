@@ -178,40 +178,6 @@ class ScanAnalyzer:
             s_file.save_s_file()
 
 
-    def save_scan_metrics(self):
-        """ Saves floats to s_file and arrays to analysis folder.
-        """
-        
-        s_file = SFile(self.scan)
-
-        for shot_key, analysis in self.scan_metrics.items():
-            run_id, scan_number, shot_number = shot_key
-            assert ((run_id == self.scan.run_id) and (scan_number == self.scan.number)), "self.scan_metrics run_id/scan_number don't match self.scan"
-
-            for (device_name, metric_name), metric_value in analysis.items():
-
-                def make_filename(ext: str):
-                    filefolder = (self.scan.path.parent.parent/'analysis'/f"Scan{self.scan.number:03d}"/
-                                  f"{device_name}-{metric_name}"
-                                 )
-                    filefolder.mkdir(parents=True, exist_ok=True)
-                    return filefolder/f"Scan{self.scan.number:03d}_{device_name}-{metric_name}_{shot_number:03d}.{ext}"
-
-                # save scalars to s_file
-                if np.ndim(metric_value) == 0:
-                    s_file.scalar_data.loc[shot_key, (device_name, metric_name)] = metric_value
-
-                # save 1d arrays to text files
-                elif np.ndim(metric_value) == 1:
-                    np.savetxt(make_filename('dat'), metric_value, header=metric_name)
-                
-                # save 2d arrays as tif images
-                elif np.ndim(metric_value) == 2:
-                    imwrite(make_filename('tif'), metric_value)
-
-        s_file.save_s_file()
-
-
     def upload_scan_metrics(self):
         """ Upload contents of s-file to AWS DynamoDB
         """
