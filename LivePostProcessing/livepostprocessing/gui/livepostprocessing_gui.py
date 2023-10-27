@@ -8,6 +8,8 @@ from os import getenv
 from docstring_parser import parse_from_object as parse_docstring_from_object
 from docstring_parser import DocstringStyle
 
+from importlib.metadata import version
+
 # Q_ is used when converting pg_property from string to Quantity, and it needs
 # to be the same object as used in the `ImageAnalyzer`s
 from image_analysis import ureg, Q_, Quantity
@@ -43,6 +45,15 @@ class LivePostProcessingGUI(MainFrame):
         self.populate_analyze_device_checklist()
         # set runID field to today's run folder
         self.m_runID_text.Value = datetime.now().strftime("%y_%m%d")
+
+        self._print_welcome()
+
+    def _print_welcome(self):
+        print("*********************************\n"
+              "* BELLA HTU Live Postprocessing *\n"
+              "*********************************"
+             )
+        print(f"version {version('livepostprocessing')}")
 
     def populate_analyze_device_checklist(self):
         device_names: list[str] = list(self.scan_analyzer.image_analyzers.keys())
