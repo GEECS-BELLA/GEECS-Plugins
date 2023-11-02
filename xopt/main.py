@@ -1,7 +1,6 @@
-
-
 import tkinter as tk
 from tkinter import ttk
+from tkinter import simpledialog
 import sys
 import time
 
@@ -13,12 +12,37 @@ from xopt_tkinter.optimization_tab import OptimizationTab
 
 from backend import MyBackend
 from geecs_functions import GeecsXoptInterface
+# from geecs_functions import HTU_test_opt
 
-def main():
+
+def select_experiment():
+    experiments = ['Undulator', 'BELLA', 'HTT']  # Add all your experiments to this list
+
+    # Function to destroy the window
+    def on_ok():
+        window.destroy()
+
+    window = tk.Tk()
+    window.title("Select Experiment")
+    
+    experiment_var = tk.StringVar(window)
+    experiment_var.set(experiments[0])  # set the default value
+
+    dropdown = ttk.OptionMenu(window, experiment_var, *experiments)
+    dropdown.pack(pady=20, padx=20)
+
+    ok_button = ttk.Button(window, text="OK", command=on_ok)
+    ok_button.pack(pady=20)
+
+    window.mainloop()
+
+    return experiment_var.get()
+
+def main(experiment='Undulator'):
     root = tk.Tk()
     backend = MyBackend()
-    geecs_interface = GeecsXoptInterface()
-    
+    geecs_interface = GeecsXoptInterface(experiment_name=prompted_name)
+
     # Create the tab control
     tabControl = ttk.Notebook(root)
 
@@ -43,30 +67,26 @@ def main():
 
 if __name__ == "__main__":
     
+    # Get the experiment name from the user
+    prompted_name = select_experiment()
+    
     import numpy as np
     def geecs_measurement(input_dict, normalize=None,shots_per_step=None,disable_sets=False):
         print(input_dict)
         print('shots_per_step',shots_per_step)
-        geecs_interface = GeecsXoptInterface()
-        obj_device=geecs_interface.objective_function_devices[0]
-        obj_var=geecs_interface.objective_function_variables[0]
-        
+        geecs_interface = GeecsXoptInterface(prompted_name)
+
         print('disable_sets',disable_sets)
         
         for i in list(input_dict.keys()):
             try:
                 set_val = float(input_dict[i])
-                # print("in geecs measurement")
-                # print(set_val)
-                # print(i)
+
                 if normalize:
                     set_val = geecs_interface.unnormalize_controls(i, set_val)
 
                 print('set ' + str(i) + ' to ' + str(set_val))
                 print(geecs_interface.devices[i])
-
-                # Simulate the set command.
-                # self.devices[i]["GEECS_Object"].set(self.devices[i]["variable"], set_val)
                 
                 if disable_sets:
                     print('setting of controls turned off')
@@ -89,16 +109,18 @@ if __name__ == "__main__":
         values=[]
         for i in range(shots_per_step):
             print('shot num', i)
-            value=obj_device.get(obj_var)
+            measured_values=geecs_interface.get_obj_var_tcp_state()
+            value=geecs_interface.obj_instance.calculate(measured_values)
+            # value = geecs_interface.calcTransmission(setpoint)
             print(value)
             values.append(value)
-            # value = geecs_interface.calcTransmission(setpoint)
             
-        result=np.median(values)
+        result=np.array(values)
 
         return {'f': result}
 
-    main()
+    main(experiment=prompted_name)
+    
     
 
 

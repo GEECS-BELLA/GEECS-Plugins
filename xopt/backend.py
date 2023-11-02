@@ -25,7 +25,7 @@ class MyBackend:
         self.devices = {}  # A dict that will store the initialized device controls
         self.config_params = {
             'normalize': None,  # default value
-            'opt_method': None,  # default value
+            'opt_method': 'bayes_ucb',  # default value
             'opt_steps': None,
             'shots_per_step':None,
             'opt_target_device': None,
@@ -33,54 +33,36 @@ class MyBackend:
             'disable_sets': False
         }
         
-        self.bayes_UCB_config = {
-            'generator_name': 'upper_confidence_bound',  # default value
-            'generator_n_initial': 2,  # default value
-            'generator_acq': {'beta':0.1}
-        }
-        
-        self.nelder_config = {
-            'generator_name': 'neldermead',  # default value
-            'generator_xatol': 2,  # default value            
-        }
-        
-        self.yaml_config={}
+        self.yaml_config= {}
+        self.yaml_string: None
         self.X = None
+        self.optimization_status=''
         
-        #some parameters for setting up the simulation case
-        self.optPosition = np.array([18.45, 0.6])
-        self.numParts = 200000
-
-        self.startDist = np.transpose([
-            np.random.normal(self.optPosition[0], 0.4, self.numParts),
-            np.random.normal(self.optPosition[1], 0.4, self.numParts)
-        ])
-
     def set_config_params(self, params):
         self.config_params.update(params)
-    
-    def configure_yaml(self,backend_vocs):
-        # print("backend vocs")
-        # print(backend_vocs)
-        
-        #define the xopt configuration
-        YAML = """
-        xopt:
-            dump_file: dump.yaml
-        generator:
-            name:
-        evaluator:
-            function: __main__.geecs_measurement            
-        vocs:
-            variables:
-                {}
-            objectives: {f: "MAXIMIZE"}
-        sams_thing: 5
+        print(params)
 
+    def load_xopt_base_config(self, filename: str = "bayes_ucb", directory: str = "config_files/base_xop_optimization_configs") -> dict:
+        """
+        Loads an xopt yaml config from a given directory based on the filename.
+
+        Args:
+        - filename (str): The name of the file without the .yaml extension. Default is "bayes_ucb".
+        - directory (str): The directory where the yaml file is located. Default is "config_files/base_xop_optimization_configs".
+
+        Returns:
+        - dict: The parsed data from the yaml file.
         """
 
-        self.yaml_config = yaml.safe_load(YAML)
+        with open(os.path.join(directory, f"{filename}.yaml"), 'r') as file:
+            data = yaml.safe_load(file)
+        return data
+    
+    
+    def configure_yaml(self,backend_vocs):
         
+        self.yaml_config = self.load_xopt_base_config(self.config_params['opt_method'])
+                
         self.yaml_config['evaluator']['function_kwargs'] = {'normalize': self.config_params['normalize'],'shots_per_step': self.config_params['shots_per_step'],'disable_sets': self.config_params['disable_sets']}
                 
         for tag in backend_vocs.keys():
@@ -100,35 +82,6 @@ class MyBackend:
         for key, bounds in backend_vocs.items():
             average = sum(bounds) / len(bounds)
             init_point[key] = average
-        
-        
-        # keys_to_add = {
-        #     "name": "upper_confidence_bound",
-        #     "n_initial": 2,
-        #     "acq": {"beta": 0.1}
-        # }
-        #
-        # for key, value in keys_to_add.items():
-        #     self.yaml_config['generator'][key] = value
-
-            
-        
-        if self.config_params['opt_method'] == 'bayes_UCB':
-            self.yaml_config['generator']['name'] = 'upper_confidence_bound'
-            self.yaml_config['generator']['n_initial'] = 2
-            self.yaml_config['generator']['acq'] = {'beta':0.1}
-            self.yaml_config['xopt']['dump_file'] = 'bayes.yaml'
-
-
-        elif self.config_params['opt_method'] == 'nelder':
-            self.yaml_config['generator']['name'] = 'neldermead'
-            self.yaml_config['generator']['adaptive'] = True
-            self.yaml_config['generator']['xatol'] = 0.1
-            self.yaml_config['generator']['fatol'] = 0.05
-            self.yaml_config['generator']['initial_point'] = init_point
-            self.yaml_config['xopt']['dump_file'] = 'nelder.yaml'
-   
-   
             
         if self.yaml_config['generator']['name']=='neldermead':
             if self.config_params['normalize']:
@@ -140,23 +93,18 @@ class MyBackend:
 
                 self.yaml_config['generator']['initial_point'] = normalized_initial_point
                 
-        print(self.yaml_config)
         return self.yaml_config
         
     def initialize_xopt(self):
-        print(self.X)
-        self.X = Xopt(config=self.yaml_config)
+        self.yaml_string = yaml.dump(self.yaml_config)
+        self.X = Xopt.from_yaml(self.yaml_string)
         print(self.X)
             
-        if self.config_params['opt_method'] == 'bayes':
+        if self.config_params['opt_method'] == 'bayes_ucb':
             # print initial number of points to be generated
-            print(self.X.generator.options.n_initial)
-
-            # call X.step() to generate + evaluate initial points
-            self.X.step()
-
-            # inspect the gathered data
-            self.X.data
+            n_initial=3
+            self.X.random_evaluate(n_initial)
+            print('optimization initialized')
             
     def xopt_step(self):
         try:

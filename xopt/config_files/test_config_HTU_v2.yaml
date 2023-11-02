@@ -1,4 +1,4 @@
-controls_file: test_config.txt
+controls_file: beamlineIn.txt
 objective_targets:
   var1:
     device_name: UC_Amp2_IR_input
@@ -9,7 +9,9 @@ objective_targets:
     device_name: UC_Amp3_IR_input
     device_subscribe_variables:
       - MeanCounts
-base_opt_method: bayes_UCB
-optimization_steps: 5
-shots_per_step: 2
-disable_sets: True
+generator:
+  name: 
+optimization_steps: 21
+shots_per_step: 5
+disable_sets: False
+function_name: test_function
