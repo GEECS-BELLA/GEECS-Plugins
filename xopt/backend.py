@@ -16,10 +16,6 @@ import torch
 import sys
 import time
 
-from geecs_functions import GeecsXoptInterface
-geecs_interface = GeecsXoptInterface()
-
-
 class MyBackend:
     def __init__(self):
         self.devices = {}  # A dict that will store the initialized device controls
@@ -74,24 +70,7 @@ class MyBackend:
             for tag in backend_vocs.keys():
                 self.yaml_config['vocs']['variables'][tag]=[-1.0,1.0]
             keys = self.yaml_config['vocs']['variables'].keys()
-            
-        # New dictionary for initial points
-        init_point = {}
-
-        # Calculate the average of the bounds and assign it to the corresponding key for initial point
-        for key, bounds in backend_vocs.items():
-            average = sum(bounds) / len(bounds)
-            init_point[key] = average
-            
-        if self.yaml_config['generator']['name']=='neldermead':
-            if self.config_params['normalize']:
-                initial_point = self.yaml_config['generator']['initial_point']
-
-                normalized_initial_point = {}
-                for key in keys:
-                    normalized_initial_point[key] = geecs_interface.normalize_controls(key, initial_point[key])
-
-                self.yaml_config['generator']['initial_point'] = normalized_initial_point
+      
                 
         return self.yaml_config
         
