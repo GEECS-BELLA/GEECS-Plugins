@@ -1,0 +1,93 @@
+data:
+  U_Hexapod_vangle:
+    '1': 0.0
+    '2': 0.00025
+    '3': 0.0
+    '4': 0.0
+    '5': 0.0
+    '6': 0.0
+  U_Hexapod_wangle:
+    '1': 0.0
+    '2': 0.0
+    '3': 0.00025
+    '4': 0.0
+    '5': 0.0
+    '6': 0.0
+  U_Hexapod_ypos:
+    '1': 0.0
+    '2': 0.0
+    '3': 0.0
+    '4': 0.00025
+    '5': 0.0
+    '6': 0.0
+  U_Hexapod_zpos:
+    '1': 2.220446049e-16
+    '2': 2.220446049e-16
+    '3': 2.220446049e-16
+    '4': 2.220446049e-16
+    '5': 2.331468352e-16
+    '6': 2.331468352e-16
+  f:
+    '1': 0.1127025
+    '2': 0.113315
+    '3': 0.1140775
+    '4': 0.113165
+    '5': 0.113225
+    '6': 0.114225
+  xopt_error:
+    '1': false
+    '2': false
+    '3': false
+    '4': false
+    '5': false
+    '6': false
+  xopt_runtime:
+    '1': 0.028799875
+    '2': 0.022121417
+    '3': 0.022217416
+    '4': 0.022105417
+    '5': 0.023869791
+    '6': 0.022883416
+evaluator:
+  function: __main__.geecs_measurement
+  function_kwargs:
+    disable_sets: true
+    normalize: true
+    shots_per_step: 2
+  max_workers: 1
+  vectorized: false
+generator:
+  adaptive: true
+  fatol: 0.05
+  initial_point:
+    U_Hexapod_vangle: 0.0
+    U_Hexapod_wangle: 0.0
+    U_Hexapod_ypos: 0.0
+    U_Hexapod_zpos: 2.220446049250313e-16
+  initial_simplex: null
+  name: neldermead
+  xatol: 0.1
+vocs:
+  constants: {}
+  constraints: {}
+  linked_variables: {}
+  objectives:
+    f: MAXIMIZE
+  variables:
+    U_Hexapod_vangle:
+    - -1.0
+    - 1.0
+    U_Hexapod_wangle:
+    - -1.0
+    - 1.0
+    U_Hexapod_ypos:
+    - -1.0
+    - 1.0
+    U_Hexapod_zpos:
+    - -1.0
+    - 1.0
+xopt:
+  asynch: false
+  dump_file: nelder.yaml
+  max_evaluations: null
+  strict: false
