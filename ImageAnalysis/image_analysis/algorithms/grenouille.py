@@ -7,16 +7,17 @@ Created on Fri Feb  3 10:44:15 2023
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NewType, Optional
+from typing import TYPE_CHECKING, NewType, Optional, NamedTuple
 from math import ceil
 
-from .. import ureg, Q_
+from .. import ureg, Q_, Quantity
 
 if TYPE_CHECKING:
-    from pint import Quantity
     QuantityArray = NewType("QuantityArray", Quantity)
 
 import numpy as np
+from numpy.typing import NDArray
+
 from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.optimize import least_squares, minimize
 
@@ -322,10 +323,10 @@ class GrenouilleRetrieval:
         # test that padding and shifting gives the expected result, with an array 1..len(E) padded and shifted by the maximum shifts
         assert shift_1d_array(np.pad(np.arange(len(E)) + 1, (pad_len_on_either_side,) * 2), 
                               (-(len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
-                             )[0] in [1, 0]
-        assert shift_1d_array(np.pad(np.arange(len(E)) + 1, (self.time_step_time_delay_step_factor * (len(self.τ) - 1) // 2,) * 2), 
+                             )[0] in [1, 0], "shift_1d_array(pad(1..len(E)), maximally to the left) falls off left edge."
+        assert shift_1d_array(np.pad(np.arange(len(E)) + 1, (pad_len_on_either_side,) * 2), 
                               (len(self.τ) - 1 - (len(self.τ) - 1) // 2) * self.time_step_time_delay_step_factor
-                             )[0] in [len(E), 0]
+                             )[-1] in [len(E), 0], "shift_1d_array(pad(1..Len(E)), maximally to the right) falls off right edge."
 
         # calculate gate(E), which depends on the nonlinear effect
         if self.nonlinear_effect == 'self_diffraction':
@@ -673,6 +674,78 @@ def shift_1d_array(arr: np.ndarray, num_steps: int) -> np.ndarray:
     else:
         return np.roll(np.pad(arr, (-num_steps, 0)), num_steps)[-num_steps:]
 
+
+
+
+# struct for output
+GrenouillePulseAndTrace = NamedTuple("GrenouillePulseAndTrace",
+    pulse_time_step = Quantity,
+    pulse_center_wavelength = Quantity,
+    pulse_E = NDArray[np.complex128],
+
+    grenouille_trace_center_wavelength = Quantity,
+    grenouille_trace_wavelength_step = Quantity,
+    grenouille_trace_time_delay_step = Quantity,
+
+    grenouille_trace = NDArray[np.float64],
+)
+
+def create_test_pulse_and_trace(
+    pulse_center_wavelength: Quantity = Q_(800, 'nm'),
+    grenouille_trace_center_wavelength: Quantity = Q_(400, 'nm'), 
+    grenouille_trace_wavelength_step: Quantity = Q_(0.7, 'nm'),
+    grenouille_trace_time_delay_step: Quantity = Q_(2.1, 'fs'),
+    grenouille_trace_shape: tuple[int, int] = (80, 81),
+):
+    """ Create a Gaussian test pulse and simulated Grenouille trace
+
+    _extended_summary_
+
+    Parameters
+    ----------
+    pulse_center_wavelength : Quantity, optional
+        _description_, by default Q_(800, 'nm')
+    grenouille_trace_center_wavelength : Quantity, optional
+        _description_, by default Q_(400, 'nm')
+    grenouille_trace_wavelength_step : Quantity, optional
+        _description_, by default Q_(0.7, 'nm')
+    grenouille_trace_time_delay_step : Quantity, optional
+        _description_, by default Q_(2.1, 'fs')
+    grenouille_trace_shape : tuple[int, int], optional
+        _description_, by default (80, 81)
+
+    Returns
+    -------
+    GrenouillePulseAndTrace
+        A NamedTuple containing pulse, Grenouille trace, and metadata.
+
+    """
+
+    gr = GrenouilleRetrieval(pulse_center_wavelength=pulse_center_wavelength)
+
+    # ## Calculate sample grenouille trace from example E field pulse
+    pulse_time_step = Q_(5, 'fs')
+    pulse_t = (np.arange(127) - 127/2) * pulse_time_step
+    pulse_E = np.exp(-1/2 * np.square(pulse_t) / Q_(30, 'fs')**2) * np.exp(1j * pulse_t * 2*np.pi / Q_(200, 'fs'))
+    pulse_E = pulse_E.m_as('')
+
+    grenouille_trace = gr.simulate_grenouille_trace(pulse_E, pulse_time_step, grenouille_trace_shape, 
+                            grenouille_trace_center_wavelength=grenouille_trace_center_wavelength, 
+                            grenouille_trace_wavelength_step=grenouille_trace_wavelength_step, 
+                            grenouille_trace_time_delay_step=grenouille_trace_time_delay_step,
+                        )
+
+    return GrenouillePulseAndTrace(
+        pulse_time_step = pulse_time_step,
+        pulse_center_wavelength = pulse_center_wavelength,
+        pulse_E = pulse_E,
+
+        grenouille_trace_center_wavelength = grenouille_trace_center_wavelength,
+        grenouille_trace_wavelength_step = grenouille_trace_wavelength_step,
+        grenouille_trace_time_delay_step = grenouille_trace_time_delay_step,
+
+        grenouille_trace = grenouille_trace,
+    )
 
 if __name__ == "__main__":
     pass

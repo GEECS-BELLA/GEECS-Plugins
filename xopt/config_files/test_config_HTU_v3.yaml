@@ -1,0 +1,7 @@
+controls_file: beamlineIn.txt
+generator:
+  name: 
+objective_function: "ObjectiveFunction1"
+optimization_steps: 21
+shots_per_step: 5
+disable_sets: False

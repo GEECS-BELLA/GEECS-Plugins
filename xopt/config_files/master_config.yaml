@@ -1,0 +1,15 @@
+controls_file: test_config.txt
+objective_targets:
+  var1:
+    device_name: UC_Amp2_IR_input
+    device_subscribe_variables:
+      - MeanCounts
+      - MaxCounts
+  var2:
+    device_name: UC_Amp3_IR_input
+    device_subscribe_variables:
+      - MeanCounts
+base_opt_method: bayes_UCB
+optimization_steps: 5
+shots_per_step: 2
+disable_sets: True
