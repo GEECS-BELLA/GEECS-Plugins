@@ -20,12 +20,25 @@ def find_user_data_directory_relative(start_path='.'):
     
     return None  # Return None if the directory is not found
 
-
+def load_config():
+    config = configparser.ConfigParser()
+    config_path = os.path.expanduser('~/.config/geecs_python_api/config.ini')
+    if os.path.exists(config_path):
+        config.read(config_path)
+        return config
+    else:
+        return None
 
 def find_database():
-    
     # Example usage:
     default_path = find_user_data_directory_relative()
+    if default_path == None:
+        config = load_config()
+        if config and 'Paths' in config and 'geecs_data' in config['Paths']:
+            default_path = config['Paths']['geecs_data']
+            print(f"GEECS data path is: {default_path}")
+        else:
+            print("Configuration file not found or the path is not set.")
     default_name = 'Configurations.INI'
 
     db_name = db_ip = db_user = db_pwd = ''
