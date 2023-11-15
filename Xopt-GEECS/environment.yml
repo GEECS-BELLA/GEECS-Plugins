@@ -1,0 +1,11 @@
+name: Xopt-GEECS
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - xopt=2.0.1
+  - pip
+  - pip:
+    - --editable ../GEECS-PythonAPI
+    - badger-opt @ git+https://github.com/SLAC-ML/Badger.git@plugin-refactoring
