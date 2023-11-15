@@ -191,6 +191,17 @@ for i in range(0,4):
     except: time.sleep(1)
     if returnvalue == 0: break
 
+print('screenshot path is ',PATHTOIMAGE)
+
+# docgen.cropAndScaleImage(PATHTOIMAGE,ml,mt,mr,mb,imgscale)
+# print('debug string','a')
+# imageid = docgen.uploadImage(PATHTOIMAGE,SCREENSHOTFOLDER_ID)
+# for i in range(0,4):
+	# print('**Adding screenshot**')
+	# try: docgen.findAndReplaceImage(DOCUMENT_ID,imageid,"{{screenshot}}",service);break
+	# except: time.sleep(1)
+
+
 try: 
     docgen.cropAndScaleImage(PATHTOIMAGE,ml,mt,mr,mb,imgscale)
     imageid = docgen.uploadImage(PATHTOIMAGE,SCREENSHOTFOLDER_ID)
