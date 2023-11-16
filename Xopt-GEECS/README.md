@@ -13,9 +13,13 @@ Badger's `plugin-refactoring` branch ahead of that release.
 1. Run `conda env create -f environment.yml`.
 1. Copy the Badger-Plugins into the environment[^1]:
     1. Find the path to the `Xopt-GEECS` environment with `conda info --envs`
-    1. Run `git clone https://github.com/SLAC-ML/Badger-Plugins.git <path to Xopt-GEECS env>\Lib\Badger-Plugins`  filling in the path you found in the previous step.
+    1. Run `git clone https://github.com/SLAC-ML/Badger-Plugins.git <path to Xopt-GEECS env>\Lib\Badger-Plugins` 
+       filling in the path you found in the previous step.
     1. Navigate to the new Badger-Plugins folder, and switch to the 
     `plugin-refactoring` branch using `git checkout plugin-refactoring`
+1. Create symlinks in the `environment` and `interface` folders in `<path to Xopt-GEECS env>\Lib\Badger-Plugins`
+   called `geecs` to the `badger-plugins/environments/geecs` and 
+   `badger-plugins/interfaces/geecs` folders respectively (see `badger-plugins/README.md`)
 
 [^1] If anyone knows how to automate the Badger-Plugins copy, either by:
 * Adding the clone-repo instruction from within the `environment.yml` file
