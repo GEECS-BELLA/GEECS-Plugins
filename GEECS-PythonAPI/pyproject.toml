@@ -26,6 +26,7 @@ screeninfo = "^0.8.1"
 # other
 python-dotenv = "^1.0.0"
 progressbar2 = "^4.2.0"
+xopt = "^1.4.1"
 mysql-connector = "^2.2.9"
 
 # internal libraries
