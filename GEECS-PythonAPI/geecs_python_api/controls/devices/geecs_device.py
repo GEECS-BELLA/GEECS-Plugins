@@ -56,7 +56,7 @@ class GeecsDevice:
         self.use_alias_in_TCP_subscription = True
 
         self.setpoints: dict[VarAlias, Any] = {}
-        self.state: dict[VarAlias, Any] = {'fresh': True}
+        self.state: dict[VarAlias, Any] = {'fresh': True,"shot number":None}
         self.generic_vars = ['Device Status', 'device error', 'device preset']
 
         if not self.__dev_virtual:
@@ -614,7 +614,7 @@ class GeecsDevice:
     def handle_subscription(self, net_msg: mh.NetworkMessage) -> tuple[str, int, dict[str, str]]:
         try:
             dev_name, shot_nb, dict_vals = GeecsDevice._subscription_parser(net_msg.msg)
-
+            
             # Queue & notify
             if self.notify_on_tcp:
                 self.queue_tcp_msgs.put((dev_name, shot_nb, dict_vals))
@@ -626,6 +626,7 @@ class GeecsDevice:
 
             # Update dictionaries
             if dev_name == self.get_name() and dict_vals:
+                self.state['shot number'] = shot_nb
                 
                 for var, val in dict_vals.items():
                     if var in self.generic_vars:
@@ -635,6 +636,7 @@ class GeecsDevice:
                         var_alias: VarAlias = self.var_aliases_by_name[var][0]
                         self.state[var_alias] = self.interpret_value(var_alias, val)
                         self.state['fresh']=True
+                        
                     else:
                         if self.use_alias_in_TCP_subscription:
                             var_alias = self.find_alias_by_var(var)
