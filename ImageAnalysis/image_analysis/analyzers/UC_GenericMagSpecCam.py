@@ -182,6 +182,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
             self.print_time(" Optimization Factor:")
 
             if self.do_transverse_calculation:
+
                 sigma_arr, x0_arr, amp_arr, err_arr = analyze.transverse_slice_loop(
                     image,
                     calibration_factor=self.transverse_calibration,
@@ -189,17 +190,27 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
                     binsize=self.transverse_slice_binsize)
                 self.print_time(" Gaussian Fits for each Slice:")
 
-                average_beam_size = analyze.calculate_average_size(sigma_arr, amp_arr)
-                self.print_time(" Average Beam Size:")
+                if np.sum(amp_arr) > 0:
+                    average_beam_size = analyze.calculate_average_size(sigma_arr, amp_arr)
+                    self.print_time(" Average Beam Size:")
 
-                linear_fit = analyze.fit_beam_angle(x0_arr, amp_arr, energy_arr)
-                self.print_time(" Beam Angle Fit:")
+                    linear_fit = analyze.fit_beam_angle(x0_arr, amp_arr, energy_arr)
+                    self.print_time(" Beam Angle Fit:")
 
-                beam_angle = linear_fit[0]
-                beam_intercept = linear_fit[1]
-                projected_axis, projected_arr, projected_beam_size = analyze.calculate_projected_beam_size(image, self.transverse_calibration)
-                projected_beam_size = projected_beam_size * self.transverse_calibration
-                self.print_time(" Projected Size:")
+                    beam_angle = linear_fit[0]
+                    beam_intercept = linear_fit[1]
+                    projected_axis, projected_arr, projected_beam_size = analyze.calculate_projected_beam_size(image, self.transverse_calibration)
+                    projected_beam_size = projected_beam_size * self.transverse_calibration
+                    self.print_time(" Projected Size:")
+                else:
+                    print("Error with transverse calcs.  Some charge on camera but still sum to zero:")
+                    print("charge_on_camera=", charge_on_camera)
+                    print("sum(amp_arr)=", np.sum(amp_arr))
+
+                    average_beam_size = 0.0
+                    projected_beam_size = 0.0
+                    beam_angle = 0.0
+                    beam_intercept = 0.0
             else:
                 average_beam_size = 0.0
                 projected_beam_size = 0.0

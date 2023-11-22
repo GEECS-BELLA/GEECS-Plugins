@@ -36,7 +36,12 @@ def nBitPNG(fname):
         sig_bits = 16
     
     # read png and scale
-    raw_png = im.imread(fname,as_gray=True)
+    try:
+        raw_png = im.imread(fname, mode='F')
+    except:
+        print("The new im.imread function didn't work, reverting to old version.")
+        raw_png = im.imread(fname, as_gray=True)
+
     scaled_image = raw_png/(2**(16-sig_bits))
     
     return scaled_image
