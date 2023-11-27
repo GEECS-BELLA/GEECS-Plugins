@@ -147,7 +147,7 @@ class LPA:
                           dE_weight: float = 1., pC_weight: float = 1., MeV_weight: float = 1.)\
             -> dict[str, np.ndarray]:
         scan_data = ScanData(scan_path, ignore_experiment_name=exp.is_offline)
-        indexes, setpoints, matching = scan_data.bin_data(device, variable)
+        indexes, setpoints, matching = scan_data.group_shots_by_scan_parameter(device, variable)
         magspec_data = scan_data.analyze_mag_spec(indexes)
         if magspec_data:
             objs = self.objective_analysis(setpoints, magspec_data, dE_weight, pC_weight, MeV_weight)
@@ -264,7 +264,7 @@ if __name__ == "__main__":
     plt.show(block=True)
 
     # _scan_data = ScanData(_scan_path, ignore_experiment_name=_htu.is_offline)
-    # _indexes, _setpoints, _matching = _scan_data.bin_data('U_ESP_JetXYZ', 'Position.Axis 3')
+    # _indexes, _setpoints, _matching = _scan_data.group_shots_by_scan_parameter('U_ESP_JetXYZ', 'Position.Axis 3')
     # _magspec_data = _scan_data.analyze_mag_spec(_indexes)
     #
     # spec = 'hres'
