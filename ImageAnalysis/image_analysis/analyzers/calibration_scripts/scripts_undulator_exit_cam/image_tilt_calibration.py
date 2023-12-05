@@ -8,15 +8,11 @@ of the tilt-corrected image.
 @Chris
 """
 
-import sys
-import os
 import numpy as np
 from scipy import ndimage
 import matplotlib.pyplot as plt
-
-rootpath = os.path.abspath("../../../../")
-sys.path.insert(0, rootpath)
-import image_analysis.analyzers.calibration_scripts.modules_image_processing.pngTools as pngTools
+from pathlib import Path
+from ImageAnalysis.image_analysis.utils import read_imaq_png_image
 
 
 def find_two_peaks(input_image):
@@ -61,7 +57,8 @@ rotated_image = []
 for i in range(num_shots):
     sample_shot_number = shot_array[i]
     fullpath = sample_data_path + sample_filename + '{:03d}'.format(sample_shot_number) + sample_extension
-    raw_image = np.array(pngTools.nBitPNG(fullpath))
+
+    raw_image = read_imaq_png_image(Path(fullpath))*1.0
 
     """
     print("Raw Image: ", np.shape(raw_image))
