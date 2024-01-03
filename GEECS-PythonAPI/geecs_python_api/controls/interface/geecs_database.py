@@ -6,19 +6,46 @@ from pathlib import Path
 from typing import Union, Optional
 from geecs_python_api.controls.api_defs import ExpDict
 from geecs_python_api.controls.interface.geecs_errors import api_error
-import tkinter as tk
-from tkinter import filedialog
 
-# Pop-ups initialization
-tk_root = tk.Tk()
-tk_root.withdraw()
+def find_user_data_directory_relative(start_path='.'):
+    current_path = os.path.abspath(start_path)
+    original_path = current_path  # Save the original starting path
+    root = os.path.abspath(os.sep)  # Absolute path to root directory, e.g., "/" for UNIX-like systems
+
+    while current_path != root:
+        check_path = os.path.join(current_path, "user data")
+        if os.path.isdir(check_path):
+            return os.path.relpath(check_path, original_path)  # Return relative path
+        current_path = os.path.dirname(current_path)
+    
+    return None  # Return None if the directory is not found
+    
+def load_config():
+    config = configparser.ConfigParser()
+    config_path = os.path.expanduser('~/.config/geecs_python_api/config.ini')
+    if os.path.exists(config_path):
+        config.read(config_path)
+        return config
+    else:
+        return None
+
 
 
 def find_database():
-    default_path = r'C:\GEECS\user data'
+    
+    # Example usage:
+    default_path = find_user_data_directory_relative()
+    if default_path == None:
+        config = load_config()
+        if config and 'Paths' in config and 'geecs_data' in config['Paths']:
+            default_path = config['Paths']['geecs_data']
+            print(f"GEECS data path is: {default_path}")
+        else:
+            print("Configuration file not found or the path is not set.")
     default_name = 'Configurations.INI'
 
     db_name = db_ip = db_user = db_pwd = ''
+    
     if not os.path.isfile(os.path.join(default_path, default_name)):
         path_cfg = filedialog.askopenfilename(filetypes=[('INI Files', '*.INI'), ('All Files', '*.*')],
                                               initialdir=default_path,

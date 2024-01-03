@@ -11,28 +11,19 @@ the info I need.  Mostly because I don't know how to store variables in consoles
 @Chris
 """
 
-import sys
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
-
-rootpath = os.path.abspath("../../../../../")
-sys.path.insert(0, rootpath)
-
-import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.pngTools as pngTools
-import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.shot_charge_reader as charge_tdms
-import ImageAnalysis.image_analysis.analyzers.UC_HiResMagCam as mag_spec_caller
+from pathlib import Path
+from ImageAnalysis.image_analysis.utils import read_imaq_png_image
+import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.shot_charge_reader as charge_reader
+from ImageAnalysis.image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
 import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.directory_functions as directory_functions
-import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.mag_spec_analysis as mag_spec_analysis
 import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.math_tools as math_tools
 
 
 def linear(x, a):
     return a * x
-
-
-# Locate the scan directory
 
 
 doPrint = False
@@ -61,9 +52,10 @@ else:
 super_path = directory_functions.compile_daily_path(data_day, data_month, data_year)
 image_name = "U_HiResMagCam"
 
-inputParams = mag_spec_caller.UC_HiResMagCamImageAnalyzer(
+calibration_analyzer = UC_GenericMagSpecCamAnalyzer(
+    mag_spec_name='hires',
     noise_threshold=100,
-    edge_pixel_crop=1,
+    roi=[1, -1, 1, -1],
     saturation_value=4095,
     normalization_factor=1,  # 7.643283839778091e-07,
     transverse_calibration=43,
@@ -71,7 +63,9 @@ inputParams = mag_spec_caller.UC_HiResMagCamImageAnalyzer(
     transverse_slice_threshold=0.02,
     transverse_slice_binsize=5,
     optimization_central_energy=100.0,
-    optimization_bandwidth_energy=2.0).build_input_parameter_dictionary()
+    optimization_bandwidth_energy=2.0)
+
+input_params = calibration_analyzer.build_input_parameter_dictionary()
 
 num_shots = directory_functions.get_number_of_shots(super_path, scan_number, image_name)
 shot_arr = np.array(range(num_shots)) + 1
@@ -89,29 +83,21 @@ for i in range(len(shot_arr)):
         print("Shot Number:", shot_number)
     fullpath = directory_functions.compile_file_location(super_path, scan_number, shot_number, image_name,
                                                          suffix=".png")
-    image = pngTools.nBitPNG(fullpath)
+    image = read_imaq_png_image(Path(fullpath))*1.0
     if doPrint:
         print("Loaded")
 
-    processed_image = image.astype(np.float32)
-    returned_image, MagSpecDict, lineouts = mag_spec_analysis.analyze_image(processed_image, inputParams)
-    clipping_arr[i] = MagSpecDict['camera_clipping_factor']
-    saturation_arr[i] = MagSpecDict['camera_saturation_counts']
-    camera_counts_arr[i] = MagSpecDict['total_charge_pC']
+    analyzer_returns = calibration_analyzer.analyze_image(image)
+    mag_spec_dict = analyzer_returns["analyzer_return_dictionary"]
+    clipping_arr[i] = mag_spec_dict['camera_clipping_factor']
+    saturation_arr[i] = mag_spec_dict['camera_saturation_counts']
+    camera_counts_arr[i] = mag_spec_dict['total_charge_pC']
     if doPrint:
         print("Clipped Percentage:", clipping_arr[i])
         print("Saturation Counts:", saturation_arr[i])
         print("Camera Counts:", camera_counts_arr[i])
 
-    """
-    clipping_arr[i] = MagSpecAnalysis.CalculateClippedPercentage(image)
-    print("Clipped Percentage:", clipping_arr[i])
-    max_pixel_value = 4095
-    saturation_arr[i] = MagSpecAnalysis.SaturationCheck(image, max_pixel_value)
-    print("Saturation Counts:", saturation_arr[i])
-   """
-
-    picoscope_charge_arr[i] = charge_tdms.get_shot_charge(super_path, scan_number, shot_number)
+    picoscope_charge_arr[i] = charge_reader.get_shot_charge(super_path, scan_number, shot_number)
     if doPrint:
         print("Picoscope Charge:", picoscope_charge_arr[i])
 print()
@@ -145,28 +131,26 @@ both_pass = math_tools.get_inequality_indices(all_conditions)
 both_picoscope_charge_arr = picoscope_charge_arr[both_pass]
 both_camera_counts_arr = camera_counts_arr[both_pass]
 
-# A polyfit is alright, but we would want the y-intercept to be zero
-lfit = np.polyfit(both_camera_counts_arr, both_picoscope_charge_arr, 1)
-# So instead we just fit to a linear function and change the lfit values to this fit
-popt, pcov = curve_fit(linear, both_camera_counts_arr, both_picoscope_charge_arr)
-lfit[0] = popt[0]
-lfit[1] = 0
-print("Fit Values:", lfit)
+linear_fit = np.zeros(2)
+p_opt, p_cov = curve_fit(linear, both_camera_counts_arr, both_picoscope_charge_arr)
+linear_fit[0] = p_opt[0]
+linear_fit[1] = 0
+print("Fit Values:", linear_fit)
 
 print("Calibration Constants:")
-tdms_filepath = charge_tdms.compile_tdms_filepath(super_path, scan_number)
-charge_tdms.print_normalization(num_shots, tdms_filepath)
-print("const_normalization_factor =", lfit[0])
+tdms_filepath = charge_reader.compile_tdms_filepath(super_path, scan_number)
+charge_reader.print_normalization(num_shots, tdms_filepath)
+print("const_normalization_factor =", linear_fit[0])
 
 axis = np.linspace(min(camera_counts_arr), max(camera_counts_arr), 50)
-slope = axis * lfit[0] + lfit[1]
-# slope2 = axis * MagSpecAnalysis.const_normalization_factor + lfit[1]
+slope = axis * linear_fit[0] + linear_fit[1]
+# slope2 = axis * MagSpecAnalysis.const_normalization_factor + linear_fit[1]
 
 plt.scatter(camera_counts_arr, picoscope_charge_arr, color="r", marker="o", label="All Shots")
 plt.scatter(both_camera_counts_arr, both_picoscope_charge_arr, color="b", marker="o", label="Good Shots")
 plt.scatter(clip_camera_counts_arr, clip_picoscope_charge_arr, color="k", marker="1", label="Not Clipped")
 plt.scatter(sat_camera_counts_arr, sat_picoscope_charge_arr, color="k", marker="2", label="Unsaturated")
-plt.plot(axis, slope, c='k', ls='dashed', label="Fit: " + '{:.3e}'.format(lfit[0]))
+plt.plot(axis, slope, c='k', ls='dashed', label="Fit: " + '{:.3e}'.format(linear_fit[0]))
 # plt.plot(axis, slope2, c = 'g', ls = 'dashed', label="Old Calibration")
 if normalizationCheck:
     plt.xlabel("Calibrated Camera Charge (pC)")

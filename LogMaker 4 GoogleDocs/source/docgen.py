@@ -217,9 +217,12 @@ def cropAndScaleImage(imagepath,margin_left,margin_top,
     #print(img.size)
     width = int(img.size[0]-margin_right)
     height = int(img.size[1]-margin_bottom)
+    print('image size:', img.size[0], img.size[1])
+    print('margin left, margin top, right, bottom = ', int(margin_left), int(margin_top), width, height)
     img=img.crop((int(margin_left), int(margin_top), width, height))
-    img=img.resize((int(width*scalefactor), int(height*scalefactor)), 
-                    Image.ANTIALIAS)
+    img=img.resize((int(width*scalefactor), int(height*scalefactor)))
+					# img=img.resize((int(width*scalefactor), int(height*scalefactor)), 
+                    # Image.ANTIALIAS)
     img.save(imagepath,"PNG",quality = 94)
         
 # ==================FUNCTIONS USING GOOGLE API========================
@@ -308,7 +311,7 @@ def createExperimentLog(logtempID,tempfolderID,logfolderID,
     request = {
         "function": 'createExperimentLog', 
         "parameters": [logtempID, tempfolderID, logfolderID, logfilename],
-        "devMode": False
+        "devMode": True
     }
 
     try:
@@ -373,7 +376,7 @@ def appendToLog(templateID,documentID,search,servicevar):
     request = {
         "function": 'appendTemplate', 
         "parameters": [templateID,documentID],
-        "devMode": False
+        "devMode": True
     }
     # If no search term is provided, 
     # or the search term ain't in the document,
@@ -486,7 +489,7 @@ def findAndReplace(documentID,placeholdersandvalues,servicevar):
 
 # Find and replace placeholders in tables with images. 
 # So far only for images in tables.
-def findAndReplaceImage(documentID,imageid, pattern,servicevar):
+def findAndReplaceImage(documentID,imageID, pattern,servicevar):
     """
     Finds pattern in a gdocument and replaces
     it with an image from google drive. 
@@ -516,7 +519,7 @@ def findAndReplaceImage(documentID,imageid, pattern,servicevar):
     
     request = {
         "function": 'findAndReplaceImage', 
-        "parameters": [documentID,imageid,pattern],
+        "parameters": [documentID,imageID,pattern],
         "devMode": False
     }
 
@@ -562,13 +565,13 @@ def uploadImage(localimagepath,destinationID):
     driveservice = establishService(API_SERVICE_NAME,API_VERSION)      
     #Create an execution request object.
     file_metadata = {'name': date + " " + time 
-                    + 'tmp.png', 'parents': [destinationID]}
+                    + 'tmp.png', 'parents': [destinationID],}
     media = MediaFileUpload(localimagepath,
                           mimetype='image/png'
                           )
     try:
         file = driveservice.files().create(body=file_metadata,
-                                    media_body=media).execute()
+                                    media_body=media, supportsAllDrives=True).execute()
         if 'error' in file:
         # The API executed, but the script returned an error.
     

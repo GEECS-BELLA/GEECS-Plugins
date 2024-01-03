@@ -53,9 +53,10 @@ class GeecsDevice:
         self.var_spans: dict[VarAlias, tuple[Optional[float], Optional[float]]] = {}
         self.var_names_by_index: dict[int, tuple[str, VarAlias]] = {}
         self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = {}
+        self.use_alias_in_TCP_subscription = True
 
         self.setpoints: dict[VarAlias, Any] = {}
-        self.state: dict[VarAlias, Any] = {}
+        self.state: dict[VarAlias, Any] = {'fresh': True,"shot number":None}
         self.generic_vars = ['Device Status', 'device error', 'device preset']
 
         if not self.__dev_virtual:
@@ -613,7 +614,7 @@ class GeecsDevice:
     def handle_subscription(self, net_msg: mh.NetworkMessage) -> tuple[str, int, dict[str, str]]:
         try:
             dev_name, shot_nb, dict_vals = GeecsDevice._subscription_parser(net_msg.msg)
-
+            
             # Queue & notify
             if self.notify_on_tcp:
                 self.queue_tcp_msgs.put((dev_name, shot_nb, dict_vals))
@@ -625,6 +626,8 @@ class GeecsDevice:
 
             # Update dictionaries
             if dev_name == self.get_name() and dict_vals:
+                self.state['shot number'] = shot_nb
+                
                 for var, val in dict_vals.items():
                     if var in self.generic_vars:
                         self.interpret_generic_variables(var, val)
@@ -632,13 +635,19 @@ class GeecsDevice:
                     if var in self.var_aliases_by_name:
                         var_alias: VarAlias = self.var_aliases_by_name[var][0]
                         self.state[var_alias] = self.interpret_value(var_alias, val)
+                        self.state['fresh']=True
+                        
                     else:
-                        var_alias = self.find_alias_by_var(var)
+                        if self.use_alias_in_TCP_subscription:
+                            var_alias = self.find_alias_by_var(var)
+                        else:
+                            var_alias = var #SB: don't always like switching from user defined variable to the alias
                         try:
                             val = float(val)
                         except Exception:
                             pass
                         self.state[var_alias] = val
+                        self.state['fresh']=True
 
             return dev_name, shot_nb, dict_vals
 

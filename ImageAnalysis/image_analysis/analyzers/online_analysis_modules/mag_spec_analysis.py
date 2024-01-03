@@ -38,8 +38,8 @@ def calculate_projected_beam_size(image, calibration_factor):
 
     axis_arr = np.linspace(0, len(proj_arr) * calibration_factor, len(proj_arr))
     axis_arr = np.flip(axis_arr)
-    fit = fit_data_something( proj_arr, axis_arr, gaussian,
-                              guess=[max(proj_arr), 20 * calibration_factor, axis_arr[np.argmax(proj_arr)]])
+    fit = fit_data_something(proj_arr, axis_arr, gaussian,
+                             guess=[max(proj_arr), 20 * calibration_factor, axis_arr[np.argmax(proj_arr)]])
     beam_size = fit[1]
     return axis_arr, proj_arr, beam_size
 

@@ -19,10 +19,10 @@ import numpy as np
 # rootpath = os.path.abspath("../../")
 # sys.path.insert(0, rootpath)
 
-import image_analysis.analyzers.default_analyzer_generators as default_generator
+import image_analysis.analyzers.default_analyzer_initialization as default_analyzer
 import image_analysis.analyzers.UC_GenericMagSpecCam as mag_spec_caller
-
 import image_analysis.labview_adapters as labview_function_caller
+
 
 def generate_elliptical_gaussian(amplitude, height, width, center_x, center_y, sigma_x, sigma_y, angle_deg):
     x = np.arange(0, width, 1, float)
@@ -62,9 +62,9 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
 
         # start = time.perf_counter()
         test_analyzer = mag_spec_caller.UC_GenericMagSpecCamAnalyzer(
-            mag_spec_name = 'hires',
-            roi = [1, -1, 1, -1],
-            noise_threshold = 100,  # CONFIRM IF THIS WORKS
+            mag_spec_name='hires',
+            roi=[1, -1, 1, -1],
+            noise_threshold=100,  # CONFIRM IF THIS WORKS
             saturation_value=4095,
             normalization_factor=1,
             transverse_calibration=1,
@@ -101,15 +101,16 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
 
         # Here I am only checking that the labview wrapper function is working properly by checking the output shapes
 
-        test_default_analyzer = default_generator.return_default_hi_res_mag_cam_analyzer()
+        test_default_analyzer = default_analyzer.return_default_hi_res_mag_cam_analyzer()
         input_parameters = test_default_analyzer.build_input_parameter_dictionary()
         default_roi = input_parameters['roi_bounds_pixel']
-        test_array_shape = np.shape(elliptical_gaussian_array[default_roi[0]:default_roi[1],default_roi[2]:default_roi[3]])
+        test_array_shape = np.shape(
+            elliptical_gaussian_array[default_roi[0]:default_roi[1], default_roi[2]:default_roi[3]])
 
         camera_name = "UC_HiResMagCam"
         returned_image_labview, analyze_dict_labview, lineouts_labview = labview_function_caller.analyze_labview_image(
             camera_name, elliptical_gaussian_array, background=None)
-        np.testing.assert_array_equal(np.shape(returned_image_labview),test_array_shape)
+        np.testing.assert_array_equal(np.shape(returned_image_labview), test_array_shape)
         np.testing.assert_array_equal(np.shape(analyze_dict_labview), np.array([14, ]))
         np.testing.assert_array_equal(np.shape(lineouts_labview), np.array([2, test_array_shape[1]]))
 

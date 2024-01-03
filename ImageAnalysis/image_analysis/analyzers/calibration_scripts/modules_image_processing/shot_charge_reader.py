@@ -29,16 +29,15 @@ def get_beam_charge(tdms_filepath):
     # elegant usage of TdmsFile could be only reading the necessary picoscope data
     tdms_file = TdmsFile.read(tdms_filepath)
     picoscope_group = tdms_file['U-picoscope5245D']
-    charge_pC_channel = picoscope_group['U-picoscope5245D charge pC']
-    scan_charge_vals = np.asarray(charge_pC_channel[:], dtype=float)
-    tdms_file = None
+    charge_pico_coulomb_channel = picoscope_group['U-picoscope5245D charge pC']
+    scan_charge_vals = np.asarray(charge_pico_coulomb_channel[:], dtype=float)
     return scan_charge_vals
 
 
 def get_shot_charge(super_path, scan_number, shot_number):
     tdms_filepath = compile_tdms_filepath(super_path, scan_number)
-    charge_pC_vals = get_beam_charge(tdms_filepath)
-    return charge_pC_vals[shot_number - 1]
+    charge_pico_coulomb_vals = get_beam_charge(tdms_filepath)
+    return charge_pico_coulomb_vals[shot_number - 1]
 
 
 def get_camera_trigger_and_exposure(tdms_filepath):
@@ -46,5 +45,4 @@ def get_camera_trigger_and_exposure(tdms_filepath):
     hiresmagcam_group = tdms_file['U_HiResMagCam']
     exposure_list = hiresmagcam_group['U_HiResMagCam Exposure']
     trigger_list = hiresmagcam_group['U_HiResMagCam TriggerDelay']
-    tdms_file = None
     return trigger_list, exposure_list

@@ -8,33 +8,28 @@ of the tilt-corrected image.
 @Chris
 """
 
-import sys
-import os
-import time
 import numpy as np
 from scipy import ndimage
 import matplotlib.pyplot as plt
-
-rootpath = os.path.abspath("../../../../")
-sys.path.insert(0, rootpath)
-import image_analysis.analyzers.calibration_scripts.modules_image_processing.pngTools as pngTools
+from pathlib import Path
+from ImageAnalysis.image_analysis.utils import read_imaq_png_image
 
 
 def find_two_peaks(input_image):
     left_image = input_image[:, 0:int(np.shape(input_image)[1] / 2)]
     right_image = input_image[:, int(np.shape(input_image)[1] / 2) + 1:-1]
 
-    left_ysize, left_xsize = np.shape(left_image)
+    left_y_size, left_x_size = np.shape(left_image)
     left_x_projection = np.sum(left_image, axis=0)
     left_y_projection = np.sum(left_image, axis=1)
-    left_x_loc = np.average(np.arange(0, left_xsize), weights=left_x_projection)
-    left_y_loc = np.average(np.arange(0, left_ysize), weights=left_y_projection)
+    left_x_loc = np.average(np.arange(0, left_x_size), weights=left_x_projection)
+    left_y_loc = np.average(np.arange(0, left_y_size), weights=left_y_projection)
 
-    right_ysize, right_xsize = np.shape(right_image)
+    right_y_size, right_x_size = np.shape(right_image)
     right_x_projection = np.sum(right_image, axis=0)
     right_y_projection = np.sum(right_image, axis=1)
-    right_x_loc = np.average(np.arange(0, right_xsize), weights=right_x_projection)
-    right_y_loc = np.average(np.arange(0, right_ysize), weights=right_y_projection)
+    right_x_loc = np.average(np.arange(0, right_x_size), weights=right_x_projection)
+    right_y_loc = np.average(np.arange(0, right_y_size), weights=right_y_projection)
 
     right_x_loc = right_x_loc + int(np.shape(input_image)[1] / 2)
     return left_x_loc, left_y_loc, right_x_loc, right_y_loc
@@ -58,10 +53,12 @@ tilt_values = np.zeros(num_shots)
 calibration_values = np.zeros(num_shots)
 zeroth_values = np.zeros(num_shots)
 
+rotated_image = []
 for i in range(num_shots):
     sample_shot_number = shot_array[i]
     fullpath = sample_data_path + sample_filename + '{:03d}'.format(sample_shot_number) + sample_extension
-    raw_image = np.array(pngTools.nBitPNG(fullpath))
+
+    raw_image = read_imaq_png_image(Path(fullpath))*1.0
 
     """
     print("Raw Image: ", np.shape(raw_image))
@@ -111,9 +108,11 @@ plt.title("Rotated")
 plt.show()
 """
 
+calibration_0th_order = np.average(zeroth_values)
+calibration_um_per_pixel = np.average(calibration_values)
 print("* Calibrated Tilt Angle    :", np.average(tilt_values), "+/-", np.std(tilt_values))
-print("* Calibration Factor       :", np.average(calibration_values), "+/-", np.std(calibration_values))
-print("* Calibrated 0th Order Loc.:", np.average(zeroth_values), "+/-", np.std(zeroth_values))
+print("* Calibration Factor       :", calibration_um_per_pixel, "+/-", np.std(calibration_values))
+print("* Calibrated 0th Order Loc.:", calibration_0th_order, "+/-", np.std(zeroth_values))
 
 
 # Perform a projection
@@ -123,7 +122,7 @@ spectra_projection = np.sum(rotated_image, axis=0)
 # Plot out the sample spectrum
 
 pixel_axis = np.arange(0, np.shape(rotated_image)[1])
-wavelength_axis = (pixel_axis - rot_right_x) * -calibration
+wavelength_axis = (pixel_axis - calibration_0th_order) * -calibration_um_per_pixel
 
 crop_bounds = np.where(wavelength_axis > min_wavelength)[0]
 crop_wavelength_axis = wavelength_axis[crop_bounds]
