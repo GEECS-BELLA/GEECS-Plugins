@@ -14,26 +14,6 @@ class Interface(interface.Interface):
     devices: dict = {}
     testing: bool = False
     print("initializing interface")
-    
-    # def __init__(self):
-    #     super().__init__()
-    #     self.testing = False  # Add a testing mode if needed
-        
-    # def __init__(self, variables):
-    #     self.variables = variables
-    #     self.devices = self._init_devices()
-    #     self.testing = False  # Add a testing mode if needed
-
-    # def _init_devices(self):
-    #     devices = {}
-    #     for var in self.variables:
-    #         device_name, _ = var.split(':')
-    #         if device_name not in devices:
-    #             device = GeecsDevice(device_name)  # Replace with actual device initialization
-    #             variables = [v.split(':')[1] for v in self.variables if v.startswith(device_name)]
-    #             device.subscribe_var_values(variables)  # Replace with actual subscription method
-    #             devices[device_name] = device
-    #     return devices
 
     @staticmethod
     def get_default_params():
@@ -41,7 +21,9 @@ class Interface(interface.Interface):
 
     def get_values(self, variables):
         values = {}
+        # print('in get_values, variables: ',variables)
         for var in variables:
+            print(var)
             device_name, variable = var.split(':')
             device = self.devices[device_name]
 
@@ -59,36 +41,33 @@ class Interface(interface.Interface):
             except Exception as e:
                 values[var] = None
                 print(f"Error getting value for {var}: {e}")
-
+        print(values)
         return values
 
-    def set_values(self, channel: str, value, attr: str):
-        pass
-        
+    def set_values(self, variable_inputs):
+        # print('in interface set_values:',variable_inputs)
+        # print('in interface self.devices:',self.devices)
+
+        for variable, value in variable_inputs.items():
+            device_name, attribute = variable.split(':')
+            device_response = self.devices[device_name].set(attribute, value)
+            print('device response: ',device_response)
+            time.sleep(.1)
+                
     def initialize_subscribers(self,variables):
-        print(variables)
-        print(self.devices)
+        # print(variables)
+        # print(self.devices)
         #
-        # for device_name, device in self.devices.items():
-        #     try:
-        #         print(f"Attempting to unsubscribe from {device_name}...")
-        #         device.unsubscribe_var_values()
-        #         print(f"Successfully unsubscribed from {device_name}.")
-        #     except Exception as e:
-        #         print(f"Error unsubscribing from {device_name}: {e}")
+        print('in initialize subscrbers, self.devices: ',self.devices)
+        for device_name, device in self.devices.items():
+            try:
+                print(f"Attempting to unsubscribe from {device_name}...")
+                device.unsubscribe_var_values()
+                print(f"Successfully unsubscribed from {device_name}.")
+            except Exception as e:
+                print(f"Error unsubscribing from {device_name}: {e}")
+
         
-        # Interface.devices = {}
-        # for var in variables:
-        #     device_name, _ = var.split(':')
-        #     if device_name not in Interface.devices:
-        #         device = GeecsDevice(device_name)  # Replace with actual device initialization
-        #         variables = [v.split(':')[1] for v in variables if v.startswith(device_name)]
-        #         device.subscribe_var_values(variables)  # Replace with actual subscription method
-        #         Interface.devices[device_name] = device
-        #         time.sleep(0.5)
-        #         print(device.state)
-        
-        self.devices = {}
         for var in variables:
             device_name, _ = var.split(':')
             if device_name not in self.devices:
@@ -100,6 +79,8 @@ class Interface(interface.Interface):
                 self.devices[device_name] = device
                 time.sleep(1.1)
                 print(device.state)
+                
+        print('in initialize subscrbers (end), self.devices : ',self.devices)
                 
         # List all active threads
         active_threads = threading.enumerate()
