@@ -11,3 +11,6 @@ That is:
 * symlink from BADGER_PLUGIN_ROOT/environments/geecs to Xopt-GEECS/badger-plugins/environments/geecs
 * symlink from BADGER_PLUGIN_ROOT/interfaces/geecs to Xopt-GEECS/badger-plugins/interfaces/geecs
 
+An example of how to create the symlinks on a mac:
+ 
+ln -s BADGER_PLUGIN_ROOT/environments/geecs to Xopt-GEECS/badger-plugins/environments/geecs

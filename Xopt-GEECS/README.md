@@ -1,22 +1,18 @@
 # Xopt-GEECS
 
-GUI for using Xopt in BELLA GEECS through GEECS-PythonAPI and Badger
+GUI for using Xopt in BELLA GEECS through GEECS-PythonAPI and Badger. The "geecs" interface handles all set/get commands that originate from badger. To use, an enviroment for the optimization problem must be created. See badger documentation and the bella_test environment on how to implement. 
 
 ## Install
 
-Badger is in the process of refactoring some items and will release a version 
-with refactored names soon. This project will use the refactored names using
-Badger's `plugin-refactoring` branch ahead of that release. 
+Badger core is maintained by the SLAC-ML group in their slaclab/badger github repo. 
 
 1. Make sure you have `conda` installed ([Conda installation](https://docs.conda.io/projects/conda/en/stable/user-guide/install/index.html))
 1. Navigate to the `Xopt-GEECS` directory
 1. Run `conda env create -f environment.yml`.
 1. Copy the Badger-Plugins into the environment[^1]:
     1. Find the path to the `Xopt-GEECS` environment with `conda info --envs`
-    1. Run `git clone https://github.com/SLAC-ML/Badger-Plugins.git <path to Xopt-GEECS env>\Lib\Badger-Plugins` 
+    1. Run `git clone https://github.com/slaclab/Badger-Plugins.git <path to Xopt-GEECS env>\Lib\Badger-Plugins` 
        filling in the path you found in the previous step.
-    1. Navigate to the new Badger-Plugins folder, and switch to the 
-    `plugin-refactoring` branch using `git checkout plugin-refactoring`
 1. Create symlinks in the `environment` and `interface` folders in `<path to Xopt-GEECS env>\Lib\Badger-Plugins`
    called `geecs` to the `badger-plugins/environments/geecs` and 
    `badger-plugins/interfaces/geecs` folders respectively (see `badger-plugins/README.md`)
