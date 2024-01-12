@@ -66,9 +66,9 @@ class Environment(environment.Environment):
         
         number_of_shots = 10 #this should be a setting somewhere
         for i in range(1, number_of_shots):            
-            result = self.interface.get_values(observable_names)
+            # result = self.interface.get_values(observable_names)
             
-            # result = self.get_fresh_values(observable_names, max_attempts=3, wait_time=0.5)
+            result = self.get_fresh_values(observable_names, max_attempts=3, wait_time=0.5)
             
             print('res in env step3: ', result)
             
@@ -95,48 +95,32 @@ class Environment(environment.Environment):
 
         return median_vals
         
-    def get_fresh_values(self, observable_names, max_attempts=1, wait_time=0.5):
+    def get_fresh_values(self, observable_names, max_attempts=3, wait_time=0.01):
+        
+        # a first attempt at making a method that requires the get_values method to return a 'fresh' result
+        
         print('in get fresh values')
         attempts = 0
         result = {}
         temp_observable_names = observable_names
         stale_observables = observable_names
-
+        
+        got_fresh_data = False
         while attempts < max_attempts:
             attempts += 1
             temp_result = self.interface.get_values(stale_observables)
             print('temp result: ',temp_result)
             
-            for key,val in temp_result.items():
-                if key == 'fresh':
-                    if val:
-                        print('got fresh_data for: ',key)
-                        result[key] = obs_data  # Update with fresh data
-
-            # for obs_name, obs_data in temp_result.items():
-            #     if obs_data.get('fresh', True):
-            #         print('got fresh_data for: ',obs_name)
-            #         result[obs_name] = obs_data  # Update with fresh data
-            #
-            #         if obs_name in stale_observables:
-            #             stale_observables.remove(obs_name)
-            #         print('current result: ', result)
-            #         print('stale_observables: ',stale_observables)
-            #     else:
-            #         print('got stale data for: ',obs_data)
-            #         print('stale_observables: ',stale_observables)
-                    
-                    
-                    
-                    
-                    
-            #         result[obs_name] = obs_data  # Update with fresh data
-
-            # if not fresh_observables:  # Break the loop if all observables are fresh
-            #     break
-            # else:
-            #     observable_names = fresh_observables  # Update the list for the next attempt
-            #     time.sleep(wait_time)
+            if all(sub_dict.get('fresh', False) for sub_dict in temp_result.values()):
+                got_fresh_data = True
+                break  # Exit the loop if all 'fresh' values are True
+    
+            time.sleep(wait_time)
+        
+        if got_fresh_data:
+            print('got fresh data')
+        else:
+            print('failed to get a new value')
 
         return temp_result
     
