@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Union, Optional
 from geecs_python_api.controls.api_defs import ExpDict
 from geecs_python_api.controls.interface.geecs_errors import api_error
+import tkinter as tk
+from tkinter import filedialog
 
 def find_user_data_directory_relative(start_path='.'):
     current_path = os.path.abspath(start_path)
@@ -53,7 +55,7 @@ def find_database():
                                               title='Choose a configuration file:')
     else:
         path_cfg = os.path.join(default_path, default_name)
-
+    print('path config',path_cfg)
     if path_cfg:
         try:
             config = configparser.ConfigParser()
@@ -66,7 +68,7 @@ def find_database():
 
         except Exception:
             pass
-
+    print('database name ',db_name)
     return db_name, db_ip, db_user, db_pwd
 
 

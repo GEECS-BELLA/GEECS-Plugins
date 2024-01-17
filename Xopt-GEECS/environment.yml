@@ -1,4 +1,4 @@
-name: Xopt-GEECS
+name: Xopt-GEECS-test
 channels:
   - conda-forge
   - defaults
@@ -6,7 +6,7 @@ dependencies:
   - python=3.10
   - xopt=2.0.1
   - badger-opt=1.0.0
-  - mysql-connector-python=8.2.0
+  - mysql-connector-python=8.0.18
   - pip
   - pip:
     - --editable ../GEECS-PythonAPI
