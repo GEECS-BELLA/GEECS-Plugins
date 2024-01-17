@@ -26,10 +26,10 @@ screeninfo = "^0.8.1"
 # other
 python-dotenv = "^1.0.0"
 progressbar2 = "^4.2.0"
-mysql-connector = "^2.2.9"
 
 # internal libraries
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }
+mysql-connector-python = "^8.2.0"
 
 [tool.poetry.group.dev.dependencies]
 spyder-kernels = ">=2.4.0,<2.5.0"
