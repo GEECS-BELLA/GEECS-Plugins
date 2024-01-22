@@ -8,18 +8,13 @@ from badger.interface import Interface
 
 class Environment(environment.Environment):
 
-    name = 'PW_OFI'
+    name = 'PW_FocusOnHPD'
 
     variables = {
-        'HEX-PL1-2:ypos': [3.7555, 4.0555],
-        'HEX-PL1-2:zpos': [-1.8, -1.5],
-        'STAGE-HPD-Tel:position': [190, 250],
-        'PRC-PL1-HighPressure:Pressure.device 1': [160, 200],
-        'PRC-PL1-HighPressure:Pressure.device 2': [160, 200],
-        'STAGE-1BL-Compression:Position.Axis 1': [8, 9]
+        'STAGE-HPD-Tel:position': [190, 250]
     }
 
-    observables = ['EM-HPD-1:data','CAM-PL1-LPMode:MisalignmentX','CAM-PL1-LPMode:MisalignmentY','ANALY-TEA-MagSpecSticher:ChargeAbove5GeV','ANALY-TEA-MagSpecSticher:ChargeAbove5GeV','CAM-TEA-EBeam_Profile:MeanCounts','CAM-HPD-CCD:MaxCounts']
+    observables = ['CAM-HPD-CCD:MaxCounts']
 
     some_parameter: str = 'test'
 
@@ -67,7 +62,7 @@ class Environment(environment.Environment):
 
         all_vals = {name: [] for name in observable_names}  # Initialize the dictionary
 
-        number_of_shots = 4 #this should be a setting somewhere
+        number_of_shots = 10 #this should be a setting somewhere
         for i in range(1, number_of_shots):
             # result = self.interface.get_values(observable_names)
 

@@ -11,15 +11,11 @@ class Environment(environment.Environment):
     name = 'PW_OFI'
 
     variables = {
-        'HEX-PL1-2:ypos': [3.7555, 4.0555],
-        'HEX-PL1-2:zpos': [-1.8, -1.5],
-        'STAGE-HPD-Tel:position': [190, 250],
-        'PRC-PL1-HighPressure:Pressure.device 1': [160, 200],
-        'PRC-PL1-HighPressure:Pressure.device 2': [160, 200],
-        'STAGE-1BL-Compression:Position.Axis 1': [8, 9]
+        'HEX-PL1-2:ypos': [4.3, 4.7],
+        'HEX-PL1-2:zpos': [-1., -1.3]
     }
 
-    observables = ['EM-HPD-1:data','CAM-PL1-LPMode:MisalignmentX','CAM-PL1-LPMode:MisalignmentY','ANALY-TEA-MagSpecSticher:ChargeAbove5GeV','ANALY-TEA-MagSpecSticher:ChargeAbove5GeV','CAM-TEA-EBeam_Profile:MeanCounts','CAM-HPD-CCD:MaxCounts']
+    observables = ['CAM-PL1-LPMode:centroidx','CAM-PL1-LPMode:centroidy','CAM-PL1-LPMode:Target.X','CAM-PL1-LPMode:Target.Y']
 
     some_parameter: str = 'test'
 
@@ -67,7 +63,7 @@ class Environment(environment.Environment):
 
         all_vals = {name: [] for name in observable_names}  # Initialize the dictionary
 
-        number_of_shots = 4 #this should be a setting somewhere
+        number_of_shots = 10 #this should be a setting somewhere
         for i in range(1, number_of_shots):
             # result = self.interface.get_values(observable_names)
 
@@ -94,10 +90,23 @@ class Environment(environment.Environment):
         #     else:
         #         median_vals[key] = None  # Or some other placeholder for empty lists
         median_vals = {key: np.median(values) for key, values in all_vals.items()}
+        # Specify the key you want to extract
+        Target.X = "CAM-PL1-LPMode:Target.X"  # Replace "your_key_here" with the actual key you want to extract
 
+        # Check if the key exists in the dictionary
+        if desired_key in all_vals:
+            # If the key exists, you can access its corresponding value (list of values)
+            values = all_vals[Target.X]
+            print("Key:", Target.X)
+            print("Values:", values)
+        else:
+            # If the key doesn't exist, handle the case accordingly
+            print("Key not found:", Target.X)
+
+        
 
         return median_vals
-
+#observables = ['CAM-PL1-LPMode:centroidx','CAM-PL1-LPMode:centroidy','CAM-PL1-LPMode:Target.X','CAM-PL1-LPMode:Target.Y']
     def get_fresh_values(self, observable_names, max_attempts=3, wait_time=0.01):
 
         # a first attempt at making a method that requires the get_values method to return a 'fresh' result
