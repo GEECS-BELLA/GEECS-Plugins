@@ -4,7 +4,7 @@ import threading
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
-GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Bella')
+GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
 from badger import interface
 
