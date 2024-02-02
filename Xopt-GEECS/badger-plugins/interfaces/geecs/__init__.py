@@ -50,18 +50,41 @@ class Interface(interface.Interface):
                 results[device_name]['fresh'] = state['fresh']
                 results[device_name]['shot number'] = state['shot number']
                 self.devices[device_name].state['fresh'] = False
-                
-        #
-        # print('devices parsed from state step1: ',devices)
-        # time.sleep(0.01)
-        # print('device state step2: ',state)
-        # print('devices parsed from state step2: ',devices)
         
         parsed_results = self.parse_tcp_states(results)
         
-        print('parsed_results: ',parsed_results)
+        # print('parsed_results: ',parsed_results)
              
         return parsed_results
+        
+    def get_fresh_values(self, observable_names, max_attempts=1, wait_time=0.01):
+        print('in get fresh values')
+        attempts = 0
+        result = {}  # This will store the final results
+        fresh_observables = set()  # To track observables that have been reported as fresh
+
+        while attempts < max_attempts and len(fresh_observables) < len(observable_names):
+            attempts += 1
+            stale_observables = [name for name in observable_names if name not in fresh_observables]
+            temp_result = self.get_values(stale_observables)
+            print('temp result: ', temp_result)
+
+            # Check each sub_dict for 'fresh'
+            for name, sub_dict in temp_result.items():
+                if sub_dict.get('fresh', False):
+                    fresh_observables.add(name)
+                    result[name] = sub_dict  # Update result with fresh data
+
+            if len(fresh_observables) == len(observable_names):
+                print('got fresh data for all observables')
+                break  # Exit the loop if all observables have been reported as fresh
+            
+            time.sleep(wait_time)
+
+        if len(fresh_observables) < len(observable_names):
+            print('failed to get fresh data for all observables')
+
+        return result
 
     def set_values(self, variable_inputs, max_retries = 1):
         
@@ -101,6 +124,7 @@ class Interface(interface.Interface):
         # hangups requiring force quits of python. To circumvent, TCP subscribers are created
         # and destroyed at each "get_variables" and "get_observable" call.
         # UPDATE TO THE ABOVE:  
+        
         for device_name, device in self.devices.items():
             try:
                 print(f"Attempting to unsubscribe from {device_name}...")
@@ -174,16 +198,7 @@ class Interface(interface.Interface):
         parsed_dict = {}
         
         shared_keys = ['fresh', 'shot number']
-        # exlcuded_keys = []
         
-        # for top_key, nested_dict in data.items():
-        #     for nested_key, value in nested_dict.items():
-        #         if nested_key not in shared_keys:
-        #             new_key = f'{top_key}:{nested_key}'
-        #             parsed_dict[new_key] = value
-        #         else:
-        #             parsed_dict[nested_key] = value
-
         for top_key, nested_dict in data.items():
             common_data = {k: v for k, v in nested_dict.items() if k in shared_keys}
             for nested_key, value in nested_dict.items():
