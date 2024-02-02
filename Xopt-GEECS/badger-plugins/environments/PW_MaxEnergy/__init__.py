@@ -8,13 +8,14 @@ from badger.interface import Interface
 
 class Environment(environment.Environment):
 
-    name = 'camera_exposure_time_test-PW'
+    name = 'PW_MaxEnergy'
 
     variables = {
-        'CAM-HPD-CCD:exposure': [0.01, .9]
+        'HEX-PL1-2:ypos': [3.6, 4.3],
+        'HEX-PL1-2:zpos': [-3, -2]
     }
 
-    observables = ['CAM-HPD-CCD:maxcounts']
+    observables = ['EM-HPD-1:data']
 
     some_parameter: str = 'test'
 
