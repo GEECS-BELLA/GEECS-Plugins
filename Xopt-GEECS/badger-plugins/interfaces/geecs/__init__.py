@@ -3,6 +3,14 @@ import time
 import threading
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.interface import load_config
+
+config = load_config()
+if config and 'Experiment' in config and 'expt' in config['Experiment']:
+    default_experiment = config['Experiment']['expt']
+    print(f"default experiment is: {default_experiment}")
+else:
+    print("Configuration file not found or default experiment not defined. While use Undulator as experiment. Could be a problem for you.")
 
 GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
 
