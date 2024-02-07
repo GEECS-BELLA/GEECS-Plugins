@@ -1,0 +1,9 @@
+---
+name: double_camera_test
+description: "test case for using optimizing two cameras simultaneously with HTU geecs"
+version: "0.1"
+dependencies:
+  - badger-opt
+  - geecs_python_api
+interface:
+  - geecs
