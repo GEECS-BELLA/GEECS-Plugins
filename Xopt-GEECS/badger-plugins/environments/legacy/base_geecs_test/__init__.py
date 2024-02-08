@@ -8,7 +8,7 @@ from badger.interface import Interface
 
 class Environment(environment.Environment):
 
-    name = 'base_geecs_env'
+    name = 'base_geecs_test'
 
     variables = {
         'UC_ChicaneSlit:exposure': [0.01, .9],
