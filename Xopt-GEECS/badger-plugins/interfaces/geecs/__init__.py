@@ -4,6 +4,7 @@ import threading
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.interface import load_config
+from badger import interface
 
 config = load_config()
 if config and 'Experiment' in config and 'expt' in config['Experiment']:
@@ -11,10 +12,10 @@ if config and 'Experiment' in config and 'expt' in config['Experiment']:
     print(f"default experiment is: {default_experiment}")
 else:
     print("Configuration file not found or default experiment not defined. While use Undulator as experiment. Could be a problem for you.")
+    default_experiment = 'Undulator'
 
-GeecsDevice.exp_info = GeecsDatabase.collect_exp_info('Undulator')
+GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
 
-from badger import interface
 
 class Interface(interface.Interface):
 
