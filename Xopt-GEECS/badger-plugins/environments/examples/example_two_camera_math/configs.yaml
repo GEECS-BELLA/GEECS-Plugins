@@ -1,6 +1,6 @@
 ---
-name: double_camera_test
-description: "test case for using optimizing two cameras simultaneously with HTU geecs"
+name: example_two_camera_math
+description: "Example using the geecs interface with the base geecs environment and an arbitrary optimization function"
 version: "0.1"
 dependencies:
   - badger-opt

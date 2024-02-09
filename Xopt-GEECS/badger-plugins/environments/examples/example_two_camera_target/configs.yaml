@@ -1,6 +1,6 @@
 ---
-name: bella_test
-description: "test environment for bella geecs"
+name: example_two_camera_target
+description: "Example using the geecs interface with the base geecs environment and optimizing to two targets"
 version: "0.1"
 dependencies:
   - badger-opt

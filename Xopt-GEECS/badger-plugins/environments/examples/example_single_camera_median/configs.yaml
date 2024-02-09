@@ -1,6 +1,6 @@
 ---
-name: bella_test
-description: "test environment for bella geecs"
+name: example_single_camera_median
+description: "Example using the geecs interface with the base geecs environment"
 version: "0.1"
 dependencies:
   - badger-opt
