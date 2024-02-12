@@ -1,4 +1,7 @@
-from ..parent_geecs_env import Environment as geecs_Environment
+try:  # The top import works in Badger with symlinks, the bottom import lets PyCharm know what is being imported
+    from ..base_geecs_env import Environment as geecs_Environment
+except ImportError:
+    from ...geecs_general.base_geecs_env import Environment as geecs_Environment
 
 
 class Environment(geecs_Environment):

@@ -7,6 +7,7 @@ from badger.interface import Interface
 from functools import reduce
 from operator import mul
 
+
 class Environment(environment.Environment):
     shots_per_step: int = 5
     max_fresh_retries: int = 3
