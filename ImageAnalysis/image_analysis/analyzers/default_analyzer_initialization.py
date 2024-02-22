@@ -3,6 +3,7 @@ import os
 
 from . import UC_GenericMagSpecCam as MagSpec
 from . import UC_UndulatorExitCam as PhotonSpec
+import UC_Amp2_IR_input as Amp2Input
 
 
 def build_config_path(config_filename):
@@ -20,3 +21,7 @@ def return_default_acave_mag_cam3_analyzer() -> MagSpec.UC_GenericMagSpecCamAnal
 
 def return_default_undulator_exit_cam_analyzer() -> PhotonSpec.UC_UndulatorExitCamAnalyzer:
     return PhotonSpec.return_analyzer_from_config_file(build_config_path('default_undulatorexitcam_settings.ini'))
+
+
+def return_default_amp2_input_analyzer() -> Amp2Input.AnalyzerAmp2Input:
+    return Amp2Input.return_analyzer_from_config_file(build_config_path('default_amp2input_settings.ini'))

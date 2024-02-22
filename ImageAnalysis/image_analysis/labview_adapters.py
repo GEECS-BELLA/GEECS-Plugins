@@ -62,11 +62,28 @@ def undulator_exit_cam_labview(image, background=None):
     return result
 
 
+def amp2_input_labview(image, background=None):
+
+    # run analysis and extract results
+    results = default_analyzers.return_default_amp2_input_analyzer().analyze_image(image)
+    returned_image = results['processed_image_uint16']
+    results_dict = results['analyzer_return_dictionary']
+
+    # parse output and prep for sfile
+    keys_of_interest = ['centroidx', 'centroidy']
+    values = np.array([results_dict[key]
+                       for key in keys_of_interest]).astype(np.float64)
+    output = (returned_image, values)
+
+    return output
+
+
 # Dictionary to map device types to their respective analysis functions
 DEVICE_FUNCTIONS = {
     "UC_HiResMagCam": hi_res_mag_spec_labview,
     "UC_ACaveMagCam3": acave_cam3_mag_spec_labview,
     "UC_UndulatorExitCam": undulator_exit_cam_labview,
+    "UC_Amp2_IR_input": amp2_input_labview,
     # Add more device types as needed...
 }
 
@@ -78,8 +95,8 @@ def analyze_labview_image(device_type, image, background):
     Parameters:
     -----------
     device_type : str
-        Type of the device, e.g., "UC_TestCam". This is used to 
-        select out the specific device 
+        Type of the device, e.g., "UC_TestCam". This is used to
+        select out the specific device
     image : numpy.ndarray
         The image to be analyzed.
     background : numpy.ndarray
@@ -94,7 +111,7 @@ def analyze_labview_image(device_type, image, background):
         - 2D double array
 
     """
-    
+
     func = DEVICE_FUNCTIONS.get(device_type)
     if func:
         result = func(image, background)
