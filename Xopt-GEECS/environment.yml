@@ -1,4 +1,4 @@
-name: Xopt-GEECS-test
+name: Xopt-GEECS
 channels:
   - conda-forge
   - defaults
