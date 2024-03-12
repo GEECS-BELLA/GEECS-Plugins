@@ -1,8 +1,7 @@
 """
 
 GEECS Plugin - Camera device analyzer
-Initial: Guillaume Plateau, grplateau@lbl.gov
-Modified by: Kyle Jensen, kjensen@lbl.gov
+Kyle Jensen, kjensen@lbl.gov
 
 """
 # =============================================================================
