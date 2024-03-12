@@ -29,7 +29,9 @@ class Environment(environment.Environment):
         return values
 
     def set_variables(self, variable_inputs: Dict[str, float], max_retries=_max_retries):
+        self._control_devices = self.interface.initialize_subscribers(variable_inputs)
         self.interface.set_values(variable_inputs, max_retries)
+        self.interface.close_subscribers(self._control_devices)
 
     def get_observables(self, observable_names):
         return self.get_observables_geecs(observable_names)
