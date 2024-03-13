@@ -6,7 +6,10 @@ dependencies:
   - python=3.10
   - xopt=2.0.1
   - badger-opt=1.0.0
-  - mysql-connector-python=8.0.18
+  - pytorch::pytorch=2.1.2
+  - pytorch::torchvision=0.16.2
+  - pytorch::torchaudio=2.1.2
+  - pytorch::cpuonly=2.0
   - pip
   - pip:
     - --editable ../GEECS-PythonAPI

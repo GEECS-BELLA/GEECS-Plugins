@@ -5,7 +5,7 @@ from badger.interface import Interface
 
 class Environment(environment.Environment):
 
-    name = 'geecs'
+    name = 'geecs_test'
 
     def __init__(self, interface: Interface, params):
         super().__init__(interface, params)

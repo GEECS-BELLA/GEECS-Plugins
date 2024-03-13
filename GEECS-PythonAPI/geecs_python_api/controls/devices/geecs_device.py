@@ -56,7 +56,8 @@ class GeecsDevice:
         self.use_alias_in_TCP_subscription = True
 
         self.setpoints: dict[VarAlias, Any] = {}
-        self.state: dict[VarAlias, Any] = {'fresh': True,"shot number":None}
+        self.state: dict[VarAlias, Any] = {'fresh': True,"shot number":None,"GEECS device error":False}
+        
         self.generic_vars = ['Device Status', 'device error', 'device preset']
 
         if not self.__dev_virtual:
@@ -603,6 +604,8 @@ class GeecsDevice:
                         pass
                     self.setpoints[var_alias] = dev_val
                     self.state[var_alias] = dev_val
+                    
+            self.state["GEECS device error"] = err_status                
 
             return dev_name, cmd_received, dev_val, err_status
 

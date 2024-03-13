@@ -30,11 +30,8 @@ class Environment(environment.Environment):
         # print("initializing environmnet")
         self.interface = interface
         assert self.interface, 'Must provide an interface!'
-        # self.interface.initialize_subscribers(self.variables)
-        # print('enviromnet variable names:',self.variable_names)
 
-
-    _variables = {f'x{i}': 0.0 for i in range(20)}
+    _variables = {}
     _observations = {
         'f': None,
     }
@@ -43,13 +40,13 @@ class Environment(environment.Environment):
         print('in environment get_variables. variable names:',self.variable_names)
         assert self.interface, 'Must provide an interface!'
         self.interface.initialize_subscribers(variable_names)
-        # variable_outputs = {v: self._variables[v] for v in variable_names}
         variable_outputs = self.interface.get_values(variable_names)
         return variable_outputs
 
     def set_variables(self, variable_inputs: Dict[str, float]):
         self.interface.set_values(variable_inputs)
-        # print('in set_variables: ',variable_inputs)
+        self._variables = variable_inputs
 
     def get_observables(self, observable_names):
+        print(self._variables)
         return {'f': 1.0}
