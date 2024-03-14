@@ -7,9 +7,16 @@ from . import UC_GenericLightSpecCam as PhotonSpec
 
 def build_config_path(config_filename):
     active_build_directory = r'Z:\software\control-all-loasis\HTU\Active Version\GEECS-Plugins\image_analysis_configs\\'
-    return active_build_directory + config_filename
-    # current_directory = os.path.dirname(os.path.abspath(__file__))
-    # return os.path.join(current_directory, (r'..\..\..\image_analysis_configs\\' + config_filename))
+    active_config = active_build_directory + config_filename
+
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+    relative_config = os.path.join(current_directory, (r'..\..\..\image_analysis_configs\\' + config_filename))
+    if os.path.exists(active_config):
+        return active_config
+    elif os.path.exists(relative_config):
+        return relative_config
+    else:
+        return None  # Neither worked, this config doesn't exist anywhere...
 
 
 def return_default_hi_res_mag_cam_analyzer() -> MagSpec.UC_GenericMagSpecCamAnalyzer:
