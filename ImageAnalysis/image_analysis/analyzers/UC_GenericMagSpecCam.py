@@ -177,6 +177,10 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
             peak_charge_energy = analyze.calculate_peak_energy(charge_arr, energy_arr)
             self.print_time(" Energy at Peak Charge:")
 
+            fwhm_charge_percent = analyze.calculate_fwhm_relative(charge_arr, energy_arr, maximum_charge=peak_charge,
+                                                                  peak_energy=peak_charge_energy)
+            self.print_time(" FWHM Charge Distribution:")
+
             optimization_factor = analyze.calculate_optimization_factor(
                 charge_arr, energy_arr, self.optimization_central_energy, self.optimization_bandwidth_energy)
             self.print_time(" Optimization Factor:")
@@ -200,7 +204,6 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
                     beam_angle = linear_fit[0]
                     beam_intercept = linear_fit[1]
                     projected_axis, projected_arr, projected_beam_size = analyze.calculate_projected_beam_size(image, self.transverse_calibration)
-                    projected_beam_size = projected_beam_size * self.transverse_calibration
                     self.print_time(" Projected Size:")
                 else:
                     print("Error with transverse calcs.  Some charge on camera but still sum to zero:")
@@ -232,6 +235,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
             "beam_tilt_intercept_um": beam_intercept,
             "beam_tilt_intercept_100MeV_um": 100 * beam_angle + beam_intercept,
             "optimization_factor": optimization_factor,
+            "fwhm_percent": fwhm_charge_percent,
         }
 
         unnormalized_image = image / self.normalization_factor

@@ -1,0 +1,9 @@
+---
+name: camera_exposure_time_test-PW
+description: "test environment for bella geecs"
+version: "0.1"
+dependencies:
+  - badger-opt
+  - geecs_python_api
+interface:
+  - geecs

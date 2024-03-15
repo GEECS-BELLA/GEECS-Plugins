@@ -17,7 +17,7 @@ import cv2
 # sys.path.insert(0, rootpath)
 
 import image_analysis.analyzers.default_analyzer_initialization as default_analyzer
-import image_analysis.analyzers.UC_UndulatorExitCam as analyzer_caller
+import image_analysis.analyzers.UC_GenericLightSpecCam as analyzer_caller
 import image_analysis.labview_adapters as labview_function_caller
 
 
@@ -60,7 +60,7 @@ class TestUndulatorExitCamAnalyze(unittest.TestCase):
 
         # Make an analyzer using some smaller calibration numbers
 
-        analyzer = analyzer_caller.UC_UndulatorExitCamAnalyzer(
+        analyzer = analyzer_caller.UC_LightSpectrometerCamAnalyzer(
             noise_threshold=50,
             roi=[None, None, None, None],  # ROI(top, bottom, left, right)
             saturation_value=amplitude*0.90,
