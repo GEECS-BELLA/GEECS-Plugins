@@ -200,7 +200,6 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
                     beam_angle = linear_fit[0]
                     beam_intercept = linear_fit[1]
                     projected_axis, projected_arr, projected_beam_size = analyze.calculate_projected_beam_size(image, self.transverse_calibration)
-                    projected_beam_size = projected_beam_size * self.transverse_calibration
                     self.print_time(" Projected Size:")
                 else:
                     print("Error with transverse calcs.  Some charge on camera but still sum to zero:")
