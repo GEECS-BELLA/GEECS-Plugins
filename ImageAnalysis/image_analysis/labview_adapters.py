@@ -37,6 +37,7 @@ def mag_spec_dictionary_parse(mag_spec_dict):
         "beam_tilt_intercept_um",
         "beam_tilt_intercept_100MeV_um",
         "optimization_factor",
+        "fwhm_percent",
     ]
     values = np.array([mag_spec_dict[key] for key in keys_of_interest]).astype(np.float64)
     return values
