@@ -44,9 +44,18 @@ def mag_spec_dictionary_parse(mag_spec_dict):
 
 def undulator_exit_cam_labview(image, background=None):
     results = default_analyzers.return_default_undulator_exit_cam_analyzer().analyze_image(image)
-    returned_image = results['processed_image_uint16']
-    spec_dict = results['analyzer_return_dictionary']
-    return_lineouts = results['analyzer_return_lineouts']
+    return parse_light_spec_results(results)
+
+
+def undulator_rad2_labview(image, background=None):
+    results = default_analyzers.return_default_undulator_rad2_cam_analyzer().analyze_image(image)
+    return parse_light_spec_results(results)
+
+
+def parse_light_spec_results(light_spec_results):
+    returned_image = light_spec_results['processed_image_uint16']
+    spec_dict = light_spec_results['analyzer_return_dictionary']
+    return_lineouts = light_spec_results['analyzer_return_lineouts']
     # Define the keys for which values need to be extracted
     keys_of_interest = [
         "camera_saturation_counts",
@@ -57,9 +66,8 @@ def undulator_exit_cam_labview(image, background=None):
         "optimization_factor",
     ]
     values = np.array([spec_dict[key] for key in keys_of_interest]).astype(np.float64)
-    result = (returned_image, values, return_lineouts)
-
-    return result
+    labview_return = (returned_image, values, return_lineouts)
+    return labview_return
 
 
 # Dictionary to map device types to their respective analysis functions
@@ -67,6 +75,7 @@ DEVICE_FUNCTIONS = {
     "UC_HiResMagCam": hi_res_mag_spec_labview,
     "UC_ACaveMagCam3": acave_cam3_mag_spec_labview,
     "UC_UndulatorExitCam": undulator_exit_cam_labview,
+    "UC_UndulatorRad2": undulator_rad2_labview,
     # Add more device types as needed...
 }
 

@@ -20,7 +20,7 @@ from ..base import ImageAnalyzer
 from .online_analysis_modules import photon_spectrometer_analyzer as analyze
 
 
-def return_analyzer_from_config_file(input_config_filename) -> UC_UndulatorExitCamAnalyzer:
+def return_analyzer_from_config_file(input_config_filename) -> UC_LightSpectrometerCamAnalyzer:
     config = configparser.ConfigParser()
     config.read(input_config_filename)
 
@@ -30,7 +30,7 @@ def return_analyzer_from_config_file(input_config_filename) -> UC_UndulatorExitC
     roi_right = int(config.get('roi', 'right')),
     analyzer_roi = np.array([roi_top, roi_bottom, roi_left, roi_right]).reshape(-1)
 
-    analyzer = UC_UndulatorExitCamAnalyzer(
+    analyzer = UC_LightSpectrometerCamAnalyzer(
         noise_threshold=int(config.get('settings', 'noise_threshold')),
         roi=analyzer_roi,
         saturation_value=int(config.get('settings', 'saturation_value')),
@@ -43,7 +43,7 @@ def return_analyzer_from_config_file(input_config_filename) -> UC_UndulatorExitC
     return analyzer
 
 
-class UC_UndulatorExitCamAnalyzer(ImageAnalyzer):
+class UC_LightSpectrometerCamAnalyzer(ImageAnalyzer):
     def __init__(self,
                  noise_threshold: int = 50,
                  roi: List[int] = [None, None, None, None],  # ROI(top, bottom, left, right)
