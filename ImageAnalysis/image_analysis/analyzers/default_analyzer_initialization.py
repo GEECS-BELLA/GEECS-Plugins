@@ -3,7 +3,7 @@ import os
 
 from . import UC_GenericMagSpecCam as MagSpec
 from . import UC_UndulatorExitCam as PhotonSpec
-import UC_Amp2_IR_input as Amp2Input
+from . import UC_Amp2_IR_input as Amp2Input
 
 
 def build_config_path(config_filename):
