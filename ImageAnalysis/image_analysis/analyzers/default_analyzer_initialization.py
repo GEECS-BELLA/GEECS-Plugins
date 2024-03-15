@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os
+from pathlib import Path
 
 from . import UC_GenericMagSpecCam as MagSpec
 from . import UC_GenericLightSpecCam as PhotonSpec
@@ -7,13 +7,13 @@ from . import UC_GenericLightSpecCam as PhotonSpec
 
 def build_config_path(config_filename):
     active_build_directory = r'Z:\software\control-all-loasis\HTU\Active Version\GEECS-Plugins\image_analysis_configs\\'
-    active_config = active_build_directory + config_filename
+    active_config = Path(active_build_directory + config_filename)
 
-    current_directory = os.path.dirname(os.path.abspath(__file__))
-    relative_config = os.path.join(current_directory, (r'..\..\..\image_analysis_configs\\' + config_filename))
-    if os.path.exists(active_config):
+    current_directory = Path(__file__)
+    relative_config = current_directory.parents[3] / "image_analysis_configs" / config_filename
+    if active_config.exists():
         return active_config
-    elif os.path.exists(relative_config):
+    elif relative_config.exists():
         return relative_config
     else:
         return None  # Neither worked, this config doesn't exist anywhere...
