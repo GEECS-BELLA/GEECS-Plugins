@@ -163,6 +163,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
             beam_intercept = 0.0
             projected_beam_size = 0.0
             optimization_factor = 0.0
+            fwhm_charge_percent = 0.0
         else:
             peak_charge = analyze.calculate_maximum_charge(charge_arr)
             self.print_time(" Peak Charge:")

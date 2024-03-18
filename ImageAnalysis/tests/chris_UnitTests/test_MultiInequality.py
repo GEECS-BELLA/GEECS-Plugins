@@ -15,7 +15,7 @@ import numpy as np
 # rootpath = os.path.abspath("../../")
 # sys.path.insert(0, rootpath)
 
-import image_analysis.analyzers.U_HiResMagCam.online_analysis_modules.math_tools as MathTools
+import image_analysis.analyzers.online_analysis_modules.math_tools as MathTools
 
 class TestMultiInequality(unittest.TestCase):
     
