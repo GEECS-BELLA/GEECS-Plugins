@@ -29,6 +29,13 @@ from image_analysis.utils import ROI as ImageAnalyzerROI
 
 
 class ScanImages:
+    """ Represents set of all images within a scan of a single device or device group
+
+    Of BeamSpot type.
+
+    Includes methods to analyze this set of images.
+
+    """
     fig_size = (int(round(screeninfo.get_monitors()[0].width / 540. * 10) / 10),
                 int(round(screeninfo.get_monitors()[0].height / 450. * 10) / 10))
 
