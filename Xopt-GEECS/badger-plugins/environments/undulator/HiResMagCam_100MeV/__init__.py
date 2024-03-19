@@ -9,13 +9,14 @@ except ImportError:
 class Environment(geecs_Environment):
     name = 'HiResMagCam_100MeV'
     variables = {
-        'U_Hexapod:ypos': [17.5, 19.5],
-        'U_Hexapod:zpos': [-1.25, 0.75],
-        'U_Hexapod:wangle': [-0.49, .49],
-        'U_Hexapod:vangle': [-0.49, .49]
+        'U_ESP_JetXYZ:Position.Axis 1': [6.3, 6.7],  # Jet_X (mm)
+        'U_ESP_JetXYZ:Position.Axis 2': [-7.6, -7.0],  # Jet_Y (mm)
+        'U_ESP_JetXYZ:Position.Axis 3': [0.1, 5.0],  # Jet_Z (mm)
+        'U_HP_Daq:AnalogOutput.Channel 1': [2.0, 4.0],  # PressureControlVoltage
+        'U_ModeImagerESP.Position.Axis 2': [-17.3, -17.5],  # JetBlade
     }
 
-    observables = ['UC_HiResMagCam:Python Result 14']
+    observables = ['UC_HiResMagCam:Python Result 14']  # Xopt Target Function
 
     """
     observables = ['Target Function']
