@@ -17,7 +17,7 @@ class Environment(geecs_Environment):
         'U_S2V:Current': [-2, 2]
     }
 
-    observables = ['UC_UndulatorRad2:meancounts']
+    observables = ['UC_UndulatorRad2:Python Result 6']  # Optimization Factor
 
     """
     observables = ['Target Function']

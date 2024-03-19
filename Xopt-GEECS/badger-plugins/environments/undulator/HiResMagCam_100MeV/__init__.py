@@ -16,7 +16,7 @@ class Environment(geecs_Environment):
         'U_ModeImagerESP.Position.Axis 2': [-17.3, -17.5],  # JetBlade
     }
 
-    observables = ['UC_HiResMagCam:Python Result 14']  # Xopt Target Function
+    observables = ['UC_HiResMagCam:Python Result 14']  # Optimization Factor
 
     """
     observables = ['Target Function']
