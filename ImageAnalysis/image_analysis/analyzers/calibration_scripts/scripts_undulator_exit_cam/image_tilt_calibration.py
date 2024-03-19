@@ -53,6 +53,11 @@ if camera == "ExitCam":
 
     zero_side_left = False
 
+    top = 0
+    bot = 1025
+    left = 0
+    right = 1281
+
 elif camera == "UCRad2":
     sample_data_path = "Z:/data/Undulator/Y2024/03-Mar/24_0314/scans/Scan004/UC_UndulatorRad2/"
     sample_filename = "Scan004_UC_UndulatorRad2_"
@@ -67,6 +72,11 @@ elif camera == "UCRad2":
     #shot_array = np.array([1])
 
     zero_side_left = True
+
+    top = 600
+    bot = 1100
+    left = 650
+    right = 2100
 
 else:
     print("Need a valid camera")
@@ -84,16 +94,24 @@ for i in range(num_shots):
 
     raw_image = read_imaq_png_image(Path(fullpath))*1.0
 
+    roi = [top, bot, left, right]
+
+    cropped_image = raw_image[roi[0]:roi[1], roi[2]:roi[3]]
+
     """
     print("Raw Image: ", np.shape(raw_image))
     plt.imshow(raw_image)
     plt.title("Raw")
     plt.show()
-    """
 
+    print("Cropped Image: ", np.shape(cropped_image))
+    plt.imshow(cropped_image)
+    plt.title("Cropped")
+    plt.show()
+    """
     # Threshold so that we only see the peaks
 
-    threshold_image = np.copy(raw_image) - threshold
+    threshold_image = np.copy(cropped_image) - threshold
     threshold_image[np.where(threshold_image < 0)] = 0
 
     # Find the two peaks
