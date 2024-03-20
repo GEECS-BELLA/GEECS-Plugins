@@ -11,6 +11,7 @@ import sys
 import configparser
 
 
+default_config_file_location = '~/.config/geecs_python_api/config.ini'
 default_conda_env_directory = r'C:\Users\loasis.LOASIS\AppData\Local\anaconda3\envs\Xopt-GEECS'
 environment_experiment_dictionary = {
     'Undulator': 'undulator',
@@ -22,7 +23,7 @@ link_legacy_envs = True
 
 def load_config():
     config_file = configparser.ConfigParser()
-    config_path = os.path.expanduser('~/.config/geecs_python_api/config.ini')
+    config_path = os.path.expanduser(default_config_file_location)
     if os.path.exists(config_path):
         config_file.read(config_path)
         return config_file
@@ -31,10 +32,12 @@ def load_config():
 
 
 if len(sys.argv) > 1:
+    print("Conda directory given in 'setup_Xopt-GEECS.bat' script:")
     conda_env_directory = sys.argv[1]
 else:
     print("No conda directory given.  Assuming the default in .py script:")
     conda_env_directory = default_conda_env_directory
+print(" ", conda_env_directory)
 
 config = load_config()
 if config and 'Experiment' in config and 'expt' in config['Experiment']:
