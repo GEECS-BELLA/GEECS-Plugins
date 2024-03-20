@@ -9,9 +9,9 @@ except ImportError:
 class Environment(geecs_Environment):
     name = 'EBeamFocusOptimizer'
     variables = {
-        'U_EMQTripletBipolar:Current_Limit.Ch1': [1.1, 1.9],
+        'U_EMQTripletBipolar:Current_Limit.Ch1': [0.5, 1.0],
         'U_EMQTripletBipolar:Current_Limit.Ch2': [-1.2, -0.4],
-        'U_EMQTripletBipolar:Current_Limit.Ch3': [-1.2, -0.4]
+        'U_EMQTripletBipolar:Current_Limit.Ch3': [0.5, 1.0]
     }
 
     camera_name: str = 'UC_AlineEBeam3'
