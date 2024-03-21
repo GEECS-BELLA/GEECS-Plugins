@@ -9,9 +9,9 @@ from operator import mul
 
 
 class Environment(environment.Environment):
-    shots_per_step: int = 5
-    max_fresh_retries: int = 3
-    fresh_wait_time: float = 0.5
+    shots_per_step: int = 10
+    max_fresh_retries: int = 15
+    fresh_wait_time: float = 0.8
 
     _control_devices = {}
     _observable_devices = {}
@@ -42,7 +42,8 @@ class Environment(environment.Environment):
             device_acquisitions = observable_names
         # Unless an alternative function is provided, the default target is just the median of each device acquisition
         if target_function is None:
-            target_function = self.return_median_value
+            #target_function = self.return_median_value
+            target_function = self.return_all_values
 
         self._observable_devices = self.interface.initialize_subscribers(device_acquisitions)
         all_vals = {name: [] for name in device_acquisitions}  # Initialize the dictionary
@@ -73,6 +74,12 @@ class Environment(environment.Environment):
     def return_median_value(acquired_data):
         median_vals = {key: np.median(values) for key, values in acquired_data.items()}
         return median_vals
+
+    @staticmethod
+    def return_all_values(acquired_data):
+        # values = list(acquired_data.values())
+        # print(values)
+        return acquired_data
 
     def return_multi_target(self, acquired_data, target_vals, observables, sigma_vals=None, acquisition_keys=None):
         median_vals = self.return_median_value(acquired_data)
