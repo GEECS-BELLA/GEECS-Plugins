@@ -8,12 +8,10 @@ Badger is only explicitly supported on Linux, but the installation procedure is 
 
 1. Make sure you have `conda` installed ([Conda installation](https://docs.conda.io/projects/conda/en/stable/user-guide/install/index.html)) and open up the Anaconda Prompt
 2. Navigate to the `Xopt-GEECS` directory
-3. Run `conda env create -f environment_win.yml`.
-	1. Sometimes there may be errors with installing the `geecs-pythonapi` package from GEECS-Plugins.  Can check if the install worked properly by typing the following in the Anaconda Prompt:
- 	2. `conda activate Xopt-GEECS`
-  	3. `pip list`
-   	4. Look for `geecs-pythonapi` in the list.  If it exists, then should be good to go!  Otherwise, might need to track down package version issues between the `poetry.toml` files in `GEECS-Plugins/GEECS-PythonAPI/` and `GEECS-Plugins/ImageAnalysis/`.
-   	5. Specifically, in line 22 of `GEECS-PythonAPI/poetry.toml` replace `opencv-python = "~4.7"` with `opencv-python = "^4.7"`.
+3. Run `conda env create -f environment_win.yml`.  Optionally, to check that everything installed correctly:
+ 	1. `conda activate Xopt-GEECS`
+  	2. `pip list`
+   	3. Look for `geecs-pythonapi` in the list.  If it exists, then should be good to go!
 4. Run (in Powershell with Admin Privileges):
 	`.\initialize_config_file.bat`
 	This will generate a config file and a shortcut to the config file in the current directory if either does not exist.
