@@ -3,7 +3,7 @@
 GEECS Plugin - Beam analyzer
 Kyle Jensen, kjensen@lbl.gov
 
-Based on UC_BeamSpot by Guillaume Plateau, grplateau@lbl.gov
+Adapted from UC_BeamSpot by Guillaume Plateau, grplateau@lbl.gov
 
 """
 # =============================================================================
