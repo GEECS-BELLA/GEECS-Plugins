@@ -71,12 +71,36 @@ def parse_light_spec_results(light_spec_results):
     return labview_return
 
 
+def aline_cam3_labview(image, background=None):
+    results = default_analyzers.return_default_aline_cam3_analyzer().analyze_image(image)
+    return parse_alinecam_results(results)
+
+
+def parse_alinecam_results(results):
+    returned_image = results['processed_image_uint16']
+    spec_dict = results['analyzer_return_dictionary']
+    return_lineouts = results['analyzer_return_lineouts']
+    keys_of_interest = [
+        "camera_saturation_counts",
+        "camera_total_intensity_counts",
+        "peak_intensity_counts",
+        "centroid_x_um",
+        "centroid_y_um",
+        "fwhm_x_um",
+        "fwhm_y_um",
+    ]
+    values = np.array([spec_dict[key] for key in keys_of_interest]).astype(np.float64)
+    labview_return = (returned_image, values, return_lineouts)
+    return labview_return
+
+
 # Dictionary to map device types to their respective analysis functions
 DEVICE_FUNCTIONS = {
     "UC_HiResMagCam": hi_res_mag_spec_labview,
     "UC_ACaveMagCam3": acave_cam3_mag_spec_labview,
     "UC_UndulatorExitCam": undulator_exit_cam_labview,
     "UC_UndulatorRad2": undulator_rad2_labview,
+    "UC_ALineEBeam3": aline_cam3_labview,
     # Add more device types as needed...
 }
 

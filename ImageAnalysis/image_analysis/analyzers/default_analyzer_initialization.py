@@ -3,6 +3,7 @@ from pathlib import Path
 
 from . import UC_GenericMagSpecCam as MagSpec
 from . import UC_GenericLightSpecCam as PhotonSpec
+from . import UC_ALineEBeamCam as ALine
 
 
 def build_config_path(config_filename):
@@ -33,3 +34,7 @@ def return_default_undulator_exit_cam_analyzer() -> PhotonSpec.UC_LightSpectrome
 
 def return_default_undulator_rad2_cam_analyzer() -> PhotonSpec.UC_LightSpectrometerCamAnalyzer:
     return PhotonSpec.return_analyzer_from_config_file(build_config_path('default_undulatorrad2cam_settings.ini'))
+
+
+def return_default_aline_cam3_analyzer() -> ALine.UC_ALineEBeamCamAnalyzer:
+    return ALine.return_analyzer_from_config_file(build_config_path('default_alineebeam3_settings.ini'))
