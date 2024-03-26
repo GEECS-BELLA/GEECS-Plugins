@@ -1,5 +1,5 @@
 {
-  "UC_HiResMagCam": {
+  "MagSpecCam": {
     "keys_of_interest": [
       "camera_clipping_factor",
       "camera_saturation_counts",
@@ -18,23 +18,25 @@
       "fwhm_percent"
     ]
   },
-  "UC_ACaveMagCam3": {
+  "LightSpecCam": {
     "keys_of_interest": [
-      "camera_clipping_factor",
       "camera_saturation_counts",
-      "total_charge_pC",
-      "peak_charge_pc/MeV",
-      "peak_charge_energy_MeV",
-      "weighted_average_energy_MeV",
-      "energy_spread_weighted_rms_MeV",
-      "energy_spread_percent",
-      "weighted_average_beam_size_um",
-      "projected_beam_size_um",
-      "beam_tilt_um/MeV",
-      "beam_tilt_intercept_um",
-      "beam_tilt_intercept_100MeV_um",
-      "optimization_factor",
-      "fwhm_percent"
+      "camera_total_intensity_counts",
+      "peak_wavelength_nm",
+      "average_wavelength_nm",
+      "wavelength_spread_weighted_rms_nm",
+      "optimization_factor"
+    ]
+  },
+  "ALineCam": {
+    "keys_of_interest": [
+      "camera_saturation_counts",
+      "camera_total_intensity_counts",
+      "peak_intensity_counts",
+      "centroid_x_um",
+      "centroid_y_um",
+      "fwhm_x_um",
+      "fwhm_y_um"
     ]
   }
 }
