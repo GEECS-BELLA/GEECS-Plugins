@@ -98,6 +98,7 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
         self.assertAlmostEqual(analyze_dict["beam_tilt_intercept_um"], -1703.46109, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["beam_tilt_intercept_100MeV_um"], 226.63913, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["optimization_factor"], 0.783622, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["fwhm_percent"], 0.2934, delta=1e-2)
 
         # Here I am only checking that the labview wrapper function is working properly by checking the output shapes
 
@@ -111,7 +112,10 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
         returned_image_labview, analyze_dict_labview, lineouts_labview = labview_function_caller.analyze_labview_image(
             camera_name, elliptical_gaussian_array, background=None)
         np.testing.assert_array_equal(np.shape(returned_image_labview), test_array_shape)
-        np.testing.assert_array_equal(np.shape(analyze_dict_labview), np.array([14, ]))
+
+        # TODO: fill in
+        self.assertListEqual(analyze_dict_labview.keys(), xxx_expected_keys_xxx)
+
         np.testing.assert_array_equal(np.shape(lineouts_labview), np.array([2, test_array_shape[1]]))
 
 

@@ -1,0 +1,40 @@
+{
+  "UC_HiResMagCam": {
+    "keys_of_interest": [
+      "camera_clipping_factor",
+      "camera_saturation_counts",
+      "total_charge_pC",
+      "peak_charge_pc/MeV",
+      "peak_charge_energy_MeV",
+      "weighted_average_energy_MeV",
+      "energy_spread_weighted_rms_MeV",
+      "energy_spread_percent",
+      "weighted_average_beam_size_um",
+      "projected_beam_size_um",
+      "beam_tilt_um/MeV",
+      "beam_tilt_intercept_um",
+      "beam_tilt_intercept_100MeV_um",
+      "optimization_factor",
+      "fwhm_percent"
+    ]
+  },
+  "UC_ACaveMagCam3": {
+    "keys_of_interest": [
+      "camera_clipping_factor",
+      "camera_saturation_counts",
+      "total_charge_pC",
+      "peak_charge_pc/MeV",
+      "peak_charge_energy_MeV",
+      "weighted_average_energy_MeV",
+      "energy_spread_weighted_rms_MeV",
+      "energy_spread_percent",
+      "weighted_average_beam_size_um",
+      "projected_beam_size_um",
+      "beam_tilt_um/MeV",
+      "beam_tilt_intercept_um",
+      "beam_tilt_intercept_100MeV_um",
+      "optimization_factor",
+      "fwhm_percent"
+    ]
+  }
+}
