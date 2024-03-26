@@ -4,13 +4,14 @@ GUI for using Xopt in BELLA GEECS through GEECS-PythonAPI and Badger. The "geecs
 ## Windows Specific Instructions
 Badger is only explicitly supported on Linux, but the installation procedure is also verified on Mac. Badger was made to work on windows using a slightly different conda environment. Make sure to use environment_win.yml to create the Windows-specifc environment.
 
+**Note:**  These instructions require admin priveleges to create symlinks. This is a problem if you are installing on the AppServer. There is a workaround where you can instead copy the environment directories directly into the conda environment, but I would not recommend this route unless you absolutely have to run on AppServer.
+
 1. Make sure you have `conda` installed ([Conda installation](https://docs.conda.io/projects/conda/en/stable/user-guide/install/index.html)) and open up the Anaconda Prompt
 2. Navigate to the `Xopt-GEECS` directory
-3. Run `conda env create -f environment_win.yml`.
-	1. Sometimes there may be errors with installing the `geecs-pythonapi` package from GEECS-Plugins.  Can check if the install worked properly by typing the following in the Anaconda Prompt:
- 	2. `conda activate Xopt-GEECS`
-  	3. `pip list`
-   	4. Look for `geecs-pythonapi` in the list.  If it exists, then should be good to go!  Otherwise, might need to track down package version issues between the `poetry.toml` files in `GEECS-Plugins/GEECS-PythonAPI/` and `GEECS-Plugins/ImageAnalysis/`.
+3. Run `conda env create -f environment_win.yml`.  Optionally, to check that everything installed correctly:
+ 	1. `conda activate Xopt-GEECS`
+  	2. `pip list`
+   	3. Look for `geecs-pythonapi` in the list.  If it exists, then should be good to go!
 4. Run (in Powershell with Admin Privileges):
 	`.\initialize_config_file.bat`
 	This will generate a config file and a shortcut to the config file in the current directory if either does not exist.

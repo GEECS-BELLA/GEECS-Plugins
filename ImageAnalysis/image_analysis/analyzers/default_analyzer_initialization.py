@@ -2,6 +2,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import UC_GenericMagSpecCam as MagSpec
+from . import UC_UndulatorExitCam as PhotonSpec
+from . import generic_beam_analyzer as BeamAnalyzer
 from . import UC_GenericLightSpecCam as PhotonSpec
 
 
@@ -30,6 +32,9 @@ def return_default_acave_mag_cam3_analyzer() -> MagSpec.UC_GenericMagSpecCamAnal
 def return_default_undulator_exit_cam_analyzer() -> PhotonSpec.UC_LightSpectrometerCamAnalyzer:
     return PhotonSpec.return_analyzer_from_config_file(build_config_path('default_undulatorexitcam_settings.ini'))
 
+
+def return_default_amp2_input_analyzer() -> BeamAnalyzer.BeamSpotAnalyzer:
+    return BeamAnalyzer.return_analyzer_from_config_file(build_config_path('default_amp2input_settings.ini'))
 
 def return_default_undulator_rad2_cam_analyzer() -> PhotonSpec.UC_LightSpectrometerCamAnalyzer:
     return PhotonSpec.return_analyzer_from_config_file(build_config_path('default_undulatorrad2cam_settings.ini'))
