@@ -18,12 +18,6 @@ def normalize_image(image, normalization_factor):
     return np.copy(image) * normalization_factor
 
 
-def threshold_reduction(image, threshold):
-    return_image = np.copy(image) - threshold
-    return_image[np.where(return_image < 0)] = 0
-    return return_image
-
-
 def calculate_clipped_percentage(image):
     clip_check = np.append(np.append(np.append(image[0, :], image[:, 0]), image[-1, :]), image[:, -1])
     max_val = np.max(image)
@@ -86,16 +80,6 @@ def fit_beam_angle(x0_arr, amp_arr, energy_arr):
     return linear_fit
 
 
-def find_max(image):
-    y_max, x_max = np.unravel_index(np.argmax(image), image.shape)
-    max_value = image[y_max, x_max]
-    return x_max, y_max, max_value
-
-
-def saturation_check(image, saturation_value):
-    return len(np.where(image > saturation_value)[0])
-
-
 def gaussian(x, amp, sigma, x0):
     return amp * np.exp(-0.5 * ((x - x0) / sigma) ** 2)
 
@@ -109,7 +93,7 @@ def fit_data_something(data, axis, function, guess=[0.0, 0.0, 0.0]):
 
 def transverse_slice_loop(image, calibration_factor=1, threshold=0.01, binsize=1, statistic_algorithm=True):
     ny, nx = np.shape(image)
-    x_loc, y_loc, max_val = find_max(image)
+    max_val = np.max(image)
 
     sigma_arr = np.zeros(nx)
     err_arr = np.zeros(nx)

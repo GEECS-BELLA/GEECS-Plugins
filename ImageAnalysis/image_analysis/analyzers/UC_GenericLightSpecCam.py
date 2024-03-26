@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from ..types import Array2D
 
 from ..base import LabviewImageAnalyzer
+from .online_analysis_modules import image_processing_funcs as process
 from .online_analysis_modules import photon_spectrometer_analyzer as analyze
 
 
@@ -86,10 +87,10 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
 
         processed_image = self.roi_image(input_image.astype(np.float32))
 
-        saturation_number = analyze.saturation_check(processed_image, self.saturation_value)
+        saturation_number = process.saturation_check(processed_image, self.saturation_value)
         self.print_time(" Saturation Check:")
 
-        image = analyze.threshold_reduction(processed_image, self.noise_threshold)
+        image = process.threshold_reduction(processed_image, self.noise_threshold)
         self.print_time(" Threshold Subtraction")
 
         total_photons = np.sum(image)

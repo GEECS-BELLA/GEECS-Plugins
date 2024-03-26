@@ -9,8 +9,7 @@ if TYPE_CHECKING:
     from ..types import Array2D
 
 from ..base import LabviewImageAnalyzer
-from .online_analysis_modules import image_processing_funcs
-
+from .online_analysis_modules import image_processing_funcs as process
 
 class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
     def __init__(self, config_file=None, **kwargs):
@@ -55,9 +54,9 @@ class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
         roi_image = self.roi_image(input_image)
         filter_image = median_filter(roi_image, size=3)
         crop_image = self.circular_crop(filter_image)
-        image = image_processing_funcs.threshold_reduction(crop_image, threshold=self.noise_threshold)
+        image = process.threshold_reduction(crop_image, threshold=self.noise_threshold)
 
-        saturation_number = image_processing_funcs.saturation_check(roi_image, saturation_value=self.saturation_value)
+        saturation_number = process.saturation_check(roi_image, saturation_value=self.saturation_value)
         peak_counts = np.max(crop_image)  # Before threshold subtraction
         total_counts = np.sum(image)  # After threshold subtraction
 
@@ -67,8 +66,8 @@ class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
         x_projection = np.sum(image, axis=0)
         y_projection = np.sum(image, axis=1)
 
-        fwhm_x = image_processing_funcs.calculate_fwhm(x_projection, threshold=self.noise_threshold)
-        fwhm_y = image_processing_funcs.calculate_fwhm(y_projection, threshold=self.noise_threshold)
+        fwhm_x = process.calculate_fwhm(x_projection, threshold=self.noise_threshold)
+        fwhm_y = process.calculate_fwhm(y_projection, threshold=self.noise_threshold)
 
         alinecam_dict = {
             "camera_saturation_counts": saturation_number,
