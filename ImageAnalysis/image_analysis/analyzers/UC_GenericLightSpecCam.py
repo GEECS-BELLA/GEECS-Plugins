@@ -11,50 +11,42 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING, Union, List
 import numpy as np
 import time
-import configparser
 
 if TYPE_CHECKING:
     from ..types import Array2D
 
-from ..base import ImageAnalyzer
+from ..base import LabviewImageAnalyzer
 from .online_analysis_modules import photon_spectrometer_analyzer as analyze
 
 
-def return_analyzer_from_config_file(input_config_filename) -> UC_LightSpectrometerCamAnalyzer:
-    config = configparser.ConfigParser()
-    config.read(input_config_filename)
+class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
+    def __init__(self, config_file=None, **kwargs):
+        self.noise_threshold = None
+        self.saturation_value = None
+        self.calibration_image_tilt = None
+        self.calibration_wavelength_pixel = None
+        self.calibration_0th_order_pixel = None
+        self.minimum_wavelength_analysis = None
+        self.optimization_central_wavelength = None
+        self.optimization_bandwidth_wavelength = None
 
-    roi_top = int(config.get('roi', 'top')),
-    roi_bottom = int(config.get('roi', 'bottom')),
-    roi_left = int(config.get('roi', 'left')),
-    roi_right = int(config.get('roi', 'right')),
-    analyzer_roi = np.array([roi_top, roi_bottom, roi_left, roi_right]).reshape(-1)
+        # Set do_print to True for debugging information
+        self.do_print = False
+        self.computational_clock_time = time.perf_counter()
 
-    analyzer = UC_LightSpectrometerCamAnalyzer(
-        noise_threshold=int(config.get('settings', 'noise_threshold')),
-        roi=analyzer_roi,
-        saturation_value=int(config.get('settings', 'saturation_value')),
-        calibration_image_tilt=float(config.get('settings', 'calibration_image_tilt')),
-        calibration_wavelength_pixel=float(config.get('settings', 'calibration_wavelength_pixel')),
-        calibration_0th_order_pixel=float(config.get('settings', 'calibration_0th_order_pixel')),
-        minimum_wavelength_analysis=float(config.get('settings', 'minimum_wavelength_analysis')),
-        optimization_central_wavelength=float(config.get('settings', 'optimization_central_wavelength')),
-        optimization_bandwidth_wavelength=float(config.get('settings', 'optimization_bandwidth_wavelength')))
-    return analyzer
+        super().__init__(config_file, **kwargs)
 
-
-class UC_LightSpectrometerCamAnalyzer(ImageAnalyzer):
-    def __init__(self,
-                 noise_threshold: int = 50,
-                 roi: List[int] = [None, None, None, None],  # ROI(top, bottom, left, right)
-                 saturation_value: int = 4095,
-                 calibration_image_tilt: float = 1.1253,
-                 calibration_wavelength_pixel: float = 0.463658,
-                 calibration_0th_order_pixel: float = 1186.24,
-                 minimum_wavelength_analysis: float = 150.0,
-                 optimization_central_wavelength: float = 420.0,
-                 optimization_bandwidth_wavelength: float = 10.0
-                 ):
+    def configure(self,
+                  noise_threshold: int = 50,
+                  roi: List[int] = [None, None, None, None],  # ROI(top, bottom, left, right)
+                  saturation_value: int = 4095,
+                  calibration_image_tilt: float = 1.1253,
+                  calibration_wavelength_pixel: float = 0.463658,
+                  calibration_0th_order_pixel: float = 1186.24,
+                  minimum_wavelength_analysis: float = 150.0,
+                  optimization_central_wavelength: float = 420.0,
+                  optimization_bandwidth_wavelength: float = 10.0
+                  ):
         """
         Parameters
         ----------
@@ -78,24 +70,16 @@ class UC_LightSpectrometerCamAnalyzer(ImageAnalyzer):
         optimization_bandwidth_wavelength: float
             For the XOpt algorithm, the standard deviation from the central wavelength for the Gaussian weight function
         """
-        super().__init__()
-
-        self.noise_threshold = noise_threshold
-        self.roi = roi
-        self.saturation_value = saturation_value
-        self.calibration_image_tilt = calibration_image_tilt
-        self.calibration_wavelength_pixel = calibration_wavelength_pixel
-        self.calibration_0th_order_pixel = calibration_0th_order_pixel
-        self.minimum_wavelength_analysis = minimum_wavelength_analysis
-        self.optimization_central_wavelength = optimization_central_wavelength
-        self.optimization_bandwidth_wavelength = optimization_bandwidth_wavelength
-
-        # Set do_print to True for debugging information
-        self.do_print = False
-        self.computational_clock_time = time.perf_counter()
-
-    def roi_image(self, image):
-        return image[self.roi[0]:self.roi[1], self.roi[2]:self.roi[3]]
+        if self.roi is None:
+            self.roi = roi
+        self.noise_threshold = int(noise_threshold)
+        self.saturation_value = int(saturation_value)
+        self.calibration_image_tilt = float(calibration_image_tilt)
+        self.calibration_wavelength_pixel = float(calibration_wavelength_pixel)
+        self.calibration_0th_order_pixel = float(calibration_0th_order_pixel)
+        self.minimum_wavelength_analysis = float(minimum_wavelength_analysis)
+        self.optimization_central_wavelength = float(optimization_central_wavelength)
+        self.optimization_bandwidth_wavelength = float(optimization_bandwidth_wavelength)
 
     def analyze_image(self, input_image: Array2D, auxiliary_data: Optional[dict] = None,
                       ) -> dict[str, Union[dict, np.ndarray]]:

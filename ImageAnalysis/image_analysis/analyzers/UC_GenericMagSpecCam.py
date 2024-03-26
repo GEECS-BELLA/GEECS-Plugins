@@ -12,56 +12,47 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING, Union, List
 import numpy as np
 import time
-import configparser
 
 if TYPE_CHECKING:
     from ..types import Array2D
 
-from ..base import ImageAnalyzer
+from ..base import LabviewImageAnalyzer
 from .online_analysis_modules import mag_spec_analysis as analyze
 from .online_analysis_modules import mag_spec_energy_axis as energy_axis_lookup
 
 
-def return_analyzer_from_config_file(input_config_filename) -> UC_GenericMagSpecCamAnalyzer:
-    config = configparser.ConfigParser()
-    config.read(input_config_filename)
+class UC_GenericMagSpecCamAnalyzer(LabviewImageAnalyzer):
+    def __init__(self, config_file=None, **kwargs):
+        self.mag_spec_name = None
+        self.noise_threshold = None
+        self.saturation_value = None
+        self.normalization_factor = None
+        self.transverse_calibration = None
+        self.do_transverse_calculation = None
+        self.transverse_slice_threshold = None
+        self.transverse_slice_binsize = None
+        self.optimization_central_energy = None
+        self.optimization_bandwidth_energy = None
 
-    roi_top = int(config.get('roi', 'top')),
-    roi_bottom = int(config.get('roi', 'bottom')),
-    roi_left = int(config.get('roi', 'left')),
-    roi_right = int(config.get('roi', 'right')),
-    analyzer_roi = np.array([roi_top, roi_bottom, roi_left, roi_right]).reshape(-1)
+        # Set do_print to True for debugging information
+        self.do_print = False
+        self.computational_clock_time = time.perf_counter()
 
-    analyzer = UC_GenericMagSpecCamAnalyzer(
-        mag_spec_name=str(config.get('settings', 'mag_spec_name')),
-        roi=analyzer_roi,
-        noise_threshold=int(config.get('settings', 'noise_threshold')),
-        saturation_value=int(config.get('settings', 'saturation_value')),
-        normalization_factor=float(config.get('settings', 'normalization_factor')),
-        transverse_calibration=float(config.get('settings', 'transverse_calibration')),
-        do_transverse_calculation=bool(config.get('settings', 'do_transverse_calculation')),
-        transverse_slice_threshold=float(config.get('settings', 'transverse_slice_threshold')),
-        transverse_slice_binsize=int(config.get('settings', 'transverse_slice_binsize')),
-        optimization_central_energy=float(config.get('settings', 'optimization_central_energy')),
-        optimization_bandwidth_energy=float(config.get('settings', 'optimization_bandwidth_energy')))
-    return analyzer
+        super().__init__(config_file, **kwargs)
 
-
-class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
-
-    def __init__(self,
-                 mag_spec_name: str = 'NA',
-                 roi: List[int] = [None, None, None, None],  # ROI(top, bottom, left, right)
-                 noise_threshold: int = 0,  # CONFIRM IF THIS WORKS
-                 saturation_value: int = 4095,
-                 normalization_factor: float = 1.0,  # 7.643283839778091e-07,   # NEED TO CALCULATE
-                 transverse_calibration: float = 1.0,
-                 do_transverse_calculation: bool = True,  # IS THIS ANALYSIS USEFUL HERE?
-                 transverse_slice_threshold: float = 0,  # ^^
-                 transverse_slice_binsize: int = 10,  #
-                 optimization_central_energy: float = 100.0,  # IS THIS ANALYSIS USEFUL HERE?
-                 optimization_bandwidth_energy: float = 2.0  # ^^
-                 ):
+    def configure(self,
+                  mag_spec_name: str = 'NA',
+                  roi: List[int] = [None, None, None, None],  # ROI(top, bottom, left, right)
+                  noise_threshold: int = 0,  # CONFIRM IF THIS WORKS
+                  saturation_value: int = 4095,
+                  normalization_factor: float = 1.0,  # 7.643283839778091e-07,   # NEED TO CALCULATE
+                  transverse_calibration: float = 1.0,
+                  do_transverse_calculation: bool = True,  # IS THIS ANALYSIS USEFUL HERE?
+                  transverse_slice_threshold: float = 0,  # ^^
+                  transverse_slice_binsize: int = 10,  #
+                  optimization_central_energy: float = 100.0,  # IS THIS ANALYSIS USEFUL HERE?
+                  optimization_bandwidth_energy: float = 2.0  # ^^
+                  ):
         """
         Parameters
         ----------
@@ -84,7 +75,7 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
                 normalization_triggerdelay = 15.497208
                 normalization_exposure = 0.010000
                 normalization_thresholdvalue = 100
-        transverse_calibration: int
+        transverse_calibration: float
             Transverse resolution of the image in ums / pixel
         do_transverse_calculation: bool
             Set as True to perform the transverse beam size and beam tilt calculation.  Set as False to skip the
@@ -101,26 +92,18 @@ class UC_GenericMagSpecCamAnalyzer(ImageAnalyzer):
         optimization_bandwidth_energy: float
             For the XOpt algorithm, the standard deviation from the central energy for the Gaussian weight function
         """
-        super().__init__()
-
-        self.mag_spec_name = mag_spec_name
-        self.roi = roi
-        self.noise_threshold = noise_threshold
-        self.saturation_value = saturation_value
-        self.normalization_factor = normalization_factor
-        self.transverse_calibration = transverse_calibration
-        self.do_transverse_calculation = do_transverse_calculation
-        self.transverse_slice_threshold = transverse_slice_threshold
-        self.transverse_slice_binsize = transverse_slice_binsize
-        self.optimization_central_energy = optimization_central_energy
-        self.optimization_bandwidth_energy = optimization_bandwidth_energy
-
-        # Set do_print to True for debugging information
-        self.do_print = False
-        self.computational_clock_time = time.perf_counter()
-
-    def roi_image(self, image):
-        return image[self.roi[0]:self.roi[1], self.roi[2]:self.roi[3]]
+        if self.roi is None:
+            self.roi = roi
+        self.mag_spec_name = str(mag_spec_name)
+        self.noise_threshold = int(noise_threshold)
+        self.saturation_value = int(saturation_value)
+        self.normalization_factor = float(normalization_factor)
+        self.transverse_calibration = float(transverse_calibration)
+        self.do_transverse_calculation = bool(do_transverse_calculation)
+        self.transverse_slice_threshold = float(transverse_slice_threshold)
+        self.transverse_slice_binsize = int(transverse_slice_binsize)
+        self.optimization_central_energy = float(optimization_central_energy)
+        self.optimization_bandwidth_energy = float(optimization_bandwidth_energy)
 
     def analyze_image(self, input_image: Array2D, auxiliary_data: Optional[dict] = None,
                       ) -> dict[str, Union[dict, np.ndarray]]:
