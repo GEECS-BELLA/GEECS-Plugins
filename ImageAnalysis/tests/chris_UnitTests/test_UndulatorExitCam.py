@@ -10,14 +10,7 @@ from __future__ import annotations
 import unittest
 import numpy as np
 import cv2
-
-# import sys
-# import os
-# rootpath = os.path.abspath("../../")
-# sys.path.insert(0, rootpath)
-
-import image_analysis.analyzers.default_analyzer_initialization as default_analyzer
-import image_analysis.analyzers.UC_GenericLightSpecCam as analyzer_caller
+from image_analysis.analyzers.UC_GenericLightSpecCam import UC_LightSpectrometerCamAnalyzer
 import image_analysis.labview_adapters as labview_function_caller
 
 
@@ -54,13 +47,8 @@ class TestUndulatorExitCamAnalyze(unittest.TestCase):
         test_image = generate_mirrored_gaussian_image(image_size=(image_size, image_size), spot_std=spot_size,
                                                       rot_angle=-rotation_angle, amp=amplitude)
 
-        # plt.imshow(test_image, cmap='gray')
-        # plt.axis('off')
-        # plt.show()
-
         # Make an analyzer using some smaller calibration numbers
-
-        analyzer = analyzer_caller.UC_LightSpectrometerCamAnalyzer(
+        analyzer = UC_LightSpectrometerCamAnalyzer(
             noise_threshold=50,
             roi=[None, None, None, None],  # ROI(top, bottom, left, right)
             saturation_value=amplitude*0.90,
@@ -72,12 +60,8 @@ class TestUndulatorExitCamAnalyze(unittest.TestCase):
             optimization_bandwidth_wavelength=10.0
         )
         results = analyzer.analyze_image(test_image)
+
         return_dictionary = results['analyzer_return_dictionary']
-
-        # lineouts = results['analyzer_return_lineouts']
-        # plt.plot(lineouts[0],lineouts[1])
-        # plt.show()
-
         self.assertEqual(return_dictionary["camera_saturation_counts"], 4)
         self.assertAlmostEqual(return_dictionary["camera_total_intensity_counts"], 3921.766, delta=1e-2)
         self.assertAlmostEqual(return_dictionary["peak_wavelength_nm"], 510.0, delta=1e0)
@@ -86,20 +70,21 @@ class TestUndulatorExitCamAnalyze(unittest.TestCase):
         self.assertAlmostEqual(return_dictionary["optimization_factor"], 0.37742, delta=1e-4)
 
         # Check that the default config file works
+        camera_name = "UC_UndulatorExitCam"
+        test_default_analyzer = labview_function_caller.analyzer_from_device_type(camera_name)
 
-        test_default_analyzer = default_analyzer.return_default_undulator_exit_cam_analyzer()
         input_parameters = test_default_analyzer.build_input_parameter_dictionary()
         default_roi = input_parameters['roi_bounds_pixel']
         np.testing.assert_array_equal(np.array(default_roi), np.array([0, 1025, 0, 1281]))
 
         # Check that the labview wrapper function works
 
-        camera_name = "UC_UndulatorExitCam"
         test_array_shape = np.shape(test_image[default_roi[0]:default_roi[1], default_roi[2]:default_roi[3]])
         returned_image_labview, analyze_dict_labview, lineouts_labview = labview_function_caller.analyze_labview_image(
             camera_name, test_image, background=None)
         np.testing.assert_array_equal(np.shape(returned_image_labview), test_array_shape)
-        np.testing.assert_array_equal(np.shape(analyze_dict_labview), np.array([6, ]))
+        np.testing.assert_array_equal(np.shape(analyze_dict_labview),
+                                      np.shape(labview_function_caller.read_keys_of_interest('LightSpecCam')))
         np.testing.assert_array_equal(np.shape(lineouts_labview), np.array([2, test_array_shape[1]]))
 
 

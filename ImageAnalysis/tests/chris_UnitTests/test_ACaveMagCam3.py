@@ -14,13 +14,7 @@ from __future__ import annotations
 import unittest
 import numpy as np
 
-# import sys
-# import os
-# rootpath = os.path.abspath("../../")
-# sys.path.insert(0, rootpath)
-
-import image_analysis.analyzers.default_analyzer_initialization as default_analyzer
-import image_analysis.analyzers.UC_GenericMagSpecCam as mag_spec_caller
+from image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
 import image_analysis.labview_adapters as labview_function_caller
 
 
@@ -54,14 +48,12 @@ class TestACaveMagCam3Analyze(unittest.TestCase):
         sigma_y = 3
         angle_deg = 30
 
-        # start = time.perf_counter()
         # Generate the elliptical Gaussian array
         elliptical_gaussian_array = generate_elliptical_gaussian(amplitude, height, width, center_x, center_y, sigma_x,
                                                                  sigma_y, angle_deg)
-        # print("Elapsed Time: ", time.perf_counter() - start, "s")
 
-        # start = time.perf_counter()
-        test_analyzer = mag_spec_caller.UC_GenericMagSpecCamAnalyzer(
+        # First, try generating an analyzer by explicitly naming all keyword arguments
+        test_analyzer = UC_GenericMagSpecCamAnalyzer(
             mag_spec_name='acave3',
             roi=[1, -1, 1, -1],
             noise_threshold=100,  # CONFIRM IF THIS WORKS
@@ -74,15 +66,8 @@ class TestACaveMagCam3Analyze(unittest.TestCase):
             optimization_central_energy=93.0,
             optimization_bandwidth_energy=2.0)
         results = test_analyzer.analyze_image(elliptical_gaussian_array)
-        # results = mag_spec_caller.return_default_hi_res_mag_cam_analyzer().analyze_image(elliptical_gaussian_array)
-        # print("Elapsed Time: ", time.perf_counter() - start, "s")
-        # print(analyze_dict)
-
-        # plt.imshow(elliptical_gaussian_array)
-        # plt.show()
 
         # Here I check that the mag spec analyzer is working properly using the constants set above with the sample data
-
         analyze_dict = results['analyzer_return_dictionary']
         self.assertAlmostEqual(analyze_dict["camera_clipping_factor"], 0.42678, delta=1e-4)
         self.assertEqual(analyze_dict["camera_saturation_counts"], 49)
@@ -98,26 +83,29 @@ class TestACaveMagCam3Analyze(unittest.TestCase):
         self.assertAlmostEqual(analyze_dict["beam_tilt_intercept_um"], -333.19934, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["beam_tilt_intercept_100MeV_um"], 98.42110, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["optimization_factor"], 3.46646, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["fwhm_percent"], 1.41698, delta=1e-3)
 
-        # Here I am only checking that the labview wrapper function is working properly by checking the output shapes
+        # Next we test the Labview adapter method of calling this analyzer
+        camera_name = "UC_ACaveMagCam3"
+        test_default_analyzer = labview_function_caller.analyzer_from_device_type(camera_name)
 
-        test_default_analyzer = default_analyzer.return_default_acave_mag_cam3_analyzer()
+        # Test that the roi is what should be set in the .ini config file
         input_parameters = test_default_analyzer.build_input_parameter_dictionary()
         default_roi = input_parameters['roi_bounds_pixel']
-        # print(default_roi)
         np.testing.assert_array_equal(np.array(default_roi), np.array([112, 278, 23, 1072]))
 
         # I have to make a really strange shape in order for the large bounds above to work with the small image below
-
-        camera_name = "UC_ACaveMagCam3"
-        big_elliptical_gaussian = generate_elliptical_gaussian(amplitude, 113, 24, center_x, center_y, sigma_x,
-                                                               sigma_y, angle_deg)
+        big_elliptical_gaussian = generate_elliptical_gaussian(amplitude, 113, 24, center_x, center_y,
+                                                               sigma_x, sigma_y, angle_deg)
         test_array_shape = np.shape(big_elliptical_gaussian[default_roi[0]:default_roi[1],
                                     default_roi[2]:default_roi[3]])
         returned_image_labview, analyze_dict_labview, lineouts_labview = labview_function_caller.analyze_labview_image(
             camera_name, big_elliptical_gaussian, background=None)
+
+        # Test that the returns from labview have the expected shape given by the input image and number of scalars
         np.testing.assert_array_equal(np.shape(returned_image_labview), test_array_shape)
-        np.testing.assert_array_equal(np.shape(analyze_dict_labview), np.array([14, ]))
+        np.testing.assert_array_equal(np.shape(analyze_dict_labview),
+                                      np.shape(labview_function_caller.read_keys_of_interest('MagSpecCam')))
         np.testing.assert_array_equal(np.shape(lineouts_labview), np.array([2, test_array_shape[1]]))
 
 
