@@ -11,76 +11,59 @@ Adapted from UC_BeamSpot by Guillaume Plateau, grplateau@lbl.gov
 
 from __future__ import annotations
 
-from typing import Union, Optional
-import configparser
+from typing import TYPE_CHECKING, Union, Optional
+if TYPE_CHECKING:
+    from ..types import Array2D
 
 import numpy as np
 from scipy.ndimage import median_filter
 from skimage.measure import regionprops, label
 
-from ..base import ImageAnalyzer
+from ..base import LabviewImageAnalyzer
 from ..utils import ROI
 from ..tools.filtering import clip_hot_pixels
-# =============================================================================
-# %% handle config file
 
-def return_analyzer_from_config_file(config_filename) -> BeamSpotAnalyzer:
-
-    config = configparser.ConfigParser()
-    config.read(config_filename)
-
-    analyzer_roi = ROI(top=config.get('roi', 'top'),
-                       bottom=config.get('roi', 'bottom'),
-                       left=config.get('roi', 'left'),
-                       right=config.get('roi', 'right'),
-                       bad_index_order='invert'
-                       )
-
-    analyzer = BeamSpotAnalyzer(
-        roi=analyzer_roi,
-        bool_hp=bool(config.get('hotpixel', 'bool_hp')),
-        hp_median=int(config.get('hotpixel', 'hp_median')),
-        hp_thresh=float(config.get('hotpixel', 'hp_thresh')),
-        bool_thresh=bool(config.get('thresholding', 'bool_thresh')),
-        thresh_median=int(config.get('thresholding', 'thresh_median')),
-        thresh_coeff=float(config.get('thresholding', 'thresh_coeff')),
-        )
-
-    return analyzer
 # =============================================================================
 # %% beam spot analyzer
 
-class BeamSpotAnalyzer(ImageAnalyzer):
+
+class BeamSpotAnalyzer(LabviewImageAnalyzer):
     """
     Image analysis for e-beam or laser beam spot profiles.
 
     Inherits ImageAnalyzer super class.
     """
+    def __init__(self, config_file, **kwargs):
+        self.bool_hp = None
+        self.hp_median = None
+        self.hp_thresh = None
+        self.bool_thresh = None
+        self.thresh_median = None
+        self.thresh_coeff = None
+
+        super().__init__(config_file, **kwargs)
 
     # initialization
-    def __init__(self,
-                 roi: ROI = ROI(),
-                 bool_hp: bool = True,
-                 hp_median: int = 2,
-                 hp_thresh: float = 3.0,
-                 bool_thresh: bool = True,
-                 thresh_median: int = 2,
-                 thresh_coeff: float = 0.1,
-                 background: Optional[np.ndarray] = None
-                 ):
+    def configure(self,
+                  roi: ROI = ROI(),
+                  bool_hp: bool = True,
+                  hp_median: int = 2,
+                  hp_thresh: float = 3.0,
+                  bool_thresh: bool = True,
+                  thresh_median: int = 2,
+                  thresh_coeff: float = 0.1,
+                  ):
 
-        super().__init__()
+        if self.roi is None:
+            self.roi = roi
+        self.bool_hp = bool(bool_hp)
+        self.hp_median = int(hp_median)
+        self.hp_thresh = float(hp_thresh)
+        self.bool_thresh = bool(bool_thresh)
+        self.thresh_median = int(thresh_median)
+        self.thresh_coeff = float(thresh_coeff)
 
-        self.roi = roi
-        self.bool_hp = bool_hp
-        self.hp_median = hp_median
-        self.hp_thresh = hp_thresh
-        self.bool_thresh = bool_thresh
-        self.thresh_median = thresh_median
-        self.thresh_coeff = thresh_coeff
-        self.background = background
-
-    def image_signal_thresholding(self, image:np.ndarray) -> np.ndarray:
+    def image_signal_thresholding(self, image: np.ndarray) -> np.ndarray:
 
         data_type = image.dtype
         image = image.astype('float64')
@@ -93,7 +76,7 @@ class BeamSpotAnalyzer(ImageAnalyzer):
 
         return image.astype(data_type)
 
-    def find_beam_properties(self, image:np.ndarray) -> np.ndarray:
+    def find_beam_properties(self, image: np.ndarray) -> np.ndarray:
 
         # initialize beam properties dict
         beam_properties = {}
@@ -114,9 +97,8 @@ class BeamSpotAnalyzer(ImageAnalyzer):
 
         return beam_properties
 
-    def analyze_image(self,
-                      image: np.ndarray,
-                      ) -> dict[str, Union[float, np.ndarray]]:
+    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None,
+                      ) -> dict[str, Union[dict, np.ndarray]]:
 
         # initialize processed image
         image_cor = image.copy()
