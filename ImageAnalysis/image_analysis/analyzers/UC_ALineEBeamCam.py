@@ -60,14 +60,21 @@ class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
         peak_counts = np.max(crop_image)  # Before threshold subtraction
         total_counts = np.sum(image)  # After threshold subtraction
 
-        centroid_x = np.sum(np.arange(image.shape[1]) * image) / total_counts
-        centroid_y = np.sum(np.arange(image.shape[0]) * np.transpose(image)) / total_counts
+        if total_counts == 0:
+            centroid_x = 0
+            centroid_y = 0
+            fwhm_x = 0
+            fwhm_y = 0
 
-        x_projection = np.sum(image, axis=0)
-        y_projection = np.sum(image, axis=1)
+        else:
+            centroid_x = np.sum(np.arange(image.shape[1]) * image) / total_counts
+            centroid_y = np.sum(np.arange(image.shape[0]) * np.transpose(image)) / total_counts
 
-        fwhm_x = process.calculate_fwhm(x_projection, threshold=self.noise_threshold)
-        fwhm_y = process.calculate_fwhm(y_projection, threshold=self.noise_threshold)
+            x_projection = np.sum(image, axis=0)
+            y_projection = np.sum(image, axis=1)
+
+            fwhm_x = process.calculate_fwhm(x_projection, threshold=self.noise_threshold)
+            fwhm_y = process.calculate_fwhm(y_projection, threshold=self.noise_threshold)
 
         alinecam_dict = {
             "camera_saturation_counts": saturation_number,
