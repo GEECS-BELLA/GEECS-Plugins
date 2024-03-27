@@ -4,6 +4,7 @@ from pathlib import Path
 from .analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer as MagSpec
 from .analyzers.UC_GenericLightSpecCam import UC_LightSpectrometerCamAnalyzer as LightSpec
 from .analyzers.UC_ALineEBeamCam import UC_ALineEBeamCamAnalyzer as ALineCam
+from .analyzers.generic_beam_analyzer import BeamSpotAnalyzer as BeamSpot
 
 """Dictionary to map "GEECs Device Name" --> [child of LabviewImageAnalyzer class,
                                               'name of keys dictionary in .json file',
@@ -13,8 +14,8 @@ DEVICE_FUNCTIONS = {
     "UC_ACaveMagCam3":      [MagSpec,   'MagSpecCam',   'default_acavemagcam3_settings.ini'],
     "UC_UndulatorExitCam":  [LightSpec, 'LightSpecCam', 'default_undulatorexitcam_settings.ini'],
     "UC_UndulatorRad2":     [LightSpec, 'LightSpecCam', 'default_undulatorrad2cam_settings.ini'],
+    "UC_Amp2_IR_input":     [BeamSpot,  'BeamSpot',     'default_amp2input_settings.ini'],
     "UC_ALineEBeam3":       [ALineCam,  'ALineCam',     'default_alineebeam3_settings.ini'],
-    # Add more device types as needed...
 }
 
 
@@ -25,8 +26,8 @@ def analyze_labview_image(device_type, image, background):
     Parameters:
     -----------
     device_type : str
-        Type of the device, e.g., "UC_TestCam". This is used to 
-        select out the specific device 
+        Type of the device, e.g., "UC_TestCam". This is used to
+        select out the specific device
     image : numpy.ndarray
         The image to be analyzed.
     background : numpy.ndarray
