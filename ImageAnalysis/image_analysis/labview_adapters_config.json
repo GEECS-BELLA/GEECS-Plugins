@@ -28,6 +28,12 @@
       "optimization_factor"
     ]
   },
+  "BeamSpot": {
+    "keys_of_interest": [
+      "centroidx",
+      "centroidy"
+    ]
+  },
   "ALineCam": {
     "keys_of_interest": [
       "camera_saturation_counts",
