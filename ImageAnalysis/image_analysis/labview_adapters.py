@@ -1,21 +1,31 @@
 import numpy as np
 import json
 from pathlib import Path
+from typing import Type, NamedTuple
+from .base import LabviewImageAnalyzer
+class DeviceConfig(NamedTuple):
+    labview_analyzer_class: Type[LabviewImageAnalyzer]  # Specific analyzer class
+    key_list_name: str  # name of keys dictionary in .json file
+    default_settings_filename: str  # .ini config file in "image_analysis_configs/"
+
 from .analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer as MagSpec
 from .analyzers.UC_GenericLightSpecCam import UC_LightSpectrometerCamAnalyzer as LightSpec
 from .analyzers.UC_ALineEBeamCam import UC_ALineEBeamCamAnalyzer as ALineCam
 from .analyzers.generic_beam_analyzer import BeamSpotAnalyzer as BeamSpot
 
-"""Dictionary to map "GEECs Device Name" --> [child of LabviewImageAnalyzer class,
-                                              'name of keys dictionary in .json file',
-                                              '.ini config file in "image_analysis_configs/"']"""
 DEVICE_FUNCTIONS = {
-    "UC_HiResMagCam":       [MagSpec,   'MagSpecCam',   'default_hiresmagcam_settings.ini'],
-    "UC_ACaveMagCam3":      [MagSpec,   'MagSpecCam',   'default_acavemagcam3_settings.ini'],
-    "UC_UndulatorExitCam":  [LightSpec, 'LightSpecCam', 'default_undulatorexitcam_settings.ini'],
-    "UC_UndulatorRad2":     [LightSpec, 'LightSpecCam', 'default_undulatorrad2cam_settings.ini'],
-    "UC_Amp2_IR_input":     [BeamSpot,  'BeamSpot',     'default_amp2input_settings.ini'],
-    "UC_ALineEBeam3":       [ALineCam,  'ALineCam',     'default_alineebeam3_settings.ini'],
+    "UC_HiResMagCam":       DeviceConfig(labview_analyzer_class=MagSpec, key_list_name='MagSpecCam',
+                                         default_settings_filename='default_hiresmagcam_settings.ini'),
+    "UC_ACaveMagCam3":      DeviceConfig(labview_analyzer_class=MagSpec, key_list_name='MagSpecCam',
+                                         default_settings_filename='default_acavemagcam3_settings.ini'),
+    "UC_UndulatorExitCam":  DeviceConfig(labview_analyzer_class=LightSpec, key_list_name='LightSpecCam',
+                                         default_settings_filename='default_undulatorexitcam_settings.ini'),
+    "UC_UndulatorRad2":     DeviceConfig(labview_analyzer_class=LightSpec, key_list_name='LightSpecCam',
+                                         default_settings_filename='default_undulatorrad2cam_settings.ini'),
+    "UC_Amp2_IR_input":     DeviceConfig(labview_analyzer_class=BeamSpot, key_list_name='BeamSpot',
+                                         default_settings_filename='default_amp2input_settings.ini'),
+    "UC_ALineEBeam3":       DeviceConfig(labview_analyzer_class=ALineCam, key_list_name='ALineCam',
+                                         default_settings_filename='default_alineebeam3_settings.ini'),
 }
 
 
@@ -42,13 +52,13 @@ def analyze_labview_image(device_type, image, background):
         - 2D double array
 
     """
-    
+
     configuration = DEVICE_FUNCTIONS.get(device_type)
     if configuration:
         analyzer = analyzer_from_device_type(device_type)
         analyzer.apply_background(background=background)
         result = analyzer.analyze_image(image)
-        return parse_results_to_labview(result, configuration[1])
+        return parse_results_to_labview(result, configuration.key_list_name)
     else:
         raise ValueError(f"Unknown device type: {device_type}")
 
@@ -71,8 +81,8 @@ def analyzer_from_device_type(device_type):
 
     """
     configuration = DEVICE_FUNCTIONS.get(device_type)
-    analyzer_class = configuration[0]
-    config_filepath = build_config_path(configuration[2])
+    analyzer_class = configuration.labview_analyzer_class
+    config_filepath = build_config_path(configuration.default_settings_filename)
     return analyzer_class(config_file=config_filepath)
 
 
@@ -145,8 +155,8 @@ def build_config_path(config_filename):
         String that points to the config file after determining its location
 
     """
-    active_build_directory = r'Z:\software\control-all-loasis\HTU\Active Version\GEECS-Plugins\image_analysis_configs\\'
-    active_config = Path(active_build_directory + config_filename)
+    active_build_directory = r'Z:\software\control-all-loasis\HTU\Active Version\GEECS-Plugins\image_analysis_configs'
+    active_config = Path(active_build_directory, config_filename)
 
     current_directory = Path(__file__)
     relative_config = current_directory.parents[2] / "image_analysis_configs" / config_filename
