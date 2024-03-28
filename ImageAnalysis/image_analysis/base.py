@@ -193,7 +193,9 @@ class LabviewImageAnalyzer(ImageAnalyzer):
         for key, value in kwargs.items():
             if hasattr(self, key):
                 attr_type = type(getattr(self, key))
-                print(key, value, attr_type)
                 if value is not None:
+                    if attr_type is bool:
+                        if isinstance(value, str) and value.lower() == 'false':
+                            value = False
                     setattr(self, key, attr_type(value))
         return self
