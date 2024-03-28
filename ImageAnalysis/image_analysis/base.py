@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import configparser
+import numpy as np
 from typing import TYPE_CHECKING, Optional, Union, Type, Any
 if TYPE_CHECKING:
     from .types import Array2D
-    import numpy as np
+
 
 class ImageAnalyzer:
     """ Abstract base class for device-specific image analyzer
@@ -81,3 +83,119 @@ class ImageAnalyzer:
 
         """
         raise NotImplementedError()
+
+
+class LabviewImageAnalyzer(ImageAnalyzer):
+    """
+    Intermediate class for ImageAnalyzer intended for analyzers that also want to be compatible with LabView through
+    labview_adapters.py.
+
+        Derived classes should implement
+            configure()
+            __init__()
+    """
+    def __init__(self):
+        """ Only initializes class variables used by the functions defined here for all LabviewImageAnalyzers.
+
+        Currently, only the roi and background settings.
+
+        TODO:  determine if self.roi can be a ROI instance, or if it has to be a list.
+        """
+        super().__init__()
+        self.roi = None
+        self.background = None
+
+    def apply_config(self, config_file):
+        """ Loads the config file and passes elements of 'settings' as keyword arguments to the configure function
+
+        Parameters
+        ----------
+        config_file : str
+            file location of the .ini config file
+
+        """
+        parser = configparser.ConfigParser()
+        parser.read(config_file)
+        if 'roi' in parser:
+            self.roi = self.read_roi(parser)
+        config = dict(parser["settings"])
+        self.configure(**config)
+        return self
+
+    @staticmethod
+    def read_roi(parser):
+        """ Reads the roi settings from the .ini config file
+
+        Parameters
+        ----------
+        parser : ConfigParser
+            the config file containing roi information
+
+        Returns
+        -------
+        roi : 1d array
+            the roi bounds given by [top, bottom, left, right] pixel
+
+        """
+        roi_top = int(parser.get('roi', 'top')),
+        roi_bottom = int(parser.get('roi', 'bottom')),
+        roi_left = int(parser.get('roi', 'left')),
+        roi_right = int(parser.get('roi', 'right')),
+        return np.array([roi_top, roi_bottom, roi_left, roi_right]).reshape(-1)
+
+    def roi_image(self, image):
+        """ Crops a given image with the analyzer's roi setting
+
+        If roi is defined for the analyzer, this function applied that roi
+
+        Parameters
+        ----------
+        image : 2d array
+            the original image before any applied roi
+            
+        Returns
+        -------
+        image : 2d array
+            either the input image if there is no roi on this analyzer, or the cropped image if roi is defined
+
+        """
+        if (self.roi is None) | (isinstance(self.roi, list) and any(elem is None for elem in self.roi)):
+            return image
+        else:
+            return image[self.roi[0]:self.roi[1], self.roi[2]:self.roi[3]]
+
+    def apply_background(self, background):
+        """ Sets the background for the analyzer
+
+        labview_adapters expects a background image from Labview, and so all ImageAnalyzers need to be able to accept
+        it.  However, it is up to the implementation of analyze_image to use this background.
+
+        Currently, no analyzers use this background...
+
+        Parameters
+        ----------
+        background : 2d array
+            A 2d array from Labview
+        """
+        self.background = background
+
+    def configure(self, **kwargs):
+        """ Given a dictionary of keyword arguments, updates environment variables for the anlayzer
+
+        This function also requires that the class variables were previously initialized to their proper type.
+        Furthermore, passing in a None for a given keyword argument will skip over resetting the variable.
+
+        Parameters
+        ----------
+        kwargs : dict
+            keyword arguments to configure the analyzer with
+        """
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                attr_type = type(getattr(self, key))
+                if value is not None:
+                    if attr_type is bool:
+                        if isinstance(value, str) and value.lower() == 'false':
+                            value = False
+                    setattr(self, key, attr_type(value))
+        return self

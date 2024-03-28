@@ -14,16 +14,6 @@ import numpy as np
 import cv2
 
 
-def saturation_check(image, saturation_value):
-    return len(np.where(image > saturation_value)[0])
-
-
-def threshold_reduction(image, threshold):
-    return_image = np.copy(image) - threshold
-    return_image[np.where(return_image < 0)] = 0
-    return return_image
-
-
 def rotate_image(image, rotation_degrees):
     height, width = image.shape[:2]
     rotation_matrix = cv2.getRotationMatrix2D((width / 2, height / 2), rotation_degrees, 1.0)
