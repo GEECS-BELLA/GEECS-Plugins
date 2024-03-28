@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING, Union
+from typing import Optional, TYPE_CHECKING, Union, List
 import numpy as np
 from scipy.ndimage import median_filter
 import time
@@ -11,34 +11,28 @@ if TYPE_CHECKING:
 from ..base import LabviewImageAnalyzer
 from .online_analysis_modules import image_processing_funcs as process
 
+
 class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
-    def __init__(self, config_file=None, **kwargs):
-        self.noise_threshold = None
-        self.circular_crop_center_x = None
-        self.circular_crop_center_y = None
-        self.circular_crop_radius = None
-        self.saturation_value = None
-        self.spatial_calibration = None
+    def __init__(self,
+                 noise_threshold: int = 100,
+                 roi: List[int] = [None, None, None, None],  # ROI(top, bottom, left, right)
+                 circular_crop_center_x: int = 525,
+                 circular_crop_center_y: int = 475,
+                 circular_crop_radius: int = 475,
+                 saturation_value: int = 4095,
+                 spatial_calibration: float = 24.4, ):
+        super().__init__()
+
+        self.noise_threshold = noise_threshold
+        self.roi = roi
+        self.circular_crop_center_x = circular_crop_center_x
+        self.circular_crop_center_y = circular_crop_center_y
+        self.circular_crop_radius = circular_crop_radius
+        self.saturation_value = saturation_value
+        self.spatial_calibration = spatial_calibration
 
         self.do_print = False
         self.computational_clock_time = time.perf_counter()
-
-        super().__init__(config_file, **kwargs)
-
-    def configure(self,
-                  noise_threshold: int = 100,
-                  circular_crop_center_x: int = 525,
-                  circular_crop_center_y: int = 475,
-                  circular_crop_radius: int = 475,
-                  saturation_value: int = 4095,
-                  spatial_calibration: float = 24.4,
-                  ):
-        self.noise_threshold = int(noise_threshold)
-        self.circular_crop_center_x = int(circular_crop_center_x)
-        self.circular_crop_center_y = int(circular_crop_center_y)
-        self.circular_crop_radius = int(circular_crop_radius)
-        self.saturation_value = int(saturation_value)
-        self.spatial_calibration = float(spatial_calibration)
 
     def circular_crop(self, image):
         x, y = np.meshgrid(np.arange(image.shape[1]), np.arange(image.shape[0]))

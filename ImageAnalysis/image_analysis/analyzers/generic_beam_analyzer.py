@@ -12,6 +12,7 @@ Adapted from UC_BeamSpot by Guillaume Plateau, grplateau@lbl.gov
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Union, Optional
+
 if TYPE_CHECKING:
     from ..types import Array2D
 
@@ -23,6 +24,7 @@ from ..base import LabviewImageAnalyzer
 from ..utils import ROI
 from ..tools.filtering import clip_hot_pixels
 
+
 # =============================================================================
 # %% beam spot analyzer
 
@@ -33,29 +35,19 @@ class BeamSpotAnalyzer(LabviewImageAnalyzer):
 
     Inherits ImageAnalyzer super class.
     """
-    def __init__(self, config_file, **kwargs):
-        self.bool_hp = None
-        self.hp_median = None
-        self.hp_thresh = None
-        self.bool_thresh = None
-        self.thresh_median = None
-        self.thresh_coeff = None
 
-        super().__init__(config_file, **kwargs)
+    def __init__(self,
+                 roi: ROI = ROI(),
+                 bool_hp: bool = True,
+                 hp_median: int = 2,
+                 hp_thresh: float = 3.0,
+                 bool_thresh: bool = True,
+                 thresh_median: int = 2,
+                 thresh_coeff: float = 0.1,
+                 ):
+        super().__init__()
 
-    # initialization
-    def configure(self,
-                  roi: ROI = ROI(),
-                  bool_hp: bool = True,
-                  hp_median: int = 2,
-                  hp_thresh: float = 3.0,
-                  bool_thresh: bool = True,
-                  thresh_median: int = 2,
-                  thresh_coeff: float = 0.1,
-                  ):
-
-        if self.roi is None:
-            self.roi = roi
+        self.roi = roi
         self.bool_hp = bool(bool_hp)
         self.hp_median = int(hp_median)
         self.hp_thresh = float(hp_thresh)

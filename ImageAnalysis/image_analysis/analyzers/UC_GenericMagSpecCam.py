@@ -23,37 +23,19 @@ from .online_analysis_modules import mag_spec_energy_axis as energy_axis_lookup
 
 
 class UC_GenericMagSpecCamAnalyzer(LabviewImageAnalyzer):
-    def __init__(self, config_file=None, **kwargs):
-        self.mag_spec_name = None
-        self.noise_threshold = None
-        self.saturation_value = None
-        self.normalization_factor = None
-        self.transverse_calibration = None
-        self.do_transverse_calculation = None
-        self.transverse_slice_threshold = None
-        self.transverse_slice_binsize = None
-        self.optimization_central_energy = None
-        self.optimization_bandwidth_energy = None
-
-        # Set do_print to True for debugging information
-        self.do_print = False
-        self.computational_clock_time = time.perf_counter()
-
-        super().__init__(config_file, **kwargs)
-
-    def configure(self,
-                  mag_spec_name: str = 'NA',
-                  roi: List[int] = [None, None, None, None],  # ROI(top, bottom, left, right)
-                  noise_threshold: int = 0,  # CONFIRM IF THIS WORKS
-                  saturation_value: int = 4095,
-                  normalization_factor: float = 1.0,  # 7.643283839778091e-07,   # NEED TO CALCULATE
-                  transverse_calibration: float = 1.0,
-                  do_transverse_calculation: bool = True,  # IS THIS ANALYSIS USEFUL HERE?
-                  transverse_slice_threshold: float = 0,  # ^^
-                  transverse_slice_binsize: int = 10,  #
-                  optimization_central_energy: float = 100.0,  # IS THIS ANALYSIS USEFUL HERE?
-                  optimization_bandwidth_energy: float = 2.0  # ^^
-                  ):
+    def __init__(self,
+                 mag_spec_name: str = 'NA',
+                 roi: List[int] = [None, None, None, None],  # ROI(top, bottom, left, right)
+                 noise_threshold: int = 0,  # CONFIRM IF THIS WORKS
+                 saturation_value: int = 4095,
+                 normalization_factor: float = 1.0,  # 7.643283839778091e-07,   # NEED TO CALCULATE
+                 transverse_calibration: float = 1.0,
+                 do_transverse_calculation: bool = True,  # IS THIS ANALYSIS USEFUL HERE?
+                 transverse_slice_threshold: float = 0,  # ^^
+                 transverse_slice_binsize: int = 10,  #
+                 optimization_central_energy: float = 100.0,  # IS THIS ANALYSIS USEFUL HERE?
+                 optimization_bandwidth_energy: float = 2.0  # ^^
+                 ):
         """
         Parameters
         ----------
@@ -93,8 +75,9 @@ class UC_GenericMagSpecCamAnalyzer(LabviewImageAnalyzer):
         optimization_bandwidth_energy: float
             For the XOpt algorithm, the standard deviation from the central energy for the Gaussian weight function
         """
-        if self.roi is None:
-            self.roi = roi
+        super().__init__()
+
+        self.roi = roi
         self.mag_spec_name = str(mag_spec_name)
         self.noise_threshold = int(noise_threshold)
         self.saturation_value = int(saturation_value)
@@ -105,6 +88,10 @@ class UC_GenericMagSpecCamAnalyzer(LabviewImageAnalyzer):
         self.transverse_slice_binsize = int(transverse_slice_binsize)
         self.optimization_central_energy = float(optimization_central_energy)
         self.optimization_bandwidth_energy = float(optimization_bandwidth_energy)
+
+        # Set do_print to True for debugging information
+        self.do_print = False
+        self.computational_clock_time = time.perf_counter()
 
     def analyze_image(self, input_image: Array2D, auxiliary_data: Optional[dict] = None,
                       ) -> dict[str, Union[dict, np.ndarray]]:
@@ -188,7 +175,8 @@ class UC_GenericMagSpecCamAnalyzer(LabviewImageAnalyzer):
 
                     beam_angle = linear_fit[0]
                     beam_intercept = linear_fit[1]
-                    projected_axis, projected_arr, projected_beam_size = analyze.calculate_projected_beam_size(image, self.transverse_calibration)
+                    projected_axis, projected_arr, projected_beam_size = analyze.calculate_projected_beam_size(image,
+                                                                                                               self.transverse_calibration)
                     self.print_time(" Projected Size:")
                 else:
                     print("Error with transverse calcs.  Some charge on camera but still sum to zero:")
