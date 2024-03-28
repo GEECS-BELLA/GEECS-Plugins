@@ -94,28 +94,16 @@ class LabviewImageAnalyzer(ImageAnalyzer):
             configure()
             __init__()
     """
-    def __init__(self, config_file=None, **kwargs):
-        """ Initializes the components of an ImageAnalyzer that talk with the functions in labview_adapters.py to create
-        an analyzer with settings defined in a config file and to allow for analyzer results to be passed back upwards
-        to Labview.
+    def __init__(self):
+        """ Only initializes class variables used by the functions defined here for all LabviewImageAnalyzers.
 
-        Parameters
-        ----------
-        config_file : str
-            Optional.  If given the analyzer is initialized using the settings in this config file location
-        kwargs :
-            Optional.  If no config file is given, one can explicitly name keyword arguments to overwrite during the
-            call to configure
+        Currently, only the roi and background settings.
 
+        TODO:  determine if self.roi can be a ROI instance, or if it has to be a list.
         """
         super().__init__()
         self.roi = None
         self.background = None
-
-        if config_file:
-            self.apply_config(config_file)
-        else:
-            self.configure(**kwargs)
 
     def apply_config(self, config_file):
         """ Loads the config file and passes elements of 'settings' as keyword arguments to the configure function
@@ -132,6 +120,7 @@ class LabviewImageAnalyzer(ImageAnalyzer):
             self.roi = self.read_roi(parser)
         config = dict(parser["settings"])
         self.configure(**config)
+        return self
 
     @staticmethod
     def read_roi(parser):
@@ -170,7 +159,7 @@ class LabviewImageAnalyzer(ImageAnalyzer):
             either the input image if there is no roi on this analyzer, or the cropped image if roi is defined
 
         """
-        if self.roi is None:
+        if (self.roi is None) | (isinstance(self.roi, list) and any(elem is None for elem in self.roi)):
             return image
         else:
             return image[self.roi[0]:self.roi[1], self.roi[2]:self.roi[3]]
@@ -191,14 +180,20 @@ class LabviewImageAnalyzer(ImageAnalyzer):
         self.background = background
 
     def configure(self, **kwargs):
-        """ Configures necessary parameters for the analyzer used by analyze_image
+        """ Given a dictionary of keyword arguments, updates environment variables for the anlayzer
 
-        To be implemented by children of this class.  This is called by the initialization function, where the keyword
-        arguments are given by either the "settings" block of the .ini config file or explicitly listed.
+        This function also requires that the class variables were previously initialized to their proper type.
+        Furthermore, passing in a None for a given keyword argument will skip over resetting the variable.
 
         Parameters
         ----------
         kwargs : dict
             keyword arguments to configure the analyzer with
         """
-        raise NotImplementedError()
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                attr_type = type(getattr(self, key))
+                print(key, value, attr_type)
+                if value is not None:
+                    setattr(self, key, attr_type(value))
+        return self

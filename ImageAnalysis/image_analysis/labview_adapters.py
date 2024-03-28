@@ -83,7 +83,7 @@ def analyzer_from_device_type(device_type):
     configuration = DEVICE_FUNCTIONS.get(device_type)
     analyzer_class = configuration.labview_analyzer_class
     config_filepath = build_config_path(configuration.default_settings_filename)
-    return analyzer_class(config_file=config_filepath)
+    return analyzer_class().apply_config(config_filepath)
 
 
 def parse_results_to_labview(return_dictionary, key_list_name):
