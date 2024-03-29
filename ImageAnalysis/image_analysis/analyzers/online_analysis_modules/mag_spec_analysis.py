@@ -47,16 +47,6 @@ def calculate_maximum_charge(charge_arr):
     return np.max(charge_arr)
 
 
-def calculate_average_energy(charge_arr, energy_arr):
-    return np.average(energy_arr, weights=charge_arr)
-
-
-def calculate_standard_deviation_energy(charge_arr, energy_arr, average_energy=None):
-    if average_energy is None:
-        average_energy = calculate_average_energy(charge_arr, energy_arr)
-    return np.sqrt(np.average((energy_arr - average_energy) ** 2, weights=charge_arr))
-
-
 def calculate_peak_energy(charge_arr, energy_arr):
     return energy_arr[np.argmax(charge_arr)]
 

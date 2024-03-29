@@ -9,6 +9,7 @@ in the parent ImageAnalyzer class itself.
 
 import numpy as np
 
+
 def threshold_reduction(image, threshold):
     return_image = np.copy(image) - threshold
     return_image[np.where(return_image < 0)] = 0
@@ -33,3 +34,13 @@ def calculate_fwhm(projection_array, threshold=None):
 
     peak_region = np.where(projection_array >= halfmax)[0]
     return peak_region[-1] - peak_region[0]
+
+
+def calculate_standard_deviation(amplitude_array, axis_array, axis_average=None):
+    if axis_average is None:
+        axis_average = calculate_axis_average(amplitude_array, axis_array)
+    return np.sqrt(np.average((axis_array - axis_average) ** 2, weights=amplitude_array))
+
+
+def calculate_axis_average(amplitude_array, axis_array):
+    return np.average(axis_array, weights=amplitude_array)

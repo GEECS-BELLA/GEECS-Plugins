@@ -139,10 +139,10 @@ class UC_GenericMagSpecCamAnalyzer(LabviewImageAnalyzer):
             peak_charge = analyze.calculate_maximum_charge(charge_arr)
             self.print_time(" Peak Charge:")
 
-            average_energy = analyze.calculate_average_energy(charge_arr, energy_arr)
+            average_energy = process.calculate_axis_average(charge_arr, energy_arr)
             self.print_time(" Average Energy:")
 
-            energy_spread = analyze.calculate_standard_deviation_energy(charge_arr, energy_arr, average_energy)
+            energy_spread = process.calculate_standard_deviation(charge_arr, energy_arr, average_energy)
             energy_spread_percent = energy_spread / average_energy * 100
             self.print_time(" Energy Spread:")
 
