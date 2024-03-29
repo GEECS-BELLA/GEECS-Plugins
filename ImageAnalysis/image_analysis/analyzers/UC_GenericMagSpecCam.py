@@ -136,7 +136,7 @@ class UC_GenericMagSpecCamAnalyzer(LabviewImageAnalyzer):
             optimization_factor = 0.0
             fwhm_charge_percent = 0.0
         else:
-            peak_charge = analyze.calculate_maximum_charge(charge_arr)
+            peak_charge = np.max(charge_arr)
             self.print_time(" Peak Charge:")
 
             average_energy = process.calculate_axis_average(charge_arr, energy_arr)
@@ -146,7 +146,7 @@ class UC_GenericMagSpecCamAnalyzer(LabviewImageAnalyzer):
             energy_spread_percent = energy_spread / average_energy * 100
             self.print_time(" Energy Spread:")
 
-            peak_charge_energy = analyze.calculate_peak_energy(charge_arr, energy_arr)
+            peak_charge_energy = energy_arr[np.argmax(charge_arr)]
             self.print_time(" Energy at Peak Charge:")
 
             fwhm_charge_percent = analyze.calculate_fwhm_relative(charge_arr, energy_arr, maximum_charge=peak_charge,
@@ -167,7 +167,7 @@ class UC_GenericMagSpecCamAnalyzer(LabviewImageAnalyzer):
                 self.print_time(" Gaussian Fits for each Slice:")
 
                 if np.sum(amp_arr) > 0:
-                    average_beam_size = analyze.calculate_average_size(sigma_arr, amp_arr)
+                    average_beam_size = np.average(sigma_arr, weights=amp_arr)
                     self.print_time(" Average Beam Size:")
 
                     linear_fit = analyze.fit_beam_angle(x0_arr, amp_arr, energy_arr)

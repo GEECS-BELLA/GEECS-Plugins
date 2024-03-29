@@ -43,26 +43,14 @@ def calculate_charge_density_distribution(image, calibration_factor):
     return charge_arr
 
 
-def calculate_maximum_charge(charge_arr):
-    return np.max(charge_arr)
-
-
-def calculate_peak_energy(charge_arr, energy_arr):
-    return energy_arr[np.argmax(charge_arr)]
-
-
 def calculate_fwhm_relative(charge_arr, energy_arr, maximum_charge=None, peak_energy=None):
     if maximum_charge is None:
-        maximum_charge = calculate_maximum_charge(charge_arr)
+        maximum_charge = np.max(charge_arr)
     peaked_indices = np.where(charge_arr > 0.5*maximum_charge)[0]
     fwhm = energy_arr[peaked_indices[-1]] - energy_arr[peaked_indices[0]]
     if peak_energy is None:
-        peak_energy = calculate_peak_energy(charge_arr, energy_arr)
+        peak_energy = energy_arr[np.argmax(charge_arr)]
     return fwhm/peak_energy*100
-
-
-def calculate_average_size(sigma_arr, amp_arr):
-    return np.average(sigma_arr, weights=amp_arr)
 
 
 def fit_beam_angle(x0_arr, amp_arr, energy_arr):
