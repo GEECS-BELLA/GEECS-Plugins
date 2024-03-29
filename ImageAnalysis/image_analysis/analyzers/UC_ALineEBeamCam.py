@@ -50,10 +50,15 @@ class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
 
     def analyze_image(self, input_image: Array2D, auxiliary_data: Optional[dict] = None,
                       ) -> dict[str, Union[dict, np.ndarray]]:
+        """
         roi_image = self.roi_image(input_image)
         filter_image = median_filter(roi_image, size=3)
         crop_image = self.circular_crop(filter_image)
         image = process.threshold_reduction(crop_image, threshold=self.noise_threshold)
+        """
+        image = np.copy(input_image)
+        roi_image = np.copy(input_image)
+        crop_image = np.copy(input_image)
 
         saturation_number = process.saturation_check(roi_image, saturation_value=self.saturation_value)
         peak_counts = np.max(crop_image)  # Before threshold subtraction
