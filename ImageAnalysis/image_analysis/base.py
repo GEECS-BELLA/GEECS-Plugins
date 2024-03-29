@@ -136,10 +136,11 @@ class LabviewImageAnalyzer(ImageAnalyzer):
                 Lineouts to be returned to labview.  Need to be given as a list of 1d arrays (numpy or otherwise)
                 If not given, will return a 2x2 array of zeros.  If in an incorrect format, will return a 2x2 array of
                 zeros and print a reminder message.  If the arrays in the list are of unequal length, all arrays get
-                padded with zeros to the size of the largest array.
+                padded with zeros to the size of the largest array.  Also, will be returned as a 'float64'
             input_parameters : dict
                 Dictionary of the input parameters given to the analyzer.  If none is given, will call the class's
-                self.build_input_parameter_dictionary() function to generate one from the class variables.
+                self.build_input_parameter_dictionary() function to generate one from the class variables.  This is not
+                returned to Labview so it can contain anything one might find useful in post-analysis
 
             Returns
             -------
@@ -176,7 +177,7 @@ class LabviewImageAnalyzer(ImageAnalyzer):
             # If lineouts have different dimensions, pads the shorter lineouts with zeros
             max_length = max(len(lineout) for lineout in return_lineouts)
             return_lineouts = [np.pad(lineout, (0, max_length - len(lineout)), mode='constant') for lineout in return_lineouts]
-            return_lineouts = np.vstack(return_lineouts)
+            return_lineouts = np.vstack(return_lineouts).astype('float64')
 
         if input_parameters is None:
             input_parameters = self.build_input_parameter_dictionary()
