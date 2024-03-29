@@ -175,7 +175,6 @@ class LabviewImageAnalyzer(ImageAnalyzer):
                             return_lineouts = None
                             break
             if return_lineouts is None:
-                #return_lineouts = np.vstack([[0]]).astype('float64')
                 return_lineouts = np.zeros((1, 1), dtype=np.float64)
             else:
                 max_length = max(len(lineout) for lineout in return_lineouts)

@@ -122,15 +122,10 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
             "wavelength_spread_weighted_rms_nm": wavelength_spread,
             "optimization_factor": optimization_factor,
         }
-        uint_image = rotated_image.astype(np.uint16)
-        input_params = self.build_input_parameter_dictionary()
-
-        return_dictionary = {
-            "processed_image_uint16": uint_image,
-            "analyzer_return_dictionary": exit_cam_dict,
-            "analyzer_return_lineouts": np.vstack((wavelength_array, spectrum_array)),
-            "analyzer_input_parameters": input_params
-        }
+        return_dictionary = self.build_return_dictionary(return_image=rotated_image,
+                                                         return_scalars=exit_cam_dict,
+                                                         return_lineouts=[wavelength_array, spectrum_array],
+                                                         input_parameters=self.build_input_parameter_dictionary())
         return return_dictionary
 
     def build_input_parameter_dictionary(self) -> dict:

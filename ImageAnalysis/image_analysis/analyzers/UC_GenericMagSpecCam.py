@@ -211,14 +211,10 @@ class UC_GenericMagSpecCamAnalyzer(LabviewImageAnalyzer):
             "fwhm_percent": fwhm_charge_percent,
         }
 
-        unnormalized_image = image / self.normalization_factor
-        uint_image = unnormalized_image.astype(np.uint16)
-        return_dictionary = {
-            "processed_image_uint16": uint_image,
-            "analyzer_return_dictionary": mag_spec_dict,
-            "analyzer_return_lineouts": np.vstack((energy_arr, charge_arr)),
-            "analyzer_input_parameters": self.build_input_parameter_dictionary()
-        }
+        return_dictionary = self.build_return_dictionary(return_image=image/self.normalization_factor,
+                                                         return_scalars=mag_spec_dict,
+                                                         return_lineouts=np.vstack((energy_arr, charge_arr)),
+                                                         input_parameters=self.build_input_parameter_dictionary())
         return return_dictionary
 
     def build_input_parameter_dictionary(self) -> dict:

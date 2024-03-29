@@ -116,14 +116,12 @@ class BeamSpotAnalyzer(LabviewImageAnalyzer):
         # organize results dict
         results_dict = {"centroid": beam_properties['centroid']
                         }
-
         # organize return dict
-        return_dict = {"processed_image_uint16": image_cor,
-                       "analyzer_return_dictionary": results_dict,
-                       "analyzer_input_parameters": self.build_input_parameter_dictionary()
-                       }
-
-        return return_dict
+        return_dictionary = self.build_return_dictionary(return_image=image_cor,
+                                                         return_scalars=results_dict,
+                                                         return_lineouts=None,
+                                                         input_parameters=self.build_input_parameter_dictionary())
+        return return_dictionary
 
     def build_input_parameter_dictionary(self) -> dict:
 
