@@ -42,7 +42,9 @@
       "centroid_x_um",
       "centroid_y_um",
       "fwhm_x_um",
-      "fwhm_y_um"
+      "fwhm_y_um",
+      "sigma_x_um",
+      "sigma_y_um"
     ]
   }
 }

@@ -51,6 +51,8 @@ class TestUndulatorExitCamAnalyze(unittest.TestCase):
         self.assertAlmostEqual(return_dictionary["centroid_y_um"], 628.34, delta=1e-1)
         self.assertAlmostEqual(return_dictionary["fwhm_x_um"], 97.6, delta=1e0)
         self.assertAlmostEqual(return_dictionary["fwhm_y_um"], 97.6, delta=1e0)
+        self.assertAlmostEqual(return_dictionary["sigma_x_um"], 44.38, delta=1e0)
+        self.assertAlmostEqual(return_dictionary["sigma_y_um"], 44.38, delta=1e0)
 
         # Check that the default config file works
         camera_name = "UC_ALineEBeam3"

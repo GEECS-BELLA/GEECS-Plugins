@@ -35,12 +35,17 @@ class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
         self.computational_clock_time = time.perf_counter()
 
     def circular_crop(self, image):
-        x, y = np.meshgrid(np.arange(image.shape[1]), np.arange(image.shape[0]))
-        r = np.sqrt((x - self.circular_crop_center_x) ** 2 + (y - self.circular_crop_center_y) ** 2)
-        mask = r > self.circular_crop_radius
+        if (self.circular_crop_radius > 0) and all(value is not None for value in (self.circular_crop_center_x,
+                                                                                   self.circular_crop_center_y,
+                                                                                   self.circular_crop_radius)):
+            x, y = np.meshgrid(np.arange(image.shape[1]), np.arange(image.shape[0]))
+            r = np.sqrt((x - self.circular_crop_center_x) ** 2 + (y - self.circular_crop_center_y) ** 2)
+            mask = r > self.circular_crop_radius
 
-        cropped_image = np.copy(image)
-        cropped_image[mask] = 0
+            cropped_image = np.copy(image)
+            cropped_image[mask] = 0
+        else:
+            cropped_image = np.copy(image)
         return cropped_image
 
     def analyze_image(self, input_image: Array2D, auxiliary_data: Optional[dict] = None,
@@ -59,16 +64,20 @@ class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
             centroid_y = 0
             fwhm_x = 0
             fwhm_y = 0
+            sigma_x = 0
+            sigma_y = 0
 
         else:
-            centroid_x = np.sum(np.arange(image.shape[1]) * image) / total_counts
-            centroid_y = np.sum(np.arange(image.shape[0]) * np.transpose(image)) / total_counts
+            centroid_x, centroid_y = process.calculate_centroid_center_of_mass(image, total_counts)
 
             x_projection = np.sum(image, axis=0)
             y_projection = np.sum(image, axis=1)
 
             fwhm_x = process.calculate_fwhm(x_projection, threshold=self.noise_threshold)
             fwhm_y = process.calculate_fwhm(y_projection, threshold=self.noise_threshold)
+
+            sigma_x = process.calculate_standard_deviation(x_projection, np.arange(len(x_projection)))
+            sigma_y = process.calculate_standard_deviation(y_projection, np.arange(len(y_projection)))
 
         alinecam_dict = {
             "camera_saturation_counts": saturation_number,
@@ -77,7 +86,9 @@ class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
             "centroid_x_um": centroid_x * self.spatial_calibration,
             "centroid_y_um": centroid_y * self.spatial_calibration,
             "fwhm_x_um": fwhm_x * self.spatial_calibration,
-            "fwhm_y_um": fwhm_y * self.spatial_calibration
+            "fwhm_y_um": fwhm_y * self.spatial_calibration,
+            "sigma_x_um": sigma_x * self.spatial_calibration,
+            "sigma_y_um": sigma_y * self.spatial_calibration
         }
         uint_image = crop_image.astype(np.uint16)
         input_params = self.build_input_parameter_dictionary()

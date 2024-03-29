@@ -36,6 +36,14 @@ def calculate_fwhm(projection_array, threshold=None):
     return peak_region[-1] - peak_region[0]
 
 
+def calculate_centroid_center_of_mass(image, total_counts=None):
+    if total_counts is None:
+        total_counts = np.sum(image)
+    centroid_x = np.sum(np.arange(image.shape[1]) * image) / total_counts
+    centroid_y = np.sum(np.arange(image.shape[0]) * np.transpose(image)) / total_counts
+    return centroid_x, centroid_y
+
+
 def calculate_standard_deviation(amplitude_array, axis_array, axis_average=None):
     if axis_average is None:
         axis_average = calculate_axis_average(amplitude_array, axis_array)
