@@ -229,7 +229,7 @@ class LabviewImageAnalyzer(ImageAnalyzer):
             either the input image if there is no roi on this analyzer, or the cropped image if roi is defined
 
         """
-        if (self.roi is None) | (isinstance(self.roi, list) and any(elem is None for elem in self.roi)):
+        if (self.roi is None) or (isinstance(self.roi, list) and any(elem is None for elem in self.roi)):
             return image
         else:
             return image[self.roi[0]:self.roi[1], self.roi[2]:self.roi[3]]
