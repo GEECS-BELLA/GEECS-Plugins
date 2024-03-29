@@ -57,7 +57,8 @@ def analyze_labview_image(device_type, image, background):
     if configuration:
         analyzer = analyzer_from_device_type(device_type)
         analyzer.apply_background(background=background)
-        result = analyzer.analyze_image(image)
+        image_float = image.astype(np.float32)
+        result = analyzer.analyze_image(image_float)
         return parse_results_to_labview(result, configuration.key_list_name)
     else:
         raise ValueError(f"Unknown device type: {device_type}")
