@@ -68,7 +68,7 @@ class TestUndulatorExitCamAnalyze(unittest.TestCase):
         np.testing.assert_array_equal(np.shape(returned_image_labview), test_array_shape)
         np.testing.assert_array_equal(np.shape(analyze_dict_labview),
                                       np.shape(labview_function_caller.read_keys_of_interest('ALineCam')))
-        np.testing.assert_array_equal(np.array(lineouts_labview), np.zeros((2, 2)))
+        np.testing.assert_array_equal(np.array(lineouts_labview), np.zeros((1, 1)))
 
 
 if __name__ == '__main__':

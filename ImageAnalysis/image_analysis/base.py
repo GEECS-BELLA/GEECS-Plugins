@@ -134,7 +134,7 @@ class LabviewImageAnalyzer(ImageAnalyzer):
                 entry need to match those given in labview_adapters.json for this analyzer class
             return_lineouts : list(np.ndarray)
                 Lineouts to be returned to labview.  Need to be given as a list of 1d arrays (numpy or otherwise)
-                If not given, will return a 2x2 array of zeros.  If in an incorrect format, will return a 2x2 array of
+                If not given, will return a 1x1 array of zeros.  If in an incorrect format, will return a 1x1 array of
                 zeros and print a reminder message.  If the arrays in the list are of unequal length, all arrays get
                 padded with zeros to the size of the largest array.  Also, will be returned as a 'float64'
             input_parameters : dict
@@ -160,24 +160,27 @@ class LabviewImageAnalyzer(ImageAnalyzer):
             print("return_scalars must be passed as a dict!")
             return_scalars = dict()
 
-        if return_lineouts is not None:
-            if not isinstance(return_lineouts, list):
-                print("return_lineouts must be passed as a list of 1d arrays!")
-                return_lineouts = None
-            else:
-                for lineout in return_lineouts:
-                    shape = np.shape(lineout)
-                    if len(shape) != 1 or shape[0] < 2:
-                        print("return_lineouts must be passed as a list of 1d arrays!")
-                        return_lineouts = None
-                        break
-        if return_lineouts is None:
-            return_lineouts = np.zeros((2, 2))
+        if isinstance(return_lineouts, np.ndarray) and return_lineouts.ndim == 2:
+            return_lineouts = return_lineouts.astype(np.float64)
         else:
-            # If lineouts have different dimensions, pads the shorter lineouts with zeros
-            max_length = max(len(lineout) for lineout in return_lineouts)
-            return_lineouts = [np.pad(lineout, (0, max_length - len(lineout)), mode='constant') for lineout in return_lineouts]
-            return_lineouts = np.vstack(return_lineouts).astype('float64')
+            if return_lineouts is not None:
+                if not isinstance(return_lineouts, list):
+                    print("return_lineouts must be passed as a list of 1d arrays!")
+                    return_lineouts = None
+                else:
+                    for lineout in return_lineouts:
+                        shape = np.shape(lineout)
+                        if len(shape) != 1 or shape[0] < 2:
+                            print("return_lineouts must be passed as a list of 1d arrays!")
+                            return_lineouts = None
+                            break
+            if return_lineouts is None:
+                #return_lineouts = np.vstack([[0]]).astype('float64')
+                return_lineouts = np.zeros((1, 1), dtype=np.float64)
+            else:
+                max_length = max(len(lineout) for lineout in return_lineouts)
+                return_lineouts = [np.pad(lineout, (0, max_length - len(lineout)), mode='constant') for lineout in return_lineouts]
+                return_lineouts = np.vstack(return_lineouts).astype(np.float64)
 
         if input_parameters is None:
             input_parameters = self.build_input_parameter_dictionary()

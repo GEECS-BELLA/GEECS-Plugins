@@ -93,7 +93,7 @@ class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
 
         return_dictionary = self.build_return_dictionary(return_image=crop_image,
                                                          return_scalars=alinecam_dict,
-                                                         return_lineouts=[[0,0]],
+                                                         return_lineouts=None,
                                                          input_parameters=self.build_input_parameter_dictionary())
         return return_dictionary
 
