@@ -90,15 +90,11 @@ class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
             "sigma_x_um": sigma_x * self.spatial_calibration,
             "sigma_y_um": sigma_y * self.spatial_calibration
         }
-        uint_image = crop_image.astype(np.uint16)
-        input_params = self.build_input_parameter_dictionary()
 
-        return_dictionary = {
-            "processed_image_uint16": uint_image,
-            "analyzer_return_dictionary": alinecam_dict,
-            "analyzer_return_lineouts": np.zeros((2, 2)),
-            "analyzer_input_parameters": input_params
-        }
+        return_dictionary = self.build_return_dictionary(return_image=crop_image,
+                                                         return_scalars=alinecam_dict,
+                                                         return_lineouts=[[0,0]],
+                                                         input_parameters=self.build_input_parameter_dictionary())
         return return_dictionary
 
     def build_input_parameter_dictionary(self) -> dict:

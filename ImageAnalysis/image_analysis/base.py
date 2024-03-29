@@ -122,6 +122,73 @@ class LabviewImageAnalyzer(ImageAnalyzer):
         self.configure(**config)
         return self
 
+    def build_return_dictionary(self, return_image, return_scalars=None, return_lineouts=None, input_parameters=None):
+        """ Builds a return dictionary compatible with labview_adapters.py
+
+            Parameters
+            ----------
+            return_image : 2d array
+                Image to be returned to labview.  Will be converted to UInt16
+            return_scalars : dict
+                Dictionary of scalars from python analysis.  To be passed back to labview correctly, the keys for each
+                entry need to match those given in labview_adapters.json for this analyzer class
+            return_lineouts : list(np.ndarray)
+                Lineouts to be returned to labview.  Need to be given as a list of 1d arrays (numpy or otherwise)
+                If not given, will return a 2x2 array of zeros.  If in an incorrect format, will return a 2x2 array of
+                zeros and print a reminder message.  If the arrays in the list are of unequal length, all arrays get
+                padded with zeros to the size of the largest array.
+            input_parameters : dict
+                Dictionary of the input parameters given to the analyzer.  If none is given, will call the class's
+                self.build_input_parameter_dictionary() function to generate one from the class variables.
+
+            Returns
+            -------
+            return_dictionary : dict
+                Dictionary with the correctly formatted returns that labview adapters is expecting.
+                "analyzer_input_parameters": input_parameters
+                "analyzer_return_dictionary": return_scalars
+                "processed_image_uint16": uint_image
+                "analyzer_return_lineouts": return_lineouts
+
+            """
+        uint_image = return_image.astype(np.uint16)
+
+        if return_scalars is None:
+            return_scalars = dict()
+        elif not isinstance(return_scalars, dict):
+            print("return_scalars must be passed as a dict!")
+            return_scalars = dict()
+
+        if return_lineouts is not None:
+            if not isinstance(return_lineouts, list):
+                print("return_lineouts must be passed as a list of 1d arrays!")
+                return_lineouts = None
+            else:
+                for lineout in return_lineouts:
+                    shape = np.shape(lineout)
+                    if len(shape) != 1 or shape[0] < 2:
+                        print("return_lineouts must be passed as a list of 1d arrays!")
+                        return_lineouts = None
+                        break
+        if return_lineouts is None:
+            return_lineouts = np.zeros((2, 2))
+        else:
+            # If lineouts have different dimensions, pads the shorter lineouts with zeros
+            max_length = max(len(lineout) for lineout in return_lineouts)
+            return_lineouts = [np.pad(lineout, (0, max_length - len(lineout)), mode='constant') for lineout in return_lineouts]
+            return_lineouts = np.vstack(return_lineouts)
+
+        if input_parameters is None:
+            input_parameters = self.build_input_parameter_dictionary()
+
+        return_dictionary = {
+            "analyzer_input_parameters": input_parameters,
+            "analyzer_return_dictionary": return_scalars,
+            "processed_image_uint16": uint_image,
+            "analyzer_return_lineouts": return_lineouts,
+        }
+        return return_dictionary
+
     @staticmethod
     def read_roi(parser):
         """ Reads the roi settings from the .ini config file
@@ -199,3 +266,17 @@ class LabviewImageAnalyzer(ImageAnalyzer):
                             value = False
                     setattr(self, key, attr_type(value))
         return self
+
+    def build_input_parameter_dictionary(self) -> dict:
+        """Compiles list of class variables into a dictionary
+
+        Can be overwritten by implementing classes if you prefer more control over the return dictionary.
+        For example, adding units into the key names.
+
+        Returns
+        -------
+        dict
+            A compiled dictionary containing all class variables
+        """
+        self.__dict__.update(vars(self))
+        return self.__dict__
