@@ -96,7 +96,7 @@ class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
         return_dictionary = {
             "processed_image_uint16": uint_image,
             "analyzer_return_dictionary": alinecam_dict,
-            "analyzer_return_lineouts": np.zeros(1),
+            "analyzer_return_lineouts": np.zeros((2, 2)),
             "analyzer_input_parameters": input_params
         }
         return return_dictionary
