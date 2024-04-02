@@ -15,7 +15,7 @@ from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.interfaces.exports import save_py
 from geecs_python_api.tools.images.displays import polyfit_label
 # from geecs_python_api.controls.devices.HTU.transport.magnets import Quads
-from image_analysis.tools.spot import fwhm_to_std
+from geecs_python_api.tools.images.spot import fwhm_to_std
 
 
 class QuadAnalysis(ScanAnalysis):
