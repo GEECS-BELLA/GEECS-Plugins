@@ -1,0 +1,198 @@
+UC_Phosphor1:
+  Background Level: 10
+  Left ROI: 200
+  Right ROI: 1250
+  Top ROI: 300
+  Bottom ROI: 700
+  Filter: Median
+  Filter Size: 3
+  Threshold: 0
+  Rotate: False
+  Calibration: 0.0000165
+UC_ALineEbeam1:
+  Background Level: 60
+  Left ROI: 1
+  Right ROI: -1
+  Top ROI: 1
+  Bottom ROI: -1
+  Size_X: 333
+  Size_Y: 333
+  Filter: Median
+  Filter Size: 3
+  Threshold: 65
+  Rotate: True
+  Calibration: 0.00002217
+UC_ALineEBeam2:
+  Background Level: 18
+  Left ROI: 100
+  Right ROI: 850
+  Top ROI: 300
+  Bottom ROI: 1100
+  Filter: Median
+  Filter Size: 3
+  Threshold: 10
+  Rotate: True
+  Calibration: 0.00002394
+UC_ALineEBeam3:
+  Background Level: 10
+  Left ROI: 180
+  Right ROI: 650
+  Top ROI: 200
+  Bottom ROI: 600
+  Filter: Median
+  Filter Size: 3
+  Threshold: 10
+  Rotate: False
+  Calibration: 0.0000244
+UC_VisaEBeam1:
+  Background Level: 200
+  Left ROI: 558
+  Right ROI: 900
+  Top ROI: 290
+  Bottom ROI: 650
+  Size_X: 333
+  Size_Y: 333
+  Median Filter Size: 5
+  Median Filter Cycles: 0
+  Gaussian Filter Size: 3
+  Gaussian Filter Cycles: 0
+  Threshold: 0
+  Rotate: 0
+  Calibration: 0.0000075
+  Apply Mask: True
+  Cross1: [174,0]
+  Cross2: [174,341]
+
+UC_VisaEBeam2:
+  Background Level: 200
+  Left ROI: 80
+  Right ROI: -1
+  Top ROI: 75
+  Bottom ROI: -1
+  Size_X: 333
+  Size_Y: 333
+  Median Filter Size: 5
+  Median Filter Cycles: 0
+  Gaussian Filter Size: 3
+  Gaussian Filter Cycles: 0
+  Threshold: 1000
+  Rotate: 0
+  Calibration: 0.0000075
+  Apply Mask: True
+  Cross1: [120,24]
+  Cross2: [120,390]
+
+UC_VisaEBeam3:
+  Background Level: 150
+  Left ROI: 150
+  Right ROI: 300
+  Top ROI: 110
+  Bottom ROI: 275
+  Size_X: 333
+  Size_Y: 333
+  Median Filter Size: 5
+  Median Filter Cycles: 0
+  Gaussian Filter Size: 3
+  Gaussian Filter Cycles: 0
+  Threshold: 0
+  Rotate: -2.7
+  Calibration: 0.0000075
+  Apply Mask: True
+  Cross1: [224,17]
+  Cross2: [195,380]
+
+UC_VisaEBeam4:
+  Background Level: 150
+  Left ROI: 180
+  Right ROI: -1
+  Top ROI: 200
+  Bottom ROI: 250
+  Size_X: 333
+  Size_Y: 333
+  Median Filter Size: 5
+  Median Filter Cycles: 0
+  Gaussian Filter Size: 3
+  Gaussian Filter Cycles: 0
+  Threshold: 0
+  Rotate: 2.5
+  Calibration: 0.0000075
+  Apply Mask: True
+  Cross1: [84,-7]
+  Cross2: [100,360]
+
+UC_VisaEBeam5:
+  Background Level: 250
+  Left ROI: 135
+  Right ROI: -1
+  Top ROI: 90
+  Bottom ROI: 200
+  Size_X: 333
+  Size_Y: 333
+  Median Filter Size: 5
+  Median Filter Cycles: 0
+  Gaussian Filter Size: 3
+  Gaussian Filter Cycles: 0
+  Threshold: 0
+  Rotate: 0
+  Calibration: 0.0000075
+  Apply Mask: True
+  Cross1: [140,5]
+  Cross2: [135,350]
+
+UC_VisaEBeam6:
+  Background Level: 250
+  Left ROI: 175
+  Right ROI: -1
+  Top ROI: 75
+  Bottom ROI: 200
+  Size_X: 333
+  Size_Y: 333
+  Median Filter Size: 5
+  Median Filter Cycles: 0
+  Gaussian Filter Size: 3
+  Gaussian Filter Cycles: 0
+  Threshold: 0
+  Rotate: 0
+  Calibration: 0.0000075
+  Apply Mask: True
+  Cross1: [140,10]
+  Cross2: [135,350]
+
+UC_VisaEBeam7:
+  Background Level: 250
+  Left ROI: 140
+  Right ROI: -1
+  Top ROI: 100
+  Bottom ROI: 275
+  Size_X: 333
+  Size_Y: 333
+  Median Filter Size: 5
+  Median Filter Cycles: 0
+  Gaussian Filter Size: 3
+  Gaussian Filter Cycles: 0
+  Threshold: 0
+  Rotate: -8
+  Calibration: 0.0000075
+  Apply Mask: True
+  Cross1: [138,225]
+  Cross2: [135,450]
+
+UC_VisaEBeam8:
+  Background Level: 300
+  Left ROI: 105
+  Right ROI: 150
+  Top ROI: 80
+  Bottom ROI: -1
+  Size_X: 333
+  Size_Y: 333
+  Median Filter Size: 5
+  Median Filter Cycles: 0
+  Gaussian Filter Size: 3
+  Gaussian Filter Cycles: 0
+  Threshold: 0
+  Rotate: 0
+  Calibration: 0.0000075
+  Apply Mask: True
+  Cross1: [294,92]
+  Cross2: [298,355]
+  

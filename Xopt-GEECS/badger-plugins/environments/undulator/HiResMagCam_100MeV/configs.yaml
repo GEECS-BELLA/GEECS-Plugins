@@ -1,0 +1,9 @@
+---
+name: HiResMagCam_100MeV
+description: "Test of using XOpt to get the best 100 MeV ebeams"
+version: "0.1"
+dependencies:
+  - badger-opt
+  - geecs_python_api
+interface:
+  - geecs
