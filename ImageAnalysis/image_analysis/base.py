@@ -281,5 +281,4 @@ class LabviewImageAnalyzer(ImageAnalyzer):
         dict
             A compiled dictionary containing all class variables
         """
-        self.__dict__.update(vars(self))
         return self.__dict__
