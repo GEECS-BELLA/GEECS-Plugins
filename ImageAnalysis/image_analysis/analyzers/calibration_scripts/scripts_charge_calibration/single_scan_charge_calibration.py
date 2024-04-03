@@ -19,7 +19,6 @@ from ImageAnalysis.image_analysis.utils import read_imaq_png_image
 import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.shot_charge_reader as charge_reader
 from ImageAnalysis.image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
 import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.directory_functions as directory_functions
-import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.math_tools as math_tools
 
 
 def linear(x, a):
@@ -122,12 +121,11 @@ if normalizationCheck:
     min_camera = 2
 else:
     min_camera = 2e6
-all_conditions = [
-    [clipping_arr, '<', clip_tolerance],
-    [saturation_arr, '<', sat_tolerance],
-    [camera_counts_arr, '>', min_camera]
-]
-both_pass = math_tools.get_inequality_indices(all_conditions)
+
+both_pass = np.where((clipping_arr < clip_tolerance) &
+                     (saturation_arr < sat_tolerance) &
+                     (camera_counts_arr > min_camera))
+
 both_picoscope_charge_arr = picoscope_charge_arr[both_pass]
 both_camera_counts_arr = camera_counts_arr[both_pass]
 
