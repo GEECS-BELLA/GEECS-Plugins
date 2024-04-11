@@ -11,39 +11,16 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING, Union, List
 import numpy as np
 import time
-import configparser
 
 if TYPE_CHECKING:
     from ..types import Array2D
 
-from ..base import ImageAnalyzer
+from ..base import LabviewImageAnalyzer
+from .online_analysis_modules import image_processing_funcs as process
 from .online_analysis_modules import photon_spectrometer_analyzer as analyze
 
 
-def return_analyzer_from_config_file(input_config_filename) -> UC_LightSpectrometerCamAnalyzer:
-    config = configparser.ConfigParser()
-    config.read(input_config_filename)
-
-    roi_top = int(config.get('roi', 'top')),
-    roi_bottom = int(config.get('roi', 'bottom')),
-    roi_left = int(config.get('roi', 'left')),
-    roi_right = int(config.get('roi', 'right')),
-    analyzer_roi = np.array([roi_top, roi_bottom, roi_left, roi_right]).reshape(-1)
-
-    analyzer = UC_LightSpectrometerCamAnalyzer(
-        noise_threshold=int(config.get('settings', 'noise_threshold')),
-        roi=analyzer_roi,
-        saturation_value=int(config.get('settings', 'saturation_value')),
-        calibration_image_tilt=float(config.get('settings', 'calibration_image_tilt')),
-        calibration_wavelength_pixel=float(config.get('settings', 'calibration_wavelength_pixel')),
-        calibration_0th_order_pixel=float(config.get('settings', 'calibration_0th_order_pixel')),
-        minimum_wavelength_analysis=float(config.get('settings', 'minimum_wavelength_analysis')),
-        optimization_central_wavelength=float(config.get('settings', 'optimization_central_wavelength')),
-        optimization_bandwidth_wavelength=float(config.get('settings', 'optimization_bandwidth_wavelength')))
-    return analyzer
-
-
-class UC_LightSpectrometerCamAnalyzer(ImageAnalyzer):
+class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
     def __init__(self,
                  noise_threshold: int = 50,
                  roi: List[int] = [None, None, None, None],  # ROI(top, bottom, left, right)
@@ -56,56 +33,53 @@ class UC_LightSpectrometerCamAnalyzer(ImageAnalyzer):
                  optimization_bandwidth_wavelength: float = 10.0
                  ):
         """
-        Parameters
-        ----------
-        noise_threshold: int
-            Large enough to remove noise level
-        roi: List[int]
-            The bounds by which the input image is cropped when the analyze_image function is called.  Given as a list
-            of four integers, arranged as [top, bottom, left, right].
-        saturation_value: int
-            The minimum value by which a pixel can be considered as "Saturated." The default is 2^12 - 1
-        calibration_image_tilt: float
-            Tilt angle of the image in degrees
-        calibration_wavelength_pixel: float
-            Linear calibration of the wavelength per pixel in nm/pixel
-        calibration_0th_order_pixel: float
-            Calibrated position of the 0th order in pixel number
-        minimum_wavelength_analysis: float
-            Minimum wavelength in which to crop the spectrum, in nm
-        optimization_central_wavelength: float
-            For the XOpt algorithm, the central wavelength to use for the Gaussian weight function, in nm
-        optimization_bandwidth_wavelength: float
-            For the XOpt algorithm, the standard deviation from the central wavelength for the Gaussian weight function
+            Parameters
+            ----------
+            noise_threshold: int
+                Large enough to remove noise level
+            roi: List[int]
+                The bounds by which the input image is cropped when the analyze_image function is called.  Given as a list
+                of four integers, arranged as [top, bottom, left, right].
+            saturation_value: int
+                The minimum value by which a pixel can be considered as "Saturated." The default is 2^12 - 1
+            calibration_image_tilt: float
+                Tilt angle of the image in degrees
+            calibration_wavelength_pixel: float
+                Linear calibration of the wavelength per pixel in nm/pixel
+            calibration_0th_order_pixel: float
+                Calibrated position of the 0th order in pixel number
+            minimum_wavelength_analysis: float
+                Minimum wavelength in which to crop the spectrum, in nm
+            optimization_central_wavelength: float
+                For the XOpt algorithm, the central wavelength to use for the Gaussian weight function, in nm
+            optimization_bandwidth_wavelength: float
+                For the XOpt algorithm, the standard deviation from the central wavelength for the Gaussian weight function
         """
         super().__init__()
 
-        self.noise_threshold = noise_threshold
         self.roi = roi
-        self.saturation_value = saturation_value
-        self.calibration_image_tilt = calibration_image_tilt
-        self.calibration_wavelength_pixel = calibration_wavelength_pixel
-        self.calibration_0th_order_pixel = calibration_0th_order_pixel
-        self.minimum_wavelength_analysis = minimum_wavelength_analysis
-        self.optimization_central_wavelength = optimization_central_wavelength
-        self.optimization_bandwidth_wavelength = optimization_bandwidth_wavelength
+        self.noise_threshold = int(noise_threshold)
+        self.saturation_value = int(saturation_value)
+        self.calibration_image_tilt = float(calibration_image_tilt)
+        self.calibration_wavelength_pixel = float(calibration_wavelength_pixel)
+        self.calibration_0th_order_pixel = float(calibration_0th_order_pixel)
+        self.minimum_wavelength_analysis = float(minimum_wavelength_analysis)
+        self.optimization_central_wavelength = float(optimization_central_wavelength)
+        self.optimization_bandwidth_wavelength = float(optimization_bandwidth_wavelength)
 
         # Set do_print to True for debugging information
         self.do_print = False
         self.computational_clock_time = time.perf_counter()
-
-    def roi_image(self, image):
-        return image[self.roi[0]:self.roi[1], self.roi[2]:self.roi[3]]
 
     def analyze_image(self, input_image: Array2D, auxiliary_data: Optional[dict] = None,
                       ) -> dict[str, Union[dict, np.ndarray]]:
 
         processed_image = self.roi_image(input_image.astype(np.float32))
 
-        saturation_number = analyze.saturation_check(processed_image, self.saturation_value)
+        saturation_number = process.saturation_check(processed_image, self.saturation_value)
         self.print_time(" Saturation Check:")
 
-        image = analyze.threshold_reduction(processed_image, self.noise_threshold)
+        image = process.threshold_reduction(processed_image, self.noise_threshold)
         self.print_time(" Threshold Subtraction")
 
         total_photons = np.sum(image)
@@ -148,15 +122,10 @@ class UC_LightSpectrometerCamAnalyzer(ImageAnalyzer):
             "wavelength_spread_weighted_rms_nm": wavelength_spread,
             "optimization_factor": optimization_factor,
         }
-        uint_image = rotated_image.astype(np.uint16)
-        input_params = self.build_input_parameter_dictionary()
-
-        return_dictionary = {
-            "processed_image_uint16": uint_image,
-            "analyzer_return_dictionary": exit_cam_dict,
-            "analyzer_return_lineouts": np.vstack((wavelength_array, spectrum_array)),
-            "analyzer_input_parameters": input_params
-        }
+        return_dictionary = self.build_return_dictionary(return_image=rotated_image,
+                                                         return_scalars=exit_cam_dict,
+                                                         return_lineouts=[wavelength_array, spectrum_array],
+                                                         input_parameters=self.build_input_parameter_dictionary())
         return return_dictionary
 
     def build_input_parameter_dictionary(self) -> dict:
