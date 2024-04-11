@@ -167,7 +167,7 @@ class ScanData:
         else:
             return {}
 
-    def group_shots_by_scan_parameter(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
+    def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
         dev_data = self.get_device_data(device)
         if not dev_data:
             return [], None, False

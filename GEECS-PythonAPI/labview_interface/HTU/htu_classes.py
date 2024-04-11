@@ -147,7 +147,7 @@ class LPA:
                           dE_weight: float = 1., pC_weight: float = 1., MeV_weight: float = 1.)\
             -> dict[str, np.ndarray]:
         scan_data = ScanData(scan_path, ignore_experiment_name=exp.is_offline)
-        indexes, setpoints, matching = scan_data.group_shots_by_scan_parameter(device, variable)
+        indexes, setpoints, matching = scan_data.group_shots_by_step(device, variable)
         magspec_data = scan_data.analyze_mag_spec(indexes)
         if magspec_data:
             objs = self.objective_analysis(setpoints, magspec_data, dE_weight, pC_weight, MeV_weight)
