@@ -167,7 +167,7 @@ class ScanData:
         else:
             return {}
 
-    def bin_data(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
+    def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
         dev_data = self.get_device_data(device)
         if not dev_data:
             return [], None, False
@@ -181,29 +181,28 @@ class ScanData:
                               shots=int,
                               setpoints=np.ndarray,
                               indexes=list)
-        start = float(self.scan_info['Start'])
-        end = float(self.scan_info['End'])
-        steps: int = 1 + round(np.abs(end - start) / float(self.scan_info['Step size']))
-        shots: int = int(self.scan_info['Shots per step'])
-        expected = Expected(start=start, end=end, steps=steps, shots=shots,
-                            setpoints=np.linspace(float(self.scan_info['Start']),
-                                                  float(self.scan_info['End']), steps),
-                            indexes=[np.arange(p * shots, (p+1) * shots) for p in range(steps)])
+        parameter_start = float(self.scan_info['Start'])
+        parameter_end = float(self.scan_info['End'])
+        num_steps: int = 1 + round(np.abs(parameter_end - parameter_start) / float(self.scan_info['Step size']))
+        num_shots_per_step: int = int(self.scan_info['Shots per step'])
+        expected = Expected(start=parameter_start, end=parameter_end, steps=num_steps, shots=num_shots_per_step,
+                            setpoints=np.linspace(parameter_start, parameter_end, num_steps),
+                            indexes=[np.arange(p * num_shots_per_step, (p+1) * num_shots_per_step) for p in range(num_steps)])
 
-        matching = all([inds.size == expected.shots for inds in measured.indexes])
-        matching = matching and (len(measured.indexes) == expected.steps)
-        if not matching:
+        parameter_avgs_match_setpoints = all([inds.size == expected.shots for inds in measured.indexes])
+        parameter_avgs_match_setpoints = parameter_avgs_match_setpoints and (len(measured.indexes) == expected.steps)
+        if not parameter_avgs_match_setpoints:
             api_error.warning(f'Observed data binning does not match expected scan parameters (.ini)',
                               f'Function "{inspect.stack()[0][3]}"')
 
-        if matching:
+        if parameter_avgs_match_setpoints:
             indexes = expected.indexes
             setpoints = expected.setpoints
         else:
             indexes = measured.indexes
             setpoints = measured.avg_x
 
-        return indexes, setpoints, matching
+        return indexes, setpoints, parameter_avgs_match_setpoints
 
     def load_scan_info(self):
         config_parser = ConfigParser()
@@ -253,9 +252,10 @@ class ScanData:
         shots = []
         specs = []
 
+        image_filename_regex = re.compile(r".*_(\d{3,})\.\w+$")
         for path in magspec_dict['hres']['paths']:
             try:
-                shots.append(int(path.name[-7:-4]))
+                shots.append(int(image_filename_regex.match(path.name).group(1)))
                 if magspec_dict['hres']['txt_files']:
                     specs.append(np.loadtxt(path, skiprows=1))
             except Exception:
@@ -368,7 +368,8 @@ class ScanData:
 
             for it, i_group in enumerate(indexes):
                 specs = []
-                stats = []
+                # analysis results for the shots in this parameter step group
+                analyzer_returns: list[dict[str, Union[float, int]]] = []
                 smooth_hres = []
                 hres_specs_fits = {'opt_pars': [], 'err_pars': [], 'fits': []}
                 for path in np.array(magspec_data['hres']['paths'])[i_group]:
@@ -378,7 +379,7 @@ class ScanData:
                         specs.append(np.array(analysis['analyzer_return_lineouts']))
                         # charge.append(np.sum(specs[-1][1, :]))
 
-                        stats.append(list(analysis['analyzer_return_dictionary'].values()))
+                        analyzer_returns.append(analysis['analyzer_return_dictionary'])
                         smooth_hres.append(savgol_filter(specs[-1][1, :], 20, 3))
 
                         if np.sum(specs[-1][1, :]) > 40:
@@ -398,25 +399,17 @@ class ScanData:
                 med_hres_pC[it, :] = np.median(np.array(specs)[:, 1, :], axis=0)
                 std_hres_pC[it, :] = np.std(np.array(specs)[:, 1, :], axis=0)
 
-                avg_stats = np.mean(stats, axis=0)
-                med_stats = np.median(stats, axis=0)
-                std_stats = np.std(stats, axis=0)
-
-                hres_stats['avg_weighted_mean_MeV'][it] = avg_stats[5]
-                hres_stats['med_weighted_mean_MeV'][it] = med_stats[5]
-                hres_stats['std_weighted_mean_MeV'][it] = std_stats[5]
-                hres_stats['avg_weighted_rms_MeV'][it] = avg_stats[6]
-                hres_stats['med_weighted_rms_MeV'][it] = med_stats[6]
-                hres_stats['std_weighted_rms_MeV'][it] = std_stats[6]
-                hres_stats['avg_weighted_dE/E'][it] = avg_stats[7]
-                hres_stats['med_weighted_dE/E'][it] = med_stats[7]
-                hres_stats['std_weighted_dE/E'][it] = std_stats[7]
-                hres_stats['avg_peak_charge_pC/MeV'][it] = avg_stats[3]
-                hres_stats['med_peak_charge_pC/MeV'][it] = med_stats[3]
-                hres_stats['std_peak_charge_pC/MeV'][it] = std_stats[3]
-                hres_stats['avg_peak_charge_MeV'][it] = avg_stats[4]
-                hres_stats['med_peak_charge_MeV'][it] = med_stats[4]
-                hres_stats['std_peak_charge_MeV'][it] = med_stats[4]
+                for spec_analyzer_metric, hres_stats_metric in [
+                     ('weighted_average_energy_MeV', 'weighted_mean_MeV'), 
+                     ('energy_spread_weighted_rms_MeV', 'weighted_rms_MeV'), 
+                     ('energy_spread_percent', 'weighted_dE/E'), 
+                     ('peak_charge_pc/MeV', 'peak_charge_pC/MeV'), 
+                     ('peak_charge_energy_MeV', 'peak_charge_MeV'),
+                    ]:
+                    analyzer_returns_this_metric = [analyzer_return_per_shot[spec_analyzer_metric] for analyzer_return_per_shot in analyzer_returns]
+                    hres_stats[f"avg_{hres_stats_metric}"][it] = np.mean(analyzer_returns_this_metric)
+                    hres_stats[f"med_{hres_stats_metric}"][it] = np.median(analyzer_returns_this_metric)
+                    hres_stats[f"std_{hres_stats_metric}"][it] = np.std(analyzer_returns_this_metric)
 
                 if hres_specs_fits['opt_pars'].any():
                     hres_stats['avg_fit_mean_MeV'][it] = np.mean(hres_specs_fits['opt_pars'][:, 2], axis=0)
