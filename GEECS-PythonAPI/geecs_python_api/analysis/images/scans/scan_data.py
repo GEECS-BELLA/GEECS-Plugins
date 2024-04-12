@@ -17,7 +17,9 @@ import geecs_python_api.tools.images.ni_vision as ni
 from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
 from geecs_python_api.tools.images.spot import profile_fit, std_to_fwhm
 from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
-from image_analysis.analyzers import default_analyzer_generators
+# from image_analysis.analyzers import default_analyzer_generators
+from image_analysis.labview_adapters import analyzer_from_device_type
+# from image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
 
 
 class ScanData:
@@ -258,6 +260,7 @@ class ScanData:
                 shots.append(int(image_filename_regex.match(path.name).group(1)))
                 if magspec_dict['hres']['txt_files']:
                     specs.append(np.loadtxt(path, skiprows=1))
+
             except Exception:
                 continue
 
@@ -354,7 +357,8 @@ class ScanData:
                 hres_stats['std_peak_smooth_MeV'][it] = np.std(axis_MeV[np.argmax(smooth_hres[i_group, :], axis=1)])
 
         else:
-            spec_analyzer = default_analyzer_generators.return_default_hi_res_mag_cam_analyzer()
+            # spec_analyzer = default_analyzer_generators.return_default_hi_res_mag_cam_analyzer()
+            spec_analyzer = analyzer_from_device_type('UC_HiResMagCam')
 
             # noinspection PyTypeChecker
             analysis = spec_analyzer.analyze_image(ni.read_imaq_image(magspec_data['hres']['paths'][0]))
@@ -369,7 +373,8 @@ class ScanData:
             for it, i_group in enumerate(indexes):
                 specs = []
                 # analysis results for the shots in this parameter step group
-                analyzer_returns: list[dict[str, Union[float, int]]] = []
+                # analyzer_returns: list[dict[str, Union[float, int]]] = []
+                analyzer_returns: list[Union[float, int, str, np.ndarray]] = []
                 smooth_hres = []
                 hres_specs_fits = {'opt_pars': [], 'err_pars': [], 'fits': []}
                 for path in np.array(magspec_data['hres']['paths'])[i_group]:
@@ -383,7 +388,9 @@ class ScanData:
                         smooth_hres.append(savgol_filter(specs[-1][1, :], 20, 3))
 
                         if np.sum(specs[-1][1, :]) > 40:
-                            opt_pars, err_pars, fit = profile_fit(specs[-1][0, :], specs[-1][1, :],
+                            # noinspection PyTypeChecker
+                            opt_pars, err_pars, fit = profile_fit(x_data=specs[-1][0, :],
+                                                                  y_data=specs[-1][1, :],
                                                                   guess_center=specs[-1][0, np.argmax(smooth_hres[-1])],
                                                                   crop_sigma_radius=10.)
                             hres_specs_fits['opt_pars'].append(opt_pars)
@@ -404,9 +411,11 @@ class ScanData:
                      ('energy_spread_weighted_rms_MeV', 'weighted_rms_MeV'), 
                      ('energy_spread_percent', 'weighted_dE/E'), 
                      ('peak_charge_pc/MeV', 'peak_charge_pC/MeV'), 
-                     ('peak_charge_energy_MeV', 'peak_charge_MeV'),
-                    ]:
-                    analyzer_returns_this_metric = [analyzer_return_per_shot[spec_analyzer_metric] for analyzer_return_per_shot in analyzer_returns]
+                     ('peak_charge_energy_MeV', 'peak_charge_MeV')]:
+
+                    analyzer_returns_this_metric = np.array(
+                        [analyzer_return_per_shot[spec_analyzer_metric]
+                         for analyzer_return_per_shot in analyzer_returns])
                     hres_stats[f"avg_{hres_stats_metric}"][it] = np.mean(analyzer_returns_this_metric)
                     hres_stats[f"med_{hres_stats_metric}"][it] = np.median(analyzer_returns_this_metric)
                     hres_stats[f"std_{hres_stats_metric}"][it] = np.std(analyzer_returns_this_metric)
@@ -416,7 +425,8 @@ class ScanData:
                     hres_stats['med_fit_mean_MeV'][it] = np.median(hres_specs_fits['opt_pars'][:, 2], axis=0)
                     hres_stats['std_fit_mean_MeV'][it] = np.std(hres_specs_fits['opt_pars'][:, 2], axis=0)
                     hres_stats['avg_fit_fwhm_MeV'][it] = std_to_fwhm(np.mean(hres_specs_fits['opt_pars'][:, 3], axis=0))
-                    hres_stats['med_fit_fwhm_MeV'][it] = std_to_fwhm(np.median(hres_specs_fits['opt_pars'][:, 3], axis=0))
+                    hres_stats['med_fit_fwhm_MeV'][it] = (
+                        std_to_fwhm(np.median(hres_specs_fits['opt_pars'][:, 3], axis=0)))
                     hres_stats['std_fit_fwhm_MeV'][it] = std_to_fwhm(np.std(hres_specs_fits['opt_pars'][:, 3], axis=0))
                     hres_stats['avg_fit_dE/E'][it] = np.mean(100 * hres_specs_fits['opt_pars'][:, 3]
                                                              / hres_specs_fits['opt_pars'][:, 2], axis=0)
@@ -451,8 +461,11 @@ if __name__ == '__main__':
     _folder = ScanData.build_folder_path(_base_tag, _htu.base_path)
     _scan_data = ScanData(_folder, ignore_experiment_name=_htu.is_offline)
 
-    print('Loading mag spec data...')
     _magspec_data = _scan_data.load_mag_spec_data()
+    _device, _variable = _scan_data.scan_info['Scan Parameter'].split(' ', maxsplit=1)
+    _indexes, _setpoints, _matching = _scan_data.group_shots_by_step(_device, _variable)
+    _magspec_analysis = _scan_data.analyze_mag_spec(_indexes)
+
     # plt.figure()
     # for x, ind in zip(measured.avg_x, measured.indexes):
     #     plt.plot(x * np.ones(ind.shape), ind, '.', alpha=0.3)

@@ -8,6 +8,7 @@ import numpy as np
 import png
 from imageio.v3 import imread
 
+
 def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
     """ Read PNG file as output by NI IMAQ, which uses an uncommon format.
     """
@@ -31,6 +32,7 @@ def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
         significant_bits = ord(significant_bits)
         return np.right_shift(image, bitdepth - significant_bits)
 
+
 def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
     """ Read BELLA camera image, in particular handle NI PNG files correctly.
     """
@@ -44,14 +46,13 @@ def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
         return imread(file_path)
 
 
-
 class ROI:
     """ Specify a region of interest for an ImageAnalyzer to crop with.
     
     This is given a class so that there can be no confusion about the order
     of indices.
 
-    Initialzed with top, bottom, left, right indices. Cropping is done with 
+    Initialized with top, bottom, left, right indices. Cropping is done with
     slices containing these indices, which means: 
         * None is valid, meaning go to the edge
         * Negative integers are valid, which means up to edge - value.
@@ -69,8 +70,7 @@ class ROI:
     def __init__(self, top: Optional[int] = None, 
                        bottom: Optional[int] = None, 
                        left: Optional[int] = None, 
-                       right: Optional[int] = None, 
-
+                       right: Optional[int] = None,
                        bad_index_order = 'raise',
                 ):
 

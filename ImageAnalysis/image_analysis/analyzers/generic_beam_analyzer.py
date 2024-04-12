@@ -68,7 +68,8 @@ class BeamSpotAnalyzer(LabviewImageAnalyzer):
 
         return image.astype(data_type)
 
-    def find_beam_properties(self, image: np.ndarray) -> np.ndarray:
+    @staticmethod
+    def find_beam_properties(image: np.ndarray) -> dict[str, Any]:
 
         # initialize beam properties dict
         beam_properties = {}
@@ -79,7 +80,7 @@ class BeamSpotAnalyzer(LabviewImageAnalyzer):
         image_binary = image_binary.astype(int)
         image_label = label(image_binary)
 
-        # get beam properties and reduce to largest region
+        # get beam properties and reduce to the largest region
         props = regionprops(image_label, image)
         areas = [i.area for i in props]
         props = props[areas.index(max(areas))]

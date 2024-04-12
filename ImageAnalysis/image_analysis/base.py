@@ -25,10 +25,9 @@ class ImageAnalyzer:
         
             As the same ImageAnalyzer instance can be applied to many images, 
             the image is not passed in the constructor but in analyze_image. The
-            background path, image, or value should be passed as a parameter 
-            however. 
+            background path, image, or value should be passed as a parameter, however.
 
-            The __init__() method of derived classes should define all of the
+            The __init__() method of derived classes should define all the
             parameters for that derived class, including type annotations, 
             defaults, and documentation. These are all used for LivePostProcessing
             for example.
@@ -60,8 +59,8 @@ class ImageAnalyzer:
 
     def analyze_image(self, 
                       image: Array2D, 
-                      auxiliary_data: Optional[dict] = None,
-                     ) -> dict[str, Union[float, np.ndarray]]:
+                      auxiliary_data: Optional[dict] = None
+                      ) -> dict[str, Union[float, int, str, np.ndarray]]:
         """ Calculate metrics from an image.
 
         This function should be implemented by each device's ImageAnalyzer subclass, 
@@ -79,7 +78,7 @@ class ImageAnalyzer:
         Returns
         -------
         analysis : dict[str, Union[float, np.ndarray]]
-            metric name as key. value can be a float, 1d array, 2d array, etc.
+            metric name as key. value can be a float, int, str, 1d array, 2d array, etc.
 
         """
         raise NotImplementedError()
@@ -140,7 +139,7 @@ class LabviewImageAnalyzer(ImageAnalyzer):
             input_parameters : dict
                 Dictionary of the input parameters given to the analyzer.  If none is given, will call the class's
                 self.build_input_parameter_dictionary() function to generate one from the class variables.  This is not
-                returned to Labview so it can contain anything one might find useful in post-analysis
+                returned to Labview, so it can contain anything one might find useful in post-analysis
 
             Returns
             -------
@@ -178,7 +177,8 @@ class LabviewImageAnalyzer(ImageAnalyzer):
                 return_lineouts = np.zeros((1, 1), dtype=np.float64)
             else:
                 max_length = max(map(len, return_lineouts))
-                return_lineouts = [np.pad(lineout, (0, max_length - len(lineout)), mode='constant') for lineout in return_lineouts]
+                return_lineouts = [np.pad(lineout, (0, max_length - len(lineout)), mode='constant')
+                                   for lineout in return_lineouts]
                 return_lineouts = np.vstack(return_lineouts).astype(np.float64)
 
         if input_parameters is None:
@@ -250,7 +250,7 @@ class LabviewImageAnalyzer(ImageAnalyzer):
         self.background = background
 
     def configure(self, **kwargs):
-        """ Given a dictionary of keyword arguments, updates environment variables for the anlayzer
+        """ Given a dictionary of keyword arguments, updates environment variables for the analyzer
 
         This function also requires that the class variables were previously initialized to their proper type.
         Furthermore, passing in a None for a given keyword argument will skip over resetting the variable.

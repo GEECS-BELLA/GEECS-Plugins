@@ -64,7 +64,7 @@ def analyze_labview_image(device_type, image, background):
         raise ValueError(f"Unknown device type: {device_type}")
 
 
-def analyzer_from_device_type(device_type):
+def analyzer_from_device_type(device_type: str) -> LabviewImageAnalyzer:
     """
     Given the device type, returns the analyzer with default parameters as given by the config file in the above
     dictionary.  Additionally, this function can be used by outside post-analysis scripts
