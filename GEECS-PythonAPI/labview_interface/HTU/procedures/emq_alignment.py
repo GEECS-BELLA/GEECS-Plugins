@@ -2,8 +2,8 @@ import numpy as np
 from typing import Any, Union, Optional
 from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.controls.experiment.experiment import Experiment
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
-from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.analysis.scans import ScanImages
+from geecs_python_api.analysis.scans import ScanData
 from geecs_python_api.controls.devices.HTU.transport.magnets import Steering
 from geecs_python_api.controls.devices.HTU.diagnostics.e_imager import EImager
 from geecs_python_api.controls.devices.HTU.multi_channels import PlungersPLC

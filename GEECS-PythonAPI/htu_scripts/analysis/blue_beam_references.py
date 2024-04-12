@@ -5,7 +5,7 @@ from typing import Any
 from geecs_python_api.tools.interfaces.exports import load_py, save_py
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
+from geecs_python_api.analysis.scans import ScanImages
 
 
 # base_path = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')

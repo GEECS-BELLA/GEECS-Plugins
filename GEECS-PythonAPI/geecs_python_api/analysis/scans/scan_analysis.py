@@ -9,8 +9,8 @@ from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
-from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.analysis.scans.scan_images import ScanImages
+from geecs_python_api.analysis.scans.scan_data import ScanData
 from geecs_python_api.tools.images.batches import average_images
 from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.images.displays import polyfit_label
