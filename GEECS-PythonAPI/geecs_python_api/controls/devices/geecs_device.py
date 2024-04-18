@@ -15,6 +15,8 @@ import numpy as np
 from queue import Queue
 import numpy.typing as npt
 from pathlib import Path
+import configparser
+
 from threading import Thread, Condition, Event, Lock
 from datetime import datetime as dtime
 import geecs_python_api.controls.interface.message_handling as mh
@@ -381,7 +383,56 @@ class GeecsDevice:
         if not comment:
             comment = f'{var_alias} scan'
         return GeecsDevice.file_scan(self, comment, timeout)
+        
+    def update_ini_file(ini_file_path, comment):
+        backup_file_path = str(ini_file_path) + '~'
 
+        # Extract number from the filename
+        match = re.search(r'ScanInfoScan(\d{3})\.ini$', str(ini_file_path))
+        if match:
+            scan_number = int(match.group(1))
+        else:
+            print("Filename does not match expected format. Aborting update.")
+            return
+        try:
+            # Backup the original INI file
+            shutil.copy2(ini_file_path, backup_file_path)
+
+            # Create a ConfigParser object and read the backup file
+            config = configparser.ConfigParser()
+            config.optionxform = lambda option: option  # Preserve case
+
+            config.read(backup_file_path)
+
+            # Ensure specific sections exist; if not, you may need to create them
+            if 'Scan Info' not in config:
+                config['Scan Info'] = {}  # Or another appropriate section
+
+            # Update values or add them if they don't exist
+            config['Scan Info']['Scan No'] = str(scan_number)  # Add the scan number
+            config['Scan Info']['ScanStartInfo'] = comment  # Assuming 'DEFAULT' section; adjust as needed
+            config['Scan Info']['Scan Parameter'] = 'Shotnumber'
+
+
+            # Write the changes back to the original file
+            with open(ini_file_path, 'w') as configfile:
+                config.write(configfile)
+
+        except Exception as ex:
+            print(f'Error updating INI file: {ex}')
+            # Attempt to restore the original file on error
+            try:
+                os.remove(ini_file_path)
+                shutil.move(backup_file_path, ini_file_path)
+            except Exception as restore_ex:
+                print(f'Failed to restore original file: {restore_ex}')
+        else:
+            # Remove backup file if everything was successful
+            try:
+                os.remove(backup_file_path)
+            except Exception as remove_ex:
+                print(f'Failed to remove backup file: {remove_ex}')
+    
     @staticmethod
     def no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
                 shots: int = 10, timeout: float = 300.) -> tuple[Path, int, bool, bool]:
@@ -433,51 +484,7 @@ class GeecsDevice:
                         break
 
                 if ini_found:
-                    try:
-                        # make a copy and write content to it
-                        shutil.copy2(ini_file_path, Path(str(ini_file_path) + '~'))
-
-                        destination = open(ini_file_path, 'w')
-                        source = open(Path(str(ini_file_path) + '~'), 'r')
-
-                        info_line_found = False
-                        par_line_found = False
-                        for line in source:
-                            if line.startswith('ScanStartInfo'):
-                                destination.write(f'ScanStartInfo = "{comment}"\n')
-                                info_line_found = True
-                            elif line.startswith('Scan Parameter'):
-                                destination.write('Scan Parameter = "Shotnumber"\n')
-                                par_line_found = True
-                            else:
-                                destination.write(line)
-
-                        source.close()
-                        destination.close()
-
-                        #  add lines if missing
-                        if not info_line_found or not par_line_found:
-                            destination = open(ini_file_path, 'a')
-                            if not info_line_found:
-                                destination.write(f'ScanStartInfo = "{comment}"\n')
-                            if not par_line_found:
-                                destination.write('Scan Parameter = "Shotnumber"\n')
-                            destination.close()
-
-                    except Exception as ex:
-                        api_error.error(str(ex), f'Could not update "{ini_file_name}" with scan comment')
-                        try:
-                            # restore files
-                            os.remove(ini_file_path)
-                            shutil.move(str(ini_file_path) + '~', ini_file_path)
-                        except Exception:
-                            pass
-                    else:
-                        # remove original if successful
-                        try:
-                            os.remove(str(ini_file_path) + "~")
-                        except Exception:
-                            pass
+                    update_ini_file(ini_file_path, comment)
 
             timed_out = GeecsDevice.wait_for_scan_start(next_folder, next_scan, timeout=60.)
             if not timed_out:
