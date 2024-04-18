@@ -53,7 +53,7 @@ UC_VisaEBeam1:
   Size_X: 333
   Size_Y: 333
   Median Filter Size: 5
-  Median Filter Cycles: 0
+  Median Filter Cycles: 1
   Gaussian Filter Size: 3
   Gaussian Filter Cycles: 0
   Threshold: 0
@@ -62,6 +62,7 @@ UC_VisaEBeam1:
   Apply Mask: True
   Cross1: [174,0]
   Cross2: [174,341]
+  Cross Shift: -4
 
 UC_VisaEBeam2:
   Background Level: 200
@@ -72,7 +73,7 @@ UC_VisaEBeam2:
   Size_X: 333
   Size_Y: 333
   Median Filter Size: 5
-  Median Filter Cycles: 0
+  Median Filter Cycles: 1
   Gaussian Filter Size: 3
   Gaussian Filter Cycles: 0
   Threshold: 1000
@@ -81,6 +82,7 @@ UC_VisaEBeam2:
   Apply Mask: True
   Cross1: [120,24]
   Cross2: [120,390]
+  Cross Shift: 0
 
 UC_VisaEBeam3:
   Background Level: 150
@@ -95,11 +97,12 @@ UC_VisaEBeam3:
   Gaussian Filter Size: 3
   Gaussian Filter Cycles: 0
   Threshold: 0
-  Rotate: -2.7
+  Rotate: -3.0
   Calibration: 0.0000075
   Apply Mask: True
   Cross1: [224,17]
   Cross2: [195,380]
+  Cross Shift: 0
 
 UC_VisaEBeam4:
   Background Level: 150
@@ -110,7 +113,7 @@ UC_VisaEBeam4:
   Size_X: 333
   Size_Y: 333
   Median Filter Size: 5
-  Median Filter Cycles: 0
+  Median Filter Cycles: 1
   Gaussian Filter Size: 3
   Gaussian Filter Cycles: 0
   Threshold: 0
@@ -119,7 +122,8 @@ UC_VisaEBeam4:
   Apply Mask: True
   Cross1: [84,-7]
   Cross2: [100,360]
-
+  Cross Shift: -4
+  
 UC_VisaEBeam5:
   Background Level: 250
   Left ROI: 135
@@ -129,7 +133,7 @@ UC_VisaEBeam5:
   Size_X: 333
   Size_Y: 333
   Median Filter Size: 5
-  Median Filter Cycles: 0
+  Median Filter Cycles: 1
   Gaussian Filter Size: 3
   Gaussian Filter Cycles: 0
   Threshold: 0
@@ -138,6 +142,7 @@ UC_VisaEBeam5:
   Apply Mask: True
   Cross1: [140,5]
   Cross2: [135,350]
+  Cross Shift: 0
 
 UC_VisaEBeam6:
   Background Level: 250
@@ -148,7 +153,7 @@ UC_VisaEBeam6:
   Size_X: 333
   Size_Y: 333
   Median Filter Size: 5
-  Median Filter Cycles: 0
+  Median Filter Cycles: 1
   Gaussian Filter Size: 3
   Gaussian Filter Cycles: 0
   Threshold: 0
@@ -157,7 +162,8 @@ UC_VisaEBeam6:
   Apply Mask: True
   Cross1: [140,10]
   Cross2: [135,350]
-
+  Cross Shift: 0
+  
 UC_VisaEBeam7:
   Background Level: 250
   Left ROI: 140
@@ -167,7 +173,7 @@ UC_VisaEBeam7:
   Size_X: 333
   Size_Y: 333
   Median Filter Size: 5
-  Median Filter Cycles: 0
+  Median Filter Cycles: 1
   Gaussian Filter Size: 3
   Gaussian Filter Cycles: 0
   Threshold: 0
@@ -176,6 +182,7 @@ UC_VisaEBeam7:
   Apply Mask: True
   Cross1: [138,225]
   Cross2: [135,450]
+  Cross Shift: 0
 
 UC_VisaEBeam8:
   Background Level: 300
@@ -186,7 +193,7 @@ UC_VisaEBeam8:
   Size_X: 333
   Size_Y: 333
   Median Filter Size: 5
-  Median Filter Cycles: 0
+  Median Filter Cycles: 1
   Gaussian Filter Size: 3
   Gaussian Filter Cycles: 0
   Threshold: 0
@@ -195,4 +202,5 @@ UC_VisaEBeam8:
   Apply Mask: True
   Cross1: [294,92]
   Cross2: [298,355]
+  Cross Shift: 0
   
