@@ -460,6 +460,7 @@ class GeecsDevice:
 
         return next_folder, next_scan, accepted, timed_out
         
+    @staticmethod
     def update_ini_file(ini_file_path, comment):
         backup_file_path = str(ini_file_path) + '~'
         # Extract number from the filename
