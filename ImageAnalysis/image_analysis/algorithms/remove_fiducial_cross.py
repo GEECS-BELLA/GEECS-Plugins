@@ -1,0 +1,425 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from itertools import product
+from typing import Union
+
+import cv2 as cv
+import numpy as np
+from scipy.optimize import minimize
+
+from tau_inpainter.algorithms.total_curvature import TotalCurvatureInpainter
+
+DEG = np.pi/180
+
+def tapered_plateau(x, x1, x2, taper=1):
+    """ A function that is 1 between x1 and x2, and tapers off quickly to 0 outside of this range.
+    """
+    def tapered_plateau_one_side(x, x1):
+        return 1 / (1 + np.exp(-(x - x1) / (0.25 * taper)))
+    
+    return tapered_plateau_one_side(x, x1) * (1 - tapered_plateau_one_side(x, x2))
+
+def gaussian(x, x1, fwhm):
+    return np.exp(-np.square(x - x1) * 4 * np.log(2) / fwhm**2)
+
+@dataclass
+class FiducialCross:
+    """ A dataclass to store information about a fiducial cross.
+
+    Attributes
+    ----------
+    x : float
+        The x-coordinate of the center of the cross.
+    y : float
+        The y-coordinate of the center of the cross.
+    length : float
+        The length of the cross, i.e. twice the length of each of the 4 arms.
+    thickness : float
+        The thickness of the cross arms, as a full-width half-maximum.
+    angle : float
+        The angle that the cross makes with reference to a plus sign arrangement.
+    """
+
+    x: float
+    y: float
+    length: float
+    thickness: float
+    angle: float
+
+    def coordinates_in_cross_frame(self, shape: tuple[int, int], scale: bool = False) -> tuple[np.ndarray, np.ndarray]:
+        """ Get the coordinates of the cross in a frame centered at the cross center, 
+        aligned with the cross arms.
+        
+        Parameters
+        ----------
+        shape : tuple[int, int]
+            The shape of the image. The coordinates will be generated for this shape.
+        scale : bool, optional
+            If True, the coordinates will be scaled to the length of the cross arms.
+        """
+
+        X, Y = np.meshgrid(np.arange(shape[1]), np.arange(shape[0]))
+        Rinv = np.array([[np.cos(-self.angle), -np.sin(-self.angle)],
+                         [np.sin(-self.angle),  np.cos(-self.angle)]
+                        ]
+                    )
+
+        # Xrot and Yrot give coordinates of a system centered at cross center, 
+        # aligned with the cross arms. i.e. the cross is located along the x and 
+        # y axes of this system, centered where Xrot and Yrot are (0, 0).
+        Xrot, Yrot = np.dot(Rinv, np.stack([X - self.x, Y - self.y], axis=1))
+
+        return Xrot, Yrot
+
+    def image(self, shape: tuple[int, int]) -> np.ndarray:
+        """ Generate an image of the cross.
+
+        Parameters
+        ----------
+        shape : tuple[int, int]
+            The shape of the image to generate.
+
+        Returns
+        -------
+        np.ndarray
+            An image of the cross.
+        """
+        Xrot, Yrot = self.coordinates_in_cross_frame(shape, scale=False)
+
+        cross = (1 - 
+                   (1 - gaussian(Xrot, 0.0, self.thickness) * tapered_plateau(Yrot, -self.length/2, self.length/2))
+                 * (1 - gaussian(Yrot, 0.0, self.thickness) * tapered_plateau(Xrot, -self.length/2, self.length/2))
+                )
+
+        return cross
+
+@dataclass
+class HoughLine:
+    """ A line detected by cv.HoughLines
+
+    The cv.HoughLines algorithm returns detected lines in the form of two parameters 
+    rho and theta, as the line that connects to and is perpendicular to the vector 
+    from the origin of length rho and angle theta. 
+
+    Attributes
+    ----------
+    rho : float
+        distance from origin to Hough line
+    theta : float
+        angle of perpendicular line from origin to Hough line, in radians between 
+        0 and pi
+    """
+    rho: float
+    theta: float
+
+@dataclass
+class HoughLinesPair:
+    """ Two Hough lines that are parallel and close to each other
+    """
+
+    line1: HoughLine
+    line2: HoughLine
+    @property
+    def rho(self) -> float:
+        return (self.line1.rho + self.line2.rho) / 2
+    @property
+    def theta(self) -> float:
+        return (self.line1.theta + self.line2.theta) / 2
+
+@dataclass
+class HoughLinesQuartet:
+    """ Two pairs of parallel Hough lines that are perpendicular to each other
+    """
+
+    parallel_pair1: HoughLinesPair
+    parallel_pair2: HoughLinesPair
+
+class FiducialCrossRemover:
+    """ An algorithm to detect fiducial crosses in images and inpaint them.
+
+    """
+
+    def __init__(self, 
+                 parallel_hough_lines_max_distance: float = 7.0,
+                 parallel_hough_lines_max_angle: float = 1*DEG,
+                 perpendicular_hough_lines_max_angle: float = 1*DEG,
+                ):
+        """ 
+        Parameters
+        ----------
+        parallel_hough_lines_max_distance : float, optional
+            The maximum distance between two parallel lines to be considered a pair.
+        parallel_hough_lines_max_angle : float, optional
+            The maximum angle between two parallel lines to be considered a pair.
+        perpendicular_hough_lines_max_angle : float, optional
+            The maximum angle between two perpendicular pairs of parallel lines.
+        """
+
+        self.parallel_hough_lines_max_distance = parallel_hough_lines_max_distance
+        self.parallel_hough_lines_max_angle = parallel_hough_lines_max_angle
+        self.perpendicular_hough_lines_max_angle = perpendicular_hough_lines_max_angle
+
+    def detect_crosses(self, 
+                       image: np.ndarray,
+                       approximate_locations: list[tuple[float, float]] = None,
+                       approximate_length: float = None,
+                      ) -> list[FiducialCross]:
+        """ Detect fiducial crosses in the image.
+
+        Parameters
+        ----------
+        image : np.ndarray
+        approximate_locations : list[tuple[int, int]], optional
+            TODO: implement this feature
+            A list of approximate locations of crosses in the image, in the form 
+            of (x, y) tuples. The algorithm is able to detect crosses without 
+            initial locations, and it will return as many as it confidently 
+            detects, but giving approximate locations can help prevent false 
+            positives.
+        approximate_length : float, optional
+            The approximate length of the crosses. This can help the algorithm 
+            detect crosses more accurately.
+        
+        Returns
+        -------
+        list[FiducialCross]
+            A list of detected fiducial crosses.
+        """
+    
+        # Detect lines in the image
+        canny_min_threshold = 20
+        canny_max_threshold = 150
+        hough_threshold = 50
+
+        canny =  cv.Canny(image, canny_min_threshold, canny_max_threshold)
+        # cv.HoughLines returns a N x 1 x 2 array. Convert this into list of HoughLine objects
+        lines: list[HoughLine] = [HoughLine(rho, theta) 
+                                  for rho, theta 
+                                  in cv.HoughLines(canny, 1, 2*DEG, hough_threshold)[:, 0, :]
+                                 ]
+
+        # Filter for lines that intersect within the image boundaries
+        # find lines that are parallel and close to each other
+        parallel_pairs = [HoughLinesPair(line1, line2)
+                          for line1, line2 in product(lines, lines)
+                          if (0.0 < (line2.rho - line1.rho) <= self.parallel_hough_lines_max_distance)   # no abs here in order to avoid duplicates
+                             and np.abs(line1.theta - line2.theta) < self.parallel_hough_lines_max_angle
+                         ]
+
+        def compute_intersection(line1: Union[HoughLine, HoughLinesPair], line2: Union[HoughLine, HoughLinesPair]) -> tuple[float, float]:
+            x = (line2.rho * np.sin(line1.theta) - line1.rho * np.sin(line2.theta)) / np.sin(line1.theta - line2.theta)
+            y = (line1.rho * np.cos(line2.theta) - line2.rho * np.cos(line1.theta)) / np.sin(line1.theta - line2.theta)
+            return x, y
+
+        def in_image(x, y):
+            return (0 <= x < image.shape[1]) and (0 <= y < image.shape[0])
+
+        # find pairs of parallel line pairs that are perpendicular to each other
+        perpendicular_quartets = [HoughLinesQuartet(parallel_pair1, parallel_pair2)
+                                  for parallel_pair1, parallel_pair2 in product(parallel_pairs, parallel_pairs)
+                                  if (0.0 <= np.abs((parallel_pair1.theta - parallel_pair2.theta) - 90*DEG) < self.perpendicular_hough_lines_max_angle)
+                                     and in_image(*compute_intersection(parallel_pair1, parallel_pair2))
+                                 ]
+
+        # TODO: estimate length and thickness of crosses
+        def cross_from_perpendicular_quartet(perpendicular_quartet: HoughLinesQuartet) -> FiducialCross:
+            x, y = compute_intersection(perpendicular_quartet.parallel_pair1, perpendicular_quartet.parallel_pair2)
+            angle = min(perpendicular_quartet.parallel_pair1.theta, perpendicular_quartet.parallel_pair2.theta)
+            thickness = abs(perpendicular_quartet.parallel_pair1.line2.rho - perpendicular_quartet.parallel_pair1.line1.rho)
+            length = self._estimate_cross_length(image, x, y, angle, thickness, length0 = approximate_length)
+
+            return FiducialCross(x, y, 
+                                 length=length,
+                                 thickness=thickness,  # TODO: replace by estimated thickness
+                                 angle=angle
+                                )
+
+        return [cross_from_perpendicular_quartet(perpendicular_quartet)
+                for perpendicular_quartet in perpendicular_quartets
+               ]
+
+    # def _fit_plateau(self, x: np.ndarray, y: np.ndarray, x_mid_0: float, width_0: float) -> tuple[float, float]:
+    #     """ Fit a plateau function to the data by cross-correlation.
+
+    #     Parameters
+    #     ----------
+    #     x : np.ndarray
+    #         The x-values of the data.
+    #     y : np.ndarray
+    #         The y-values of the data.
+    #     x_mid_0 : float
+    #         The initial guess for the plateau center.
+    #     width_0 : float
+    #         The initial guess for the plateau width.
+
+    #     Returns
+    #     -------
+    #     x_mid_fit, width_fit : tuple[float, float]
+    #         The fitted plateau center and width.
+    #     """
+    #     y_mean_subtracted = y - y.mean()
+    #     y_std = y.std()
+    #     def crosscorr(params):
+    #         x_mid, width = params
+    #         y_plateau = tapered_plateau(x, x_mid - width/2, x_mid + width/2)
+
+    #         cov = np.mean(y_mean_subtracted * (y_plateau - y_plateau.mean()))
+    #         return cov / (y_std * y_plateau.std())
+
+    #     sol = minimize(lambda p: -crosscorr(p), [x_mid_0, width_0])
+    #     x_mid_fit, width_fit = sol.x
+    #     return x_mid_fit, width_fit
+
+    def _fit_plateau_width(self, x: np.ndarray, y: np.ndarray, width_0: float, x_mid: float = 0.0) -> float:
+            """ Fit a plateau function with given center to the data by cross-correlation.
+
+            Similar to the _fit_plateau method, but only the width is a fit parameter.
+
+            Parameters
+            ----------
+            x : np.ndarray
+                The x-values of the data.
+            y : np.ndarray
+                The y-values of the data.
+            width_0 : float
+                The initial guess for the plateau width.
+            x_mid : float, optional
+                Known center of the plateau, default 0.0 (i.e. x array is pre-shifted)
+
+            Returns
+            -------
+            float
+                The fitted plateau width.
+            """
+            def mean(y_):
+                return np.trapz(y_, x) / (x[-1] - x[0])
+            def std(y_):
+                return np.trapz(np.square(y_ - mean(y_)), x) / (x[-1] - x[0])
+            def cov(y1, y2):
+                return np.trapz((y1 - mean(y1)) * (y2 - mean(y2)), x) / (x[-1] - x[0])
+
+            y_std = std(y)
+
+            def crosscorr(params):
+                (width,) = params
+                y_plateau = tapered_plateau(x, x_mid - width/2, x_mid + width/2)
+                return cov(y, y_plateau) / (y_std * std(y_plateau))
+
+            sol = minimize(lambda p: -crosscorr(p), [width_0])
+            (width_fit,) = sol.x
+            return width_fit
+
+
+    def _estimate_cross_length(self, image: np.ndarray, x: float, y: float, angle: float, width: float, length0: float = None) -> float:
+        """_summary_
+
+        Parameters
+        ----------
+        image : np.ndarray
+            _description_
+        x : float
+            _description_
+        y : float
+            _description_
+        angle : float
+            _description_
+        width : float
+            _description_
+        length0 : float, optional
+            initial guess for the length of the cross
+
+        Returns
+        -------
+        float
+            _description_
+        """
+        
+        # Get the coordinates of the cross in a frame centered at the cross center, 
+        # aligned with the cross arms.
+        Xrot, Yrot = FiducialCross(x, y, 1.0, width, angle).coordinates_in_cross_frame(image.shape, scale=False)
+
+        xs = []; ys = []
+        # get values close to the horizontal arms. Put the distance from center
+        # along the horizontal arms into x values for fitting.
+        s = (np.abs(Yrot) < width / 2)
+        xs.append(Xrot[s])
+        ys.append(image[s])
+
+        # get values close to the vertical arms. Put the distance from center
+        # along the vertical arms into x values for fitting.
+        s = (np.abs(Xrot) < width / 2)
+        xs.append(Yrot[s])
+        ys.append(image[s])
+
+        xs = np.concatenate(xs)
+        ys = np.concatenate(ys)
+        s = np.argsort(xs)
+        xs = xs[s]
+        ys = ys[s]
+
+        # note plateau function width is cross length
+        if length0 is None:
+            length0 = (xs[-1] - xs[0]) / 2
+
+        # Find the plateau width by fitting a plateau function to the image data
+        width = self._fit_plateau_width(xs, ys, length0)
+
+        return width
+
+
+    def inpaint_crosses(self, 
+                        image: np.ndarray,
+                        crosses: list[FiducialCross],
+                       ) -> np.ndarray:
+        """ Inpaint fiducial crosses in the image.
+
+        Parameters
+        ----------
+        image : np.ndarray
+        crosses : list[FiducialCross]
+            A list of fiducial crosses to inpaint.
+        
+        Returns
+        -------
+        np.ndarray
+            The inpainted image.
+        """
+
+        inpainter = TotalCurvatureInpainter(image.shape)
+        
+        mask = np.zeros(image.shape, dtype=bool)
+        for cross in crosses:
+            mask |= (cross.image(image.shape) > 0.01)
+
+        return inpainter.inpaint(image, mask)
+
+
+    def detect_and_inpaint_crosses(self, 
+                                   image: np.ndarray,
+                                   approximate_locations: list[tuple[float, float]] = None,
+                                   approximate_length: float = None,
+                                  ) -> np.ndarray:
+        """ Detect and inpaint fiducial crosses in the image.
+
+        Parameters
+        ----------
+        image : np.ndarray
+        approximate_locations : list[tuple[int, int]], optional
+            A list of approximate locations of crosses in the image, in the form 
+            of (x, y) tuples. The algorithm is able to detect crosses without 
+            initial locations, and it will return as many as it confidently 
+            detects, but giving approximate locations can help prevent false 
+            positives.
+        approximate_length : float, optional
+            The approximate length of the crosses. This can help the algorithm 
+            detect crosses more accurately.
+        
+        Returns
+        -------
+        np.ndarray
+            The inpainted image.
+        """
+
+        crosses = self.detect_crosses(image, approximate_locations, approximate_length)
+        return self.inpaint_crosses(image, crosses)
