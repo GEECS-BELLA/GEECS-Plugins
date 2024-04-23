@@ -19,6 +19,7 @@ pyabel = ">=0.9,<1.0"
 pypng = "^0.20220715.0"
 imageio = "^2.31.1"
 scikit-image = ">=0.19,<1.0"
+tau-inpainter = { git = "https://github.com/TAUSystems/TAU-Inpainter.git", rev = "3a02a35c" }
 
 # other
 boto3 = "^1.28"
