@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import product
 from typing import Union
+from warnings import warn
 
 import cv2 as cv
 import numpy as np
@@ -56,8 +57,12 @@ class FiducialCross:
         shape : tuple[int, int]
             The shape of the image. The coordinates will be generated for this shape.
         scale : bool, optional
+            TODO: implement this feature
             If True, the coordinates will be scaled to the length of the cross arms.
         """
+
+        if scale:
+            warn("The scale parameter is not implemented yet.")
 
         X, Y = np.meshgrid(np.arange(shape[1]), np.arange(shape[0]))
         Rinv = np.array([[np.cos(-self.angle), -np.sin(-self.angle)],
@@ -141,13 +146,24 @@ class FiducialCrossRemover:
     """
 
     def __init__(self, 
+                 canny_min_threshold: int = 20,
+                 canny_max_threshold: int = 150,
+                 hough_threshold: int = 50,
+                 hough_rho_resolution: float = 1.0,
+                 hough_theta_resolution: float = 2*DEG,
                  parallel_hough_lines_max_distance: float = 7.0,
                  parallel_hough_lines_max_angle: float = 1*DEG,
                  perpendicular_hough_lines_max_angle: float = 1*DEG,
                 ):
         """ 
+        Canny parameters: see https://docs.opencv.org/3.4/dd/d1a/group__imgproc__feature.html#ga04723e007ed888ddf11d9ba04e2232de
+        Hough parameter: see https://docs.opencv.org/3.4/dd/d1a/group__imgproc__feature.html#ga46b4e588934f6c8dfd509cc6e0e4545a
+        
         Parameters
         ----------
+        canny_min_threshold : int, optional
+        canny_max_threshold : int, optional
+        hough_threshold : int, optional
         parallel_hough_lines_max_distance : float, optional
             The maximum distance between two parallel lines to be considered a pair.
         parallel_hough_lines_max_angle : float, optional
@@ -156,6 +172,11 @@ class FiducialCrossRemover:
             The maximum angle between two perpendicular pairs of parallel lines.
         """
 
+        self.canny_min_threshold = canny_min_threshold
+        self.canny_max_threshold = canny_max_threshold
+        self.hough_threshold = hough_threshold
+        self.hough_rho_resolution = hough_rho_resolution
+        self.hough_theta_resolution = hough_theta_resolution
         self.parallel_hough_lines_max_distance = parallel_hough_lines_max_distance
         self.parallel_hough_lines_max_angle = parallel_hough_lines_max_angle
         self.perpendicular_hough_lines_max_angle = perpendicular_hough_lines_max_angle
@@ -186,17 +207,21 @@ class FiducialCrossRemover:
         list[FiducialCross]
             A list of detected fiducial crosses.
         """
-    
-        # Detect lines in the image
-        canny_min_threshold = 20
-        canny_max_threshold = 150
-        hough_threshold = 50
 
-        canny =  cv.Canny(image, canny_min_threshold, canny_max_threshold)
+        if approximate_locations is not None:
+            warn("The approximate_locations parameter is not implemented yet.")
+
+        # Detect lines in the image
+        canny =  cv.Canny(image, self.canny_min_threshold, self.canny_max_threshold)
+        houghlines: Union[np.ndarray, None] = cv.HoughLines(canny, self.hough_rho_resolution, self.hough_theta_resolution, self.hough_threshold)
+        # if none found, HoughLines returns None instead of empty array
+        if houghlines is None: 
+            houghlines = np.ndarray((0, 1, 2), dtype=float)
+        
         # cv.HoughLines returns a N x 1 x 2 array. Convert this into list of HoughLine objects
         lines: list[HoughLine] = [HoughLine(rho, theta) 
                                   for rho, theta 
-                                  in cv.HoughLines(canny, 1, 2*DEG, hough_threshold)[:, 0, :]
+                                  in houghlines[:, 0, :]
                                  ]
 
         # Filter for lines that intersect within the image boundaries
@@ -274,8 +299,6 @@ class FiducialCrossRemover:
     def _fit_plateau_width(self, x: np.ndarray, y: np.ndarray, width_0: float, x_mid: float = 0.0) -> float:
             """ Fit a plateau function with given center to the data by cross-correlation.
 
-            Similar to the _fit_plateau method, but only the width is a fit parameter.
-
             Parameters
             ----------
             x : np.ndarray
@@ -311,28 +334,31 @@ class FiducialCrossRemover:
             return width_fit
 
 
-    def _estimate_cross_length(self, image: np.ndarray, x: float, y: float, angle: float, width: float, length0: float = None) -> float:
-        """_summary_
+    def _estimate_cross_length(self, image: np.ndarray, x: float, y: float, angle: float, width: float = 1.0, length0: float = None) -> float:
+        """Estimates the length of the cross in the given image.
+
+        Length here means end-to-end of the two lines that make up the cross.
 
         Parameters
         ----------
         image : np.ndarray
-            _description_
+            The input image.
         x : float
-            _description_
+            The x-coordinate of the cross center.
         y : float
-            _description_
+            The y-coordinate of the cross center.
         angle : float
-            _description_
-        width : float
-            _description_
+            The angle 
+        width : float, optional
+            The thickness of the cross arms. The data for fitting is taken from 
+            a region of this width around each cross arm. Default 1.0
         length0 : float, optional
-            initial guess for the length of the cross
+            Initial guess for the length of the cross.
 
         Returns
         -------
         float
-            _description_
+            The estimated length of the cross.
         """
         
         # Get the coordinates of the cross in a frame centered at the cross center, 
@@ -358,7 +384,7 @@ class FiducialCrossRemover:
         xs = xs[s]
         ys = ys[s]
 
-        # note plateau function width is cross length
+        # note plateau function width corresponds to cross length
         if length0 is None:
             length0 = (xs[-1] - xs[0]) / 2
 
@@ -390,7 +416,8 @@ class FiducialCrossRemover:
         
         mask = np.zeros(image.shape, dtype=bool)
         for cross in crosses:
-            mask |= (cross.image(image.shape) > 0.01)
+            expanded_cross = FiducialCross(cross.x, cross.y, 1.10 * cross.length, 1.10 * cross.thickness, cross.angle)
+            mask |= (expanded_cross.image(image.shape) > 0.01)
 
         return inpainter.inpaint(image, mask)
 
