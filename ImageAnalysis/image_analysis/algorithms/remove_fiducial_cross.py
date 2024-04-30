@@ -224,12 +224,31 @@ class FiducialCrossRemover:
                                   in houghlines[:, 0, :]
                                  ]
 
-        # Filter for lines that intersect within the image boundaries
+        def lines_are_parallel(line1, line2):
+            """ Check if hough lines are parallel
+            
+            Check if rhos and thetas are close numerically. Take into account that 
+            parallel lines' rho1 and rho2 may be opposite sign with thetas separated 
+            by π if they are close to theta = 0
+            """
+            
+            def rho_and_theta_close(rho1, theta1, rho2, theta2) -> bool:
+                """ Check that rhos and thetas are close
+                """
+                return (    np.abs(line2.rho - line1.rho) <= self.parallel_hough_lines_max_distance
+                        and np.abs(line1.theta - line2.theta) <= self.parallel_hough_lines_max_angle
+                       )
+            
+            return (   rho_and_theta_close(line1.rho, line1.theta, line2.rho, line2.theta)
+                    or rho_and_theta_close(-line1.rho, np.mod(line1.theta + np.pi, 2*np.pi), line2.rho, line2.theta)
+                   ) 
+            
+    
         # find lines that are parallel and close to each other
         parallel_pairs = [HoughLinesPair(line1, line2)
                           for line1, line2 in product(lines, lines)
-                          if (0.0 < (line2.rho - line1.rho) <= self.parallel_hough_lines_max_distance)   # no abs here in order to avoid duplicates
-                             and np.abs(line1.theta - line2.theta) < self.parallel_hough_lines_max_angle
+                          if lines_are_parallel(line1, line2)
+                             and line1.rho > line2.rho  # prevent line1 matching itself, and prevent duplicate (line1, line2) pair
                          ]
 
         def compute_intersection(line1: Union[HoughLine, HoughLinesPair], line2: Union[HoughLine, HoughLinesPair]) -> tuple[float, float]:
