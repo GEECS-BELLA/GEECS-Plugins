@@ -214,6 +214,9 @@ class ScanData:
             config_parser.read(self.__folder / f'ScanInfoScan{self.__tag.number:03d}.ini')
             self.scan_info.update({key: value.strip("'\"")
                                    for key, value in config_parser.items("Scan Info")})
+            if 'Scan Parameter' in self.scan_info:
+                self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = (
+                    self.scan_info['Scan Parameter'].split(' ', maxsplit=1))
         except NoSectionError:
             api_error.warning(f'ScanInfo file does not have a "Scan Info" section',
                               f'ScanData class, method "{inspect.stack()[0][3]}"')
