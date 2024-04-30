@@ -10,6 +10,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 from tau_inpainter.algorithms.total_curvature import TotalCurvatureInpainter
+import networkx as nx
 
 DEG = np.pi/180
 
@@ -24,7 +25,9 @@ def tapered_plateau(x, x1, x2, taper=1):
 def gaussian(x, x1, fwhm):
     return np.exp(-np.square(x - x1) * 4 * np.log(2) / fwhm**2)
 
-@dataclass
+# order=True is needed for comparison operators to work
+# frozen=True is needed to make the class hashable
+@dataclass(order=True, frozen=True)
 class FiducialCross:
     """ A dataclass to store information about a fiducial cross.
 
@@ -301,9 +304,13 @@ class FiducialCrossRemover:
                                  angle=angle
                                 )
 
-        return [cross_from_perpendicular_quartet(perpendicular_quartet)
-                for perpendicular_quartet in perpendicular_quartets
-               ]
+        crosses =  [cross_from_perpendicular_quartet(perpendicular_quartet)
+                    for perpendicular_quartet in perpendicular_quartets
+                   ]
+
+        crosses = self._deduplicate_crosses(crosses)
+
+        return crosses        
 
     # def _fit_plateau(self, x: np.ndarray, y: np.ndarray, x_mid_0: float, width_0: float) -> tuple[float, float]:
     #     """ Fit a plateau function to the data by cross-correlation.
@@ -370,7 +377,7 @@ class FiducialCrossRemover:
                 y_plateau = tapered_plateau(x, x_mid - width/2, x_mid + width/2)
                 return cov(y, y_plateau) / (y_std * std(y_plateau))
 
-            sol = minimize(lambda p: -crosscorr(p), [width_0])
+            sol = minimize(lambda p: -crosscorr(p), [width_0], bounds=[(0, None)])
             (width_fit,) = sol.x
             return width_fit
 
@@ -434,6 +441,48 @@ class FiducialCrossRemover:
 
         return width
 
+    def _deduplicate_crosses(self, crosses: list[FiducialCross]):
+        """ Consolidate crosses at similar location and angle 
+        
+        Generate graph with crosses as vertices and similarity as links, then 
+        find the disjoint groups and produce one average cross.
+
+        """
+        # Create a graph with crosses at vertices
+        G = nx.Graph()
+        G.add_nodes_from(crosses)
+
+        # connect vertices representing similar crosses
+        def crosses_are_similar(cross1: FiducialCross, cross2: FiducialCross) -> bool:
+            return (
+                    ((cross1.x - cross2.x)**2 + (cross1.y - cross2.y)**2 <= (1.1 * np.sqrt(2) * self.hough_rho_resolution)**2)
+                and (np.abs(cross1.angle - cross2.angle) <= 2 * self.hough_theta_resolution)
+            )
+
+        G.add_edges_from((cross1, cross2) for cross1, cross2 in product(crosses, crosses) 
+                         if cross1 < cross2 and crosses_are_similar(cross1, cross2)
+                        )
+
+        # Compute average cross for each group
+        def compute_average_cross(crosses: set[FiducialCross]) -> FiducialCross:
+
+            def mean_angle(angles: np.ndarray) -> float:
+                return np.arctan2(np.mean(np.sin(angles)), np.mean(np.cos(angles)))
+            
+            return FiducialCross(
+                x = np.mean([cross.x for cross in crosses]),
+                y = np.mean([cross.y for cross in crosses]),
+                length = np.mean([cross.length for cross in crosses]),
+                thickness = np.mean([cross.thickness for cross in crosses]),
+                angle = mean_angle(np.array([cross.angle for cross in crosses]))
+            )
+
+        average_crosses = []
+        for connected_group in nx.connected_components(G):
+            average_cross = compute_average_cross(connected_group)
+            average_crosses.append(average_cross)
+
+        return average_crosses
 
     def inpaint_crosses(self, 
                         image: np.ndarray,
