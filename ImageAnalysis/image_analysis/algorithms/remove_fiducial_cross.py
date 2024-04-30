@@ -118,6 +118,17 @@ class HoughLine:
     rho: float
     theta: float
 
+    def normalize(self) -> HoughLine:
+        """ Returns polar coordinates of this line with theta in range 0..pi
+        
+        This may give negative rho
+        """
+        theta_norm = np.mod(self.theta, 2*np.pi)
+        if theta_norm >= np.pi:
+            return HoughLine(-self.rho, theta_norm - np.pi)
+        else:
+            return HoughLine(self.rho, theta_norm)
+
 @dataclass
 class HoughLinesPair:
     """ Two Hough lines that are parallel and close to each other
@@ -125,12 +136,22 @@ class HoughLinesPair:
 
     line1: HoughLine
     line2: HoughLine
+    
     @property
-    def rho(self) -> float:
-        return (self.line1.rho + self.line2.rho) / 2
-    @property
-    def theta(self) -> float:
-        return (self.line1.theta + self.line2.theta) / 2
+    def midline(self) -> HoughLine:
+        """ "Average" of the two lines in this pair
+        
+        TODO: better implementation of "average" HoughLine, which could be the 
+        line that bisects the angle formed by two non-parallel lines, or the line 
+        down the center of parallel lines
+        """
+
+        # get the x,y coordinates of the points at (rho, theta) polar coordinates
+        line1_x, line1_y = (self.line1.rho * np.cos(self.line1.theta), self.line1.rho * np.sin(self.line1.theta))
+        line2_x, line2_y = (self.line2.rho * np.cos(self.line2.theta), self.line2.rho * np.sin(self.line2.theta))
+        midline_x, midline_y = (line1_x + line2_x) / 2, (line1_y + line2_y) / 2
+
+        return HoughLine(np.sqrt(midline_x**2 + midline_y**2), np.arctan2(midline_y, midline_x)).normalize()
 
 @dataclass
 class HoughLinesQuartet:
@@ -251,7 +272,7 @@ class FiducialCrossRemover:
                              and line1.rho > line2.rho  # prevent line1 matching itself, and prevent duplicate (line1, line2) pair
                          ]
 
-        def compute_intersection(line1: Union[HoughLine, HoughLinesPair], line2: Union[HoughLine, HoughLinesPair]) -> tuple[float, float]:
+        def compute_intersection(line1: HoughLine, line2: HoughLine) -> tuple[float, float]:
             x = (line2.rho * np.sin(line1.theta) - line1.rho * np.sin(line2.theta)) / np.sin(line1.theta - line2.theta)
             y = (line1.rho * np.cos(line2.theta) - line2.rho * np.cos(line1.theta)) / np.sin(line1.theta - line2.theta)
             return x, y
@@ -260,16 +281,17 @@ class FiducialCrossRemover:
             return (0 <= x < image.shape[1]) and (0 <= y < image.shape[0])
 
         # find pairs of parallel line pairs that are perpendicular to each other
+        # and intersect within the boundaries of the image
         perpendicular_quartets = [HoughLinesQuartet(parallel_pair1, parallel_pair2)
                                   for parallel_pair1, parallel_pair2 in product(parallel_pairs, parallel_pairs)
-                                  if (0.0 <= np.abs((parallel_pair1.theta - parallel_pair2.theta) - 90*DEG) < self.perpendicular_hough_lines_max_angle)
-                                     and in_image(*compute_intersection(parallel_pair1, parallel_pair2))
+                                  if (0.0 <= np.abs((parallel_pair1.midline.theta - parallel_pair2.midline.theta) - 90*DEG) < self.perpendicular_hough_lines_max_angle)
+                                     and in_image(*compute_intersection(parallel_pair1.midline, parallel_pair2.midline))
                                  ]
 
         # TODO: estimate length and thickness of crosses
         def cross_from_perpendicular_quartet(perpendicular_quartet: HoughLinesQuartet) -> FiducialCross:
-            x, y = compute_intersection(perpendicular_quartet.parallel_pair1, perpendicular_quartet.parallel_pair2)
-            angle = min(perpendicular_quartet.parallel_pair1.theta, perpendicular_quartet.parallel_pair2.theta)
+            x, y = compute_intersection(perpendicular_quartet.parallel_pair1.midline, perpendicular_quartet.parallel_pair2.midline)
+            angle = min(perpendicular_quartet.parallel_pair1.midline.theta, perpendicular_quartet.parallel_pair2.midline.theta)
             thickness = abs(perpendicular_quartet.parallel_pair1.line2.rho - perpendicular_quartet.parallel_pair1.line1.rho)
             length = self._estimate_cross_length(image, x, y, angle, thickness, length0 = approximate_length)
 
