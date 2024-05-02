@@ -13,7 +13,7 @@ from geecs_python_api.tools.interfaces.exports import save_py
 from geecs_python_api.tools.distributions.fit_utility import fit_distribution
 from geecs_python_api.analysis.scans import ScanData
 from geecs_python_api.analysis.scans import ScanImages
-from htu_scripts.analysis.quad_scan_analysis import quad_scan_analysis
+from htu_scripts.analysis.twiss_parameters_from_quad_scan import quad_scan_analysis
 
 
 # Parameters

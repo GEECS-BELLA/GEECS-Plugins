@@ -458,14 +458,14 @@ class ScanData:
 
 
 if __name__ == '__main__':
-    _htu = HtuExp(get_info=True)
-    _base_tag = ScanTag(2023, 8, 9, 4)
+    _htu = HtuExp()
+    _base_tag = ScanTag(2023, 8, 8, 22)
 
     _folder = ScanData.build_folder_path(_base_tag, _htu.base_path)
     _scan_data = ScanData(_folder, ignore_experiment_name=_htu.is_offline)
 
-    _magspec_data = _scan_data.load_mag_spec_data()
-    _device, _variable = _scan_data.scan_info['Scan Parameter'].split(' ', maxsplit=1)
+    # _magspec_data = _scan_data.load_mag_spec_data()
+    # _device, _variable = _scan_data.scan_info['Scan Parameter'].split(' ', maxsplit=1)
     _indexes, _setpoints, _matching = _scan_data.group_shots_by_step(_device, _variable)
     _magspec_analysis = _scan_data.analyze_mag_spec(_indexes)
 

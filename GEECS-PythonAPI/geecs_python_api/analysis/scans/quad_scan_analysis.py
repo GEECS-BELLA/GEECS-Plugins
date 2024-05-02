@@ -1,27 +1,26 @@
 import os
+import copy
 import time
 import numpy as np
 from numpy.polynomial.polynomial import polyfit
 from pathlib import Path
 import matplotlib.pyplot as plt
-from typing import Any, Optional
+from typing import Union, Any, Optional
+from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
 from geecs_python_api.controls.api_defs import ScanTag
-from geecs_python_api.controls.experiment.htu import HtuExp
-from geecs_python_api.analysis.scans import ScanData
 from geecs_python_api.tools.interfaces.prompts import text_input
-from geecs_python_api.analysis.scans import ScanImages
-from geecs_python_api.analysis.scans import ScanAnalysis
+from geecs_python_api.analysis.scans.scan_images import ScanImages
+from geecs_python_api.analysis.scans.scan_analysis import ScanAnalysis
 from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.interfaces.exports import save_py
 from geecs_python_api.tools.images.displays import polyfit_label
-# from geecs_python_api.controls.devices.HTU.transport.magnets import Quads
 from geecs_python_api.tools.images.spot import fwhm_to_std
 
 
 class QuadAnalysis(ScanAnalysis):
-    def __init__(self, scan_data: ScanData, scan_images: ScanImages,
-                 quad: int, fwhms_metric: str = 'median', quad_2_screen: float = 1.):
-        super().__init__(scan_data, scan_images, 'U_EMQTripletBipolar')
+    def __init__(self, scan_tag: ScanTag, quad: int, camera: Union[int, Camera, str],
+                 fwhms_metric: str = 'median', quad_2_screen: float = 1.):
+        super().__init__(scan_tag, camera)
         self.quad_number: int = quad
         self.quad_variable: str = f'Current_Limit.Ch{quad}'
 
@@ -35,13 +34,18 @@ class QuadAnalysis(ScanAnalysis):
             variable = self.quad_variable
 
         super().analyze(variable, initial_filtering, ask_rerun, blind_loads,
-                        store_images, store_scalars, save_plots, save)
+                        store_images, store_scalars, save_plots, False)
+        self.data_dict['jet_z'] = np.median(self.scan_images.scan_scalar_data['U_ESP_JetXYZ']['Position.Axis 3'])
+        self.data_dict['hexapod_x'] = np.median(self.scan_images.scan_scalar_data['U_Hexapod']['xpos'])
+        self.data_dict['source_pmq_mm'] = self.data_dict['jet_z'] + self.data_dict['hexapod_x'] + 35.5
+
+        save_plots_dir = self.scan_data.get_analysis_folder() if save_plots else None
 
         figs = super().render(physical_units=True, x_label='Current [A]',
                               show_xy=True, show_fwhms=True, show_deltas=True,
                               xy_metric='median', fwhms_metric=self.fwhms_metric, deltas_metric='median',
                               xy_fit=1, fwhms_fit=2, deltas_fit=2,
-                              show_figs=True, save_dir=self.scan_data.get_analysis_folder(), sync=False)
+                              show_figs=True, save_dir=save_plots_dir, sync=False)
 
         setpoints: np.ndarray = self.data_dict['setpoints']
         range_x = np.array([np.min(setpoints), np.max(setpoints)])
@@ -111,8 +115,16 @@ class QuadAnalysis(ScanAnalysis):
         self.data_dict['twiss'] = twiss_analysis
 
         if save:
+            data_dict_saved = {}
+            # data_dict_saved = copy.deepcopy(self.data_dict)
+            # data_dict_saved.pop('analyses')
+            # data_dict_saved.pop('scan_scalars')
+            data_dict_saved = {key: copy.deepcopy(self.data_dict[key]) for key in
+                               ['jet_z', 'hexapod_x', 'source_pmq_mm']}
+                               # ['setpoints', 'scan_folder', 'jet_z', 'hexapod_x', 'source_pmq_mm', 'twiss']}
+
             export_file_path = self.scan_data.get_analysis_folder() / f'quad_scan_analysis_{self.device_name}'
-            save_py(file_path=export_file_path, data=self.data_dict)
+            save_py(file_path=export_file_path, data=data_dict_saved)
             print(f'Data exported to:\n\t{export_file_path}.dat')
         else:
             export_file_path = None
@@ -216,37 +228,3 @@ class QuadAnalysis(ScanAnalysis):
         alpha = (a2 + 1/quad_2_screen) * beta
 
         return epsilon, alpha, beta
-
-
-if __name__ == '__main__':
-    # initialization
-    # --------------------------------------------------------------------------
-    _htu = HtuExp(get_info=True)
-    _base_tag = ScanTag(2023, 8, 8, 22)
-
-    # _device = Quads()
-    # _camera = Camera('UC_TopView')
-    _device = 'U_EMQTripletBipolar'
-    _camera = 'A3'
-
-    _quad = 3
-    _quad_2_screen = 2.126  # [m]
-
-    _folder = ScanData.build_folder_path(_base_tag, _htu.base_path)
-    _scan_data = ScanData(_folder, ignore_experiment_name=_htu.is_offline)
-    _scan_images = ScanImages(_scan_data, _camera)
-    _quad_analysis = QuadAnalysis(_scan_data, _scan_images, _quad, fwhms_metric='median', quad_2_screen=_quad_2_screen)
-
-    _filters = FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3., denoise_cycles=0, gauss_filter=5.,
-                                 com_threshold=0.8, bkg_image=None, box=True, ellipse=False)
-
-    # scan analysis
-    # --------------------------------------------------------------------------
-    _path = _quad_analysis.analyze(None, initial_filtering=_filters, ask_rerun=False, blind_loads=True,
-                                   store_images=False, store_scalars=False, save_plots=False, save=False)
-
-    _quad_analysis.render_twiss(physical_units=True, save_dir=_quad_analysis.scan_data.get_analysis_folder())
-
-    # _device.close()
-    # _camera.close()
-    print('done')

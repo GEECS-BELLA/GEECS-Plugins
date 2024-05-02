@@ -19,11 +19,16 @@ from geecs_python_api.tools.interfaces.prompts import text_input
 
 
 class ScanAnalysis:
-    def __init__(self, scan_data: ScanData, scan_images: ScanImages, key_device: Union[GeecsDevice, str]):
-        self.scan_data: ScanData = scan_data
-        self.scan_images: ScanImages = scan_images
+    def __init__(self, scan_tag: ScanTag, camera: Union[int, Camera, str],
+                 scan_device: Optional[Union[GeecsDevice, str]] = None):
+        htu = HtuExp()
+        data_folder = ScanData.build_folder_path(scan_tag, htu.base_path)
+        self.scan_data = ScanData(data_folder, ignore_experiment_name=htu.is_offline)
+        if scan_device is None:
+            scan_device = self.scan_data.scan_info['Scan Device']
+        self.scan_images = ScanImages(self.scan_data, camera)
 
-        self.device_name: str = key_device.get_name() if isinstance(key_device, GeecsDevice) else key_device
+        self.device_name: str = scan_device.get_name() if isinstance(scan_device, GeecsDevice) else scan_device
         self.data_dict: dict[str, Any] = {}
         # data_dict = {
         #     'indexes': indexes,
@@ -293,7 +298,7 @@ class ScanAnalysis:
 if __name__ == '__main__':
     # initialization
     # --------------------------------------------------------------------------
-    htu = HtuExp(get_info=True)
+    _htu = HtuExp(get_info=True)
     _base_tag = ScanTag(2023, 8, 1, 29)
     _bkg_tag = ScanTag(2023, 8, 3, 18)
 
@@ -303,8 +308,8 @@ if __name__ == '__main__':
     _metric = 'median'
     # _metric = 'mean'
 
-    _folder = ScanData.build_folder_path(_base_tag, htu.base_path)
-    _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_offline)
+    _folder = ScanData.build_folder_path(_base_tag, _htu.base_path)
+    _scan_data = ScanData(_folder, ignore_experiment_name=_htu.is_offline)
     _scan_images = ScanImages(_scan_data, _camera)
     _scan_analysis = ScanAnalysis(_scan_data, _scan_images, _device)
 

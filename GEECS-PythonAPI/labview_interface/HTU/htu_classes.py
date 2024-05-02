@@ -9,7 +9,7 @@ from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.HTU.gas_jet import GasJet
 from geecs_python_api.controls.devices.HTU.laser import Laser
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from geecs_python_api.analysis.scans import ScanData
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 
 class UserInterface:
