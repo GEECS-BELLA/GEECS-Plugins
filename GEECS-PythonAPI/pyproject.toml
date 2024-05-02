@@ -19,18 +19,17 @@ nptdms = "^1.7.0"
 
 # image libraries
 scikit-image = ">=0.21,<1.0"
-opencv-python = "~4.7"
+opencv-python = "^4.7"
 pypng = "^0.20220715.0"
 screeninfo = "^0.8.1"
 
 # other
 python-dotenv = "^1.0.0"
 progressbar2 = "^4.2.0"
-xopt = "^1.4.1"
-mysql-connector = "^2.2.9"
 
 # internal libraries
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }
+mysql-connector-python = "^8.2.0"
 
 [tool.poetry.group.dev.dependencies]
 spyder-kernels = ">=2.4.0,<2.5.0"

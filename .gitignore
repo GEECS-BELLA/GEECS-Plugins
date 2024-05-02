@@ -12,3 +12,5 @@ GEECS-PythonAPI/*.xml
 .DS_Store
 .ipynb_checkpoints
 .idea
+Xopt-GEECS/config.lnk
+Xopt-GEECS/testing nb.ipynb

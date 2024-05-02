@@ -1,5 +1,5 @@
-DeviceName	Variable	Min	Max
-U_Hexapod	ypos	17	19
-U_Hexapod	zpos	-.4	1
-U_Hexapod	vangle	-.4	1
-U_Hexapod	wangle	-.4	1
+DeviceName	Variable	Min	Max	Use_Current_Pos	Delta
+U_Hexapod	ypos	17	19	True	1
+U_Hexapod	zpos	-.4	1	True	.2
+U_Hexapod	vangle	-.4	1	True	.2
+U_Hexapod	wangle	-.4	1	True	.2

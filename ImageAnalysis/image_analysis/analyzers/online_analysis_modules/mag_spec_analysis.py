@@ -18,12 +18,6 @@ def normalize_image(image, normalization_factor):
     return np.copy(image) * normalization_factor
 
 
-def threshold_reduction(image, threshold):
-    return_image = np.copy(image) - threshold
-    return_image[np.where(return_image < 0)] = 0
-    return return_image
-
-
 def calculate_clipped_percentage(image):
     clip_check = np.append(np.append(np.append(image[0, :], image[:, 0]), image[-1, :]), image[:, -1])
     max_val = np.max(image)
@@ -49,41 +43,19 @@ def calculate_charge_density_distribution(image, calibration_factor):
     return charge_arr
 
 
-def calculate_maximum_charge(charge_arr):
-    return np.max(charge_arr)
-
-
-def calculate_average_energy(charge_arr, energy_arr):
-    return np.average(energy_arr, weights=charge_arr)
-
-
-def calculate_standard_deviation_energy(charge_arr, energy_arr, average_energy=None):
-    if average_energy is None:
-        average_energy = calculate_average_energy(charge_arr, energy_arr)
-    return np.sqrt(np.average((energy_arr - average_energy) ** 2, weights=charge_arr))
-
-
-def calculate_peak_energy(charge_arr, energy_arr):
-    return energy_arr[np.argmax(charge_arr)]
-
-
-def calculate_average_size(sigma_arr, amp_arr):
-    return np.average(sigma_arr, weights=amp_arr)
+def calculate_fwhm_relative(charge_arr, energy_arr, maximum_charge=None, peak_energy=None):
+    if maximum_charge is None:
+        maximum_charge = np.max(charge_arr)
+    peaked_indices = np.where(charge_arr > 0.5*maximum_charge)[0]
+    fwhm = energy_arr[peaked_indices[-1]] - energy_arr[peaked_indices[0]]
+    if peak_energy is None:
+        peak_energy = energy_arr[np.argmax(charge_arr)]
+    return fwhm/peak_energy*100
 
 
 def fit_beam_angle(x0_arr, amp_arr, energy_arr):
     linear_fit = np.polyfit(energy_arr, x0_arr, deg=1, w=np.power(amp_arr, 2))
     return linear_fit
-
-
-def find_max(image):
-    y_max, x_max = np.unravel_index(np.argmax(image), image.shape)
-    max_value = image[y_max, x_max]
-    return x_max, y_max, max_value
-
-
-def saturation_check(image, saturation_value):
-    return len(np.where(image > saturation_value)[0])
 
 
 def gaussian(x, amp, sigma, x0):
@@ -99,7 +71,7 @@ def fit_data_something(data, axis, function, guess=[0.0, 0.0, 0.0]):
 
 def transverse_slice_loop(image, calibration_factor=1, threshold=0.01, binsize=1, statistic_algorithm=True):
     ny, nx = np.shape(image)
-    x_loc, y_loc, max_val = find_max(image)
+    max_val = np.max(image)
 
     sigma_arr = np.zeros(nx)
     err_arr = np.zeros(nx)

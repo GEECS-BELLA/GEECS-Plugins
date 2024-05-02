@@ -19,6 +19,7 @@ from ..base import ImageAnalyzer
 from ..utils import ROI
 from ..tools.filtering import basic_filter
 
+
 class UC_BeamSpotImageAnalyzer(ImageAnalyzer):
     """ Implements image analysis for any e-beam or laser beam spot image
 
@@ -36,8 +37,7 @@ class UC_BeamSpotImageAnalyzer(ImageAnalyzer):
                  background: Optional[np.ndarray] = None,
                  box: bool = True,
                  ellipse: bool = False,
-                 sigma_radius: float = 5.0,
-                ):
+                 sigma_radius: float = 5.0):
         """
         Parameters
         ----------
@@ -85,14 +85,15 @@ class UC_BeamSpotImageAnalyzer(ImageAnalyzer):
 
         super().__init__()
 
-    def analyze_image(self, 
+    # noinspection PyTypeChecker
+    def analyze_image(self,
                       image: np.ndarray, 
-                      auxiliary_data: Optional[dict] = None,
-                     ) -> dict[str, Union[float, np.ndarray]]:
+                      auxiliary_data: Optional[dict] = None
+                      ) -> dict[str, Union[float, np.ndarray]]:
 
         # initial filtering
         analysis = basic_filter(image, self.hp_median, self.hp_threshold,
-                                     self.denoise_cycles, self.gauss_filter, self.com_threshold)
+                                self.denoise_cycles, self.gauss_filter, self.com_threshold)
         
         analysis.update({'filters': {}, 'metrics': {}, 'flags': {}})
         
@@ -104,8 +105,7 @@ class UC_BeamSpotImageAnalyzer(ImageAnalyzer):
             analysis['filters']['roi'] = np.array([self.camera_roi.left, 
                                                    self.camera_roi.right - 1, 
                                                    self.camera_roi.top, 
-                                                   self.camera_roi.bottom - 1, 
-                                                 ])
+                                                   self.camera_roi.bottom - 1])
 
         # stop if low-contrast image
         def is_image_valid() -> bool:
@@ -163,7 +163,7 @@ class UC_BeamSpotImageAnalyzer(ImageAnalyzer):
                     bottom_gain = min(image_edges.shape[0] - 1 - roi[3], gain_pixels)
 
                     analysis['metrics']['roi_edges'] = np.array([roi[0] - left_gain, roi[1] + right_gain,
-                                                                      roi[2] - top_gain, roi[3] + bottom_gain])
+                                                                 roi[2] - top_gain, roi[3] + bottom_gain])
 
                     pos_box = np.array(
                         [(analysis['metrics']['roi_edges'][2] + analysis['metrics']['roi_edges'][3]) / 2.,

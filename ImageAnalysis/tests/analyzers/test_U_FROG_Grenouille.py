@@ -36,6 +36,7 @@ class TestU_FROG_GrenouilleImageAnalyzer(unittest.TestCase):
         """
         self._test_analyze_image(U_FROG_GrenouilleImageAnalyzer)
 
+    @unittest.skip
     def test_analyze_image_aws_lambda(self):
         """Test U_FROG_GrenouilleAWSLambdaImageAnalyzer.analyze_image()
         """

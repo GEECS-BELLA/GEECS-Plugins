@@ -132,10 +132,10 @@ if __name__ == '__main__':
     print(f'Jet state: {jet.state}')
 
     # scan z-axis
-    # scan_accepted, scan_timed_out = jet.scan('Z', 10., 11., 0.5, 2, use_alias=True, timeout=60.)
-    # print(f'Scan accepted: {scan_accepted}')
-    # if scan_accepted:
-    #     print(f'Scan timed out: {scan_timed_out}')
+    scan_accepted, scan_timed_out = jet.scan_position('Z', 10., 11., 0.5, 2, use_alias=True, timeout=60.)
+    print(f'Scan accepted: {scan_accepted}')
+    if scan_accepted:
+        print(f'Scan timed out: {scan_timed_out}')
 
     jet.close()
     print(api_error)

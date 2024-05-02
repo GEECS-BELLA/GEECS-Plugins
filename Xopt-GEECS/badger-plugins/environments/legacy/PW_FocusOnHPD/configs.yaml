@@ -1,0 +1,9 @@
+---
+name: PW_FocusOnHPD
+description: "PW OFI optimizations"
+version: "0.1"
+dependencies:
+  - badger-opt
+  - geecs_python_api
+interface:
+  - geecs

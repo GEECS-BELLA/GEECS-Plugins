@@ -72,14 +72,14 @@ def check_roi(images: Path, initial_roi: Optional[np.ndarray] = None, camera_nam
 
     # ROIs
     if camera_name and (camera_name in Camera.ROIs):
-        default_roi: Optional[np.ndarray] = np.array(Camera.ROIs[camera_name])
+        default_roi: Optional[np.ndarray[int]] = np.array(Camera.ROIs[camera_name])
         if default_roi.size < 4:
             default_roi = None
     else:
         default_roi = None
 
-    # if initial_roi is None or (initial_roi.size < 4):
-    #     initial_roi = find_roi(avg_image, threshold=None, plots=False)
+    if initial_roi is None or (initial_roi.size < 4):
+        initial_roi = find_roi(avg_image, threshold=None, plots=False)
 
     if disp_range:
         avg_image[np.where(avg_image < disp_range[0])] = disp_range[0]
@@ -91,14 +91,14 @@ def check_roi(images: Path, initial_roi: Optional[np.ndarray] = None, camera_nam
     if default_roi is not None:
         rect_def = mpatches.Rectangle((default_roi[0], default_roi[2]),
                                       default_roi[1] - default_roi[0], default_roi[3] - default_roi[2],
-                                      fill=False, edgecolor='gray', linewidth=1, linestyle='--')
+                                      fill=False, edgecolor='white', linewidth=1, linestyle='--')
         ax.add_patch(rect_def)
 
-    # if initial_roi is not None:
-    #     rect_ini = mpatches.Rectangle((initial_roi[0], initial_roi[2]),
-    #                                   initial_roi[1] - initial_roi[0], initial_roi[3] - initial_roi[2],
-    #                                   fill=False, edgecolor='m', linewidth=1, linestyle='-')
-    #     ax.add_patch(rect_ini)
+    if initial_roi is not None:
+        rect_ini = mpatches.Rectangle((initial_roi[0], initial_roi[2]),
+                                      initial_roi[1] - initial_roi[0], initial_roi[3] - initial_roi[2],
+                                      fill=False, edgecolor='black', linewidth=1, linestyle='--')
+        ax.add_patch(rect_ini)
 
     ax.set_axis_off()
     plt.tight_layout()
@@ -124,7 +124,7 @@ def check_roi(images: Path, initial_roi: Optional[np.ndarray] = None, camera_nam
 
 
 def find_roi(image: np.ndarray, threshold: Optional[float] = None, plots: bool = False):
-    roi_box = np.array([0, image.shape[1] - 1, 0, image.shape[0]])  # left, right, top, bottom
+    roi_box: np.ndarray[Any] = np.array([0, image.shape[1] - 1, 0, image.shape[0]])  # left, right, top, bottom
 
     try:
         # filter and smooth

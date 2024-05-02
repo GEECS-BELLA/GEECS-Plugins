@@ -1,73 +1,31 @@
 import numpy as np
-import image_analysis.analyzers.default_analyzer_initialization as default_analyzers
+import json
+from pathlib import Path
+from typing import Type, NamedTuple
+from .base import LabviewImageAnalyzer
+class DeviceConfig(NamedTuple):
+    labview_analyzer_class: Type[LabviewImageAnalyzer]  # Specific analyzer class
+    key_list_name: str  # name of keys dictionary in .json file
+    default_settings_filename: str  # .ini config file in "image_analysis_configs/"
 
+from .analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer as MagSpec
+from .analyzers.UC_GenericLightSpecCam import UC_LightSpectrometerCamAnalyzer as LightSpec
+from .analyzers.UC_ALineEBeamCam import UC_ALineEBeamCamAnalyzer as ALineCam
+from .analyzers.generic_beam_analyzer import BeamSpotAnalyzer as BeamSpot
 
-def hi_res_mag_spec_labview(image, background=None):
-    results = default_analyzers.return_default_hi_res_mag_cam_analyzer().analyze_image(image)
-    return parse_mag_spec_results(results)
-
-
-def acave_cam3_mag_spec_labview(image, background=None):
-    results = default_analyzers.return_default_acave_mag_cam3_analyzer().analyze_image(image)
-    return parse_mag_spec_results(results)
-
-
-def parse_mag_spec_results(mag_spec_results):
-    returned_image = mag_spec_results['processed_image_uint16']
-    mag_spec_dict = mag_spec_results['analyzer_return_dictionary']
-    returned_lineouts = mag_spec_results['analyzer_return_lineouts'].astype(np.float64)
-    labview_return = (
-        returned_image, mag_spec_dictionary_parse(mag_spec_dict), returned_lineouts)
-    return labview_return
-
-
-def mag_spec_dictionary_parse(mag_spec_dict):
-    keys_of_interest = [
-        "camera_clipping_factor",
-        "camera_saturation_counts",
-        "total_charge_pC",
-        "peak_charge_pc/MeV",
-        "peak_charge_energy_MeV",
-        "weighted_average_energy_MeV",
-        "energy_spread_weighted_rms_MeV",
-        "energy_spread_percent",
-        "weighted_average_beam_size_um",
-        "projected_beam_size_um",
-        "beam_tilt_um/MeV",
-        "beam_tilt_intercept_um",
-        "beam_tilt_intercept_100MeV_um",
-        "optimization_factor",
-    ]
-    values = np.array([mag_spec_dict[key] for key in keys_of_interest]).astype(np.float64)
-    return values
-
-
-def undulator_exit_cam_labview(image, background=None):
-    results = default_analyzers.return_default_undulator_exit_cam_analyzer().analyze_image(image)
-    returned_image = results['processed_image_uint16']
-    spec_dict = results['analyzer_return_dictionary']
-    return_lineouts = results['analyzer_return_lineouts']
-    # Define the keys for which values need to be extracted
-    keys_of_interest = [
-        "camera_saturation_counts",
-        "camera_total_intensity_counts",
-        "peak_wavelength_nm",
-        "average_wavelength_nm",
-        "wavelength_spread_weighted_rms_nm",
-        "optimization_factor",
-    ]
-    values = np.array([spec_dict[key] for key in keys_of_interest]).astype(np.float64)
-    result = (returned_image, values, return_lineouts)
-
-    return result
-
-
-# Dictionary to map device types to their respective analysis functions
 DEVICE_FUNCTIONS = {
-    "UC_HiResMagCam": hi_res_mag_spec_labview,
-    "UC_ACaveMagCam3": acave_cam3_mag_spec_labview,
-    "UC_UndulatorExitCam": undulator_exit_cam_labview,
-    # Add more device types as needed...
+    "UC_HiResMagCam":       DeviceConfig(labview_analyzer_class=MagSpec, key_list_name='MagSpecCam',
+                                         default_settings_filename='default_hiresmagcam_settings.ini'),
+    "UC_ACaveMagCam3":      DeviceConfig(labview_analyzer_class=MagSpec, key_list_name='MagSpecCam',
+                                         default_settings_filename='default_acavemagcam3_settings.ini'),
+    "UC_UndulatorExitCam":  DeviceConfig(labview_analyzer_class=LightSpec, key_list_name='LightSpecCam',
+                                         default_settings_filename='default_undulatorexitcam_settings.ini'),
+    "UC_UndulatorRad2":     DeviceConfig(labview_analyzer_class=LightSpec, key_list_name='LightSpecCam',
+                                         default_settings_filename='default_undulatorrad2cam_settings.ini'),
+    "UC_Amp2_IR_input":     DeviceConfig(labview_analyzer_class=BeamSpot, key_list_name='BeamSpot',
+                                         default_settings_filename='default_amp2input_settings.ini'),
+    "UC_ALineEBeam3":       DeviceConfig(labview_analyzer_class=ALineCam, key_list_name='ALineCam',
+                                         default_settings_filename='default_alineebeam3_settings.ini'),
 }
 
 
@@ -78,8 +36,8 @@ def analyze_labview_image(device_type, image, background):
     Parameters:
     -----------
     device_type : str
-        Type of the device, e.g., "UC_TestCam". This is used to 
-        select out the specific device 
+        Type of the device, e.g., "UC_TestCam". This is used to
+        select out the specific device
     image : numpy.ndarray
         The image to be analyzed.
     background : numpy.ndarray
@@ -94,10 +52,118 @@ def analyze_labview_image(device_type, image, background):
         - 2D double array
 
     """
-    
-    func = DEVICE_FUNCTIONS.get(device_type)
-    if func:
-        result = func(image, background)
-        return result
+
+    configuration = DEVICE_FUNCTIONS.get(device_type)
+    if configuration:
+        analyzer = analyzer_from_device_type(device_type)
+        analyzer.apply_background(background=background)
+        image_float = image.astype(np.float32)
+        result = analyzer.analyze_image(image_float)
+        return parse_results_to_labview(result, configuration.key_list_name)
     else:
         raise ValueError(f"Unknown device type: {device_type}")
+
+
+def analyzer_from_device_type(device_type: str) -> LabviewImageAnalyzer:
+    """
+    Given the device type, returns the analyzer with default parameters as given by the config file in the above
+    dictionary.  Additionally, this function can be used by outside post-analysis scripts
+
+    Parameters:
+    -----------
+    device_type : str
+        Type of the device, e.g., "UC_TestCam". This is used to
+        select out the specific device
+
+    Returns:
+    --------
+    LabviewImageAnalyzer
+        Instance of the LabviewImageAnalyzer class as implemented for the specified device
+
+    """
+    configuration = DEVICE_FUNCTIONS.get(device_type)
+    analyzer_class = configuration.labview_analyzer_class
+    config_filepath = build_config_path(configuration.default_settings_filename)
+    return analyzer_class().apply_config(config_filepath)
+
+
+def parse_results_to_labview(return_dictionary, key_list_name):
+    """
+    Parses the return dictionary given by analyze_image into the format expected by Labview
+
+    Parameters:
+    -----------
+    return_dictionary : dict
+        The return dictionary from LabviewImageAnalyzer's analyze_image function
+    key_list_name : str
+        Name of the key list group as listed in labview_adapters_config.json
+
+    Returns:
+    --------
+    tuple
+        Analysis result data as a tuple containing:
+        - 2D uint16 array
+        - 1D double array
+        - 2D double array
+
+    """
+    return_image = return_dictionary['processed_image_uint16']
+    scalar_dict = return_dictionary['analyzer_return_dictionary']
+    return_lineouts = return_dictionary['analyzer_return_lineouts']
+
+    keys_of_interest = read_keys_of_interest(key_list_name)
+    return_scalars = np.array([scalar_dict[key] for key in keys_of_interest]).astype(np.float64)
+
+    labview_return = (return_image, return_scalars, return_lineouts)
+    return labview_return
+
+
+def read_keys_of_interest(key_list_name):
+    """
+    Returns the list of keys in the .json file for the given group name.  Additionally used in unit test scripts
+
+    Parameters:
+    -----------
+    key_list_name : str
+        Name of the key list group as listed in labview_adapters_config.json
+
+    Returns:
+    --------
+    list
+        Names of all the expected keys of the alysis return
+
+    """
+    json_filepath = Path(__file__).resolve().parent / 'labview_adapters_config.json'
+    with open(json_filepath, 'r') as file:
+        device_keys = json.load(file)
+    return device_keys[key_list_name]['keys_of_interest']
+
+
+def build_config_path(config_filename):
+    """
+    Takes the given config filename and builds a Path to this file.  First, this function checks if the config exists
+    in the Active Version of GEECS-Plugins on the Z: drive.  If not, the next place it checks is in the current, local
+    version of GEECS-Plugins.  Otherwise, assume that the file doesn't exist yet in a proper location and return None.
+
+    Parameters:
+    -----------
+    config_filename : str
+        String of the name of the config file
+
+    Returns:
+    --------
+    config filename: Path
+        String that points to the config file after determining its location
+
+    """
+    active_build_directory = r'Z:\software\control-all-loasis\HTU\Active Version\GEECS-Plugins\image_analysis_configs'
+    active_config = Path(active_build_directory, config_filename)
+
+    current_directory = Path(__file__)
+    relative_config = current_directory.parents[2] / "image_analysis_configs" / config_filename
+    if active_config.exists():
+        return active_config
+    elif relative_config.exists():
+        return relative_config
+    else:
+        return None  # Neither worked, this config doesn't exist anywhere...

@@ -29,6 +29,13 @@ from image_analysis.utils import ROI as ImageAnalyzerROI
 
 
 class ScanImages:
+    """ Represents set of all images within a scan of a single device or device group
+
+    Of BeamSpot type.
+
+    Includes methods to analyze this set of images.
+
+    """
     fig_size = (int(round(screeninfo.get_monitors()[0].width / 540. * 10) / 10),
                 int(round(screeninfo.get_monitors()[0].height / 450. * 10) / 10))
 
@@ -63,7 +70,7 @@ class ScanImages:
             self.camera_name = camera
             self.camera_roi = np.array(Camera.ROIs[camera])
             self.camera_r90 = Camera.get_rot_90(Camera.label_from_name(camera))
-        elif isinstance(camera, str) and re.match(r'(U[1-9]|A[1-3]|Rad2|P1|DP)', camera):  # shorthand label ('A1', )
+        elif isinstance(camera, str) and re.match(r'(U[1-9]|A[1-3]|Rad2|P1|DP)', camera):  # short label ('A1')
             self.camera_name = Camera.name_from_label(camera)
             if (self.camera_name in Camera.ROIs) and (len(Camera.ROIs[self.camera_name]) == 4):
                 self.camera_roi = np.array(Camera.ROIs[self.camera_name])

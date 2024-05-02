@@ -1,7 +1,9 @@
+import time
 from typing import Optional
 from geecs_python_api.controls.api_defs import exec_async
 from geecs_python_api.controls.devices.HTU import Laser, GasJet, Diagnostics, Transport
 from geecs_python_api.controls.experiment import Experiment
+from geecs_python_api.controls.interface import api_error
 
 
 class HtuExp(Experiment):
@@ -91,10 +93,28 @@ class HtuExp(Experiment):
 
 
 if __name__ == '__main__':
-    # Experiment.get_info('Undulator')
+    api_error.clear()
 
+    # create experiment, connect to database
     htu = HtuExp(get_info=True)
-    htu.connect()
-    htu.close()
 
+    # let `htu` create and connect to the gas jet properly
+    htu.connect(laser=False, jet=True, diagnostics=False, transport=False)
+
+    # check initial stage state
+    time.sleep(1.)
+    print(f'Jet state: {htu.jet.stage.state}')
+
+    # try a simple z-scan
+    scan_folder, scan_number, accepted, timed_out = \
+        htu.jet.stage.scan_position('Z', 10., 11., 0.5, 2, use_alias=True, timeout=60.)
+    print(f'Scan accepted: {accepted}')
+    if accepted:
+        print(f'Scan timed out: {timed_out}')
+
+    # report any errors
+    print(api_error)
+
+    # close connections & free memory
+    htu.close()
     print('done')

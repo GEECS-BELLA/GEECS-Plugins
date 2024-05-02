@@ -8,15 +8,12 @@ of the tilt-corrected image.
 @Chris
 """
 
-import sys
-import os
 import numpy as np
+import sys
 from scipy import ndimage
 import matplotlib.pyplot as plt
-
-rootpath = os.path.abspath("../../../../")
-sys.path.insert(0, rootpath)
-import image_analysis.analyzers.calibration_scripts.modules_image_processing.pngTools as pngTools
+from pathlib import Path
+from ImageAnalysis.image_analysis.utils import read_imaq_png_image
 
 
 def find_two_peaks(input_image):
@@ -40,18 +37,51 @@ def find_two_peaks(input_image):
 
 
 # Load the image
+camera = "UCRad2"  # "ExitCam"
+if camera == "ExitCam":
+    sample_data_path = "Z:/data/Undulator/Y2023/09-Sep/23_0906/auxiliary data/"
+    sample_filename = "UC_UndulatorExitCam_"
+    # sample_shot_number = 11  # 11 - 34
+    sample_extension = ".png"
 
-sample_data_path = "Z:/data/Undulator/Y2023/09-Sep/23_0906/auxiliary data/"
-sample_filename = "UC_UndulatorExitCam_"
-# sample_shot_number = 11  # 11 - 34
-sample_extension = ".png"
+    threshold = 100
+    wavelength = 450  # nm
+    min_wavelength = 150
 
-threshold = 100
-wavelength = 450  # nm
-min_wavelength = 150
+    shot_array = np.arange(11, 34 + 1)
+    # shot_array = np.array([11])
 
-shot_array = np.arange(11, 34 + 1)
-# shot_array = np.array([11])
+    zero_side_left = False
+
+    top = 0
+    bot = 1025
+    left = 0
+    right = 1281
+
+elif camera == "UCRad2":
+    sample_data_path = "Z:/data/Undulator/Y2024/03-Mar/24_0314/scans/Scan004/UC_UndulatorRad2/"
+    sample_filename = "Scan004_UC_UndulatorRad2_"
+    # sample_shot_number = 11  # 11 - 34
+    sample_extension = ".png"
+
+    threshold = 100
+    wavelength = 450  # nm
+    min_wavelength = 150
+
+    shot_array = np.arange(1, 20 + 1)
+    #shot_array = np.array([1])
+
+    zero_side_left = True
+
+    top = 600
+    bot = 1100
+    left = 650
+    right = 2100
+
+else:
+    print("Need a valid camera")
+    sys.exit()
+
 num_shots = len(shot_array)
 tilt_values = np.zeros(num_shots)
 calibration_values = np.zeros(num_shots)
@@ -61,23 +91,40 @@ rotated_image = []
 for i in range(num_shots):
     sample_shot_number = shot_array[i]
     fullpath = sample_data_path + sample_filename + '{:03d}'.format(sample_shot_number) + sample_extension
-    raw_image = np.array(pngTools.nBitPNG(fullpath))
+
+    raw_image = read_imaq_png_image(Path(fullpath))*1.0
+
+    roi = [top, bot, left, right]
+
+    cropped_image = raw_image[roi[0]:roi[1], roi[2]:roi[3]]
 
     """
     print("Raw Image: ", np.shape(raw_image))
     plt.imshow(raw_image)
     plt.title("Raw")
     plt.show()
-    """
 
+    print("Cropped Image: ", np.shape(cropped_image))
+    plt.imshow(cropped_image)
+    plt.title("Cropped")
+    plt.show()
+    """
     # Threshold so that we only see the peaks
 
-    threshold_image = np.copy(raw_image) - threshold
+    threshold_image = np.copy(cropped_image) - threshold
     threshold_image[np.where(threshold_image < 0)] = 0
 
     # Find the two peaks
 
     raw_left_x, raw_left_y, raw_right_x, raw_right_y = find_two_peaks(threshold_image)
+
+    """
+    print("Threshold Image: ", np.shape(raw_image))
+    plt.imshow(threshold_image)
+    plt.scatter([raw_left_x, raw_right_x], [raw_left_y, raw_right_y], c='r', alpha=0.5)
+    plt.title("Raw")
+    plt.show()
+    """
 
     # Calculate the tilt
 
@@ -95,14 +142,27 @@ for i in range(num_shots):
     # With the tilt, find the calibration
 
     rot_left_x, rot_left_y, rot_right_x, rot_right_y = find_two_peaks(rotated_image)
+
+    """
+    print("Rotated Image: ", np.shape(rotated_image))
+    plt.imshow(np.log(rotated_image))
+    plt.scatter([rot_left_x, rot_right_x], [rot_left_y, rot_right_y], c='r', alpha=0.5)
+    plt.title("Rotated")
+    plt.show()
+    """
+
     x_separation = np.abs(rot_left_x - rot_right_x)
     calibration = wavelength/x_separation
     # print("* Calibration Factor:", calibration, "nm/pixel")
     # print("* 0th Order Location:", rot_right_x, "pixel")
 
     tilt_values[i] = tilt_angle
+    if zero_side_left:
+        zeroth_values[i] = rot_left_x
+        calibration = calibration*-1
+    else:
+        zeroth_values[i] = rot_right_x
     calibration_values[i] = calibration
-    zeroth_values[i] = rot_right_x
 
 """
 print("Rotated Image: ", np.shape(rotated_image))

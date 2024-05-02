@@ -15,7 +15,7 @@ from geecs_python_api.controls.interface.geecs_database import GeecsDatabase
 
 class Camera(GeecsDevice):
     # ROIs with [left, right, top, bottom] (x_lim = [:1], y_lim = [-2:])
-    ROIs = {'UC_DiagnosticsPhosphor': [175, 1149, 205, 808],
+    ROIs = {'UC_DiagnosticsPhosphor': [175, 1149, 205, 808],  # [158, 990, 235, 832],
             'UC_Phosphor1': [166, 1183, 179, 898],
             'UC_ALineEbeam1': [174, 1021, 209, 777],
             'UC_ALineEBeam2': [275, 1114, 154, 778],

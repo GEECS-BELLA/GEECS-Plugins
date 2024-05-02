@@ -51,6 +51,9 @@ vocs:
     var1:
     - -1.0
     - 1.0
+    var2:
+    - -1.0
+    - 1.0
 xopt:
   asynch: false
   dump_file: bayes.yaml

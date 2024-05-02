@@ -15,6 +15,8 @@ import numpy as np
 from queue import Queue
 import numpy.typing as npt
 from pathlib import Path
+import configparser
+
 from threading import Thread, Condition, Event, Lock
 from datetime import datetime as dtime
 import geecs_python_api.controls.interface.message_handling as mh
@@ -53,9 +55,11 @@ class GeecsDevice:
         self.var_spans: dict[VarAlias, tuple[Optional[float], Optional[float]]] = {}
         self.var_names_by_index: dict[int, tuple[str, VarAlias]] = {}
         self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = {}
+        self.use_alias_in_TCP_subscription = True
 
         self.setpoints: dict[VarAlias, Any] = {}
-        self.state: dict[VarAlias, Any] = {}
+        self.state: dict[VarAlias, Any] = {'fresh': True,"shot number":None,"GEECS device error":False}
+        
         self.generic_vars = ['Device Status', 'device error', 'device preset']
 
         if not self.__dev_virtual:
@@ -379,7 +383,7 @@ class GeecsDevice:
         if not comment:
             comment = f'{var_alias} scan'
         return GeecsDevice.file_scan(self, comment, timeout)
-
+    
     @staticmethod
     def no_scan(monitoring_device: Optional[GeecsDevice] = None, comment: str = 'no scan',
                 shots: int = 10, timeout: float = 300.) -> tuple[Path, int, bool, bool]:
@@ -406,10 +410,8 @@ class GeecsDevice:
 
         txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
         txt_file_path: Path = next_folder / txt_file_name
-
         try:
             accepted = dev.dev_udp.send_scan_cmd(cmd)
-
             # format ini file
             ini_file_name = f'ScanInfo{next_folder.name}.ini'
             # txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
@@ -417,7 +419,6 @@ class GeecsDevice:
             ini_file_path = next_folder / ini_file_name
             # txt_file_path = os.path.join(next_folder, txt_file_name)
             ini_found = False
-
             if accepted:
                 # wait for .ini file creation
                 t0 = time.monotonic()
@@ -428,54 +429,11 @@ class GeecsDevice:
 
                     if ini_file_path.is_file():
                         ini_found = True
+                        print('ini foutn: ', ini_found)
                         break
 
                 if ini_found:
-                    try:
-                        # make a copy and write content to it
-                        shutil.copy2(ini_file_path, Path(str(ini_file_path) + '~'))
-
-                        destination = open(ini_file_path, 'w')
-                        source = open(Path(str(ini_file_path) + '~'), 'r')
-
-                        info_line_found = False
-                        par_line_found = False
-                        for line in source:
-                            if line.startswith('ScanStartInfo'):
-                                destination.write(f'ScanStartInfo = "{comment}"\n')
-                                info_line_found = True
-                            elif line.startswith('Scan Parameter'):
-                                destination.write('Scan Parameter = "Shotnumber"\n')
-                                par_line_found = True
-                            else:
-                                destination.write(line)
-
-                        source.close()
-                        destination.close()
-
-                        #  add lines if missing
-                        if not info_line_found or not par_line_found:
-                            destination = open(ini_file_path, 'a')
-                            if not info_line_found:
-                                destination.write(f'ScanStartInfo = "{comment}"\n')
-                            if not par_line_found:
-                                destination.write('Scan Parameter = "Shotnumber"\n')
-                            destination.close()
-
-                    except Exception as ex:
-                        api_error.error(str(ex), f'Could not update "{ini_file_name}" with scan comment')
-                        try:
-                            # restore files
-                            os.remove(ini_file_path)
-                            shutil.move(str(ini_file_path) + '~', ini_file_path)
-                        except Exception:
-                            pass
-                    else:
-                        # remove original if successful
-                        try:
-                            os.remove(str(ini_file_path) + "~")
-                        except Exception:
-                            pass
+                    GeecsDevice.update_ini_file(ini_file_path, comment)
 
             timed_out = GeecsDevice.wait_for_scan_start(next_folder, next_scan, timeout=60.)
             if not timed_out:
@@ -501,7 +459,57 @@ class GeecsDevice:
                     pass
 
         return next_folder, next_scan, accepted, timed_out
+        
+    @staticmethod
+    def update_ini_file(ini_file_path, comment):
+        backup_file_path = str(ini_file_path) + '~'
+        # Extract number from the filename
+        match = re.search(r'ScanInfoScan(\d{3})\.ini$', str(ini_file_path))
+        if match:
+            scan_number = int(match.group(1))
+        else:
+            print("Filename does not match expected format. Aborting update.")
+            return
+        try:
+            # Backup the original INI file
+            shutil.copy2(ini_file_path, backup_file_path)
 
+            # Create a ConfigParser object and read the backup file
+            config = configparser.ConfigParser()
+            config.optionxform = lambda option: option  # Preserve case
+
+            config.read(backup_file_path)
+
+            # Ensure specific sections exist; if not, you may need to create them
+            if 'Scan Info' not in config:
+                config['Scan Info'] = {}  # Or another appropriate section
+
+            # Update values or add them if they don't exist
+            config['Scan Info']['Scan No'] = str(scan_number)  # Add the scan number
+            config['Scan Info']['ScanStartInfo'] = comment  # Assuming 'DEFAULT' section; adjust as needed
+            config['Scan Info']['Scan Parameter'] = 'Shotnumber'
+
+            print('added custom data to ini')
+            # Write the changes back to the original file
+            with open(ini_file_path, 'w') as configfile:
+                config.write(configfile)
+
+        except Exception as ex:
+            print(f'Error updating INI file: {ex}')
+            # Attempt to restore the original file on error
+            try:
+                os.remove(ini_file_path)
+                shutil.move(backup_file_path, ini_file_path)
+            except Exception as restore_ex:
+                print(f'Failed to restore original file: {restore_ex}')
+        else:
+            # Remove backup file if everything was successful
+            try:
+                os.remove(backup_file_path)
+            except Exception as remove_ex:
+                print(f'Failed to remove backup file: {remove_ex}')
+                
+                
     def get_status(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[float, AsyncResult]]:
         return self.get('Device Status', exec_timeout=exec_timeout, sync=sync)
 
@@ -602,6 +610,8 @@ class GeecsDevice:
                         pass
                     self.setpoints[var_alias] = dev_val
                     self.state[var_alias] = dev_val
+                    
+            self.state["GEECS device error"] = err_status                
 
             return dev_name, cmd_received, dev_val, err_status
 
@@ -613,7 +623,7 @@ class GeecsDevice:
     def handle_subscription(self, net_msg: mh.NetworkMessage) -> tuple[str, int, dict[str, str]]:
         try:
             dev_name, shot_nb, dict_vals = GeecsDevice._subscription_parser(net_msg.msg)
-
+            
             # Queue & notify
             if self.notify_on_tcp:
                 self.queue_tcp_msgs.put((dev_name, shot_nb, dict_vals))
@@ -625,6 +635,8 @@ class GeecsDevice:
 
             # Update dictionaries
             if dev_name == self.get_name() and dict_vals:
+                self.state['shot number'] = shot_nb
+                
                 for var, val in dict_vals.items():
                     if var in self.generic_vars:
                         self.interpret_generic_variables(var, val)
@@ -632,13 +644,19 @@ class GeecsDevice:
                     if var in self.var_aliases_by_name:
                         var_alias: VarAlias = self.var_aliases_by_name[var][0]
                         self.state[var_alias] = self.interpret_value(var_alias, val)
+                        self.state['fresh']=True
+                        
                     else:
-                        var_alias = self.find_alias_by_var(var)
+                        if self.use_alias_in_TCP_subscription:
+                            var_alias = self.find_alias_by_var(var)
+                        else:
+                            var_alias = var #SB: don't always like switching from user defined variable to the alias
                         try:
                             val = float(val)
                         except Exception:
                             pass
                         self.state[var_alias] = val
+                        self.state['fresh']=True
 
             return dev_name, shot_nb, dict_vals
 

@@ -15,7 +15,7 @@ from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.interfaces.exports import save_py
 from geecs_python_api.tools.images.displays import polyfit_label
 # from geecs_python_api.controls.devices.HTU.transport.magnets import Quads
-from image_analysis.tools.spot import fwhm_to_std
+from geecs_python_api.tools.images.spot import fwhm_to_std
 
 
 class QuadAnalysis(ScanAnalysis):
@@ -243,7 +243,7 @@ if __name__ == '__main__':
     # scan analysis
     # --------------------------------------------------------------------------
     _path = _quad_analysis.analyze(None, initial_filtering=_filters, ask_rerun=False, blind_loads=True,
-                                   store_images=False, store_scalars=False, save_plots=False, save=True)
+                                   store_images=False, store_scalars=False, save_plots=False, save=False)
 
     _quad_analysis.render_twiss(physical_units=True, save_dir=_quad_analysis.scan_data.get_analysis_folder())
 

@@ -11,20 +11,14 @@ the info I need.  Mostly because I don't know how to store variables in consoles
 @Chris
 """
 
-import sys
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
-
-rootpath = os.path.abspath("../../../../../")
-sys.path.insert(0, rootpath)
-
-import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.pngTools as pngTools
+from pathlib import Path
+from ImageAnalysis.image_analysis.utils import read_imaq_png_image
 import ImageAnalysis.image_analysis.analyzers.calibration_scripts.modules_image_processing.shot_charge_reader as charge_reader
-import ImageAnalysis.image_analysis.analyzers.UC_GenericMagSpecCam as mag_spec_caller
+from ImageAnalysis.image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
 import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.directory_functions as directory_functions
-import ImageAnalysis.image_analysis.analyzers.online_analysis_modules.math_tools as math_tools
 
 
 def linear(x, a):
@@ -57,7 +51,7 @@ else:
 super_path = directory_functions.compile_daily_path(data_day, data_month, data_year)
 image_name = "U_HiResMagCam"
 
-calibration_analyzer = mag_spec_caller.UC_GenericMagSpecCamAnalyzer(
+calibration_analyzer = UC_GenericMagSpecCamAnalyzer(
     mag_spec_name='hires',
     noise_threshold=100,
     roi=[1, -1, 1, -1],
@@ -88,7 +82,7 @@ for i in range(len(shot_arr)):
         print("Shot Number:", shot_number)
     fullpath = directory_functions.compile_file_location(super_path, scan_number, shot_number, image_name,
                                                          suffix=".png")
-    image = pngTools.nBitPNG(fullpath)
+    image = read_imaq_png_image(Path(fullpath))*1.0
     if doPrint:
         print("Loaded")
 
@@ -127,12 +121,11 @@ if normalizationCheck:
     min_camera = 2
 else:
     min_camera = 2e6
-all_conditions = [
-    [clipping_arr, '<', clip_tolerance],
-    [saturation_arr, '<', sat_tolerance],
-    [camera_counts_arr, '>', min_camera]
-]
-both_pass = math_tools.get_inequality_indices(all_conditions)
+
+both_pass = np.where((clipping_arr < clip_tolerance) &
+                     (saturation_arr < sat_tolerance) &
+                     (camera_counts_arr > min_camera))
+
 both_picoscope_charge_arr = picoscope_charge_arr[both_pass]
 both_camera_counts_arr = camera_counts_arr[both_pass]
 
