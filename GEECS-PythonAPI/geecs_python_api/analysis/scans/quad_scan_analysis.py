@@ -33,12 +33,20 @@ class QuadAnalysis(ScanAnalysis):
         if not variable:
             variable = self.quad_variable
 
+        # run parent analysis (beam metrics vs scan parameter)
         super().analyze(variable, initial_filtering, ask_rerun, blind_loads,
                         store_images, store_scalars, save_plots, False)
+
+        # collect setpoints
+        self.data_dict['emq1_A'] = np.median(self.scan_images.scan_scalar_data['U_EMQTripletBipolar']['Current_Limit.Ch1'])
+        self.data_dict['emq2_A'] = np.median(self.scan_images.scan_scalar_data['U_EMQTripletBipolar']['Current_Limit.Ch2'])
+        self.data_dict['emq3_A'] = np.median(self.scan_images.scan_scalar_data['U_EMQTripletBipolar']['Current_Limit.Ch3'])
+
         self.data_dict['jet_z'] = np.median(self.scan_images.scan_scalar_data['U_ESP_JetXYZ']['Position.Axis 3'])
         self.data_dict['hexapod_x'] = np.median(self.scan_images.scan_scalar_data['U_Hexapod']['xpos'])
-        self.data_dict['source_pmq_mm'] = self.data_dict['jet_z'] + self.data_dict['hexapod_x'] + 35.5
+        self.data_dict['source_pmq_mm'] = self.data_dict['jet_z'] + self.data_dict['hexapod_x'] + 35.5  # 2019 calibration
 
+        # render parent analysis
         save_plots_dir = self.scan_data.get_analysis_folder() if save_plots else None
 
         figs = super().render(physical_units=True, x_label='Current [A]',
@@ -47,6 +55,7 @@ class QuadAnalysis(ScanAnalysis):
                               xy_fit=1, fwhms_fit=2, deltas_fit=2,
                               show_figs=True, save_dir=save_plots_dir, sync=False)
 
+        # request Twiss analysis ranges from user
         setpoints: np.ndarray = self.data_dict['setpoints']
         range_x = np.array([np.min(setpoints), np.max(setpoints)])
         range_y = np.array([np.min(setpoints), np.max(setpoints)])
@@ -81,6 +90,7 @@ class QuadAnalysis(ScanAnalysis):
         selected_y: np.ndarray = (setpoints >= np.min(range_y)) * (setpoints <= np.max(range_y))
         scan_y = setpoints[selected_y]
 
+        # run Twiss analysis
         sample_analysis = self.data_dict['analyses'][0]
         um_per_pix: float = sample_analysis['summary']['um_per_pix']
         positions: {} = sample_analysis['image_analyses'][0]['positions']
@@ -114,14 +124,12 @@ class QuadAnalysis(ScanAnalysis):
         twiss_analysis['setpoints_selected'] = np.stack([range_y, range_x]).transpose()
         self.data_dict['twiss'] = twiss_analysis
 
+        # export data
         if save:
-            data_dict_saved = {}
-            # data_dict_saved = copy.deepcopy(self.data_dict)
-            # data_dict_saved.pop('analyses')
-            # data_dict_saved.pop('scan_scalars')
-            data_dict_saved = {key: copy.deepcopy(self.data_dict[key]) for key in
-                               ['jet_z', 'hexapod_x', 'source_pmq_mm']}
-                               # ['setpoints', 'scan_folder', 'jet_z', 'hexapod_x', 'source_pmq_mm', 'twiss']}
+            data_dict_saved = {key: self.data_dict[key] for key in
+                               ['setpoints', 'scan_folder', 'jet_z', 'hexapod_x', 'source_pmq_mm',
+                                'emq1_A', 'emq2_A', 'emq3_A', 'twiss']}
+            data_dict_saved['um_per_pix'] = um_per_pix
 
             export_file_path = self.scan_data.get_analysis_folder() / f'quad_scan_analysis_{self.device_name}'
             save_py(file_path=export_file_path, data=data_dict_saved)
