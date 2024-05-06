@@ -185,17 +185,17 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
             for x >= x4:        A2 * exp(-(x - x2)^2/(2 * sigma^2))
             for x3 <= x < x4:   a line connecting the values of the lorentzian at x3 
                                 and the gaussian at x4 
-        
+
             """
 
             def lorentzian(x): 
                 return A1 / (1 + np.square((x - x1) / w))
             def gaussian(x):
                 return A2 * np.exp(-np.square(x - x2) / (2 * sigma**2))
-                
+
             def midsection(x):
                 return lorentzian(x3) + (gaussian(x4) - lorentzian(x3)) / (x4 - x3) * (x - x3)
-                
+
             return (  lorentzian(x) * (x < x3) 
                     + midsection(x) * (x3 <= x) * (x < x4) 
                     + gaussian(x) * (x4 <= x)
@@ -255,9 +255,13 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
             if p0 is None:
                 p0 = estimate_parameters()
 
-            (A1, x1, w,   A2, x2, sigma,   x3, x4), pcov = curve_fit(density_profile, x, lineout, p0) 
+            lineout_scale = lineout.max()
+            (A1, x1, w,   A2, x2, sigma,   x3, x4), pcov = curve_fit(density_profile, x, lineout / lineout_scale, p0) 
 
-            return A1, x1, w,   A2, x2, sigma,   x3, x4
+            return (A1 * lineout_scale, x1, w,
+                    A2 * lineout_scale, x2, sigma,
+                    x3, x4
+                   )
 
         try:
             density_lineout_fit_result = dict(zip(['A1', 'x1', 'w',  'A2', 'x2', 'sigma',  'x3', 'x4'], 
