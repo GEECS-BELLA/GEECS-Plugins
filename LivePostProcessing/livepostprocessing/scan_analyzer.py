@@ -160,6 +160,23 @@ class ScanAnalyzer:
 
             num_images_processed = 0
 
+            
+            # Compute background for U_PhasicsFileCopy analyzer
+            #
+            # The U_PhasicsFileCopy analyzer computes backgrounds from interferograms 
+            # a given file or folder and caches them. But because the image analysis 
+            # jobs run in a process pool, the cached background isn't available to
+            # any of them, or even to the next analyze_scan() call. 
+            #
+            # This is a temporary solution to cache a background before analyzing 
+            # all the images, but it's not a great general solution, and it's not 
+            # parallelized.
+            #
+            # TODO: find better solution for handling Phasics background, and/or 
+            # backgrounds more generally
+            if 'U_PhasicsFileCopy' in self.image_analyzers:
+                self.image_analyzers['U_PhasicsFileCopy']._get_background_wavefront()
+
             with ProcessPoolExecutor(self.num_processes) as process_pool, ThreadPoolExecutor(self.num_threads) as thread_pool:
 
                 image_analysis_result_futures: dict[Future[dict[str, Union[float, NDArray]]], tuple[ShotNumber, DeviceName]] = {}

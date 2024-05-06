@@ -98,6 +98,8 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
 
     def calculate_background_from_path(self):
 
+        self._initialize_qwlsi_image_analyzer()
+
         def _calculate_background_from_filepath(filepath: Path) -> QuantityArray2D:
             return self.qwlsi_image_analyzer.calculate_wavefront(self.roi.crop(read_imaq_image(filepath)))
 
