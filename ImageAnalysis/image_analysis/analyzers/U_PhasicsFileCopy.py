@@ -263,8 +263,8 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
             density_lineout_fit_result = dict(zip(['A1', 'x1', 'w',  'A2', 'x2', 'sigma',  'x3', 'x4'], 
                                                 fit_density_lineout(center_density_lineout)
                                             ))
-        except ValueError as err:
-            warn(f"Error during fit_density_lineout: {err}")
+        except Exception as err:
+            print(f"Error during fit_density_lineout: {err}")
             density_lineout_fit_result = {}
 
         # Compile analysis results
@@ -273,7 +273,7 @@ class U_PhasicsFileCopyImageAnalyzer(ImageAnalyzer):
                             'density_lineout_cm-3': center_density_lineout.m_as('cm^-3'),
                             'peak_density_cm-3': center_density_lineout.max().m_as('cm^-3'),
                            }
-        
+
         if density_lineout_fit_result:
             analysis_results.update({
                 'density_lineout_fit_A1_cm-3': density_lineout_fit_result['A1'].m_as('cm^-3'),
