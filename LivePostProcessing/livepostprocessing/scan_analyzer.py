@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 import numpy as np
 from imageio.v3 import imwrite
 
+from progressbar import ProgressBar
+
 from .orm import Scan, SFile
 from image_analysis.analyzers.U_PhasicsFileCopy import U_PhasicsFileCopyImageAnalyzer
 from image_analysis.analyzers.U_FROG_Grenouille import U_FROG_GrenouilleImageAnalyzer, U_FROG_GrenouilleAWSLambdaImageAnalyzer
@@ -172,15 +174,17 @@ class ScanAnalyzer:
                     image_analysis_result_futures[analysis_result_future] = (shot_number, device_name)
 
                 # process finished analysis
-                for analysis_result_future in futures_as_completed(image_analysis_result_futures):
-                    shot_number, device_name = image_analysis_result_futures[analysis_result_future]
-
-                    if analysis_result_future.exception():
-                        process_error(shot_number, device_name, analysis_result_future.exception())
-                    else:
-                        process_success(shot_number, device_name, analysis_result_future.result())
-
-                    num_images_processed += 1
+                with ProgressBar(max_value=num_images_to_process) as pb:
+                    for analysis_result_future in futures_as_completed(image_analysis_result_futures):
+                        shot_number, device_name = image_analysis_result_futures[analysis_result_future]
+    
+                        if analysis_result_future.exception():
+                            process_error(shot_number, device_name, analysis_result_future.exception())
+                        else:
+                            process_success(shot_number, device_name, analysis_result_future.result())
+    
+                        num_images_processed += 1
+                        pb.increment()
 
         finally:
             s_file.save_s_file()
