@@ -37,7 +37,7 @@ def find_two_peaks(input_image):
 
 
 # Load the image
-camera = "UCRad2"  # "ExitCam"
+camera = "UCRad2"  # "UVCam"  # "ExitCam"
 if camera == "ExitCam":
     sample_data_path = "Z:/data/Undulator/Y2023/09-Sep/23_0906/auxiliary data/"
     sample_filename = "UC_UndulatorExitCam_"
@@ -59,6 +59,46 @@ if camera == "ExitCam":
     right = 1281
 
 elif camera == "UCRad2":
+    sample_data_path = "Z:/data/Undulator/Y2024/05-May/24_0502/scans/Scan002/UC_UndulatorRad2/"
+    sample_filename = "Scan002_UC_UndulatorRad2_"
+    # sample_shot_number = 11  # 11 - 34
+    sample_extension = ".png"
+
+    threshold = 60
+    wavelength = 405  # 450  # nm
+    min_wavelength = 150
+
+    shot_array = np.arange(1, 20 + 1)
+    #shot_array = np.array([1])
+
+    zero_side_left = True
+
+    top = 1000
+    bot = 1600
+    left = 0
+    right = 1500
+
+elif camera == "UVCam":
+    sample_data_path = "Z:/data/Undulator/Y2024/05-May/24_0502/scans/Scan001/UC_PostUndulatorUVSpecCam/"
+    sample_filename = "Scan001_UC_PostUndulatorUVSpecCam_"
+    # sample_shot_number = 11  # 11 - 34
+    sample_extension = ".png"
+
+    threshold = 10
+    wavelength = 405  # 450  # nm
+    min_wavelength = 150
+
+    shot_array = np.arange(1, 20 + 1)
+    #shot_array = np.array([1])
+
+    zero_side_left = True
+
+    top = 1300
+    bot = 2000
+    left = 200
+    right = 2800
+
+elif camera == "UCRad2_OLD":
     sample_data_path = "Z:/data/Undulator/Y2024/03-Mar/24_0314/scans/Scan004/UC_UndulatorRad2/"
     sample_filename = "Scan004_UC_UndulatorRad2_"
     # sample_shot_number = 11  # 11 - 34
@@ -78,6 +118,25 @@ elif camera == "UCRad2":
     left = 650
     right = 2100
 
+elif camera == "UVCam_OLD":
+    sample_data_path = "Z:/data/Undulator/Y2024/04-Apr/24_0423/scans/Scan009/UC_PostUndulatorUVSpecCam/"
+    sample_filename = "Scan009_UC_PostUndulatorUVSpecCam_"
+    # sample_shot_number = 11  # 11 - 34
+    sample_extension = ".png"
+
+    threshold = 10
+    wavelength = 450  # nm
+    min_wavelength = 150
+
+    shot_array = np.arange(1, 20 + 1)
+    #shot_array = np.array([1])
+
+    zero_side_left = True
+
+    top = 800
+    bot = 1100
+    left = 0
+    right = 2800
 else:
     print("Need a valid camera")
     sys.exit()
@@ -87,6 +146,7 @@ tilt_values = np.zeros(num_shots)
 calibration_values = np.zeros(num_shots)
 zeroth_values = np.zeros(num_shots)
 
+do_plot = False
 rotated_image = []
 for i in range(num_shots):
     sample_shot_number = shot_array[i]
@@ -98,17 +158,17 @@ for i in range(num_shots):
 
     cropped_image = raw_image[roi[0]:roi[1], roi[2]:roi[3]]
 
-    """
-    print("Raw Image: ", np.shape(raw_image))
-    plt.imshow(raw_image)
-    plt.title("Raw")
-    plt.show()
+    if do_plot:
+        print("Raw Image: ", np.shape(raw_image))
+        plt.imshow(raw_image)
+        plt.title("Raw")
+        plt.show()
 
-    print("Cropped Image: ", np.shape(cropped_image))
-    plt.imshow(cropped_image)
-    plt.title("Cropped")
-    plt.show()
-    """
+        print("Cropped Image: ", np.shape(cropped_image))
+        plt.imshow(cropped_image)
+        plt.title("Cropped")
+        plt.show()
+
     # Threshold so that we only see the peaks
 
     threshold_image = np.copy(cropped_image) - threshold
@@ -118,13 +178,12 @@ for i in range(num_shots):
 
     raw_left_x, raw_left_y, raw_right_x, raw_right_y = find_two_peaks(threshold_image)
 
-    """
-    print("Threshold Image: ", np.shape(raw_image))
-    plt.imshow(threshold_image)
-    plt.scatter([raw_left_x, raw_right_x], [raw_left_y, raw_right_y], c='r', alpha=0.5)
-    plt.title("Raw")
-    plt.show()
-    """
+    if do_plot:
+        print("Threshold Image: ", np.shape(raw_image))
+        plt.imshow(threshold_image)
+        plt.scatter([raw_left_x, raw_right_x], [raw_left_y, raw_right_y], c='r', alpha=0.5)
+        plt.title("Raw")
+        plt.show()
 
     # Calculate the tilt
 
@@ -143,13 +202,12 @@ for i in range(num_shots):
 
     rot_left_x, rot_left_y, rot_right_x, rot_right_y = find_two_peaks(rotated_image)
 
-    """
-    print("Rotated Image: ", np.shape(rotated_image))
-    plt.imshow(np.log(rotated_image))
-    plt.scatter([rot_left_x, rot_right_x], [rot_left_y, rot_right_y], c='r', alpha=0.5)
-    plt.title("Rotated")
-    plt.show()
-    """
+    if do_plot:
+        print("Rotated Image: ", np.shape(rotated_image))
+        plt.imshow(rotated_image)
+        plt.scatter([rot_left_x, rot_right_x], [rot_left_y, rot_right_y], c='r', alpha=0.5)
+        plt.title("Rotated")
+        plt.show()
 
     x_separation = np.abs(rot_left_x - rot_right_x)
     calibration = wavelength/x_separation
@@ -193,7 +251,7 @@ crop_spectra_projection = spectra_projection[crop_bounds]
 
 plt.plot(wavelength_axis, spectra_projection)
 plt.plot(crop_wavelength_axis, crop_spectra_projection)
-plt.title("UC_UndulatorExitCam Spectra")
+plt.title(f"{camera} Spectra")
 plt.xlabel("Wavelength (nm)")
 plt.ylabel("Amplitude (arb.)")
 plt.show()

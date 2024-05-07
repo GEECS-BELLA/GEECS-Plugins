@@ -101,6 +101,7 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
             average_wavelength = 0
             wavelength_spread = 0
             optimization_factor = 0
+            total_1st_order = 0
 
         else:
             peak_wavelength = analyze.get_peak_wavelength(crop_wavelength_array, crop_spectrum_array)
@@ -113,10 +114,11 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
                                                                         self.optimization_central_wavelength,
                                                                         self.optimization_bandwidth_wavelength)
             self.print_time(" Optimization Factor")
+            total_1st_order = np.sum(crop_spectrum_array)
 
         exit_cam_dict = {
             "camera_saturation_counts": saturation_number,
-            "camera_total_intensity_counts": total_photons,
+            "camera_total_intensity_counts": total_1st_order,  # total_photons,
             "peak_wavelength_nm": peak_wavelength,
             "average_wavelength_nm": average_wavelength,
             "wavelength_spread_weighted_rms_nm": wavelength_spread,
