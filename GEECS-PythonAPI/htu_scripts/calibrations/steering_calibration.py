@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional, Any
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from geecs_python_api.controls.devices.HTU.transport.magnets.steering import Steering, SteeringSupply
+from geecs_python_api.controls.devices.HTU.transport.electromagnets.steering import Steering, SteeringSupply
 from geecs_python_api.controls.devices.HTU.diagnostics.screens import Screen
 from geecs_python_api.controls.devices.HTU.diagnostics import EBeamDiagnostics
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
@@ -18,7 +18,7 @@ def steering_calibration(steering_magnets: list[int], screens: list[str],
                          backgrounds: int = 0, live_analysis: bool = True) \
         -> tuple[list[dict[str, Any]], list[tuple[Path, dict[str, Any]]]]:
     """
-    Performs current sweeps for each steering magnets and both planes (horizontal/vertical),
+    Performs current sweeps for each steering electromagnets and both planes (horizontal/vertical),
     while monitoring e-beam on calibration screens.
 
     screens:    tuple of screens' shorthand labels e.g., ("P1", "A1")
@@ -31,7 +31,7 @@ def steering_calibration(steering_magnets: list[int], screens: list[str],
     if not steering_magnets or not screens or not currents:
         return [], []
 
-    # steering magnets
+    # steering electromagnets
     magnets = [Steering(n) for n in steering_magnets]
     for magnet in magnets:
         magnet.subscribe_var_values()
@@ -130,7 +130,7 @@ def sweep_magnet(magnets: list[Steering], currents: list[tuple[float, float, flo
 
     for magnet, current in zip(magnets, currents):
         for plane in ['horizontal', 'vertical']:
-            supply: SteeringSupply = magnet.supplies[plane]
+            supply: SteeringSupply = magnet.get_supply(plane)
             scan_folder, scan_number, success = \
                 run_scan(magnet, plane, current, camera.label, 300.)
             if success:

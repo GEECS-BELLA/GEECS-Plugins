@@ -4,7 +4,7 @@ from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.controls.experiment.experiment import Experiment
 from geecs_python_api.analysis.scans import ScanImages
 from geecs_python_api.analysis.scans import ScanData
-from geecs_python_api.controls.devices.HTU.transport.magnets import Steering
+from geecs_python_api.controls.devices.HTU.transport.electromagnets import Steering
 from geecs_python_api.controls.devices.HTU.diagnostics.e_imager import EImager
 from geecs_python_api.controls.devices.HTU.multi_channels import PlungersPLC
 from geecs_python_api.tools.images.filtering import FiltersParameters
@@ -16,7 +16,7 @@ from labview_interface.lv_interface import Bridge, flatten_dict
 def align_EMQs(exp: Experiment, call: list):
     steers = [None] * 2
     try:
-        UserInterface.report('Connecting to steering magnets...')
+        UserInterface.report('Connecting to steering electromagnets...')
         steers = [Steering(i + 1) for i in range(2)]
         ret = calculate_steering_currents(exp, steers[0], steers[1], call[1], call[2])
         Handler.send_results(call[0], flatten_dict(ret))
@@ -24,7 +24,7 @@ def align_EMQs(exp: Experiment, call: list):
         values = []
         for s in steers:
             for it, direction in enumerate(['horizontal', 'vertical']):
-                supply = s.supplies[direction]
+                supply = s.get_supply(direction)
                 var_alias = supply.var_aliases_by_name[supply.var_current][0]
                 value = supply.coerce_float(var_alias, '', ret[f'new_S{s.index}_A'][it])
                 coerced = (round(abs(ret[f'new_S{s.index}_A'][it] - value) * 1000) == 0)
@@ -50,7 +50,7 @@ def align_EMQs(exp: Experiment, call: list):
         Bridge.python_error(message=str(ex))
 
     finally:
-        UserInterface.report('Disconnecting from steering magnets...')
+        UserInterface.report('Disconnecting from steering electromagnets...')
         for steer in steers:
             if isinstance(steer, Steering):
                 steer.close()

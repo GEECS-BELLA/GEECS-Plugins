@@ -2,14 +2,15 @@ from __future__ import annotations
 import inspect
 from typing import Optional, Any, Union
 from geecs_python_api.controls.api_defs import VarAlias, AsyncResult, SysPath
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice, api_error
+from geecs_python_api.controls.devices.geecs_device import api_error
+from geecs_python_api.controls.devices.HTU.transport.electromagnets import Electromagnet
 
 
-class Quads(GeecsDevice):
+class Quad(Electromagnet):
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
-            cls.instance = super(Quads, cls).__new__(cls)
+            cls.instance = super(Quad, cls).__new__(cls)
             cls.instance.__initialized = False
         else:
             cls.instance.init_resources()
