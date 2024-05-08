@@ -213,6 +213,9 @@ class LabviewImageAnalyzer(ImageAnalyzer):
         roi_right = int(parser.get('roi', 'right')),
         return np.array([roi_top, roi_bottom, roi_left, roi_right]).reshape(-1)
 
+    def set_roi(self, roi):
+        self.roi = roi
+
     def roi_image(self, image):
         """ Crops a given image with the analyzer's roi setting
 
@@ -268,6 +271,8 @@ class LabviewImageAnalyzer(ImageAnalyzer):
                         if isinstance(value, str) and value.lower() == 'false':
                             value = False
                     setattr(self, key, attr_type(value))
+                else:
+                    setattr(self, key, None)
         return self
 
     def build_input_parameter_dictionary(self) -> dict:

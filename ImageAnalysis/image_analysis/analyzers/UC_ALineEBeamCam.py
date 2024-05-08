@@ -35,9 +35,8 @@ class UC_ALineEBeamCamAnalyzer(LabviewImageAnalyzer):
         self.computational_clock_time = time.perf_counter()
 
     def circular_crop(self, image):
-        if (self.circular_crop_radius > 0) and all(value is not None for value in (self.circular_crop_center_x,
-                                                                                   self.circular_crop_center_y,
-                                                                                   self.circular_crop_radius)):
+        if all(value is not None for value in (self.circular_crop_center_x, self.circular_crop_center_y,
+                                               self.circular_crop_radius)) and (self.circular_crop_radius > 0):
             x, y = np.meshgrid(np.arange(image.shape[1]), np.arange(image.shape[0]))
             r = np.sqrt((x - self.circular_crop_center_x) ** 2 + (y - self.circular_crop_center_y) ** 2)
             mask = r > self.circular_crop_radius

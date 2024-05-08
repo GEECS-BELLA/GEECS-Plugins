@@ -24,12 +24,12 @@ def print_normalization(shot_number, tdms_filepath):
     return
 
 
-def get_beam_charge(tdms_filepath):
+def get_beam_charge(tdms_filepath, device='U-picoscope5245D', channel='U-picoscope5245D charge pC'):
     # Note, this loads the entire TDMS file into memory, and so a more
     # elegant usage of TdmsFile could be only reading the necessary picoscope data
     tdms_file = TdmsFile.read(tdms_filepath)
-    picoscope_group = tdms_file['U-picoscope5245D']
-    charge_pico_coulomb_channel = picoscope_group['U-picoscope5245D charge pC']
+    picoscope_group = tdms_file[device]
+    charge_pico_coulomb_channel = picoscope_group[channel]
     scan_charge_vals = np.asarray(charge_pico_coulomb_channel[:], dtype=float)
     return scan_charge_vals
 
