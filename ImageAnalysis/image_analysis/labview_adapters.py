@@ -23,7 +23,7 @@ DEVICE_FUNCTIONS = {
     "UC_UndulatorRad2":     DeviceConfig(labview_analyzer_class=LightSpec, key_list_name='LightSpecCam',
                                          default_settings_filename='undulatorrad2cam_may2_settings.ini'),
     "UC_PostUndulatorUVSpecCam":     DeviceConfig(labview_analyzer_class=LightSpec, key_list_name='LightSpecCam',
-                                                  default_settings_filename='undulatoruvcam_may2_settings.ini'),
+                                                  default_settings_filename='undulatoruvcam_may8_settings.ini'),
     "UC_Amp2_IR_input":     DeviceConfig(labview_analyzer_class=BeamSpot, key_list_name='BeamSpot',
                                          default_settings_filename='default_amp2input_settings.ini'),
     "UC_ALineEBeam3":       DeviceConfig(labview_analyzer_class=ALineCam, key_list_name='ALineCam',
