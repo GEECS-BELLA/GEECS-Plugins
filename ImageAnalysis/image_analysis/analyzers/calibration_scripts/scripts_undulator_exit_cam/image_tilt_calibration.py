@@ -37,7 +37,7 @@ def find_two_peaks(input_image):
 
 
 # Load the image
-camera = "UCRad2"  # "UVCam"  # "ExitCam"
+camera = "UVCam"  # "UVCam"  # "ExitCam"
 if camera == "ExitCam":
     sample_data_path = "Z:/data/Undulator/Y2023/09-Sep/23_0906/auxiliary data/"
     sample_filename = "UC_UndulatorExitCam_"
@@ -79,7 +79,7 @@ elif camera == "UCRad2":
     right = 1500
 
 elif camera == "UVCam":
-    sample_data_path = "Z:/data/Undulator/Y2024/05-May/24_0502/scans/Scan001/UC_PostUndulatorUVSpecCam/"
+    sample_data_path = "Z:/data/Undulator/Y2024/05-May/24_0508/scans/Scan001/UC_PostUndulatorUVSpecCam/"
     sample_filename = "Scan001_UC_PostUndulatorUVSpecCam_"
     # sample_shot_number = 11  # 11 - 34
     sample_extension = ".png"
@@ -93,9 +93,9 @@ elif camera == "UVCam":
 
     zero_side_left = True
 
-    top = 1300
+    top = 1200
     bot = 2000
-    left = 200
+    left = 000
     right = 2800
 
 elif camera == "UCRad2_OLD":
