@@ -24,6 +24,9 @@ def print_normalization(shot_number, tdms_filepath):
     return
 
 
+# 'U-picoscope5245D' is a legacy device name used in older calibrations
+# 'U_BCaveICT' is for the ICT in BCave
+# 'U_UndulatorExitICT'
 def get_beam_charge(tdms_filepath, device='U-picoscope5245D', channel='U-picoscope5245D charge pC'):
     # Note, this loads the entire TDMS file into memory, and so a more
     # elegant usage of TdmsFile could be only reading the necessary picoscope data
