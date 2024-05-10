@@ -5,13 +5,13 @@ from geecs_python_api.analysis.scans.quad_scan_analysis import QuadAnalysis
 
 # parameters
 # --------------------------------------------------------------------------
-scan_tag = ScanTag(2023, 8, 8, 22)
+scan_tag = ScanTag(2024, 5, 9, 56)
 
 camera_of_interest = 'A3'
 quad_used = 3
 quad_2_screen = 2.126  # [m]
 
-save_plots = False
+save_plots = True
 save_data = True
 
 
