@@ -1,5 +1,4 @@
 import os
-import copy
 import time
 import numpy as np
 from numpy.polynomial.polynomial import polyfit
@@ -35,7 +34,7 @@ class QuadAnalysis(ScanAnalysis):
 
         # run parent analysis (beam metrics vs scan parameter)
         super().analyze(variable, initial_filtering, ask_rerun, blind_loads,
-                        store_images, store_scalars, save_plots, False)
+                        store_images, store_scalars, save_plots, save)
 
         # collect setpoints
         self.data_dict['emq1_A'] = np.median(self.scan_images.scan_scalar_data['U_EMQTripletBipolar']['Current_Limit.Ch1'])
