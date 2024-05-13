@@ -28,18 +28,27 @@ def linear(x, a):
 doPrint = False
 normalizationCheck = False
 
-sampleCase = 2
+sampleCase = 1
 if sampleCase == 1:
+    data_day = 9
+    data_month = 5
+    data_year = 2024
+    scan_number = 51  # 30, 50, 51
+    image_name = "UC_HiResMagCam"
+
+elif sampleCase == 101:
     data_day = 29
     data_month = 6
     data_year = 2023
     scan_number = 23
+    image_name = "U_HiResMagCam"
 
-elif sampleCase == 2:
+elif sampleCase == 102:
     data_day = 25
     data_month = 7
     data_year = 2023
     scan_number = 24
+    image_name = "U_HiResMagCam"
 
 else:
     print("Pick a valid sample case!")
@@ -47,16 +56,16 @@ else:
     data_month = 0
     data_year = 0
     scan_number = 0
+    image_name = None
 
 super_path = directory_functions.compile_daily_path(data_day, data_month, data_year)
-image_name = "U_HiResMagCam"
 
 calibration_analyzer = UC_GenericMagSpecCamAnalyzer(
     mag_spec_name='hires',
     noise_threshold=100,
     roi=[1, -1, 1, -1],
     saturation_value=4095,
-    normalization_factor=1,  # 7.643283839778091e-07,
+    normalization_factor=1,  # 6.218486e-6  OLD: 7.643283839778091e-07,
     transverse_calibration=43,
     do_transverse_calculation=False,  # True,
     transverse_slice_threshold=0.02,
@@ -71,8 +80,11 @@ shot_arr = np.array(range(num_shots)) + 1
 
 clipping_arr = np.zeros(num_shots)
 saturation_arr = np.zeros(num_shots)
-picoscope_charge_arr = np.zeros(num_shots)
 camera_counts_arr = np.zeros(num_shots)
+
+ict_name = 'U_BCaveICT'
+tdms_filepath = charge_reader.compile_tdms_filepath(super_path, scan_number)
+picoscope_charge_arr = charge_reader.get_beam_charge(tdms_filepath, device=ict_name, channel=ict_name + ' Charge pC')
 
 for i in range(len(shot_arr)):
     if i % 10 == 0:
@@ -95,9 +107,6 @@ for i in range(len(shot_arr)):
         print("Clipped Percentage:", clipping_arr[i])
         print("Saturation Counts:", saturation_arr[i])
         print("Camera Counts:", camera_counts_arr[i])
-
-    picoscope_charge_arr[i] = charge_reader.get_shot_charge(super_path, scan_number, shot_number)
-    if doPrint:
         print("Picoscope Charge:", picoscope_charge_arr[i])
 print()
 
