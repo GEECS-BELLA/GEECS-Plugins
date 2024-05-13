@@ -43,9 +43,10 @@ def get_shot_charge(super_path, scan_number, shot_number):
     return charge_pico_coulomb_vals[shot_number - 1]
 
 
-def get_camera_trigger_and_exposure(tdms_filepath):
+def get_camera_trigger_and_exposure(tdms_filepath, magcam_name="UC_HiResMagCam", exposure_name="exposure",
+                                    triggerdelay_name="triggerdelay"):
     tdms_file = TdmsFile.read(tdms_filepath)
-    hiresmagcam_group = tdms_file['U_HiResMagCam']
-    exposure_list = hiresmagcam_group['U_HiResMagCam Exposure']
-    trigger_list = hiresmagcam_group['U_HiResMagCam TriggerDelay']
+    hiresmagcam_group = tdms_file[magcam_name]  # Used to be 'U_HiResMagCam'
+    exposure_list = hiresmagcam_group[magcam_name + ' ' + exposure_name]  # Used to be 'Exposure'
+    trigger_list = hiresmagcam_group[magcam_name + ' ' + triggerdelay_name]  # Used to be 'TriggerDelay'
     return trigger_list, exposure_list
