@@ -105,12 +105,18 @@ class QuadAnalysis(ScanAnalysis):
             # noinspection PyTypeChecker
             sig_x2 = fwhm_to_std(data_val[selected_x, 1] * 1e-6)**2
             fit_x_pars: np.ndarray = np.flip(polyfit(scan_x, sig_x2, 2))
+            fit_x_min = fit_x_pars[2] - (fit_x_pars[1]**2) / (4 * fit_x_pars[0])
+            if fit_x_min < 0:
+                fit_x_pars = QuadAnalysis.min_constrained_quadratic_fit(scan_x, sig_x2)
             twiss_analysis[pos]['epsilon_x'], twiss_analysis[pos]['alpha_x'], twiss_analysis[pos]['beta_x'] = \
                 QuadAnalysis.twiss_parameters(fit_x_pars, self.quad_2_screen)
 
             # noinspection PyTypeChecker
             sig_y2 = fwhm_to_std(data_val[selected_y, 0] * 1e-6)**2
             fit_y_pars: np.ndarray = np.flip(polyfit(scan_y, sig_y2, 2))
+            fit_y_min = fit_y_pars[2] - (fit_y_pars[1]**2) / (4 * fit_y_pars[0])
+            if fit_y_min < 0:
+                fit_y_pars = QuadAnalysis.min_constrained_quadratic_fit(scan_y, sig_y2)
             twiss_analysis[pos]['epsilon_y'], twiss_analysis[pos]['alpha_y'], twiss_analysis[pos]['beta_y'] = \
                 QuadAnalysis.twiss_parameters(fit_y_pars, self.quad_2_screen)
 
@@ -235,3 +241,17 @@ class QuadAnalysis(ScanAnalysis):
         alpha = (a2 + 1/quad_2_screen) * beta
 
         return epsilon, alpha, beta
+
+    @staticmethod
+    def min_constrained_quadratic_fit(x_vals: np.ndarray, y_vals: np.ndarray) -> np.ndarray:
+        k = np.argmin(y_vals)
+        yk = y_vals[k]
+        xk = x_vals[k]
+
+        zi = y_vals - yk
+        ti = (x_vals - xk)**2
+        c = np.sum(ti * zi) / np.sum(ti**2)
+
+        coefficients = [c, -2 * c * xk, c * (xk**2) + yk]
+
+        return np.array(coefficients)
