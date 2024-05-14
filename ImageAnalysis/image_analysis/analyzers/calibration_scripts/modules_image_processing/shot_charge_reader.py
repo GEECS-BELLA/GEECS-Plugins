@@ -17,8 +17,8 @@ def compile_tdms_filepath(super_path, scan_number):
     return tdms_filepath
 
 
-def print_normalization(shot_number, tdms_filepath):
-    trigger_list, exposure_list = get_camera_trigger_and_exposure(tdms_filepath)
+def print_normalization(shot_number, tdms_filepath, image_name="UC_HiResMagCam"):
+    trigger_list, exposure_list = get_camera_trigger_and_exposure(tdms_filepath, magcam_name=image_name)
     print("const_normalization_triggerdelay = ", trigger_list[shot_number - 1])
     print("const_normalization_exposure =", exposure_list[shot_number - 1])
     return
@@ -47,6 +47,7 @@ def get_camera_trigger_and_exposure(tdms_filepath, magcam_name="UC_HiResMagCam",
                                     triggerdelay_name="triggerdelay"):
     tdms_file = TdmsFile.read(tdms_filepath)
     hiresmagcam_group = tdms_file[magcam_name]  # Used to be 'U_HiResMagCam'
+    print(hiresmagcam_group.channels())
     exposure_list = hiresmagcam_group[magcam_name + ' ' + exposure_name]  # Used to be 'Exposure'
     trigger_list = hiresmagcam_group[magcam_name + ' ' + triggerdelay_name]  # Used to be 'TriggerDelay'
     return trigger_list, exposure_list
