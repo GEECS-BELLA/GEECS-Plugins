@@ -30,7 +30,9 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
                  calibration_0th_order_pixel: float = 1186.24,
                  minimum_wavelength_analysis: float = 150.0,
                  optimization_central_wavelength: float = 420.0,
-                 optimization_bandwidth_wavelength: float = 10.0
+                 optimization_bandwidth_wavelength: float = 10.0,
+                 spec_correction_bool: bool = True,
+                 spec_correction_files: List[str] = []
                  ):
         """
             Parameters
@@ -66,6 +68,8 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
         self.minimum_wavelength_analysis = float(minimum_wavelength_analysis)
         self.optimization_central_wavelength = float(optimization_central_wavelength)
         self.optimization_bandwidth_wavelength = float(optimization_bandwidth_wavelength)
+        self.spec_correction_bool = bool(spec_correction_bool)
+        self.spec_correction_files = list(spec_correction_files)
 
         # Set do_print to True for debugging information
         self.do_print = False
@@ -92,6 +96,13 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
                                                                          self.calibration_wavelength_pixel,
                                                                          self.calibration_0th_order_pixel)
         self.print_time(" Spectrum Lineouts")
+
+        if self.spec_correction_bool:
+            (spectrum_array,
+             rotated_image) = self.perform_spectral_correction(wavelength_array,
+                                                               spectrum_array,
+                                                               rotated_image)
+            self.print_time(" Spec Correction")
 
         crop_wavelength_array, crop_spectrum_array = analyze.crop_spectrum(wavelength_array, spectrum_array,
                                                                            self.minimum_wavelength_analysis)
@@ -129,6 +140,54 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
                                                          return_lineouts=[wavelength_array, spectrum_array],
                                                          input_parameters=self.build_input_parameter_dictionary())
         return return_dictionary
+
+    def perform_spectral_correction(self, wavelength, spectrum, image,
+                                    eff_low_bound=0.025):
+
+        # load detection efficiency
+        spectral_correction = self.construct_spectral_correction(wavelength)
+
+        # if any efficiency too low, don't correct
+        spectral_correction['efficiency'][spectral_correction['efficiency'] < eff_low_bound] = 1.0
+
+        # correct spectrum
+        cor_spectrum = spectrum / spectral_correction['efficiency']
+
+        # correct image
+        cor_image = image / spectral_correction['efficiency']
+
+        return cor_spectrum, cor_image
+
+    def construct_spectral_correction(self, input_wavelength):
+
+        # define relative path
+        rel_path = os.path.join('..', 'data')
+
+        # initialize storage
+        spectral_correction = {'wavelength': input_wavelength.copy(),
+                               'efficiency': np.ones_like(input_wavelength)}
+
+        # loop through correction files
+        for file in self.spec_correction_files:
+
+            # load file data
+            output = np.loadtxt(os.path.join(rel_path, file),
+                                delimiter='\t', skiprows=1, dtype=float)
+
+            # store
+            file_wavelength = output[:, 0]
+            file_efficiency = output[:, 1]
+
+            # convert from percent to decimal
+            if file in ('alvium_uvcam_qe.tsv'):
+                file_efficiency = file_efficiency / 100.
+
+            # interpolate and compile on spectral correction
+            interp = interp1d(file_wavelength, file_efficiency,
+                              kind='linear', bounds_error=False, fill_value=(1.0, 1.0))
+            spectral_correction['efficiency'] *= interp(spectral_correction['wavelength'])
+
+        return spectral_correction
 
     def build_input_parameter_dictionary(self) -> dict:
         input_params = {
