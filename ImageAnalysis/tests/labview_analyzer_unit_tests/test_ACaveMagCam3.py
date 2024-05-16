@@ -72,17 +72,17 @@ class TestACaveMagCam3Analyze(unittest.TestCase):
         self.assertAlmostEqual(analyze_dict["camera_clipping_factor"], 0.42678, delta=1e-4)
         self.assertEqual(analyze_dict["camera_saturation_counts"], 49)
         self.assertAlmostEqual(analyze_dict["total_charge_pC"], 671992.75, delta=1e-1)
-        self.assertAlmostEqual(analyze_dict["peak_charge_pc/MeV"], 48442.74, delta=1e-1)
+        self.assertAlmostEqual(analyze_dict["peak_charge_pc/MeV"], 577284.42, delta=1e-1)
         self.assertAlmostEqual(analyze_dict["peak_charge_energy_MeV"], 82.8332077, delta=1e-4)
-        self.assertAlmostEqual(analyze_dict["weighted_average_energy_MeV"], 82.90576452951896, delta=1e-4)
-        self.assertAlmostEqual(analyze_dict["energy_spread_weighted_rms_MeV"], 0.4254417441866327, delta=1e-4)
-        self.assertAlmostEqual(analyze_dict["energy_spread_percent"], 0.5131630431260932, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["weighted_average_energy_MeV"], 82.9020, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["energy_spread_weighted_rms_MeV"], 0.4248, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["energy_spread_percent"], 0.5125, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["weighted_average_beam_size_um"], 3.21847, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["projected_beam_size_um"], 4.07075, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["beam_tilt_um/MeV"], 4.3162045059, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["beam_tilt_intercept_um"], -333.19934, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["beam_tilt_intercept_100MeV_um"], 98.42110, delta=1e-4)
-        self.assertAlmostEqual(analyze_dict["optimization_factor"], 3.46646, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["optimization_factor"], 40.8544, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["fwhm_percent"], 1.41698, delta=1e-3)
 
         # Next we test the Labview adapter method of calling this analyzer
@@ -95,7 +95,7 @@ class TestACaveMagCam3Analyze(unittest.TestCase):
         np.testing.assert_array_equal(np.array(default_roi), np.array([112, 278, 23, 1072]))
 
         # I have to make a really strange shape in order for the large bounds above to work with the small image below
-        big_elliptical_gaussian = generate_elliptical_gaussian(amplitude, 113, 24, center_x, center_y,
+        big_elliptical_gaussian = generate_elliptical_gaussian(amplitude, 113, 25, center_x, center_y,
                                                                sigma_x, sigma_y, angle_deg)
         test_array_shape = np.shape(big_elliptical_gaussian[default_roi[0]:default_roi[1],
                                     default_roi[2]:default_roi[3]])

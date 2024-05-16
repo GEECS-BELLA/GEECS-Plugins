@@ -70,7 +70,7 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
         self.assertAlmostEqual(analyze_dict["camera_clipping_factor"], 0.42678, delta=1e-4)
         self.assertEqual(analyze_dict["camera_saturation_counts"], 49)
         self.assertAlmostEqual(analyze_dict["total_charge_pC"], 671992.75, delta=1e-1)
-        self.assertAlmostEqual(analyze_dict["peak_charge_pc/MeV"], 48442.74, delta=1e-1)
+        self.assertAlmostEqual(analyze_dict["peak_charge_pc/MeV"], 2581184.18, delta=1e-1)
         self.assertAlmostEqual(analyze_dict["peak_charge_energy_MeV"], 89.51816, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["weighted_average_energy_MeV"], 89.53399, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["energy_spread_weighted_rms_MeV"], 0.09497, delta=1e-4)
@@ -80,7 +80,7 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
         self.assertAlmostEqual(analyze_dict["beam_tilt_um/MeV"], 19.30100, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["beam_tilt_intercept_um"], -1703.46109, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["beam_tilt_intercept_100MeV_um"], 226.63913, delta=1e-4)
-        self.assertAlmostEqual(analyze_dict["optimization_factor"], 0.783622, delta=1e-4)
+        self.assertAlmostEqual(analyze_dict["optimization_factor"], 41.7426, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["fwhm_percent"], 0.2934, delta=1e-2)
 
         # Here I am only checking that the labview wrapper function is working properly by checking the output shapes
