@@ -15,6 +15,9 @@ import time
 if TYPE_CHECKING:
     from ..types import Array2D
 
+from pathlib import Path
+from scipy.interpolate import interp1d
+
 from ..base import LabviewImageAnalyzer
 from .online_analysis_modules import image_processing_funcs as process
 from .online_analysis_modules import photon_spectrometer_analyzer as analyze
@@ -31,8 +34,8 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
                  minimum_wavelength_analysis: float = 150.0,
                  optimization_central_wavelength: float = 420.0,
                  optimization_bandwidth_wavelength: float = 10.0,
-                 spec_correction_bool: bool = True,
-                 spec_correction_files: List[str] = []
+                 spectral_correction_bool: bool = True,
+                 spectral_correction_files: List[str] = None
                  ):
         """
             Parameters
@@ -56,6 +59,10 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
                 For the XOpt algorithm, the central wavelength to use for the Gaussian weight function, in nm
             optimization_bandwidth_wavelength: float
                 For the XOpt algorithm, the standard deviation from the central wavelength for the Gaussian weight function
+            spectral_correction_bool: bool
+                Boolean to toggle on and off the spectral correction functionality.
+            spectral_correction_files: list of strings
+                List of filenames for optic transmission and detection efficiencies. Simultaneously defines which optics are necessary for proper correction.
         """
         super().__init__()
 
@@ -68,8 +75,15 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
         self.minimum_wavelength_analysis = float(minimum_wavelength_analysis)
         self.optimization_central_wavelength = float(optimization_central_wavelength)
         self.optimization_bandwidth_wavelength = float(optimization_bandwidth_wavelength)
-        self.spec_correction_bool = bool(spec_correction_bool)
-        self.spec_correction_files = list(spec_correction_files)
+
+        self.spectral_correction_bool = bool(spectral_correction_bool)
+        if spectral_correction_files is None:
+            self.spectral_correction_files = []
+        else:
+            self.spectral_correction_files = list(spectral_correction_files)
+
+        # calculate spectral correction from data files
+        self.spectral_correction_data = self.get_spectral_correction_data()
 
         # Set do_print to True for debugging information
         self.do_print = False
@@ -142,52 +156,67 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
         return return_dictionary
 
     def perform_spectral_correction(self, wavelength, spectrum, image,
-                                    eff_low_bound=0.025):
+                                    efficiency_lower_bound=0.025):
 
-        # load detection efficiency
-        spectral_correction = self.construct_spectral_correction(wavelength)
+        # calculate total efficiency
+        interp = interp1d(self.spectral_correction_data['wavelength'],
+                          self.spectral_correction_data['efficiency'],
+                          kind='linear', bounds_error=False, fill_value=(1.0, 1.0))
+        spectral_correction = interp(wavelength)
 
         # if any efficiency too low, don't correct
-        spectral_correction['efficiency'][spectral_correction['efficiency'] < eff_low_bound] = 1.0
+        spectral_correction[spectral_correction < efficiency_lower_bound] = 1.0
 
         # correct spectrum
-        cor_spectrum = spectrum / spectral_correction['efficiency']
+        corrected_spectrum = spectrum / spectral_correction
 
         # correct image
-        cor_image = image / spectral_correction['efficiency']
+        corrected_image = image / spectral_correction
 
-        return cor_spectrum, cor_image
+        return corrected_spectrum, corrected_image
 
-    def construct_spectral_correction(self, input_wavelength):
+    def get_spectral_correction_data(self):
 
         # define relative path
-        rel_path = os.path.join('..', 'data')
+        spectral_correction_files_folder: Path = Path(__file__).parents[1] / 'data' # for GEECS-Plugins
 
-        # initialize storage
-        spectral_correction = {'wavelength': input_wavelength.copy(),
-                               'efficiency': np.ones_like(input_wavelength)}
+        # initialize output dict
+        return_dict = {'wavelength': None, 'efficiency': None}
 
-        # loop through correction files
-        for file in self.spec_correction_files:
+        # import response data files
+        correction_data = {
+            file: np.loadtxt(spectral_correction_files_folder / file, delimiter='\t', skiprows=1, dtype=float)
+            for file in self.spectral_correction_files
+            }
 
-            # load file data
-            output = np.loadtxt(os.path.join(rel_path, file),
-                                delimiter='\t', skiprows=1, dtype=float)
+        # process data and convert efficiency if necessary
+        for file, data in correction_data.items():
+            correction_data[file] = {'wavelength': data[:, 0], 'efficiency': data[:, 1]}
 
-            # store
-            file_wavelength = output[:, 0]
-            file_efficiency = output[:, 1]
+        # construct compiled wavelength array from imported data
+        # range bound to common range limits, include all unique wavelength points
+        min_bound = max(np.min(data['wavelength']) for data in correction_data.values())
+        max_bound = min(np.max(data['wavelength']) for data in correction_data.values())
 
-            # convert from percent to decimal
-            if file in ('alvium_uvcam_qe.tsv'):
-                file_efficiency = file_efficiency / 100.
+        all_wavelengths = np.concatenate([
+            data['wavelength'][(data['wavelength'] >= min_bound) & (data['wavelength'] <= max_bound)]
+            for data in correction_data.values()])
+        unique_wavelengths = np.sort(np.unique(all_wavelengths))
 
-            # interpolate and compile on spectral correction
-            interp = interp1d(file_wavelength, file_efficiency,
+        if len(unique_wavelengths) == 0:
+            raise Exception('Spectral correction file wavelengths not compatible.')
+
+        # construct total response efficiency curve
+        total_efficiency = np.ones_like(unique_wavelengths)
+        for data in correction_data.values():
+            interp = interp1d(data['wavelength'], data['efficiency'],
                               kind='linear', bounds_error=False, fill_value=(1.0, 1.0))
-            spectral_correction['efficiency'] *= interp(spectral_correction['wavelength'])
+            total_efficiency *= interp(unique_wavelengths)
 
-        return spectral_correction
+        return_dict = {'wavelength': unique_wavelengths,
+                       'efficiency': total_efficiency}
+
+        return return_dict
 
     def build_input_parameter_dictionary(self) -> dict:
         input_params = {
