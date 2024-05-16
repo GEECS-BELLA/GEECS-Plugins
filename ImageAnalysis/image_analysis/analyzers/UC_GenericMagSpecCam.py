@@ -120,7 +120,7 @@ class UC_GenericMagSpecCamAnalyzer(LabviewImageAnalyzer):
         clipped_percentage = analyze.calculate_clipped_percentage(image)
         self.print_time(" Calculate Clipped Percentage")
 
-        charge_arr = analyze.calculate_charge_density_distribution(image, self.transverse_calibration)
+        charge_arr = analyze.calculate_charge_density_distribution(image, energy_arr)
         self.print_time(" Charge Projection:")
 
         if charge_on_camera == 0:
