@@ -238,6 +238,7 @@ class FiducialCrossRemover:
     def detect_crosses(self, 
                        image: np.ndarray,
                        approximate_locations: list[tuple[float, float]] = None,
+                       approximate_location_threshold_distance = 50.0,
                        approximate_length: float = None,
                       ) -> list[FiducialCross]:
         """ Detect fiducial crosses in the image.
@@ -246,12 +247,14 @@ class FiducialCrossRemover:
         ----------
         image : np.ndarray
         approximate_locations : list[tuple[int, int]], optional
-            TODO: implement this feature
             A list of approximate locations of crosses in the image, in the form 
             of (x, y) tuples. The algorithm is able to detect crosses without 
             initial locations, and it will return as many as it confidently 
             detects, but giving approximate locations can help prevent false 
             positives.
+        approximate_location_threshold_distance : float, optional
+            Detected crosses too farther from any approximate location than this
+            parameter are discarded. Default 50.0
         approximate_length : float, optional
             The approximate length of the crosses. This can help the algorithm 
             detect crosses more accurately.
@@ -261,9 +264,6 @@ class FiducialCrossRemover:
         list[FiducialCross]
             A list of detected fiducial crosses.
         """
-
-        if approximate_locations is not None:
-            warn("The approximate_locations parameter is not implemented yet.")
 
         # Detect lines in the image
         canny =  cv.Canny(image, self.canny_min_threshold, self.canny_max_threshold)
@@ -277,6 +277,39 @@ class FiducialCrossRemover:
                                   for rho, theta 
                                   in houghlines[:, 0, :]
                                  ]
+
+        def houghline_close_to_approximate_locations(line: HoughLine) -> bool:
+            """ Check if HoughLine is close to any of the given approximate locations
+            """
+            def houghline_close_to_approximate_location(approximate_location: tuple[float, float]) -> bool:
+                """ Check if HoughLine is close to the given approximate location
+
+                That is, calculate the distance from the approximate location to 
+                its projection onto the line. 
+
+                We can make use of the line's parametrization, theta, which gives
+                the line that is perpendicular to the Hough line and passes through
+                the origin. The projection of the approximate location onto this 
+                line, (x, y) . (cos(theta), sin(theta)), gives a length that is 
+                equal to rho plus the perpendicular distance from approximate 
+                location to the Hough line.
+
+                Thus the distance we're after is |(x, y) . (cos(theta), sin(theta)) - rho|
+
+                Parameters
+                ----------
+                approximate_location : tuple[float, float]
+                    a tuple of x, y coordinates
+
+                """
+                x, y = approximate_location
+                return np.abs(x * np.cos(line.theta) + y * np.sin(line.theta) - line.rho) <= approximate_location_threshold_distance
+
+            return any(houghline_close_to_approximate_location(approximate_location) for approximate_location in approximate_locations)
+
+        # filter out lines that are close to approximate locations
+        if approximate_locations is not None:
+            lines = [line for line in lines if houghline_close_to_approximate_locations(line)]
 
         def lines_are_parallel(line1, line2):
             """ Check if hough lines are parallel
@@ -535,6 +568,7 @@ class FiducialCrossRemover:
     def detect_and_inpaint_crosses(self, 
                                    image: np.ndarray,
                                    approximate_locations: list[tuple[float, float]] = None,
+                                   approximate_location_threshold_distance: float = 50.0,
                                    approximate_length: float = None,
                                   ) -> np.ndarray:
         """ Detect and inpaint fiducial crosses in the image.
@@ -548,6 +582,9 @@ class FiducialCrossRemover:
             initial locations, and it will return as many as it confidently 
             detects, but giving approximate locations can help prevent false 
             positives.
+        approximate_location_threshold_distance : float, optional
+            Detected crosses too farther from any approximate location than this
+            parameter are discarded. Default 50.0
         approximate_length : float, optional
             The approximate length of the crosses. This can help the algorithm 
             detect crosses more accurately.
@@ -558,5 +595,9 @@ class FiducialCrossRemover:
             The inpainted image.
         """
 
-        crosses = self.detect_crosses(image, approximate_locations, approximate_length)
+        crosses = self.detect_crosses(image, 
+                                      approximate_locations=approximate_locations, 
+                                      approximate_location_threshold_distance=approximate_location_threshold_distance, 
+                                      approximate_length=approximate_length
+                                     )
         return self.inpaint_crosses(image, crosses)
