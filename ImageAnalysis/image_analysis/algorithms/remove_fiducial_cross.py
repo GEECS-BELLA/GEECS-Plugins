@@ -25,9 +25,7 @@ def tapered_plateau(x, x1, x2, taper=1):
 def gaussian(x, x1, fwhm):
     return np.exp(-np.square(x - x1) * 4 * np.log(2) / fwhm**2)
 
-# order=True is needed for comparison operators to work
-# frozen=True is needed to make the class hashable
-@dataclass(order=True, frozen=True)
+@dataclass
 class FiducialCross:
     """ A dataclass to store information about a fiducial cross.
 
@@ -42,7 +40,8 @@ class FiducialCross:
     thickness : float
         The thickness of the cross arms, as a full-width half-maximum.
     angle : float
-        The angle that the cross makes with reference to a plus sign arrangement.
+        The angle that the cross makes with reference to a plus sign arrangement, 
+        between -pi/4 and pi/4
     """
 
     x: float
@@ -102,7 +101,9 @@ class FiducialCross:
 
         return cross
 
-@dataclass
+# The HoughLine classes need to be ordered and frozen so that HoughLinesQuartet 
+# is hashable and sortable for deduplication
+@dataclass(order=True, frozen=True)
 class HoughLine:
     """ A line detected by cv.HoughLines
 
@@ -132,7 +133,7 @@ class HoughLine:
         else:
             return HoughLine(self.rho, theta_norm)
 
-@dataclass
+@dataclass(order=True, frozen=True)
 class HoughLinesPair:
     """ Two Hough lines that are parallel and close to each other
     """
@@ -156,13 +157,42 @@ class HoughLinesPair:
 
         return HoughLine(np.sqrt(midline_x**2 + midline_y**2), np.arctan2(midline_y, midline_x)).normalize()
 
-@dataclass
+@dataclass(order=True, frozen=True)
 class HoughLinesQuartet:
     """ Two pairs of parallel Hough lines that are perpendicular to each other
     """
 
     parallel_pair1: HoughLinesPair
     parallel_pair2: HoughLinesPair
+
+    @property
+    def center(self) -> tuple[float, float]:
+        return compute_houghline_intersection(self.parallel_pair1.midline, self.parallel_pair2.midline)
+
+    @property
+    def angle(self) -> float:
+        """ Calculate the angle this perpendicular quartet makes with the x-axis
+
+        TODO: distinguish this from theta
+
+        Returns the angle almost always in the range -pi/4 to pi/4
+
+        """
+        # Find the angle of whichever of the four arms is closest to the positive
+        # x-axis. Note midline.theta is in the range 0..pi
+        return min([self.parallel_pair1.midline.theta, 
+                    self.parallel_pair2.midline.theta, 
+                    self.parallel_pair1.midline.theta - np.pi, 
+                    self.parallel_pair2.midline.theta - np.pi
+                   ],
+                   key=np.abs
+        )
+
+def compute_houghline_intersection(line1: HoughLine, line2: HoughLine) -> tuple[float, float]:
+    x = (line2.rho * np.sin(line1.theta) - line1.rho * np.sin(line2.theta)) / np.sin(line1.theta - line2.theta)
+    y = (line1.rho * np.cos(line2.theta) - line2.rho * np.cos(line1.theta)) / np.sin(line1.theta - line2.theta)
+    return x, y
+
 
 class FiducialCrossRemover:
     """ An algorithm to detect fiducial crosses in images and inpaint them.
@@ -272,13 +302,8 @@ class FiducialCrossRemover:
         parallel_pairs = [HoughLinesPair(line1, line2)
                           for line1, line2 in product(lines, lines)
                           if lines_are_parallel(line1, line2)
-                             and line1.rho > line2.rho  # prevent line1 matching itself, and prevent duplicate (line1, line2) pair
+                             and line1 < line2  # prevent line1 matching itself, and prevent duplicate (line1, line2) pair
                          ]
-
-        def compute_intersection(line1: HoughLine, line2: HoughLine) -> tuple[float, float]:
-            x = (line2.rho * np.sin(line1.theta) - line1.rho * np.sin(line2.theta)) / np.sin(line1.theta - line2.theta)
-            y = (line1.rho * np.cos(line2.theta) - line2.rho * np.cos(line1.theta)) / np.sin(line1.theta - line2.theta)
-            return x, y
 
         def in_image(x, y):
             return (0 <= x < image.shape[1]) and (0 <= y < image.shape[0])
@@ -288,12 +313,15 @@ class FiducialCrossRemover:
         perpendicular_quartets = [HoughLinesQuartet(parallel_pair1, parallel_pair2)
                                   for parallel_pair1, parallel_pair2 in product(parallel_pairs, parallel_pairs)
                                   if (0.0 <= np.abs((parallel_pair1.midline.theta - parallel_pair2.midline.theta) - 90*DEG) < self.perpendicular_hough_lines_max_angle)
-                                     and in_image(*compute_intersection(parallel_pair1.midline, parallel_pair2.midline))
+                                     and in_image(*compute_houghline_intersection(parallel_pair1.midline, parallel_pair2.midline))
                                  ]
 
-        # TODO: estimate length and thickness of crosses
+        # consolidate perpendicular quartets at similar locations and angles
+        perpendicular_quartets = self._deduplicate_perpendicular_quartets(perpendicular_quartets)
+
+        # TODO: estimate thickness of crosses
         def cross_from_perpendicular_quartet(perpendicular_quartet: HoughLinesQuartet) -> FiducialCross:
-            x, y = compute_intersection(perpendicular_quartet.parallel_pair1.midline, perpendicular_quartet.parallel_pair2.midline)
+            x, y = compute_houghline_intersection(perpendicular_quartet.parallel_pair1.midline, perpendicular_quartet.parallel_pair2.midline)
             angle = min(perpendicular_quartet.parallel_pair1.midline.theta, perpendicular_quartet.parallel_pair2.midline.theta)
             thickness = abs(perpendicular_quartet.parallel_pair1.line2.rho - perpendicular_quartet.parallel_pair1.line1.rho)
             length = self._estimate_cross_length(image, x, y, angle, thickness, length0 = approximate_length)
@@ -308,9 +336,7 @@ class FiducialCrossRemover:
                     for perpendicular_quartet in perpendicular_quartets
                    ]
 
-        crosses = self._deduplicate_crosses(crosses)
-
-        return crosses        
+        return crosses
 
     # def _fit_plateau(self, x: np.ndarray, y: np.ndarray, x_mid_0: float, width_0: float) -> tuple[float, float]:
     #     """ Fit a plateau function to the data by cross-correlation.
@@ -441,48 +467,42 @@ class FiducialCrossRemover:
 
         return width
 
-    def _deduplicate_crosses(self, crosses: list[FiducialCross]):
-        """ Consolidate crosses at similar location and angle 
+    def _deduplicate_perpendicular_quartets(self, perpendicular_quartets: list[HoughLinesQuartet]):
+        """ Consolidate perpendicular quartets at similar location and angle 
         
-        Generate graph with crosses as vertices and similarity as links, then 
-        find the disjoint groups and produce one average cross.
+        Generate graph with quartets as vertices and similarity as links, then 
+        find the disjoint groups and produce one average quartet.
 
         """
-        # Create a graph with crosses at vertices
+        # Create a graph with quartets at vertices
         G = nx.Graph()
-        G.add_nodes_from(crosses)
+        G.add_nodes_from(perpendicular_quartets)
 
-        # connect vertices representing similar crosses
-        def crosses_are_similar(cross1: FiducialCross, cross2: FiducialCross) -> bool:
+        # connect vertices representing similar quartets
+        def quartets_are_similar(quartet1: HoughLinesQuartet, quartet2: HoughLinesQuartet) -> bool:
+            x1, y1 = quartet1.center
+            x2, y2 = quartet2.center
+
             return (
-                    ((cross1.x - cross2.x)**2 + (cross1.y - cross2.y)**2 <= (1.1 * np.sqrt(2) * self.hough_rho_resolution)**2)
-                and (np.abs(cross1.angle - cross2.angle) <= 2 * self.hough_theta_resolution)
+                (x1 - x2)**2 + (y1 - y2)**2 <= (1.1 * np.sqrt(2) * self.hough_rho_resolution)**2
+                and np.abs(quartet1.angle - quartet2.angle) <= 2 * self.hough_theta_resolution
             )
 
-        G.add_edges_from((cross1, cross2) for cross1, cross2 in product(crosses, crosses) 
-                         if cross1 < cross2 and crosses_are_similar(cross1, cross2)
+        G.add_edges_from((quartet1, quartet2) for quartet1, quartet2 in product(perpendicular_quartets, perpendicular_quartets) 
+                         if quartet1 < quartet2 and quartets_are_similar(quartet1, quartet2)
                         )
 
-        # Compute average cross for each group
-        def compute_average_cross(crosses: set[FiducialCross]) -> FiducialCross:
+        # Compute average quartet for each group
+        def compute_average_quartet(quartets: set[HoughLinesQuartet]) -> HoughLinesQuartet:
 
             def mean_angle(angles: np.ndarray) -> float:
                 return np.arctan2(np.mean(np.sin(angles)), np.mean(np.cos(angles)))
-            
-            return FiducialCross(
-                x = np.mean([cross.x for cross in crosses]),
-                y = np.mean([cross.y for cross in crosses]),
-                length = np.mean([cross.length for cross in crosses]),
-                thickness = np.mean([cross.thickness for cross in crosses]),
-                angle = mean_angle(np.array([cross.angle for cross in crosses]))
-            )
 
-        average_crosses = []
-        for connected_group in nx.connected_components(G):
-            average_cross = compute_average_cross(connected_group)
-            average_crosses.append(average_cross)
+            return min(quartets, key=lambda q: np.abs(q.angle - mean_angle([q.angle for q in quartets])))
 
-        return average_crosses
+        return [compute_average_quartet(connected_group)
+                for connected_group in nx.connected_components(G)
+               ] 
 
     def inpaint_crosses(self, 
                         image: np.ndarray,
