@@ -573,7 +573,7 @@ class FiducialCrossRemover:
         
         mask = np.zeros(image.shape, dtype=bool)
         for cross in crosses:
-            expanded_cross = FiducialCross(cross.x, cross.y, 1.10 * cross.length, 1.10 * cross.thickness, cross.angle)
+            expanded_cross = FiducialCross(cross.x, cross.y, 1.10 * cross.length, 2.0 * cross.thickness, cross.angle)
             mask |= (expanded_cross.image(image.shape) > 0.01)
 
         return inpainter.inpaint(image, mask)
