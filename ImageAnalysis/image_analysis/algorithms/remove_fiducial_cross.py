@@ -439,7 +439,7 @@ class FiducialCrossRemover:
             def mean(y_):
                 return np.trapz(y_, x) / (x[-1] - x[0])
             def std(y_):
-                return np.trapz(np.square(y_ - mean(y_)), x) / (x[-1] - x[0])
+                return np.sqrt(np.trapz(np.square(y_ - mean(y_)), x) / (x[-1] - x[0]))
             def cov(y1, y2):
                 return np.trapz((y1 - mean(y1)) * (y2 - mean(y2)), x) / (x[-1] - x[0])
 
