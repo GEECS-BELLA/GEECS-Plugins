@@ -144,18 +144,32 @@ class HoughLinesPair:
     @property
     def midline(self) -> HoughLine:
         """ "Average" of the two lines in this pair
-        
-        TODO: better implementation of "average" HoughLine, which could be the 
-        line that bisects the angle formed by two non-parallel lines, or the line 
-        down the center of parallel lines
         """
 
-        # get the x,y coordinates of the points at (rho, theta) polar coordinates
-        line1_x, line1_y = (self.line1.rho * np.cos(self.line1.theta), self.line1.rho * np.sin(self.line1.theta))
-        line2_x, line2_y = (self.line2.rho * np.cos(self.line2.theta), self.line2.rho * np.sin(self.line2.theta))
-        midline_x, midline_y = (line1_x + line2_x) / 2, (line1_y + line2_y) / 2
+        # exactly parallel
+        line1_norm, line2_norm = self.line1.normalize(), self.line2.normalize()
+        if line1_norm.theta == line2_norm.theta:
+            return HoughLine((line1_norm.rho + line2_norm.rho) / 2, line1_norm.theta)
 
-        return HoughLine(np.sqrt(midline_x**2 + midline_y**2), np.arctan2(midline_y, midline_x)).normalize()
+        # otherwise, find the angle that bisects the intersection angle.
+        # first get the angle between them in the range -pi..pi
+        intersection_angle = np.mod(self.line2.theta - self.line1.theta + np.pi, 2*np.pi) - np.pi
+        if abs(intersection_angle) == np.pi/2:
+            raise ValueError("Midline of perpendicular lines is ambiguous")
+        
+        if abs(intersection_angle) > np.pi/2:
+            # flip representation of one of the Houghlines to get instersection 
+            # angle between -pi/2..pi/2
+            return HoughLinesPair(self.line1, HoughLine(-self.line2.rho, self.line2.theta - np.pi)).midline
+
+        theta = (self.line1.theta + self.line2.theta) / 2
+
+        # rho is the length of the projection of the intersection point onto the 
+        # vector from origin with angle theta.
+        x, y = compute_houghline_intersection(self.line1, self.line2)
+        rho = x * np.cos(theta) + y * np.sin(theta)
+
+        return HoughLine(rho, theta).normalize()
 
 @dataclass(order=True, frozen=True)
 class HoughLinesQuartet:
