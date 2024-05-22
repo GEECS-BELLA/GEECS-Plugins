@@ -370,6 +370,38 @@ class GeecsDevice:
     def scan(self, var_alias: VarAlias, start_value: float, end_value: float, step_size: float,
              var_span: Optional[tuple[Optional[float], Optional[float]]] = None, shots_per_step: int = 10,
              comment: str = '', use_alias: bool = True, timeout: float = 60.) -> tuple[Path, int, bool, bool]:
+        """_summary_
+
+        Parameters
+        ----------
+        var_alias : VarAlias
+            _description_
+        start_value : float
+            _description_
+        end_value : float
+            _description_
+        step_size : float
+            _description_
+        var_span : Optional[tuple[Optional[float], Optional[float]]], optional
+            _description_, by default None
+        shots_per_step : int, optional
+            _description_, by default 10
+        comment : str, optional
+            _description_, by default ''
+        use_alias : bool, optional
+            _description_, by default True
+        timeout : float, optional
+            _description_, by default 60.
+
+        Returns
+        -------
+        scan_folder : Path
+        scan_number : int
+        command_accepted : bool
+            Whether the scan UDP command was accepted
+        timed_out : bool
+            Whether the scan timed out
+        """
         var_values = self._scan_values(var_alias, start_value, end_value, step_size, var_span)
 
         if use_alias:
@@ -406,12 +438,12 @@ class GeecsDevice:
             dev = monitoring_device
 
         next_folder, next_scan = dev.next_scan_folder()
-        accepted = timed_out = False
+        command_accepted = timed_out = False
 
         txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
         txt_file_path: Path = next_folder / txt_file_name
         try:
-            accepted = dev.dev_udp.send_scan_cmd(cmd)
+            command_accepted = dev.dev_udp.send_scan_cmd(cmd)
             # format ini file
             ini_file_name = f'ScanInfo{next_folder.name}.ini'
             # txt_file_name = f'ScanData{os.path.basename(next_folder)}.txt'
@@ -419,7 +451,7 @@ class GeecsDevice:
             ini_file_path = next_folder / ini_file_name
             # txt_file_path = os.path.join(next_folder, txt_file_name)
             ini_found = False
-            if accepted:
+            if command_accepted:
                 # wait for .ini file creation
                 t0 = time.monotonic()
                 while True:
@@ -458,7 +490,7 @@ class GeecsDevice:
                 except Exception:
                     pass
 
-        return next_folder, next_scan, accepted, timed_out
+        return next_folder, next_scan, command_accepted, timed_out
         
     @staticmethod
     def update_ini_file(ini_file_path, comment):

@@ -5,7 +5,11 @@ from geecs_python_api.controls.api_defs import VarAlias, AsyncResult, SysPath
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice, api_error
 
 
+
 class Quads(GeecsDevice):
+    """ Represents EMQ1, EMQ2, and EMQ3
+    """
+    
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
@@ -54,10 +58,10 @@ class Quads(GeecsDevice):
         else:  # current, voltage
             return float(val_string)
 
-    def is_index_out_of_bound(self, index: int) -> bool:
-        out_of_bound = index < 1 or index > 3
+    def is_index_out_of_bound(self, emq_number: int) -> bool:
+        out_of_bound = emq_number < 1 or emq_number > 3
         if out_of_bound:
-            api_error.error(f'Object cannot be instantiated, index {index} out of bound [1-4]',
+            api_error.error(f'Object cannot be instantiated, index {emq_number} out of bound [1-4]',
                             f'Class "{self.get_class()}", method "{inspect.stack()[1][3]}"')
         return out_of_bound
 
@@ -154,16 +158,43 @@ class Quads(GeecsDevice):
         else:
             return self.get(self.vars_voltage[index-1], exec_timeout=exec_timeout, sync=sync)
 
-    def scan_current(self, index: int, start_value: float, end_value: float, step_size: float, shots_per_step: int = 10,
+    def scan_current(self, emq_number: int, start_value: float, end_value: float, step_size: float, shots_per_step: int = 10,
                      use_alias: bool = True, timeout: float = 60.) -> Optional[tuple[SysPath, int, bool, bool]]:
-        if self.is_index_out_of_bound(index):
+        """_summary_
+
+        Parameters
+        ----------
+        emq_number : int
+        start_value : float
+            _description_
+        end_value : float
+            _description_
+        step_size : float
+            _description_
+        shots_per_step : int, optional
+            _description_, by default 10
+        use_alias : bool, optional
+            _description_, by default True
+        timeout : float, optional
+            _description_, by default 60.
+
+        Returns
+        -------
+        scan_folder : Path
+        scan_number : int
+        command_accepted : bool
+            Whether the scan UDP command was accepted
+        timed_out : bool
+            Whether the scan timed out
+        """
+        if self.is_index_out_of_bound(emq_number):
             return None
 
-        if not self.is_enabled(index):
-            self.enable(index, True)
+        if not self.is_enabled(emq_number):
+            self.enable(emq_number, True)
 
-        if not self.is_enabled(index):
+        if not self.is_enabled(emq_number):
             return None
 
-        var_alias = VarAlias(f'Current_Limit.Ch{index}')
+        var_alias = VarAlias(f'Current_Limit.Ch{emq_number}')
         return self.scan(var_alias, start_value, end_value, step_size, None, shots_per_step, use_alias, timeout)
