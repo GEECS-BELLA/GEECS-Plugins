@@ -38,8 +38,9 @@ def calculate_projected_beam_size(image, calibration_factor):
     return axis_arr, proj_arr, beam_size
 
 
-def calculate_charge_density_distribution(image, calibration_factor):
-    charge_arr = np.sum(image, axis=0) * calibration_factor
+def calculate_charge_density_distribution(image, energy_axis):
+    calibration_array = np.ediff1d(energy_axis, to_end=energy_axis[-1]-energy_axis[-2])
+    charge_arr = np.sum(image, axis=0) / calibration_array
     return charge_arr
 
 
