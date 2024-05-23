@@ -15,8 +15,21 @@ from geecs_python_api.tools.interfaces.exports import save_py
 from geecs_python_api.tools.images.displays import polyfit_label
 from geecs_python_api.tools.images.spot import fwhm_to_std
 
-
 class QuadAnalysis(ScanAnalysis):
+    """
+
+    Parameters
+    ----------
+    scan_tag : ScanTag
+    quad : int
+        Number of the EMQ that was scanned
+    camera : Union[int, Camera, str]
+    fwhms_metric : str, optional
+        default 'median'
+    quad_2_screen : float, optional
+        distance from center of EMQ to screen, in meters, by default 1.
+    """
+
     def __init__(self, scan_tag: ScanTag, quad: int, camera: Union[int, Camera, str],
                  fwhms_metric: str = 'median', quad_2_screen: float = 1.):
         super().__init__(scan_tag, camera)
@@ -92,7 +105,7 @@ class QuadAnalysis(ScanAnalysis):
         # run Twiss analysis
         sample_analysis = self.data_dict['analyses'][0]
         um_per_pix: float = sample_analysis['summary']['um_per_pix']
-        positions: {} = sample_analysis['image_analyses'][0]['positions']
+        positions: dict = sample_analysis['image_analyses'][0]['positions']
         twiss_analysis: dict[str, Any] = {}
 
         for pos in positions['short_names']:
@@ -102,26 +115,47 @@ class QuadAnalysis(ScanAnalysis):
                                                                                pos, 'pix_ij', um_per_pix)
             twiss_analysis[pos]['fwhms'] = (data_val, data_err_low, data_err_high)
 
-            # noinspection PyTypeChecker
-            sig_x2 = fwhm_to_std(data_val[selected_x, 1] * 1e-6)**2
-            fit_x_pars: np.ndarray = np.flip(polyfit(scan_x, sig_x2, 2))
-            fit_x_min = fit_x_pars[2] - (fit_x_pars[1]**2) / (4 * fit_x_pars[0])
-            if fit_x_min < 0:
-                fit_x_pars = QuadAnalysis.min_constrained_quadratic_fit(scan_x, sig_x2)
-            twiss_analysis[pos]['epsilon_x'], twiss_analysis[pos]['alpha_x'], twiss_analysis[pos]['beta_x'] = \
-                QuadAnalysis.twiss_parameters(fit_x_pars, self.quad_2_screen)
+            def obtain_twiss_parameters_through_quadratic_fit(fwhm: np.ndarray, emq_k1_setpoints: np.ndarray):
+                """
+                Parameters
+                ----------
+                fwhm : np.ndarray
+                    Full-wdith half-maximum values in microns
+                emq_k1_setpoints : np.ndarray
+                    EMQ K1 setpoints in m^-2
 
-            # noinspection PyTypeChecker
-            sig_y2 = fwhm_to_std(data_val[selected_y, 0] * 1e-6)**2
-            fit_y_pars: np.ndarray = np.flip(polyfit(scan_y, sig_y2, 2))
-            fit_y_min = fit_y_pars[2] - (fit_y_pars[1]**2) / (4 * fit_y_pars[0])
-            if fit_y_min < 0:
-                fit_y_pars = QuadAnalysis.min_constrained_quadratic_fit(scan_y, sig_y2)
-            twiss_analysis[pos]['epsilon_y'], twiss_analysis[pos]['alpha_y'], twiss_analysis[pos]['beta_y'] = \
-                QuadAnalysis.twiss_parameters(fit_y_pars, self.quad_2_screen)
+                Returns
+                -------
+                epsilon : float
+                    emittance in m*rad
+                alpha : float
+                    alpha parameter (dimensionless)
+                beta : float
+                    beta parameter (m/rad)
+                sigma_squared : float
+                    sigma squared in m^2
+                fit_pars : np.ndarray
+                    quadratic fit parameters a*x^2 + b*x + c in order [a, b, c], 
+                    in units m^2/m^-4, m^2/m^-2, m^2
+                """
+                sigma_squared = fwhm_to_std(fwhm * 1e-6)**2
+                # returns quadratic fit parameters a*x^2 + b*x + c in order [a, b, c]
+                fit_pars: np.ndarray = np.flip(polyfit(emq_k1_setpoints, sigma_squared, 2))
+                fit_min = fit_pars[2] - (fit_pars[1]**2) / (4 * fit_pars[0])
+                if fit_min < 0:
+                    fit_pars = QuadAnalysis.min_constrained_quadratic_fit(emq_k1_setpoints, sigma_squared)
+                epsilon, alpha, beta = QuadAnalysis.twiss_parameters(fit_pars, self.quad_2_screen)
+                return epsilon, alpha, beta, sigma_squared, fit_pars
+
+            twiss_analysis[pos]['epsilon_x'], twiss_analysis[pos]['alpha_x'], twiss_analysis[pos]['beta_x'], sig_x2, fit_x_pars = \
+                obtain_twiss_parameters_through_quadratic_fit(data_val[selected_x, 1], scan_x)
+            twiss_analysis[pos]['epsilon_y'], twiss_analysis[pos]['alpha_y'], twiss_analysis[pos]['beta_y'], sig_y2, fit_y_pars = \
+                obtain_twiss_parameters_through_quadratic_fit(data_val[selected_y, 0], scan_y)
 
             twiss_analysis[pos]['sigma2_x'] = sig_x2
             twiss_analysis[pos]['sigma2_y'] = sig_y2
+            # 3 x 2 array of quadratic fit parameters in order of [a.x^2, b.x, c]
+            # in order of y, x
             twiss_analysis[pos]['fit_pars'] = np.stack([fit_y_pars, fit_x_pars]).transpose()
 
         twiss_analysis['quad_2_screen'] = self.quad_2_screen
@@ -155,7 +189,7 @@ class QuadAnalysis(ScanAnalysis):
 
         sample_analysis = self.data_dict['analyses'][0]
         um_per_pix: float = sample_analysis['summary']['um_per_pix']
-        positions: {} = sample_analysis['image_analyses'][0]['positions']
+        positions: dict = sample_analysis['image_analyses'][0]['positions']
 
         plot_labels = ['X', 'Y']
 
