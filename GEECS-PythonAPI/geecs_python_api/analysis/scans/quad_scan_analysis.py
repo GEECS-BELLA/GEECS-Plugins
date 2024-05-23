@@ -96,11 +96,8 @@ class QuadAnalysis(ScanAnalysis):
                 except Exception:
                     pass
 
-        selected_x: np.ndarray = (setpoints >= np.min(range_x)) * (setpoints <= np.max(range_x))
-        scan_x = setpoints[selected_x]
-
-        selected_y: np.ndarray = (setpoints >= np.min(range_y)) * (setpoints <= np.max(range_y))
-        scan_y = setpoints[selected_y]
+        in_range_x: np.ndarray = (setpoints >= np.min(range_x)) & (setpoints <= np.max(range_x))
+        in_range_y: np.ndarray = (setpoints >= np.min(range_y)) & (setpoints <= np.max(range_y))
 
         # run Twiss analysis
         sample_analysis = self.data_dict['analyses'][0]
@@ -148,9 +145,9 @@ class QuadAnalysis(ScanAnalysis):
                 return epsilon, alpha, beta, sigma_squared, fit_pars
 
             twiss_analysis[pos]['epsilon_x'], twiss_analysis[pos]['alpha_x'], twiss_analysis[pos]['beta_x'], sig_x2, fit_x_pars = \
-                obtain_twiss_parameters_through_quadratic_fit(data_val[selected_x, 1], scan_x)
+                obtain_twiss_parameters_through_quadratic_fit(data_val[in_range_x, 1], setpoints[in_range_x])
             twiss_analysis[pos]['epsilon_y'], twiss_analysis[pos]['alpha_y'], twiss_analysis[pos]['beta_y'], sig_y2, fit_y_pars = \
-                obtain_twiss_parameters_through_quadratic_fit(data_val[selected_y, 0], scan_y)
+                obtain_twiss_parameters_through_quadratic_fit(data_val[in_range_y, 0], setpoints[in_range_y])
 
             twiss_analysis[pos]['sigma2_x'] = sig_x2
             twiss_analysis[pos]['sigma2_y'] = sig_y2
@@ -161,7 +158,7 @@ class QuadAnalysis(ScanAnalysis):
             twiss_analysis[pos]['setpoint_at_fit_min'] = -twiss_analysis[pos]['fit_pars'][1,:] / (2 * twiss_analysis[pos]['fit_pars'][0,:]) 
 
         twiss_analysis['quad_2_screen'] = self.quad_2_screen
-        twiss_analysis['indexes_selected'] = np.stack([selected_y, selected_x]).transpose()
+        twiss_analysis['indexes_selected'] = np.stack([in_range_y, in_range_x]).astype(int).transpose()
         twiss_analysis['setpoints_selected'] = np.stack([range_y, range_x]).transpose()
         self.data_dict['twiss'] = twiss_analysis
 
