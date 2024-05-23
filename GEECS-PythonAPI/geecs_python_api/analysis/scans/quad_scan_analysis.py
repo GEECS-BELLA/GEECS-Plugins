@@ -157,6 +157,8 @@ class QuadAnalysis(ScanAnalysis):
             # 3 x 2 array of quadratic fit parameters in order of [a.x^2, b.x, c]
             # in order of y, x
             twiss_analysis[pos]['fit_pars'] = np.stack([fit_y_pars, fit_x_pars]).transpose()
+            # [setpoint for sigma_y min, setpoint for sigma_x min]
+            twiss_analysis[pos]['setpoint_at_fit_min'] = -twiss_analysis[pos]['fit_pars'][1,:] / (2 * twiss_analysis[pos]['fit_pars'][0,:]) 
 
         twiss_analysis['quad_2_screen'] = self.quad_2_screen
         twiss_analysis['indexes_selected'] = np.stack([selected_y, selected_x]).transpose()
