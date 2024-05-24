@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 import inspect
 from typing import Optional, Any, Union
 from geecs_python_api.controls.api_defs import VarAlias, AsyncResult, SysPath
@@ -16,10 +17,41 @@ class EMQTriplet(Electromagnet):
             cls.instance.init_resources()
         return cls.instance
 
-    # The quadrupole gradient per unit current. 
-    # From LBM6 Quadrupole Testing Report EMQD 113-949: 
-    # Nominal gradient = 20.02 T/m, nominal current = 6.87 A
-    quadrupole_gradient_per_current = 2.9141 # [T/m / A]
+    @dataclass
+    class EMQ:
+        magnetic_field_gradient_per_current: float # [T/m / A]
+        length: float # [m]
+
+        def k1(self, current: float, ebeam_energy_MeV: float = 100.0) -> float:
+            """ Converts the applied to current to the quadrupole focusing strength k1 
+
+            The focusing strength of a quadrupole magnet, k1 equals G/[Brho], where
+            G is the quadrupole gradient, and Brho is the rigidity of the beam. 
+            
+            Brho = electron_momentum / electron_charge = 0.299792458 * ebeam_energy [GeV]
+
+            Parameters
+            ----------
+            current : float
+                current in Ampere applied to the quadrupole magnet
+            ebeam_energy_MeV : float
+                central beam energy in MeV
+
+            Returns
+            -------
+            focusing strength k1
+                in 1/m^2
+            """
+            G = self.magnetic_field_gradient_per_current * current
+            Brho = 0.299792458 * ebeam_energy_MeV / 1000
+            return G / Brho
+
+    # From LBM6 Quadrupole Testing Report EMQD 113-949 and 113-394, where the 
+    # order is LBM6_02, LBM6_03, LBM6_01
+    emqs = [EMQ(2.9057, 0.1408), 
+            EMQ(2.9156, 0.28141),
+            EMQ(2.9099, 0.1409)
+           ]
 
     def __init__(self):
         if self.__initialized:
@@ -201,28 +233,3 @@ class EMQTriplet(Electromagnet):
         var_alias = VarAlias(f'Current_Limit.Ch{emq_number}')
         return self.scan(var_alias, start_value, end_value, step_size, None, shots_per_step, use_alias, timeout)
 
-    @staticmethod
-    def current_to_k1(current_A: float, ebeam_energy_MeV: float = 100.0) -> float:
-        """ Converts the applied to current to the quadrupole focusing strength k1 
-
-        The focusing strength of a quadrupole magnet, k1 equals G/[Brho], where
-        G is the quadrupole gradient, and Brho is the rigidity of the beam. 
-        
-        Brho = electron_momentum / electron_charge = 0.299792458 * ebeam_energy [GeV]
-
-        Parameters
-        ----------
-        current : float
-            current in Ampere applied to the quadrupole magnet
-        ebeam_energy_MeV : float
-            central beam energy in MeV
-
-        Returns
-        -------
-        focusing strength k1
-            in 1/m^2
-        """
-        G = Quad.quadrupole_gradient_per_current * current_A
-        Brho = 0.299792458 * ebeam_energy_MeV / 1000
-
-        return G / Brho
