@@ -15,6 +15,9 @@ from geecs_python_api.tools.interfaces.exports import save_py
 from geecs_python_api.tools.images.displays import polyfit_label
 from geecs_python_api.tools.images.spot import fwhm_to_std
 
+# This package's shared units registry
+from ... import ureg
+
 class QuadAnalysis(ScanAnalysis):
     """
 
