@@ -166,7 +166,8 @@ class QuadAnalysis(ScanAnalysis):
                     else:
                         return tuple(np.flip(polyfit(x, y, 2)))
 
-                fit_pars: tuple[Quantity, Quantity, Quantity] = quadratic_fit(inverse_focal_length, sigma_squared)
+                fit_pars: tuple[Quantity, Quantity, Quantity] 
+                fit_pars = quadratic_fit(inverse_focal_length, sigma_squared)
                 fit_min: Quantity = fit_pars[2] - (fit_pars[1]**2) / (4 * fit_pars[0])
                 if fit_min.magnitude < 0:
                     fit_pars = quadratic_fit(inverse_focal_length, sigma_squared, min_constrained=True)
@@ -181,7 +182,7 @@ class QuadAnalysis(ScanAnalysis):
 
                 return epsilon, alpha, beta, sigma_squared, fit_pars
 
-            def store_twiss_results(xy: Literal['x', 'y'], epsilon: Quantity, alpha: Quantity, beta: Quantity, sigma_squared: Quantity, fit_pars: tuple[Quantity, Quantity, Quantity]):
+            def store_twiss_results(xy: Literal['x', 'y'], epsilon: Quantity, alpha: Quantity, beta: Quantity, sigma_squared: QuantityArray, fit_pars: tuple[Quantity, Quantity, Quantity]):
                 """ Save magnitudes of Twiss and fit parameters in dict """
                 twiss_analysis[pos][f'epsilon_{xy}'] = epsilon.m_as('meter*radian')
                 twiss_analysis[pos][f'alpha_{xy}']   = alpha.m_as('dimensionless')
@@ -194,7 +195,7 @@ class QuadAnalysis(ScanAnalysis):
 
             epsilon, alpha, beta, sigma_squared, fit_pars = obtain_twiss_parameters_through_quadratic_fit(fwhm_y, setpoints[in_range_y], EMQTriplet.emqs[self.quad_number - 1])
             store_twiss_results('x', epsilon, alpha, beta, sigma_squared, fit_pars)
-    
+
             # 3 x 2 array of quadratic fit parameters in order of [a.x^2, b.x, c]
             # in order of y, x
             twiss_analysis[pos]['fit_pars'] = np.stack([twiss_analysis[pos][f'fit_pars_y'], 
