@@ -1,11 +1,13 @@
 import os
 import time
 import numpy as np
+from typing import Literal, NewType, TYPE_CHECKING
 from numpy.polynomial.polynomial import polyfit
 from pathlib import Path
 import matplotlib.pyplot as plt
 from typing import Union, Any, Optional
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
+from geecs_python_api.controls.devices.HTU.transport.electromagnets.quad import EMQTriplet
 from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.tools.interfaces.prompts import text_input
 from geecs_python_api.analysis.scans.scan_images import ScanImages
@@ -17,6 +19,10 @@ from geecs_python_api.tools.images.spot import fwhm_to_std
 
 # This package's shared units registry
 from ... import ureg
+Q_ = ureg.Quantity
+if TYPE_CHECKING:
+    from pint import Quantity
+    QuantityArray = NewType("QuantityArray", Quantity)
 
 class QuadAnalysis(ScanAnalysis):
     """
@@ -71,22 +77,22 @@ class QuadAnalysis(ScanAnalysis):
                               show_figs=True, save_dir=save_plots_dir, sync=False)
 
         # request Twiss analysis ranges from user
-        setpoints: np.ndarray = self.data_dict['setpoints']
-        range_x = np.array([np.min(setpoints), np.max(setpoints)])
-        range_y = np.array([np.min(setpoints), np.max(setpoints)])
+        setpoints: QuantityArray = self.data_dict['setpoints'] * ureg.ampere
+        range_x: QuantityArray = np.array([np.min(setpoints), np.max(setpoints)])
+        range_y: QuantityArray = np.array([np.min(setpoints), np.max(setpoints)])
 
         while True:
             try:
                 lim_str = text_input(f'Lower current limit to consider for FWHM-X, e.g. "none" or -1.5 : ')
-                lim_low = np.min(setpoints) if lim_str.lower() == 'none' else float(lim_str)
+                lim_low: Quantity = np.min(setpoints) if lim_str.lower() == 'none' else float(lim_str) * ureg.ampere
                 lim_str = text_input(f'Upper current limit to consider for FWHM-X, e.g. "none" or 3.5 : ')
-                lim_high = np.max(setpoints) if lim_str.lower() == 'none' else float(lim_str)
+                lim_high: Quantity = np.max(setpoints) if lim_str.lower() == 'none' else float(lim_str) * ureg.ampere
                 range_x = np.array([lim_low, lim_high])
 
                 lim_str = text_input(f'Lower current limit to consider for FWHM-Y, e.g. "none" or -1.5 : ')
-                lim_low = np.min(setpoints) if lim_str.lower() == 'none' else float(lim_str)
+                lim_low = np.min(setpoints) if lim_str.lower() == 'none' else float(lim_str) * ureg.ampere
                 lim_str = text_input(f'Upper current limit to consider for FWHM-Y, e.g. "none" or 3.5 : ')
-                lim_high = np.max(setpoints) if lim_str.lower() == 'none' else float(lim_str)
+                lim_high = np.max(setpoints) if lim_str.lower() == 'none' else float(lim_str) * ureg.ampere
                 range_y = np.array([lim_low, lim_high])
 
                 break
@@ -110,53 +116,90 @@ class QuadAnalysis(ScanAnalysis):
 
         for pos in positions['short_names']:
             twiss_analysis[pos] = {}
+            # data_val is a N x 2 array of FWHM values in micrometer, for y and x
             data_val, data_err_low, data_err_high = ScanAnalysis.fetch_metrics(self.data_dict['analyses'],
                                                                                self.fwhms_metric, 'fwhms',
                                                                                pos, 'pix_ij', um_per_pix)
             twiss_analysis[pos]['fwhms'] = (data_val, data_err_low, data_err_high)
 
-            def obtain_twiss_parameters_through_quadratic_fit(fwhm: np.ndarray, emq_k1_setpoints: np.ndarray):
-                """
+            fwhm_x: QuantityArray = data_val[in_range_x, 1] * ureg.micrometer
+            fwhm_y: QuantityArray = data_val[in_range_y, 0] * ureg.micrometer
+
+            def obtain_twiss_parameters_through_quadratic_fit(fwhm: QuantityArray, emq_current_setpoints: QuantityArray, emq: EMQTriplet.EMQ):
+                """ 
+                Uses formulas from https://uspas.fnal.gov/materials/08UMD/Emittance%20Measurement%20-%20Quadrupole%20Scan.pdf
+
+                Fits a parabola to sigma^2 vs inverse focal length of the quadrupole, 
+                where 1/f = k1 * l, the focusing strength times the effective length
+                
                 Parameters
                 ----------
-                fwhm : np.ndarray
-                    Full-wdith half-maximum values in microns
-                emq_k1_setpoints : np.ndarray
-                    EMQ K1 setpoints in m^-2
-
+                fwhm : QuantityArray
+                    Full-width half-maximum values
+                emq_current_setpoints : QuantityArray
+                    EMQ currents
+                emq : EMQTriplet.EMQ
+                    Is needed to convert current to focal length
+                    
                 Returns
                 -------
-                epsilon : float
-                    emittance in m*rad
-                alpha : float
-                    alpha parameter (dimensionless)
-                beta : float
-                    beta parameter (m/rad)
-                sigma_squared : float
-                    sigma squared in m^2
-                fit_pars : np.ndarray
-                    quadratic fit parameters a*x^2 + b*x + c in order [a, b, c], 
-                    in units m^2/m^-4, m^2/m^-2, m^2
+                epsilon : Quantity [length]*[angle]
+                    emittance
+                alpha : Quantity [dimensionless]
+                beta : Quantity [length]/[angle]
+                sigma_squared : Quantity [length]**2
+                fit_pars : tuple[Quantity [length]**2/[length]**-2, 
+                                Quantity [length]**2/[length]**-1, 
+                                    Quantity [length]**2
+                            ]
+                    quadratic fit results in order quadratic, linear, constant
                 """
-                sigma_squared = fwhm_to_std(fwhm * 1e-6)**2
-                # returns quadratic fit parameters a*x^2 + b*x + c in order [a, b, c]
-                fit_pars: np.ndarray = np.flip(polyfit(emq_k1_setpoints, sigma_squared, 2))
-                fit_min = fit_pars[2] - (fit_pars[1]**2) / (4 * fit_pars[0])
-                if fit_min < 0:
-                    fit_pars = QuadAnalysis.min_constrained_quadratic_fit(emq_k1_setpoints, sigma_squared)
-                epsilon, alpha, beta = QuadAnalysis.twiss_parameters(fit_pars, self.quad_2_screen)
+                sigma_squared: QuantityArray = fwhm_to_std(fwhm)**2
+                inverse_focal_length: QuantityArray = emq.k1(emq_current_setpoints.m_as('amp'), ebeam_energy_MeV=100.0) * Q_(emq.length, 'm')
+
+                # unit-aware versions of np.polyfit and QuadAnalysis.min_constrained_quadratic_fit
+                @ureg.wraps(('=A/B^2', '=A/B', '=A'), ('=B', '=A', None))
+                def quadratic_fit(x, y, min_constrained: bool = False) -> tuple[Quantity, Quantity, Quantity]:
+                    """ Returns quadratic fit parameters a*x^2 + b*x + c in order [a, b, c] """
+                    if min_constrained:
+                        return tuple(QuadAnalysis.min_constrained_quadratic_fit(x, y))
+                    else:
+                        return tuple(np.flip(polyfit(x, y, 2)))
+
+                fit_pars: tuple[Quantity, Quantity, Quantity] = quadratic_fit(inverse_focal_length, sigma_squared)
+                fit_min: Quantity = fit_pars[2] - (fit_pars[1]**2) / (4 * fit_pars[0])
+                if fit_min.magnitude < 0:
+                    fit_pars = quadratic_fit(inverse_focal_length, sigma_squared, min_constrained=True)
+
+                epsilon, alpha, beta = QuadAnalysis.twiss_parameters(fit_pars, Q_(self.quad_2_screen, 'm'))
+
+                # Twiss calculates are done under the small angle approximation 
+                # so somewhere an arctan was neglected, so the angle unit needs 
+                # to be added
+                epsilon *= ureg.radian
+                beta /= ureg.radian                
+
                 return epsilon, alpha, beta, sigma_squared, fit_pars
 
-            twiss_analysis[pos]['epsilon_x'], twiss_analysis[pos]['alpha_x'], twiss_analysis[pos]['beta_x'], sig_x2, fit_x_pars = \
-                obtain_twiss_parameters_through_quadratic_fit(data_val[in_range_x, 1], setpoints[in_range_x])
-            twiss_analysis[pos]['epsilon_y'], twiss_analysis[pos]['alpha_y'], twiss_analysis[pos]['beta_y'], sig_y2, fit_y_pars = \
-                obtain_twiss_parameters_through_quadratic_fit(data_val[in_range_y, 0], setpoints[in_range_y])
+            def store_twiss_results(xy: Literal['x', 'y'], epsilon: Quantity, alpha: Quantity, beta: Quantity, sigma_squared: Quantity, fit_pars: tuple[Quantity, Quantity, Quantity]):
+                """ Save magnitudes of Twiss and fit parameters in dict """
+                twiss_analysis[pos][f'epsilon_{xy}'] = epsilon.m_as('meter*radian')
+                twiss_analysis[pos][f'alpha_{xy}']   = alpha.m_as('dimensionless')
+                twiss_analysis[pos][f'beta_{xy}'] = beta.m_as('meter/radian')
+                twiss_analysis[pos][f'sigma2_{xy}'] = sigma_squared.m_as('meter^2')
+                twiss_analysis[pos][f'fit_pars_{xy}'] = np.array((fit_pars[0].m_as('meter^2/meter^-2'), fit_pars[1].m_as('meter^2/meter^-1'), fit_pars[2].m_as('meter^2')))
 
-            twiss_analysis[pos]['sigma2_x'] = sig_x2
-            twiss_analysis[pos]['sigma2_y'] = sig_y2
+            epsilon, alpha, beta, sigma_squared, fit_pars = obtain_twiss_parameters_through_quadratic_fit(fwhm_x, setpoints[in_range_x])
+            store_twiss_results('x', epsilon, alpha, beta, sigma_squared, fit_pars)
+
+            epsilon, alpha, beta, sigma_squared, fit_pars = obtain_twiss_parameters_through_quadratic_fit(fwhm_y, setpoints[in_range_y])
+            store_twiss_results('x', epsilon, alpha, beta, sigma_squared, fit_pars)
+    
             # 3 x 2 array of quadratic fit parameters in order of [a.x^2, b.x, c]
             # in order of y, x
-            twiss_analysis[pos]['fit_pars'] = np.stack([fit_y_pars, fit_x_pars]).transpose()
+            twiss_analysis[pos]['fit_pars'] = np.stack([twiss_analysis[pos][f'fit_pars_y'], 
+                                                        twiss_analysis[pos][f'fit_pars_x']
+                                                      ]).transpose()
             # [setpoint for sigma_y min, setpoint for sigma_x min]
             twiss_analysis[pos]['setpoint_at_fit_min'] = -twiss_analysis[pos]['fit_pars'][1,:] / (2 * twiss_analysis[pos]['fit_pars'][0,:]) 
 
