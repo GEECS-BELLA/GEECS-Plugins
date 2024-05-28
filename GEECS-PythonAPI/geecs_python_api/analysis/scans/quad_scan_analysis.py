@@ -189,10 +189,10 @@ class QuadAnalysis(ScanAnalysis):
                 twiss_analysis[pos][f'sigma2_{xy}'] = sigma_squared.m_as('meter^2')
                 twiss_analysis[pos][f'fit_pars_{xy}'] = np.array((fit_pars[0].m_as('meter^2/meter^-2'), fit_pars[1].m_as('meter^2/meter^-1'), fit_pars[2].m_as('meter^2')))
 
-            epsilon, alpha, beta, sigma_squared, fit_pars = obtain_twiss_parameters_through_quadratic_fit(fwhm_x, setpoints[in_range_x])
+            epsilon, alpha, beta, sigma_squared, fit_pars = obtain_twiss_parameters_through_quadratic_fit(fwhm_x, setpoints[in_range_x], EMQTriplet.emqs[self.quad_number - 1])
             store_twiss_results('x', epsilon, alpha, beta, sigma_squared, fit_pars)
 
-            epsilon, alpha, beta, sigma_squared, fit_pars = obtain_twiss_parameters_through_quadratic_fit(fwhm_y, setpoints[in_range_y])
+            epsilon, alpha, beta, sigma_squared, fit_pars = obtain_twiss_parameters_through_quadratic_fit(fwhm_y, setpoints[in_range_y], EMQTriplet.emqs[self.quad_number - 1])
             store_twiss_results('x', epsilon, alpha, beta, sigma_squared, fit_pars)
     
             # 3 x 2 array of quadratic fit parameters in order of [a.x^2, b.x, c]
