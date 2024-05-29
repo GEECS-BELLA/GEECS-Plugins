@@ -46,7 +46,7 @@ class QuadAnalysis(ScanAnalysis):
         self.quad_variable: str = f'Current_Limit.Ch{quad}'
 
         self.fwhms_metric: str = fwhms_metric
-        self.quad_2_screen: float = quad_2_screen
+        self.quad_2_screen: Quantity = quad_2_screen * ureg.meter
 
     def analyze(self, variable: Optional[str] = None, initial_filtering=FiltersParameters(), ask_rerun: bool = True,
                 blind_loads: bool = False, store_images: bool = True, store_scalars: bool = True,
@@ -78,8 +78,8 @@ class QuadAnalysis(ScanAnalysis):
 
         # request Twiss analysis ranges from user
         setpoints: QuantityArray = self.data_dict['setpoints'] * ureg.ampere
-        range_x: QuantityArray = np.array([np.min(setpoints), np.max(setpoints)])
-        range_y: QuantityArray = np.array([np.min(setpoints), np.max(setpoints)])
+        range_x: QuantityArray = Q_.from_list([np.min(setpoints), np.max(setpoints)])
+        range_y: QuantityArray = Q_.from_list([np.min(setpoints), np.max(setpoints)])
 
         while True:
             try:
@@ -87,13 +87,13 @@ class QuadAnalysis(ScanAnalysis):
                 lim_low: Quantity = np.min(setpoints) if lim_str.lower() == 'none' else float(lim_str) * ureg.ampere
                 lim_str = text_input(f'Upper current limit to consider for FWHM-X, e.g. "none" or 3.5 : ')
                 lim_high: Quantity = np.max(setpoints) if lim_str.lower() == 'none' else float(lim_str) * ureg.ampere
-                range_x = np.array([lim_low, lim_high])
+                range_x = Q_.from_list([lim_low, lim_high])
 
                 lim_str = text_input(f'Lower current limit to consider for FWHM-Y, e.g. "none" or -1.5 : ')
                 lim_low = np.min(setpoints) if lim_str.lower() == 'none' else float(lim_str) * ureg.ampere
                 lim_str = text_input(f'Upper current limit to consider for FWHM-Y, e.g. "none" or 3.5 : ')
                 lim_high = np.max(setpoints) if lim_str.lower() == 'none' else float(lim_str) * ureg.ampere
-                range_y = np.array([lim_low, lim_high])
+                range_y = Q_.from_list([lim_low, lim_high])
 
                 break
             except Exception:
@@ -113,6 +113,9 @@ class QuadAnalysis(ScanAnalysis):
         um_per_pix: float = sample_analysis['summary']['um_per_pix']
         positions: dict = sample_analysis['image_analyses'][0]['positions']
         twiss_analysis: dict[str, Any] = {}
+
+        # central energy of electron beam, needed for calculating beam rigidity
+        ebeam_energy: Quantity = 100.0 * ureg.MeV
 
         for pos in positions['short_names']:
             twiss_analysis[pos] = {}
@@ -149,13 +152,13 @@ class QuadAnalysis(ScanAnalysis):
                 beta : Quantity [length]/[angle]
                 sigma_squared : Quantity [length]**2
                 fit_pars : tuple[Quantity [length]**2/[length]**-2, 
-                                Quantity [length]**2/[length]**-1, 
-                                    Quantity [length]**2
-                            ]
+                                 Quantity [length]**2/[length]**-1, 
+                                 Quantity [length]**2
+                                ]
                     quadratic fit results in order quadratic, linear, constant
                 """
                 sigma_squared: QuantityArray = fwhm_to_std(fwhm)**2
-                inverse_focal_length: QuantityArray = emq.k1(emq_current_setpoints.m_as('amp'), ebeam_energy_MeV=100.0) * Q_(emq.length, 'm')
+                inverse_focal_length: QuantityArray = Q_(emq.k1(emq_current_setpoints.m_as('amp'), ebeam_energy_MeV=ebeam_energy.m_as('MeV')), 'm^-2') * Q_(emq.length, 'm')
 
                 # unit-aware versions of np.polyfit and QuadAnalysis.min_constrained_quadratic_fit
                 @ureg.wraps(('=A/B^2', '=A/B', '=A'), ('=B', '=A', None))
@@ -172,7 +175,7 @@ class QuadAnalysis(ScanAnalysis):
                 if fit_min.magnitude < 0:
                     fit_pars = quadratic_fit(inverse_focal_length, sigma_squared, min_constrained=True)
 
-                epsilon, alpha, beta = QuadAnalysis.twiss_parameters(fit_pars, Q_(self.quad_2_screen, 'm'))
+                epsilon, alpha, beta = QuadAnalysis.twiss_parameters(fit_pars, self.quad_2_screen)
 
                 # Twiss calculates are done under the small angle approximation 
                 # so somewhere an arctan was neglected, so the angle unit needs 
@@ -205,8 +208,10 @@ class QuadAnalysis(ScanAnalysis):
             twiss_analysis[pos]['setpoint_at_fit_min'] = -twiss_analysis[pos]['fit_pars'][1,:] / (2 * twiss_analysis[pos]['fit_pars'][0,:]) 
 
         twiss_analysis['quad_2_screen'] = self.quad_2_screen
+
+        twiss_analysis['quad_2_screen'] = self.quad_2_screen.m_as('meter')
         twiss_analysis['indexes_selected'] = np.stack([in_range_y, in_range_x]).astype(int).transpose()
-        twiss_analysis['setpoints_selected'] = np.stack([range_y, range_x]).transpose()
+        twiss_analysis['setpoints_selected'] = np.stack([range_y, range_x]).m_as('amp').transpose()
         self.data_dict['twiss'] = twiss_analysis
 
         # export data
