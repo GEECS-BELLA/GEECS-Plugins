@@ -63,7 +63,7 @@ class ScanData:
 
                 (exp_name, year_folder_name, month_folder_name, date_folder_name, 
                  scans_literal, scan_folder_name) = folder.parts[-6:]
-                
+
                 if (not re.match(r"Y\d{4}", year_folder_name)) or \
                    (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
                    (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
