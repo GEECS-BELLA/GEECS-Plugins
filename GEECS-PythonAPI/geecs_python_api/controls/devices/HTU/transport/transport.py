@@ -1,7 +1,7 @@
 from __future__ import annotations
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.HTU.transport.hexapod_pmq import PMQ
-from geecs_python_api.controls.devices.HTU.transport.electromagnets import Chicane, Steering, Quad
+from geecs_python_api.controls.devices.HTU.transport.electromagnets import Chicane, Steering, EMQTriplet
 
 
 class Transport(GeecsDevice):
@@ -26,7 +26,7 @@ class Transport(GeecsDevice):
         self.steer_2 = Steering(2)
         self.steer_3 = Steering(3)
         self.steer_4 = Steering(4)
-        self.quads = Quad()
+        self.quads = EMQTriplet()
 
         if subscribe:
             self.pmq.subscribe_var_values()
