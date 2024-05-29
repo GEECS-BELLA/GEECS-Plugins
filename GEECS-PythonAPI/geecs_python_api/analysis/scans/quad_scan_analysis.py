@@ -197,7 +197,7 @@ class QuadAnalysis(ScanAnalysis):
             store_twiss_results('x', epsilon, alpha, beta, sigma_squared, fit_pars)
 
             epsilon, alpha, beta, sigma_squared, fit_pars = obtain_twiss_parameters_through_quadratic_fit(fwhm_y, setpoints[in_range_y], EMQTriplet.emqs[self.quad_number - 1])
-            store_twiss_results('x', epsilon, alpha, beta, sigma_squared, fit_pars)
+            store_twiss_results('y', epsilon, alpha, beta, sigma_squared, fit_pars)
 
             # 3 x 2 array of quadratic fit parameters in order of [a.x^2, b.x, c]
             # in order of y, x

@@ -21,7 +21,7 @@ def find_user_data_directory_relative(start_path='.'):
         current_path = os.path.dirname(current_path)
     
     return None  # Return None if the directory is not found
-    
+
 def load_config():
     config = configparser.ConfigParser()
     config_path = os.path.expanduser('~/.config/geecs_python_api/config.ini')
