@@ -205,9 +205,27 @@ class QuadAnalysis(ScanAnalysis):
                                                         twiss_analysis[pos][f'fit_pars_x']
                                                       ]).transpose()
             # [setpoint for sigma_y min, setpoint for sigma_x min]
-            twiss_analysis[pos]['setpoint_at_fit_min'] = -twiss_analysis[pos]['fit_pars'][1,:] / (2 * twiss_analysis[pos]['fit_pars'][0,:]) 
+            twiss_analysis[pos]['1/f_at_fit_min'] = -twiss_analysis[pos]['fit_pars'][1,:] / (2 * twiss_analysis[pos]['fit_pars'][0,:]) 
+            
+            def convert_inverse_focal_length_to_emq_current(inverse_focal_length: QuantityArray) -> QuantityArray:
+                """
+                Parameters
+                ----------
+                inverse_focal_length : QuantityArray
+                    array of [y, x] inverse focal lengths
 
-        twiss_analysis['quad_2_screen'] = self.quad_2_screen
+                Returns
+                -------
+                current : QuantityArray
+                    array of [y, x] current setpoints
+                """
+                # get k1 from 1/f = k1 * l
+                k1 = inverse_focal_length / Q_(EMQTriplet.emqs[self.quad_number - 1].length, 'm')
+                # calculate k1 at unit current
+                focal_strength_per_current = Q_(EMQTriplet.emqs[self.quad_number - 1].k1(1.0, ebeam_energy_MeV=ebeam_energy.m_as('MeV')), 'm^-2 / amp')
+                return k1 / focal_strength_per_current
+            
+            twiss_analysis[pos]['setpoint_at_fit_min'] = convert_inverse_focal_length_to_emq_current(twiss_analysis[pos]['1/f_at_fit_min'] * ureg.meter**-1).m_as('amp')
 
         twiss_analysis['quad_2_screen'] = self.quad_2_screen.m_as('meter')
         twiss_analysis['indexes_selected'] = np.stack([in_range_y, in_range_x]).astype(int).transpose()
