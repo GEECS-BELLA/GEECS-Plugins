@@ -22,6 +22,9 @@ from ..base import LabviewImageAnalyzer
 from .online_analysis_modules import image_processing_funcs as process
 from .online_analysis_modules import photon_spectrometer_analyzer as analyze
 
+from ..utils import read_imaq_image, ROI
+from .generic_beam_analyzer import BeamSpotAnalyzer
+
 
 class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
     def __init__(self,
@@ -34,7 +37,8 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
                  minimum_wavelength_analysis: float = 150.0,
                  optimization_central_wavelength: float = 420.0,
                  optimization_bandwidth_wavelength: float = 10.0,
-                 spectral_correction_bool: bool = True,
+                 pointing_correction_bool: bool = False,
+                 spectral_correction_bool: bool = False,
                  spectral_correction_files: List[str] = None
                  ):
         """
@@ -59,6 +63,8 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
                 For the XOpt algorithm, the central wavelength to use for the Gaussian weight function, in nm
             optimization_bandwidth_wavelength: float
                 For the XOpt algorithm, the standard deviation from the central wavelength for the Gaussian weight function
+            pointing_correction_bool: bool
+                Boolean to toggle on and off the 0th order pointing correction functionality.
             spectral_correction_bool: bool
                 Boolean to toggle on and off the spectral correction functionality.
             spectral_correction_files: list of strings
@@ -76,18 +82,29 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
         self.optimization_central_wavelength = float(optimization_central_wavelength)
         self.optimization_bandwidth_wavelength = float(optimization_bandwidth_wavelength)
 
-        self.spectral_correction_bool = bool(spectral_correction_bool)
-        if spectral_correction_files is None:
-            self.spectral_correction_files = []
-        else:
-            self.spectral_correction_files = list(spectral_correction_files)
+        self.pointing_correction_bool = bool(pointing_correction_bool)
 
-        # calculate spectral correction from data files
-        self.spectral_correction_data = self.get_spectral_correction_data()
+        # if spectral correction information available, do now to avoid redundant calculations
+        # if not available, retrieval and calculation performed in analyze_image
+        self.spectral_correction_bool = bool(spectral_correction_bool)
+        if self.spectral_correction_bool and spectral_correction_files is not None:
+            self.spectral_correction_files = list(spectral_correction_files)
+            self.spectral_correction_data = self.get_spectral_correction_data()
+        else:
+            self.spectral_correction_files = list()
+            self.spectral_correction_data = None
+        # if spectral_correction_files is None:
+        #     self.spectral_correction_files = []
+        # else:
+        #     self.spectral_correction_files = list(spectral_correction_files)
+
+        # # calculate spectral correction from data files
+        # self.spectral_correction_data = self.get_spectral_correction_data()
 
         # Set do_print to True for debugging information
-        self.do_print = False
+        self.do_print = True
         self.computational_clock_time = time.perf_counter()
+
 
     def analyze_image(self, input_image: Array2D, auxiliary_data: Optional[dict] = None,
                       ) -> dict[str, Union[dict, np.ndarray]]:
@@ -106,16 +123,27 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
         rotated_image = analyze.rotate_image(image, self.calibration_image_tilt)
         self.print_time(" Image Rotation")
 
+        if self.pointing_correction_bool:
+            self.calibration_0th_order_pixel = self.perform_pointing_correction(rotated_image)
+
+            self.print_time(" Pointing Correction")
+
         wavelength_array, spectrum_array = analyze.get_spectrum_lineouts(rotated_image,
                                                                          self.calibration_wavelength_pixel,
                                                                          self.calibration_0th_order_pixel)
         self.print_time(" Spectrum Lineouts")
 
-        if self.spec_correction_bool:
+        if self.spectral_correction_bool:
+            # if spectral correction data not obtained in init, do now
+            if self.spectral_correction_data is None:
+                self.spectral_correction_data = self.get_spectral_correction_data()
+
+            # perform spectral correction
             (spectrum_array,
              rotated_image) = self.perform_spectral_correction(wavelength_array,
                                                                spectrum_array,
                                                                rotated_image)
+
             self.print_time(" Spec Correction")
 
         crop_wavelength_array, crop_spectrum_array = analyze.crop_spectrum(wavelength_array, spectrum_array,
@@ -154,6 +182,32 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
                                                          return_lineouts=[wavelength_array, spectrum_array],
                                                          input_parameters=self.build_input_parameter_dictionary())
         return return_dictionary
+
+    def perform_pointing_correction(self, image):
+
+        # copy image
+        image = image.copy()
+
+        # initialize beam spot analyzer
+        roi = ROI(top=None, bottom=None, left=None,
+                  right=int(self.calibration_0th_order_pixel + abs(self.minimum_wavelength_analysis / self.calibration_wavelength_pixel)),
+                  bad_index_order='invert')
+        analyzer = BeamSpotAnalyzer(roi=roi,
+                                    bool_hp=True,
+                                    hp_median=int(2),
+                                    hp_thresh=float(3.0),
+                                    bool_thresh=True,
+                                    thresh_median=2,
+                                    thresh_coeff=0.1)
+
+        # crop
+        image = roi.crop(image)
+
+        # analyze for centroid of 0th order
+        output = analyzer.analyze_image(image)
+        centx_0th_order = output['analyzer_return_dictionary']['centroid'][1]
+
+        return centx_0th_order
 
     def perform_spectral_correction(self, wavelength, spectrum, image,
                                     efficiency_lower_bound=0.025):
@@ -229,6 +283,9 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
             "minimum_wavelength_nm": self.minimum_wavelength_analysis,
             "optimization_central_wavelength_nm": self.optimization_central_wavelength,
             "optimization_bandwidth_wavelength_nm": self.optimization_bandwidth_wavelength,
+            "pointing_correction_bool": self.pointing_correction_bool,
+            "spec_correction_bool": self.spectral_correction_bool,
+            "spec_correction_files": self.spectral_correction_files,
         }
         return input_params
 

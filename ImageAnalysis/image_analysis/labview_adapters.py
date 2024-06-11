@@ -66,7 +66,7 @@ def analyze_labview_image(device_type, image, background):
         raise ValueError(f"Unknown device type: {device_type}")
 
 
-def analyzer_from_device_type(device_type: str) -> LabviewImageAnalyzer:
+def analyzer_from_device_type(device_type: str, build_path_override=False) -> LabviewImageAnalyzer:
     """
     Given the device type, returns the analyzer with default parameters as given by the config file in the above
     dictionary.  Additionally, this function can be used by outside post-analysis scripts
@@ -85,7 +85,8 @@ def analyzer_from_device_type(device_type: str) -> LabviewImageAnalyzer:
     """
     configuration = DEVICE_FUNCTIONS.get(device_type)
     analyzer_class = configuration.labview_analyzer_class
-    config_filepath = build_config_path(configuration.default_settings_filename)
+    config_filepath = build_config_path(configuration.default_settings_filename,
+                                        override=build_path_override)
     return analyzer_class().apply_config(config_filepath)
 
 
@@ -141,7 +142,7 @@ def read_keys_of_interest(key_list_name):
     return device_keys[key_list_name]['keys_of_interest']
 
 
-def build_config_path(config_filename):
+def build_config_path(config_filename, override=False):
     """
     Takes the given config filename and builds a Path to this file.  First, this function checks if the config exists
     in the Active Version of GEECS-Plugins on the Z: drive.  If not, the next place it checks is in the current, local
@@ -163,7 +164,7 @@ def build_config_path(config_filename):
 
     current_directory = Path(__file__)
     relative_config = current_directory.parents[2] / "image_analysis_configs" / config_filename
-    if active_config.exists():
+    if active_config.exists() and not override:
         return active_config
     elif relative_config.exists():
         return relative_config
