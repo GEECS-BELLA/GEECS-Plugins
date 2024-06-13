@@ -82,28 +82,25 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
         self.optimization_central_wavelength = float(optimization_central_wavelength)
         self.optimization_bandwidth_wavelength = float(optimization_bandwidth_wavelength)
 
-        self.pointing_correction_bool = bool(pointing_correction_bool)
+        if not isinstance(pointing_correction_bool, bool):
+            raise TypeError("pointing_correction_bool should be of bool type")
+        self.pointing_correction_bool = pointing_correction_bool
 
-        # if spectral correction information available, do now to avoid redundant calculations
-        # if not available, retrieval and calculation performed in analyze_image
-        self.spectral_correction_bool = bool(spectral_correction_bool)
-        if self.spectral_correction_bool and spectral_correction_files is not None:
-            self.spectral_correction_files = list(spectral_correction_files)
-            self.spectral_correction_data = self.get_spectral_correction_data()
-        else:
-            self.spectral_correction_files = list()
-            self.spectral_correction_data = None
-        # if spectral_correction_files is None:
-        #     self.spectral_correction_files = []
-        # else:
-        #     self.spectral_correction_files = list(spectral_correction_files)
+        if not isinstance(spectral_correction_bool, bool):
+            raise TypeError("spectral_correction_bool should be of bool type")
+        self.spectral_correction_bool = spectral_correction_bool
 
-        # # calculate spectral correction from data files
-        # self.spectral_correction_data = self.get_spectral_correction_data()
+        self.spectral_correction_files = list()
+        self.spectral_correction_data = None
 
         # Set do_print to True for debugging information
-        self.do_print = True
+        self.do_print = False
         self.computational_clock_time = time.perf_counter()
+
+    def configure(self, **kwargs):
+        super().configure(**kwargs)
+        if self.spectral_correction_bool:
+            self.spectral_correction_data = self.get_spectral_correction_data()
 
 
     def analyze_image(self, input_image: Array2D, auxiliary_data: Optional[dict] = None,
@@ -125,7 +122,6 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
 
         if self.pointing_correction_bool:
             self.calibration_0th_order_pixel = self.perform_pointing_correction(rotated_image)
-
             self.print_time(" Pointing Correction")
 
         wavelength_array, spectrum_array = analyze.get_spectrum_lineouts(rotated_image,
@@ -134,16 +130,10 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
         self.print_time(" Spectrum Lineouts")
 
         if self.spectral_correction_bool:
-            # if spectral correction data not obtained in init, do now
-            if self.spectral_correction_data is None:
-                self.spectral_correction_data = self.get_spectral_correction_data()
-
-            # perform spectral correction
             (spectrum_array,
              rotated_image) = self.perform_spectral_correction(wavelength_array,
                                                                spectrum_array,
                                                                rotated_image)
-
             self.print_time(" Spec Correction")
 
         crop_wavelength_array, crop_spectrum_array = analyze.crop_spectrum(wavelength_array, spectrum_array,
