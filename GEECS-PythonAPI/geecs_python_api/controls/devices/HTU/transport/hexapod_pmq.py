@@ -63,7 +63,7 @@ class PMQ(GeecsDevice):
     def state_w(self) -> Optional[float]:
         return self._state_value(self.get_angle_var_name(2))
 
-    def get_position(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
+    def get_position(self, axis: Optional[Union[str, int]], exec_timeout: float = 2.0, sync=True) \
             -> Optional[Union[float, AsyncResult]]:
         if len(axis) == 1:
             axis = ord(axis.upper()) - ord('X')
@@ -78,7 +78,7 @@ class PMQ(GeecsDevice):
 
         return self.get(self.get_position_var_name(axis), exec_timeout=exec_timeout, sync=sync)
 
-    def set_position(self, axis: Optional[str, int], value: float, exec_timeout: float = 60.0, sync=True) \
+    def set_position(self, axis: Optional[Union[str, int]], value: float, exec_timeout: float = 60.0, sync=True) \
             -> Optional[Union[float, AsyncResult]]:
         if isinstance(axis, str):
             if len(axis) == 1:
@@ -98,7 +98,7 @@ class PMQ(GeecsDevice):
 
         return self.set(var_name, value, exec_timeout=exec_timeout, sync=sync)
 
-    def get_angle(self, axis: Optional[str, int], exec_timeout: float = 2.0, sync=True) \
+    def get_angle(self, axis: Optional[Union[str, int]], exec_timeout: float = 2.0, sync=True) \
             -> Optional[Union[float, AsyncResult]]:
         if len(axis) == 1:
             axis = ord(axis.upper()) - ord('U')
@@ -113,7 +113,7 @@ class PMQ(GeecsDevice):
 
         return self.get(self.get_angle_var_name(axis), exec_timeout=exec_timeout, sync=sync)
 
-    def set_angle(self, axis: Optional[str, int], value: float, exec_timeout: float = 60.0, sync=True) \
+    def set_angle(self, axis: Optional[Union[str, int]], value: float, exec_timeout: float = 60.0, sync=True) \
             -> Optional[Union[float, AsyncResult]]:
         if isinstance(axis, str):
             if len(axis) == 1:
