@@ -14,12 +14,9 @@ class HtuExpTestCase(unittest.TestCase):
         self.htu.close()
 
     def test_htu_exp_read_database(self):
-        self.htu = HtuExp(get_info=True)
-
-        self.assertEqual(self.htu.exp_name, "Undulator")
-        self.assertEqual(GeecsDevice.exp_info['name'], "Undulator")
-
-        self.htu.close()
+        with HtuExp(get_info=True) as self.htu:
+            self.assertEqual(self.htu.exp_name, "Undulator")
+            self.assertEqual(GeecsDevice.exp_info['name'], "Undulator")
 
     def tearDown(self):
         # reset singleton
