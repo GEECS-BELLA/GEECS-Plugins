@@ -1,9 +1,9 @@
 from typing import Optional
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from geecs_python_api.controls.devices.HTU.transport.magnets.chicane.chicane_supply import ChicaneSupply
+from geecs_python_api.controls.devices.HTU.transport.electromagnets import Electromagnet
+from geecs_python_api.controls.devices.HTU.transport.electromagnets.chicane.chicane_supply import ChicaneSupply
 
 
-class Chicane(GeecsDevice):
+class Chicane(Electromagnet):
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
@@ -34,6 +34,4 @@ class Chicane(GeecsDevice):
         self.outer_supply.close()
 
     def subscribe_var_values(self, variables: Optional[list[str]] = None) -> bool:
-        sub = self.inner_supply.subscribe_var_values()
-        sub &= self.outer_supply.subscribe_var_values()
-        return sub
+        return self.inner_supply.subscribe_var_values() & self.outer_supply.subscribe_var_values()

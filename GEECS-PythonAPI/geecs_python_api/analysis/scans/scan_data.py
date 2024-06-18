@@ -63,7 +63,7 @@ class ScanData:
 
                 (exp_name, year_folder_name, month_folder_name, date_folder_name, 
                  scans_literal, scan_folder_name) = folder.parts[-6:]
-                
+
                 if (not re.match(r"Y\d{4}", year_folder_name)) or \
                    (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
                    (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
@@ -214,6 +214,9 @@ class ScanData:
             config_parser.read(self.__folder / f'ScanInfoScan{self.__tag.number:03d}.ini')
             self.scan_info.update({key: value.strip("'\"")
                                    for key, value in config_parser.items("Scan Info")})
+            if 'Scan Parameter' in self.scan_info:
+                self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = (
+                    self.scan_info['Scan Parameter'].split(' ', maxsplit=1))
         except NoSectionError:
             api_error.warning(f'ScanInfo file does not have a "Scan Info" section',
                               f'ScanData class, method "{inspect.stack()[0][3]}"')
@@ -455,14 +458,14 @@ class ScanData:
 
 
 if __name__ == '__main__':
-    _htu = HtuExp(get_info=True)
-    _base_tag = ScanTag(2023, 8, 9, 4)
+    _htu = HtuExp()
+    _base_tag = ScanTag(2023, 8, 8, 22)
 
     _folder = ScanData.build_folder_path(_base_tag, _htu.base_path)
     _scan_data = ScanData(_folder, ignore_experiment_name=_htu.is_offline)
 
-    _magspec_data = _scan_data.load_mag_spec_data()
-    _device, _variable = _scan_data.scan_info['Scan Parameter'].split(' ', maxsplit=1)
+    # _magspec_data = _scan_data.load_mag_spec_data()
+    # _device, _variable = _scan_data.scan_info['Scan Parameter'].split(' ', maxsplit=1)
     _indexes, _setpoints, _matching = _scan_data.group_shots_by_step(_device, _variable)
     _magspec_analysis = _scan_data.analyze_mag_spec(_indexes)
 

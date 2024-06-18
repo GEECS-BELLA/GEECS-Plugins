@@ -17,7 +17,7 @@ from geecs_python_api.tools.images.batches import list_files
 from geecs_python_api.controls.devices.geecs_device import api_error
 import geecs_python_api.tools.images.ni_vision as ni
 from geecs_python_api.tools.interfaces.exports import save_py
-from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.analysis.scans.scan_data import ScanData
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
 from geecs_python_api.tools.images.filtering import FiltersParameters

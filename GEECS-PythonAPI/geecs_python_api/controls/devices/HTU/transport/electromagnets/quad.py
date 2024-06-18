@@ -1,23 +1,58 @@
 from __future__ import annotations
+from dataclasses import dataclass
 import inspect
 from typing import Optional, Any, Union
 from geecs_python_api.controls.api_defs import VarAlias, AsyncResult, SysPath
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice, api_error
+from geecs_python_api.controls.devices.geecs_device import api_error
+from geecs_python_api.controls.devices.HTU.transport.electromagnets import Electromagnet
 
+class EMQTriplet(Electromagnet):
 
-
-class Quads(GeecsDevice):
-    """ Represents EMQ1, EMQ2, and EMQ3
-    """
-    
     # Singleton
     def __new__(cls, *args, **kwargs):
         if not hasattr(cls, 'instance'):
-            cls.instance = super(Quads, cls).__new__(cls)
+            cls.instance = super(EMQTriplet, cls).__new__(cls)
             cls.instance.__initialized = False
         else:
             cls.instance.init_resources()
         return cls.instance
+
+    @dataclass
+    class EMQ:
+        magnetic_field_gradient_per_current: float # [T/m / A]
+        length: float # [m]
+
+        def k1(self, current: float, ebeam_energy_MeV: float = 100.0) -> float:
+            """ Converts the applied to current to the quadrupole focusing strength k1 
+
+            The focusing strength of a quadrupole magnet, k1 equals G/[Brho], where
+            G is the quadrupole gradient, and Brho is the rigidity of the beam. 
+            
+            Brho = electron_momentum / electron_charge = 0.299792458 * ebeam_energy [GeV]
+
+            Parameters
+            ----------
+            current : float
+                current in Ampere applied to the quadrupole magnet
+            ebeam_energy_MeV : float
+                central beam energy in MeV
+
+            Returns
+            -------
+            focusing strength k1
+                in 1/m^2
+            """
+            G = self.magnetic_field_gradient_per_current * current
+            # Brho [T*m] = 3.3356 * ebeam_energy [GeV]
+            Brho = 3.3356 * ebeam_energy_MeV / 1000
+            return G / Brho
+
+    # From LBM6 Quadrupole Testing Report EMQD 113-949 and 113-394, where the 
+    # order is LBM6_02, LBM6_03, LBM6_01
+    emqs = [EMQ(2.9057, 0.1408), 
+            EMQ(2.9156, 0.28141),
+            EMQ(2.9099, 0.1409)
+           ]
 
     def __init__(self):
         if self.__initialized:
@@ -198,3 +233,4 @@ class Quads(GeecsDevice):
 
         var_alias = VarAlias(f'Current_Limit.Ch{emq_number}')
         return self.scan(var_alias, start_value, end_value, step_size, None, shots_per_step, use_alias, timeout)
+

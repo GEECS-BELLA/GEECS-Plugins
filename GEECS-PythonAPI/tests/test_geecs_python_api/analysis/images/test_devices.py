@@ -5,9 +5,7 @@ from pathlib import Path
 import os
 print(Path(os.curdir).resolve())
 
-from geecs_python_api.analysis.images.scans.scan_analysis import ScanAnalysis
-from geecs_python_api.analysis.images.scans.scan_data import ScanData, ScanTag
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
+from geecs_python_api.analysis.scans import ScanData, ScanTag
 from geecs_python_api.analysis.images.devices.UC_BeamSpot import UC_BeamSpotScanImages
 
 class ScanImagesTestCase(unittest.TestCase):

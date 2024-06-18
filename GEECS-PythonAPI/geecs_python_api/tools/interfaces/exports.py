@@ -28,7 +28,7 @@ def save_py(file_path: Optional[Path] = None, data: Optional[dict[str, Any]] = N
     else:
         file_path = Path(file_path)
 
-    with shelve.open(str(file_path), 'c') as shelve_file:
+    with shelve.open(str(file_path), 'n') as shelve_file:
         if as_bulk:
             try:
                 shelve_file['data'] = data

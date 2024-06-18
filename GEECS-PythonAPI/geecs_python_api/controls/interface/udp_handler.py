@@ -72,7 +72,7 @@ class UdpHandler:
 
         return sent
 
-    def ack_cmd(self, sock: Optional[socket] = None, timeout: Optional[float] = 5.0) -> bool:
+    def ack_cmd(self, sock: Optional[socket.socket] = None, timeout: Optional[float] = 5.0) -> bool:
         """ Listen for command acknowledgement. """
 
         accepted = False

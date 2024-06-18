@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from numpy.typing import NDArray
-    from ..types import Array2D
+    from ..types import Array2D, QuantityArray, Quantity
 from collections import namedtuple
 
 from ..base import ImageAnalyzer

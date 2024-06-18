@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.ndimage as simg
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Any
 from dataclasses import dataclass
 from tkinter import filedialog
 from skimage.measure import label, regionprops
@@ -164,7 +164,7 @@ if __name__ == '__main__':
     # _base = Path(r'C:\Users\GuillaumePlateau\Documents\LBL\Data')
     _base = Path(r'Z:\data')
 
-    _folder = filedialog.askdirectory(initialdir=_base/r'Undulator\Y2023', title='Directory:')
+    _folder = filedialog.askdirectory(initialdir=_base/r'Undulator\Y2024', title='Directory:')
 
     # _range = None
     _range = (0, 80.)
