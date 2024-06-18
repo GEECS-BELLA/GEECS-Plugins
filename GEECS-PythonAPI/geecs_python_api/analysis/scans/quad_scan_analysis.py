@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import time
 import numpy as np
@@ -147,7 +149,7 @@ class QuadAnalysis(ScanAnalysis):
                 Returns
                 -------
                 epsilon : Quantity [length]*[angle]
-                    emittance
+                    unnormalized emittance
                 alpha : Quantity [dimensionless]
                 beta : Quantity [length]/[angle]
                 sigma_squared : Quantity [length]**2
@@ -335,13 +337,14 @@ class QuadAnalysis(ScanAnalysis):
 
     @staticmethod
     def twiss_parameters(poly_pars, quad_2_screen: float = 1.) -> tuple[float, float, float]:
-        a1 = poly_pars[0]
-        a2 = poly_pars[1] / (-2 * a1)
-        a3 = poly_pars[2] - (a1 * a2**2)
+        # Using formulas from https://uspas.fnal.gov/materials/08UMD/Emittance%20Measurement%20-%20Quadrupole%20Scan.pdf
+        A = poly_pars[0]
+        B = poly_pars[1] / (-2 * A)
+        C = poly_pars[2] - (A * B**2)
 
-        epsilon = np.sqrt(a1 * a3) / (quad_2_screen**2)
-        beta = np.sqrt(a1 / a3)
-        alpha = (a2 + 1/quad_2_screen) * beta
+        epsilon = np.sqrt(A * C) / (quad_2_screen**2)
+        beta = np.sqrt(A / C)
+        alpha = (B + 1/quad_2_screen) * beta
 
         return epsilon, alpha, beta
 

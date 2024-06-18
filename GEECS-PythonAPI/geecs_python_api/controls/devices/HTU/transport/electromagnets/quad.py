@@ -43,7 +43,8 @@ class EMQTriplet(Electromagnet):
                 in 1/m^2
             """
             G = self.magnetic_field_gradient_per_current * current
-            Brho = 0.299792458 * ebeam_energy_MeV / 1000
+            # Brho [T*m] = 3.3356 * ebeam_energy [GeV]
+            Brho = 3.3356 * ebeam_energy_MeV / 1000
             return G / Brho
 
     # From LBM6 Quadrupole Testing Report EMQD 113-949 and 113-394, where the 
