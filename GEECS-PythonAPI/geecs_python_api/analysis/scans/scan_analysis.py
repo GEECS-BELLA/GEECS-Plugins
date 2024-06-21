@@ -44,6 +44,10 @@ class ScanAnalysis:
                 blind_loads: bool = False, store_images: bool = True, store_scalars: bool = True,
                 save_plots: bool = False, save_data_dict: bool = False) -> Optional[Path]:
         analyses: list[dict[str, Any]] = []
+        # the setpoints for which the analysis was kept
+        setpoints_kept: list[float] = []
+        # the indexes of the shots for which the analysis was kept
+        indexes_kept: list[np.ndarray] = []
         scan_scalars: dict[str, Any] = self.scan_data.data_dict
 
         # scan parameters & binning
@@ -144,14 +148,16 @@ class ScanAnalysis:
                     print('Collecting analysis summary...')
                     analysis_files.append(analysis_file)
                     analyses.append(analysis)
+                    setpoints_kept.append(step_val)
+                    indexes_kept.append(indexes[it])
 
                 pb.increment()
                 time.sleep(0.01)
 
         # export to .dat
         self.data_dict = {
-            'indexes': indexes,
-            'setpoints': setpoints,
+            'indexes': indexes_kept,
+            'setpoints': setpoints_kept,
             'analysis_files': analysis_files,
             'analyses': analyses,
             'device_name': self.device_name,
@@ -218,6 +224,8 @@ class ScanAnalysis:
                            ['Positions', 'FWHMs', 'Deltas'], fits):
                 if show:
                     dtype = 'pix_ij' if val == 'fwhms' else 'data'
+                    # values and error bar size below and above, all 
+                    # (num_included_analyses x 2) arrays, where columns are X and Y
                     data_val, data_err_low, data_err_high = \
                         ScanAnalysis.fetch_metrics(analyses, metric, val, pos, dtype, um_per_pix)
 
