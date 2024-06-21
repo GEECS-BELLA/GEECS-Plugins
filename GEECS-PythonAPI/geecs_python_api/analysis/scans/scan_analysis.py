@@ -46,6 +46,22 @@ class ScanAnalysis:
         analyses: list[dict[str, Any]] = []
         scan_scalars: dict[str, Any] = self.scan_data.data_dict
 
+        def generate_analysis_profiles_list() -> list[str]:
+            """
+            Analysis profile means how the beam profile parameters are measured. 
+                'com': center of mass
+                'max': xxxx
+                'box': xxxxx
+                'ellipse': fit ellipse to beam
+            """
+            profiles = ['com', 'max']
+            if initial_filtering.box:
+                profiles.append('box')
+            if initial_filtering.ellipse:
+                profiles.append('ellipse')
+            
+            return profiles
+
         # scan parameters & binning
         indexes, setpoints, matching = self.scan_data.group_shots_by_step(self.device_name, variable)
 
@@ -117,7 +133,7 @@ class ScanAnalysis:
                     analysis_file, analysis = self.scan_images.run_analysis_with_checks(
                         images=step_paths,
                         initial_filtering=initial_filtering,
-                        profiles=('com', 'max',), plots=True, store_images=store_images,
+                        profiles=tuple(generate_analysis_profiles_list()), plots=True, store_images=store_images,
                         save_plots=save_plots, save_data_dict=save_data_dict)
 
                 # if not analysis:
