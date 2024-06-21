@@ -42,7 +42,7 @@ class ScanAnalysis:
 
     def analyze(self, variable: str, initial_filtering=FiltersParameters(), ask_rerun: bool = True,
                 blind_loads: bool = False, store_images: bool = True, store_scalars: bool = True,
-                save_plots: bool = False, save: bool = False) -> Optional[Path]:
+                save_plots: bool = False, save_data_dict: bool = False) -> Optional[Path]:
         analyses: list[dict[str, Any]] = []
         scan_scalars: dict[str, Any] = self.scan_data.data_dict
 
@@ -73,17 +73,42 @@ class ScanAnalysis:
                 save_dir: Path = self.scan_data.get_analysis_folder() / f'Step_{it+1}'
                 analysis_file: Union[Path, str] = save_dir / 'profiles_analysis.dat'
 
-                analyze: str = 'y'
+                analyze: str = 'yes'
+                load: bool = False
                 if analysis_file.is_file():
                     if ask_rerun:
                         analyze = text_input(f'\nRe-run the analysis (step "{step_val}")? : ',
                                              accepted_answers=['y', 'yes', 'n', 'no'])
+                        load = analyze.lower()[0] == 'n'
                     else:
                         analyze = 'no'
+                        load = True
+
+                if load:
+                    print('Loading analysis...')
+                    analysis, analysis_file = load_py(analysis_file)
+                    if not analysis:
+                        analyze = 'yes'
+                    else:
+                        analyze = 'no'
+                        if blind_loads:
+                            keep = True
+                        else:
+                            ScanImages.render_image_analysis(analysis['average_analysis'], tag='average_image', block=True)
+                            analyze = text_input(f'\nRe-run the analysis (step "{step_val}")? : ',
+                                                 accepted_answers=['y', 'yes', 'n', 'no'])
+
+                # if not analysis:
+                #     print('Loading analysis...')
+                #     analysis, analysis_file = load_py(analysis_file)
+                #     keep = blind_loads
+                #     if not blind_loads:
+                #         ScanImages.render_image_analysis(analysis['average_analysis'], tag='average_image', block=True)
 
                 # run/load analysis
-                analysis: dict[str, Any] = {}
-                if (analyze.lower()[0] == 'y') or (not analysis_file.is_file()):
+                # if (analyze.lower()[0] == 'y') or (not analysis_file.is_file()):
+                if analyze.lower()[0] == 'y':
+                    # analysis: dict[str, Any] = {}
                     print(f'\nAnalyzing step "{step_val}"...')
                     if not save_dir.is_dir():
                         os.makedirs(save_dir)
@@ -93,32 +118,32 @@ class ScanAnalysis:
                         images=step_paths,
                         initial_filtering=initial_filtering,
                         profiles=('com', 'max',), plots=True, store_images=store_images,
-                        save_plots=save_plots, save=save)
+                        save_plots=save_plots, save_data_dict=save_data_dict)
 
-                if not analysis:
-                    print('Loading analysis...')
-                    analysis, analysis_file = load_py(analysis_file)
-                    keep = blind_loads
-                    if not blind_loads:
-                        ScanImages.render_image_analysis(analysis['average_analysis'], tag='average_image', block=True)
-
-                if not analysis:
-                    continue  # skip
+                # if not analysis:
+                #     continue  # skip
 
                 if not analysis_file:
                     analysis_file = ''
-                analysis_files.append(analysis_file)
+
+                if not keep:
+                    keep_txt = text_input(f'Add this analysis to the overall screen scan analysis? : ',
+                                          accepted_answers=['y', 'yes', 'n', 'no'])
+                    keep = keep_txt.lower()[0] == 'y'
+
+                # if not keep:
+                #     continue
+                #
+                # print('Collecting analysis summary...')
+                # analyses.append(analysis)
+                #
+                # pb.increment()
+                # time.sleep(0.01)
 
                 if keep:
-                    keep = 'y'
-                else:
-                    keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
-                                      accepted_answers=['y', 'yes', 'n', 'no'])
-                if keep.lower()[0] == 'n':
-                    continue
-
-                print('Collecting analysis summary...')
-                analyses.append(analysis)
+                    print('Collecting analysis summary...')
+                    analysis_files.append(analysis_file)
+                    analyses.append(analysis)
 
                 pb.increment()
                 time.sleep(0.01)
@@ -134,7 +159,7 @@ class ScanAnalysis:
             'scan_scalars': scan_scalars,
             'camera_name': self.scan_images.camera_name}
 
-        if save:
+        if save_data_dict:
             export_file_path = self.scan_data.get_analysis_folder() / f'scan_analysis_{self.device_name}'
             save_py(file_path=export_file_path, data=self.data_dict)
             export_file_path = Path(str(export_file_path) + '.dat')
@@ -333,7 +358,7 @@ if __name__ == '__main__':
     # scan analysis
     # --------------------------------------------------------------------------
     _path = _scan_analysis.analyze(_variable, initial_filtering=_filters, ask_rerun=True, blind_loads=True,
-                                   store_images=False, store_scalars=False, save_plots=False, save=False)
+                                   store_images=False, store_scalars=False, save_plots=False, save_data_dict=False)
 
     _scan_analysis.render(physical_units=False, x_label='Current [A]',
                           show_xy=True, show_fwhms=True, show_deltas=True,

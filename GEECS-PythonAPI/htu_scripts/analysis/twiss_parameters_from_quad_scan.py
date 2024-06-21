@@ -11,7 +11,7 @@ camera_of_interest = 'A3'
 quad_used = 3
 quad_2_screen = 2.126  # [m]
 
-save_plots = True
+save_plots = False
 save_data = True
 
 
@@ -24,7 +24,8 @@ filters = FiltersParameters(contrast=1.333, hp_median=2, hp_threshold=3., denois
                             com_threshold=0.8, bkg_image=None, box=True, ellipse=False)
 
 analysis_path = quad_analysis.analyze(None, initial_filtering=filters, ask_rerun=False, blind_loads=True,
-                                      store_images=False, store_scalars=False, save_plots=save_plots, save=save_data)
+                                      store_images=False, store_scalars=False,
+                                      save_plots=save_plots, save_data_dict=save_data)
 
 save_plots_dir = quad_analysis.scan_data.get_analysis_folder() if save_plots else None
 quad_analysis.render_twiss(physical_units=True, save_dir=save_plots_dir)

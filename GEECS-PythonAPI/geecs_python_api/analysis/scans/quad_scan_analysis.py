@@ -52,13 +52,13 @@ class QuadAnalysis(ScanAnalysis):
 
     def analyze(self, variable: Optional[str] = None, initial_filtering=FiltersParameters(), ask_rerun: bool = True,
                 blind_loads: bool = False, store_images: bool = True, store_scalars: bool = True,
-                save_plots: bool = False, save: bool = False) -> Optional[Path]:
+                save_plots: bool = False, save_data_dict: bool = False) -> Optional[Path]:
         if not variable:
             variable = self.quad_variable
 
         # run parent analysis (beam metrics vs scan parameter)
         super().analyze(variable, initial_filtering, ask_rerun, blind_loads,
-                        store_images, store_scalars, save_plots, save)
+                        store_images, store_scalars, save_plots, save_data_dict)
 
         # collect setpoints
         self.data_dict['emq1_A'] = np.median(self.scan_images.scan_scalar_data['U_EMQTripletBipolar']['Current_Limit.Ch1'])
@@ -121,7 +121,7 @@ class QuadAnalysis(ScanAnalysis):
 
         for pos in positions['short_names']:
             twiss_analysis[pos] = {}
-            # data_val is a N x 2 array of FWHM values in micrometer, for y and x
+            # data_val is an N x 2 array of FWHM values in micrometer, for y and x
             data_val, data_err_low, data_err_high = ScanAnalysis.fetch_metrics(self.data_dict['analyses'],
                                                                                self.fwhms_metric, 'fwhms',
                                                                                pos, 'pix_ij', um_per_pix)
@@ -235,7 +235,7 @@ class QuadAnalysis(ScanAnalysis):
         self.data_dict['twiss'] = twiss_analysis
 
         # export data
-        if save:
+        if save_data_dict:
             data_dict_saved = {key: self.data_dict[key] for key in
                                ['setpoints', 'scan_folder', 'jet_z', 'hexapod_x', 'source_pmq_mm',
                                 'emq1_A', 'emq2_A', 'emq3_A', 'twiss']}

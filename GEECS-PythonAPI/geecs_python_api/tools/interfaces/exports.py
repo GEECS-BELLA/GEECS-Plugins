@@ -61,7 +61,7 @@ def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = N
         return None, ''
     else:
         file_path = Path(file_path)
-        file_path = re.split(r'\.[^\.]+$', str(file_path))[0]
+        file_path = Path(re.split(r'\.[^\.]+$', str(file_path))[0])
 
     data = {}
     with shelve.open(str(file_path), 'r') as shelve_file:

@@ -128,7 +128,7 @@ class ScanImages:
 
     def run_analysis_with_checks(self, images: Union[int, list[Path]] = -1, initial_filtering=FiltersParameters(),
                                  profiles: tuple = ('com',), plots: bool = False, store_images: bool = True,
-                                 save_plots: bool = False, save: bool = False, interface: str = 'console')\
+                                 save_plots: bool = False, save_data_dict: bool = False, interface: str = 'console')\
             -> tuple[Optional[Path], dict[str, Any]]:
         """
         interface: 'console' or 'labview'
@@ -149,7 +149,7 @@ class ScanImages:
             # analyze
             try:
                 export_file_path, data_dict = \
-                    self.analyze_image_batch(images, filtering, store_images, plots, profiles, save_plots, save)
+                    self.analyze_image_batch(images, filtering, store_images, plots, profiles, save_plots, save_data_dict)
             except Exception as ex:
                 api_error(str(ex), f'Failed to analyze {self.scan_data_folder.name}')
                 pass
@@ -198,7 +198,7 @@ class ScanImages:
 
     def analyze_image_batch(self, images: Union[int, list[Path]] = -1, filtering=FiltersParameters(),
                             store_images: bool = True, plots: bool = False, profiles: tuple = ('com',),
-                            save_plots: bool = False, save: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
+                            save_plots: bool = False, save_data_dict: bool = False) -> tuple[Optional[Path], dict[str, Any]]:
         export_file_path: Optional[Path] = None
         data_dict: dict[str, Any] = {}
 
@@ -283,7 +283,7 @@ class ScanImages:
                     'average_image': self.average_image if self.average_image is not None else {},
                     'average_analysis': self.average_analysis if self.average_analysis is not None else {}}
 
-                if save:
+                if save_data_dict:
                     print(f'Figures saved in:\n\t{self.save_folder}')
 
                     # export_file_path: Path = self.save_folder.parent / 'profiles_analysis'
@@ -791,7 +791,7 @@ if __name__ == '__main__':
             initial_filtering=FiltersParameters(contrast=1.333, hp_median=3, hp_threshold=3., denoise_cycles=0,
                                                 gauss_filter=5., com_threshold=0.8, bkg_image=None, box=True,
                                                 ellipse=False),
-            plots=True, store_images=False, save=True)
+            plots=True, store_images=False, save_data_dict=True)
     else:
         _rots = 1
         raw = np.zeros((7, 5))
