@@ -28,6 +28,13 @@ class HtuExp(Experiment):
 
         self.__initialized = True
 
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        # TODO: do we need to del HtuExp.instance here?
+
     def connect(self, laser: bool = False, jet: bool = False, diagnostics: bool = False, transport: bool = False):
         # Devices
         if isinstance(self.laser, Laser):
