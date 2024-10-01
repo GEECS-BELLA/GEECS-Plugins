@@ -57,6 +57,8 @@ scan_config = [
 # Step 6: Start logging in a separate thread
 res = data_logger.start_logging_thread(scan_config=scan_config)
 
+```
+
 ### Explanation of Example:
 
 - **Step 1**: The `DeviceManager` loads device configurations from a YAML file (e.g., `config.yaml`) and subscribes to the devices.
