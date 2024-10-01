@@ -27,11 +27,53 @@ This class is responsible for:
 - Converting logged data into structured formats such as DataFrames, TDMS files, and text/HDF5 formats.
 
 ### 4. Logging Setup Function (`setup_logging`)
-The `setup_logging` function is used to configure the logging system. It allows logging to a file and optionally to the console for debugging or monitoring.
+Note, this is a function to log information on the execution of the python code, not on the data acquistion. The usage of the term 'logging' should be better disambiguated. The `setup_logging` function is used to configure the logging system. It allows logging to a file and optionally to the console for debugging or monitoring.
+
+## To do, known issues and key differences from Master Control:
+### 1. Time based data acquisition: 
+In contrast to MasterControl which uses ShotNumber and number of shots to define how data is acquired, this approach uses a different approach. Synchronization is determined using a timestamp generated during the acquisition loop of the GEECS labview driver. Note: this means the "timestamp" variable must be added to a devicetype for which you want synchronization. Currently support devices are Point Grey Camera and PicoscopeV2. It's trivial to extend this additional device types.
+
+Using this approach, rather than specify a number of required shots, the user specifies an amount of time to acquire data after each step. This does mean that occasionaly you might get 1 more or less shot than "expected" at each interval. 
+
+It's likely possible to implement a more "shotnumber" based approach, but the time based approach is likely sufficient for most cases. 
+
+### 2. Generalize beyond HTU: 
+There are a few parts of the code that are still hardcoded to use HTU specific information. This should be better generalized
+
+### 3. Extend use of config file: 
+There are entries for scan info and scan parameters in the config file, but they aren't actually used yet. This information should be parsed and passed along to be use to start scans etc. 
+
+### 4. Add methods to create ScanInfo and Scan.ini files like MC: 
+Info from the config file should be used to create the MC style .ini and info files. 
+
+### 5. Develop 'complex actions' that can be used in pre/post-scan-actions: 
+Maybe there should an Actions class that could read a config file to perform a sequence of actions in a specific order and ensuring everything is performed correctly. For example, for HTU, 'insert_pmq' would need to first check the laser is shuttered (close Gaia internal shutters, insert gaia stops, read gaia stop status, insert amp4 dump, read amp4 dump status, insert pmq triplet, etc.) With basic actions like this defined, pre and post scan actions could be stacked into the config file to be executed. 
+
 
 ## Usage Example
 
-Here's an example of how to use the `DeviceManager`, `DataInterface`, and `DataLogger` classes for controlling devices and logging data.
+As this is a module that relies on other components in the geecs_python_api, it is important to load the necessary dependencies. Note, this developed under the Xopt-GEECS conda environment
+
+```python
+from geecs_python_api.controls.interface import load_config
+from geecs_python_api.controls.interface import GeecsDatabase
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
+from geecs_python_api.controls.data_acquisition import DeviceManager, DataLogger, DataInterface, setup_logging
+
+config = load_config()
+if config and 'Experiment' in config and 'expt' in config['Experiment']:
+    default_experiment = config['Experiment']['expt']
+    print(f"default experiment is: {default_experiment}")
+else:
+    print("Configuration file not found or default experiment not defined. While use Undulator as experiment. Could be a problem for you.")
+    default_experiment = 'Undulator'
+
+GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
+
+```
+
+Next, the dataquisition module can be imported and used. Here's an example of how to use the `DeviceManager`, `DataInterface`, and `DataLogger` classes for controlling devices and logging data.
 
 ```python
 from geecs_python_api.controls.data_acquisition import DeviceManager, DataLogger, DataInterface, setup_logging
@@ -92,8 +134,3 @@ Devices:
     synchronous: false
     save_nonscalar_data: true
 ```
-
-## How to Extend or Modify:
-### 1. Adding new devices: Update the config.yaml file with new device names and their respective variables.
-### 2. Custom scan configurations: Modify the scan_config structure in the script to define custom movements or actions for different devices.
-### 3. Logging formats: Extend the DataLogger class to add support for different data output formats like CSV, JSON, or custom formats.
