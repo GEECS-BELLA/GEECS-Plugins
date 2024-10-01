@@ -47,18 +47,82 @@ def setup_logging(log_file="system_log.log", level=logging.INFO, console=False):
         handlers=handlers
     )
 
+class ActionManager:
+    def __init__(self, actions_file):
+        # Load all actions from the actions file
+        self.actions = self.load_actions(actions_file)
+        self.instantiated_devices = {}  # Dictionary to store instantiated GeecsDevices
 
-# config = load_config()
-# if config and 'Experiment' in config and 'expt' in config['Experiment']:
-#     default_experiment = config['Experiment']['expt']
-#     print(f"default experiment is: {default_experiment}")
-# else:
-#     print("Configuration file not found or default experiment not defined. While use Undulator as experiment. Could be a problem for you.")
-#     default_experiment = 'Undulator'
-#
-# GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
+    def load_actions(self, actions_file):
+        """
+        Load the master actions from the given YAML file.
+        """
+        with open(actions_file, 'r') as file:
+            actions = yaml.safe_load(file)
+        logging.info(f"Loaded master actions from {actions_file}")
+        return actions['actions']
 
+    def execute_action(self, action_name):
+        """
+        Execute a single action by its name.
+        Handles both standard device actions and nested actions.
+        """
+        if action_name not in self.actions:
+            logging.error(f"Action '{action_name}' is not defined in the available actions.")
+            return
+        
+        action = self.actions[action_name]
+        steps = action['steps']
 
+        for step in steps:
+            if 'wait' in step:
+                self._wait(step['wait'])
+            elif 'action_name' in step:
+                # Nested action: recursively execute the named action
+                nested_action_name = step['action_name']
+                logging.info(f"Executing nested action: {nested_action_name}")
+                self.execute_action(nested_action_name)
+            else:
+                # Regular device action
+                device_name = step['device']
+                variable = step['variable']
+                action_type = step['action']
+                value = step.get('value')
+                expected_value = step.get('expected_value')
+
+                # Instantiate device if it hasn't been done yet
+                if device_name not in self.instantiated_devices:
+                    self.instantiated_devices[device_name] = GeecsDevice(device_name)
+
+                device = self.instantiated_devices[device_name]
+
+                if action_type == 'set':
+                    self._set_device(device, variable, value)
+                elif action_type == 'get':
+                    self._get_device(device, variable, expected_value)
+
+    def execute_action_list(self, action_list):
+        """
+        Execute a list of actions, potentially with nested actions.
+        """
+        for action_name in action_list:
+            logging.info(f"Executing action: {action_name}")
+            self.execute_action(action_name)
+
+    def _set_device(self, device, variable, value):
+        result = device.set(variable, value)
+        logging.info(f"Set {device.get_name()}:{variable} to {value}. Result: {result}")
+
+    def _get_device(self, device, variable, expected_value):
+        value = device.get(variable)
+        if value == expected_value:
+            logging.info(f"Get {device.get_name()}:{variable} returned expected value: {value}")
+        else:
+            logging.warning(f"Get {device.get_name()}:{variable} returned {value}, expected {expected_value}")
+
+    def _wait(self, seconds):
+        logging.info(f"Waiting for {seconds} seconds.")
+        time.sleep(seconds)
 
 class DeviceManager():
     def __init__(self):
@@ -70,9 +134,9 @@ class DeviceManager():
     def initialize_subscribers(self, variables, clear_devices=True):
         if clear_devices:
             self._clear_existing_devices()
-    
+
         device_map = self.preprocess_observables(variables)
-    
+
         for device_name, var_list in device_map.items():
             if device_name not in self.devices:
                 self._subscribe_device(device_name, var_list)
@@ -87,7 +151,7 @@ class DeviceManager():
                 logging.info(f"Successfully unsubscribed from {device_name}.")
             except Exception as e:
                 logging.error(f"Error unsubscribing from {device_name}: {e}")
-        
+
         self.devices = {}
 
     def _subscribe_device(self, device_name, var_list):
@@ -103,15 +167,46 @@ class DeviceManager():
                 logging.info(f"Attempting to unsubscribe from {device_name}...")
                 device.unsubscribe_var_values()
                 logging.info(f"Successfully unsubscribed from {device_name}.")
+                time.sleep(0.5)
+                device.close()
             except Exception as e:
                 logging.error(f"Error unsubscribing from {device_name}: {e}")
+                
+        # Clear the devices dictionary
+        self.devices.clear()
+                
+    def reset(self):
+        """
+        Gracefully close the DeviceManager and reset all internal state, making it ready for reinitialization.
+        """
+        # Step 1: Close all subscribers
+        self.close_subscribers()
+
+        # Step 2: Clear internal state (reset lists)
+        self.event_driven_observables.clear()
+        self.async_observables.clear()
+        self.non_scalar_saving_devices.clear()
+
+        logging.info("DeviceManager instance has been reset and is ready for reinitialization.")
+
+    def reinitialize(self, config_path):
+        """
+        Reinitialize the DeviceManager by loading the configuration file and starting fresh.
+        """
+        # First, reset the current state
+        self.reset()
+
+        # Now load the new configuration and reinitialize the instance
+        self.load_from_config(config_path)
+
+        logging.info("DeviceManager instance has been reinitialized.")
 
     def get_values(self, variables):
         results = {}
         for var in variables:
             device_name, _ = var.split(':')
             if device_name not in results:
-                results[device_name] = {}        
+                results[device_name] = {}
                 var_list = [v.split(':')[1] for v in variables if v.startswith(device_name)]
                 state = self.devices[device_name].state
                 for device_var in var_list:
@@ -148,11 +243,11 @@ class DeviceManager():
         """
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
-        
+
         # Load scan info
         self.scan_info = config.get('scan_info', {})
         self.scan_parameters = config.get('scan_parameters', {})
-    
+
         # Initialize devices
         devices = config.get('Devices', {})
         print(devices)
@@ -160,20 +255,20 @@ class DeviceManager():
             variable_list = device_config.get('variable_list', [])
             synchronous = device_config.get('synchronous', False)
             save_non_scalar = device_config.get('save_nonscalar_data', False)
-        
+
             if save_non_scalar:
                 self.non_scalar_saving_devices.append(device_name)
-        
+
             if synchronous:
                 # Add to event-driven observables
                 self.event_driven_observables.extend([f"{device_name}:{var}" for var in variable_list])
             else:
                 # Add to asynchronous observables
                 self.async_observables.extend([f"{device_name}:{var}" for var in variable_list])
-    
+
         # Initialize the subscribers
         self.initialize_subscribers(self.event_driven_observables + self.async_observables, clear_devices=True)
-    
+
         # Optionally, log the scan info and parameters for reference
         logging.info(f"Loaded scan info: {self.scan_info}")
         logging.info(f"Loaded scan parameters: {self.scan_parameters}")
