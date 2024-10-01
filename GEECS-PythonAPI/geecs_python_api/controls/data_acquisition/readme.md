@@ -91,3 +91,9 @@ Devices:
     variable_list: ['Python Results.ChA', 'Python Results.ChB']
     synchronous: false
     save_nonscalar_data: true
+```
+
+## How to Extend or Modify:
+### 1. Adding new devices: Update the config.yaml file with new device names and their respective variables.
+### 2. Custom scan configurations: Modify the scan_config structure in the script to define custom movements or actions for different devices.
+### 3. Logging formats: Extend the DataLogger class to add support for different data output formats like CSV, JSON, or custom formats.
