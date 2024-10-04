@@ -127,10 +127,6 @@ class Sounds:
 # Example usage of the Sounds class
 sounds = Sounds()
 
-
-from pathlib import Path
-import os
-
 class ConfigManager:
     def __init__(self):
         """
@@ -185,19 +181,22 @@ class ActionManager:
         self.config_manager = ConfigManager()  # Automatically initialized
         self.config_manager.set_experiment_dir(experiment_dir)  # Set the experiment directory
 
-        # Load all actions from the actions file in the experiment directory
-        actions_file_path = self.config_manager.get_config_path('actions.yaml')
-        self.actions = self.load_actions(actions_file_path)
+        # Store the experiment directory path and the full path to actions.yaml
+        self.experiment_dir = self.config_manager.experiment_dir
+        self.actions_file_path = self.experiment_dir / 'actions.yaml'  # Path to actions.yaml
 
-        self.instantiated_devices = {}  # Dictionary to store instantiated GeecsDevices
+        # Dictionary to store instantiated GeecsDevices
+        self.instantiated_devices = {}
 
-    def load_actions(self, actions_file):
+    def load_actions(self):
         """
         Load the master actions from the given YAML file.
         """
+        actions_file = str(self.actions_file_path)  # Convert Path object to string
         with open(actions_file, 'r') as file:
             actions = yaml.safe_load(file)
         logging.info(f"Loaded master actions from {actions_file}")
+        self.actions = actions['actions']
         return actions['actions']
 
     def execute_action(self, action_name):
