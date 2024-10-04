@@ -6,7 +6,6 @@ from datetime import datetime
 import logging
 import pandas as pd
 import yaml
-
     
 import shutil
 
@@ -17,7 +16,6 @@ import os
 import re
 
 import configparser
-
 
 from nptdms import TdmsWriter, ChannelObject
 
@@ -30,6 +28,7 @@ from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
 import geecs_python_api.controls.interface.message_handling as mh
 
 config = load_config()
+
 if config and 'Experiment' in config and 'expt' in config['Experiment']:
     default_experiment = config['Experiment']['expt']
     print(f"default experiment is: {default_experiment}")
@@ -66,8 +65,7 @@ def setup_console_logging(log_file="system_log.log", level=logging.INFO, console
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=handlers
     )
-    
-    
+     
 def stop_console_logging():
     # Iterate over the root logger's handlers and close each one
     for handler in logging.root.handlers[:]:
@@ -91,11 +89,106 @@ def move_log_file(src_file, dest_dir):
     except Exception as e:
         print(f"Failed to move {src_path} to {dest_path}: {e}")
 
+class Sounds:
+    def __init__(self):
+        # Initialize the threading event and the sound file to be played
+        self._play_event = threading.Event()
+        self._sound_file = None
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        # Run loop that waits for a play event and plays the specified sound
+        while not self._stop_event.is_set():
+            if self._play_event.is_set() and self._sound_file:
+                # Play the sound (adapt this command based on your OS)
+                os.system(f'afplay {self._sound_file}')  # macOS specific, change as necessary
+                self._play_event.clear()  # Reset after playing
+            time.sleep(0.1)  # Prevent busy-waiting
+
+    def play_beep(self):
+        """ Play the 'beep' sound """
+        self._sound_file = 'trimmed_tink.aiff'  # Replace with actual path to beep sound
+        self._play_event.set()
+
+    def play_toot(self):
+        """ Play the 'toot' sound """
+        self._sound_file = 'Hero.aiff'  # Replace with actual path to toot sound
+        self._play_event.set()
+
+    def stop(self):
+        """ Stop the sound thread """
+        self._stop_event.set()
+        self._thread.join()  # Ensure the thread exits cleanly
+        
+        
+
+# Example usage of the Sounds class
+sounds = Sounds()
+
+
+from pathlib import Path
+import os
+
+class ConfigManager:
+    def __init__(self):
+        """
+        Initialize the ConfigManager with the base directory for configurations.
+        The base directory is set to be relative to the directory where this script/module resides.
+        """
+        # Get the path of the current file (where this class is defined)
+        current_dir = Path(__file__).parent
+
+        # Set the base directory to be the 'configs' directory relative to the current directory
+        self.base_dir = current_dir / 'configs'
+        
+        # Ensure base_dir exists
+        if not self.base_dir.exists():
+            raise FileNotFoundError(f"The base config directory {self.base_dir} does not exist.")
+
+        self.experiment_dir = None
+
+    def set_experiment_dir(self, experiment: str):
+        """
+        Set the experiment directory based on the subdirectory name.
+
+        Args:
+            experiment (str): Name of the subdirectory for the experiment (e.g., 'HTU').
+        """
+        self.experiment_dir = self.base_dir / experiment
+        if not self.experiment_dir.exists():
+            raise FileNotFoundError(f"The experiment directory {self.experiment_dir} does not exist.")
+
+    def get_config_path(self, config_file: str) -> Path:
+        """
+        Get the full path of the specified configuration file in the current experiment directory.
+
+        Args:
+            config_file (str): The configuration file to retrieve.
+
+        Returns:
+            Path: The full path to the config file.
+        """
+        if not self.experiment_dir:
+            raise ValueError("Experiment directory is not set. Call set_experiment_dir() first.")
+        
+        config_path = self.experiment_dir / config_file
+        if not config_path.exists():
+            raise FileNotFoundError(f"The config file {config_path} does not exist.")
+        
+        return config_path
 
 class ActionManager:
-    def __init__(self, actions_file):
-        # Load all actions from the actions file
-        self.actions = self.load_actions(actions_file)
+    def __init__(self, experiment_dir: str):
+        # Initialize the ConfigManager within ActionManager
+        self.config_manager = ConfigManager()  # Automatically initialized
+        self.config_manager.set_experiment_dir(experiment_dir)  # Set the experiment directory
+
+        # Load all actions from the actions file in the experiment directory
+        actions_file_path = self.config_manager.get_config_path('actions.yaml')
+        self.actions = self.load_actions(actions_file_path)
+
         self.instantiated_devices = {}  # Dictionary to store instantiated GeecsDevices
 
     def load_actions(self, actions_file):
@@ -169,59 +262,87 @@ class ActionManager:
         logging.info(f"Waiting for {seconds} seconds.")
         time.sleep(seconds)
 
-class DeviceManager():
-    def __init__(self):
+class DeviceManager:
+    def __init__(self, experiment_dir: str):
+        # Initialize the ConfigManager within DeviceManager
+        self.config_manager = ConfigManager()  # Automatically initialized
+        self.config_manager.set_experiment_dir(experiment_dir)  # Set the experiment directory
+        
+        # Initialize variables
         self.devices = {}
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
         self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
-        
-        # Load composite variables from file
-        self.composite_variables = self.load_composite_variables('composite_variables.yaml')
-        
-        self.base_config_file = 'base_monitoring_devs.yaml'
-        
+
+        # Load paths for required config files using the ConfigManager
+        self.base_config_file_path = self.config_manager.get_config_path('base_monitoring_devs.yaml')
+        self.composite_variables_file_path = self.config_manager.get_config_path('composite_variables.yaml')
+
+        # Load composite variables from the file
+        self.composite_variables = self.load_composite_variables(self.composite_variables_file_path)
+
+        # Placeholder for scan description
         self.scan_base_description = None
 
-    def load_base_config(self, base_config_file):
+    def load_composite_variables(self, composite_file):
         """
-        Load a base configuration of core devices from the specified YAML file.
-        These devices will be added to the system before any specific config.yaml devices.
+        Load composite variables from the given YAML file.
         """
-        with open(base_config_file, 'r') as file:
-            base_config = yaml.safe_load(file)
-            
-        logging.info(f"Loaded base configuration from {base_config_file}")
-        logging.info(f"{base_config}")
-        
-        self._load_devices_from_config(base_config)
+        try:
+            with open(composite_file, 'r') as file:
+                composite_variables = yaml.safe_load(file).get('composite_variables', {})
+            logging.info(f"Loaded composite variables from {composite_file}")
+            return composite_variables
+        except FileNotFoundError:
+            logging.warning(f"Composite variables file not found: {composite_file}.")
+            return {}
     
-    def load_from_config(self, config_path):
+    def load_base_config(self):
+        """
+        Load a base configuration of core devices from the base config file.
+        If the file does not exist, log a warning and skip the base configuration load.
+        """
+        try:
+            if not self.base_config_file_path.exists():
+                logging.warning(f"Base configuration file not found: {self.base_config_file_path}. Skipping base config.")
+                return
+
+            with open(self.base_config_file_path, 'r') as file:
+                base_config = yaml.safe_load(file)
+
+            logging.info(f"Loaded base configuration from {self.base_config_file_path}")
+            self._load_devices_from_config(base_config)
+
+        except Exception as e:
+            logging.error(f"Error loading base configuration from {self.base_config_file_path}: {e}")
+
+    def load_from_config(self, config_filename):
         """
         Load configuration from a YAML file, including scan info, parameters, and device observables.
-        This method also appends the base configuration devices loaded earlier.
+        Also loads the base configuration if necessary.
         """
-        
-        # Load base config if provided
-        if self.base_config_file:
-            self.load_base_config(self.base_config_file)
-            
+        # Load base configuration first
+        self.load_base_config()
+
+        # Load the specific config for the experiment
+        config_path = self.config_manager.get_config_path(config_filename)
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
-            
+
         # Load scan info
-        self.scan_base_description = config.get('scan_info', {})
+        self.scan_base_description = config.get('scan_info', {}).get('description', '')
         self.scan_parameters = config.get('scan_parameters', {})
 
         logging.info(f"Loaded configuration from {config_path}")
         self._load_devices_from_config(config)
-        
+
         # Initialize the subscribers
         self.initialize_subscribers(self.event_driven_observables + self.async_observables, clear_devices=False)
 
-        # Optionally, log the scan info and parameters for reference
         logging.info(f"Loaded scan info: {self.scan_base_description}")
         logging.info(f"Loaded scan parameters: {self.scan_parameters}")
+
+
         
     def _load_devices_from_config(self, config):
         """
@@ -1165,6 +1286,10 @@ class DataLogger():
             log_entries[elapsed_time] = {'Elapsed Time': elapsed_time}
             # Log configuration variables (such as 'bin') only when a new entry is created
             log_entries[elapsed_time]['Bin #'] = self.bin_num
+            # os.system('afplay trimmed_tink.aiff')  # This plays a sound on macOS
+            # Trigger the beep in the background
+            # sounds.play_beep()
+            
             
         log_entries[elapsed_time].update({
             f"{device.get_name()}:{key}": value for key, value in observables_data.items()
@@ -1232,6 +1357,9 @@ class DataLogger():
         self.stop_event.clear()
         self.poll_thread = None
         self.async_t0 = None
+        
+        # sounds.play_toot()
+        sounds.stop()
 
         # Step 5: Process results and convert to DataFrame
         if self.results:
@@ -1242,7 +1370,9 @@ class DataLogger():
 
             self.dataframe_to_tdms(log_df)
             self.dataframe_to_tdms(log_df, is_index = True)
-            
+        
+
+        
         else:
             logging.warning("No data was collected during the logging period.")
             log_df = pd.DataFrame()
@@ -1263,6 +1393,8 @@ class DataLogger():
 
         print("Logging has stopped for all devices.")
         self.shot_control.set('Trigger.Source',"External rising edges")
+        
+
 
         return log_df
 
@@ -1331,4 +1463,3 @@ class DataLogger():
                 tdms_writer.write_segment([ch_object])
     
         logging.info(f"TDMS {'index' if is_index else 'data'} file written successfully.")
-
