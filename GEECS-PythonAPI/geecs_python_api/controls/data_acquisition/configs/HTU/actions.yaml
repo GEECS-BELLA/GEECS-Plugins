@@ -59,6 +59,49 @@ actions:
         action: get
         expected_value: 'on'
 
+  remove_visa_plungers:
+    steps:
+      - device: U_VisaPlungers
+        variable: DigitalOutput.Channel 0
+        action: set
+        value: 'off'
+      - device: U_VisaPlungers
+        variable: DigitalOutput.Channel 1
+        action: set
+        value: 'off'
+      - device: U_VisaPlungers
+        variable: DigitalOutput.Channel 2
+        action: set
+        value: 'off'
+      - device: U_VisaPlungers
+        variable: DigitalOutput.Channel 3
+        action: set
+        value: 'off'
+      - device: U_VisaPlungers
+        variable: DigitalOutput.Channel 4
+        action: set
+        value: 'off'
+      - device: U_VisaPlungers
+        variable: DigitalOutput.Channel 5
+        action: set
+        value: 'off'
+      - device: U_VisaPlungers
+        variable: DigitalOutput.Channel 6
+        action: set
+        value: 'off'
+      - device: U_VisaPlungers
+        variable: DigitalOutput.Channel 7
+        action: set
+        value: 'off' 
+      - device: U_VisaPlungers
+        variable: DigitalOutput.Channel 7
+        action: set
+        value: 'off'         
+      - device: U_PLC
+        variable: DO.Ch19
+        action: set
+        value: 'off'  
+
   insert_pmqs:
     steps:
       - action: execute
@@ -76,3 +119,23 @@ actions:
         variable: ypos
         action: set
         value: -22
+
+  visa1_energy:
+    steps:
+      - device: U_GaiaSVEReader
+        variable: InternalShutterA
+        action: set
+        value: 1
+      - device: U_GaiaSVEReader
+        variable: InternalShutterB
+        action: set
+        value: 1
+      - wait: 2
+      - device: U_GaiaSVEReader
+        variable: InternalShutterA
+        action: get
+        expected_value: 1
+      - device: U_GaiaSVEReader
+        variable: InternalShutterB
+        action: get
+        expected_value: 1

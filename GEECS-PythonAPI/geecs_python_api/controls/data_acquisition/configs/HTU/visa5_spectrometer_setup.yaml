@@ -1,0 +1,26 @@
+Devices:
+  UC_UndulatorRad2:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - MeanCounts
+    - timestamp
+  UC_VisaEBeam5:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - timestamp
+scan_info:
+  description: collecting data on visa5EBeam and U_Spectrometer
+setup_action:
+  steps:
+  - action: execute
+    action_name: remove_visa_plungers
+  - action: set
+    device: U_VisaPlungers
+    value: 'on'
+    variable: DigitalOutput.Channel 3
+  - action: set
+    device: U_Velmex
+    value: 3500
+    variable: Position

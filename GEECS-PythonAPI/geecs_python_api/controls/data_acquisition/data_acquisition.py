@@ -120,9 +120,7 @@ class Sounds:
     def stop(self):
         """ Stop the sound thread """
         self._stop_event.set()
-        self._thread.join()  # Ensure the thread exits cleanly
-        
-        
+        self._thread.join()  # Ensure the thread exits cleanly  
 
 # Example usage of the Sounds class
 sounds = Sounds()
@@ -174,7 +172,82 @@ class ConfigManager:
             raise FileNotFoundError(f"The config file {config_path} does not exist.")
         
         return config_path
-
+        
+        
+    def visa_config_generator(self, visa_key, diagnostic_type):
+        
+        # input_filename = '../../geecs_python_api/controls/data_acquisition/configs/HTU/visa_plunger_lookup.yaml'
+        
+        input_filename = self.get_config_path('visa_plunger_lookup.yaml')
+        
+        with open(input_filename, 'r') as file:
+            visa_lookup = yaml.safe_load(file)
+        
+        device_info = visa_lookup[visa_key]
+    
+        # Define the VisaEBeam camera dynamically based on the visa_key
+        visa_ebeam_camera = f"UC_VisaEBeam{visa_key[-1]}"  # Extracts the last number from visa_key (e.g., visa1 -> UC_VisaEBEam1)
+    
+        if diagnostic_type == 'energy':
+            description = f"collecting data on {visa_key}EBeam and U_FELEnergyMeter"
+            setup_steps = [
+                {'action': 'execute', 'action_name': 'remove_visa_plungers'},
+                {'device': device_info['device'], 'variable': device_info['variable'], 'action': 'set', 'value': 'on'},
+                {'device': 'U_Velmex', 'variable': 'Position', 'action': 'set', 'value': device_info['energy_meter_position']}
+            ]
+            devices = {
+                visa_ebeam_camera: {
+                    'variable_list': ["timestamp"],
+                    'synchronous': True,
+                    'save_nonscalar_data': True
+                },
+                'U_FELEnergyMeter': {
+                    'variable_list': ["Python Results.ChA", "timestamp"],
+                    'synchronous': True,
+                    'save_nonscalar_data': True
+                }
+            }
+        
+        elif diagnostic_type == 'spectrometer':
+            description = f"collecting data on {visa_key}EBeam and U_Spectrometer"
+            setup_steps = [
+                {'action': 'execute', 'action_name': 'remove_visa_plungers'},
+                {'device': device_info['device'], 'variable': device_info['variable'], 'action': 'set', 'value': 'on'},
+                {'device': 'U_Velmex', 'variable': 'Position', 'action': 'set', 'value': device_info['spectrometer_position']}
+            ]
+            devices = {
+                visa_ebeam_camera: {
+                    'variable_list': ["timestamp"],
+                    'synchronous': True,
+                    'save_nonscalar_data': True
+                },
+                'UC_UndulatorRad2': {
+                    'variable_list': ["MeanCounts", "timestamp"],
+                    'synchronous': True,
+                    'save_nonscalar_data': True
+                }
+            }
+    
+        # Constructing the YAML structure
+        output_data = {
+            'Devices': devices,
+            'scan_info': {
+                'description': description
+            },
+            'setup_action': {
+                'steps': setup_steps
+            }
+        }
+    
+        # Writing to a YAML file
+        
+        output_filename = input_filename.parent / f'{visa_key}_{diagnostic_type}_setup.yaml'
+        with open(output_filename, 'w') as outfile:
+            yaml.dump(output_data, outfile, default_flow_style=False)
+    
+        # print(f"YAML file {output_filename} generated successfully!")
+        return output_filename      
+        
 class ActionManager:
     def __init__(self, experiment_dir: str):
         # Initialize the ConfigManager within ActionManager
@@ -187,6 +260,7 @@ class ActionManager:
 
         # Dictionary to store instantiated GeecsDevices
         self.instantiated_devices = {}
+        self.actions = {}
 
     def load_actions(self):
         """
@@ -198,6 +272,22 @@ class ActionManager:
         logging.info(f"Loaded master actions from {actions_file}")
         self.actions = actions['actions']
         return actions['actions']
+        
+    def add_action(self, action):
+        """
+        Adds a new action to the actions list.
+        action: dict - The complete action dictionary with action name and steps
+        """
+        # Parse out the action name and steps
+        if len(action) != 1:
+            raise ValueError("Action must contain exactly one action name")
+        
+        action_name = list(action.keys())[0]
+        steps = action[action_name]['steps']
+        
+        # Add the action to the actions dictionary
+        self.actions[action_name] = {'steps': steps}
+    
 
     def execute_action(self, action_name):
         """
@@ -331,6 +421,7 @@ class DeviceManager:
         # Load scan info
         self.scan_base_description = config.get('scan_info', {}).get('description', '')
         self.scan_parameters = config.get('scan_parameters', {})
+        self.scan_setup_action = config.get('setup_action', {})
 
         logging.info(f"Loaded configuration from {config_path}")
         self._load_devices_from_config(config)
@@ -340,8 +431,6 @@ class DeviceManager:
 
         logging.info(f"Loaded scan info: {self.scan_base_description}")
         logging.info(f"Loaded scan parameters: {self.scan_parameters}")
-
-
         
     def _load_devices_from_config(self, config):
         """
@@ -731,9 +820,11 @@ class DataInterface():
         return 0
 
 class DataLogger():
-    def __init__(self, device_manager, data_interface):
+    def __init__(self, device_manager, data_interface, action_manager):
         self.device_manager = device_manager
         self.data_interface = data_interface
+        self.action_manager = action_manager
+        
         self.stop_event = threading.Event()  # Event to control polling thread
         self.poll_thread = None  # Placeholder for polling thread
         self.async_t0 = None  # Placeholder for async t0
@@ -798,7 +889,14 @@ class DataLogger():
         # Generate the scan steps
         self.scan_steps = self._generate_scan_steps(scan_config)
         
-        logging.info("Pre-logging setup completed.")   
+        if self.device_manager.scan_setup_action is not None:
+            logging.info("attempting to execute pre scan actions.")
+            logging.info(f'action list {self.device_manager.scan_setup_action}')
+            
+            self.action_manager.add_action({'setup_action': self.device_manager.scan_setup_action})
+            self.action_manager.execute_action('setup_action')
+        
+        logging.info("Pre-logging setup completed.")
     
     def create_and_set_data_paths(self):
         """
