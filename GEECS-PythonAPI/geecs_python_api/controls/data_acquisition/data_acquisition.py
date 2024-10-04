@@ -820,10 +820,11 @@ class DataInterface():
         return 0
 
 class DataLogger():
-    def __init__(self, device_manager, data_interface, action_manager):
-        self.device_manager = device_manager
-        self.data_interface = data_interface
-        self.action_manager = action_manager
+    def __init__(self, experiment_dir):
+        
+        self.device_manager = DeviceManager(experiment_dir=experiment_dir)
+        self.data_interface = DataInterface()
+        self.action_manager = ActionManager(experiment_dir=experiment_dir)
         
         self.stop_event = threading.Event()  # Event to control polling thread
         self.poll_thread = None  # Placeholder for polling thread
