@@ -571,13 +571,15 @@ class GeecsDevice:
         self._cleanup_threads()
 
         with GeecsDevice.threads_lock:
-            # if nothing running and commands in queue
-            if (not self.own_threads) and (not self.queue_cmds.empty()):
+            # Keep processing commands from the queue until it's empty
+            while not self.queue_cmds.empty():
                 try:
                     cmd_str, cmd_label, async_thread, attempts_max = self.queue_cmds.get_nowait()
                     self._process_command(cmd_str, cmd_label, thread_info=async_thread, attempts_max=attempts_max)
+                    time.sleep(0.5)  # Add 0.2 seconds delay between attempts to dequeue the next command
                 except queue.Empty:
-                    pass
+                    break  # Exit if queue is empty
+
 
     def _process_command(self, cmd_str: str, cmd_label: str,
                          thread_info: ThreadInfo = (None, None), attempts_max: int = 5):
