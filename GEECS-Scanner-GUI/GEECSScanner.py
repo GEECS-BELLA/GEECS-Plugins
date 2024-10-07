@@ -9,7 +9,10 @@ import os
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QCompleter
 from PyQt5.QtCore import Qt, QEvent
 from GEECSScanner_ui import Ui_MainWindow
-from geecs_python_api.controls.interface import load_config
+try:
+    from geecs_python_api.controls.interface import load_config
+except TypeError:
+    print("No configuration file found!  Recommended to add one.")
 
 
 class GEECSScannerWindow(QMainWindow):
@@ -19,12 +22,12 @@ class GEECSScannerWindow(QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
-        config = load_config()
-        default_experiment = config['Experiment']['expt']
-        if os.path.isdir("./experiments/" + default_experiment):
-            self.experiment = default_experiment
-        else:
-            self.experiment = "<None Selected>"
+        self.experiment = "<None Selected>"
+        self.repetition_rate = ""
+        self.load_config_settings()
+
+        self.ui.repititionRateDisplay.setText(self.repetition_rate)
+        self.ui.repititionRateDisplay.textChanged.connect(self.update_repetition_rate)
 
         self.ui.experimentDisplay.setText(self.experiment)
         self.ui.experimentDisplay.setReadOnly(True)
@@ -41,12 +44,32 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.noscanRadioButton.setChecked(True)
         self.ui.noscanRadioButton.toggled.connect(self.update_scan_edit_state)
         self.ui.scanRadioButton.toggled.connect(self.update_scan_edit_state)
+        self.update_scan_edit_state()
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.MouseButtonPress and source == self.ui.experimentDisplay:
             self.show_experiment_list()
             return True
         return super().eventFilter(source, event)
+
+    def load_config_settings(self):
+        try:
+            config = load_config()
+            try:
+                default_experiment = config['Experiment']['expt']
+            except KeyError:
+                print("Could not find 'expt' in config")
+                default_experiment = "<None Selected>"
+            if os.path.isdir("./experiments/" + default_experiment):
+                self.experiment = default_experiment
+
+            try:
+                self.repetition_rate = config['Experiment']['rep_rate_hz']
+            except KeyError:
+                print("Could not find 'rep_rate_hz' in config")
+        except NameError:
+            print("Could not read from config file")
+        return
 
     def show_experiment_list(self):
         folders = [f for f in os.listdir("./experiments/") if os.path.isdir(os.path.join("./experiments", f))]
@@ -76,13 +99,19 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.selectedDevices.clear()
         self.ui.foundDevices.clear()
 
+    def update_repetition_rate(self, text):
+        self.repetition_rate = text
+
     def populate_found_list(self):
         # List all files in the save_devices folder under chosen experiment:
-        experiment_folder = "./experiments/" + self.experiment + "/save_devices/"
-        for file_name in os.listdir(experiment_folder):
-            full_path = os.path.join(experiment_folder, file_name)
-            if os.path.isfile(full_path):
-                self.ui.foundDevices.addItem(file_name)
+        try:
+            experiment_folder = "./experiments/" + self.experiment + "/save_devices/"
+            for file_name in os.listdir(experiment_folder):
+                full_path = os.path.join(experiment_folder, file_name)
+                if os.path.isfile(full_path):
+                    self.ui.foundDevices.addItem(file_name)
+        except OSError:
+            self.clear_lists()
 
     def add_files(self):
         # Move selected files from the "Found" list to the "Selected" list
