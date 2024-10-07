@@ -23,6 +23,14 @@ class TcpSubscriber:
         self.port = -1
         self.connected = False
 
+        # Optional: store a callback function
+        self.message_callback = None
+        self.api_shotnumber = 0
+
+    def set_message_callback(self, callback):
+        """ Set the callback function that will be called when a new message is received. """
+        self.message_callback = callback
+
     def close(self):
         try:
             self.unsubscribe()
@@ -106,79 +114,62 @@ class TcpSubscriber:
         self.unsubscribe_event.set()
 
     def async_listener(self):
-        """ Listens for and parses messages. """
+        """
+        Listens for TCP messages asynchronously.
+        Notifies registered subscribers using the EventHandler on each message received.
+        """
+        self.sock.settimeout(0.5)  # Set socket timeout to 0.5 seconds
 
-        self.sock.settimeout(0.5)
-
-        # read messages
-        err = ErrorAPI()  # no error object
         while True:
-            err.clear()
-            ready = False
-            msg_len = 0
-
             try:
+                # Wait for the socket to be ready (using select)
                 ready = select.select([self.sock], [], [], 0.05)
-            except socket.timeout:
-                continue
-            except Exception as ex:
-                api_error.error(str(ex), 'TcpSubscriber class, method "async_listener"')
-                return
-            finally:
-                if self.unsubscribe_event.wait(0.):
-                    self.unsubscribe_event.clear()
-                    api_error.merge(err.error_msg, err.error_src, err.is_warning)
-                    return
 
-            if ready[0]:
-                try:
-                    msg_len: int = struct.unpack('>i', self.sock.recv(4))[0]
-                except socket.timeout:
-                    continue
-                except Exception:
-                    api_error.error('Failed to read TCP header bytes', 'TcpSubscriber class, method "async_listener"')
-                    return
-                finally:
-                    if self.unsubscribe_event.wait(0.):
-                        self.unsubscribe_event.clear()
-                        api_error.merge(err.error_msg, err.error_src, err.is_warning)
-                        return
+                if ready[0]:  # If the socket is ready for reading
+                    # Read the length of the incoming message (first 4 bytes)
+                    msg_len = struct.unpack('>i', self.sock.recv(4))[0]
 
-                if msg_len > 0:
-                    this_msg = ''
-                    while True:
-                        try:
-                            chunk = self.sock.recv(msg_len)
+                    if msg_len > 0:  # If the message length is valid
+                        this_msg = ''
+
+                        # Read the actual message data
+                        while len(this_msg) < msg_len:
+                            chunk = self.sock.recv(msg_len - len(this_msg))
                             if chunk:
                                 this_msg += chunk.decode('ascii')
-                        except socket.timeout:
-                            pass
-                        except Exception:
-                            api_error.error('Failed to read TCP message bytes',
-                                            'TcpSubscriber class, method "async_listener"')
-                            return
 
-                        received = (len(this_msg) == msg_len)
-                        if received:
-                            break
-                        if self.unsubscribe_event.wait(0.):
-                            self.unsubscribe_event.clear()
-                            api_error.merge(err.error_msg, err.error_src, err.is_warning)
-                            return
+                        # Notify event handler on receiving a new message (general update)
+                        if self.message_callback:  # Invoke the callback if it is set
+                            self.message_callback(this_msg)
 
-                    if received:
-                        stamp = dtime.now().__str__()
+                        # Handle the message if subscribed
                         if self.subscribed:
+                            stamp = dtime.now().__str__()
+
+                            # Properly initialize an empty error object
+                            err = ErrorAPI()  # Initialize the error object properly
+
+                            # Create a NetworkMessage object
+                            net_msg = mh.NetworkMessage(tag=self.owner.get_name(),
+                                                        stamp=stamp, msg=this_msg, err=err)
+
+                            # Call handle_subscription with the proper NetworkMessage object
                             try:
-                                net_msg = mh.NetworkMessage(tag=self.owner.get_name(),
-                                                            stamp=stamp, msg=this_msg, err=err)
                                 self.owner.handle_subscription(net_msg)
-                            except Exception:
+                            except Exception as e:
                                 api_error.error('Failed to handle TCP subscription',
                                                 'TcpSubscriber class, method "async_listener"')
-                                return
+                                print(f"Exception in handle_subscription: {e}")
 
-            if self.unsubscribe_event.wait(0.):
-                self.unsubscribe_event.clear()
-                api_error.merge(err.error_msg, err.error_src, err.is_warning)
+                # Check for unsubscribe event (to stop the listener)
+                if self.unsubscribe_event.wait(0.):
+                    self.unsubscribe_event.clear()
+                    return  # Exit the listener loop when unsubscribed
+
+            except socket.timeout:
+                # Timeout simply continues the loop to check again
+                continue
+
+            except Exception as ex:
+                api_error.error(str(ex), 'TcpSubscriber class, method "async_listener"')
                 return
