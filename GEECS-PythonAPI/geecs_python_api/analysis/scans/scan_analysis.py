@@ -9,8 +9,8 @@ from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
-from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.analysis.scans.scan_images import ScanImages
+from geecs_python_api.analysis.scans.scan_data import ScanData
 from geecs_python_api.tools.images.batches import average_images
 from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.images.displays import polyfit_label
@@ -19,11 +19,16 @@ from geecs_python_api.tools.interfaces.prompts import text_input
 
 
 class ScanAnalysis:
-    def __init__(self, scan_data: ScanData, scan_images: ScanImages, key_device: Union[GeecsDevice, str]):
-        self.scan_data: ScanData = scan_data
-        self.scan_images: ScanImages = scan_images
+    def __init__(self, scan_tag: ScanTag, camera: Union[int, Camera, str],
+                 scan_device: Optional[Union[GeecsDevice, str]] = None):
+        htu = HtuExp()
+        data_folder = ScanData.build_folder_path(scan_tag, htu.base_path)
+        self.scan_data = ScanData(data_folder, ignore_experiment_name=htu.is_offline)
+        if scan_device is None:
+            scan_device = self.scan_data.scan_info['Scan Device']
+        self.scan_images = ScanImages(self.scan_data, camera)
 
-        self.device_name: str = key_device.get_name() if isinstance(key_device, GeecsDevice) else key_device
+        self.device_name: str = scan_device.get_name() if isinstance(scan_device, GeecsDevice) else scan_device
         self.data_dict: dict[str, Any] = {}
         # data_dict = {
         #     'indexes': indexes,
@@ -37,7 +42,7 @@ class ScanAnalysis:
 
     def analyze(self, variable: str, initial_filtering=FiltersParameters(), ask_rerun: bool = True,
                 blind_loads: bool = False, store_images: bool = True, store_scalars: bool = True,
-                save_plots: bool = False, save: bool = False) -> Optional[Path]:
+                save_plots: bool = False, save_data_dict: bool = False) -> Optional[Path]:
         analyses: list[dict[str, Any]] = []
         scan_scalars: dict[str, Any] = self.scan_data.data_dict
 
@@ -68,17 +73,42 @@ class ScanAnalysis:
                 save_dir: Path = self.scan_data.get_analysis_folder() / f'Step_{it+1}'
                 analysis_file: Union[Path, str] = save_dir / 'profiles_analysis.dat'
 
-                analyze: str = 'y'
+                analyze: str = 'yes'
+                load: bool = False
                 if analysis_file.is_file():
                     if ask_rerun:
                         analyze = text_input(f'\nRe-run the analysis (step "{step_val}")? : ',
                                              accepted_answers=['y', 'yes', 'n', 'no'])
+                        load = analyze.lower()[0] == 'n'
                     else:
                         analyze = 'no'
+                        load = True
+
+                if load:
+                    print('Loading analysis...')
+                    analysis, analysis_file = load_py(analysis_file)
+                    if not analysis:
+                        analyze = 'yes'
+                    else:
+                        analyze = 'no'
+                        if blind_loads:
+                            keep = True
+                        else:
+                            ScanImages.render_image_analysis(analysis['average_analysis'], tag='average_image', block=True)
+                            analyze = text_input(f'\nRe-run the analysis (step "{step_val}")? : ',
+                                                 accepted_answers=['y', 'yes', 'n', 'no'])
+
+                # if not analysis:
+                #     print('Loading analysis...')
+                #     analysis, analysis_file = load_py(analysis_file)
+                #     keep = blind_loads
+                #     if not blind_loads:
+                #         ScanImages.render_image_analysis(analysis['average_analysis'], tag='average_image', block=True)
 
                 # run/load analysis
-                analysis: dict[str, Any] = {}
-                if (analyze.lower()[0] == 'y') or (not analysis_file.is_file()):
+                # if (analyze.lower()[0] == 'y') or (not analysis_file.is_file()):
+                if analyze.lower()[0] == 'y':
+                    # analysis: dict[str, Any] = {}
                     print(f'\nAnalyzing step "{step_val}"...')
                     if not save_dir.is_dir():
                         os.makedirs(save_dir)
@@ -88,32 +118,32 @@ class ScanAnalysis:
                         images=step_paths,
                         initial_filtering=initial_filtering,
                         profiles=('com', 'max',), plots=True, store_images=store_images,
-                        save_plots=save_plots, save=save)
+                        save_plots=save_plots, save_data_dict=save_data_dict)
 
-                if not analysis:
-                    print('Loading analysis...')
-                    analysis, analysis_file = load_py(analysis_file)
-                    keep = blind_loads
-                    if not blind_loads:
-                        ScanImages.render_image_analysis(analysis['average_analysis'], tag='average_image', block=True)
-
-                if not analysis:
-                    continue  # skip
+                # if not analysis:
+                #     continue  # skip
 
                 if not analysis_file:
                     analysis_file = ''
-                analysis_files.append(analysis_file)
+
+                if not keep:
+                    keep_txt = text_input(f'Add this analysis to the overall screen scan analysis? : ',
+                                          accepted_answers=['y', 'yes', 'n', 'no'])
+                    keep = keep_txt.lower()[0] == 'y'
+
+                # if not keep:
+                #     continue
+                #
+                # print('Collecting analysis summary...')
+                # analyses.append(analysis)
+                #
+                # pb.increment()
+                # time.sleep(0.01)
 
                 if keep:
-                    keep = 'y'
-                else:
-                    keep = text_input(f'Add this analysis to the overall screen scan analysis? : ',
-                                      accepted_answers=['y', 'yes', 'n', 'no'])
-                if keep.lower()[0] == 'n':
-                    continue
-
-                print('Collecting analysis summary...')
-                analyses.append(analysis)
+                    print('Collecting analysis summary...')
+                    analysis_files.append(analysis_file)
+                    analyses.append(analysis)
 
                 pb.increment()
                 time.sleep(0.01)
@@ -129,7 +159,7 @@ class ScanAnalysis:
             'scan_scalars': scan_scalars,
             'camera_name': self.scan_images.camera_name}
 
-        if save:
+        if save_data_dict:
             export_file_path = self.scan_data.get_analysis_folder() / f'scan_analysis_{self.device_name}'
             save_py(file_path=export_file_path, data=self.data_dict)
             export_file_path = Path(str(export_file_path) + '.dat')
@@ -293,7 +323,7 @@ class ScanAnalysis:
 if __name__ == '__main__':
     # initialization
     # --------------------------------------------------------------------------
-    htu = HtuExp(get_info=True)
+    _htu = HtuExp(get_info=True)
     _base_tag = ScanTag(2023, 8, 1, 29)
     _bkg_tag = ScanTag(2023, 8, 3, 18)
 
@@ -303,8 +333,8 @@ if __name__ == '__main__':
     _metric = 'median'
     # _metric = 'mean'
 
-    _folder = ScanData.build_folder_path(_base_tag, htu.base_path)
-    _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_offline)
+    _folder = ScanData.build_folder_path(_base_tag, _htu.base_path)
+    _scan_data = ScanData(_folder, ignore_experiment_name=_htu.is_offline)
     _scan_images = ScanImages(_scan_data, _camera)
     _scan_analysis = ScanAnalysis(_scan_data, _scan_images, _device)
 
@@ -328,7 +358,7 @@ if __name__ == '__main__':
     # scan analysis
     # --------------------------------------------------------------------------
     _path = _scan_analysis.analyze(_variable, initial_filtering=_filters, ask_rerun=True, blind_loads=True,
-                                   store_images=False, store_scalars=False, save_plots=False, save=False)
+                                   store_images=False, store_scalars=False, save_plots=False, save_data_dict=False)
 
     _scan_analysis.render(physical_units=False, x_label='Current [A]',
                           show_xy=True, show_fwhms=True, show_deltas=True,

@@ -1,24 +1,13 @@
-import os
-import time
-import inspect
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
-from progressbar import ProgressBar
-from typing import Union, NamedTuple, Any, Optional
-from geecs_python_api.controls.interface import api_error
+from typing import Any
 from geecs_python_api.controls.api_defs import ScanTag
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
-from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
-from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.analysis.scans import ScanImages
+from geecs_python_api.analysis.scans import ScanData
 from geecs_python_api.tools.images.batches import average_images
 from geecs_python_api.tools.images.filtering import FiltersParameters
-from geecs_python_api.tools.interfaces.exports import load_py, save_py
-from geecs_python_api.tools.interfaces.prompts import text_input
-from geecs_python_api.tools.distributions.fit_utility import fit_distribution
-from htu_scripts.analysis.beam_analyses_collector import add_beam_analysis
+from geecs_python_api.tools.interfaces.exports import save_py
 
 
 def steering_scan_analysis(dat_paths: list[Path]):

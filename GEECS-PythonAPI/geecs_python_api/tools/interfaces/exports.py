@@ -28,7 +28,7 @@ def save_py(file_path: Optional[Path] = None, data: Optional[dict[str, Any]] = N
     else:
         file_path = Path(file_path)
 
-    with shelve.open(str(file_path), 'c') as shelve_file:
+    with shelve.open(str(file_path), 'n') as shelve_file:
         if as_bulk:
             try:
                 shelve_file['data'] = data
@@ -61,7 +61,7 @@ def load_py(file_path: Optional[Path] = None, variables: Optional[list[str]] = N
         return None, ''
     else:
         file_path = Path(file_path)
-        file_path = re.split(r'\.[^\.]+$', str(file_path))[0]
+        file_path = Path(re.split(r'\.[^\.]+$', str(file_path))[0])
 
     data = {}
     with shelve.open(str(file_path), 'r') as shelve_file:

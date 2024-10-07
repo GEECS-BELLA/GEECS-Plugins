@@ -5,7 +5,7 @@ from typing import Optional, Any
 from geecs_python_api.controls.api_defs import SysPath
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from geecs_python_api.controls.devices.HTU.transport.magnets import Steering
+from geecs_python_api.controls.devices.HTU.transport.electromagnets import Steering
 from geecs_python_api.controls.devices.HTU.diagnostics import EBeamDiagnostics
 from htu_scripts.scans.screens_scan import screens_scan
 
