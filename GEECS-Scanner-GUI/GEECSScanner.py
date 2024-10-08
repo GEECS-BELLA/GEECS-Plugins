@@ -109,7 +109,8 @@ class GEECSScannerWindow(QMainWindow):
             for file_name in os.listdir(experiment_folder):
                 full_path = os.path.join(experiment_folder, file_name)
                 if os.path.isfile(full_path):
-                    self.ui.foundDevices.addItem(file_name)
+                    root, ext = os.path.splitext(file_name)
+                    self.ui.foundDevices.addItem(root)
         except OSError:
             self.clear_lists()
 
@@ -133,6 +134,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineStartValue.setEnabled(False)
             self.ui.lineStopValue.setEnabled(False)
             self.ui.lineStepSize.setEnabled(False)
+            self.ui.lineShotStep.setEnabled(False)
             self.ui.lineNumShots.setEnabled(True)
 
         else:
@@ -140,6 +142,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineStartValue.setEnabled(True)
             self.ui.lineStopValue.setEnabled(True)
             self.ui.lineStepSize.setEnabled(True)
+            self.ui.lineShotStep.setEnabled(True)
             self.ui.lineNumShots.setEnabled(False)
 
 if __name__ == ('__main__'):
