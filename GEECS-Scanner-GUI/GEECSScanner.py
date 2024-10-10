@@ -15,8 +15,8 @@ try:
 except TypeError:
     print("No configuration file found!  Recommended to add one.")
 
-
 MAXIMUM_SCAN_SIZE = 1e6
+
 
 class GEECSScannerWindow(QMainWindow):
     def __init__(self):
@@ -257,7 +257,7 @@ class GEECSScannerWindow(QMainWindow):
                 self.ui.lineNumShots.setText("N/A")
 
 
-if __name__ == ('__main__'):
+if __name__ == '__main__':
     app = QApplication(sys.argv)
 
     file_selector = GEECSScannerWindow()
