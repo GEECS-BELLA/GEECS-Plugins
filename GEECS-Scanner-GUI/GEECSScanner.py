@@ -115,17 +115,18 @@ class GEECSScannerWindow(QMainWindow):
         completer.complete()
 
     def experiment_selected(self):
-        self.clear_lists()
-        self.ui.lineScanVariable.setText("")
         selected_experiment = self.ui.experimentDisplay.text()
-        new_folder_path = os.path.join("./experiments/", selected_experiment)
-        if os.path.isdir(new_folder_path):
-            self.experiment = selected_experiment
-            self.ui.experimentDisplay.setText(self.experiment)
-            self.populate_found_list()
+        if not (selected_experiment in self.experiment):
+            self.clear_lists()
+            new_folder_path = os.path.join("./experiments/", selected_experiment)
+            if os.path.isdir(new_folder_path):
+                self.experiment = selected_experiment
+                self.ui.experimentDisplay.setText(self.experiment)
+                self.populate_found_list()
 
-        self.populate_scan_devices()
-        self.scan_variable = ""
+            self.ui.lineScanVariable.setText("")
+            self.scan_variable = ""
+            self.populate_scan_devices()
 
     def clear_lists(self):
         self.ui.selectedDevices.clear()
