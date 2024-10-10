@@ -13,7 +13,8 @@ from GEECSScanner_ui import Ui_MainWindow
 try:
     from geecs_python_api.controls.interface import load_config
 except TypeError:
-    print("No configuration file found!  Recommended to add one.")
+    print("No configuration file found!  This is required for GEECSScanner!")
+    #sys.exit()
 
 MAXIMUM_SCAN_SIZE = 1e6
 
@@ -68,6 +69,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.lineScanVariable.installEventFilter(self)
 
     def eventFilter(self, source, event):
+        # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
         if event.type() == QEvent.MouseButtonPress and source == self.ui.experimentDisplay:
             self.show_experiment_list()
             return True
@@ -77,6 +79,7 @@ class GEECSScannerWindow(QMainWindow):
         return super().eventFilter(source, event)
 
     def load_config_settings(self):
+        # Loads in the experiment name and repetition rate from the configuration file located in ~/.config/
         try:
             config = load_config()
             try:
@@ -96,6 +99,7 @@ class GEECSScannerWindow(QMainWindow):
         return
 
     def show_experiment_list(self):
+        # Displays the found experiments in the ./experiments/ subfolder for selecting experiment
         folders = [f for f in os.listdir("./experiments/") if os.path.isdir(os.path.join("./experiments", f))]
         completer = QCompleter(folders, self)
         completer.setCompletionMode(QCompleter.PopupCompletion)
@@ -106,6 +110,7 @@ class GEECSScannerWindow(QMainWindow):
         completer.complete()
 
     def experiment_selected(self):
+        # Upon selecting the experiment, reset the list of save devices and scan devices.
         selected_experiment = self.ui.experimentDisplay.text()
         if not (selected_experiment in self.experiment):
             self.clear_lists()
@@ -120,10 +125,13 @@ class GEECSScannerWindow(QMainWindow):
             self.populate_scan_devices()
 
     def clear_lists(self):
+        # Clears the list of found and selected save devices
         self.ui.selectedDevices.clear()
         self.ui.foundDevices.clear()
 
     def update_repetition_rate(self, text):
+        # Updates the repetition rate when it is changed in the text box
+        # TODO need to check that this is a number
         self.repetition_rate = text
 
     def populate_found_list(self):
@@ -153,6 +161,8 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.foundDevices.addItem(item)
 
     def update_scan_edit_state(self):
+        # Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
+        #  variable scan.  Previous values are saved so the user can switch between the two scan modes easily.
         if self.ui.noscanRadioButton.isChecked():
             self.ui.lineScanVariable.setEnabled(False)
             self.ui.lineScanVariable.setText("")
@@ -181,16 +191,8 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineNumShots.setEnabled(False)
             self.calculate_num_shots()
 
-    def show_scan_device_list(self):
-        completer = QCompleter(self.scan_device_list, self)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-
-        self.ui.lineScanVariable.setCompleter(completer)
-        self.ui.lineScanVariable.setFocus()
-        completer.complete()
-
     def populate_scan_devices(self):
+        # Generates a list of found scan devices from the scan_devices.yaml file
         self.scan_device_list = []
         try:
             experiment_folder = "./experiments/" + self.experiment + "/scan_devices/"
@@ -205,7 +207,18 @@ class GEECSScannerWindow(QMainWindow):
         completer = QCompleter(self.scan_device_list, self.ui.lineScanVariable)
         self.ui.lineScanVariable.setCompleter(completer)
 
+    def show_scan_device_list(self):
+        # Displays the list of scan devices when the user interacts with the scan variable selection text box
+        completer = QCompleter(self.scan_device_list, self)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+
+        self.ui.lineScanVariable.setCompleter(completer)
+        self.ui.lineScanVariable.setFocus()
+        completer.complete()
+
     def check_scan_device(self):
+        # Checks what is inputted into the scan variable selection box against the list of scan variables
         scan_device = self.ui.lineScanVariable.text()
         if scan_device in self.scan_device_list:
             self.scan_variable = scan_device
@@ -214,6 +227,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineScanVariable.setText("")
 
     def calculate_num_shots(self):
+        # Given the parameters for a 1D scan, calculate the total number of shots
         try:
             start = float(self.ui.lineStartValue.text())
             self.scan_start = start
@@ -234,6 +248,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineNumShots.setText("N/A")
 
     def build_shot_array(self):
+        # Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot
         if (self.scan_stop-self.scan_start)/self.scan_step_size*self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
             return []
         else:
@@ -246,6 +261,7 @@ class GEECSScannerWindow(QMainWindow):
             return array
 
     def update_noscan_num_shots(self):
+        # Updates the value of the number of shots in noscan mode, but only if it is a positive integer.
         if self.ui.noscanRadioButton.isChecked():
             try:
                 num_shots = int(self.ui.lineNumShots.text())
@@ -258,9 +274,10 @@ class GEECSScannerWindow(QMainWindow):
 
 
 if __name__ == '__main__':
+    # When this python file is run, open and display the GEECSScanner main window
     app = QApplication(sys.argv)
 
-    file_selector = GEECSScannerWindow()
-    file_selector.show()
+    perfect_application = GEECSScannerWindow()
+    perfect_application.show()
 
     sys.exit(app.exec_())
