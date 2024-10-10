@@ -1,0 +1,24 @@
+single_scan_devices:
+  - U_EMQTripletBipolar:Current_Limit.Ch1
+  - U_EMQTripletBipolar:Current_Limit.Ch2
+  - U_EMQTripletBipolar:Current_Limit.Ch3
+  - U_ESP_JetXYZ:Jet_X (mm)
+  - U_ESP_JetXYZ:Jet_Y (mm)
+  - U_ESP_JetXYZ:Jet_Z (mm)
+  - U_HP_Daq:PressureControlVoltage
+  - U_CompAerotech:Grating separation (um)
+  - U_S1H:Current
+  - U_S1V:Current
+  - U_S2H:Current
+  - U_S2V:Current
+  - U_S3H:Current
+  - U_S3V:Current
+  - U_S4H:Current
+  - U_S4V:Current
+  - U_ModeImagerESP:JetBlade
+  - U_Hexapod:xpos
+  - U_Hexapod:ypos
+  - U_Hexapod:zpos
+  - U_Hexapod:uangle
+  - U_Hexapod:vangle
+  - U_Hexapod:wangle
