@@ -6,15 +6,19 @@ Script to contain the logic for the GEECSScanner GUI
 
 import sys
 import os
+import traceback
+
 import yaml
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QCompleter
 from PyQt5.QtCore import Qt, QEvent
 from GEECSScanner_ui import Ui_MainWindow
+from run_control import submit_run
+
 try:
     from geecs_python_api.controls.interface import load_config
 except TypeError:
     print("No configuration file found!  This is required for GEECSScanner!")
-    #sys.exit()
+    # sys.exit()
 
 MAXIMUM_SCAN_SIZE = 1e6
 
@@ -67,6 +71,8 @@ class GEECSScannerWindow(QMainWindow):
         self.populate_scan_devices()
         self.ui.lineScanVariable.editingFinished.connect(self.check_scan_device)
         self.ui.lineScanVariable.installEventFilter(self)
+
+        self.ui.startScanButton.clicked.connect(self.initialize_scan)
 
     def eventFilter(self, source, event):
         # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
@@ -196,7 +202,7 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_device_list = []
         try:
             experiment_folder = "./experiments/" + self.experiment + "/scan_devices/"
-            with open(experiment_folder+"scan_devices.yaml", 'r') as file:
+            with open(experiment_folder + "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 devices = data['single_scan_devices']
                 self.scan_device_list = devices
@@ -249,14 +255,14 @@ class GEECSScannerWindow(QMainWindow):
 
     def build_shot_array(self):
         # Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot
-        if (self.scan_stop-self.scan_start)/self.scan_step_size*self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
+        if (self.scan_stop - self.scan_start) / self.scan_step_size * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
             return []
         else:
             array = []
             current = self.scan_start
             while ((self.scan_step_size > 0 and current <= self.scan_stop)
                    or (self.scan_step_size < 0 and current >= self.scan_stop)):
-                array.extend([current]*self.scan_shot_per_step)
+                array.extend([current] * self.scan_shot_per_step)
                 current = round(current + self.scan_step_size, 10)
             return array
 
@@ -272,9 +278,80 @@ class GEECSScannerWindow(QMainWindow):
             except ValueError:
                 self.ui.lineNumShots.setText("N/A")
 
+    def initialize_scan(self):
+        # From the information provided in the GUI, create a scan configuration file and submit to GEECS for
+        #  data logging.
+        save_device_list = {}
+        for i in range(self.ui.selectedDevices.count()):
+            filename = self.ui.selectedDevices.item(i).text()
+            fullpath = f"./experiments/{self.experiment}/save_devices/{filename}.yaml"
+            with open(fullpath, 'r') as file:
+                try:
+                    data = yaml.safe_load(file)
+                    save_device_list.update(data['Devices'])
+                except yaml.YAMLError as exc:
+                    print(f"Error reading YAML file: {exc}")
+
+        scan_information = {
+            'experiment': self.experiment,
+            'description': self.ui.textEditScanInfo.toPlainText()
+        }
+        scan_config = []
+        scan_mode = "Noscan"
+        scan_array_initial = 0
+        scan_array_final = self.noscan_num
+        if self.ui.scanRadioButton.isChecked():
+            scan_config = [
+                {
+                    'device_var': self.scan_variable,
+                    'start': self.scan_start,
+                    'end': self.scan_stop,
+                    'step': self.scan_step_size,
+                    'wait_time': self.scan_shot_per_step + 0.5
+                }
+            ]
+            scan_mode = self.scan_variable
+            scan_array_initial = self.scan_start
+            scan_array_final = self.scan_stop
+
+        scan_parameters = {  # TODO What does this even do???
+            'scan_mode': scan_mode,
+            'scan_range': [scan_array_initial, scan_array_final]
+        }
+
+        run_config = {
+            'Devices': save_device_list,
+            'scan_info': scan_information,
+            'scan_parameters': scan_parameters,
+        }
+        submit_run(config_dictionary=run_config, scan_config=scan_config)
+
+        """  # The following was a test, and it mostly works.  Only dumping a yaml is weird if the strings have colons
+        run_config = {
+            'Devices': save_device_list,
+            'scan_info': scan_information,
+            'scan_parameters': scan_parameters,
+            'scan_config': scan_config
+        }
+        with open("./test.yaml", 'w') as file:
+            try:
+                yaml.dump(run_config, file, default_flow_style=False)
+            except yaml.YAMLError as exc:
+                print(f"Error writing YAML file: {exc}")
+        """
+
+
+def exception_hook(exctype, value, tb):
+    # This is a global wrapper to print out tracebacks of python errors.  PyCharm wasn't doing this with PyQT windows
+    print("An error occurred:")
+    traceback.print_exception(exctype, value, tb)
+    sys.__excepthook__(exctype, value, tb)
+    sys.exit(1)
+
 
 if __name__ == '__main__':
     # When this python file is run, open and display the GEECSScanner main window
+    sys.excepthook = exception_hook
     app = QApplication(sys.argv)
 
     perfect_application = GEECSScannerWindow()
