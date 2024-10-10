@@ -372,6 +372,8 @@ class DeviceManager:
 
         # Placeholder for scan description
         self.scan_base_description = None
+        self.scan_parameters = None
+        self.scan_setup_action = None
 
     def load_composite_variables(self, composite_file):
         """
@@ -417,14 +419,19 @@ class DeviceManager:
         config_path = self.config_manager.get_config_path(config_filename)
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
-
-        # Load scan info
-        self.scan_base_description = config.get('scan_info', {}).get('description', '')
-        self.scan_parameters = config.get('scan_parameters', {})
-        self.scan_setup_action = config.get('setup_action', {})
-
         logging.info(f"Loaded configuration from {config_path}")
-        self._load_devices_from_config(config)
+        self.load_from_dictionary(config)
+
+    def load_from_dictionary(self, config_dictionary):
+        """
+        Originally the 2nd half of "load_from_config," this bypasses the need to read the yaml if it is already loaded
+        """
+        # Load scan info
+        self.scan_base_description = config_dictionary.get('scan_info', {}).get('description', '')
+        self.scan_parameters = config_dictionary.get('scan_parameters', {})
+        self.scan_setup_action = config_dictionary.get('setup_action', {})
+
+        self._load_devices_from_config(config_dictionary)
 
         # Initialize the subscribers
         self.initialize_subscribers(self.event_driven_observables + self.async_observables, clear_devices=False)
@@ -971,6 +978,9 @@ class DataLogger():
 
         # Create the full path for the file
         full_path = Path(self.data_txt_path.parent) / filename
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+
+        logging.info(f"Attempting to write to {full_path}")
 
         # Write to the .ini file
         with full_path.open('w') as configfile:
