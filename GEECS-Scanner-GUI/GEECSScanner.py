@@ -105,15 +105,6 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.experimentDisplay.setFocus()
         completer.complete()
 
-    def show_scan_device_list(self):
-        completer = QCompleter(self.scan_device_list, self)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-
-        self.ui.lineScanVariable.setCompleter(completer)
-        self.ui.lineScanVariable.setFocus()
-        completer.complete()
-
     def experiment_selected(self):
         selected_experiment = self.ui.experimentDisplay.text()
         if not (selected_experiment in self.experiment):
@@ -146,29 +137,6 @@ class GEECSScannerWindow(QMainWindow):
                     self.ui.foundDevices.addItem(root)
         except OSError:
             self.clear_lists()
-
-    def populate_scan_devices(self):
-        self.scan_device_list = []
-        try:
-            experiment_folder = "./experiments/" + self.experiment + "/scan_devices/"
-            with open(experiment_folder+"scan_devices.yaml", 'r') as file:
-                data = yaml.safe_load(file)
-                devices = data['single_scan_devices']
-                self.scan_device_list = devices
-
-        except Exception as e:
-            print(f"Error loading scan_devices.yaml file: {e}")
-
-        completer = QCompleter(self.scan_device_list, self.ui.lineScanVariable)
-        self.ui.lineScanVariable.setCompleter(completer)
-
-    def check_scan_device(self):
-        scan_device = self.ui.lineScanVariable.text()
-        if scan_device in self.scan_device_list:
-            self.scan_variable = scan_device
-        else:
-            self.scan_variable = ""
-            self.ui.lineScanVariable.setText("")
 
     def add_files(self):
         # Move selected files from the "Found" list to the "Selected" list
@@ -212,6 +180,38 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineShotStep.setText(str(self.scan_shot_per_step))
             self.ui.lineNumShots.setEnabled(False)
             self.calculate_num_shots()
+
+    def show_scan_device_list(self):
+        completer = QCompleter(self.scan_device_list, self)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+
+        self.ui.lineScanVariable.setCompleter(completer)
+        self.ui.lineScanVariable.setFocus()
+        completer.complete()
+
+    def populate_scan_devices(self):
+        self.scan_device_list = []
+        try:
+            experiment_folder = "./experiments/" + self.experiment + "/scan_devices/"
+            with open(experiment_folder+"scan_devices.yaml", 'r') as file:
+                data = yaml.safe_load(file)
+                devices = data['single_scan_devices']
+                self.scan_device_list = devices
+
+        except Exception as e:
+            print(f"Error loading scan_devices.yaml file: {e}")
+
+        completer = QCompleter(self.scan_device_list, self.ui.lineScanVariable)
+        self.ui.lineScanVariable.setCompleter(completer)
+
+    def check_scan_device(self):
+        scan_device = self.ui.lineScanVariable.text()
+        if scan_device in self.scan_device_list:
+            self.scan_variable = scan_device
+        else:
+            self.scan_variable = ""
+            self.ui.lineScanVariable.setText("")
 
     def calculate_num_shots(self):
         try:
