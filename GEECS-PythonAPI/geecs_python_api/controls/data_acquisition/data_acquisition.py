@@ -429,7 +429,7 @@ class DeviceManager:
         # Load scan info
         self.scan_base_description = config_dictionary.get('scan_info', {}).get('description', '')
         self.scan_parameters = config_dictionary.get('scan_parameters', {})
-        self.scan_setup_action = config_dictionary.get('setup_action', {})
+        self.scan_setup_action = config_dictionary.get('setup_action', None)
 
         self._load_devices_from_config(config_dictionary)
 
@@ -445,11 +445,12 @@ class DeviceManager:
         Appends devices to self.devices, as well as categorizes them into synchronous or asynchronous.
         """
         devices = config.get('Devices', {})
-        
         for device_name, device_config in devices.items():
             variable_list = device_config.get('variable_list', [])
             synchronous = device_config.get('synchronous', False)
             save_non_scalar = device_config.get('save_nonscalar_data', False)
+
+            logging.info(f"{device_name}: Synchronous = {synchronous}, Save_Non_Scalar = {save_non_scalar}")
 
             # Add to non-scalar saving devices if applicable
             if save_non_scalar:
@@ -617,7 +618,7 @@ class DeviceManager:
                 'save_non_scalar_data': False,
                 'synchronous': False
             }
-        
+
             # Create the GeecsDevice for the new scan variable device
             device = GeecsDevice(device_name)
             device.use_alias_in_TCP_subscription = False
@@ -827,10 +828,10 @@ class DataInterface():
         return 0
 
 class DataLogger():
-    def __init__(self, experiment_dir):
+    def __init__(self, device_manager, data_interface, experiment_dir):
         
-        self.device_manager = DeviceManager(experiment_dir=experiment_dir)
-        self.data_interface = DataInterface()
+        self.device_manager = device_manager
+        self.data_interface = data_interface
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
         
         self.stop_event = threading.Event()  # Event to control polling thread
