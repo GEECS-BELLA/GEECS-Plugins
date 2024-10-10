@@ -6,6 +6,7 @@ Script to contain the logic for the GEECSScanner GUI
 
 import sys
 import os
+import yaml
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QCompleter
 from PyQt5.QtCore import Qt, QEvent
 from GEECSScanner_ui import Ui_MainWindow
@@ -14,6 +15,8 @@ try:
 except TypeError:
     print("No configuration file found!  Recommended to add one.")
 
+
+MAXIMUM_SCAN_SIZE = 1e6
 
 class GEECSScannerWindow(QMainWindow):
     def __init__(self):
@@ -26,12 +29,18 @@ class GEECSScannerWindow(QMainWindow):
         self.repetition_rate = ""
         self.load_config_settings()
 
+        self.noscan_num = 100
+        self.scan_start = 0
+        self.scan_stop = 0
+        self.scan_step_size = 0
+        self.scan_shot_per_step = 0
+
         self.ui.repititionRateDisplay.setText(self.repetition_rate)
         self.ui.repititionRateDisplay.textChanged.connect(self.update_repetition_rate)
 
         self.ui.experimentDisplay.setText(self.experiment)
-        self.ui.experimentDisplay.setReadOnly(True)
         self.ui.experimentDisplay.installEventFilter(self)
+        self.ui.experimentDisplay.editingFinished.connect(self.experiment_selected)
 
         self.populate_found_list()
 
@@ -46,9 +55,24 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.scanRadioButton.toggled.connect(self.update_scan_edit_state)
         self.update_scan_edit_state()
 
+        self.ui.lineStartValue.editingFinished.connect(self.calculate_num_shots)
+        self.ui.lineStopValue.editingFinished.connect(self.calculate_num_shots)
+        self.ui.lineStepSize.editingFinished.connect(self.calculate_num_shots)
+        self.ui.lineShotStep.editingFinished.connect(self.calculate_num_shots)
+        self.ui.lineNumShots.editingFinished.connect(self.update_noscan_num_shots)
+
+        self.scan_variable = ""
+        self.scan_device_list = []
+        self.populate_scan_devices()
+        self.ui.lineScanVariable.editingFinished.connect(self.check_scan_device)
+        self.ui.lineScanVariable.installEventFilter(self)
+
     def eventFilter(self, source, event):
         if event.type() == QEvent.MouseButtonPress and source == self.ui.experimentDisplay:
             self.show_experiment_list()
+            return True
+        if event.type() == QEvent.MouseButtonPress and source == self.ui.lineScanVariable:
+            self.show_scan_device_list()
             return True
         return super().eventFilter(source, event)
 
@@ -78,14 +102,21 @@ class GEECSScannerWindow(QMainWindow):
         completer.setCaseSensitivity(Qt.CaseInsensitive)
 
         self.ui.experimentDisplay.setCompleter(completer)
-        self.ui.experimentDisplay.setReadOnly(False)
-        self.ui.experimentDisplay.clear()
         self.ui.experimentDisplay.setFocus()
         completer.complete()
-        self.ui.experimentDisplay.returnPressed.connect(self.experiment_selected)
+
+    def show_scan_device_list(self):
+        completer = QCompleter(self.scan_device_list, self)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+
+        self.ui.lineScanVariable.setCompleter(completer)
+        self.ui.lineScanVariable.setFocus()
+        completer.complete()
 
     def experiment_selected(self):
         self.clear_lists()
+        self.ui.lineScanVariable.setText("")
         selected_experiment = self.ui.experimentDisplay.text()
         new_folder_path = os.path.join("./experiments/", selected_experiment)
         if os.path.isdir(new_folder_path):
@@ -93,7 +124,8 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.experimentDisplay.setText(self.experiment)
             self.populate_found_list()
 
-        self.ui.experimentDisplay.setReadOnly(True)
+        self.populate_scan_devices()
+        self.scan_variable = ""
 
     def clear_lists(self):
         self.ui.selectedDevices.clear()
@@ -114,6 +146,29 @@ class GEECSScannerWindow(QMainWindow):
         except OSError:
             self.clear_lists()
 
+    def populate_scan_devices(self):
+        self.scan_device_list = []
+        try:
+            experiment_folder = "./experiments/" + self.experiment + "/scan_devices/"
+            with open(experiment_folder+"scan_devices.yaml", 'r') as file:
+                data = yaml.safe_load(file)
+                devices = data['single_scan_devices']
+                self.scan_device_list = devices
+
+        except Exception as e:
+            print(f"Error loading scan_devices.yaml file: {e}")
+
+        completer = QCompleter(self.scan_device_list, self.ui.lineScanVariable)
+        self.ui.lineScanVariable.setCompleter(completer)
+
+    def check_scan_device(self):
+        scan_device = self.ui.lineScanVariable.text()
+        if scan_device in self.scan_device_list:
+            self.scan_variable = scan_device
+        else:
+            self.scan_variable = ""
+            self.ui.lineScanVariable.setText("")
+
     def add_files(self):
         # Move selected files from the "Found" list to the "Selected" list
         selected_items = self.ui.foundDevices.selectedItems()
@@ -131,19 +186,75 @@ class GEECSScannerWindow(QMainWindow):
     def update_scan_edit_state(self):
         if self.ui.noscanRadioButton.isChecked():
             self.ui.lineScanVariable.setEnabled(False)
+            self.ui.lineScanVariable.setText("")
             self.ui.lineStartValue.setEnabled(False)
+            self.ui.lineStartValue.setText("")
             self.ui.lineStopValue.setEnabled(False)
+            self.ui.lineStopValue.setText("")
             self.ui.lineStepSize.setEnabled(False)
+            self.ui.lineStepSize.setText("")
             self.ui.lineShotStep.setEnabled(False)
+            self.ui.lineShotStep.setText("")
             self.ui.lineNumShots.setEnabled(True)
+            self.ui.lineNumShots.setText(str(self.noscan_num))
 
         else:
             self.ui.lineScanVariable.setEnabled(True)
+            self.ui.lineScanVariable.setText(self.scan_variable)
             self.ui.lineStartValue.setEnabled(True)
+            self.ui.lineStartValue.setText(str(self.scan_start))
             self.ui.lineStopValue.setEnabled(True)
+            self.ui.lineStopValue.setText(str(self.scan_stop))
             self.ui.lineStepSize.setEnabled(True)
+            self.ui.lineStepSize.setText(str(self.scan_step_size))
             self.ui.lineShotStep.setEnabled(True)
+            self.ui.lineShotStep.setText(str(self.scan_shot_per_step))
             self.ui.lineNumShots.setEnabled(False)
+            self.calculate_num_shots()
+
+    def calculate_num_shots(self):
+        try:
+            start = float(self.ui.lineStartValue.text())
+            self.scan_start = start
+            stop = float(self.ui.lineStopValue.text())
+            self.scan_stop = stop
+            step_size = float(self.ui.lineStepSize.text())
+            self.scan_step_size = step_size
+            shot_per_step = int(self.ui.lineShotStep.text())
+            self.scan_shot_per_step = shot_per_step
+
+            if step_size == 0:
+                self.ui.lineNumShots.setText("N/A")
+            else:
+                shot_array = self.build_shot_array()
+                self.ui.lineNumShots.setText(str(len(shot_array)))
+
+        except ValueError:
+            self.ui.lineNumShots.setText("N/A")
+
+    def build_shot_array(self):
+        if (self.scan_stop-self.scan_start)/self.scan_step_size*self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
+            return []
+        else:
+            array = []
+            current = self.scan_start
+            while ((self.scan_step_size > 0 and current <= self.scan_stop)
+                   or (self.scan_step_size < 0 and current >= self.scan_stop)):
+                array.extend([current]*self.scan_shot_per_step)
+                current = round(current + self.scan_step_size, 10)
+            return array
+
+    def update_noscan_num_shots(self):
+        if self.ui.noscanRadioButton.isChecked():
+            try:
+                num_shots = int(self.ui.lineNumShots.text())
+                if num_shots > 0:
+                    self.noscan_num = num_shots
+                else:
+                    self.ui.lineNumShots.setText("N/A")
+            except ValueError:
+                self.ui.lineNumShots.setText("N/A")
+
 
 if __name__ == ('__main__'):
     app = QApplication(sys.argv)
