@@ -205,13 +205,24 @@ class GEECSScannerWindow(QMainWindow):
             with open(experiment_folder + "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 devices = data['single_scan_devices']
-                self.scan_device_list = devices
+                self.scan_device_list = devices.keys()
 
         except Exception as e:
             print(f"Error loading scan_devices.yaml file: {e}")
 
         completer = QCompleter(self.scan_device_list, self.ui.lineScanVariable)
         self.ui.lineScanVariable.setCompleter(completer)
+
+    def read_device_tag_from_nickname(self, name):
+        try:
+            experiment_folder = "./experiments/" + self.experiment + "/scan_devices/"
+            with open(experiment_folder + "scan_devices.yaml", 'r') as file:
+                data = yaml.safe_load(file)
+                return data['single_scan_devices'][name]
+
+        except Exception as e:
+            print(f"Error loading scan_devices.yaml file: {e}")
+
 
     def show_scan_device_list(self):
         # Displays the list of scan devices when the user interacts with the scan variable selection text box
@@ -301,16 +312,17 @@ class GEECSScannerWindow(QMainWindow):
         scan_array_initial = 0
         scan_array_final = self.noscan_num
         if self.ui.scanRadioButton.isChecked():
+            scan_variable_tag = self.read_device_tag_from_nickname(self.scan_variable)
             scan_config = [
                 {
-                    'device_var': self.scan_variable,
+                    'device_var': scan_variable_tag,
                     'start': self.scan_start,
                     'end': self.scan_stop,
                     'step': self.scan_step_size,
                     'wait_time': self.scan_shot_per_step + 0.5
                 }
             ]
-            scan_mode = self.scan_variable
+            scan_mode = scan_variable_tag
             scan_array_initial = self.scan_start
             scan_array_final = self.scan_stop
 
@@ -325,7 +337,6 @@ class GEECSScannerWindow(QMainWindow):
             'scan_parameters': scan_parameters,
         }
         submit_run(config_dictionary=run_config, scan_config=scan_config)
-
         """  # The following was a test, and it mostly works.  Only dumping a yaml is weird if the strings have colons
         run_config = {
             'Devices': save_device_list,
