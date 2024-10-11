@@ -223,10 +223,10 @@ class GEECSScannerWindow(QMainWindow):
         except Exception as e:
             print(f"Error loading scan_devices.yaml file: {e}")
 
-
     def show_scan_device_list(self):
         # Displays the list of scan devices when the user interacts with the scan variable selection text box
         completer = QCompleter(self.scan_device_list, self)
+        completer.setMaxVisibleItems(30)
         completer.setCompletionMode(QCompleter.PopupCompletion)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
 
