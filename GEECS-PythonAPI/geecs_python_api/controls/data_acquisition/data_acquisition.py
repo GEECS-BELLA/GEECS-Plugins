@@ -15,8 +15,6 @@ from pathlib import Path
 import os
 import re
 
-import configparser
-
 from nptdms import TdmsWriter, ChannelObject
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -971,23 +969,23 @@ class DataLogger():
         filename = f"ScanInfo{scan_folder}.ini"
     
         # Create the configparser object
-        config = configparser.ConfigParser()
         scan_var = scan_config.get('device_var', '')
         additional_description = scan_config.get('additional_description', '')
         
         scan_info = f'{self.device_manager.scan_base_description}. scanning {scan_var}. {additional_description}'
 
         # Add the Scan Info section
-        config['Scan Info'] = {
-            'Scan No': f'{scan_number}',
-            'ScanStartInfo': scan_info,
-            'Scan Parameter': scan_var,
-            'Start': scan_config.get('start', 0),
-            'End': scan_config.get('end', 0),
-            'Step size': scan_config.get('step', 1),
-            'Shots per step': scan_config.get('wait_time', 1),
-            'ScanEndInfo': ''
-        }
+        config_file_contents = [
+            "[Scan Info]\n",
+            f"Scan No = \"{scan_number}\"\n",
+            f"ScanStartInfo = \"{scan_info}\"\n",
+            f"Scan Parameter = \"{scan_var}\"\n",
+            f"Start = \"{scan_config.get('start', 0)}\"\n",
+            f"End = \"{scan_config.get('end', 0)}\"\n",
+            f"Step size = \"{scan_config.get('step', 1)}\"\n",
+            f"Shots per step = \"{scan_config.get('wait_time', 1)}\"\n",
+            f"ScanEndInfo = \"\""
+        ]
 
         # Create the full path for the file
         full_path = Path(self.data_txt_path.parent) / filename
@@ -997,7 +995,8 @@ class DataLogger():
 
         # Write to the .ini file
         with full_path.open('w') as configfile:
-            config.write(configfile)
+            for line in config_file_contents:
+                configfile.write(line)
 
         logging.info(f"Scan info written to {full_path}")
         
