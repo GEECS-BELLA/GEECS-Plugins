@@ -1174,8 +1174,16 @@ class DataLogger():
         logging.info("Resuming logging. Turning trigger on after all devices have been moved.")
         self.trigger_on()
         logging.info(f"shot control state: {self.shot_control.state}")
-        
-        time.sleep(wait_time)
+
+        current_time = 0
+        interval_time = 0.1
+        while current_time < wait_time:
+            if self.stop_logging_thread_event.is_set():
+                logging.info("Logging has been stopped externally.")
+                break
+            time.sleep(interval_time)
+            current_time += interval_time
+        # time.sleep(wait_time)
         
         self.trigger_off()
         logging.info(f"shot control state: {self.shot_control.state}")

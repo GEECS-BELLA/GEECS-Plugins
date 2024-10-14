@@ -9,10 +9,10 @@ import os
 import traceback
 
 import yaml
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QCompleter
-from PyQt5.QtCore import Qt, QEvent
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QCompleter, QLabel
+from PyQt5.QtCore import Qt, QEvent, QTimer
 from GEECSScanner_ui import Ui_MainWindow
-from run_control import submit_run
+from RunControl import RunControl
 
 try:
     from geecs_python_api.controls.interface import load_config
@@ -33,6 +33,8 @@ class GEECSScannerWindow(QMainWindow):
         self.experiment = "<None Selected>"
         self.repetition_rate = ""
         self.load_config_settings()
+
+        self.RunControl = RunControl(experiment_name=self.experiment)
 
         self.noscan_num = 100
         self.scan_start = 0
@@ -73,6 +75,14 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.lineScanVariable.installEventFilter(self)
 
         self.ui.startScanButton.clicked.connect(self.initialize_scan)
+        self.ui.stopScanButton.clicked.connect(self.stop_scan)
+
+        self.scan_state = False
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_indicator)
+        self.timer.start(1000)
+
+        self.update_indicator()
 
     def eventFilter(self, source, event):
         # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
@@ -348,7 +358,7 @@ class GEECSScannerWindow(QMainWindow):
             'scan_info': scan_information,
             'scan_parameters': scan_parameters,
         }
-        submit_run(config_dictionary=run_config, scan_config=scan_config)
+        self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
         """  # The following was a test, and it mostly works.  Only dumping a yaml is weird if the strings have colons
         run_config = {
             'Devices': save_device_list,
@@ -362,6 +372,19 @@ class GEECSScannerWindow(QMainWindow):
             except yaml.YAMLError as exc:
                 print(f"Error writing YAML file: {exc}")
         """
+
+    def update_indicator(self):
+        if self.RunControl.is_active():
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: red;")
+            self.ui.startScanButton.setEnabled(False)
+            self.ui.stopScanButton.setEnabled(True)
+        else:
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
+            self.ui.startScanButton.setEnabled(True)
+            self.ui.stopScanButton.setEnabled(False)
+
+    def stop_scan(self):
+        self.RunControl.stop_scan()
 
 
 def exception_hook(exctype, value, tb):
