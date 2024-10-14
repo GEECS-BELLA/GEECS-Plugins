@@ -307,10 +307,7 @@ class GEECSScannerWindow(QMainWindow):
             'experiment': self.experiment,
             'description': self.ui.textEditScanInfo.toPlainText()
         }
-        scan_config = []
-        scan_mode = "Noscan"
-        scan_array_initial = 0
-        scan_array_final = self.noscan_num
+
         if self.ui.scanRadioButton.isChecked():
             scan_variable_tag = self.read_device_tag_from_nickname(self.scan_variable)
             scan_config = [
@@ -325,6 +322,21 @@ class GEECSScannerWindow(QMainWindow):
             scan_mode = scan_variable_tag
             scan_array_initial = self.scan_start
             scan_array_final = self.scan_stop
+        elif self.ui.noscanRadioButton.isChecked():
+            scan_config = [
+                {
+                    'device_var': 'noscan',
+                    'wait_time': self.noscan_num + 0.5
+                }
+            ]
+            scan_mode = "noscan"
+            scan_array_initial = 0
+            scan_array_final = self.noscan_num
+        else:
+            scan_config = []
+            scan_mode = ""
+            scan_array_initial = 0
+            scan_array_final = 0
 
         scan_parameters = {  # TODO What does this even do???
             'scan_mode': scan_mode,

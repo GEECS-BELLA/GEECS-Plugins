@@ -475,6 +475,9 @@ class DeviceManager:
         with open(composite_file, 'r') as file:
             return yaml.safe_load(file).get('composite_variables', {})
 
+    def is_statistic_noscan(self, variable_name):
+        return variable_name in ('noscan', 'statistics')
+
     def is_composite_variable(self, variable_name):
         return variable_name in self.composite_variables
 
@@ -655,7 +658,9 @@ class DeviceManager:
             logging.info(f"Processing scan device_var: {device_var}")
 
             # Handle composite variables
-            if self.is_composite_variable(device_var):
+            if self.is_statistic_noscan(device_var):
+                logging.info("Statistical noscan selected, adding no scan devices.")
+            elif self.is_composite_variable(device_var):
                 logging.info(f"{device_var} is a composite variable.")
                 component_vars = self.get_composite_components(device_var, scan['start'])
                 for component_var in component_vars:
@@ -1027,19 +1032,19 @@ class DataLogger():
     def start_logging_wait(self, acquisition_time=None, scan_config=None):
         """
         Start logging for a set amount of time, while dynamically performing actions 
-        or handling 'statistics' scans during the acquisition process.
+        or handling 'noscan' (or 'statistics') scans during the acquisition process.
         
         Args:
             acquisition_time (int, optional): Total time to log data (in seconds). If not provided, 
                                               it will be estimated from the scan_config.
             scan_config (list of dicts, optional): List of scan configurations for dynamic actions.
-                                                   Supports 'statistics' for no-action scans.
+                                                   Supports 'noscan' (or 'statistics') for no-action scans.
         """
         log_df = pd.DataFrame()  # Initialize in case of early exit
         try:
             # Pre-logging setup: Trigger devices off, initialize data paths, etc.
             self.pre_logging_setup(scan_config)
-    
+
             # Estimate acquisition time if necessary
             if acquisition_time is None and scan_config:
                 acquisition_time = self.estimate_acquisition_time(scan_config)
@@ -1087,7 +1092,13 @@ class DataLogger():
         for scan in scan_config:
             device_var = scan['device_var']
 
-            if self.device_manager.is_composite_variable(device_var):
+            if self.device_manager.is_statistic_noscan(device_var):
+                steps.append({
+                    'variables': device_var,
+                    'wait_time': scan.get('wait_time', 1),
+                    'is_composite': False
+                })
+            elif self.device_manager.is_composite_variable(device_var):
                 current_value = scan['start']
                 while current_value <= scan['end']:
                     component_vars = self.device_manager.get_composite_components(device_var, current_value)
@@ -1112,7 +1123,7 @@ class DataLogger():
         elapsed_time = 0
         check_interval = 0.1  
         step_interval = 1.0  
-        step_timer = 0  
+        step_timer = 0
 
         while elapsed_time < acquisition_time:
             # Check if logging has been externally stopped
@@ -1150,15 +1161,16 @@ class DataLogger():
         logging.info("Pausing logging. Turning trigger off before moving devices.")
         self.bin_num += 1
         self.trigger_off()
-        
-        logging.info(f"shot control state: {self.shot_control.state}")
-        for device_var, current_value in component_vars.items():
-            device_name, var_name = device_var.split(':', 1)
-            device = self.device_manager.devices.get(device_name)
 
-            if device:
-                device.set(var_name, current_value)
-                logging.info(f"Set {var_name} to {current_value} for {device_name}")
+        logging.info(f"shot control state: {self.shot_control.state}")
+        if not self.device_manager.is_statistic_noscan(component_vars):
+            for device_var, current_value in component_vars.items():
+                device_name, var_name = device_var.split(':', 1)
+                device = self.device_manager.devices.get(device_name)
+
+                if device:
+                    device.set(var_name, current_value)
+                    logging.info(f"Set {var_name} to {current_value} for {device_name}")
         
         logging.info("Resuming logging. Turning trigger on after all devices have been moved.")
         self.trigger_on()
@@ -1174,9 +1186,9 @@ class DataLogger():
         Estimate the total acquisition time based on the scan configuration.
         """
         total_time = 0
-    
+
         for scan in scan_config:
-            if scan['device_var'] == 'statistics':
+            if self.device_manager.is_statistic_noscan(scan['device_var']):
                 total_time += scan.get('acquisition_time', 10)  # Default to 10 seconds if not provided
             else:
                 start = scan['start']
@@ -1201,7 +1213,7 @@ class DataLogger():
         if scan_config:
             for scan in scan_config:
                 device_var = scan['device_var']
-                if device_var != 'statistics':
+                if not self.device_manager.is_statistic_noscan(device_var):
                     start = scan['start']
                     scan_state[device_var] = start  # Set the current position to the start value
         return scan_state
