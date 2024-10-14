@@ -17,7 +17,7 @@ def submit_run(config_dictionary, scan_config):
     data_interface = DataInterface()
 
     # Step 3: Initialize the DataLogger for managing data acquisition and logging
-    data_logger = DataLogger(device_manager, data_interface, experiment_dir='HTU')
+    data_logger = DataLogger(experiment_dir='HTU', device_manager=device_manager, data_interface=data_interface)
 
     # Step 5: Define the scan configuration for device movements and data acquisition
 
