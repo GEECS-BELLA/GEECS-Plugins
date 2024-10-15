@@ -3,7 +3,6 @@ import threading
 import logging
 import pandas as pd
 from pathlib import Path
-import shutil
 
 from .data_acquisition import DeviceManager, ActionManager, DataInterface, DataLogger
 from .utils import ConsoleLogger
@@ -26,74 +25,6 @@ else:
 
 GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
 device_dict = GeecsDevice.exp_info['devices']
-
-class ConsoleLogger:
-    def __init__(self, log_file="system_log.log", level=logging.INFO, console=False):
-        self.log_file = log_file
-        self.level = level
-        self.console = console
-        self.logging_active = False
-
-    def setup_logging(self):
-        """
-        Sets up logging for the module. By default, logs to a file.
-        """
-        if self.logging_active:
-            logging.warning("Logging is already active, cannot start a new session.")
-            return
-
-        # Remove any previously configured handlers to prevent duplication
-        for handler in logging.root.handlers[:]:
-            logging.root.removeHandler(handler)
-
-        # Configure logging with both file and optional console handlers
-        handlers = [logging.FileHandler(self.log_file)]
-        if self.console:
-            handlers.append(logging.StreamHandler())
-
-        logging.basicConfig(
-            level=self.level,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=handlers
-        )
-        self.logging_active = True
-        logging.info("Logging session started.")
-
-    def stop_logging(self):
-        """
-        Stops logging and cleans up handlers.
-        """
-        if not self.logging_active:
-            logging.warning("No active logging session to stop.")
-            return
-
-        for handler in logging.root.handlers[:]:
-            handler.close()
-            logging.root.removeHandler(handler)
-
-        self.logging_active = False
-        print("Logging has been stopped and handlers have been removed.")
-
-    def move_log_file(self, dest_dir):
-        """
-        Moves the log file to the destination directory using shutil to handle cross-device issues.
-        """
-        src_path = Path(self.log_file)
-        dest_path = Path(dest_dir) / src_path.name
-
-        print(f"Attempting to move {src_path} to {dest_path}")
-
-        try:
-            shutil.move(str(src_path), str(dest_path))
-            print(f"Moved log file to {dest_path}")
-        except Exception as e:
-            print(f"Failed to move {src_path} to {dest_path}: {e}")
-
-    def is_logging_active(self):
-        """
-        Returns whether logging is active or not.
-        """
-        return self.logging_active
 
 class ScanManager():
 
