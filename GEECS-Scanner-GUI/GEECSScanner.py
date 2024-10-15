@@ -33,8 +33,8 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.setupUi(self)
 
         self.ui.logDisplay.setReadOnly(True)
-        sys.stdout = MultiStream(sys.stdout, EmittingStream(self.ui.logDisplay))
-        sys.stderr = MultiStream(sys.stderr, EmittingStream(self.ui.logDisplay))
+        #sys.stdout = MultiStream(sys.stdout, EmittingStream(self.ui.logDisplay))
+        #sys.stderr = MultiStream(sys.stderr, EmittingStream(self.ui.logDisplay))
 
         self.experiment = "<None Selected>"
         self.repetition_rate = ""
