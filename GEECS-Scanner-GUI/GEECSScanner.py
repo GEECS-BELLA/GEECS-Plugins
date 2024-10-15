@@ -22,6 +22,7 @@ except TypeError:
     # sys.exit()
 
 MAXIMUM_SCAN_SIZE = 1e6
+RELATIVE_PATH = "../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/"
 
 
 class GEECSScannerWindow(QMainWindow):
@@ -110,7 +111,7 @@ class GEECSScannerWindow(QMainWindow):
             except KeyError:
                 print("Could not find 'expt' in config")
                 default_experiment = "<None Selected>"
-            if os.path.isdir("./experiments/" + default_experiment):
+            if os.path.isdir(RELATIVE_PATH + "experiments/" + default_experiment):
                 self.experiment = default_experiment
 
             try:
@@ -129,7 +130,8 @@ class GEECSScannerWindow(QMainWindow):
 
     def show_experiment_list(self):
         # Displays the found experiments in the ./experiments/ subfolder for selecting experiment
-        folders = [f for f in os.listdir("./experiments/") if os.path.isdir(os.path.join("./experiments", f))]
+        folders = [f for f in os.listdir(RELATIVE_PATH + "experiments/")
+                   if os.path.isdir(os.path.join(RELATIVE_PATH + "experiments", f))]
         completer = QCompleter(folders, self)
         completer.setCompletionMode(QCompleter.PopupCompletion)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -143,7 +145,7 @@ class GEECSScannerWindow(QMainWindow):
         selected_experiment = self.ui.experimentDisplay.text()
         if not (selected_experiment in self.experiment):
             self.clear_lists()
-            new_folder_path = os.path.join("./experiments/", selected_experiment)
+            new_folder_path = os.path.join(RELATIVE_PATH + "experiments/", selected_experiment)
             if os.path.isdir(new_folder_path):
                 self.experiment = selected_experiment
                 self.ui.experimentDisplay.setText(self.experiment)
@@ -176,7 +178,7 @@ class GEECSScannerWindow(QMainWindow):
     def populate_found_list(self):
         # List all files in the save_devices folder under chosen experiment:
         try:
-            experiment_folder = "./experiments/" + self.experiment + "/save_devices/"
+            experiment_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
             for file_name in os.listdir(experiment_folder):
                 full_path = os.path.join(experiment_folder, file_name)
                 if os.path.isfile(full_path):
@@ -234,7 +236,7 @@ class GEECSScannerWindow(QMainWindow):
         # Generates a list of found scan devices from the scan_devices.yaml file
         self.scan_device_list = []
         try:
-            experiment_folder = "./experiments/" + self.experiment + "/scan_devices/"
+            experiment_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/scan_devices/"
             with open(experiment_folder + "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 devices = data['single_scan_devices']
@@ -248,7 +250,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def read_device_tag_from_nickname(self, name):
         try:
-            experiment_folder = "./experiments/" + self.experiment + "/scan_devices/"
+            experiment_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/scan_devices/"
             with open(experiment_folder + "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 return data['single_scan_devices'][name]
@@ -332,7 +334,7 @@ class GEECSScannerWindow(QMainWindow):
         save_device_list = {}
         for i in range(self.ui.selectedDevices.count()):
             filename = self.ui.selectedDevices.item(i).text()
-            fullpath = f"./experiments/{self.experiment}/save_devices/{filename}.yaml"
+            fullpath = RELATIVE_PATH + f"experiments/{self.experiment}/save_devices/{filename}.yaml"
             with open(fullpath, 'r') as file:
                 try:
                     data = yaml.safe_load(file)
