@@ -12,6 +12,7 @@ import yaml
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QCompleter, QLabel
 from PyQt5.QtCore import Qt, QEvent, QTimer
 from GEECSScanner_ui import Ui_MainWindow
+from LogStream import EmittingStream, MultiStream
 from RunControl import RunControl
 
 try:
@@ -30,8 +31,13 @@ class GEECSScannerWindow(QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
+        self.ui.logDisplay.setReadOnly(True)
+        sys.stdout = MultiStream(sys.stdout, EmittingStream(self.ui.logDisplay))
+        sys.stderr = MultiStream(sys.stderr, EmittingStream(self.ui.logDisplay))
+
         self.experiment = "<None Selected>"
         self.repetition_rate = ""
+        self.shot_control_device = ""
         self.load_config_settings()
 
         self.RunControl = RunControl(experiment_name=self.experiment)
@@ -43,7 +49,9 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_shot_per_step = 0
 
         self.ui.repititionRateDisplay.setText(self.repetition_rate)
-        self.ui.repititionRateDisplay.textChanged.connect(self.update_repetition_rate)
+        self.ui.repititionRateDisplay.editingFinished.connect(self.update_repetition_rate)
+        self.ui.lineTimingDevice.setText(self.shot_control_device)
+        self.ui.lineTimingDevice.editingFinished.connect(self.update_shot_control_device)
 
         self.ui.experimentDisplay.setText(self.experiment)
         self.ui.experimentDisplay.installEventFilter(self)
@@ -77,11 +85,10 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.startScanButton.clicked.connect(self.initialize_scan)
         self.ui.stopScanButton.clicked.connect(self.stop_scan)
 
-        self.scan_state = False
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_indicator)
-        self.timer.start(1000)
-
+        self.ui.scanStatusIndicator.setText("")
+        self.timer.start(500)
         self.update_indicator()
 
     def eventFilter(self, source, event):
@@ -110,6 +117,12 @@ class GEECSScannerWindow(QMainWindow):
                 self.repetition_rate = config['Experiment']['rep_rate_hz']
             except KeyError:
                 print("Could not find 'rep_rate_hz' in config")
+
+            try:
+                self.shot_control_device = config['Experiment']['shot_control']
+            except KeyError:
+                print("Could not find 'rep_rate_hz' in config")
+
         except NameError:
             print("Could not read from config file")
         return
@@ -145,10 +158,20 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.selectedDevices.clear()
         self.ui.foundDevices.clear()
 
-    def update_repetition_rate(self, text):
+    def update_repetition_rate(self):
         # Updates the repetition rate when it is changed in the text box
-        # TODO need to check that this is a number
-        self.repetition_rate = text
+        try:
+            rep_rate = float(self.ui.repititionRateDisplay.text())
+            if rep_rate > 0:
+                self.repetition_rate = rep_rate
+            else:
+                self.ui.repititionRateDisplay.setText("N/A")
+        except ValueError:
+            self.ui.repititionRateDisplay.setText("N/A")
+
+    def update_shot_control_device(self):
+        # Updates the shot control device when it is changed in the text box
+        self.repetition_rate = self.ui.lineTimingDevice.text()
 
     def populate_found_list(self):
         # List all files in the save_devices folder under chosen experiment:
@@ -302,6 +325,10 @@ class GEECSScannerWindow(QMainWindow):
     def initialize_scan(self):
         # From the information provided in the GUI, create a scan configuration file and submit to GEECS for
         #  data logging.
+        self.ui.startScanButton.setEnabled(False)
+        self.ui.startScanButton.setText("Starting...")
+        QApplication.processEvents()
+
         save_device_list = {}
         for i in range(self.ui.selectedDevices.count()):
             filename = self.ui.selectedDevices.item(i).text()
@@ -359,31 +386,22 @@ class GEECSScannerWindow(QMainWindow):
             'scan_parameters': scan_parameters,
         }
         self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
-        """  # The following was a test, and it mostly works.  Only dumping a yaml is weird if the strings have colons
-        run_config = {
-            'Devices': save_device_list,
-            'scan_info': scan_information,
-            'scan_parameters': scan_parameters,
-            'scan_config': scan_config
-        }
-        with open("./test.yaml", 'w') as file:
-            try:
-                yaml.dump(run_config, file, default_flow_style=False)
-            except yaml.YAMLError as exc:
-                print(f"Error writing YAML file: {exc}")
-        """
+        self.ui.startScanButton.setText("Start Scan")
 
     def update_indicator(self):
         if self.RunControl.is_active():
             self.ui.scanStatusIndicator.setStyleSheet("background-color: red;")
             self.ui.startScanButton.setEnabled(False)
-            self.ui.stopScanButton.setEnabled(True)
+            self.ui.stopScanButton.setEnabled(not self.RunControl.is_stopping())
         else:
             self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
-            self.ui.startScanButton.setEnabled(True)
+            self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
             self.ui.stopScanButton.setEnabled(False)
+            self.RunControl.clear_stop_state()
 
     def stop_scan(self):
+        self.ui.stopScanButton.setEnabled(False)
+        QApplication.processEvents()
         self.RunControl.stop_scan()
 
 
