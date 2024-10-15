@@ -66,10 +66,8 @@ sounds = Sounds()
 
 class ActionManager:
     def __init__(self, experiment_dir: str):
-        # Initialize the ConfigManager within ActionManager
-        self.config_manager = ConfigManager()  # Automatically initialized
+
         if experiment_dir is not None:
-            
             # Use the utility function to get the path to the actions.yaml file
             self.actions_file_path = get_full_config_path(experiment_dir, 'actions.yaml')
 
