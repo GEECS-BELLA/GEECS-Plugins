@@ -243,6 +243,28 @@ class GeecsDatabase:
 
         GeecsDatabase._close_db(db, db_cursor)
         return dev_ip, dev_port
+        
+    @staticmethod
+    def find_device_type(dev_name=''):
+        db_cursor = db = None
+        dev_ip: str = ''
+        dev_port: int = 0
+
+        try:
+            selectors = [ "devicetype"]
+
+            db = GeecsDatabase._get_db()
+            db_cursor = db.cursor()
+            db_cursor.execute(f'SELECT {",".join(selectors)} FROM {GeecsDatabase.name}.device WHERE name=%s;',
+                              (dev_name,))
+            db_result = db_cursor.fetchone()
+            dev_type = str(db_result[0])
+
+        except Exception as ex:
+            api_error.error(str(ex), f'GeecsDatabase class, static method "find_device({dev_name})"')
+
+        GeecsDatabase._close_db(db, db_cursor)
+        return dev_type
 
     @staticmethod
     def search_dict(haystack: dict, needle: str, path="/") -> list[tuple[str, str]]:
