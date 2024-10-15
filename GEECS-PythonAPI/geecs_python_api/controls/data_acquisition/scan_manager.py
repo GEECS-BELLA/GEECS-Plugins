@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 
 from .data_acquisition import DeviceManager, ActionManager, DataInterface, DataLogger
+from .utils import ConsoleLogger
 
 from geecs_python_api.controls.interface import load_config
 from geecs_python_api.controls.interface import GeecsDatabase
@@ -26,6 +27,73 @@ else:
 GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
 device_dict = GeecsDevice.exp_info['devices']
 
+class ConsoleLogger:
+    def __init__(self, log_file="system_log.log", level=logging.INFO, console=False):
+        self.log_file = log_file
+        self.level = level
+        self.console = console
+        self.logging_active = False
+
+    def setup_logging(self):
+        """
+        Sets up logging for the module. By default, logs to a file.
+        """
+        if self.logging_active:
+            logging.warning("Logging is already active, cannot start a new session.")
+            return
+
+        # Remove any previously configured handlers to prevent duplication
+        for handler in logging.root.handlers[:]:
+            logging.root.removeHandler(handler)
+
+        # Configure logging with both file and optional console handlers
+        handlers = [logging.FileHandler(self.log_file)]
+        if self.console:
+            handlers.append(logging.StreamHandler())
+
+        logging.basicConfig(
+            level=self.level,
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=handlers
+        )
+        self.logging_active = True
+        logging.info("Logging session started.")
+
+    def stop_logging(self):
+        """
+        Stops logging and cleans up handlers.
+        """
+        if not self.logging_active:
+            logging.warning("No active logging session to stop.")
+            return
+
+        for handler in logging.root.handlers[:]:
+            handler.close()
+            logging.root.removeHandler(handler)
+
+        self.logging_active = False
+        print("Logging has been stopped and handlers have been removed.")
+
+    def move_log_file(self, dest_dir):
+        """
+        Moves the log file to the destination directory using shutil to handle cross-device issues.
+        """
+        src_path = Path(self.log_file)
+        dest_path = Path(dest_dir) / src_path.name
+
+        print(f"Attempting to move {src_path} to {dest_path}")
+
+        try:
+            shutil.move(str(src_path), str(dest_path))
+            print(f"Moved log file to {dest_path}")
+        except Exception as e:
+            print(f"Failed to move {src_path} to {dest_path}: {e}")
+
+    def is_logging_active(self):
+        """
+        Returns whether logging is active or not.
+        """
+        return self.logging_active
 
 class ScanManager():
 
@@ -41,10 +109,11 @@ class ScanManager():
         self.results = {}  # Store results for later processing
 
         self.stop_scanning_thread_event = threading.Event()  # Event to signal the logging thread to stop
-
-        self.console_log_name = "scan_execution.log"
-        self.setup_console_logging(log_file=self.console_log_name, level=logging.INFO, console=True)
-
+        
+        # Use the new ConsoleLogger class
+        self.console_logger = ConsoleLogger(log_file="scan_execution.log", level=logging.INFO, console=True)
+        self.console_logger.setup_logging()
+        
         self.bin_num = 0  # Initialize bin as 0
 
         self.scanning_thread = None  # NEW: Separate thread for scanning
@@ -53,55 +122,8 @@ class ScanManager():
 
         self.scan_steps = []  # To store the precomputed scan steps
 
-    def setup_console_logging(self, log_file="system_log.log", level=logging.INFO, console=False):
-        """
-        Sets up logging for the module. By default, logs to a file.
-    
-        Args:
-            log_file (str): The file to log to.
-            level (int): The logging level (e.g., logging.INFO, logging.DEBUG).
-            console (bool): If True, also logs to the console.
-        """
-        # Remove any previously configured handlers to prevent duplication
-        for handler in logging.root.handlers[:]:
-            logging.root.removeHandler(handler)
-
-        # Configure logging with both file and optional console handlers
-        handlers = [logging.FileHandler(log_file)]
-        if console:
-            handlers.append(logging.StreamHandler())
-
-        logging.basicConfig(
-            level=level,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=handlers
-        )
-
     def reinitialize(self, config_path=None, config_dictionary=None):
         self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
-
-    def stop_console_logging(self):
-        # Iterate over the root logger's handlers and close each one
-        for handler in logging.root.handlers[:]:
-            handler.close()  # Close the file or stream
-            logging.root.removeHandler(handler)  # Remove the handler
-
-        print("Logging has been stopped and handlers have been removed.")
-
-    def move_log_file(self, src_file, dest_dir):
-        """
-        Moves the log file to the destination directory using shutil to handle cross-device issues.
-        """
-        src_path = Path(src_file)
-        dest_path = Path(dest_dir) / src_path.name
-
-        print(f"Attempting to move {src_path} to {dest_path}")
-
-        try:
-            shutil.move(str(src_path), str(dest_path))
-            print(f"Moved log file to {dest_path}")
-        except Exception as e:
-            print(f"Failed to move {src_path} to {dest_path}: {e}")
 
     def _set_trigger(self, state: str):
         """Helper method to turn the trigger on or off."""
@@ -242,16 +264,20 @@ class ScanManager():
                     logging.info(f"Setting save path back to temp for {device_name} complete")
                 else:
                     logging.warning(f"Device {device_name} not found in DeviceManager.")
-
+            
+            time.sleep(2) #add wait to allow asynch commands above to get through the queue
+            
         logging.info("scanning has stopped for all devices.")
-        self.shot_control.set('Trigger.Source', "External rising edges")
+        
+        self.trigger_on()
 
         self.data_interface.process_and_rename()
 
-        self.stop_console_logging()
-
+        # Stop the console logging
+        self.console_logger.stop_logging()
+        
         if self.save_data:
-            self.move_log_file(self.console_log_name, self.data_txt_path.parent)
+            self.console_logger.move_log_file( self.data_txt_path.parent)
 
         return log_df
 
