@@ -13,6 +13,9 @@ from pathlib import Path
 import os
 import re
 
+import concurrent.futures
+
+
 from nptdms import TdmsWriter, ChannelObject
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -680,30 +683,37 @@ class DataInterface():
             logging.error(f"Scan data file {sPath} not found.")
             return
 
-        # Process each device directory
-        for device_dir in device_directories:
-            device_name = device_dir.name
-            logging.info(f"Processing device directory: {device_name}")
+        # Process each device directory concurrently using threads
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # Submit each device directory for processing in a separate thread
+            futures = [executor.submit(self.process_device_files, device_dir, df) for device_dir in device_directories]
 
-            device_type = GeecsDatabase.find_device_type(device_name)  # Lookup the device type
+            # Wait for all threads to complete
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()  # Retrieve the result to handle any exceptions
+                except Exception as e:
+                    logging.error(f"Error during file processing: {e}")
 
-            if not device_type:
-                logging.warning(f"Could not find device type for {device_name}. Skipping.")
-                continue
-
-            # Find matching rows and rename files based on device type
-            self.process_device_files(device_dir, df, device_type)
-
-    def process_device_files(self, device_dir, df, device_type):
+    def process_device_files(self, device_dir, df):
         """
         Generic method to process device files and rename them based on timestamps.
         The specific timestamp extraction function is selected based on the device type.
         """
+        device_name = device_dir.name
+        logging.info(f"Processing device directory: {device_name}")
+
+        # Lookup the device type
+        device_type = GeecsDatabase.find_device_type(device_name)
+
+        if not device_type:
+            logging.warning(f"Could not find device type for {device_name}. Skipping.")
+            return
+
         # Collect all files in the directory
         device_files = list(device_dir.glob("*"))
 
         # Create the timestamp column name corresponding to the device
-        device_name = device_dir.name
         device_timestamp_column = f'{device_name} timestamp'
 
         logging.info(f"Found {len(device_files)} files in {device_name} directory.")
