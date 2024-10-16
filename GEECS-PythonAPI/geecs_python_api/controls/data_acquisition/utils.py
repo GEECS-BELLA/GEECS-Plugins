@@ -3,7 +3,7 @@ from pathlib import Path
 import shutil
 import yaml
 
-def get_full_config_path(experiment: str, config_file: str) -> Path:
+def get_full_config_path(experiment: str, config_type:str, config_file: str) -> Path:
 
     """
     Get the full path to a configuration file within an experiment directory.
@@ -21,7 +21,7 @@ def get_full_config_path(experiment: str, config_file: str) -> Path:
     current_dir = Path(__file__).parent
 
     # Set the base directory to be the 'configs' directory relative to the current directory
-    base_dir = current_dir / 'configs'
+    base_dir = current_dir / 'configs' / 'experiments'
     
     # Ensure base_dir exists
     if not base_dir.exists():
@@ -32,7 +32,8 @@ def get_full_config_path(experiment: str, config_file: str) -> Path:
     if not experiment_dir.exists():
         raise FileNotFoundError(f"The experiment directory {experiment_dir} does not exist.")
 
-    config_path = experiment_dir / config_file
+
+    config_path = experiment_dir / config_type / config_file
     if not config_path.exists():
         raise FileNotFoundError(f"The config file {config_path} does not exist.")
 
@@ -42,7 +43,7 @@ def visa_config_generator(visa_key, diagnostic_type):
     
     # input_filename = '../../geecs_python_api/controls/data_acquisition/configs/HTU/visa_plunger_lookup.yaml'
     
-    input_filename = get_full_config_path('HTU', 'visa_plunger_lookup.yaml')
+    input_filename = get_full_config_path('Undulator', 'aux_configs', 'visa_plunger_lookup.yaml')
     
     with open(input_filename, 'r') as file:
         visa_lookup = yaml.safe_load(file)
@@ -105,7 +106,7 @@ def visa_config_generator(visa_key, diagnostic_type):
 
     # Writing to a YAML file
     
-    output_filename = input_filename.parent / f'{visa_key}_{diagnostic_type}_setup.yaml'
+    output_filename = input_filename.parent.parent / 'save_devices' / f'{visa_key}_{diagnostic_type}_setup.yaml'
     with open(output_filename, 'w') as outfile:
         yaml.dump(output_data, outfile, default_flow_style=False)
 
