@@ -132,7 +132,7 @@ class ScanManager():
                 logging.info(f"Estimated acquisition time based on scan config: {acquisition_time} seconds.")
 
             # Initialize scan state if scan_config is provided
-            scan_state = self.initialize_scan_state(scan_config)
+            scan_state = self.get_initial_state(scan_config)
 
             ###############
             # add in the data loggin portion here
@@ -201,8 +201,11 @@ class ScanManager():
         logging.info("scanning has stopped for all devices.")
         
         self.trigger_on()
-
-        self.data_interface.process_and_rename()
+        
+        self.restore_initial_state(self.initial_state)
+        
+        if self.save_data:
+            self.data_interface.process_and_rename()
 
         # Stop the console logging
         self.console_logger.stop_logging()
@@ -241,89 +244,10 @@ class ScanManager():
 
             self.action_manager.add_action({'setup_action': self.device_manager.scan_setup_action})
             self.action_manager.execute_action('setup_action')
+            
+        self.initial_state = self.get_initial_state(scan_config)
 
         logging.info("Pre-logging setup completed.")
-
-    def create_and_set_data_paths(self):
-        """
-        Create data paths for devices that have save_non_scalar=True and set the save data path on those devices.
-
-        Args:
-            save_non_scalar_devices (list): List of device names that should save non-scalar data.
-        """
-
-        self.data_interface.next_scan_folder = self.data_interface.get_next_scan_folder()
-
-        for device_name in self.device_manager.non_scalar_saving_devices:
-            data_path_client_side, data_path_local_side = self.data_interface.build_device_save_paths(device_name)
-            self.data_interface.create_device_save_dir(data_path_local_side)
-
-            device = self.device_manager.devices.get(device_name)
-            if device:
-                save_path = str(data_path_client_side).replace('/', "\\")
-                logging.info(f"Setting save data path for {device_name} to {save_path}")
-                device.set("localsavingpath", save_path, sync=False)
-                time.sleep(.1)
-                device.set('save', 'on', sync=False)
-            else:
-                logging.warning(f"Device {device_name} not found in DeviceManager.")
-
-        analysis_save_path = self.data_interface.build_analysis_save_path()
-        self.data_interface.create_device_save_dir(analysis_save_path)
-
-        tdms_output_path, tdms_index_output_path, self.data_txt_path, self.data_h5_path, self.sFile_txt_path = self.data_interface.build_scalar_data_save_paths()
-        self.tdms_writer = TdmsWriter(tdms_output_path)
-        self.tdms_index_writer = TdmsWriter(tdms_index_output_path)
-
-        time.sleep(1)
-
-    def write_scan_info_ini(self, scan_config):
-        """
-        Write the scan configuration to an .ini file with the required format.
-
-        Args:
-            scan_config (dict): Dictionary containing scan parameters.
-        """
-        # Check if scan_config is a dictionary
-        if not isinstance(scan_config, dict):
-            logging.error(f"scan_config is not a dictionary: {type(scan_config)}")
-            return
-
-        # Define the file name, replacing 'XXX' with the scan number
-        scan_folder = self.data_interface.next_scan_folder
-        scan_number = int(scan_folder[-3:])
-        filename = f"ScanInfo{scan_folder}.ini"
-
-        scan_var = scan_config.get('device_var', '')
-        additional_description = scan_config.get('additional_description', '')
-
-        scan_info = f'{self.device_manager.scan_base_description}. scanning {scan_var}. {additional_description}'
-
-        # Add the Scan Info section
-        config_file_contents = [
-            "[Scan Info]\n",
-            f"Scan No = \"{scan_number}\"\n",
-            f"ScanStartInfo = \"{scan_info}\"\n",
-            f"Scan Parameter = \"{scan_var}\"\n",
-            f"Start = \"{scan_config.get('start', 0)}\"\n",
-            f"End = \"{scan_config.get('end', 0)}\"\n",
-            f"Step size = \"{scan_config.get('step', 1)}\"\n",
-            f"Shots per step = \"{scan_config.get('wait_time', 1)}\"\n",
-            f"ScanEndInfo = \"\""
-        ]
-
-        # Create the full path for the file
-        full_path = Path(self.data_txt_path.parent) / filename
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-
-        logging.info(f"Attempting to write to {full_path}")
-
-        # Write to the .ini file
-        with full_path.open('w') as configfile:
-            for line in config_file_contents:
-                configfile.write(line)
-
-        logging.info(f"Scan info written to {full_path}")
 
     def _add_scan_devices_to_async_observables(self, scan_config):
         """
@@ -453,21 +377,130 @@ class ScanManager():
         logging.info(f'Estimated scan time: {total_time}')
 
         return total_time
-
-    def initialize_scan_state(self, scan_config):
+   
+    def get_initial_state(self, scan_config):
         """
-        Initialize the state of each scan based on the start values from scan_config.
+        Initialize the state of each scan based on the current values from the subscribers.
+        Handles both normal and composite variables.
         Returns a dictionary where each `device_var` is mapped to its current value.
         """
-        scan_state = {}
+        scan_variables = []
+
         if scan_config:
             for scan in scan_config:
                 device_var = scan['device_var']
-                if not self.device_manager.is_statistic_noscan(device_var):
-                    start = scan['start']
-                    scan_state[device_var] = start  # Set the current position to the start value
-        return scan_state
 
+                # Handle composite variables by retrieving each component's state
+                if self.device_manager.is_composite_variable(device_var):
+                    component_vars = self.device_manager.get_composite_components(device_var, scan['start'])
+                    scan_variables.extend(component_vars.keys())
+                else:
+                    scan_variables.append(device_var)
+
+        # Use the existing method to get the current state of all variables
+        initial_state = self.device_manager.get_values(scan_variables)
+
+        logging.info(f"Initialized scan state: {initial_state}")
+        return initial_state
+   
+    def restore_initial_state(self, initial_state):
+        """
+        Restore devices to their initial states using the provided initial_state dictionary.
+        """
+        for device_var, value_dict in initial_state.items():
+            device_name, var_name = device_var.split(':')
+            device = self.device_manager.devices.get(device_name)
+
+            if device:
+                initial_value = value_dict['value']
+                device.set(var_name, initial_value)
+                logging.info(f"Restored {device_name}:{var_name} to initial value {initial_value}")
+            else:
+                logging.warning(f"Device {device_name} not found when trying to restore state.")
+
+        logging.info("All devices restored to their initial states.")
+        
+    def create_and_set_data_paths(self):
+        """
+        Create data paths for devices that have save_non_scalar=True and set the save data path on those devices.
+
+        Args:
+            save_non_scalar_devices (list): List of device names that should save non-scalar data.
+        """
+
+        self.data_interface.next_scan_folder = self.data_interface.get_next_scan_folder()
+
+        for device_name in self.device_manager.non_scalar_saving_devices:
+            data_path_client_side, data_path_local_side = self.data_interface.build_device_save_paths(device_name)
+            self.data_interface.create_device_save_dir(data_path_local_side)
+
+            device = self.device_manager.devices.get(device_name)
+            if device:
+                save_path = str(data_path_client_side).replace('/', "\\")
+                logging.info(f"Setting save data path for {device_name} to {save_path}")
+                device.set("localsavingpath", save_path, sync=False)
+                time.sleep(.1)
+                device.set('save', 'on', sync=False)
+            else:
+                logging.warning(f"Device {device_name} not found in DeviceManager.")
+
+        analysis_save_path = self.data_interface.build_analysis_save_path()
+        self.data_interface.create_device_save_dir(analysis_save_path)
+
+        tdms_output_path, tdms_index_output_path, self.data_txt_path, self.data_h5_path, self.sFile_txt_path = self.data_interface.build_scalar_data_save_paths()
+        self.tdms_writer = TdmsWriter(tdms_output_path)
+        self.tdms_index_writer = TdmsWriter(tdms_index_output_path)
+
+        time.sleep(1)
+
+    def write_scan_info_ini(self, scan_config):
+        """
+        Write the scan configuration to an .ini file with the required format.
+
+        Args:
+            scan_config (dict): Dictionary containing scan parameters.
+        """
+        # Check if scan_config is a dictionary
+        if not isinstance(scan_config, dict):
+            logging.error(f"scan_config is not a dictionary: {type(scan_config)}")
+            return
+
+        # Define the file name, replacing 'XXX' with the scan number
+        scan_folder = self.data_interface.next_scan_folder
+        scan_number = int(scan_folder[-3:])
+        filename = f"ScanInfo{scan_folder}.ini"
+
+        scan_var = scan_config.get('device_var', '')
+        additional_description = scan_config.get('additional_description', '')
+
+        scan_info = f'{self.device_manager.scan_base_description}. scanning {scan_var}. {additional_description}'
+
+        # Add the Scan Info section
+        config_file_contents = [
+            "[Scan Info]\n",
+            f"Scan No = \"{scan_number}\"\n",
+            f"ScanStartInfo = \"{scan_info}\"\n",
+            f"Scan Parameter = \"{scan_var}\"\n",
+            f"Start = \"{scan_config.get('start', 0)}\"\n",
+            f"End = \"{scan_config.get('end', 0)}\"\n",
+            f"Step size = \"{scan_config.get('step', 1)}\"\n",
+            f"Shots per step = \"{scan_config.get('wait_time', 1)}\"\n",
+            f"ScanEndInfo = \"\""
+        ]
+
+        # Create the full path for the file
+        full_path = Path(self.data_txt_path.parent) / filename
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+
+        logging.info(f"Attempting to write to {full_path}")
+
+        # Write to the .ini file
+        with full_path.open('w') as configfile:
+            for line in config_file_contents:
+                configfile.write(line)
+
+        logging.info(f"Scan info written to {full_path}")
+    
     def fill_async_nans(self, log_df, async_observables):
         """
         Fill NaN values in asynchronous observable columns with the most recent non-NaN value.
