@@ -131,9 +131,6 @@ class ScanManager():
                 acquisition_time = self.estimate_acquisition_time(scan_config)
                 logging.info(f"Estimated acquisition time based on scan config: {acquisition_time} seconds.")
 
-            # Initialize scan state if scan_config is provided
-            scan_state = self.get_initial_state(scan_config)
-
             ###############
             # add in the data loggin portion here
             ##############
@@ -234,6 +231,10 @@ class ScanManager():
         # Handle scan variables and ensure devices are initialized in DeviceManager
         logging.info(f'scan config in pre logging is this: {scan_config}')
         self.device_manager.handle_scan_variables(scan_config)
+        
+        time.sleep(1.5)
+        
+        self.initial_state = self.get_initial_state(scan_config)
 
         # Generate the scan steps
         self.scan_steps = self._generate_scan_steps(scan_config)
@@ -245,8 +246,6 @@ class ScanManager():
             self.action_manager.add_action({'setup_action': self.device_manager.scan_setup_action})
             self.action_manager.execute_action('setup_action')
             
-        self.initial_state = self.get_initial_state(scan_config)
-
         logging.info("Pre-logging setup completed.")
 
     def _add_scan_devices_to_async_observables(self, scan_config):
@@ -301,8 +300,35 @@ class ScanManager():
                         'is_composite': False
                     })
                     current_value += scan['step']
+        
+            # Check if it's a composite variable and if it has a relative flag in the YAML
+            if self.device_manager.is_composite_variable(device_var):
+                composite_variable_info = self.device_manager.composite_variables.get(device_var, {})
+                relative_flag = composite_variable_info.get('relative', False)
+                # self._apply_relative_adjustment(steps)
+            
+            # set relative flag for normal variables
+            elif scan.get('relative', False):
+                relative_flag = True
+                
+            if relative_flag:
+                self._apply_relative_adjustment(steps)
+                    
         return steps
 
+    def _apply_relative_adjustment(self, scan_steps):
+        """
+        Adjusts the scan steps based on the initial state of the devices if relative scanning is enabled.
+        """
+        for step in scan_steps:
+            for device_var, value in step['variables'].items():
+                # Add the initial state value to the step value for each device
+                if device_var in self.initial_state:
+                    initial_value = self.initial_state[device_var]['value']
+                    step['variables'][device_var] += initial_value
+                else:
+                    logging.warning(f"Initial state for {device_var} not found, skipping relative adjustment.")
+    
     def scan_execution_loop(self, acquisition_time):
         """
         Executes the scan loop over precomputed scan steps, stopping if the stop event is triggered.
@@ -400,7 +426,7 @@ class ScanManager():
         # Use the existing method to get the current state of all variables
         initial_state = self.device_manager.get_values(scan_variables)
 
-        logging.info(f"Initialized scan state: {initial_state}")
+        logging.info(f"Initial scan variable state: {initial_state}")
         return initial_state
    
     def restore_initial_state(self, initial_state):
