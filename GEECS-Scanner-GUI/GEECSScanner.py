@@ -9,7 +9,7 @@ import os
 import traceback
 
 import yaml
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QCompleter, QLabel
+from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter
 from PyQt5.QtCore import Qt, QEvent, QTimer
 from GEECSScanner_ui import Ui_MainWindow
 from LogStream import EmittingStream, MultiStream
@@ -82,6 +82,11 @@ class GEECSScannerWindow(QMainWindow):
         self.populate_scan_devices()
         self.ui.lineScanVariable.editingFinished.connect(self.check_scan_device)
         self.ui.lineScanVariable.installEventFilter(self)
+
+        self.populate_preset_list()
+        self.ui.listScanPresets.itemDoubleClicked.connect(self.apply_preset)
+        self.ui.presetSaveButton.clicked.connect(self.save_current_preset)
+        self.ui.presetDeleteButton.clicked.connect(self.delete_selected_preset)
 
         self.ui.startScanButton.clicked.connect(self.initialize_scan)
         self.ui.stopScanButton.clicked.connect(self.stop_scan)
@@ -159,6 +164,7 @@ class GEECSScannerWindow(QMainWindow):
         # Clears the list of found and selected save devices
         self.ui.selectedDevices.clear()
         self.ui.foundDevices.clear()
+        self.ui.listScanPresets.clear()
 
     def update_repetition_rate(self):
         # Updates the repetition rate when it is changed in the text box
@@ -178,9 +184,9 @@ class GEECSScannerWindow(QMainWindow):
     def populate_found_list(self):
         # List all files in the save_devices folder under chosen experiment:
         try:
-            experiment_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
-            for file_name in os.listdir(experiment_folder):
-                full_path = os.path.join(experiment_folder, file_name)
+            experiment_preset_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
+            for file_name in os.listdir(experiment_preset_folder):
+                full_path = os.path.join(experiment_preset_folder, file_name)
                 if os.path.isfile(full_path):
                     root, ext = os.path.splitext(file_name)
                     self.ui.foundDevices.addItem(root)
@@ -323,6 +329,81 @@ class GEECSScannerWindow(QMainWindow):
                     self.ui.lineNumShots.setText("N/A")
             except ValueError:
                 self.ui.lineNumShots.setText("N/A")
+
+    def populate_preset_list(self):
+        try:
+            experiment_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/scan_presets/"
+            for file_name in os.listdir(experiment_folder):
+                full_path = os.path.join(experiment_folder, file_name)
+                if os.path.isfile(full_path):
+                    root, ext = os.path.splitext(file_name)
+                    self.ui.listScanPresets.addItem(root)
+        except OSError:
+            self.clear_lists()
+
+    def save_current_preset(self):
+        text, ok = QInputDialog.getText(self, 'Save Configuration', 'Enter filename:')
+        if ok and text:
+            save_device_list = []
+            for i in range(self.ui.selectedDevices.count()):
+                device = self.ui.selectedDevices.item(i).text()
+                save_device_list.append(device)
+
+            settings = {'Devices': save_device_list, 'Info': self.ui.textEditScanInfo.toPlainText()}
+            if self.ui.noscanRadioButton.isChecked():
+                settings['Scan Mode'] = 'No Scan'
+                settings['Num Shots'] = self.noscan_num
+            elif self.ui.scanRadioButton.isChecked():
+                settings['Scan Mode'] = '1D Scan'
+                settings['Variable'] = self.scan_variable
+                settings['Start'] = self.scan_start
+                settings['Stop'] = self.scan_stop
+                settings['Step Size'] = self.scan_step_size
+                settings['Shot per Step'] = self.scan_shot_per_step
+
+            with open(f"{RELATIVE_PATH}experiments/{self.experiment}/scan_presets/{text}.yaml", 'w') as file:
+                yaml.dump(settings, file, default_flow_style=False)
+
+    def apply_preset(self):
+        selected_element = self.ui.listScanPresets.selectedItems()
+        settings = {}
+        for preset in selected_element:
+            preset_filename = f"{RELATIVE_PATH}experiments/{self.experiment}/scan_presets/{preset.text()}.yaml"
+            with open(preset_filename, 'r') as file:
+                settings = yaml.safe_load(file)
+
+        self.clear_lists()
+        self.populate_found_list()
+        self.populate_preset_list()
+
+        devices_to_select = []
+        for index in range(self.ui.foundDevices.count()):
+            item = self.ui.foundDevices.item(index)
+            if item.text() in settings['Devices']:
+                devices_to_select.append(item)
+        for device in devices_to_select:
+            self.ui.foundDevices.takeItem(self.ui.foundDevices.row(device))
+            self.ui.selectedDevices.addItem(device)
+
+        self.ui.textEditScanInfo.setText(str(settings['Info']))
+        if settings['Scan Mode'] in "No Scan":
+            self.ui.noscanRadioButton.setChecked(True)
+            self.update_scan_edit_state()
+            self.ui.lineNumShots.setText(str(settings['Num Shots']))
+            self.update_noscan_num_shots()
+        elif settings['Scan Mode'] in "1D Scan":
+            self.ui.scanRadioButton.setChecked(True)
+            self.update_scan_edit_state()
+            self.ui.lineScanVariable.setText(str(settings['Variable']))
+            self.check_scan_device()
+            self.ui.lineStartValue.setText(str(settings['Start']))
+            self.ui.lineStopValue.setText(str(settings['Stop']))
+            self.ui.lineStepSize.setText(str(settings['Step Size']))
+            self.ui.lineShotStep.setText(str(settings['Shot per Step']))
+            self.calculate_num_shots()
+
+    def delete_selected_preset(self):
+        print("Ouch!")
 
     def initialize_scan(self):
         # From the information provided in the GUI, create a scan configuration file and submit to GEECS for
