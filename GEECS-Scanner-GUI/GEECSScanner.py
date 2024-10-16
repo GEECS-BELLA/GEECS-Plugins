@@ -23,7 +23,7 @@ except TypeError:
 
 MAXIMUM_SCAN_SIZE = 1e6
 RELATIVE_PATH = "../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/"
-
+PRESET_LOCATIONS = "./scan_presets/"
 
 class GEECSScannerWindow(QMainWindow):
     def __init__(self):
@@ -331,15 +331,17 @@ class GEECSScannerWindow(QMainWindow):
                 self.ui.lineNumShots.setText("N/A")
 
     def populate_preset_list(self):
+        self.ui.listScanPresets.clear()
         try:
-            experiment_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/scan_presets/"
+            experiment_folder = PRESET_LOCATIONS + self.experiment + "/"
             for file_name in os.listdir(experiment_folder):
                 full_path = os.path.join(experiment_folder, file_name)
                 if os.path.isfile(full_path):
                     root, ext = os.path.splitext(file_name)
                     self.ui.listScanPresets.addItem(root)
         except OSError:
-            self.clear_lists()
+            print("Could not locate pre-existing scan presets.")
+            self.ui.listScanPresets.clear()
 
     def save_current_preset(self):
         text, ok = QInputDialog.getText(self, 'Save Configuration', 'Enter filename:')
@@ -361,14 +363,19 @@ class GEECSScannerWindow(QMainWindow):
                 settings['Step Size'] = self.scan_step_size
                 settings['Shot per Step'] = self.scan_shot_per_step
 
-            with open(f"{RELATIVE_PATH}experiments/{self.experiment}/scan_presets/{text}.yaml", 'w') as file:
+            folder = f"{PRESET_LOCATIONS}{self.experiment}/"
+            os.makedirs(folder, exist_ok=True)
+
+            with open(f"{folder}/{text}.yaml", 'w') as file:
                 yaml.dump(settings, file, default_flow_style=False)
+
+            self.populate_preset_list()
 
     def apply_preset(self):
         selected_element = self.ui.listScanPresets.selectedItems()
         settings = {}
         for preset in selected_element:
-            preset_filename = f"{RELATIVE_PATH}experiments/{self.experiment}/scan_presets/{preset.text()}.yaml"
+            preset_filename = f"{PRESET_LOCATIONS}{self.experiment}/{preset.text()}.yaml"
             with open(preset_filename, 'r') as file:
                 settings = yaml.safe_load(file)
 
@@ -403,7 +410,21 @@ class GEECSScannerWindow(QMainWindow):
             self.calculate_num_shots()
 
     def delete_selected_preset(self):
-        print("Ouch!")
+        selected_element = self.ui.listScanPresets.selectedItems()
+        for preset in selected_element:
+            preset_filename = f"{PRESET_LOCATIONS}{self.experiment}/{preset.text()}.yaml"
+            try:
+                os.remove(preset_filename)
+                print(f"{preset_filename} has been deleted :(")
+            except FileNotFoundError:
+                print(f"{preset_filename} not found.")
+            except PermissionError:
+                print(f"Permission denied: {preset_filename}")
+            except Exception as e:
+                print(f"Error occurred: {e}")
+
+        self.ui.listScanPresets.clear()
+        self.populate_preset_list()
 
     def initialize_scan(self):
         # From the information provided in the GUI, create a scan configuration file and submit to GEECS for
