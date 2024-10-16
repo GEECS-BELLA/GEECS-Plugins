@@ -336,8 +336,15 @@ class ScanManager():
         log_df = pd.DataFrame()  # Initialize in case of early exit
 
         while self.scan_steps:
+            # Check if the stop event is set, and exit if so
+            if self.stop_scanning_thread_event.is_set():
+                logging.info("Scanning has been stopped externally.")
+                break
+                
             scan_step = self.scan_steps.pop(0)
             self._execute_step(scan_step['variables'], scan_step['wait_time'], scan_step['is_composite'])
+        
+
 
         logging.info("Stopping logging.")
 
