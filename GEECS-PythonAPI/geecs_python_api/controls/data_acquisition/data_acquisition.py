@@ -69,7 +69,7 @@ class ActionManager:
 
         if experiment_dir is not None:
             # Use the utility function to get the path to the actions.yaml file
-            self.actions_file_path = get_full_config_path(experiment_dir, 'actions.yaml')
+            self.actions_file_path = get_full_config_path(experiment_dir, 'aux_configs', 'actions.yaml')
 
             # Dictionary to store instantiated GeecsDevices
             self.instantiated_devices = {}
@@ -178,9 +178,14 @@ class DeviceManager:
             # Set the experiment directory
             self.experiment_dir = experiment_dir
 
+            # # Use self.experiment_dir when calling the utility function
+            # self.base_config_file_path = get_full_config_path(self.experiment_dir, 'base_monitoring_devs.yaml')
+            # self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'composite_variables.yaml')
+            
+            
             # Use self.experiment_dir when calling the utility function
-            self.base_config_file_path = get_full_config_path(self.experiment_dir, 'base_monitoring_devs.yaml')
-            self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'composite_variables.yaml')
+            self.base_config_file_path = get_full_config_path(self.experiment_dir, 'save_devices', 'Base_Monitoring_Devices.yaml')
+            self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'aux_configs', 'composite_variables.yaml')
            
             # Load composite variables from the file
             self.composite_variables = self.load_composite_variables(self.composite_variables_file_path)
@@ -227,7 +232,7 @@ class DeviceManager:
         self.load_base_config()
 
         # Load the specific config for the experiment
-        config_path = get_full_config_path(self.experiment_dir, config_filename)
+        config_path = get_full_config_path(self.experiment_dir, 'save_device', config_filename)
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
         logging.info(f"Loaded configuration from {config_path}")
