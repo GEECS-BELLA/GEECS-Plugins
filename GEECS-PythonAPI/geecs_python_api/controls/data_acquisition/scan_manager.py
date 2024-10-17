@@ -436,10 +436,10 @@ class ScanManager():
             start = scan_config['start']
             end = scan_config['end']
             step = scan_config['step']
-            wait_time = scan_config.get('wait_time', 1) - 0.5  # Default wait time between steps is 1 second
+            wait_time = scan_config.get('wait_time', 1)# - 0.5  # Default wait time between steps is 1 second
 
             # Calculate the number of steps and the total time for this device
-            steps = (end - start) / step
+            steps = ((end - start) / step) + 1
             total_time += steps * wait_time
 
         logging.info(f'Estimated scan time: {total_time}')
