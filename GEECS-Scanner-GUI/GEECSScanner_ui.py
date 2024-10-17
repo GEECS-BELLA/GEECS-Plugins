@@ -117,7 +117,7 @@ class Ui_MainWindow(object):
         self.repititionRateDisplay.setGeometry(QtCore.QRect(330, 10, 41, 22))
         self.repititionRateDisplay.setAutoFillBackground(False)
         self.repititionRateDisplay.setText("")
-        self.repititionRateDisplay.setReadOnly(True)
+        self.repititionRateDisplay.setReadOnly(False)
         self.repititionRateDisplay.setObjectName("repititionRateDisplay")
         self.lineDeviceOption = QtWidgets.QLineEdit(self.centralwidget)
         self.lineDeviceOption.setEnabled(False)

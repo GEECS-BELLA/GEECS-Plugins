@@ -37,7 +37,7 @@ class GEECSScannerWindow(QMainWindow):
         #sys.stderr = MultiStream(sys.stderr, EmittingStream(self.ui.logDisplay))
 
         self.experiment = "<None Selected>"
-        self.repetition_rate = ""
+        self.repetition_rate = 0
         self.shot_control_device = ""
         self.load_config_settings()
 
@@ -49,7 +49,7 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_step_size = 0
         self.scan_shot_per_step = 0
 
-        self.ui.repititionRateDisplay.setText(self.repetition_rate)
+        self.ui.repititionRateDisplay.setText(str(self.repetition_rate))
         self.ui.repititionRateDisplay.editingFinished.connect(self.update_repetition_rate)
         self.ui.lineTimingDevice.setText(self.shot_control_device)
         self.ui.lineTimingDevice.editingFinished.connect(self.update_shot_control_device)
@@ -175,8 +175,10 @@ class GEECSScannerWindow(QMainWindow):
                 self.repetition_rate = rep_rate
             else:
                 self.ui.repititionRateDisplay.setText("N/A")
+                self.repetition_rate = 0
         except ValueError:
             self.ui.repititionRateDisplay.setText("N/A")
+            self.repetition_rate = 0
 
     def update_shot_control_device(self):
         # Updates the shot control device when it is changed in the text box
@@ -437,76 +439,83 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.listScanPresets.clear()
         self.populate_preset_list()
 
+    def check_for_errors(self):
+        if not self.repetition_rate > 0:
+            print("Error: Need nonzero repetition rate")
+            return True
+        return False
+
     def initialize_scan(self):
-        # From the information provided in the GUI, create a scan configuration file and submit to GEECS for
-        #  data logging.
-        self.ui.startScanButton.setEnabled(False)
-        self.ui.startScanButton.setText("Starting...")
-        QApplication.processEvents()
+        if not self.check_for_errors():
+            # From the information provided in the GUI, create a scan configuration file and submit to GEECS for
+            #  data logging.
+            self.ui.startScanButton.setEnabled(False)
+            self.ui.startScanButton.setText("Starting...")
+            QApplication.processEvents()
 
-        save_device_list = {}
-        list_of_steps = []
-        for i in range(self.ui.selectedDevices.count()):
-            filename = self.ui.selectedDevices.item(i).text()
-            fullpath = RELATIVE_PATH + f"experiments/{self.experiment}/save_devices/{filename}.yaml"
-            with open(fullpath, 'r') as file:
-                try:
-                    data = yaml.safe_load(file)
-                    save_device_list.update(data['Devices'])
+            save_device_list = {}
+            list_of_steps = []
+            for i in range(self.ui.selectedDevices.count()):
+                filename = self.ui.selectedDevices.item(i).text()
+                fullpath = RELATIVE_PATH + f"experiments/{self.experiment}/save_devices/{filename}.yaml"
+                with open(fullpath, 'r') as file:
+                    try:
+                        data = yaml.safe_load(file)
+                        save_device_list.update(data['Devices'])
 
-                    if 'setup_action' in data:
-                        setup_action = data['setup_action']
-                        list_of_steps.extend(setup_action['steps'])
-                except yaml.YAMLError as exc:
-                    print(f"Error reading YAML file: {exc}")
+                        if 'setup_action' in data:
+                            setup_action = data['setup_action']
+                            list_of_steps.extend(setup_action['steps'])
+                    except yaml.YAMLError as exc:
+                        print(f"Error reading YAML file: {exc}")
 
-        scan_information = {
-            'experiment': self.experiment,
-            'description': self.ui.textEditScanInfo.toPlainText()
-        }
-
-        if self.ui.scanRadioButton.isChecked():
-            scan_variable_tag = self.read_device_tag_from_nickname(self.scan_variable)
-            scan_config = {
-                'device_var': scan_variable_tag,
-                'start': self.scan_start,
-                'end': self.scan_stop,
-                'step': self.scan_step_size,
-                'wait_time': self.scan_shot_per_step + 0.5
+            scan_information = {
+                'experiment': self.experiment,
+                'description': self.ui.textEditScanInfo.toPlainText()
             }
-            scan_mode = scan_variable_tag
-            scan_array_initial = self.scan_start
-            scan_array_final = self.scan_stop
-        elif self.ui.noscanRadioButton.isChecked():
-            scan_config = {
-                'device_var': 'noscan',
-                'wait_time': self.noscan_num + 0.5
+
+            if self.ui.scanRadioButton.isChecked():
+                scan_variable_tag = self.read_device_tag_from_nickname(self.scan_variable)
+                scan_config = {
+                    'device_var': scan_variable_tag,
+                    'start': self.scan_start,
+                    'end': self.scan_stop,
+                    'step': self.scan_step_size,
+                    'wait_time': (self.scan_shot_per_step + 0.5)/self.repetition_rate
+                }
+                scan_mode = scan_variable_tag
+                scan_array_initial = self.scan_start
+                scan_array_final = self.scan_stop
+            elif self.ui.noscanRadioButton.isChecked():
+                scan_config = {
+                    'device_var': 'noscan',
+                    'wait_time': (self.noscan_num + 0.5)/self.repetition_rate
+                }
+                scan_mode = "noscan"
+                scan_array_initial = 0
+                scan_array_final = self.noscan_num
+            else:
+                scan_config = None
+                scan_mode = ""
+                scan_array_initial = 0
+                scan_array_final = 0
+
+            scan_parameters = {  # TODO What does this even do???
+                'scan_mode': scan_mode,
+                'scan_range': [scan_array_initial, scan_array_final]
             }
-            scan_mode = "noscan"
-            scan_array_initial = 0
-            scan_array_final = self.noscan_num
-        else:
-            scan_config = None
-            scan_mode = ""
-            scan_array_initial = 0
-            scan_array_final = 0
 
-        scan_parameters = {  # TODO What does this even do???
-            'scan_mode': scan_mode,
-            'scan_range': [scan_array_initial, scan_array_final]
-        }
+            run_config = {
+                'Devices': save_device_list,
+                'scan_info': scan_information,
+                'scan_parameters': scan_parameters,
+            }
+            if list_of_steps:
+                steps = {'steps': list_of_steps}
+                run_config['setup_action'] = steps
 
-        run_config = {
-            'Devices': save_device_list,
-            'scan_info': scan_information,
-            'scan_parameters': scan_parameters,
-        }
-        if list_of_steps:
-            steps = {'steps': list_of_steps}
-            run_config['setup_action'] = steps
-
-        self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
-        self.ui.startScanButton.setText("Start Scan")
+            self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
+            self.ui.startScanButton.setText("Start Scan")
 
     def update_indicator(self):
         if self.RunControl.is_active():
