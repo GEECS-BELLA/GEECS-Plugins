@@ -28,14 +28,212 @@ else:
 GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
 device_dict = GeecsDevice.exp_info['devices']
 
-class ScanManager():
+class ScanDataManager:
+    def __init__(self, data_interface):
+        self.data_interface = data_interface
+        self.tdms_writer = None
+        self.tdms_index_writer = None
+        self.data_txt_path = None
+        self.data_h5_path = None
+        self.sFile_txt_path = None
+
+    def initialize_tdms_writers(self, tdms_output_path, tdms_index_output_path):
+        """Initialize the TDMS writers for data and index."""
+        self.tdms_writer = TdmsWriter(tdms_output_path)
+        self.tdms_index_writer = TdmsWriter(tdms_index_output_path)
+        logging.info(f"TDMS writers initialized with paths: {tdms_output_path}, {tdms_index_output_path}")
+
+    def create_and_set_data_paths(self, device_manager):
+        """Create data paths for devices that have save_non_scalar=True and set the save data path on those devices."""
+        self.data_interface.next_scan_folder = self.data_interface.get_next_scan_folder()
+
+        for device_name in device_manager.non_scalar_saving_devices:
+            data_path_client_side, data_path_local_side = self.data_interface.build_device_save_paths(device_name)
+            self.data_interface.create_device_save_dir(data_path_local_side)
+
+            device = device_manager.devices.get(device_name)
+            if device:
+                save_path = str(data_path_client_side).replace('/', "\\")
+                logging.info(f"Setting save data path for {device_name} to {save_path}")
+                device.set("localsavingpath", save_path, sync=False)
+                time.sleep(.1)
+                device.set('save', 'on', sync=False)
+            else:
+                logging.warning(f"Device {device_name} not found in DeviceManager.")
+
+        analysis_save_path = self.data_interface.build_analysis_save_path()
+        self.data_interface.create_device_save_dir(analysis_save_path)
+
+        tdms_output_path, tdms_index_output_path, self.data_txt_path, self.data_h5_path, self.sFile_txt_path = self.data_interface.build_scalar_data_save_paths()
+        self.initialize_tdms_writers(tdms_output_path, tdms_index_output_path)
     
+    def write_scan_info_ini(self, scan_config):
+        """
+        Write the scan configuration to an .ini file with the required format.
+
+        Args:
+            scan_config (dict): Dictionary containing scan parameters.
+        """
+        # Check if scan_config is a dictionary
+        if not isinstance(scan_config, dict):
+            logging.error(f"scan_config is not a dictionary: {type(scan_config)}")
+            return
+
+        # Define the file name, replacing 'XXX' with the scan number
+        scan_folder = self.data_interface.next_scan_folder
+        scan_number = int(scan_folder[-3:])
+        filename = f"ScanInfo{scan_folder}.ini"
+
+        scan_var = scan_config.get('device_var', '')
+        additional_description = scan_config.get('additional_description', '')
+
+        scan_info = f'{self.device_manager.scan_base_description}. scanning {scan_var}. {additional_description}'
+
+        # Add the Scan Info section
+        config_file_contents = [
+            "[Scan Info]\n",
+            f"Scan No = \"{scan_number}\"\n",
+            f"ScanStartInfo = \"{scan_info}\"\n",
+            f"Scan Parameter = \"{scan_var}\"\n",
+            f"Start = \"{scan_config.get('start', 0)}\"\n",
+            f"End = \"{scan_config.get('end', 0)}\"\n",
+            f"Step size = \"{scan_config.get('step', 1)}\"\n",
+            f"Shots per step = \"{scan_config.get('wait_time', 1)}\"\n",
+            f"ScanEndInfo = \"\""
+        ]
+
+        # Create the full path for the file
+        full_path = Path(self.data_txt_path.parent) / filename
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+
+        logging.info(f"Attempting to write to {full_path}")
+
+        # Write to the .ini file
+        with full_path.open('w') as configfile:
+            for line in config_file_contents:
+                configfile.write(line)
+
+        logging.info(f"Scan info written to {full_path}")
+    
+    def save_to_txt_and_h5(self, df):
+        """Save the DataFrame to both .txt (as tab-separated values) and .h5 (HDF5) formats."""
+        # Save as .txt file (TSV format)
+        df.to_csv(self.data_txt_path, sep='\t', index=False)
+        df.to_csv(self.sFile_txt_path, sep='\t', index=False)
+        logging.info(f"Data saved to {self.data_txt_path}")
+
+    def dataframe_to_tdms(self, df, is_index=False):
+        """Convert a DataFrame to a TDMS file or a TDMS index file."""
+        tdms_writer = self.tdms_index_writer if is_index else self.tdms_writer
+        with tdms_writer:
+            for column in df.columns:
+                group_name, channel_name = (column.split(':', 1) if ':' in column else (column, column))
+                data = [] if is_index else df[column].values
+                ch_object = ChannelObject(group_name, channel_name, data)
+                tdms_writer.write_segment([ch_object])
+        logging.info(f"TDMS {'index' if is_index else 'data'} file written successfully.")
+
+    def fill_async_nans(self, log_df, async_observables, fill_value=0):
+        """
+        Fill NaN values and empty strings in asynchronous observable columns with the most recent non-NaN value.
+        If a column starts with NaN or empty strings, it will backfill with the first non-NaN value.
+        After forward and backward filling, remaining NaN or empty entries are filled with `fill_value`.
+
+        Args:
+            log_df (pd.DataFrame): The DataFrame containing the logged data.
+            async_observables (list): A list of asynchronous observables (columns) to process.
+            fill_value (int, float): Value to fill remaining NaN and empty entries (default is 0).
+        """
+        # Convert empty strings ('') to NaN
+        log_df.replace('', pd.NA, inplace=True)
+
+        for async_obs in async_observables:
+            if async_obs in log_df.columns:
+                # Only process if the entire column is not NaN
+                if not log_df[async_obs].isna().all():
+                    # First, apply forward fill (ffill) to propagate the last known value
+                    log_df[async_obs] = log_df[async_obs].ffill()
+
+                    # Then, apply backward fill (bfill) to fill leading NaNs with the first non-NaN value
+                    log_df[async_obs] = log_df[async_obs].bfill()
+                else:
+                    logging.warning(f"Column {async_obs} consists entirely of NaN values and will be left unchanged.")
+
+        # Finally, fill any remaining NaN values (including converted empty strings) with the specified fill_value
+        log_df = log_df.fillna(fill_value)
+
+        # Use infer_objects to downcast the object dtype arrays appropriately
+        log_df = log_df.infer_objects(copy=False)
+
+        logging.info(f"Filled remaining NaN and empty values with {fill_value}.")
+        return log_df
+
+    def convert_to_dataframe(self, log_entries, device_dict):
+        """Convert the synchronized log entries dictionary into a pandas DataFrame."""
+        log_df = pd.DataFrame.from_dict(log_entries, orient='index').sort_values(by='Elapsed Time').reset_index(drop=True)
+        async_observables = device_dict['async_observables']
+        log_df = self.fill_async_nans(log_df, async_observables)
+        log_df.columns = self.modify_headers(log_df.columns, device_dict)
+        return log_df
+
+    def modify_headers(self, headers, device_dict):
+        """Modify DataFrame headers to include device aliases if available."""
+        new_headers = []
+        for header in headers:
+            if ':' in header:
+                device_name, variable = header.split(':')
+                alias = device_dict.get(device_name, {}).get(variable, {}).get('alias', '')
+                new_headers.append(f"{device_name} {variable} Alias:{alias}" if alias else header)
+            else:
+                new_headers.append(header)
+        return new_headers
+
+    def _stop_saving_devices(self, device_manager):
+        """
+        Stop the data logger, close threads, and update saving paths for non-scalar devices.
+        """
+        for device_name in device_manager.non_scalar_saving_devices:
+            device = device_manager.devices.get(device_name)
+            if device:
+                logging.info(f"Setting save to off for {device_name}")
+                device.set('save', 'off', sync=False)
+                logging.info(f"Setting save to off for {device_name} complete")
+                device.set('localsavingpath', 'c:\\temp', sync=False)
+                logging.info(f"Setting save path back to temp for {device_name} complete")
+            else:
+                logging.warning(f"Device {device_name} not found in DeviceManager.")
+        time.sleep(2)
+        logging.info("Stopped saving for all devices.")
+
+    def _process_results(self, results):
+        """
+        Convert results to DataFrame, save data, and write to TDMS.
+        """
+        if results:
+            log_df = self.convert_to_dataframe(results, device_dict)
+            logging.info("Data logging complete. Returning DataFrame.")
+
+            # Save results to .txt and .h5
+            self.save_to_txt_and_h5(log_df)
+
+            # Write TDMS files (data and index)
+            self.dataframe_to_tdms(log_df)
+            self.dataframe_to_tdms(log_df, is_index=True)
+
+            return log_df
+        else:
+            logging.warning("No data was collected during the logging period.")
+            return pd.DataFrame()
+
+
+class ScanManager():
+
     """
     Manages the execution of scans. This involves initializing a device_manager if one
     is not. A 'save_devices' config file should be passed to the device_manager to initialize
-    the desired saving configuration. 
+    the desired saving configuration.
     """
-    
+
     def __init__(self, experiment_dir=None, device_manager=None, data_interface=None):
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
         self.data_interface = data_interface or DataInterface()
@@ -48,11 +246,11 @@ class ScanManager():
         self.results = {}  # Store results for later processing
 
         self.stop_scanning_thread_event = threading.Event()  # Event to signal the logging thread to stop
-        
+
         # Use the new ConsoleLogger class
         self.console_logger = ConsoleLogger(log_file="scan_execution.log", level=logging.INFO, console=True)
         self.console_logger.setup_logging()
-        
+
         self.bin_num = 0  # Initialize bin as 0
 
         self.scanning_thread = None  # NEW: Separate thread for scanning
@@ -105,10 +303,11 @@ class ScanManager():
         logging.info("Scan thread started.")
 
     def stop_scanning_thread(self):
+        
         if not self.is_scanning_active():
             logging.warning("No active scanning thread to stop.")
             return
-
+        
         # Stop the scaning and wait for the thread to finish
         logging.info("Stopping the scanning thread...")
 
@@ -122,9 +321,9 @@ class ScanManager():
 
     def start_scan(self, scan_config):
         """
-        Start a scan while dynamically performing actions 
+        Start a scan while dynamically performing actions
         or handling 'noscan' (or 'statistics') scans during the acquisition process.
-        
+
         Args:
             scan_config (list of dicts, optional): List of scan configurations for dynamic actions.
                                                    Supports 'noscan' (or 'statistics') for no-action scans.
@@ -176,7 +375,7 @@ class ScanManager():
         # Step 5: Restore the initial state of devices
         if self.initial_state is not None:
             self.restore_initial_state(self.initial_state)
-        
+
         # Step 4: Turn the trigger back on
         self.trigger_on()
 
@@ -214,10 +413,10 @@ class ScanManager():
                 logging.info(f"Setting save path back to temp for {device_name} complete")
             else:
                 logging.warning(f"Device {device_name} not found in DeviceManager.")
-                
+
         # Ensure asynchronous commands have time to finish
         time.sleep(2)
-       
+
         logging.info("scanning has stopped for all devices.")
 
     def _process_results(self):
@@ -239,10 +438,10 @@ class ScanManager():
         else:
             logging.warning("No data was collected during the logging period.")
             return pd.DataFrame()
-     
+
     def pre_logging_setup(self, scan_config):
         """
-        Precompute all scan steps (including composite and normal variables), 
+        Precompute all scan steps (including composite and normal variables),
         add scan devices to async_observables, and store the scan steps.
         """
 
@@ -259,7 +458,7 @@ class ScanManager():
         # Handle scan variables and ensure devices are initialized in DeviceManager
         logging.info(f'scan config in pre logging is this: {scan_config}')
         self.device_manager.handle_scan_variables(scan_config)
-        
+
         time.sleep(1.5)
 
         device_var = scan_config['device_var']
@@ -275,7 +474,7 @@ class ScanManager():
 
             self.action_manager.add_action({'setup_action': self.device_manager.scan_setup_action})
             self.action_manager.execute_action('setup_action')
-            
+
         logging.info("Pre-logging setup completed.")
 
     def _add_scan_devices_to_async_observables(self, scan_config):
@@ -302,7 +501,7 @@ class ScanManager():
         """
         self.bin_num = 0
         steps = []
-        
+
         device_var = scan_config['device_var']
 
         if self.device_manager.is_statistic_noscan(device_var):
@@ -337,14 +536,14 @@ class ScanManager():
             composite_variable_info = self.device_manager.composite_variables.get(device_var, {})
             relative_flag = composite_variable_info.get('relative', False)
             # self._apply_relative_adjustment(steps)
-        
+
         # set relative flag for normal variables
         elif scan_config.get('relative', False):
             relative_flag = True
-            
+
         if relative_flag and not self.device_manager.is_statistic_noscan(device_var):
             self._apply_relative_adjustment(steps)
-                
+
         return steps
 
     def _apply_relative_adjustment(self, scan_steps):
@@ -359,7 +558,7 @@ class ScanManager():
                     step['variables'][device_var] += initial_value
                 else:
                     logging.warning(f"Initial state for {device_var} not found, skipping relative adjustment.")
-    
+
     def scan_execution_loop(self, acquisition_time):
         """
         Executes the scan loop over precomputed scan steps, stopping if the stop event is triggered.
@@ -371,10 +570,10 @@ class ScanManager():
             if self.stop_scanning_thread_event.is_set():
                 logging.info("Scanning has been stopped externally.")
                 break
-                
+
             scan_step = self.scan_steps.pop(0)
             self._execute_step(scan_step['variables'], scan_step['wait_time'], scan_step['is_composite'])
-        
+
 
 
         logging.info("Stopping logging.")
@@ -440,7 +639,7 @@ class ScanManager():
         logging.info(f'Estimated scan time: {total_time}')
 
         return total_time
-   
+
     def get_initial_state(self, scan_config):
         """
         Initialize the state of each scan based on the current values from the subscribers.
@@ -465,7 +664,7 @@ class ScanManager():
 
         logging.info(f"Initial scan variable state: {initial_state}")
         return initial_state
-   
+
     def restore_initial_state(self, initial_state):
         """
         Restore devices to their initial states using the provided initial_state dictionary.
@@ -482,205 +681,3 @@ class ScanManager():
                 logging.warning(f"Device {device_name} not found when trying to restore state.")
 
         logging.info("All devices restored to their initial states.")
-        
-    def create_and_set_data_paths(self):
-        """
-        Create data paths for devices that have save_non_scalar=True and set the save data path on those devices.
-
-        Args:
-            save_non_scalar_devices (list): List of device names that should save non-scalar data.
-        """
-
-        self.data_interface.next_scan_folder = self.data_interface.get_next_scan_folder()
-
-        for device_name in self.device_manager.non_scalar_saving_devices:
-            data_path_client_side, data_path_local_side = self.data_interface.build_device_save_paths(device_name)
-            self.data_interface.create_device_save_dir(data_path_local_side)
-
-            device = self.device_manager.devices.get(device_name)
-            if device:
-                save_path = str(data_path_client_side).replace('/', "\\")
-                logging.info(f"Setting save data path for {device_name} to {save_path}")
-                device.set("localsavingpath", save_path, sync=False)
-                time.sleep(.1)
-                device.set('save', 'on', sync=False)
-            else:
-                logging.warning(f"Device {device_name} not found in DeviceManager.")
-
-        analysis_save_path = self.data_interface.build_analysis_save_path()
-        self.data_interface.create_device_save_dir(analysis_save_path)
-
-        tdms_output_path, tdms_index_output_path, self.data_txt_path, self.data_h5_path, self.sFile_txt_path = self.data_interface.build_scalar_data_save_paths()
-        self.tdms_writer = TdmsWriter(tdms_output_path)
-        self.tdms_index_writer = TdmsWriter(tdms_index_output_path)
-
-        time.sleep(1)
-
-    def write_scan_info_ini(self, scan_config):
-        """
-        Write the scan configuration to an .ini file with the required format.
-
-        Args:
-            scan_config (dict): Dictionary containing scan parameters.
-        """
-        # Check if scan_config is a dictionary
-        if not isinstance(scan_config, dict):
-            logging.error(f"scan_config is not a dictionary: {type(scan_config)}")
-            return
-
-        # Define the file name, replacing 'XXX' with the scan number
-        scan_folder = self.data_interface.next_scan_folder
-        scan_number = int(scan_folder[-3:])
-        filename = f"ScanInfo{scan_folder}.ini"
-
-        scan_var = scan_config.get('device_var', '')
-        additional_description = scan_config.get('additional_description', '')
-
-        scan_info = f'{self.device_manager.scan_base_description}. scanning {scan_var}. {additional_description}'
-
-        # Add the Scan Info section
-        config_file_contents = [
-            "[Scan Info]\n",
-            f"Scan No = \"{scan_number}\"\n",
-            f"ScanStartInfo = \"{scan_info}\"\n",
-            f"Scan Parameter = \"{scan_var}\"\n",
-            f"Start = \"{scan_config.get('start', 0)}\"\n",
-            f"End = \"{scan_config.get('end', 0)}\"\n",
-            f"Step size = \"{scan_config.get('step', 1)}\"\n",
-            f"Shots per step = \"{scan_config.get('wait_time', 1)}\"\n",
-            f"ScanEndInfo = \"\""
-        ]
-
-        # Create the full path for the file
-        full_path = Path(self.data_txt_path.parent) / filename
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-
-        logging.info(f"Attempting to write to {full_path}")
-
-        # Write to the .ini file
-        with full_path.open('w') as configfile:
-            for line in config_file_contents:
-                configfile.write(line)
-
-        logging.info(f"Scan info written to {full_path}")
-    
-    def fill_async_nans(self, log_df, async_observables, fill_value=0):
-        """
-        Fill NaN values and empty strings in asynchronous observable columns with the most recent non-NaN value.
-        If a column starts with NaN or empty strings, it will backfill with the first non-NaN value.
-        After forward and backward filling, remaining NaN or empty entries are filled with `fill_value`.
-
-        Args:
-            log_df (pd.DataFrame): The DataFrame containing the logged data.
-            async_observables (list): A list of asynchronous observables (columns) to process.
-            fill_value (int, float): Value to fill remaining NaN and empty entries (default is 0).
-        """
-        # Convert empty strings ('') to NaN
-        log_df.replace('', pd.NA, inplace=True)
-
-        for async_obs in async_observables:
-            if async_obs in log_df.columns:
-                # Only process if the entire column is not NaN
-                if not log_df[async_obs].isna().all():
-                    # First, apply forward fill (ffill) to propagate the last known value
-                    log_df[async_obs] = log_df[async_obs].ffill()
-
-                    # Then, apply backward fill (bfill) to fill leading NaNs with the first non-NaN value
-                    log_df[async_obs] = log_df[async_obs].bfill()
-                else:
-                    logging.warning(f"Column {async_obs} consists entirely of NaN values and will be left unchanged.")
-
-        # Finally, fill any remaining NaN values (including converted empty strings) with the specified fill_value
-        log_df = log_df.fillna(fill_value)
-
-        # Use infer_objects to downcast the object dtype arrays appropriately
-        log_df = log_df.infer_objects(copy=False)
-
-        logging.info(f"Filled remaining NaN and empty values with {fill_value}.")
-        return log_df
-    
-    def save_to_txt_and_h5(self, df, txt_file_path, h5_file_path, sFile_path):
-        """
-        Save the DataFrame to both .txt (as tab-separated values) and .h5 (HDF5) formats.
-
-        Args:
-            df (pd.DataFrame): The DataFrame to be saved.
-            txt_file_path (str): Path to save the .txt file.
-            h5_file_path (str): Path to save the .h5 file.
-        """
-        # Save as .txt file (TSV format)
-        df.to_csv(txt_file_path, sep='\t', index=False)
-        df.to_csv(sFile_path, sep='\t', index=False)
-        logging.info(f"Data saved to {txt_file_path}")
-
-        # # Save as .h5 file (HDF5 format)
-        # df.to_hdf(h5_file_path, key='data', mode='w')
-        # logging.info(f"Data saved to {h5_file_path}")
-
-    def convert_to_dataframe(self, log_entries):
-        """
-        Convert the synchronized log entries dictionary into a pandas DataFrame.
-        """
-        log_df = pd.DataFrame.from_dict(log_entries, orient='index')
-        log_df = log_df.sort_values(by='Elapsed Time').reset_index(drop=True)
-
-        async_observables = self.device_manager.async_observables
-        log_df = self.fill_async_nans(log_df, async_observables)
-
-        # Modify the headers
-        new_headers = self.modify_headers(log_df.columns, device_dict)
-        log_df.columns = new_headers
-
-        return log_df
-
-    def modify_headers(self, headers, device_dict):
-        new_headers = []
-        for header in headers:
-            if ':' in header:
-                device_name, variable = header.split(':')
-                new_header = f"{device_name} {variable}"
-                # Check if alias exists
-                alias = device_dict.get(device_name, {}).get(variable, {}).get('alias')
-                if alias:
-                    new_header = f"{new_header} Alias:{alias}"
-            else:
-                new_header = header  # Keep the header as is if no colon
-            new_headers.append(new_header)
-        return new_headers
-           
-    
-    def dataframe_to_tdms(self, df, is_index=False):
-        """
-        Convert a DataFrame to a TDMS file or a TDMS index file.
-        Groups are created based on the part before the colon in column names,
-        and channels are created based on the part after the colon. If no colon exists,
-        the group and channel will be the column header.
-
-        Args:
-            df (pd.DataFrame): The DataFrame to convert.
-            is_index (bool): If True, writes only the structure (groups and channels) without data.
-        """
-
-        # Use the correct writer based on whether it's an index file or a data file
-        tdms_writer = self.tdms_index_writer if is_index else self.tdms_writer
-
-        with tdms_writer:
-            for column in df.columns:
-                # Check if the column name contains a colon to split it into group and channel
-                if ':' in column:
-                    group_name, channel_name = column.split(':', 1)
-                else:
-                    # If no colon, use the column name for both group and channel
-                    group_name = channel_name = column
-
-                # If it's an index file, write an empty array, otherwise write actual data
-                data = [] if is_index else df[column].values
-
-                # Create the ChannelObject with the appropriate group, channel, and data
-                ch_object = ChannelObject(group_name, channel_name, data)
-
-                # Write the channel data or structure to the TDMS file
-                tdms_writer.write_segment([ch_object])
-
-        logging.info(f"TDMS {'index' if is_index else 'data'} file written successfully.")
-    
