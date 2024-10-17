@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "geecs-scanner-gui"
+version = "0.1.0"
+description = ""
+authors = ["Christopher Doss <CEDoss@lbl.gov>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.11"
+PyQt5 = "^5.15.9"
+pyqt5-tools = "^5.15.9.3.3"
+geecs-pythonapi = {path = "../GEECS-PythonAPI"}
+pyyaml = "^6.0.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

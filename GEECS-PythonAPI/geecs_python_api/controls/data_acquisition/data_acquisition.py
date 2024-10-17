@@ -6,8 +6,6 @@ from datetime import datetime
 import logging
 import pandas as pd
 import yaml
-    
-import shutil
 
 import subprocess
 import platform
@@ -15,252 +13,115 @@ from pathlib import Path
 import os
 import re
 
-import configparser
+import concurrent.futures
+
 
 from nptdms import TdmsWriter, ChannelObject
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from geecs_python_api.controls.interface import load_config
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
 import geecs_python_api.controls.interface.message_handling as mh
 
-config = load_config()
+from image_analysis.utils import get_imaq_timestamp_from_png
 
-if config and 'Experiment' in config and 'expt' in config['Experiment']:
-    default_experiment = config['Experiment']['expt']
-    print(f"default experiment is: {default_experiment}")
-else:
-    print("Configuration file not found or default experiment not defined. While use Undulator as experiment. Could be a problem for you.")
-    default_experiment = 'Undulator'
-
-GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
-device_dict = GeecsDevice.exp_info['devices']
+from .utils import get_full_config_path  # Import the utility function
 
 
-import asyncio
+# For Windows-specific imports
+if platform.system() == "Windows":
+    import winsound
+# For macOS-specific imports
+elif platform.system() == "Darwin":
+    import simpleaudio as sa
 
-def setup_console_logging(log_file="system_log.log", level=logging.INFO, console=False):
-    """
-    Sets up logging for the module. By default, logs to a file.
-    
-    Args:
-        log_file (str): The file to log to.
-        level (int): The logging level (e.g., logging.INFO, logging.DEBUG).
-        console (bool): If True, also logs to the console.
-    """
-    # Remove any previously configured handlers to prevent duplication
-    for handler in logging.root.handlers[:]:
-        logging.root.removeHandler(handler)
-
-    # Configure logging with both file and optional console handlers
-    handlers = [logging.FileHandler(log_file)]
-    if console:
-        handlers.append(logging.StreamHandler())
-
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=handlers
-    )
-     
-def stop_console_logging():
-    # Iterate over the root logger's handlers and close each one
-    for handler in logging.root.handlers[:]:
-        handler.close()  # Close the file or stream
-        logging.root.removeHandler(handler)  # Remove the handler
-
-    print("Logging has been stopped and handlers have been removed.")
-
-def move_log_file(src_file, dest_dir):
-    """
-    Moves the log file to the destination directory using shutil to handle cross-device issues.
-    """
-    src_path = Path(src_file)
-    dest_path = Path(dest_dir) / src_path.name
-    
-    print(f"Attempting to move {src_path} to {dest_path}")
-    
-    try:
-        shutil.move(str(src_path), str(dest_path))
-        print(f"Moved log file to {dest_path}")
-    except Exception as e:
-        print(f"Failed to move {src_path} to {dest_path}: {e}")
-
-class Sounds:
-    def __init__(self):
-        # Initialize the threading event and the sound file to be played
-        self._play_event = threading.Event()
-        self._sound_file = None
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def _run(self):
-        # Run loop that waits for a play event and plays the specified sound
-        while not self._stop_event.is_set():
-            if self._play_event.is_set() and self._sound_file:
-                # Play the sound (adapt this command based on your OS)
-                os.system(f'afplay {self._sound_file}')  # macOS specific, change as necessary
-                self._play_event.clear()  # Reset after playing
-            time.sleep(0.1)  # Prevent busy-waiting
+class SoundPlayer:
+    def __init__(self, beep_frequency=500, beep_duration=0.1, toot_frequency=1500, toot_duration=0.75, sample_rate=44100):
+        # Assign the user-defined or default values for frequency and duration
+        self.beep_frequency = beep_frequency
+        self.beep_duration = beep_duration
+        self.toot_frequency = toot_frequency
+        self.toot_duration = toot_duration
+        self.sample_rate = sample_rate
+        
+        # Create a queue to hold sound requests
+        self.sound_queue = queue.Queue()
+        # Create and start the background thread
+        self.sound_thread = threading.Thread(target=self._process_queue)
+        self.sound_thread.daemon = True  # Mark thread as a daemon so it exits when the main program exits
+        self.running = True  # Flag to control thread running
+        self.sound_thread.start()
 
     def play_beep(self):
-        """ Play the 'beep' sound """
-        self._sound_file = 'trimmed_tink.aiff'  # Replace with actual path to beep sound
-        self._play_event.set()
+        """Add a beep sound request to the queue."""
+        self.sound_queue.put('beep')
 
     def play_toot(self):
-        """ Play the 'toot' sound """
-        self._sound_file = 'Hero.aiff'  # Replace with actual path to toot sound
-        self._play_event.set()
+        """Add a toot sound request to the queue."""
+        self.sound_queue.put('toot')
 
     def stop(self):
-        """ Stop the sound thread """
-        self._stop_event.set()
-        self._thread.join()  # Ensure the thread exits cleanly  
+        """Stop the sound player by sending a termination signal."""
+        self.running = False
+        self.sound_queue.put(None)  # Add a termination signal to the queue
 
-# Example usage of the Sounds class
-sounds = Sounds()
+    def _process_queue(self):
+        """Continuously process the sound queue."""
+        while self.running:
+            try:
+                # Wait for the next sound request (this blocks until a request is added)
+                sound_type = self.sound_queue.get()
+                
+                # Exit the loop if the termination signal is received
+                if sound_type is None:
+                    break
 
-class ConfigManager:
-    def __init__(self):
-        """
-        Initialize the ConfigManager with the base directory for configurations.
-        The base directory is set to be relative to the directory where this script/module resides.
-        """
-        # Get the path of the current file (where this class is defined)
-        current_dir = Path(__file__).parent
+                # Play the requested sound
+                if sound_type == 'beep':
+                    self._play_sound(self.beep_frequency, self.beep_duration)
+                elif sound_type == 'toot':
+                    self._play_sound(self.toot_frequency, self.toot_duration)
 
-        # Set the base directory to be the 'configs' directory relative to the current directory
-        self.base_dir = current_dir / 'configs'
-        
-        # Ensure base_dir exists
-        if not self.base_dir.exists():
-            raise FileNotFoundError(f"The base config directory {self.base_dir} does not exist.")
+                # Mark the task as done
+                self.sound_queue.task_done()
+            except Exception as e:
+                print(f"Error processing sound: {e}")
 
-        self.experiment_dir = None
+    def _play_sound(self, frequency, duration):
+        """Private method to play a sound based on the platform."""
+        # Windows: Use winsound.Beep
+        if platform.system() == "Windows":
+            winsound.Beep(frequency, int(duration * 1000))  # Duration is in milliseconds
+        # macOS: Use simpleaudio to play the generated sound
+        elif platform.system() == "Darwin":
+            audio_data = self._generate_sound(frequency, duration)
+            play_obj = sa.play_buffer(audio_data, 1, 2, self.sample_rate)  # 1 channel, 2 bytes per sample
+            play_obj.wait_done()
+        # Optionally add Linux support or other platforms if needed
+        else:
+            os.system('printf "\a"')  # Default to terminal bell for unsupported platforms
 
-    def set_experiment_dir(self, experiment: str):
-        """
-        Set the experiment directory based on the subdirectory name.
+    def _generate_sound(self, frequency, duration):
+        """Generate a sound (for macOS) given a frequency and duration."""
+        t = np.linspace(0, duration, int(self.sample_rate * duration), False)
+        tone = np.sin(2 * np.pi * frequency * t)
+        return (tone * 32767).astype(np.int16)  # Convert to 16-bit PCM format
 
-        Args:
-            experiment (str): Name of the subdirectory for the experiment (e.g., 'HTU').
-        """
-        self.experiment_dir = self.base_dir / experiment
-        if not self.experiment_dir.exists():
-            raise FileNotFoundError(f"The experiment directory {self.experiment_dir} does not exist.")
 
-    def get_config_path(self, config_file: str) -> Path:
-        """
-        Get the full path of the specified configuration file in the current experiment directory.
-
-        Args:
-            config_file (str): The configuration file to retrieve.
-
-        Returns:
-            Path: The full path to the config file.
-        """
-        if not self.experiment_dir:
-            raise ValueError("Experiment directory is not set. Call set_experiment_dir() first.")
-        
-        config_path = self.experiment_dir / config_file
-        if not config_path.exists():
-            raise FileNotFoundError(f"The config file {config_path} does not exist.")
-        
-        return config_path
-        
-        
-    def visa_config_generator(self, visa_key, diagnostic_type):
-        
-        # input_filename = '../../geecs_python_api/controls/data_acquisition/configs/HTU/visa_plunger_lookup.yaml'
-        
-        input_filename = self.get_config_path('visa_plunger_lookup.yaml')
-        
-        with open(input_filename, 'r') as file:
-            visa_lookup = yaml.safe_load(file)
-        
-        device_info = visa_lookup[visa_key]
-    
-        # Define the VisaEBeam camera dynamically based on the visa_key
-        visa_ebeam_camera = f"UC_VisaEBeam{visa_key[-1]}"  # Extracts the last number from visa_key (e.g., visa1 -> UC_VisaEBEam1)
-    
-        if diagnostic_type == 'energy':
-            description = f"collecting data on {visa_key}EBeam and U_FELEnergyMeter"
-            setup_steps = [
-                {'action': 'execute', 'action_name': 'remove_visa_plungers'},
-                {'device': device_info['device'], 'variable': device_info['variable'], 'action': 'set', 'value': 'on'},
-                {'device': 'U_Velmex', 'variable': 'Position', 'action': 'set', 'value': device_info['energy_meter_position']}
-            ]
-            devices = {
-                visa_ebeam_camera: {
-                    'variable_list': ["timestamp"],
-                    'synchronous': True,
-                    'save_nonscalar_data': True
-                },
-                'U_FELEnergyMeter': {
-                    'variable_list': ["Python Results.ChA", "timestamp"],
-                    'synchronous': True,
-                    'save_nonscalar_data': True
-                }
-            }
-        
-        elif diagnostic_type == 'spectrometer':
-            description = f"collecting data on {visa_key}EBeam and U_Spectrometer"
-            setup_steps = [
-                {'action': 'execute', 'action_name': 'remove_visa_plungers'},
-                {'device': device_info['device'], 'variable': device_info['variable'], 'action': 'set', 'value': 'on'},
-                {'device': 'U_Velmex', 'variable': 'Position', 'action': 'set', 'value': device_info['spectrometer_position']}
-            ]
-            devices = {
-                visa_ebeam_camera: {
-                    'variable_list': ["timestamp"],
-                    'synchronous': True,
-                    'save_nonscalar_data': True
-                },
-                'UC_UndulatorRad2': {
-                    'variable_list': ["MeanCounts", "timestamp"],
-                    'synchronous': True,
-                    'save_nonscalar_data': True
-                }
-            }
-    
-        # Constructing the YAML structure
-        output_data = {
-            'Devices': devices,
-            'scan_info': {
-                'description': description
-            },
-            'setup_action': {
-                'steps': setup_steps
-            }
-        }
-    
-        # Writing to a YAML file
-        
-        output_filename = input_filename.parent / f'{visa_key}_{diagnostic_type}_setup.yaml'
-        with open(output_filename, 'w') as outfile:
-            yaml.dump(output_data, outfile, default_flow_style=False)
-    
-        # print(f"YAML file {output_filename} generated successfully!")
-        return output_filename      
-        
 class ActionManager:
     def __init__(self, experiment_dir: str):
-        # Initialize the ConfigManager within ActionManager
-        self.config_manager = ConfigManager()  # Automatically initialized
-        self.config_manager.set_experiment_dir(experiment_dir)  # Set the experiment directory
 
-        # Store the experiment directory path and the full path to actions.yaml
-        self.experiment_dir = self.config_manager.experiment_dir
-        self.actions_file_path = self.experiment_dir / 'actions.yaml'  # Path to actions.yaml
+        if experiment_dir is not None:
+            # Use the utility function to get the path to the actions.yaml file
+            self.actions_file_path = get_full_config_path(experiment_dir, 'aux_configs', 'actions.yaml')
 
-        # Dictionary to store instantiated GeecsDevices
-        self.instantiated_devices = {}
-        self.actions = {}
+            # Dictionary to store instantiated GeecsDevices
+            self.instantiated_devices = {}
+            self.actions = {}
+            if self.actions_file_path.exists():
+                self.load_actions()
 
     def load_actions(self):
         """
@@ -272,7 +133,7 @@ class ActionManager:
         logging.info(f"Loaded master actions from {actions_file}")
         self.actions = actions['actions']
         return actions['actions']
-        
+
     def add_action(self, action):
         """
         Adds a new action to the actions list.
@@ -281,13 +142,12 @@ class ActionManager:
         # Parse out the action name and steps
         if len(action) != 1:
             raise ValueError("Action must contain exactly one action name")
-        
+
         action_name = list(action.keys())[0]
         steps = action[action_name]['steps']
-        
+
         # Add the action to the actions dictionary
         self.actions[action_name] = {'steps': steps}
-    
 
     def execute_action(self, action_name):
         """
@@ -297,7 +157,7 @@ class ActionManager:
         if action_name not in self.actions:
             logging.error(f"Action '{action_name}' is not defined in the available actions.")
             return
-        
+
         action = self.actions[action_name]
         steps = action['steps']
 
@@ -351,27 +211,31 @@ class ActionManager:
         logging.info(f"Waiting for {seconds} seconds.")
         time.sleep(seconds)
 
+
 class DeviceManager:
-    def __init__(self, experiment_dir: str):
-        # Initialize the ConfigManager within DeviceManager
-        self.config_manager = ConfigManager()  # Automatically initialized
-        self.config_manager.set_experiment_dir(experiment_dir)  # Set the experiment directory
-        
+    def __init__(self, experiment_dir: str = None):
         # Initialize variables
         self.devices = {}
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
         self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
+        self.composite_variables = None
 
-        # Load paths for required config files using the ConfigManager
-        self.base_config_file_path = self.config_manager.get_config_path('base_monitoring_devs.yaml')
-        self.composite_variables_file_path = self.config_manager.get_config_path('composite_variables.yaml')
+        if experiment_dir is not None:
+            # Set the experiment directory
+            self.experiment_dir = experiment_dir
 
-        # Load composite variables from the file
-        self.composite_variables = self.load_composite_variables(self.composite_variables_file_path)
-
-        # Placeholder for scan description
-        self.scan_base_description = None
+            # # Use self.experiment_dir when calling the utility function
+            # self.base_config_file_path = get_full_config_path(self.experiment_dir, 'base_monitoring_devs.yaml')
+            # self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'composite_variables.yaml')
+            
+            
+            # Use self.experiment_dir when calling the utility function
+            self.base_config_file_path = get_full_config_path(self.experiment_dir, 'save_devices', 'Base_Monitoring_Devices.yaml')
+            self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'aux_configs', 'composite_variables.yaml')
+           
+            # Load composite variables from the file
+            self.composite_variables = self.load_composite_variables(self.composite_variables_file_path)
 
     def load_composite_variables(self, composite_file):
         """
@@ -385,7 +249,7 @@ class DeviceManager:
         except FileNotFoundError:
             logging.warning(f"Composite variables file not found: {composite_file}.")
             return {}
-    
+
     def load_base_config(self):
         """
         Load a base configuration of core devices from the base config file.
@@ -393,7 +257,8 @@ class DeviceManager:
         """
         try:
             if not self.base_config_file_path.exists():
-                logging.warning(f"Base configuration file not found: {self.base_config_file_path}. Skipping base config.")
+                logging.warning(
+                    f"Base configuration file not found: {self.base_config_file_path}. Skipping base config.")
                 return
 
             with open(self.base_config_file_path, 'r') as file:
@@ -414,35 +279,41 @@ class DeviceManager:
         self.load_base_config()
 
         # Load the specific config for the experiment
-        config_path = self.config_manager.get_config_path(config_filename)
+        config_path = get_full_config_path(self.experiment_dir, 'save_device', config_filename)
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
-
-        # Load scan info
-        self.scan_base_description = config.get('scan_info', {}).get('description', '')
-        self.scan_parameters = config.get('scan_parameters', {})
-        self.scan_setup_action = config.get('setup_action', {})
-
         logging.info(f"Loaded configuration from {config_path}")
-        self._load_devices_from_config(config)
+        self.load_from_dictionary(config)
+
+    def load_from_dictionary(self, config_dictionary):
+        """
+        Originally the 2nd half of "load_from_config," this bypasses the need to read the yaml if it is already loaded
+        """
+        # Load scan info
+        self.scan_base_description = config_dictionary.get('scan_info', {}).get('description', '')
+        self.scan_parameters = config_dictionary.get('scan_parameters', {})
+        self.scan_setup_action = config_dictionary.get('setup_action', None)
+
+        self._load_devices_from_config(config_dictionary)
 
         # Initialize the subscribers
         self.initialize_subscribers(self.event_driven_observables + self.async_observables, clear_devices=False)
 
         logging.info(f"Loaded scan info: {self.scan_base_description}")
         logging.info(f"Loaded scan parameters: {self.scan_parameters}")
-        
+
     def _load_devices_from_config(self, config):
         """
         Helper method to load devices from either base_config or config.yaml.
         Appends devices to self.devices, as well as categorizes them into synchronous or asynchronous.
         """
         devices = config.get('Devices', {})
-        
         for device_name, device_config in devices.items():
             variable_list = device_config.get('variable_list', [])
             synchronous = device_config.get('synchronous', False)
             save_non_scalar = device_config.get('save_nonscalar_data', False)
+
+            logging.info(f"{device_name}: Synchronous = {synchronous}, Save_Non_Scalar = {save_non_scalar}")
 
             # Add to non-scalar saving devices if applicable
             if save_non_scalar:
@@ -462,13 +333,12 @@ class DeviceManager:
                 self.devices[device_name].subscribe_var_values(variable_list)
 
         logging.info(f"Devices loaded: {self.devices.keys()}")
-                
-    def load_composite_variables(self, composite_file):
-        with open(composite_file, 'r') as file:
-            return yaml.safe_load(file).get('composite_variables', {})
+
+    def is_statistic_noscan(self, variable_name):
+        return variable_name in ('noscan', 'statistics')
 
     def is_composite_variable(self, variable_name):
-        return variable_name in self.composite_variables
+        return self.composite_variables is not None and variable_name in self.composite_variables
 
     def get_composite_components(self, composite_var, value):
         """
@@ -487,6 +357,7 @@ class DeviceManager:
         # Iterate over each component and evaluate its relation
         for comp in components:
             relation = comp['relation'].replace("composite_var", str(value))  # Replace the placeholder
+            logging.info(f"Evaluating relation: {relation}")
             evaluated_value = eval(relation)  # Evaluate the relationship to get the actual value
             variables[f"{comp['device']}:{comp['variable']}"] = evaluated_value
 
@@ -531,10 +402,10 @@ class DeviceManager:
                 device.close()
             except Exception as e:
                 logging.error(f"Error unsubscribing from {device_name}: {e}")
-                
+
         # Clear the devices dictionary
         self.devices.clear()
-                
+
     def reset(self):
         """
         Gracefully close the DeviceManager and reset all internal state, making it ready for reinitialization.
@@ -549,7 +420,7 @@ class DeviceManager:
 
         logging.info("DeviceManager instance has been reset and is ready for reinitialization.")
 
-    def reinitialize(self, config_path):
+    def reinitialize(self, config_path=None, config_dictionary=None):
         """
         Reinitialize the DeviceManager by loading the configuration file and starting fresh.
         """
@@ -557,7 +428,10 @@ class DeviceManager:
         self.reset()
 
         # Now load the new configuration and reinitialize the instance
-        self.load_from_config(config_path)
+        if config_path is not None:
+            self.load_from_config(config_path)
+        elif config_dictionary is not None:
+            self.load_from_dictionary(config_dictionary)
 
         logging.info("DeviceManager instance has been reinitialized.")
 
@@ -596,7 +470,7 @@ class DeviceManager:
                 device_map[device_name] = []
             device_map[device_name].append(var_name)
         return device_map
-                   
+
     def add_scan_device(self, device_name, variable_list):
         """
         Add a new device or append variables to an existing device for scan variables.
@@ -610,7 +484,7 @@ class DeviceManager:
                 'save_non_scalar_data': False,
                 'synchronous': False
             }
-        
+
             # Create the GeecsDevice for the new scan variable device
             device = GeecsDevice(device_name)
             device.use_alias_in_TCP_subscription = False
@@ -618,12 +492,13 @@ class DeviceManager:
 
             # Store the device with the default configuration in self.devices
             self.devices[device_name] = device
-            self.non_scalar_saving_devices.append(device_name) if default_device_config['save_non_scalar_data'] else None
+            self.non_scalar_saving_devices.append(device_name) if default_device_config[
+                'save_non_scalar_data'] else None
 
             # Add scan variables to async_observables
             self.async_observables.extend([f"{device_name}:{var}" for var in variable_list])
             logging.info(f"Scan device {device_name} added to async_observables.")
-    
+
         else:
             logging.info(f"Device {device_name} already exists. Adding new variables: {variable_list}")
 
@@ -632,35 +507,36 @@ class DeviceManager:
             device.subscribe_var_values(variable_list)
 
             # Add new variables to async_observables
-            self.async_observables.extend([f"{device_name}:{var}" for var in variable_list if f"{device_name}:{var}" not in self.async_observables])
+            self.async_observables.extend([f"{device_name}:{var}" for var in variable_list if
+                                           f"{device_name}:{var}" not in self.async_observables])
             logging.info(f"Updated async_observables with new variables for {device_name}: {variable_list}")
 
     def handle_scan_variables(self, scan_config):
         """
         Handle scan variables and instantiate any new devices or append variables to existing ones.
         """
-        logging.info("No error yet in handle_scan_variables.")
-        logging.info(f"Scan config: {scan_config}.")
-    
-        for scan in scan_config:
-            device_var = scan['device_var']
-            logging.info(f"Processing scan device_var: {device_var}")
 
-            # Handle composite variables
-            if self.is_composite_variable(device_var):
-                logging.info(f"{device_var} is a composite variable.")
-                component_vars = self.get_composite_components(device_var, scan['start'])
-                for component_var in component_vars:
-                    dev_name, var = component_var.split(':', 1)
-                    logging.info(f"Trying to add {dev_name}:{var} to self.devices.")
-                    self.add_scan_device(dev_name, [var])  # Add or append the component vars
-            else:
-                # Normal variables
-                logging.info(f"{device_var} is a normal variable.")
-                device_name, var_name = device_var.split(':', 1)
-                logging.info(f"Trying to add {device_name}:{var_name} to self.devices.")
-                self.add_scan_device(device_name, [var_name])  # Add or append the normal variable                   
-                    
+        device_var = scan_config['device_var']
+        logging.info(f"Processing scan device_var: {device_var}")
+
+        # Handle composite variables
+        if self.is_statistic_noscan(device_var):
+            logging.info("Statistical noscan selected, adding no scan devices.")
+        elif self.is_composite_variable(device_var):
+            logging.info(f"{device_var} is a composite variable.")
+            component_vars = self.get_composite_components(device_var, scan_config['start'])
+            for component_var in component_vars:
+                dev_name, var = component_var.split(':', 1)
+                logging.info(f"Trying to add {dev_name}:{var} to self.devices.")
+                self.add_scan_device(dev_name, [var])  # Add or append the component vars
+        else:
+            # Normal variables
+            logging.info(f"{device_var} is a normal variable.")
+            device_name, var_name = device_var.split(':', 1)
+            logging.info(f"Trying to add {device_name}:{var_name} to self.devices.")
+            self.add_scan_device(device_name, [var_name])  # Add or append the normal variable                   
+
+
 class DataInterface():
     def __init__(self):
         # Initialize domain, base path, and current date
@@ -670,7 +546,8 @@ class DataInterface():
         self.year, self.month, self.day = self.get_current_date()
         self.dummy_scan_number = 100
         self.local_scan_dir_base, self.local_analysis_dir_base = self.create_data_path(self.dummy_scan_number)
-        self.client_scan_dir_base, self.client_analysis_dir_base = self.create_data_path(self.dummy_scan_number, local=False)
+        self.client_scan_dir_base, self.client_analysis_dir_base = self.create_data_path(self.dummy_scan_number,
+                                                                                         local=False)
         self.next_scan_folder = self.get_next_scan_folder()
 
     def get_domain_windows(self):
@@ -754,10 +631,10 @@ class DataInterface():
         data_folder = self.local_scan_dir_base
         if not data_folder.is_dir():
             return -1
-        
+
         scan_folders = next(os.walk(data_folder))[1]
         scan_folders = [x for x in scan_folders if re.match(r'^Scan\d{3}$', x)]
-        
+
         if scan_folders:
             return int(scan_folders[-1][-3:])
         else:
@@ -769,7 +646,7 @@ class DataInterface():
         """
         device_save_path_client = self.client_scan_dir_base / self.next_scan_folder / device
         device_save_path_local = self.local_scan_dir_base / self.next_scan_folder / device
-        
+
         return device_save_path_client, device_save_path_local
 
     def build_analysis_save_path(self):
@@ -784,7 +661,7 @@ class DataInterface():
         """
         Builds and returns the save path tdms file.
         """
-        
+
         tdms_save_path = self.local_scan_dir_base / self.next_scan_folder / f"{self.next_scan_folder}.tdms"
         tdms_index_save_path = self.local_scan_dir_base / self.next_scan_folder / f"{self.next_scan_folder}.tdms_index"
 
@@ -819,13 +696,149 @@ class DataInterface():
             return len(list(device_dir.glob('*.png')))  # Assuming you are counting .png files
         return 0
 
+    def process_and_rename(self):
+        """
+        Process the device directories and rename files based on timestamps and scan data.
+        The device type is dynamically determined from the directory name, and the appropriate
+        timestamp extraction method is used based on the device type.
+        """
+        # Access paths directly from the DataInterface instance
+        base = self.local_scan_dir_base
+        scan = self.next_scan_folder
+        directory_path = Path(base) / scan
+
+        logging.info(f"Processing scan folder: {directory_path}")
+
+        # List directories that correspond to device names
+        device_directories = [d for d in directory_path.iterdir() if d.is_dir()]
+
+        # Load the DataFrame (only keep columns relevant for timestamps)
+        analysis_base = self.local_analysis_dir_base
+        scan_num = self.get_last_scan_number()
+        sPath = Path(analysis_base / f's{scan_num}.txt')
+        logging.info(f"Loading scan data from: {sPath}")
+
+        try:
+            df = pd.read_csv(sPath, sep='\t')
+        except FileNotFoundError:
+            logging.error(f"Scan data file {sPath} not found.")
+            return
+
+        # Process each device directory concurrently using threads
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # Submit each device directory for processing in a separate thread
+            futures = [executor.submit(self.process_device_files, device_dir, df) for device_dir in device_directories]
+
+            # Wait for all threads to complete
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()  # Retrieve the result to handle any exceptions
+                except Exception as e:
+                    logging.error(f"Error during file processing: {e}")
+
+    def process_device_files(self, device_dir, df):
+        """
+        Generic method to process device files and rename them based on timestamps.
+        The specific timestamp extraction function is selected based on the device type.
+        """
+        device_name = device_dir.name
+        logging.info(f"Processing device directory: {device_name}")
+
+        # Lookup the device type
+        device_type = GeecsDatabase.find_device_type(device_name)
+
+        if not device_type:
+            logging.warning(f"Could not find device type for {device_name}. Skipping.")
+            return
+
+        # Collect all files in the directory
+        device_files = list(device_dir.glob("*"))
+
+        # Create the timestamp column name corresponding to the device
+        device_timestamp_column = f'{device_name} timestamp'
+
+        logging.info(f"Found {len(device_files)} files in {device_name} directory.")
+
+        # Check if the device has a corresponding timestamp column in the DataFrame
+        if device_timestamp_column not in df.columns:
+            logging.warning(f"No matching timestamp column for {device_name} in scan data. Skipping.")
+            return
+
+        # Round timestamps in the DataFrame for matching
+        rounded_df_timestamps = df[device_timestamp_column].round(3)  # Round to milliseconds
+        matched_rows = []
+
+        # Choose the correct timestamp extraction function based on the device type
+        for device_file in device_files:
+            try:
+                if device_type == "Point Grey Camera":
+                    file_timestamp = get_imaq_timestamp_from_png(device_file)
+                elif device_type == "spectrometer":
+                    file_timestamp = self.extract_timestamp_spectrometer(device_file)
+                elif device_type == "energy_meter":
+                    file_timestamp = self.extract_timestamp_energy_meter(device_file)
+                else:
+                    logging.warning(f"Unsupported device type '{device_type}' for {device_name}. Skipping.")
+                    continue
+            except Exception as e:
+                logging.error(f"Error extracting timestamp from {device_file}: {e}")
+                continue
+
+            # Round the file timestamp for comparison
+            file_timestamp_rounded = round(file_timestamp, 3)
+
+            # Find the row index where the rounded timestamps match
+            match = rounded_df_timestamps[rounded_df_timestamps == file_timestamp_rounded]
+
+            if not match.empty:
+                matched_rows.append((device_file, match.index[0]))
+                logging.info(f"Matched file {device_file} with row {match.index[0]}")
+            else:
+                logging.warning(f"No match found for file {device_file} with timestamp {file_timestamp_rounded}")
+
+        # Rename the files based on scan number, device name, and matched row index (starting at 1)
+        self.rename_files(matched_rows)
+
+    def extract_timestamp_spectrometer(self, file_path):
+        """
+        Extracts the timestamp from a spectrometer file (to be implemented).
+        """
+        logging.info(f"Extracting timestamp from spectrometer file {file_path}")
+        # Implement specific logic to extract timestamps from spectrometer files
+        return 0  # Placeholder
+
+    def extract_timestamp_energy_meter(self, file_path):
+        """
+        Extracts the timestamp from an energy meter file (to be implemented).
+        """
+        logging.info(f"Extracting timestamp from energy meter file {file_path}")
+        # Implement specific logic to extract timestamps from energy meter files
+        return 0  # Placeholder
+
+    def rename_files(self, matched_rows):
+        """
+        Rename the files based on scan number, device name, and matched row index (starting at 1).
+        """
+        for file_path, row_index in matched_rows:
+            device_name = file_path.parent.name
+            scan_number = file_path.parent.parent.name.replace("Scan", "")
+            row_number = str(row_index + 1).zfill(3)
+
+            new_file_name = f"Scan{scan_number}_{device_name}_{row_number}{file_path.suffix}"
+            new_file_path = file_path.parent / new_file_name
+
+            if not new_file_path.exists():
+                logging.info(f"Renaming {file_path} to {new_file_path}")
+                os.rename(file_path, new_file_path)
+            else:
+                logging.warning(f"File {new_file_path} already exists. Skipping renaming.")
+
+
 class DataLogger():
-    def __init__(self, experiment_dir):
-        
-        self.device_manager = DeviceManager(experiment_dir=experiment_dir)
-        self.data_interface = DataInterface()
-        self.action_manager = ActionManager(experiment_dir=experiment_dir)
-        
+    def __init__(self, experiment_dir, device_manager=None):
+
+        self.device_manager = device_manager or DeviceManager(experiment_dir)
+
         self.stop_event = threading.Event()  # Event to control polling thread
         self.poll_thread = None  # Placeholder for polling thread
         self.async_t0 = None  # Placeholder for async t0
@@ -833,360 +846,14 @@ class DataLogger():
         self.warning_timeout_async_factor = 1  # Factor of polling interval for async timeout
         self.last_log_time_sync = {}  # Dictionary to track last log time for synchronous devices
         self.last_log_time_async = {}  # Dictionary to track last log time for async devices
-        self.shot_control = GeecsDevice('U_DG645_ShotControl')
         self.polling_interval = .5
         self.results = {}  # Store results for later processing
-        self.stop_logging_thread_event = threading.Event()  # Event to signal the logging thread to stop
-        
-        self.console_log_name = "scan_execution.log"
-        setup_console_logging(log_file=self.console_log_name, level=logging.INFO, console=True)
-        
+
         self.bin_num = 0  # Initialize bin as 0
         
-        self.logging_thread = None  # NEW: Separate thread for logging
-
-        self.tdms_writer = None
-        
-        self.scan_steps = []  # To store the precomputed scan steps
-               
-    def _set_trigger(self, state: str):
-        """Helper method to turn the trigger on or off."""
-        valid_states = {
-            'on': 'External rising edges',
-            'off': 'Single shot external rising edges'
-        }
-        if state in valid_states:
-            self.shot_control.set('Trigger.Source', valid_states[state])
-            logging.info(f"Trigger turned {state}.")
-        else:
-            logging.error(f"Invalid trigger state: {state}")
-
-    def trigger_off(self):
-        """Turns off the trigger."""
-        self._set_trigger('off')
-
-    def trigger_on(self):
-        """Turns on the trigger."""
-        self._set_trigger('on')
-        
-    def pre_logging_setup(self, scan_config):
-        """
-        Precompute all scan steps (including composite and normal variables), 
-        add scan devices to async_observables, and store the scan steps.
-        """
-        
-        logging.info("Turning off the trigger.")
-        self.trigger_off()
-
-        time.sleep(2)
-        self.data_interface.get_next_scan_folder()
-        self.create_and_set_data_paths()
-        
-        # Handle scan variables and ensure devices are initialized in DeviceManager
-        self.device_manager.handle_scan_variables(scan_config)
-        
-        self.write_scan_info_ini(scan_config[0])
-
-        # Generate the scan steps
-        self.scan_steps = self._generate_scan_steps(scan_config)
-        
-        if self.device_manager.scan_setup_action is not None:
-            logging.info("attempting to execute pre scan actions.")
-            logging.info(f'action list {self.device_manager.scan_setup_action}')
-            
-            self.action_manager.add_action({'setup_action': self.device_manager.scan_setup_action})
-            self.action_manager.execute_action('setup_action')
-        
-        logging.info("Pre-logging setup completed.")
-    
-    def create_and_set_data_paths(self):
-        """
-        Create data paths for devices that have save_non_scalar=True and set the save data path on those devices.
-
-        Args:
-            save_non_scalar_devices (list): List of device names that should save non-scalar data.
-        """
-
-        self.data_interface.next_scan_folder = self.data_interface.get_next_scan_folder()
-
-        for device_name in self.device_manager.non_scalar_saving_devices:
-            data_path_client_side, data_path_local_side = self.data_interface.build_device_save_paths(device_name)
-            self.data_interface.create_device_save_dir(data_path_local_side)
-
-            device = self.device_manager.devices.get(device_name)
-            if device:
-                save_path = str(data_path_client_side).replace('/', "\\")
-                logging.info(f"Setting save data path for {device_name} to {save_path}")
-                device.set("localsavingpath", save_path, sync=False)
-                time.sleep(.1)
-                device.set('save', 'on', sync=False)
-            else:
-                logging.warning(f"Device {device_name} not found in DeviceManager.")
-        
-        
-        analysis_save_path = self.data_interface.build_analysis_save_path()
-        self.data_interface.create_device_save_dir(analysis_save_path)
-
-        tdms_output_path, tdms_index_output_path, self.data_txt_path, self.data_h5_path, self.sFile_txt_path = self.data_interface.build_scalar_data_save_paths()
-        self.tdms_writer = TdmsWriter(tdms_output_path)
-        self.tdms_index_writer = TdmsWriter(tdms_index_output_path)
-        
-        time.sleep(1)
-
-    def write_scan_info_ini(self, scan_config):
-        """
-        Write the scan configuration to an .ini file with the required format.
-
-        Args:
-            scan_config (dict): Dictionary containing scan parameters.
-        """
-        # Check if scan_config is a dictionary
-        if not isinstance(scan_config, dict):
-            logging.error(f"scan_config is not a dictionary: {type(scan_config)}")
-            return
-
-        # Define the file name, replacing 'XXX' with the scan number
-        scan_folder = self.data_interface.next_scan_folder
-        scan_number = int(scan_folder[-3:])
-        filename = f"ScanInfo{scan_folder}.ini"
-    
-        # Create the configparser object
-        config = configparser.ConfigParser()
-        scan_var = scan_config.get('device_var', '')
-        additional_description = scan_config.get('additional_description', '')
-        
-        scan_info = f'{self.device_manager.scan_base_description}. scanning {scan_var}. {additional_description}'
-
-        # Add the Scan Info section
-        config['Scan Info'] = {
-            'Scan No': f'{scan_number}',
-            'ScanStartInfo': scan_info,
-            'Scan Parameter': scan_var,
-            'Start': scan_config.get('start', 0),
-            'End': scan_config.get('end', 0),
-            'Step size': scan_config.get('step', 1),
-            'Shots per step': scan_config.get('wait_time', 1),
-            'ScanEndInfo': ''
-        }
-
-        # Create the full path for the file
-        full_path = Path(self.data_txt_path.parent) / filename
-
-        # Write to the .ini file
-        with full_path.open('w') as configfile:
-            config.write(configfile)
-
-        logging.info(f"Scan info written to {full_path}")
-        
-    def is_logging_active(self):
-        return self.logging_thread and self.logging_thread.is_alive()
-
-    def start_logging_thread(self, acquisition_time=10, scan_config=None): 
-        if self.is_logging_active():
-            logging.warning("Logging is already active, cannot start a new logging session.")
-            return
-        
-        # Ensure the stop event is cleared before starting a new session
-        self.stop_logging_thread_event.clear()
-    
-        # Start a new thread for logging
-        self.logging_thread = threading.Thread(target=self.start_logging_wait, args=(acquisition_time, scan_config))
-        self.logging_thread.start()
-        logging.info("Logging thread started.")
-
-    def stop_logging_thread(self):
-        if not self.is_logging_active():
-            logging.warning("No active logging thread to stop.")
-            return
-
-        # Stop the logging and wait for the thread to finish
-        logging.info("Stopping the logging thread...")
-        self.stop_logging()
-        self.logging_thread.join()  # Wait for the thread to finish
-        self.logging_thread = None  # Clean up the thread
-        logging.info("Logging thread stopped and disposed.")
-
-    def start_logging_wait(self, acquisition_time=None, scan_config=None):
-        """
-        Start logging for a set amount of time, while dynamically performing actions 
-        or handling 'statistics' scans during the acquisition process.
-        
-        Args:
-            acquisition_time (int, optional): Total time to log data (in seconds). If not provided, 
-                                              it will be estimated from the scan_config.
-            scan_config (list of dicts, optional): List of scan configurations for dynamic actions.
-                                                   Supports 'statistics' for no-action scans.
-        """
-        log_df = pd.DataFrame()  # Initialize in case of early exit
-        try:
-            # Pre-logging setup: Trigger devices off, initialize data paths, etc.
-            self.pre_logging_setup(scan_config)
-    
-            # Estimate acquisition time if necessary
-            if acquisition_time is None and scan_config:
-                acquisition_time = self.estimate_acquisition_time(scan_config)
-                logging.info(f"Estimated acquisition time based on scan config: {acquisition_time} seconds.")
-    
-            # Initialize scan state if scan_config is provided
-            scan_state = self.initialize_scan_state(scan_config)
-    
-            # Start logging and trigger devices on
-            self.results = self.start_logging()
-            # self.trigger_on()
-    
-            # Acquisition loop: Handle actions and acquisition time
-            log_df = self.acquisition_loop(acquisition_time)
-    
-        except Exception as e:
-            logging.error(f"Error during logging: {e}")
-    
-        return log_df  # Return the DataFrame with the logged data
-        
-    def _add_scan_devices_to_async_observables(self, scan_config):
-        """
-        Add devices/variables involved in the scan to async_observables if not already present.
-        """
-        for scan in scan_config:
-            device_var = scan['device_var']
-            if self.device_manager.is_composite_variable(device_var):
-                component_vars = self.device_manager.get_composite_components(device_var, scan['start'])
-                for device_var in component_vars:
-                    if device_var not in self.device_manager.async_observables:
-                        self.device_manager.async_observables.append(device_var)
-            else:
-                if device_var not in self.device_manager.async_observables:
-                    self.device_manager.async_observables.append(device_var)
-
-        logging.info(f"Updated async_observables: {self.device_manager.async_observables}")
-    
-    def _generate_scan_steps(self, scan_config):
-        """
-        Generate a full list of scan steps ahead of time.
-        This method handles both normal and composite variables.
-        """
-        self.bin_num = 0 
-        steps = []
-        for scan in scan_config:
-            device_var = scan['device_var']
-
-            if self.device_manager.is_composite_variable(device_var):
-                current_value = scan['start']
-                while current_value <= scan['end']:
-                    component_vars = self.device_manager.get_composite_components(device_var, current_value)
-                    steps.append({
-                        'variables': component_vars,
-                        'wait_time': scan.get('wait_time', 1),
-                        'is_composite': True
-                    })
-                    current_value += scan['step']
-            else:
-                current_value = scan['start']
-                while current_value <= scan['end']:
-                    steps.append({
-                        'variables': {device_var: current_value},
-                        'wait_time': scan.get('wait_time', 1),
-                        'is_composite': False
-                    })
-                    current_value += scan['step']
-        return steps
-
-    def acquisition_loop(self, acquisition_time):
-        elapsed_time = 0
-        check_interval = 0.1  
-        step_interval = 1.0  
-        step_timer = 0  
-
-        while elapsed_time < acquisition_time:
-            # Check if logging has been externally stopped
-            if self.stop_logging_thread_event.is_set():
-                logging.info("Logging has been stopped externally.")
-                break
-
-            # Execute scan step if the timer has reached the step interval
-            if step_timer >= step_interval:
-                if self.scan_steps:
-                    # Pop and execute the next scan step
-                    scan_step = self.scan_steps.pop(0)
-                    self._execute_scan(scan_step['variables'], scan_step['wait_time'], scan_step['is_composite'])
-                    step_timer = 0
-                else:
-                    # Break out of the loop if no more scan steps remain
-                    logging.info("No more scan steps to execute. Exiting loop.")
-                    break
-
-            # Sleep for the check interval and update timers
-            time.sleep(check_interval)
-            elapsed_time += check_interval
-            step_timer += check_interval
-
-        logging.info("Stopping logging.")
-        log_df = self.stop_logging()
-
-        return log_df
-
-    def _execute_scan(self, component_vars, wait_time, is_composite):
-        """
-        Executes a single step of the scan, handling both composite and normal variables.
-        Ensures the trigger is turned off before all moves and turned back on after.
-        """
-        logging.info("Pausing logging. Turning trigger off before moving devices.")
-        self.bin_num += 1
-        self.trigger_off()
-        
-        logging.info(f"shot control state: {self.shot_control.state}")
-        for device_var, current_value in component_vars.items():
-            device_name, var_name = device_var.split(':', 1)
-            device = self.device_manager.devices.get(device_name)
-
-            if device:
-                device.set(var_name, current_value)
-                logging.info(f"Set {var_name} to {current_value} for {device_name}")
-        
-        logging.info("Resuming logging. Turning trigger on after all devices have been moved.")
-        self.trigger_on()
-        logging.info(f"shot control state: {self.shot_control.state}")
-        
-        time.sleep(wait_time)
-        
-        self.trigger_off()
-        logging.info(f"shot control state: {self.shot_control.state}")
- 
-    def estimate_acquisition_time(self, scan_config):
-        """
-        Estimate the total acquisition time based on the scan configuration.
-        """
-        total_time = 0
-    
-        for scan in scan_config:
-            if scan['device_var'] == 'statistics':
-                total_time += scan.get('acquisition_time', 10)  # Default to 10 seconds if not provided
-            else:
-                start = scan['start']
-                end = scan['end']
-                step = scan['step']
-                wait_time = scan.get('wait_time', 1)  # Default wait time between steps is 1 second
-    
-                # Calculate the number of steps and the total time for this device
-                steps = (end - start) / step
-                total_time += steps * wait_time
-        
-        logging.info(f'Estimated scan time: {total_time}')
-        
-        return total_time
-       
-    def initialize_scan_state(self, scan_config):
-        """
-        Initialize the state of each scan based on the start values from scan_config.
-        Returns a dictionary where each `device_var` is mapped to its current value.
-        """
-        scan_state = {}
-        if scan_config:
-            for scan in scan_config:
-                device_var = scan['device_var']
-                if device_var != 'statistics':
-                    start = scan['start']
-                    scan_state[device_var] = start  # Set the current position to the start value
-        return scan_state
+        # Initialize the sound player
+        self.sound_player = SoundPlayer()
+        self.shot_index = 0
 
     def start_logging(self):
         """
@@ -1202,27 +869,27 @@ class DataLogger():
         # Access event-driven and async observables from DeviceManager
         event_driven_observables = self.device_manager.event_driven_observables
         async_observables = self.device_manager.async_observables
-    
+
         def log_update(message, device):
             """
             Handle updates from TCP subscribers and log them when a new timestamp is detected.
             """
             nonlocal async_t0_set  # Keep track if async t0 has been set
             current_timestamp = self._extract_timestamp(message, device)
-    
+
             if current_timestamp is None:
                 return
-    
+
             if self._initialize_standby_mode(device, standby_mode, initial_timestamps, current_timestamp):
                 return
-    
+
             elapsed_time = self._calculate_elapsed_time(device, initial_timestamps, current_timestamp)
-    
+
             if self._check_duplicate_timestamp(device, last_timestamps, current_timestamp):
                 return
-    
+
             self._log_device_data(device, event_driven_observables, log_entries, elapsed_time)
-    
+
             # Set the t0 for asynchronous devices when the first log entry is created
             if not async_t0_set:
                 self.async_t0 = time.time()  # Set t0 for async logging
@@ -1231,27 +898,27 @@ class DataLogger():
 
             # Update the last log time for this synchronous device
             self.last_log_time_sync[device.get_name()] = time.time()
-    
+
         # Register the logging function for event-driven observables
         self._register_event_logging(event_driven_observables, log_update)
-    
+
         logging.info("Logging has started for all event-driven devices.")
-    
+
         # Start the asynchronous polling in a separate thread
-        self._start_async_polling(async_observables, log_entries, timeout = 10)
+        self._start_async_polling(async_observables, log_entries, timeout=10)
 
         # # Start a thread to monitor device warnings
         # self.warning_thread = threading.Thread(target=self._monitor_warnings, args=(event_driven_observables, async_observables))
         # self.warning_thread.start()
 
         return log_entries
-    
+
     def _extract_timestamp(self, message, device):
         stamp = datetime.now().__str__()
         err = ErrorAPI()
         net_msg = mh.NetworkMessage(tag=device.get_name(), stamp=stamp, msg=message, err=err)
         parsed_data = device.handle_subscription(net_msg)
-    
+
         current_timestamp = parsed_data[2].get('timestamp')
         if current_timestamp is None:
             logging.warning(f"No timestamp found for {device.get_name()}. Using system time instead.")
@@ -1273,7 +940,8 @@ class DataLogger():
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join()
 
-        self.poll_thread = threading.Thread(target=self.poll_async_observables, args=(async_observables, log_entries, timeout))
+        self.poll_thread = threading.Thread(target=self.poll_async_observables,
+                                            args=(async_observables, log_entries, timeout))
         self.poll_thread.start()
 
     def poll_async_observables(self, async_observables, log_entries, timeout):
@@ -1287,7 +955,7 @@ class DataLogger():
         while not self.async_t0 and wait_time < timeout:
             time.sleep(check_interval)
             wait_time += check_interval
-        
+
         if not self.async_t0:
             logging.error("Timeout: async_t0 was not set in time.")
             return  # Exit the polling if async_t0 is not set in time
@@ -1305,16 +973,16 @@ class DataLogger():
         if not self.async_t0:
             logging.warning("Async t0 is not set. Skipping polling for now.")
             return
-        
+
         device_name, var_name = observable.split(':')
         device = self.device_manager.devices.get(device_name)
-    
+
         if device:
             current_time = time.time()
             elapsed_time = round(current_time - self.async_t0)
-    
+
             value = device.state.get(var_name, 'N/A')
-    
+
             if elapsed_time in log_entries:
                 log_entries[elapsed_time].update({f"{device_name}:{var_name}": value})
             # else:
@@ -1323,37 +991,13 @@ class DataLogger():
             # Update the last log time for this asynchronous device
             self.last_log_time_async[device_name] = time.time()
 
-    def fill_async_nans(self, log_df, async_observables):
-        """
-        Fill NaN values in asynchronous observable columns with the most recent non-NaN value.
-        If a column starts with NaN, it will backfill with the first non-NaN value.
-        If the entire column is NaN, it will be left unchanged.
-    
-        Args:
-            log_df (pd.DataFrame): The DataFrame containing the logged data.
-            async_observables (list): A list of asynchronous observables (columns) to process.
-        """
-        for async_obs in async_observables:
-            if async_obs in log_df.columns:
-                # Only process if the entire column is not NaN
-                if not log_df[async_obs].isna().all():
-                    # First, apply forward fill (ffill) to propagate the last known value
-                    log_df[async_obs] = log_df[async_obs].ffill()
-                    
-                    # Then, apply backward fill (bfill) to fill leading NaNs with the first non-NaN value
-                    log_df[async_obs] = log_df[async_obs].bfill()
-                else:
-                    logging.warning(f"Column {async_obs} consists entirely of NaN values and will be left unchanged.")
-        
-        logging.info("Filled NaN values in asynchronous variables.")
-        return log_df
-
     def _initialize_standby_mode(self, device, standby_mode, initial_timestamps, current_timestamp):
         if device.get_name() not in standby_mode:
             standby_mode[device.get_name()] = True
         if device.get_name() not in initial_timestamps:
             initial_timestamps[device.get_name()] = current_timestamp
-            logging.info(f"Initial dummy timestamp for {device.get_name()} set to {current_timestamp}. Standby mode enabled.")
+            logging.info(
+                f"Initial dummy timestamp for {device.get_name()} set to {current_timestamp}. Standby mode enabled.")
         t0 = initial_timestamps[device.get_name()]
         if standby_mode[device.get_name()] and current_timestamp != t0:
             standby_mode[device.get_name()] = False
@@ -1386,9 +1030,9 @@ class DataLogger():
             log_entries[elapsed_time]['Bin #'] = self.bin_num
             # os.system('afplay trimmed_tink.aiff')  # This plays a sound on macOS
             # Trigger the beep in the background
-            # sounds.play_beep()
-            
-            
+            self.sound_player.play_beep()  # Play the beep sound
+            self.shot_index += 1
+
         log_entries[elapsed_time].update({
             f"{device.get_name()}:{key}": value for key, value in observables_data.items()
         })
@@ -1406,7 +1050,8 @@ class DataLogger():
                 last_log_time = self.last_log_time_sync.get(device_name, None)
 
                 if last_log_time and (current_time - last_log_time) > self.warning_timeout_sync:
-                    logging.warning(f"Synchronous device {device_name} hasn't updated in over {self.warning_timeout_sync} seconds.")
+                    logging.warning(
+                        f"Synchronous device {device_name} hasn't updated in over {self.warning_timeout_sync} seconds.")
 
             # Check asynchronous devices
             async_timeout = self.polling_interval * self.warning_timeout_async_factor
@@ -1415,28 +1060,11 @@ class DataLogger():
                 last_log_time = self.last_log_time_async.get(device_name, None)
 
                 if last_log_time and (current_time - last_log_time) > async_timeout:
-                    logging.warning(f"Asynchronous device {device_name} hasn't updated in over {async_timeout} seconds.")
+                    logging.warning(
+                        f"Asynchronous device {device_name} hasn't updated in over {async_timeout} seconds.")
 
             time.sleep(1)  # Monitor the warnings every second
 
-    def save_to_txt_and_h5(self, df, txt_file_path, h5_file_path, sFile_path):
-        """
-        Save the DataFrame to both .txt (as tab-separated values) and .h5 (HDF5) formats.
-
-        Args:
-            df (pd.DataFrame): The DataFrame to be saved.
-            txt_file_path (str): Path to save the .txt file.
-            h5_file_path (str): Path to save the .h5 file.
-        """
-        # Save as .txt file (TSV format)
-        df.to_csv(txt_file_path, sep='\t', index=False)
-        df.to_csv(sFile_path, sep='\t', index=False)
-        logging.info(f"Data saved to {txt_file_path}")
-
-        # # Save as .h5 file (HDF5 format)
-        # df.to_hdf(h5_file_path, key='data', mode='w')
-        # logging.info(f"Data saved to {h5_file_path}")
-   
     def stop_logging(self):
         """
         Stop both event-driven and asynchronous logging, and reset necessary states for reuse.
@@ -1444,120 +1072,26 @@ class DataLogger():
         # Unregister all event-driven logging
         for device_name, device in self.device_manager.devices.items():
             device.event_handler.unregister('update', 'logger')
+            
+        self.sound_player.play_toot()
 
         # Signal to stop the polling thread
         self.stop_event.set()
+        
+        self.sound_player.stop()
 
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join()  # Ensure the polling thread has finished
-    
+
         # Reset the stop_event for future logging sessions
         self.stop_event.clear()
         self.poll_thread = None
         self.async_t0 = None
-        
-        # sounds.play_toot()
-        sounds.stop()
 
-        # Step 5: Process results and convert to DataFrame
-        if self.results:
-            log_df = self.convert_to_dataframe(self.results)
-            logging.info("Data logging complete. Returning DataFrame.")
-                            
-            self.save_to_txt_and_h5(log_df, self.data_txt_path, self.data_h5_path, self.sFile_txt_path)
+    def reinitialize_sound_player(self):
+        self.sound_player.stop()
+        self.sound_player = SoundPlayer()
+        self.shot_index = 0
 
-            self.dataframe_to_tdms(log_df)
-            self.dataframe_to_tdms(log_df, is_index = True)
-        
-
-        
-        else:
-            logging.warning("No data was collected during the logging period.")
-            log_df = pd.DataFrame()
-            
-        for device_name in self.device_manager.non_scalar_saving_devices:
-            device = self.device_manager.devices.get(device_name)
-            if device:
-                logging.info(f"Setting save to off for {device_name}")
-                device.set('save', 'off',sync=False)
-                logging.info(f"Setting save to off for {device_name} complete")
-                device.set('localsavingpath', 'c:\\temp',sync=False)
-                logging.info(f"Setting save path back to temp for {device_name} complete")
-            else:
-                logging.warning(f"Device {device_name} not found in DeviceManager.")
-        
-        stop_console_logging()
-        move_log_file(self.console_log_name, self.data_txt_path.parent)
-
-        print("Logging has stopped for all devices.")
-        self.shot_control.set('Trigger.Source',"External rising edges")
-        
-
-
-        return log_df
-
-    def convert_to_dataframe(self, log_entries):
-        """
-        Convert the synchronized log entries dictionary into a pandas DataFrame.
-        """
-        log_df = pd.DataFrame.from_dict(log_entries, orient='index')
-        log_df = log_df.sort_values(by='Elapsed Time').reset_index(drop=True)
-
-        async_observables = self.device_manager.async_observables
-        log_df = self.fill_async_nans(log_df, async_observables)
-        
-        # Modify the headers
-        new_headers = self.modify_headers(log_df.columns, device_dict)
-        log_df.columns = new_headers
-
-        return log_df
-        
-    def modify_headers(self, headers, device_dict):
-        new_headers = []
-        for header in headers:
-            if ':' in header:
-                device_name, variable = header.split(':')
-                new_header = f"{device_name} {variable}"
-                # Check if alias exists
-                alias = device_dict.get(device_name, {}).get(variable, {}).get('alias')
-                if alias:
-                    new_header = f"{new_header} Alias:{alias}"
-            else:
-                new_header = header  # Keep the header as is if no colon
-            new_headers.append(new_header)
-        return new_headers
-             
-    def dataframe_to_tdms(self, df, is_index=False):
-        """
-        Convert a DataFrame to a TDMS file or a TDMS index file.
-        Groups are created based on the part before the colon in column names,
-        and channels are created based on the part after the colon. If no colon exists,
-        the group and channel will be the column header.
-    
-        Args:
-            df (pd.DataFrame): The DataFrame to convert.
-            is_index (bool): If True, writes only the structure (groups and channels) without data.
-        """
-        
-        # Use the correct writer based on whether it's an index file or a data file
-        tdms_writer = self.tdms_index_writer if is_index else self.tdms_writer
-    
-        with tdms_writer:
-            for column in df.columns:
-                # Check if the column name contains a colon to split it into group and channel
-                if ':' in column:
-                    group_name, channel_name = column.split(':', 1)
-                else:
-                    # If no colon, use the column name for both group and channel
-                    group_name = channel_name = column
-    
-                # If it's an index file, write an empty array, otherwise write actual data
-                data = [] if is_index else df[column].values
-    
-                # Create the ChannelObject with the appropriate group, channel, and data
-                ch_object = ChannelObject(group_name, channel_name, data)
-    
-                # Write the channel data or structure to the TDMS file
-                tdms_writer.write_segment([ch_object])
-    
-        logging.info(f"TDMS {'index' if is_index else 'data'} file written successfully.")
+    def get_current_shot(self):
+        return float(self.shot_index)
