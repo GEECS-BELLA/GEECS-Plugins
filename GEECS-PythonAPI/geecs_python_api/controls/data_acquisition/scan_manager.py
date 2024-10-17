@@ -69,25 +69,26 @@ class ScanManager():
         self.console_logger.stop_logging()
         self.console_logger.setup_logging()
 
-    def _set_trigger(self, state: str):
-        """Helper method to turn the trigger on or off."""
+    def _set_trigger(self, state: str, amplitude: float):
+        """Helper method to turn the trigger on or off and set amplitude."""
         valid_states = {
             'on': 'External rising edges',
             'off': 'Single shot external rising edges'
         }
         if state in valid_states:
             self.shot_control.set('Trigger.Source', valid_states[state])
-            logging.info(f"Trigger turned {state}.")
+            self.shot_control.set('Amplitude.Ch AB', amplitude)
+            logging.info(f"Trigger turned {state} with amplitude {amplitude}.")
         else:
             logging.error(f"Invalid trigger state: {state}")
 
     def trigger_off(self):
-        """Turns off the trigger."""
-        self._set_trigger('off')
+        """Turns off the trigger and sets the amplitude to 0.5."""
+        self._set_trigger('off', 0.5)
 
     def trigger_on(self):
-        """Turns on the trigger."""
-        self._set_trigger('on')
+        """Turns on the trigger and sets the amplitude to 4.0."""
+        self._set_trigger('on', 4.0)
 
     def is_scanning_active(self):
         return self.scanning_thread and self.scanning_thread.is_alive()
