@@ -13,6 +13,9 @@ from pathlib import Path
 import os
 import re
 
+import concurrent.futures
+
+
 from nptdms import TdmsWriter, ChannelObject
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -24,180 +27,95 @@ import geecs_python_api.controls.interface.message_handling as mh
 
 from image_analysis.utils import get_imaq_timestamp_from_png
 
+from .utils import get_full_config_path  # Import the utility function
 
-class Sounds:
-    def __init__(self):
-        # Initialize the threading event and the sound file to be played
-        self._play_event = threading.Event()
-        self._sound_file = None
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
 
-    def _run(self):
-        # Run loop that waits for a play event and plays the specified sound
-        while not self._stop_event.is_set():
-            if self._play_event.is_set() and self._sound_file:
-                # Play the sound (adapt this command based on your OS)
-                os.system(f'afplay {self._sound_file}')  # macOS specific, change as necessary
-                self._play_event.clear()  # Reset after playing
-            time.sleep(0.1)  # Prevent busy-waiting
+# For Windows-specific imports
+if platform.system() == "Windows":
+    import winsound
+# For macOS-specific imports
+elif platform.system() == "Darwin":
+    import simpleaudio as sa
+
+class SoundPlayer:
+    def __init__(self, beep_frequency=500, beep_duration=0.1, toot_frequency=1500, toot_duration=0.75, sample_rate=44100):
+        # Assign the user-defined or default values for frequency and duration
+        self.beep_frequency = beep_frequency
+        self.beep_duration = beep_duration
+        self.toot_frequency = toot_frequency
+        self.toot_duration = toot_duration
+        self.sample_rate = sample_rate
+        
+        # Create a queue to hold sound requests
+        self.sound_queue = queue.Queue()
+        # Create and start the background thread
+        self.sound_thread = threading.Thread(target=self._process_queue)
+        self.sound_thread.daemon = True  # Mark thread as a daemon so it exits when the main program exits
+        self.running = True  # Flag to control thread running
+        self.sound_thread.start()
 
     def play_beep(self):
-        """ Play the 'beep' sound """
-        self._sound_file = 'trimmed_tink.aiff'  # Replace with actual path to beep sound
-        self._play_event.set()
+        """Add a beep sound request to the queue."""
+        self.sound_queue.put('beep')
 
     def play_toot(self):
-        """ Play the 'toot' sound """
-        self._sound_file = 'Hero.aiff'  # Replace with actual path to toot sound
-        self._play_event.set()
+        """Add a toot sound request to the queue."""
+        self.sound_queue.put('toot')
 
     def stop(self):
-        """ Stop the sound thread """
-        self._stop_event.set()
-        self._thread.join()  # Ensure the thread exits cleanly  
+        """Stop the sound player by sending a termination signal."""
+        self.running = False
+        self.sound_queue.put(None)  # Add a termination signal to the queue
 
+    def _process_queue(self):
+        """Continuously process the sound queue."""
+        while self.running:
+            try:
+                # Wait for the next sound request (this blocks until a request is added)
+                sound_type = self.sound_queue.get()
+                
+                # Exit the loop if the termination signal is received
+                if sound_type is None:
+                    break
 
-# Example usage of the Sounds class
-sounds = Sounds()
+                # Play the requested sound
+                if sound_type == 'beep':
+                    self._play_sound(self.beep_frequency, self.beep_duration)
+                elif sound_type == 'toot':
+                    self._play_sound(self.toot_frequency, self.toot_duration)
 
+                # Mark the task as done
+                self.sound_queue.task_done()
+            except Exception as e:
+                print(f"Error processing sound: {e}")
 
-class ConfigManager:
-    def __init__(self):
-        """
-        Initialize the ConfigManager with the base directory for configurations.
-        The base directory is set to be relative to the directory where this script/module resides.
-        """
-        # Get the path of the current file (where this class is defined)
-        current_dir = Path(__file__).parent
+    def _play_sound(self, frequency, duration):
+        """Private method to play a sound based on the platform."""
+        # Windows: Use winsound.Beep
+        if platform.system() == "Windows":
+            winsound.Beep(frequency, int(duration * 1000))  # Duration is in milliseconds
+        # macOS: Use simpleaudio to play the generated sound
+        elif platform.system() == "Darwin":
+            audio_data = self._generate_sound(frequency, duration)
+            play_obj = sa.play_buffer(audio_data, 1, 2, self.sample_rate)  # 1 channel, 2 bytes per sample
+            play_obj.wait_done()
+        # Optionally add Linux support or other platforms if needed
+        else:
+            os.system('printf "\a"')  # Default to terminal bell for unsupported platforms
 
-        # Set the base directory to be the 'configs' directory relative to the current directory
-        self.base_dir = current_dir / 'configs'
-
-        # Ensure base_dir exists
-        if not self.base_dir.exists():
-            raise FileNotFoundError(f"The base config directory {self.base_dir} does not exist.")
-
-        self.experiment_dir = None
-
-    def set_experiment_dir(self, experiment: str):
-        """
-        Set the experiment directory based on the subdirectory name.
-
-        Args:
-            experiment (str): Name of the subdirectory for the experiment (e.g., 'HTU').
-        """
-        self.experiment_dir = self.base_dir / experiment
-        if not self.experiment_dir.exists():
-            raise FileNotFoundError(f"The experiment directory {self.experiment_dir} does not exist.")
-
-    def get_config_path(self, config_file: str) -> Path:
-        """
-        Get the full path of the specified configuration file in the current experiment directory.
-
-        Args:
-            config_file (str): The configuration file to retrieve.
-
-        Returns:
-            Path: The full path to the config file.
-        """
-        if not self.experiment_dir:
-            raise ValueError("Experiment directory is not set. Call set_experiment_dir() first.")
-
-        config_path = self.experiment_dir / config_file
-        if not config_path.exists():
-            raise FileNotFoundError(f"The config file {config_path} does not exist.")
-
-        return config_path
-
-    def visa_config_generator(self, visa_key, diagnostic_type):
-
-        # input_filename = '../../geecs_python_api/controls/data_acquisition/configs/HTU/visa_plunger_lookup.yaml'
-
-        input_filename = self.get_config_path('visa_plunger_lookup.yaml')
-
-        with open(input_filename, 'r') as file:
-            visa_lookup = yaml.safe_load(file)
-
-        device_info = visa_lookup[visa_key]
-
-        # Define the VisaEBeam camera dynamically based on the visa_key
-        visa_ebeam_camera = f"UC_VisaEBeam{visa_key[-1]}"  # Extracts the last number from visa_key (e.g., visa1 -> UC_VisaEBEam1)
-
-        if diagnostic_type == 'energy':
-            description = f"collecting data on {visa_key}EBeam and U_FELEnergyMeter"
-            setup_steps = [
-                {'action': 'execute', 'action_name': 'remove_visa_plungers'},
-                {'device': device_info['device'], 'variable': device_info['variable'], 'action': 'set', 'value': 'on'},
-                {'device': 'U_Velmex', 'variable': 'Position', 'action': 'set',
-                 'value': device_info['energy_meter_position']}
-            ]
-            devices = {
-                visa_ebeam_camera: {
-                    'variable_list': ["timestamp"],
-                    'synchronous': True,
-                    'save_nonscalar_data': True
-                },
-                'U_FELEnergyMeter': {
-                    'variable_list': ["Python Results.ChA", "timestamp"],
-                    'synchronous': True,
-                    'save_nonscalar_data': True
-                }
-            }
-
-        elif diagnostic_type == 'spectrometer':
-            description = f"collecting data on {visa_key}EBeam and U_Spectrometer"
-            setup_steps = [
-                {'action': 'execute', 'action_name': 'remove_visa_plungers'},
-                {'device': device_info['device'], 'variable': device_info['variable'], 'action': 'set', 'value': 'on'},
-                {'device': 'U_Velmex', 'variable': 'Position', 'action': 'set',
-                 'value': device_info['spectrometer_position']}
-            ]
-            devices = {
-                visa_ebeam_camera: {
-                    'variable_list': ["timestamp"],
-                    'synchronous': True,
-                    'save_nonscalar_data': True
-                },
-                'UC_UndulatorRad2': {
-                    'variable_list': ["MeanCounts", "timestamp"],
-                    'synchronous': True,
-                    'save_nonscalar_data': True
-                }
-            }
-
-        # Constructing the YAML structure
-        output_data = {
-            'Devices': devices,
-            'scan_info': {
-                'description': description
-            },
-            'setup_action': {
-                'steps': setup_steps
-            }
-        }
-
-        # Writing to a YAML file
-
-        output_filename = input_filename.parent / f'{visa_key}_{diagnostic_type}_setup.yaml'
-        with open(output_filename, 'w') as outfile:
-            yaml.dump(output_data, outfile, default_flow_style=False)
-
-        # print(f"YAML file {output_filename} generated successfully!")
-        return output_filename
+    def _generate_sound(self, frequency, duration):
+        """Generate a sound (for macOS) given a frequency and duration."""
+        t = np.linspace(0, duration, int(self.sample_rate * duration), False)
+        tone = np.sin(2 * np.pi * frequency * t)
+        return (tone * 32767).astype(np.int16)  # Convert to 16-bit PCM format
 
 
 class ActionManager:
     def __init__(self, experiment_dir: str):
-        # Initialize the ConfigManager within ActionManager
-        self.config_manager = ConfigManager()  # Automatically initialized
-        if experiment_dir is not None:
-            self.config_manager.set_experiment_dir(experiment_dir)  # Set the experiment directory
 
-            # Store the experiment directory path and the full path to actions.yaml
-            self.experiment_dir = self.config_manager.experiment_dir
-            self.actions_file_path = self.experiment_dir / 'actions.yaml'  # Path to actions.yaml
+        if experiment_dir is not None:
+            # Use the utility function to get the path to the actions.yaml file
+            self.actions_file_path = get_full_config_path(experiment_dir, 'aux_configs', 'actions.yaml')
 
             # Dictionary to store instantiated GeecsDevices
             self.instantiated_devices = {}
@@ -301,25 +219,22 @@ class DeviceManager:
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
         self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
-        self.base_config_file_path = []
-        self.composite_variables = []
-        self.config_manager = ConfigManager()  # Automatically initialized
 
         if experiment_dir is not None:
-            # Initialize the ConfigManager within DeviceManager
-            self.config_manager.set_experiment_dir(experiment_dir)  # Set the experiment directory
+            # Set the experiment directory
+            self.experiment_dir = experiment_dir
 
-            # Load paths for required config files using the ConfigManager
-            self.base_config_file_path = self.config_manager.get_config_path('base_monitoring_devs.yaml')
-            self.composite_variables_file_path = self.config_manager.get_config_path('composite_variables.yaml')
-
+            # # Use self.experiment_dir when calling the utility function
+            # self.base_config_file_path = get_full_config_path(self.experiment_dir, 'base_monitoring_devs.yaml')
+            # self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'composite_variables.yaml')
+            
+            
+            # Use self.experiment_dir when calling the utility function
+            self.base_config_file_path = get_full_config_path(self.experiment_dir, 'save_devices', 'Base_Monitoring_Devices.yaml')
+            self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'aux_configs', 'composite_variables.yaml')
+           
             # Load composite variables from the file
             self.composite_variables = self.load_composite_variables(self.composite_variables_file_path)
-
-        # Placeholder for scan description
-        self.scan_base_description = None
-        self.scan_parameters = None
-        self.scan_setup_action = None
 
     def load_composite_variables(self, composite_file):
         """
@@ -363,7 +278,7 @@ class DeviceManager:
         self.load_base_config()
 
         # Load the specific config for the experiment
-        config_path = self.config_manager.get_config_path(config_filename)
+        config_path = get_full_config_path(self.experiment_dir, 'save_device', config_filename)
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
         logging.info(f"Loaded configuration from {config_path}")
@@ -418,10 +333,6 @@ class DeviceManager:
 
         logging.info(f"Devices loaded: {self.devices.keys()}")
 
-    def load_composite_variables(self, composite_file):
-        with open(composite_file, 'r') as file:
-            return yaml.safe_load(file).get('composite_variables', {})
-
     def is_statistic_noscan(self, variable_name):
         return variable_name in ('noscan', 'statistics')
 
@@ -445,6 +356,7 @@ class DeviceManager:
         # Iterate over each component and evaluate its relation
         for comp in components:
             relation = comp['relation'].replace("composite_var", str(value))  # Replace the placeholder
+            logging.info(f"Evaluating relation: {relation}")
             evaluated_value = eval(relation)  # Evaluate the relationship to get the actual value
             variables[f"{comp['device']}:{comp['variable']}"] = evaluated_value
 
@@ -814,30 +726,37 @@ class DataInterface():
             logging.error(f"Scan data file {sPath} not found.")
             return
 
-        # Process each device directory
-        for device_dir in device_directories:
-            device_name = device_dir.name
-            logging.info(f"Processing device directory: {device_name}")
+        # Process each device directory concurrently using threads
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # Submit each device directory for processing in a separate thread
+            futures = [executor.submit(self.process_device_files, device_dir, df) for device_dir in device_directories]
 
-            device_type = GeecsDatabase.find_device_type(device_name)  # Lookup the device type
+            # Wait for all threads to complete
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()  # Retrieve the result to handle any exceptions
+                except Exception as e:
+                    logging.error(f"Error during file processing: {e}")
 
-            if not device_type:
-                logging.warning(f"Could not find device type for {device_name}. Skipping.")
-                continue
-
-            # Find matching rows and rename files based on device type
-            self.process_device_files(device_dir, df, device_type)
-
-    def process_device_files(self, device_dir, df, device_type):
+    def process_device_files(self, device_dir, df):
         """
         Generic method to process device files and rename them based on timestamps.
         The specific timestamp extraction function is selected based on the device type.
         """
+        device_name = device_dir.name
+        logging.info(f"Processing device directory: {device_name}")
+
+        # Lookup the device type
+        device_type = GeecsDatabase.find_device_type(device_name)
+
+        if not device_type:
+            logging.warning(f"Could not find device type for {device_name}. Skipping.")
+            return
+
         # Collect all files in the directory
         device_files = list(device_dir.glob("*"))
 
         # Create the timestamp column name corresponding to the device
-        device_name = device_dir.name
         device_timestamp_column = f'{device_name} timestamp'
 
         logging.info(f"Found {len(device_files)} files in {device_name} directory.")
@@ -933,6 +852,9 @@ class DataLogger():
         self.results = {}  # Store results for later processing
 
         self.bin_num = 0  # Initialize bin as 0
+        
+        # Initialize the sound player
+        self.sound_player = SoundPlayer()
 
     def start_logging(self):
         """
@@ -1109,7 +1031,7 @@ class DataLogger():
             log_entries[elapsed_time]['Bin #'] = self.bin_num
             # os.system('afplay trimmed_tink.aiff')  # This plays a sound on macOS
             # Trigger the beep in the background
-            # sounds.play_beep()
+            self.sound_player.play_beep()  # Play the beep sound
 
         log_entries[elapsed_time].update({
             f"{device.get_name()}:{key}": value for key, value in observables_data.items()
@@ -1150,9 +1072,13 @@ class DataLogger():
         # Unregister all event-driven logging
         for device_name, device in self.device_manager.devices.items():
             device.event_handler.unregister('update', 'logger')
+            
+        self.sound_player.play_toot()
 
         # Signal to stop the polling thread
         self.stop_event.set()
+        
+        self.sound_player.stop()
 
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join()  # Ensure the polling thread has finished

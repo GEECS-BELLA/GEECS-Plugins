@@ -3,9 +3,11 @@ import threading
 import logging
 import pandas as pd
 from pathlib import Path
-import shutil
+
+import numpy as np
 
 from .data_acquisition import DeviceManager, ActionManager, DataInterface, DataLogger
+from .utils import ConsoleLogger
 
 from geecs_python_api.controls.interface import load_config
 from geecs_python_api.controls.interface import GeecsDatabase
@@ -26,9 +28,14 @@ else:
 GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
 device_dict = GeecsDevice.exp_info['devices']
 
-
 class ScanManager():
-
+    
+    """
+    Manages the execution of scans. This involves initializing a device_manager if one
+    is not. A 'save_devices' config file should be passed to the device_manager to initialize
+    the desired saving configuration. 
+    """
+    
     def __init__(self, experiment_dir=None, device_manager=None, data_interface=None):
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
         self.data_interface = data_interface or DataInterface()
@@ -41,10 +48,11 @@ class ScanManager():
         self.results = {}  # Store results for later processing
 
         self.stop_scanning_thread_event = threading.Event()  # Event to signal the logging thread to stop
-
-        self.console_log_name = "scan_execution.log"
-        self.setup_console_logging(log_file=self.console_log_name, level=logging.INFO, console=True)
-
+        
+        # Use the new ConsoleLogger class
+        self.console_logger = ConsoleLogger(log_file="scan_execution.log", level=logging.INFO, console=True)
+        self.console_logger.setup_logging()
+        
         self.bin_num = 0  # Initialize bin as 0
 
         self.scanning_thread = None  # NEW: Separate thread for scanning
@@ -53,55 +61,8 @@ class ScanManager():
 
         self.scan_steps = []  # To store the precomputed scan steps
 
-    def setup_console_logging(self, log_file="system_log.log", level=logging.INFO, console=False):
-        """
-        Sets up logging for the module. By default, logs to a file.
-    
-        Args:
-            log_file (str): The file to log to.
-            level (int): The logging level (e.g., logging.INFO, logging.DEBUG).
-            console (bool): If True, also logs to the console.
-        """
-        # Remove any previously configured handlers to prevent duplication
-        for handler in logging.root.handlers[:]:
-            logging.root.removeHandler(handler)
-
-        # Configure logging with both file and optional console handlers
-        handlers = [logging.FileHandler(log_file)]
-        if console:
-            handlers.append(logging.StreamHandler())
-
-        logging.basicConfig(
-            level=level,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=handlers
-        )
-
     def reinitialize(self, config_path=None, config_dictionary=None):
         self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
-
-    def stop_console_logging(self):
-        # Iterate over the root logger's handlers and close each one
-        for handler in logging.root.handlers[:]:
-            handler.close()  # Close the file or stream
-            logging.root.removeHandler(handler)  # Remove the handler
-
-        print("Logging has been stopped and handlers have been removed.")
-
-    def move_log_file(self, src_file, dest_dir):
-        """
-        Moves the log file to the destination directory using shutil to handle cross-device issues.
-        """
-        src_path = Path(src_file)
-        dest_path = Path(dest_dir) / src_path.name
-
-        print(f"Attempting to move {src_path} to {dest_path}")
-
-        try:
-            shutil.move(str(src_path), str(dest_path))
-            print(f"Moved log file to {dest_path}")
-        except Exception as e:
-            print(f"Failed to move {src_path} to {dest_path}: {e}")
 
     def _set_trigger(self, state: str):
         """Helper method to turn the trigger on or off."""
@@ -178,9 +139,6 @@ class ScanManager():
                 acquisition_time = self.estimate_acquisition_time(scan_config)
                 logging.info(f"Estimated acquisition time based on scan config: {acquisition_time} seconds.")
 
-            # Initialize scan state if scan_config is provided
-            scan_state = self.initialize_scan_state(scan_config)
-
             ###############
             # add in the data loggin portion here
             ##############
@@ -197,6 +155,7 @@ class ScanManager():
             logging.error(f"Error during scanning: {e}")
 
         logging.info("Stopping scaning.")
+        time.sleep(1)
         log_df = self.stop_scan()
 
         return log_df  # Return the DataFrame with the logged data
@@ -205,56 +164,78 @@ class ScanManager():
         """
         Stop both event-driven and asynchronous logging, and reset necessary states for reuse.
         """
-
-        # # sounds.play_toot()
-        # sounds.stop()
         log_df = pd.DataFrame()
 
         if self.save_data:
+            # Step 1: Stop data logging and handle device saving states
+            self._stop_saving_devices()
 
-            ########
-            # handle thread closing in the data logger
-            # below is the code that was in the data_acquisition module before refactoring. need to refactor
-            ########
-            self.data_logger.stop_logging()
-
-            # Step 5: Process results and convert to DataFrame
-            if self.results:
-                log_df = self.convert_to_dataframe(self.results)
-                logging.info("Data logging complete. Returning DataFrame.")
-
-                self.save_to_txt_and_h5(log_df, self.data_txt_path, self.data_h5_path, self.sFile_txt_path)
-
-                self.dataframe_to_tdms(log_df)
-                self.dataframe_to_tdms(log_df, is_index=True)
-
-            else:
-                logging.warning("No data was collected during the logging period.")
-                log_df = pd.DataFrame()
-
-            for device_name in self.device_manager.non_scalar_saving_devices:
-                device = self.device_manager.devices.get(device_name)
-                if device:
-                    logging.info(f"Setting save to off for {device_name}")
-                    device.set('save', 'off', sync=False)
-                    logging.info(f"Setting save to off for {device_name} complete")
-                    device.set('localsavingpath', 'c:\\temp', sync=False)
-                    logging.info(f"Setting save path back to temp for {device_name} complete")
-                else:
-                    logging.warning(f"Device {device_name} not found in DeviceManager.")
-
-        logging.info("scanning has stopped for all devices.")
-        self.shot_control.set('Trigger.Source', "External rising edges")
-
-        self.data_interface.process_and_rename()
-
-        self.stop_console_logging()
+        # Step 5: Restore the initial state of devices
+        self.restore_initial_state(self.initial_state)
+        
+        # Step 4: Turn the trigger back on
+        self.trigger_on()
 
         if self.save_data:
-            self.move_log_file(self.console_log_name, self.data_txt_path.parent)
+            # Step 6: Process results, save to disk, and log data
+            log_df = self._process_results()
+
+            # Step 7: Process and rename data files
+            self.data_interface.process_and_rename()
+
+        # Step 8: Stop the console logging
+        self.console_logger.stop_logging()
+
+        # Step 9: Move log file if data was saved
+        if self.save_data:
+            self.console_logger.move_log_file(self.data_txt_path.parent)
 
         return log_df
 
+    def _stop_saving_devices(self):
+        """
+        Stop the data logger, close threads, and update saving paths for non-scalar devices.
+        """
+        # Stop data logging
+        self.data_logger.stop_logging()
+
+        # Handle device saving states
+        for device_name in self.device_manager.non_scalar_saving_devices:
+            device = self.device_manager.devices.get(device_name)
+            if device:
+                logging.info(f"Setting save to off for {device_name}")
+                device.set('save', 'off', sync=False)
+                logging.info(f"Setting save to off for {device_name} complete")
+                device.set('localsavingpath', 'c:\\temp', sync=False)
+                logging.info(f"Setting save path back to temp for {device_name} complete")
+            else:
+                logging.warning(f"Device {device_name} not found in DeviceManager.")
+                
+        # Ensure asynchronous commands have time to finish
+        time.sleep(2)
+       
+        logging.info("scanning has stopped for all devices.")
+
+    def _process_results(self):
+        """
+        Convert results to DataFrame, save data, and write to TDMS.
+        """
+        if self.results:
+            log_df = self.convert_to_dataframe(self.results)
+            logging.info("Data logging complete. Returning DataFrame.")
+
+            # Save results to .txt and .h5
+            self.save_to_txt_and_h5(log_df, self.data_txt_path, self.data_h5_path, self.sFile_txt_path)
+
+            # Write TDMS files (data and index)
+            self.dataframe_to_tdms(log_df)
+            self.dataframe_to_tdms(log_df, is_index=True)
+
+            return log_df
+        else:
+            logging.warning("No data was collected during the logging period.")
+            return pd.DataFrame()
+     
     def pre_logging_setup(self, scan_config):
         """
         Precompute all scan steps (including composite and normal variables), 
@@ -274,6 +255,10 @@ class ScanManager():
         # Handle scan variables and ensure devices are initialized in DeviceManager
         logging.info(f'scan config in pre logging is this: {scan_config}')
         self.device_manager.handle_scan_variables(scan_config)
+        
+        time.sleep(1.5)
+        
+        self.initial_state = self.get_initial_state(scan_config)
 
         # Generate the scan steps
         self.scan_steps = self._generate_scan_steps(scan_config)
@@ -284,9 +269,214 @@ class ScanManager():
 
             self.action_manager.add_action({'setup_action': self.device_manager.scan_setup_action})
             self.action_manager.execute_action('setup_action')
-
+            
         logging.info("Pre-logging setup completed.")
 
+    def _add_scan_devices_to_async_observables(self, scan_config):
+        """
+        Add devices/variables involved in the scan to async_observables if not already present.
+        """
+        for scan in scan_config:
+            device_var = scan['device_var']
+            if self.device_manager.is_composite_variable(device_var):
+                component_vars = self.device_manager.get_composite_components(device_var, scan['start'])
+                for device_var in component_vars:
+                    if device_var not in self.device_manager.async_observables:
+                        self.device_manager.async_observables.append(device_var)
+            else:
+                if device_var not in self.device_manager.async_observables:
+                    self.device_manager.async_observables.append(device_var)
+
+        logging.info(f"Updated async_observables: {self.device_manager.async_observables}")
+
+    def _generate_scan_steps(self, scan_config):
+        """
+        Generate a full list of scan steps ahead of time.
+        This method handles both normal and composite variables.
+        """
+        self.bin_num = 0
+        steps = []
+        for scan in scan_config:
+            device_var = scan['device_var']
+
+            if self.device_manager.is_statistic_noscan(device_var):
+                steps.append({
+                    'variables': device_var,
+                    'wait_time': scan.get('wait_time', 1),
+                    'is_composite': False
+                })
+            elif self.device_manager.is_composite_variable(device_var):
+                current_value = scan['start']
+                while current_value <= scan['end']:
+                    component_vars = self.device_manager.get_composite_components(device_var, current_value)
+                    steps.append({
+                        'variables': component_vars,
+                        'wait_time': scan.get('wait_time', 1),
+                        'is_composite': True
+                    })
+                    current_value += scan['step']
+            else:
+                current_value = scan['start']
+                while current_value <= scan['end']:
+                    steps.append({
+                        'variables': {device_var: current_value},
+                        'wait_time': scan.get('wait_time', 1),
+                        'is_composite': False
+                    })
+                    current_value += scan['step']
+        
+            # Check if it's a composite variable and if it has a relative flag in the YAML
+            if self.device_manager.is_composite_variable(device_var):
+                composite_variable_info = self.device_manager.composite_variables.get(device_var, {})
+                relative_flag = composite_variable_info.get('relative', False)
+                # self._apply_relative_adjustment(steps)
+            
+            # set relative flag for normal variables
+            elif scan.get('relative', False):
+                relative_flag = True
+                
+            if relative_flag:
+                self._apply_relative_adjustment(steps)
+                    
+        return steps
+
+    def _apply_relative_adjustment(self, scan_steps):
+        """
+        Adjusts the scan steps based on the initial state of the devices if relative scanning is enabled.
+        """
+        for step in scan_steps:
+            for device_var, value in step['variables'].items():
+                # Add the initial state value to the step value for each device
+                if device_var in self.initial_state:
+                    initial_value = self.initial_state[device_var]['value']
+                    step['variables'][device_var] += initial_value
+                else:
+                    logging.warning(f"Initial state for {device_var} not found, skipping relative adjustment.")
+    
+    def scan_execution_loop(self, acquisition_time):
+        """
+        Executes the scan loop over precomputed scan steps, stopping if the stop event is triggered.
+        """
+        log_df = pd.DataFrame()  # Initialize in case of early exit
+
+        while self.scan_steps:
+            # Check if the stop event is set, and exit if so
+            if self.stop_scanning_thread_event.is_set():
+                logging.info("Scanning has been stopped externally.")
+                break
+                
+            scan_step = self.scan_steps.pop(0)
+            self._execute_step(scan_step['variables'], scan_step['wait_time'], scan_step['is_composite'])
+        
+
+
+        logging.info("Stopping logging.")
+
+        return log_df
+
+    def _execute_step(self, component_vars, wait_time, is_composite):
+
+        """
+        Executes a single step of the scan, handling both composite and normal variables.
+        Ensures the trigger is turned off before all moves and turned back on after.
+        """
+
+        logging.info("Pausing logging. Turning trigger off before moving devices.")
+        self.data_logger.bin_num += 1
+        self.trigger_off()
+
+        logging.info(f"shot control state: {self.shot_control.state}")
+        if not self.device_manager.is_statistic_noscan(component_vars):
+            for device_var, current_value in component_vars.items():
+                device_name, var_name = device_var.split(':', 1)
+                device = self.device_manager.devices.get(device_name)
+
+                if device:
+                    device.set(var_name, current_value)
+                    logging.info(f"Set {var_name} to {current_value} for {device_name}")
+
+        logging.info("Resuming logging. Turning trigger on after all devices have been moved.")
+        self.trigger_on()
+        logging.info(f"shot control state: {self.shot_control.state}")
+
+        current_time = 0
+        interval_time = 0.1
+        while current_time < wait_time:
+            if self.stop_scanning_thread_event.is_set():
+                logging.info("Scanning has been stopped externally.")
+                break
+
+            time.sleep(interval_time)
+            current_time += interval_time
+
+        self.trigger_off()
+        logging.info(f"shot control state: {self.shot_control.state}")
+
+    def estimate_acquisition_time(self, scan_config):
+        """
+        Estimate the total acquisition time based on the scan configuration.
+        """
+        total_time = 0
+
+        for scan in scan_config:
+            if self.device_manager.is_statistic_noscan(scan['device_var']):
+                total_time += scan.get('acquisition_time', 10)  # Default to 10 seconds if not provided
+            else:
+                start = scan['start']
+                end = scan['end']
+                step = scan['step']
+                wait_time = scan.get('wait_time', 1)  # Default wait time between steps is 1 second
+
+                # Calculate the number of steps and the total time for this device
+                steps = (end - start) / step
+                total_time += steps * wait_time
+
+        logging.info(f'Estimated scan time: {total_time}')
+
+        return total_time
+   
+    def get_initial_state(self, scan_config):
+        """
+        Initialize the state of each scan based on the current values from the subscribers.
+        Handles both normal and composite variables.
+        Returns a dictionary where each `device_var` is mapped to its current value.
+        """
+        scan_variables = []
+
+        if scan_config:
+            for scan in scan_config:
+                device_var = scan['device_var']
+
+                # Handle composite variables by retrieving each component's state
+                if self.device_manager.is_composite_variable(device_var):
+                    component_vars = self.device_manager.get_composite_components(device_var, scan['start'])
+                    scan_variables.extend(component_vars.keys())
+                else:
+                    scan_variables.append(device_var)
+
+        # Use the existing method to get the current state of all variables
+        initial_state = self.device_manager.get_values(scan_variables)
+
+        logging.info(f"Initial scan variable state: {initial_state}")
+        return initial_state
+   
+    def restore_initial_state(self, initial_state):
+        """
+        Restore devices to their initial states using the provided initial_state dictionary.
+        """
+        for device_var, value_dict in initial_state.items():
+            device_name, var_name = device_var.split(':')
+            device = self.device_manager.devices.get(device_name)
+
+            if device:
+                initial_value = value_dict['value']
+                device.set(var_name, initial_value)
+                logging.info(f"Restored {device_name}:{var_name} to initial value {initial_value}")
+            else:
+                logging.warning(f"Device {device_name} not found when trying to restore state.")
+
+        logging.info("All devices restored to their initial states.")
+        
     def create_and_set_data_paths(self):
         """
         Create data paths for devices that have save_non_scalar=True and set the save data path on those devices.
@@ -367,160 +557,21 @@ class ScanManager():
                 configfile.write(line)
 
         logging.info(f"Scan info written to {full_path}")
-
-    def _add_scan_devices_to_async_observables(self, scan_config):
-        """
-        Add devices/variables involved in the scan to async_observables if not already present.
-        """
-        for scan in scan_config:
-            device_var = scan['device_var']
-            if self.device_manager.is_composite_variable(device_var):
-                component_vars = self.device_manager.get_composite_components(device_var, scan['start'])
-                for device_var in component_vars:
-                    if device_var not in self.device_manager.async_observables:
-                        self.device_manager.async_observables.append(device_var)
-            else:
-                if device_var not in self.device_manager.async_observables:
-                    self.device_manager.async_observables.append(device_var)
-
-        logging.info(f"Updated async_observables: {self.device_manager.async_observables}")
-
-    def _generate_scan_steps(self, scan_config):
-        """
-        Generate a full list of scan steps ahead of time.
-        This method handles both normal and composite variables.
-        """
-        self.bin_num = 0
-        steps = []
-        for scan in scan_config:
-            device_var = scan['device_var']
-
-            if self.device_manager.is_statistic_noscan(device_var):
-                steps.append({
-                    'variables': device_var,
-                    'wait_time': scan.get('wait_time', 1),
-                    'is_composite': False
-                })
-            elif self.device_manager.is_composite_variable(device_var):
-                current_value = scan['start']
-                while current_value <= scan['end']:
-                    component_vars = self.device_manager.get_composite_components(device_var, current_value)
-                    steps.append({
-                        'variables': component_vars,
-                        'wait_time': scan.get('wait_time', 1),
-                        'is_composite': True
-                    })
-                    current_value += scan['step']
-            else:
-                current_value = scan['start']
-                while current_value <= scan['end']:
-                    steps.append({
-                        'variables': {device_var: current_value},
-                        'wait_time': scan.get('wait_time', 1),
-                        'is_composite': False
-                    })
-                    current_value += scan['step']
-        return steps
-
-    def scan_execution_loop(self, acquisition_time):
-        """
-        Executes the scan loop over precomputed scan steps, stopping if the stop event is triggered.
-        """
-        log_df = pd.DataFrame()  # Initialize in case of early exit
-
-        while self.scan_steps:
-            scan_step = self.scan_steps.pop(0)
-            self._execute_step(scan_step['variables'], scan_step['wait_time'], scan_step['is_composite'])
-
-        logging.info("Stopping logging.")
-
-        return log_df
-
-    def _execute_step(self, component_vars, wait_time, is_composite):
-
-        """
-        Executes a single step of the scan, handling both composite and normal variables.
-        Ensures the trigger is turned off before all moves and turned back on after.
-        """
-
-        logging.info("Pausing logging. Turning trigger off before moving devices.")
-        self.data_logger.bin_num += 1
-        self.trigger_off()
-
-        logging.info(f"shot control state: {self.shot_control.state}")
-        if not self.device_manager.is_statistic_noscan(component_vars):
-            for device_var, current_value in component_vars.items():
-                device_name, var_name = device_var.split(':', 1)
-                device = self.device_manager.devices.get(device_name)
-
-                if device:
-                    device.set(var_name, current_value)
-                    logging.info(f"Set {var_name} to {current_value} for {device_name}")
-
-        logging.info("Resuming logging. Turning trigger on after all devices have been moved.")
-        self.trigger_on()
-        logging.info(f"shot control state: {self.shot_control.state}")
-
-        current_time = 0
-        interval_time = 0.1
-        while current_time < wait_time:
-            if self.stop_scanning_thread_event.is_set():
-                logging.info("Scanning has been stopped externally.")
-                break
-
-            time.sleep(interval_time)
-            current_time += interval_time
-
-        self.trigger_off()
-        logging.info(f"shot control state: {self.shot_control.state}")
-
-    def estimate_acquisition_time(self, scan_config):
-        """
-        Estimate the total acquisition time based on the scan configuration.
-        """
-        total_time = 0
-
-        for scan in scan_config:
-            if self.device_manager.is_statistic_noscan(scan['device_var']):
-                total_time += scan.get('acquisition_time', 10)  # Default to 10 seconds if not provided
-            else:
-                start = scan['start']
-                end = scan['end']
-                step = scan['step']
-                wait_time = scan.get('wait_time', 1)  # Default wait time between steps is 1 second
-
-                # Calculate the number of steps and the total time for this device
-                steps = (end - start) / step
-                total_time += steps * wait_time
-
-        logging.info(f'Estimated scan time: {total_time}')
-
-        return total_time
-
-    def initialize_scan_state(self, scan_config):
-        """
-        Initialize the state of each scan based on the start values from scan_config.
-        Returns a dictionary where each `device_var` is mapped to its current value.
-        """
-        scan_state = {}
-        if scan_config:
-            for scan in scan_config:
-                device_var = scan['device_var']
-                if not self.device_manager.is_statistic_noscan(device_var):
-                    start = scan['start']
-                    scan_state[device_var] = start  # Set the current position to the start value
-        return scan_state
-
-    def fill_async_nans(self, log_df, async_observables):
-        """
-        Fill NaN values in asynchronous observable columns with the most recent non-NaN value.
-        If a column starts with NaN, it will backfill with the first non-NaN value.
-        If the entire column is NaN, it will be left unchanged.
     
+    def fill_async_nans(self, log_df, async_observables, fill_value=0):
+        """
+        Fill NaN values and empty strings in asynchronous observable columns with the most recent non-NaN value.
+        If a column starts with NaN or empty strings, it will backfill with the first non-NaN value.
+        After forward and backward filling, remaining NaN or empty entries are filled with `fill_value`.
+
         Args:
             log_df (pd.DataFrame): The DataFrame containing the logged data.
             async_observables (list): A list of asynchronous observables (columns) to process.
+            fill_value (int, float): Value to fill remaining NaN and empty entries (default is 0).
         """
+        # Convert empty strings ('') to NaN
+        log_df.replace('', pd.NA, inplace=True)
+
         for async_obs in async_observables:
             if async_obs in log_df.columns:
                 # Only process if the entire column is not NaN
@@ -533,9 +584,15 @@ class ScanManager():
                 else:
                     logging.warning(f"Column {async_obs} consists entirely of NaN values and will be left unchanged.")
 
-        logging.info("Filled NaN values in asynchronous variables.")
-        return log_df
+        # Finally, fill any remaining NaN values (including converted empty strings) with the specified fill_value
+        log_df = log_df.fillna(fill_value)
 
+        # Use infer_objects to downcast the object dtype arrays appropriately
+        log_df = log_df.infer_objects(copy=False)
+
+        logging.info(f"Filled remaining NaN and empty values with {fill_value}.")
+        return log_df
+    
     def save_to_txt_and_h5(self, df, txt_file_path, h5_file_path, sFile_path):
         """
         Save the DataFrame to both .txt (as tab-separated values) and .h5 (HDF5) formats.
@@ -584,14 +641,15 @@ class ScanManager():
                 new_header = header  # Keep the header as is if no colon
             new_headers.append(new_header)
         return new_headers
-
+           
+    
     def dataframe_to_tdms(self, df, is_index=False):
         """
         Convert a DataFrame to a TDMS file or a TDMS index file.
         Groups are created based on the part before the colon in column names,
         and channels are created based on the part after the colon. If no colon exists,
         the group and channel will be the column header.
-    
+
         Args:
             df (pd.DataFrame): The DataFrame to convert.
             is_index (bool): If True, writes only the structure (groups and channels) without data.
@@ -619,3 +677,4 @@ class ScanManager():
                 tdms_writer.write_segment([ch_object])
 
         logging.info(f"TDMS {'index' if is_index else 'data'} file written successfully.")
+    
