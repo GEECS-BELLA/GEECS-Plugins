@@ -444,6 +444,7 @@ class GEECSScannerWindow(QMainWindow):
         QApplication.processEvents()
 
         save_device_list = {}
+        list_of_steps = []
         for i in range(self.ui.selectedDevices.count()):
             filename = self.ui.selectedDevices.item(i).text()
             fullpath = RELATIVE_PATH + f"experiments/{self.experiment}/save_devices/{filename}.yaml"
@@ -451,6 +452,10 @@ class GEECSScannerWindow(QMainWindow):
                 try:
                     data = yaml.safe_load(file)
                     save_device_list.update(data['Devices'])
+
+                    if 'setup_action' in data:
+                        setup_action = data['setup_action']
+                        list_of_steps.extend(setup_action['steps'])
                 except yaml.YAMLError as exc:
                     print(f"Error reading YAML file: {exc}")
 
@@ -495,6 +500,10 @@ class GEECSScannerWindow(QMainWindow):
             'scan_info': scan_information,
             'scan_parameters': scan_parameters,
         }
+        if list_of_steps:
+            steps = {'steps': list_of_steps}
+            run_config['setup_action'] = steps
+
         self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
         self.ui.startScanButton.setText("Start Scan")
 
