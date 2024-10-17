@@ -246,20 +246,30 @@ class GEECSScannerWindow(QMainWindow):
             with open(experiment_folder + "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 devices = data['single_scan_devices']
-                self.scan_device_list = devices.keys()
+                self.scan_device_list = list(devices.keys())
+
+            composite_variables_location = RELATIVE_PATH + "experiments/" + self.experiment + "/aux_configs/"
+            with open(composite_variables_location + "composite_variables.yaml", 'r') as file:
+                data = yaml.safe_load(file)
+                composite_vars = data['composite_variables']
+                self.scan_device_list.extend(list(composite_vars.keys()))
 
         except Exception as e:
-            print(f"Error loading scan_devices.yaml file: {e}")
+            print(f"Error loading file: {e}")
 
         completer = QCompleter(self.scan_device_list, self.ui.lineScanVariable)
         self.ui.lineScanVariable.setCompleter(completer)
 
     def read_device_tag_from_nickname(self, name):
+        print(name)
         try:
             experiment_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/scan_devices/"
             with open(experiment_folder + "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
-                return data['single_scan_devices'][name]
+                if name in data['single_scan_devices']:
+                    return data['single_scan_devices'][name]
+                else:
+                    return name
 
         except Exception as e:
             print(f"Error loading scan_devices.yaml file: {e}")
