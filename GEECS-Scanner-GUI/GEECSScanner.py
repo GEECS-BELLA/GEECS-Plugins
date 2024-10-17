@@ -461,30 +461,26 @@ class GEECSScannerWindow(QMainWindow):
 
         if self.ui.scanRadioButton.isChecked():
             scan_variable_tag = self.read_device_tag_from_nickname(self.scan_variable)
-            scan_config = [
-                {
-                    'device_var': scan_variable_tag,
-                    'start': self.scan_start,
-                    'end': self.scan_stop,
-                    'step': self.scan_step_size,
-                    'wait_time': self.scan_shot_per_step + 0.5
-                }
-            ]
+            scan_config = {
+                'device_var': scan_variable_tag,
+                'start': self.scan_start,
+                'end': self.scan_stop,
+                'step': self.scan_step_size,
+                'wait_time': self.scan_shot_per_step + 0.5
+            }
             scan_mode = scan_variable_tag
             scan_array_initial = self.scan_start
             scan_array_final = self.scan_stop
         elif self.ui.noscanRadioButton.isChecked():
-            scan_config = [
-                {
-                    'device_var': 'noscan',
-                    'wait_time': self.noscan_num + 0.5
-                }
-            ]
+            scan_config = {
+                'device_var': 'noscan',
+                'wait_time': self.noscan_num + 0.5
+            }
             scan_mode = "noscan"
             scan_array_initial = 0
             scan_array_final = self.noscan_num
         else:
-            scan_config = []
+            scan_config = None
             scan_mode = ""
             scan_array_initial = 0
             scan_array_final = 0
