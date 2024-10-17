@@ -244,8 +244,6 @@ class ScanManager():
 
         self.scanning_thread = None  # NEW: Separate thread for scanning
 
-        self.tdms_writer = None
-
         self.initial_state = None
         self.scan_steps = []  # To store the precomputed scan steps
 
