@@ -58,11 +58,14 @@ class ScanManager():
         self.scanning_thread = None  # NEW: Separate thread for scanning
 
         self.tdms_writer = None
+        self.initial_state = None
 
         self.scan_steps = []  # To store the precomputed scan steps
 
     def reinitialize(self, config_path=None, config_dictionary=None):
+        self.initial_state = None
         self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
+        self.data_logger.reinitialize_sound_player()
 
     def _set_trigger(self, state: str):
         """Helper method to turn the trigger on or off."""
@@ -171,7 +174,8 @@ class ScanManager():
             self._stop_saving_devices()
 
         # Step 5: Restore the initial state of devices
-        self.restore_initial_state(self.initial_state)
+        if self.initial_state is not None:
+            self.restore_initial_state(self.initial_state)
         
         # Step 4: Turn the trigger back on
         self.trigger_on()
@@ -257,8 +261,10 @@ class ScanManager():
         self.device_manager.handle_scan_variables(scan_config)
         
         time.sleep(1.5)
-        
-        self.initial_state = self.get_initial_state(scan_config)
+
+        device_var = scan_config[0]['device_var']
+        if not self.device_manager.is_statistic_noscan(device_var):
+            self.initial_state = self.get_initial_state(scan_config)
 
         # Generate the scan steps
         self.scan_steps = self._generate_scan_steps(scan_config)
@@ -324,7 +330,8 @@ class ScanManager():
                         'is_composite': False
                     })
                     current_value += scan['step']
-        
+
+            relative_flag = False
             # Check if it's a composite variable and if it has a relative flag in the YAML
             if self.device_manager.is_composite_variable(device_var):
                 composite_variable_info = self.device_manager.composite_variables.get(device_var, {})
@@ -335,7 +342,7 @@ class ScanManager():
             elif scan.get('relative', False):
                 relative_flag = True
                 
-            if relative_flag:
+            if relative_flag and not self.device_manager.is_statistic_noscan(device_var):
                 self._apply_relative_adjustment(steps)
                     
         return steps
@@ -454,6 +461,7 @@ class ScanManager():
                 else:
                     scan_variables.append(device_var)
 
+        logging.info(f"Scan variables for initial state: {scan_variables}")
         # Use the existing method to get the current state of all variables
         initial_state = self.device_manager.get_values(scan_variables)
 

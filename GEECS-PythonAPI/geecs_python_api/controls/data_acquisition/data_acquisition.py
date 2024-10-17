@@ -219,6 +219,7 @@ class DeviceManager:
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
         self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
+        self.composite_variables = None
 
         if experiment_dir is not None:
             # Set the experiment directory
@@ -337,7 +338,7 @@ class DeviceManager:
         return variable_name in ('noscan', 'statistics')
 
     def is_composite_variable(self, variable_name):
-        return variable_name in self.composite_variables
+        return self.composite_variables is not None and variable_name in self.composite_variables
 
     def get_composite_components(self, composite_var, value):
         """
@@ -1087,3 +1088,7 @@ class DataLogger():
         self.stop_event.clear()
         self.poll_thread = None
         self.async_t0 = None
+
+    def reinitialize_sound_player(self):
+        self.sound_player.stop()
+        self.sound_player = SoundPlayer()
