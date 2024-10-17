@@ -54,6 +54,7 @@ class ScanManager():
         self.console_logger.setup_logging()
         
         self.bin_num = 0  # Initialize bin as 0
+        self.acquisition_time = 0
 
         self.scanning_thread = None  # NEW: Separate thread for scanning
 
@@ -142,8 +143,8 @@ class ScanManager():
 
             # Estimate acquisition time if necessary
             if scan_config:
-                acquisition_time = self.estimate_acquisition_time(scan_config)
-                logging.info(f"Estimated acquisition time based on scan config: {acquisition_time} seconds.")
+                self.estimate_acquisition_time(scan_config)
+                logging.info(f"Estimated acquisition time based on scan config: {self.acquisition_time} seconds.")
 
             ###############
             # add in the data loggin portion here
@@ -155,7 +156,7 @@ class ScanManager():
                 logging.info('not doing any data saving')
 
             # start the acquisition loop
-            self.scan_execution_loop(acquisition_time)
+            self.scan_execution_loop()
 
         except Exception as e:
             logging.error(f"Error during scanning: {e}")
@@ -363,7 +364,7 @@ class ScanManager():
                 else:
                     logging.warning(f"Initial state for {device_var} not found, skipping relative adjustment.")
     
-    def scan_execution_loop(self, acquisition_time):
+    def scan_execution_loop(self):
         """
         Executes the scan loop over precomputed scan steps, stopping if the stop event is triggered.
         """
@@ -429,12 +430,12 @@ class ScanManager():
         total_time = 0
 
         if self.device_manager.is_statistic_noscan(scan_config['device_var']):
-            total_time += scan_config.get('acquisition_time', 10)  # Default to 10 seconds if not provided
+            total_time += scan_config.get('wait_time', 1) - 0.5  # Default to 1 seconds if not provided
         else:
             start = scan_config['start']
             end = scan_config['end']
             step = scan_config['step']
-            wait_time = scan_config.get('wait_time', 1)  # Default wait time between steps is 1 second
+            wait_time = scan_config.get('wait_time', 1) - 0.5  # Default wait time between steps is 1 second
 
             # Calculate the number of steps and the total time for this device
             steps = (end - start) / step
@@ -442,8 +443,14 @@ class ScanManager():
 
         logging.info(f'Estimated scan time: {total_time}')
 
-        return total_time
-   
+        self.acquisition_time = total_time
+
+    def estimate_current_completion(self):
+        if self.acquisition_time == 0:
+            return 0
+        completion = self.data_logger.get_current_shot()/self.acquisition_time
+        return 1 if completion > 1 else completion
+
     def get_initial_state(self, scan_config):
         """
         Initialize the state of each scan based on the current values from the subscribers.

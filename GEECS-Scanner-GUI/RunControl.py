@@ -17,6 +17,9 @@ class RunControl:
 
         self.is_in_setup = False
 
+    def get_progress(self):
+        return self.scan_manager.estimate_current_completion()*100
+
     def is_busy(self):
         return self.is_in_setup
 

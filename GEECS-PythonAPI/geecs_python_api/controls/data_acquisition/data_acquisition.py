@@ -853,6 +853,7 @@ class DataLogger():
         
         # Initialize the sound player
         self.sound_player = SoundPlayer()
+        self.shot_index = 0
 
     def start_logging(self):
         """
@@ -1030,6 +1031,7 @@ class DataLogger():
             # os.system('afplay trimmed_tink.aiff')  # This plays a sound on macOS
             # Trigger the beep in the background
             self.sound_player.play_beep()  # Play the beep sound
+            self.shot_index += 1
 
         log_entries[elapsed_time].update({
             f"{device.get_name()}:{key}": value for key, value in observables_data.items()
@@ -1089,3 +1091,7 @@ class DataLogger():
     def reinitialize_sound_player(self):
         self.sound_player.stop()
         self.sound_player = SoundPlayer()
+        self.shot_index = 0
+
+    def get_current_shot(self):
+        return float(self.shot_index)

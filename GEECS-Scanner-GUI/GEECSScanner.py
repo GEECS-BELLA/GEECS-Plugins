@@ -91,10 +91,11 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.startScanButton.clicked.connect(self.initialize_scan)
         self.ui.stopScanButton.clicked.connect(self.stop_scan)
 
+        self.ui.progressBar.setValue(0)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_indicator)
         self.ui.scanStatusIndicator.setText("")
-        self.timer.start(500)
+        self.timer.start(200)
         self.update_indicator()
 
     def eventFilter(self, source, event):
@@ -512,6 +513,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.scanStatusIndicator.setStyleSheet("background-color: red;")
             self.ui.startScanButton.setEnabled(False)
             self.ui.stopScanButton.setEnabled(not self.RunControl.is_stopping())
+            self.ui.progressBar.setValue(int(self.RunControl.get_progress()))
         else:
             self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
             self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
