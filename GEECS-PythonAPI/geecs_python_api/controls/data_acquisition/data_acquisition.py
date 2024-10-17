@@ -515,29 +515,26 @@ class DeviceManager:
         """
         Handle scan variables and instantiate any new devices or append variables to existing ones.
         """
-        logging.info("No error yet in handle_scan_variables.")
-        logging.info(f"Scan config: {scan_config}.")
 
-        for scan in scan_config:
-            device_var = scan['device_var']
-            logging.info(f"Processing scan device_var: {device_var}")
+        device_var = scan_config['device_var']
+        logging.info(f"Processing scan device_var: {device_var}")
 
-            # Handle composite variables
-            if self.is_statistic_noscan(device_var):
-                logging.info("Statistical noscan selected, adding no scan devices.")
-            elif self.is_composite_variable(device_var):
-                logging.info(f"{device_var} is a composite variable.")
-                component_vars = self.get_composite_components(device_var, scan['start'])
-                for component_var in component_vars:
-                    dev_name, var = component_var.split(':', 1)
-                    logging.info(f"Trying to add {dev_name}:{var} to self.devices.")
-                    self.add_scan_device(dev_name, [var])  # Add or append the component vars
-            else:
-                # Normal variables
-                logging.info(f"{device_var} is a normal variable.")
-                device_name, var_name = device_var.split(':', 1)
-                logging.info(f"Trying to add {device_name}:{var_name} to self.devices.")
-                self.add_scan_device(device_name, [var_name])  # Add or append the normal variable                   
+        # Handle composite variables
+        if self.is_statistic_noscan(device_var):
+            logging.info("Statistical noscan selected, adding no scan devices.")
+        elif self.is_composite_variable(device_var):
+            logging.info(f"{device_var} is a composite variable.")
+            component_vars = self.get_composite_components(device_var, scan_config['start'])
+            for component_var in component_vars:
+                dev_name, var = component_var.split(':', 1)
+                logging.info(f"Trying to add {dev_name}:{var} to self.devices.")
+                self.add_scan_device(dev_name, [var])  # Add or append the component vars
+        else:
+            # Normal variables
+            logging.info(f"{device_var} is a normal variable.")
+            device_name, var_name = device_var.split(':', 1)
+            logging.info(f"Trying to add {device_name}:{var_name} to self.devices.")
+            self.add_scan_device(device_name, [var_name])  # Add or append the normal variable                   
 
 
 class DataInterface():
