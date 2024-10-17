@@ -30,42 +30,85 @@ from image_analysis.utils import get_imaq_timestamp_from_png
 from .utils import get_full_config_path  # Import the utility function
 
 
-class Sounds:
-    def __init__(self):
-        # Initialize the threading event and the sound file to be played
-        self._play_event = threading.Event()
-        self._sound_file = None
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
+# For Windows-specific imports
+if platform.system() == "Windows":
+    import winsound
+# For macOS-specific imports
+elif platform.system() == "Darwin":
+    import simpleaudio as sa
 
-    def _run(self):
-        # Run loop that waits for a play event and plays the specified sound
-        while not self._stop_event.is_set():
-            if self._play_event.is_set() and self._sound_file:
-                # Play the sound (adapt this command based on your OS)
-                os.system(f'afplay {self._sound_file}')  # macOS specific, change as necessary
-                self._play_event.clear()  # Reset after playing
-            time.sleep(0.1)  # Prevent busy-waiting
+class SoundPlayer:
+    def __init__(self, beep_frequency=500, beep_duration=0.1, toot_frequency=1500, toot_duration=0.75, sample_rate=44100):
+        # Assign the user-defined or default values for frequency and duration
+        self.beep_frequency = beep_frequency
+        self.beep_duration = beep_duration
+        self.toot_frequency = toot_frequency
+        self.toot_duration = toot_duration
+        self.sample_rate = sample_rate
+        
+        # Create a queue to hold sound requests
+        self.sound_queue = queue.Queue()
+        # Create and start the background thread
+        self.sound_thread = threading.Thread(target=self._process_queue)
+        self.sound_thread.daemon = True  # Mark thread as a daemon so it exits when the main program exits
+        self.running = True  # Flag to control thread running
+        self.sound_thread.start()
 
     def play_beep(self):
-        """ Play the 'beep' sound """
-        self._sound_file = 'trimmed_tink.aiff'  # Replace with actual path to beep sound
-        self._play_event.set()
+        """Add a beep sound request to the queue."""
+        self.sound_queue.put('beep')
 
     def play_toot(self):
-        """ Play the 'toot' sound """
-        self._sound_file = 'Hero.aiff'  # Replace with actual path to toot sound
-        self._play_event.set()
+        """Add a toot sound request to the queue."""
+        self.sound_queue.put('toot')
 
     def stop(self):
-        """ Stop the sound thread """
-        self._stop_event.set()
-        self._thread.join()  # Ensure the thread exits cleanly  
+        """Stop the sound player by sending a termination signal."""
+        self.running = False
+        self.sound_queue.put(None)  # Add a termination signal to the queue
 
+    def _process_queue(self):
+        """Continuously process the sound queue."""
+        while self.running:
+            try:
+                # Wait for the next sound request (this blocks until a request is added)
+                sound_type = self.sound_queue.get()
+                
+                # Exit the loop if the termination signal is received
+                if sound_type is None:
+                    break
 
-# Example usage of the Sounds class
-sounds = Sounds()
+                # Play the requested sound
+                if sound_type == 'beep':
+                    self._play_sound(self.beep_frequency, self.beep_duration)
+                elif sound_type == 'toot':
+                    self._play_sound(self.toot_frequency, self.toot_duration)
+
+                # Mark the task as done
+                self.sound_queue.task_done()
+            except Exception as e:
+                print(f"Error processing sound: {e}")
+
+    def _play_sound(self, frequency, duration):
+        """Private method to play a sound based on the platform."""
+        # Windows: Use winsound.Beep
+        if platform.system() == "Windows":
+            winsound.Beep(frequency, int(duration * 1000))  # Duration is in milliseconds
+        # macOS: Use simpleaudio to play the generated sound
+        elif platform.system() == "Darwin":
+            audio_data = self._generate_sound(frequency, duration)
+            play_obj = sa.play_buffer(audio_data, 1, 2, self.sample_rate)  # 1 channel, 2 bytes per sample
+            play_obj.wait_done()
+        # Optionally add Linux support or other platforms if needed
+        else:
+            os.system('printf "\a"')  # Default to terminal bell for unsupported platforms
+
+    def _generate_sound(self, frequency, duration):
+        """Generate a sound (for macOS) given a frequency and duration."""
+        t = np.linspace(0, duration, int(self.sample_rate * duration), False)
+        tone = np.sin(2 * np.pi * frequency * t)
+        return (tone * 32767).astype(np.int16)  # Convert to 16-bit PCM format
+
 
 class ActionManager:
     def __init__(self, experiment_dir: str):
@@ -809,6 +852,9 @@ class DataLogger():
         self.results = {}  # Store results for later processing
 
         self.bin_num = 0  # Initialize bin as 0
+        
+        # Initialize the sound player
+        self.sound_player = SoundPlayer()
 
     def start_logging(self):
         """
@@ -985,7 +1031,7 @@ class DataLogger():
             log_entries[elapsed_time]['Bin #'] = self.bin_num
             # os.system('afplay trimmed_tink.aiff')  # This plays a sound on macOS
             # Trigger the beep in the background
-            # sounds.play_beep()
+            self.sound_player.play_beep()  # Play the beep sound
 
         log_entries[elapsed_time].update({
             f"{device.get_name()}:{key}": value for key, value in observables_data.items()
@@ -1026,9 +1072,13 @@ class DataLogger():
         # Unregister all event-driven logging
         for device_name, device in self.device_manager.devices.items():
             device.event_handler.unregister('update', 'logger')
+            
+        self.sound_player.play_toot()
 
         # Signal to stop the polling thread
         self.stop_event.set()
+        
+        self.sound_player.stop()
 
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join()  # Ensure the polling thread has finished
