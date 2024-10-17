@@ -254,7 +254,7 @@ class ScanManager():
         if self.save_data:
             self.data_interface.get_next_scan_folder()
             self.create_and_set_data_paths()
-            self.write_scan_info_ini(scan_config[0])
+            self.write_scan_info_ini(scan_config)
 
         # Handle scan variables and ensure devices are initialized in DeviceManager
         logging.info(f'scan config in pre logging is this: {scan_config}')
@@ -262,7 +262,7 @@ class ScanManager():
         
         time.sleep(1.5)
 
-        device_var = scan_config[0]['device_var']
+        device_var = scan_config['device_var']
         if not self.device_manager.is_statistic_noscan(device_var):
             self.initial_state = self.get_initial_state(scan_config)
 
@@ -282,16 +282,16 @@ class ScanManager():
         """
         Add devices/variables involved in the scan to async_observables if not already present.
         """
-        for scan in scan_config:
-            device_var = scan['device_var']
-            if self.device_manager.is_composite_variable(device_var):
-                component_vars = self.device_manager.get_composite_components(device_var, scan['start'])
-                for device_var in component_vars:
-                    if device_var not in self.device_manager.async_observables:
-                        self.device_manager.async_observables.append(device_var)
-            else:
+
+        device_var = scan_config['device_var']
+        if self.device_manager.is_composite_variable(device_var):
+            component_vars = self.device_manager.get_composite_components(device_var, scan_config['start'])
+            for device_var in component_vars:
                 if device_var not in self.device_manager.async_observables:
                     self.device_manager.async_observables.append(device_var)
+        else:
+            if device_var not in self.device_manager.async_observables:
+                self.device_manager.async_observables.append(device_var)
 
         logging.info(f"Updated async_observables: {self.device_manager.async_observables}")
 
@@ -302,49 +302,49 @@ class ScanManager():
         """
         self.bin_num = 0
         steps = []
-        for scan in scan_config:
-            device_var = scan['device_var']
+        
+        device_var = scan_config['device_var']
 
-            if self.device_manager.is_statistic_noscan(device_var):
+        if self.device_manager.is_statistic_noscan(device_var):
+            steps.append({
+                'variables': device_var,
+                'wait_time': scan_config.get('wait_time', 1),
+                'is_composite': False
+            })
+        elif self.device_manager.is_composite_variable(device_var):
+            current_value = scan_config['start']
+            while current_value <= scan_config['end']:
+                component_vars = self.device_manager.get_composite_components(device_var, current_value)
                 steps.append({
-                    'variables': device_var,
-                    'wait_time': scan.get('wait_time', 1),
+                    'variables': component_vars,
+                    'wait_time': scan_config.get('wait_time', 1),
+                    'is_composite': True
+                })
+                current_value += scan_config['step']
+        else:
+            current_value = scan_config['start']
+            while current_value <= scan_config['end']:
+                steps.append({
+                    'variables': {device_var: current_value},
+                    'wait_time': scan_config.get('wait_time', 1),
                     'is_composite': False
                 })
-            elif self.device_manager.is_composite_variable(device_var):
-                current_value = scan['start']
-                while current_value <= scan['end']:
-                    component_vars = self.device_manager.get_composite_components(device_var, current_value)
-                    steps.append({
-                        'variables': component_vars,
-                        'wait_time': scan.get('wait_time', 1),
-                        'is_composite': True
-                    })
-                    current_value += scan['step']
-            else:
-                current_value = scan['start']
-                while current_value <= scan['end']:
-                    steps.append({
-                        'variables': {device_var: current_value},
-                        'wait_time': scan.get('wait_time', 1),
-                        'is_composite': False
-                    })
-                    current_value += scan['step']
+                current_value += scan_config['step']
 
-            relative_flag = False
-            # Check if it's a composite variable and if it has a relative flag in the YAML
-            if self.device_manager.is_composite_variable(device_var):
-                composite_variable_info = self.device_manager.composite_variables.get(device_var, {})
-                relative_flag = composite_variable_info.get('relative', False)
-                # self._apply_relative_adjustment(steps)
+        relative_flag = False
+        # Check if it's a composite variable and if it has a relative flag in the YAML
+        if self.device_manager.is_composite_variable(device_var):
+            composite_variable_info = self.device_manager.composite_variables.get(device_var, {})
+            relative_flag = composite_variable_info.get('relative', False)
+            # self._apply_relative_adjustment(steps)
+        
+        # set relative flag for normal variables
+        elif scan_config.get('relative', False):
+            relative_flag = True
             
-            # set relative flag for normal variables
-            elif scan.get('relative', False):
-                relative_flag = True
+        if relative_flag and not self.device_manager.is_statistic_noscan(device_var):
+            self._apply_relative_adjustment(steps)
                 
-            if relative_flag and not self.device_manager.is_statistic_noscan(device_var):
-                self._apply_relative_adjustment(steps)
-                    
         return steps
 
     def _apply_relative_adjustment(self, scan_steps):
@@ -425,18 +425,17 @@ class ScanManager():
         """
         total_time = 0
 
-        for scan in scan_config:
-            if self.device_manager.is_statistic_noscan(scan['device_var']):
-                total_time += scan.get('acquisition_time', 10)  # Default to 10 seconds if not provided
-            else:
-                start = scan['start']
-                end = scan['end']
-                step = scan['step']
-                wait_time = scan.get('wait_time', 1)  # Default wait time between steps is 1 second
+        if self.device_manager.is_statistic_noscan(scan_config['device_var']):
+            total_time += scan_config.get('acquisition_time', 10)  # Default to 10 seconds if not provided
+        else:
+            start = scan_config['start']
+            end = scan_config['end']
+            step = scan_config['step']
+            wait_time = scan_config.get('wait_time', 1)  # Default wait time between steps is 1 second
 
-                # Calculate the number of steps and the total time for this device
-                steps = (end - start) / step
-                total_time += steps * wait_time
+            # Calculate the number of steps and the total time for this device
+            steps = (end - start) / step
+            total_time += steps * wait_time
 
         logging.info(f'Estimated scan time: {total_time}')
 
@@ -451,15 +450,14 @@ class ScanManager():
         scan_variables = []
 
         if scan_config:
-            for scan in scan_config:
-                device_var = scan['device_var']
+            device_var = scan_config['device_var']
 
-                # Handle composite variables by retrieving each component's state
-                if self.device_manager.is_composite_variable(device_var):
-                    component_vars = self.device_manager.get_composite_components(device_var, scan['start'])
-                    scan_variables.extend(component_vars.keys())
-                else:
-                    scan_variables.append(device_var)
+            # Handle composite variables by retrieving each component's state
+            if self.device_manager.is_composite_variable(device_var):
+                component_vars = self.device_manager.get_composite_components(device_var, scan_config['start'])
+                scan_variables.extend(component_vars.keys())
+            else:
+                scan_variables.append(device_var)
 
         logging.info(f"Scan variables for initial state: {scan_variables}")
         # Use the existing method to get the current state of all variables
