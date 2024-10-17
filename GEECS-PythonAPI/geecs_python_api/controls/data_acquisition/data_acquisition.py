@@ -696,15 +696,20 @@ class DataInterface():
             return len(list(device_dir.glob('*.png')))  # Assuming you are counting .png files
         return 0
 
-    def process_and_rename(self):
+    def process_and_rename(self, scan_number=None):
         """
         Process the device directories and rename files based on timestamps and scan data.
         The device type is dynamically determined from the directory name, and the appropriate
         timestamp extraction method is used based on the device type.
+
+        Args:
+            scan_number (int, optional): Specific scan number to process. If None, uses `next_scan_folder`.
         """
+        # Use the provided scan number or default to next_scan_folder
+        scan = f'Scan{scan_number:03d}' if scan_number is not None else self.next_scan_folder
+    
         # Access paths directly from the DataInterface instance
         base = self.local_scan_dir_base
-        scan = self.next_scan_folder
         directory_path = Path(base) / scan
 
         logging.info(f"Processing scan folder: {directory_path}")
