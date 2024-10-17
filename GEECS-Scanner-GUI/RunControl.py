@@ -2,10 +2,9 @@ from geecs_python_api.controls.data_acquisition.scan_manager import ScanManager
 
 
 class RunControl:
-    def __init__(self, experiment_name=""):
-        self.experiment_name = experiment_name
+    def __init__(self, experiment_name=None):
 
-        self.scan_manager = ScanManager()
+        self.scan_manager = ScanManager(experiment_name)
 
         self.is_in_setup = False
         self.is_in_stopping = False
