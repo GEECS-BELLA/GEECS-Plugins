@@ -182,7 +182,8 @@ class ScanManager():
             self.restore_initial_state(self.initial_state)
         
         # Step 4: Turn the trigger back on
-        self.trigger_on()
+        self._set_trigger('on', 0.5)
+
 
         if self.save_data:
             # Step 6: Process results, save to disk, and log data
