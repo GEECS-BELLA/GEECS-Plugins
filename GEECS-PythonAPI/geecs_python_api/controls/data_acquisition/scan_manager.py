@@ -66,6 +66,8 @@ class ScanManager():
         self.initial_state = None
         self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
         self.data_logger.reinitialize_sound_player()
+        self.console_logger.stop_logging()
+        self.console_logger.setup_logging()
 
     def _set_trigger(self, state: str):
         """Helper method to turn the trigger on or off."""
