@@ -4,6 +4,8 @@ import logging
 import pandas as pd
 from pathlib import Path
 
+import numpy as np
+
 from .data_acquisition import DeviceManager, ActionManager, DataInterface, DataLogger
 from .utils import ConsoleLogger
 
@@ -27,7 +29,13 @@ GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
 device_dict = GeecsDevice.exp_info['devices']
 
 class ScanManager():
-
+    
+    """
+    Manages the execution of scans. This involves initializing a device_manager if one
+    is not. A 'save_devices' config file should be passed to the device_manager to initialize
+    the desired saving configuration. 
+    """
+    
     def __init__(self, experiment_dir=None, device_manager=None, data_interface=None):
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
         self.data_interface = data_interface or DataInterface()
@@ -147,6 +155,7 @@ class ScanManager():
             logging.error(f"Error during scanning: {e}")
 
         logging.info("Stopping scaning.")
+        time.sleep(1)
         log_df = self.stop_scan()
 
         return log_df  # Return the DataFrame with the logged data
@@ -155,63 +164,78 @@ class ScanManager():
         """
         Stop both event-driven and asynchronous logging, and reset necessary states for reuse.
         """
-
-        # # sounds.play_toot()
-        # sounds.stop()
         log_df = pd.DataFrame()
 
         if self.save_data:
+            # Step 1: Stop data logging and handle device saving states
+            self._stop_saving_devices()
 
-            ########
-            # handle thread closing in the data logger
-            # below is the code that was in the data_acquisition module before refactoring. need to refactor
-            ########
-            self.data_logger.stop_logging()
-
-            # Step 5: Process results and convert to DataFrame
-            if self.results:
-                log_df = self.convert_to_dataframe(self.results)
-                logging.info("Data logging complete. Returning DataFrame.")
-
-                self.save_to_txt_and_h5(log_df, self.data_txt_path, self.data_h5_path, self.sFile_txt_path)
-
-                self.dataframe_to_tdms(log_df)
-                self.dataframe_to_tdms(log_df, is_index=True)
-
-            else:
-                logging.warning("No data was collected during the logging period.")
-                log_df = pd.DataFrame()
-
-            for device_name in self.device_manager.non_scalar_saving_devices:
-                device = self.device_manager.devices.get(device_name)
-                if device:
-                    logging.info(f"Setting save to off for {device_name}")
-                    device.set('save', 'off', sync=False)
-                    logging.info(f"Setting save to off for {device_name} complete")
-                    device.set('localsavingpath', 'c:\\temp', sync=False)
-                    logging.info(f"Setting save path back to temp for {device_name} complete")
-                else:
-                    logging.warning(f"Device {device_name} not found in DeviceManager.")
-            
-            time.sleep(2) #add wait to allow asynch commands above to get through the queue
-            
-        logging.info("scanning has stopped for all devices.")
-        
-        self.trigger_on()
-        
+        # Step 5: Restore the initial state of devices
         self.restore_initial_state(self.initial_state)
         
+        # Step 4: Turn the trigger back on
+        self.trigger_on()
+
         if self.save_data:
+            # Step 6: Process results, save to disk, and log data
+            log_df = self._process_results()
+
+            # Step 7: Process and rename data files
             self.data_interface.process_and_rename()
 
-        # Stop the console logging
+        # Step 8: Stop the console logging
         self.console_logger.stop_logging()
-        
+
+        # Step 9: Move log file if data was saved
         if self.save_data:
-            self.console_logger.move_log_file( self.data_txt_path.parent)
+            self.console_logger.move_log_file(self.data_txt_path.parent)
 
         return log_df
 
+    def _stop_saving_devices(self):
+        """
+        Stop the data logger, close threads, and update saving paths for non-scalar devices.
+        """
+        # Stop data logging
+        self.data_logger.stop_logging()
+
+        # Handle device saving states
+        for device_name in self.device_manager.non_scalar_saving_devices:
+            device = self.device_manager.devices.get(device_name)
+            if device:
+                logging.info(f"Setting save to off for {device_name}")
+                device.set('save', 'off', sync=False)
+                logging.info(f"Setting save to off for {device_name} complete")
+                device.set('localsavingpath', 'c:\\temp', sync=False)
+                logging.info(f"Setting save path back to temp for {device_name} complete")
+            else:
+                logging.warning(f"Device {device_name} not found in DeviceManager.")
+                
+        # Ensure asynchronous commands have time to finish
+        time.sleep(2)
+       
+        logging.info("scanning has stopped for all devices.")
+
+    def _process_results(self):
+        """
+        Convert results to DataFrame, save data, and write to TDMS.
+        """
+        if self.results:
+            log_df = self.convert_to_dataframe(self.results)
+            logging.info("Data logging complete. Returning DataFrame.")
+
+            # Save results to .txt and .h5
+            self.save_to_txt_and_h5(log_df, self.data_txt_path, self.data_h5_path, self.sFile_txt_path)
+
+            # Write TDMS files (data and index)
+            self.dataframe_to_tdms(log_df)
+            self.dataframe_to_tdms(log_df, is_index=True)
+
+            return log_df
+        else:
+            logging.warning("No data was collected during the logging period.")
+            return pd.DataFrame()
+     
     def pre_logging_setup(self, scan_config):
         """
         Precompute all scan steps (including composite and normal variables), 
@@ -534,16 +558,20 @@ class ScanManager():
 
         logging.info(f"Scan info written to {full_path}")
     
-    def fill_async_nans(self, log_df, async_observables):
+    def fill_async_nans(self, log_df, async_observables, fill_value=0):
         """
-        Fill NaN values in asynchronous observable columns with the most recent non-NaN value.
-        If a column starts with NaN, it will backfill with the first non-NaN value.
-        If the entire column is NaN, it will be left unchanged.
-    
+        Fill NaN values and empty strings in asynchronous observable columns with the most recent non-NaN value.
+        If a column starts with NaN or empty strings, it will backfill with the first non-NaN value.
+        After forward and backward filling, remaining NaN or empty entries are filled with `fill_value`.
+
         Args:
             log_df (pd.DataFrame): The DataFrame containing the logged data.
             async_observables (list): A list of asynchronous observables (columns) to process.
+            fill_value (int, float): Value to fill remaining NaN and empty entries (default is 0).
         """
+        # Convert empty strings ('') to NaN
+        log_df.replace('', pd.NA, inplace=True)
+
         for async_obs in async_observables:
             if async_obs in log_df.columns:
                 # Only process if the entire column is not NaN
@@ -556,9 +584,15 @@ class ScanManager():
                 else:
                     logging.warning(f"Column {async_obs} consists entirely of NaN values and will be left unchanged.")
 
-        logging.info("Filled NaN values in asynchronous variables.")
-        return log_df
+        # Finally, fill any remaining NaN values (including converted empty strings) with the specified fill_value
+        log_df = log_df.fillna(fill_value)
 
+        # Use infer_objects to downcast the object dtype arrays appropriately
+        log_df = log_df.infer_objects(copy=False)
+
+        logging.info(f"Filled remaining NaN and empty values with {fill_value}.")
+        return log_df
+    
     def save_to_txt_and_h5(self, df, txt_file_path, h5_file_path, sFile_path):
         """
         Save the DataFrame to both .txt (as tab-separated values) and .h5 (HDF5) formats.
@@ -607,14 +641,15 @@ class ScanManager():
                 new_header = header  # Keep the header as is if no colon
             new_headers.append(new_header)
         return new_headers
-
+           
+    
     def dataframe_to_tdms(self, df, is_index=False):
         """
         Convert a DataFrame to a TDMS file or a TDMS index file.
         Groups are created based on the part before the colon in column names,
         and channels are created based on the part after the colon. If no colon exists,
         the group and channel will be the column header.
-    
+
         Args:
             df (pd.DataFrame): The DataFrame to convert.
             is_index (bool): If True, writes only the structure (groups and channels) without data.
@@ -642,3 +677,4 @@ class ScanManager():
                 tdms_writer.write_segment([ch_object])
 
         logging.info(f"TDMS {'index' if is_index else 'data'} file written successfully.")
+    
