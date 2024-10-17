@@ -92,11 +92,7 @@ actions:
       - device: U_VisaPlungers
         variable: DigitalOutput.Channel 7
         action: set
-        value: 'off' 
-      - device: U_VisaPlungers
-        variable: DigitalOutput.Channel 7
-        action: set
-        value: 'off'         
+        value: 'off'      
       - device: U_PLC
         variable: DO.Ch19
         action: set
