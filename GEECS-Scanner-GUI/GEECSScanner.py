@@ -36,12 +36,12 @@ class GEECSScannerWindow(QMainWindow):
         #sys.stdout = MultiStream(sys.stdout, EmittingStream(self.ui.logDisplay))
         #sys.stderr = MultiStream(sys.stderr, EmittingStream(self.ui.logDisplay))
 
-        self.experiment = "<None Selected>"
+        self.experiment = ""
         self.repetition_rate = 0
         self.shot_control_device = ""
         self.load_config_settings()
 
-        self.RunControl = RunControl(experiment_name=self.experiment)
+        self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
 
         self.noscan_num = 100
         self.scan_start = 0
@@ -116,12 +116,12 @@ class GEECSScannerWindow(QMainWindow):
                 default_experiment = config['Experiment']['expt']
             except KeyError:
                 print("Could not find 'expt' in config")
-                default_experiment = "<None Selected>"
+                default_experiment = ""
             if os.path.isdir(RELATIVE_PATH + "experiments/" + default_experiment):
                 self.experiment = default_experiment
 
             try:
-                self.repetition_rate = config['Experiment']['rep_rate_hz']
+                self.repetition_rate = float(config['Experiment']['rep_rate_hz'])
             except KeyError:
                 print("Could not find 'rep_rate_hz' in config")
 
@@ -155,6 +155,7 @@ class GEECSScannerWindow(QMainWindow):
             if os.path.isdir(new_folder_path):
                 self.experiment = selected_experiment
                 self.ui.experimentDisplay.setText(self.experiment)
+                self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
                 self.populate_found_list()
 
             self.ui.lineScanVariable.setText("")
@@ -182,7 +183,8 @@ class GEECSScannerWindow(QMainWindow):
 
     def update_shot_control_device(self):
         # Updates the shot control device when it is changed in the text box
-        self.repetition_rate = self.ui.lineTimingDevice.text()
+        self.shot_control_device = self.ui.lineTimingDevice.text()
+        self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
 
     def populate_found_list(self):
         # List all files in the save_devices folder under chosen experiment:
@@ -450,6 +452,9 @@ class GEECSScannerWindow(QMainWindow):
             # From the information provided in the GUI, create a scan configuration file and submit to GEECS for
             #  data logging.
             self.ui.startScanButton.setEnabled(False)
+            self.ui.experimentDisplay.setEnabled(False)
+            self.ui.repititionRateDisplay.setEnabled(False)
+            self.ui.lineTimingDevice.setEnabled(False)
             self.ui.startScanButton.setText("Starting...")
             QApplication.processEvents()
 
@@ -528,6 +533,10 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
             self.ui.stopScanButton.setEnabled(False)
             self.RunControl.clear_stop_state()
+
+        self.ui.experimentDisplay.setEnabled(self.ui.startScanButton.isEnabled())
+        self.ui.repititionRateDisplay.setEnabled(self.ui.startScanButton.isEnabled())
+        self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
 
     def stop_scan(self):
         self.ui.stopScanButton.setEnabled(False)

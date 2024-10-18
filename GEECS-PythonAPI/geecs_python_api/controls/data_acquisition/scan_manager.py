@@ -36,15 +36,15 @@ class ScanManager():
     the desired saving configuration. 
     """
     
-    def __init__(self, experiment_dir=None, device_manager=None, data_interface=None):
-        self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
-        self.data_interface = data_interface or DataInterface()
+    def __init__(self, experiment_dir=None, shot_control_device=""):
+        self.device_manager = DeviceManager(experiment_dir=experiment_dir)
+        self.data_interface = DataInterface()
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
         self.data_logger = DataLogger(experiment_dir, self.device_manager)  # Initialize DataLogger
 
         self.save_data = True
 
-        self.shot_control = GeecsDevice('U_DG645_ShotControl')
+        self.shot_control = GeecsDevice(shot_control_device)
         self.results = {}  # Store results for later processing
 
         self.stop_scanning_thread_event = threading.Event()  # Event to signal the logging thread to stop
