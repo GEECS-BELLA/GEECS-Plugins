@@ -12,6 +12,7 @@ import yaml
 from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter
 from PyQt5.QtCore import Qt, QEvent, QTimer
 from GEECSScanner_ui import Ui_MainWindow
+from ScanElementEditor import ScanElementEditor
 from LogStream import EmittingStream, MultiStream
 from RunControl import RunControl
 
@@ -65,6 +66,8 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.foundDevices.itemDoubleClicked.connect(self.add_files)
         self.ui.removeDeviceButton.clicked.connect(self.remove_files)
         self.ui.selectedDevices.itemDoubleClicked.connect(self.remove_files)
+
+        self.ui.newDeviceButton.clicked.connect(self.open_element_editor)
 
         self.ui.noscanRadioButton.setChecked(True)
         self.ui.noscanRadioButton.toggled.connect(self.update_scan_edit_state)
@@ -211,6 +214,10 @@ class GEECSScannerWindow(QMainWindow):
         for item in selected_items:
             self.ui.selectedDevices.takeItem(self.ui.selectedDevices.row(item))
             self.ui.foundDevices.addItem(item)
+
+    def open_element_editor(self):
+        self.element_editor = ScanElementEditor()
+        self.element_editor.exec_()
 
     def update_scan_edit_state(self):
         # Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
