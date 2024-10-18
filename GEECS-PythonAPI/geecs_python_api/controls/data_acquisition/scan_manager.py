@@ -133,25 +133,36 @@ class ScanDataManager:
                 ch_object = ChannelObject(group_name, channel_name, data)
                 tdms_writer.write_segment([ch_object])
         logging.info(f"TDMS {'index' if is_index else 'data'} file written successfully.")
-
+        
     def convert_to_dataframe(self, log_entries):
-        """Convert the synchronized log entries dictionary into a pandas DataFrame."""
-        log_df = pd.DataFrame.from_dict(log_entries, orient='index').sort_values(by='Elapsed Time').reset_index(drop=True)
-        async_observables = device_dict['async_observables']
+        """
+        Convert the synchronized log entries dictionary into a pandas DataFrame.
+        """
+        log_df = pd.DataFrame.from_dict(log_entries, orient='index')
+        log_df = log_df.sort_values(by='Elapsed Time').reset_index(drop=True)
+
+        async_observables = self.device_manager.async_observables
         log_df = self.fill_async_nans(log_df, async_observables)
-        log_df.columns = self.modify_headers(log_df.columns)
+
+        # Modify the headers
+        new_headers = self.modify_headers(log_df.columns)
+        log_df.columns = new_headers
+
         return log_df
 
     def modify_headers(self, headers):
-        """Modify DataFrame headers to include device aliases if available."""
         new_headers = []
         for header in headers:
             if ':' in header:
                 device_name, variable = header.split(':')
-                alias = device_dict.get(device_name, {}).get(variable, {}).get('alias', '')
-                new_headers.append(f"{device_name} {variable} Alias:{alias}" if alias else header)
+                new_header = f"{device_name} {variable}"
+                # Check if alias exists
+                alias = device_dict.get(device_name, {}).get(variable, {}).get('alias')
+                if alias:
+                    new_header = f"{new_header} Alias:{alias}"
             else:
-                new_headers.append(header)
+                new_header = header  # Keep the header as is if no colon
+            new_headers.append(new_header)
         return new_headers
 
     def _process_results(self, results):
@@ -159,7 +170,7 @@ class ScanDataManager:
         Convert results to DataFrame, save data, and write to TDMS.
         """
         if results:
-            log_df = self.convert_to_dataframe(results, device_dict)
+            log_df = self.convert_to_dataframe(results)
             logging.info("Data logging complete. Returning DataFrame.")
 
             # Save results to .txt and .h5
