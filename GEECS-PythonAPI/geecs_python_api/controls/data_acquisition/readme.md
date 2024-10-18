@@ -118,11 +118,7 @@ Some example usage is available in a jupyter notebook in this repo. Code copied 
 ### Running a scan
 
 ```python
-from geecs_python_api.controls.interface import load_config
-from geecs_python_api.controls.interface import GeecsDatabase
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
-from geecs_python_api.controls.data_acquisition import ScanManager, SoundPlayer
+from geecs_python_api.controls.data_acquisition import ScanManager
 from geecs_python_api.controls.data_acquisition import visa_config_generator
 
 # Example usage for DataLogger
