@@ -15,11 +15,6 @@ class Ui_Dialog(object):
     def setupUi(self, Dialog):
         Dialog.setObjectName("Dialog")
         Dialog.resize(391, 556)
-        self.buttonBox = QtWidgets.QDialogButtonBox(Dialog)
-        self.buttonBox.setGeometry(QtCore.QRect(50, 520, 291, 32))
-        self.buttonBox.setOrientation(QtCore.Qt.Horizontal)
-        self.buttonBox.setStandardButtons(QtWidgets.QDialogButtonBox.Cancel|QtWidgets.QDialogButtonBox.Open|QtWidgets.QDialogButtonBox.Save)
-        self.buttonBox.setObjectName("buttonBox")
         self.listDevices = QtWidgets.QListWidget(Dialog)
         self.listDevices.setGeometry(QtCore.QRect(20, 110, 171, 191))
         self.listDevices.setObjectName("listDevices")
@@ -123,10 +118,26 @@ class Ui_Dialog(object):
         self.separator3.setFrameShape(QtWidgets.QFrame.HLine)
         self.separator3.setFrameShadow(QtWidgets.QFrame.Sunken)
         self.separator3.setObjectName("separator3")
+        self.buttonWindowSave = QtWidgets.QPushButton(Dialog)
+        self.buttonWindowSave.setGeometry(QtCore.QRect(50, 522, 93, 28))
+        font = QtGui.QFont()
+        font.setPointSize(8)
+        self.buttonWindowSave.setFont(font)
+        self.buttonWindowSave.setObjectName("buttonWindowSave")
+        self.buttonWindowLoad = QtWidgets.QPushButton(Dialog)
+        self.buttonWindowLoad.setGeometry(QtCore.QRect(150, 522, 93, 28))
+        font = QtGui.QFont()
+        font.setPointSize(8)
+        self.buttonWindowLoad.setFont(font)
+        self.buttonWindowLoad.setObjectName("buttonWindowLoad")
+        self.buttonWindowCancel = QtWidgets.QPushButton(Dialog)
+        self.buttonWindowCancel.setGeometry(QtCore.QRect(250, 522, 93, 28))
+        font = QtGui.QFont()
+        font.setPointSize(8)
+        self.buttonWindowCancel.setFont(font)
+        self.buttonWindowCancel.setObjectName("buttonWindowCancel")
 
         self.retranslateUi(Dialog)
-        #self.buttonBox.accepted.connect(Dialog.accept) # type: ignore
-        #self.buttonBox.rejected.connect(Dialog.reject) # type: ignore
         QtCore.QMetaObject.connectSlotsByName(Dialog)
 
     def retranslateUi(self, Dialog):
@@ -151,3 +162,6 @@ class Ui_Dialog(object):
         self.labelActionOption2.setText(_translate("Dialog", "Option 2:"))
         self.labelActionOption3.setText(_translate("Dialog", "Option 3:"))
         self.label_7.setText(_translate("Dialog", "Element Name:"))
+        self.buttonWindowSave.setText(_translate("Dialog", "Save"))
+        self.buttonWindowLoad.setText(_translate("Dialog", "Open"))
+        self.buttonWindowCancel.setText(_translate("Dialog", "Cancel"))
