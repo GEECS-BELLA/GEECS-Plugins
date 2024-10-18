@@ -38,7 +38,23 @@ elif platform.system() == "Darwin":
     import simpleaudio as sa
 
 class SoundPlayer:
+   
+    """
+    A class to handle playing sounds (beep and toot) in a background thread.
+    """
+    
     def __init__(self, beep_frequency=500, beep_duration=0.1, toot_frequency=1500, toot_duration=0.75, sample_rate=44100):
+        """
+        Initialize the SoundPlayer with default or user-defined frequency, duration, and sample rate.
+
+        Args:
+            beep_frequency (int, optional): Frequency of the beep sound in Hz. Default is 500.
+            beep_duration (float, optional): Duration of the beep sound in seconds. Default is 0.1.
+            toot_frequency (int, optional): Frequency of the toot sound in Hz. Default is 1500.
+            toot_duration (float, optional): Duration of the toot sound in seconds. Default is 0.75.
+            sample_rate (int, optional): Sample rate for sound generation (used for macOS). Default is 44100.
+        """
+        
         # Assign the user-defined or default values for frequency and duration
         self.beep_frequency = beep_frequency
         self.beep_duration = beep_duration
@@ -68,7 +84,12 @@ class SoundPlayer:
         self.sound_queue.put(None)  # Add a termination signal to the queue
 
     def _process_queue(self):
-        """Continuously process the sound queue."""
+        
+        """
+        Continuously process the sound queue and play the appropriate sound 
+        based on the request.
+        """
+        
         while self.running:
             try:
                 # Wait for the next sound request (this blocks until a request is added)
@@ -90,7 +111,13 @@ class SoundPlayer:
                 print(f"Error processing sound: {e}")
 
     def _play_sound(self, frequency, duration):
-        """Private method to play a sound based on the platform."""
+        """
+        Play a sound based on the platform (Windows or macOS).
+        
+        Args:
+            frequency (int): Frequency of the sound in Hz.
+            duration (float): Duration of the sound in seconds.
+        """
         # Windows: Use winsound.Beep
         if platform.system() == "Windows":
             winsound.Beep(frequency, int(duration * 1000))  # Duration is in milliseconds
@@ -104,14 +131,35 @@ class SoundPlayer:
             os.system('printf "\a"')  # Default to terminal bell for unsupported platforms
 
     def _generate_sound(self, frequency, duration):
-        """Generate a sound (for macOS) given a frequency and duration."""
+        
+        """
+        Generate a sound for macOS given a frequency and duration.
+
+        Args:
+            frequency (int): Frequency of the sound in Hz.
+            duration (float): Duration of the sound in seconds.
+        
+        Returns:
+            numpy.ndarray: Array of sound data formatted for playback.
+        """
+        
         t = np.linspace(0, duration, int(self.sample_rate * duration), False)
         tone = np.sin(2 * np.pi * frequency * t)
         return (tone * 32767).astype(np.int16)  # Convert to 16-bit PCM format
 
 
 class ActionManager:
+    """
+    A class to manage and execute actions, including device actions and nested actions.
+    """
+    
     def __init__(self, experiment_dir: str):
+        """
+        Initialize the ActionManager and load the actions from the specified experiment directory.
+
+        Args:
+            experiment_dir (str): The directory where the actions.yaml file is located.
+        """
 
         if experiment_dir is not None:
             # Use the utility function to get the path to the actions.yaml file
@@ -124,9 +172,14 @@ class ActionManager:
                 self.load_actions()
 
     def load_actions(self):
+        
         """
         Load the master actions from the given YAML file.
+
+        Returns:
+            dict: A dictionary of actions loaded from the YAML file.
         """
+        
         actions_file = str(self.actions_file_path)  # Convert Path object to string
         with open(actions_file, 'r') as file:
             actions = yaml.safe_load(file)
@@ -135,10 +188,17 @@ class ActionManager:
         return actions['actions']
 
     def add_action(self, action):
+        
         """
-        Adds a new action to the actions list.
-        action: dict - The complete action dictionary with action name and steps
+        Add a new action to the default actions list. NOTE, action is note saved
+
+        Args:
+            action (dict): A dictionary containing the action name and steps.
+        
+        Raises:
+            ValueError: If the action dictionary does not contain exactly one action name.
         """
+        
         # Parse out the action name and steps
         if len(action) != 1:
             raise ValueError("Action must contain exactly one action name")
@@ -150,10 +210,14 @@ class ActionManager:
         self.actions[action_name] = {'steps': steps}
 
     def execute_action(self, action_name):
+       
         """
-        Execute a single action by its name.
-        Handles both standard device actions and nested actions.
+        Execute a single action by its name, handling both device actions and nested actions.
+
+        Args:
+            action_name (str): The name of the action to execute.
         """
+        
         if action_name not in self.actions:
             logging.error(f"Action '{action_name}' is not defined in the available actions.")
             return
@@ -188,19 +252,31 @@ class ActionManager:
                 elif action_type == 'get':
                     self._get_device(device, variable, expected_value)
 
-    def execute_action_list(self, action_list):
-        """
-        Execute a list of actions, potentially with nested actions.
-        """
-        for action_name in action_list:
-            logging.info(f"Executing action: {action_name}")
-            self.execute_action(action_name)
 
     def _set_device(self, device, variable, value):
+        """
+        Set a device variable to a specified value.
+
+        Args:
+            device (GeecsDevice): The device to control.
+            variable (str): The variable to set.
+            value (any): The value to set for the variable.
+        """
+        
         result = device.set(variable, value)
         logging.info(f"Set {device.get_name()}:{variable} to {value}. Result: {result}")
 
     def _get_device(self, device, variable, expected_value):
+        
+        """
+        Get the current value of a device variable and compare it to the expected value.
+
+        Args:
+            device (GeecsDevice): The device to query.
+            variable (str): The variable to get the value of.
+            expected_value (any): The expected value for comparison.
+        """
+        
         value = device.get(variable)
         if value == expected_value:
             logging.info(f"Get {device.get_name()}:{variable} returned expected value: {value}")
@@ -208,13 +284,34 @@ class ActionManager:
             logging.warning(f"Get {device.get_name()}:{variable} returned {value}, expected {expected_value}")
 
     def _wait(self, seconds):
+        
+        """
+        Wait for a specified number of seconds.
+
+        Args:
+            seconds (float): The number of seconds to wait.
+        """
+        
         logging.info(f"Waiting for {seconds} seconds.")
         time.sleep(seconds)
 
 
 class DeviceManager:
+    
+    """
+    Manages devices for data acquisition operations, including loading configurations, handling scan variables, 
+    and subscribing to device updates. Responsible for loading composite variables, initializing 
+    device subscriptions, and managing the observables for event-driven and asynchronous data collection.
+    """
+    
     def __init__(self, experiment_dir: str = None):
-        # Initialize variables
+       
+        """
+        Initialize the DeviceManager with optional experiment directory.
+        
+        Args:
+            experiment_dir (str, optional): Path to the directory where experiment configurations are stored.
+        """
         self.devices = {}
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
@@ -224,11 +321,6 @@ class DeviceManager:
         if experiment_dir is not None:
             # Set the experiment directory
             self.experiment_dir = experiment_dir
-
-            # # Use self.experiment_dir when calling the utility function
-            # self.base_config_file_path = get_full_config_path(self.experiment_dir, 'base_monitoring_devs.yaml')
-            # self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'composite_variables.yaml')
-            
             
             # Use self.experiment_dir when calling the utility function
             self.base_config_file_path = get_full_config_path(self.experiment_dir, 'save_devices', 'Base_Monitoring_Devices.yaml')
@@ -238,9 +330,17 @@ class DeviceManager:
             self.composite_variables = self.load_composite_variables(self.composite_variables_file_path)
 
     def load_composite_variables(self, composite_file):
+        
         """
         Load composite variables from the given YAML file.
+
+        Args:
+            composite_file (str): Path to the YAML file containing composite variables.
+
+        Returns:
+            dict: Dictionary of composite variables.
         """
+        
         try:
             with open(composite_file, 'r') as file:
                 composite_variables = yaml.safe_load(file).get('composite_variables', {})
@@ -252,8 +352,10 @@ class DeviceManager:
 
     def load_base_config(self):
         """
-        Load a base configuration of core devices from the base config file.
+        Load a base configuration of core devices from the base configuration file. 
         If the file does not exist, log a warning and skip the base configuration load.
+        NOTE: this method is potentially unnecessary. Doesn't really do anything the load_from_config
+        doesn't already do. It was meant to "silently" load a base list of devices to be saved.
         """
         try:
             if not self.base_config_file_path.exists():
@@ -274,7 +376,11 @@ class DeviceManager:
         """
         Load configuration from a YAML file, including scan info, parameters, and device observables.
         Also loads the base configuration if necessary.
+
+        Args:
+            config_filename (str): The name of the YAML configuration file to load.
         """
+        
         # Load base configuration first
         self.load_base_config()
 
@@ -286,9 +392,15 @@ class DeviceManager:
         self.load_from_dictionary(config)
 
     def load_from_dictionary(self, config_dictionary):
+        
         """
-        Originally the 2nd half of "load_from_config," this bypasses the need to read the yaml if it is already loaded
+        Load configuration from a preloaded dictionary, bypassing the need to read a YAML file. Primarily
+        used by the GUI, but can enable loading conffigs in a different manner.
+
+        Args:
+            config_dictionary (dict): A dictionary containing the experiment configuration.
         """
+        
         # Load scan info
         self.scan_base_description = config_dictionary.get('scan_info', {}).get('description', '')
         self.scan_parameters = config_dictionary.get('scan_parameters', {})
@@ -304,9 +416,13 @@ class DeviceManager:
 
     def _load_devices_from_config(self, config):
         """
-        Helper method to load devices from either base_config or config.yaml.
-        Appends devices to self.devices, as well as categorizes them into synchronous or asynchronous.
+        Helper method to load devices from the base or custom configuration files.
+        Adds devices to the manager and categorizes them as synchronous or asynchronous.
+
+        Args:
+            config (dict): A dictionary of devices and their configuration.
         """
+        
         devices = config.get('Devices', {})
         for device_name, device_config in devices.items():
             variable_list = device_config.get('variable_list', [])
@@ -335,9 +451,28 @@ class DeviceManager:
         logging.info(f"Devices loaded: {self.devices.keys()}")
 
     def is_statistic_noscan(self, variable_name):
+        """
+        Check if the variable is a 'noscan' or 'statistics' placeholder.
+
+        Args:
+            variable_name (str): The variable name to check.
+
+        Returns:
+            bool: True if the variable is 'noscan' or 'statistics', False otherwise.
+        """
+        
         return variable_name in ('noscan', 'statistics')
 
     def is_composite_variable(self, variable_name):
+        """
+        Check if the variable is a composite variable.
+
+        Args:
+            variable_name (str): The variable name to check.
+
+        Returns:
+            bool: True if the variable is a composite variable, False otherwise.
+        """
         return self.composite_variables is not None and variable_name in self.composite_variables
 
     def get_composite_components(self, composite_var, value):
@@ -364,6 +499,14 @@ class DeviceManager:
         return variables
 
     def initialize_subscribers(self, variables, clear_devices=True):
+        """
+        Initialize subscribers for the specified variables, creating or resetting device subscriptions.
+
+        Args:
+            variables (list): A list of device variables to subscribe to.
+            clear_devices (bool): If True, clear the existing device subscriptions before initializing new ones.
+        """
+        
         if clear_devices:
             self._clear_existing_devices()
 
@@ -374,6 +517,10 @@ class DeviceManager:
                 self._subscribe_device(device_name, var_list)
 
     def _clear_existing_devices(self):
+        """
+        Clear all existing device subscriptions and reset the devices dictionary.
+        """
+        
         for device_name, device in self.devices.items():
             try:
                 logging.info(f"Attempting to unsubscribe from {device_name}...")
@@ -386,30 +533,25 @@ class DeviceManager:
         self.devices = {}
 
     def _subscribe_device(self, device_name, var_list):
+        """
+        Subscribe to a new device and its associated variables.
+
+        Args:
+            device_name (str): The name of the device to subscribe to.
+            var_list (list): A list of variables to subscribe to for the device.
+        """
+        
         device = GeecsDevice(device_name)
         device.use_alias_in_TCP_subscription = False
         logging.info(f'Subscribing {device_name} to variables: {var_list}')
         device.subscribe_var_values(var_list)
         self.devices[device_name] = device
 
-    def close_subscribers(self):
-        for device_name, device in self.devices.items():
-            try:
-                logging.info(f"Attempting to unsubscribe from {device_name}...")
-                device.unsubscribe_var_values()
-                logging.info(f"Successfully unsubscribed from {device_name}.")
-                time.sleep(0.5)
-                device.close()
-            except Exception as e:
-                logging.error(f"Error unsubscribing from {device_name}: {e}")
-
-        # Clear the devices dictionary
-        self.devices.clear()
-
     def reset(self):
         """
-        Gracefully close the DeviceManager and reset all internal state, making it ready for reinitialization.
+        Reset the DeviceManager by closing all subscribers and clearing internal state.
         """
+        
         # Step 1: Close all subscribers
         self.close_subscribers()
 
@@ -422,8 +564,13 @@ class DeviceManager:
 
     def reinitialize(self, config_path=None, config_dictionary=None):
         """
-        Reinitialize the DeviceManager by loading the configuration file and starting fresh.
+        Reinitialize the DeviceManager by resetting it and loading a new configuration.
+
+        Args:
+            config_path (str, optional): Path to the configuration file to load.
+            config_dictionary (dict, optional): A dictionary containing the configuration to load.
         """
+        
         # First, reset the current state
         self.reset()
 
@@ -436,6 +583,16 @@ class DeviceManager:
         logging.info("DeviceManager instance has been reinitialized.")
 
     def get_values(self, variables):
+        """
+        Retrieve the current values of the specified variables from the devices.
+
+        Args:
+            variables (list): A list of variables to retrieve values for.
+
+        Returns:
+            dict: A dictionary of device names and their corresponding variable values, as 
+                    well as the user defined shot number and it's 'fresh' status
+        """
         results = {}
         for var in variables:
             device_name, _ = var.split(':')
@@ -452,6 +609,16 @@ class DeviceManager:
         return self.parse_tcp_states(results)
 
     def parse_tcp_states(self, get_values_result):
+        """
+        Parse the TCP states received from devices and organize them in a structured format.
+
+        Args:
+            get_values_result (dict): A dictionary of device states.
+
+        Returns:
+            dict: A parsed dictionary of device variable states.
+        """
+        
         parsed_dict = {}
         shared_keys = ['fresh', 'shot number']
         for device_name, nested_dict in get_values_result.items():
@@ -463,6 +630,16 @@ class DeviceManager:
         return parsed_dict
 
     def preprocess_observables(self, observables):
+        """
+        Preprocess a list of observables by organizing them into device-variable mappings.
+
+        Args:
+            observables (list): A list of device-variable observables.
+
+        Returns:
+            dict: A dictionary mapping device names to a list of their variables.
+        """
+        
         device_map = {}
         for observable in observables:
             device_name, var_name = observable.split(':')
@@ -473,9 +650,14 @@ class DeviceManager:
 
     def add_scan_device(self, device_name, variable_list):
         """
-        Add a new device or append variables to an existing device for scan variables.
-        Ensure that default settings are applied for scan-specific devices.
+        Add a new device or append variables to an existing device for scan operations and
+        recording their data.
+
+        Args:
+            device_name (str): The name of the device to add or update.
+            variable_list (list): A list of variables to add for the device.
         """
+        
         if device_name not in self.devices:
             logging.info(f"Adding new scan device: {device_name} with default settings.")
 
@@ -513,7 +695,10 @@ class DeviceManager:
 
     def handle_scan_variables(self, scan_config):
         """
-        Handle scan variables and instantiate any new devices or append variables to existing ones.
+        Handle the initialization and setup of scan variables, including composite variables.
+
+        Args:
+            scan_config (dict): The configuration for the scan, including device and variable information.
         """
 
         device_var = scan_config['device_var']
@@ -840,7 +1025,24 @@ class DataInterface():
 
 
 class DataLogger():
+    
+    """
+    Handles the logging of data from devices during an scan, supporting both event-driven 
+    and asynchronous data acquisition. This class manages polling, logging, and state management 
+    for various devices in the experimental setup.
+    """
+    
     def __init__(self, experiment_dir, device_manager=None):
+        
+        """
+        Initialize the DataLogger with the experiment directory and a device manager.
+
+        Args:
+            experiment_dir (str): Directory where the experiment's data is stored.
+            device_manager (DeviceManager, optional): The manager responsible for handling devices. 
+                                                      If not provided, a new one is initialized.
+        """
+        
 
         self.device_manager = device_manager or DeviceManager(experiment_dir)
 
@@ -862,9 +1064,13 @@ class DataLogger():
 
     def start_logging(self):
         """
-        Start logging data for all devices. Event-driven observables will trigger logs,
-        and asynchronous observables will be polled at a regular interval.
+        Start logging data for all devices. Event-driven observables trigger logs, and asynchronous
+        observables are polled at regular intervals.
+        
+        Returns:
+            dict: A dictionary storing the logged entries.
         """
+        
         last_timestamps = {}
         initial_timestamps = {}
         standby_mode = {}
@@ -878,7 +1084,12 @@ class DataLogger():
         def log_update(message, device):
             """
             Handle updates from TCP subscribers and log them when a new timestamp is detected.
+
+            Args:
+                message (str): Message from the device containing data to be logged.
+                device (GeecsDevice): The device object from which the message originated.
             """
+            
             nonlocal async_t0_set  # Keep track if async t0 has been set
             current_timestamp = self._extract_timestamp(message, device)
 
@@ -919,6 +1130,18 @@ class DataLogger():
         return log_entries
 
     def _extract_timestamp(self, message, device):
+        
+        """
+        Extract the timestamp from a device message.
+
+        Args:
+            message (str): The message containing device data.
+            device (GeecsDevice): The device sending the message.
+
+        Returns:
+            float: The extracted timestamp, or the current system time if no timestamp is found.
+        """
+        
         stamp = datetime.now().__str__()
         err = ErrorAPI()
         net_msg = mh.NetworkMessage(tag=device.get_name(), stamp=stamp, msg=message, err=err)
@@ -931,6 +1154,14 @@ class DataLogger():
         return float(current_timestamp)
 
     def _register_event_logging(self, event_driven_observables, log_update):
+        """
+        Register event-driven observables for logging.
+
+        Args:
+            event_driven_observables (list): A list of event-driven observables to monitor.
+            log_update (function): Function to call when an event update occurs.
+        """
+        
         for device_name, device in self.device_manager.devices.items():
             for observable in event_driven_observables:
                 if observable.startswith(device_name):
@@ -939,8 +1170,14 @@ class DataLogger():
 
     def _start_async_polling(self, async_observables, log_entries, timeout=10):
         """
-        Start asynchronous polling in a separate thread, with a check for async_t0 and a timeout mechanism.
+        Start polling for asynchronous observables in a separate thread.
+
+        Args:
+            async_observables (list): A list of asynchronous observables to poll.
+            log_entries (dict): Dictionary to store logged data.
+            timeout (int): Timeout in seconds to wait for async_t0 to be set.
         """
+        
         # If there's an existing polling thread, wait for it to finish before starting a new one
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join()
@@ -951,8 +1188,14 @@ class DataLogger():
 
     def poll_async_observables(self, async_observables, log_entries, timeout):
         """
-        Poll asynchronous observables at a regular interval and log the data. Wait for async_t0 to be set.
+        Poll asynchronous observables at a regular interval and log the data.
+
+        Args:
+            async_observables (list): List of observables to poll.
+            log_entries (dict): Dictionary to store the logged data.
+            timeout (int): Timeout in seconds to wait for async_t0.
         """
+        
         wait_time = 0
         check_interval = 0.1  # Poll every 0.1 seconds to check if async_t0 is set
 
@@ -973,8 +1216,13 @@ class DataLogger():
 
     def _poll_single_observable(self, observable, log_entries):
         """
-        Poll a single asynchronous observable and log the data. Handle cases where async_t0 is None.
+        Poll a single asynchronous observable and log its data.
+
+        Args:
+            observable (str): The observable to poll.
+            log_entries (dict): Dictionary to store the logged data.
         """
+        
         if not self.async_t0:
             logging.warning("Async t0 is not set. Skipping polling for now.")
             return
@@ -997,6 +1245,19 @@ class DataLogger():
             self.last_log_time_async[device_name] = time.time()
 
     def _initialize_standby_mode(self, device, standby_mode, initial_timestamps, current_timestamp):
+        """
+        Initialize and manage the standby mode for a device based on its timestamp. This is an
+        essential component for getting synchronization correct 
+
+        Args:
+            device (GeecsDevice): The device being monitored.
+            standby_mode (dict): A dictionary tracking which devices are in standby mode.
+            initial_timestamps (dict): A dictionary storing initial timestamps for devices.
+            current_timestamp (float): The current timestamp from the device.
+
+        Returns:
+            bool: True if the device is still in standby mode, False otherwise.
+        """
         if device.get_name() not in standby_mode:
             standby_mode[device.get_name()] = True
         if device.get_name() not in initial_timestamps:
@@ -1014,10 +1275,34 @@ class DataLogger():
         return False
 
     def _calculate_elapsed_time(self, device, initial_timestamps, current_timestamp):
+        """
+        Calculate the elapsed time for a device based on its initial timestamp.
+
+        Args:
+            device (GeecsDevice): The device being monitored.
+            initial_timestamps (dict): A dictionary storing initial timestamps for devices.
+            current_timestamp (float): The current timestamp from the device.
+
+        Returns:
+            int: The elapsed time (rounded) since the device's initial timestamp.
+        """
+        
         t0 = initial_timestamps[device.get_name()]
         return round(current_timestamp - t0)
 
     def _check_duplicate_timestamp(self, device, last_timestamps, current_timestamp):
+        """
+        Check if the current timestamp for a device is a duplicate.
+
+        Args:
+            device (GeecsDevice): The device being monitored.
+            last_timestamps (dict): A dictionary storing the last timestamps for devices.
+            current_timestamp (float): The current timestamp from the device.
+
+        Returns:
+            bool: True if the timestamp is a duplicate, False otherwise.
+        """
+        
         if device.get_name() in last_timestamps and last_timestamps[device.get_name()] == current_timestamp:
             logging.info(f"Timestamp hasn't changed for {device.get_name()}. Skipping log.")
             return True
@@ -1025,6 +1310,21 @@ class DataLogger():
         return False
 
     def _log_device_data(self, device, event_driven_observables, log_entries, elapsed_time):
+        
+        """
+        Log the data for a device during an event-driven observation.
+
+        Args:
+            device (GeecsDevice): The device being logged.
+            event_driven_observables (list): A list of event-driven observables to monitor.
+            log_entries (dict): Dictionary where log data is stored.
+            elapsed_time (int): The time elapsed since the logging started.
+
+        Logs:
+            - Device variable data and its elapsed time.
+            - Plays a beep sound on a new log entry.
+        """
+        
         observables_data = {
             observable.split(':')[1]: device.state.get(observable.split(':')[1], '')
             for observable in event_driven_observables if observable.startswith(device.get_name())
@@ -1072,7 +1372,7 @@ class DataLogger():
 
     def stop_logging(self):
         """
-        Stop both event-driven and asynchronous logging, and reset necessary states for reuse.
+        Stop both event-driven and asynchronous logging, unregister all event handlers, and reset states.
         """
         # Unregister all event-driven logging
         for device_name, device in self.device_manager.devices.items():
@@ -1094,9 +1394,19 @@ class DataLogger():
         self.async_t0 = None
 
     def reinitialize_sound_player(self):
+        """
+        Reinitialize the sound player, stopping the current one and creating a new instance.
+        """
+        
         self.sound_player.stop()
         self.sound_player = SoundPlayer()
         self.shot_index = 0
 
     def get_current_shot(self):
+        """
+        Get the current shot index. used for progress bar tracking
+
+        Returns:
+            float: The current shot index.
+        """
         return float(self.shot_index)
