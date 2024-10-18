@@ -10,6 +10,8 @@ from imageio.v3 import imread
 
 import struct
 
+from nptdms import TdmsFile
+
 
 def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
     """ Read PNG file as output by NI IMAQ, which uses an uncommon format.
@@ -116,6 +118,14 @@ def get_imaq_timestamp_from_png(file_path):
 
     return 0  # Return 0 if the timestamp wasn't found
 
+def read_picoscopeV2_timestamp_property(file_path):
+    # Load the TDMS file
+    tdms_file = TdmsFile.read(file_path)
+    
+    # Access the file properties
+    timestamp = tdms_file.properties.get('timestamp', None)
+    
+    return timestamp
 
 class ROI:
     """ Specify a region of interest for an ImageAnalyzer to crop with.

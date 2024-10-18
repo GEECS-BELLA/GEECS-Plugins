@@ -25,7 +25,7 @@ from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
 import geecs_python_api.controls.interface.message_handling as mh
 
-from image_analysis.utils import get_imaq_timestamp_from_png
+from image_analysis.utils import get_imaq_timestamp_from_png, read_picoscopeV2_timestamp_property
 
 from .utils import get_full_config_path  # Import the utility function
 
@@ -963,8 +963,8 @@ class DataInterface():
             try:
                 if device_type == "Point Grey Camera":
                     file_timestamp = get_imaq_timestamp_from_png(device_file)
-                elif device_type == "spectrometer":
-                    file_timestamp = self.extract_timestamp_spectrometer(device_file)
+                elif device_type == "PicoscopeV2":
+                    file_timestamp = read_picoscopeV2_timestamp_property(device_file)
                 elif device_type == "energy_meter":
                     file_timestamp = self.extract_timestamp_energy_meter(device_file)
                 else:
