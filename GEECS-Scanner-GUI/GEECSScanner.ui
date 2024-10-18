@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>GEECS Scanner</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <widget class="QLineEdit" name="experimentDisplay">
@@ -92,27 +92,27 @@
    <widget class="QLabel" name="label_2">
     <property name="geometry">
      <rect>
-      <x>150</x>
+      <x>160</x>
       <y>40</y>
-      <width>151</width>
+      <width>121</width>
       <height>16</height>
      </rect>
     </property>
     <property name="text">
-     <string>Available Save Devices</string>
+     <string>Available Elements</string>
     </property>
    </widget>
    <widget class="QLabel" name="label_3">
     <property name="geometry">
      <rect>
-      <x>390</x>
+      <x>410</x>
       <y>40</y>
-      <width>131</width>
+      <width>111</width>
       <height>20</height>
      </rect>
     </property>
     <property name="text">
-     <string>Selected Save Devices</string>
+     <string>Selected Elements</string>
     </property>
    </widget>
    <widget class="QRadioButton" name="noscanRadioButton">
@@ -547,7 +547,7 @@
     </property>
    </widget>
   </widget>
-  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QStatusBar" name="statusBar"/>
   <action name="actionLog">
    <property name="text">
     <string>Log</string>
