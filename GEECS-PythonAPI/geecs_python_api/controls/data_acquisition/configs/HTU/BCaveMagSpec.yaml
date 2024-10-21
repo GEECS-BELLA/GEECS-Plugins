@@ -1,0 +1,52 @@
+Devices:
+  UC_BCaveICT:
+    variable_list: ["Python Results.ChA", "Python Results.ChB", "timestamp"]
+    synchronous: True
+    save_nonscalar_data: True
+
+  U_BCaveHallProbe:
+    variable_list: ["Field", "Rawfield"]
+    synchronous: False
+    save_nonscalar_data: False
+
+  U_BCaveMagSpecPS:
+    variable_list: ["Field", "Rawfield"]
+    synchronous: False
+    save_nonscalar_data: False
+
+  U_BCaveMagSpec:
+    variable_list: ["DeltaE"]
+    synchronous: False
+    save_nonscalar_data: True
+
+  U_BCaveMagSpec:
+    variable_list: ["DeltaE"]
+    synchronous: False
+    save_nonscalar_data: True
+
+  UC_BCaveMagSpecCam1:
+    variable_list: ["Charge"]
+    synchronous: False
+    save_nonscalar_data: True
+
+  UC_BCaveMagSpecCam2:
+    variable_list: ["Charge"]
+    synchronous: False
+    save_nonscalar_data: True
+
+  UC_BCaveMagSpecCam3:
+    variable_list: ["Charge"]
+    synchronous: False
+    save_nonscalar_data: True
+
+  UC_HiResMagCam:
+    variable_list: ["Python Result 1","Python Result 2","Python Result 3","Python Result 4","Python Result 5","Python Result 6","Python Result 7","Python Result 8","Python Result 9","Python Result 10","Python Result 11","Python Result 12","Python Result 13", "Python Result 14", "Python Result 15"]
+    synchronous: True
+    save_nonscalar_data: True
+
+    
+scan_info:
+  description: "collecting data on B-Cave magspec devices"
+
+scan_parameters:
+  description: "collecting data on TC_Phosphor"

@@ -33,7 +33,10 @@ def calculate_fwhm(projection_array, threshold=None):
         halfmax = halfmax + 0.5*threshold
 
     peak_region = np.where(projection_array >= halfmax)[0]
-    return peak_region[-1] - peak_region[0]
+    if len(peak_region > 1):
+        return peak_region[-1] - peak_region[0]
+    else:
+        return 0
 
 
 def calculate_centroid_center_of_mass(image, total_counts=None):

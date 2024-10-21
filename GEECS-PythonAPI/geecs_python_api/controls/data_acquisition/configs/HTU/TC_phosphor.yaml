@@ -1,0 +1,16 @@
+Devices:
+  UC_TC_Phosphor:
+    variable_list: ["MeanCounts", "MaxCounts","timestamp","centroidx","centroidy"]
+    synchronous: True
+    save_nonscalar_data: True
+
+  U_BCaveICT:
+    variable_list: ["Python Results.ChA", "Python Results.ChB", "timestamp"]
+    synchronous: True
+    save_nonscalar_data: True
+
+scan_info:
+  description: "collecting data on TC_Phosphor"
+
+scan_parameters:
+  description: "collecting data on TC_Phosphor"

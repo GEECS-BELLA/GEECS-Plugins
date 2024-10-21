@@ -20,7 +20,7 @@ import configparser
 from threading import Thread, Condition, Event, Lock
 from datetime import datetime as dtime
 import geecs_python_api.controls.interface.message_handling as mh
-from geecs_python_api.controls.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorAPI, api_error
+from geecs_python_api.controls.interface import GeecsDatabase, UdpHandler, TcpSubscriber, EventHandler, ErrorAPI, api_error
 
 
 class GeecsDevice:
@@ -44,7 +44,7 @@ class GeecsDevice:
     exp_info: dict[str, Any] = {}
 
     def __init__(self, name: str, virtual: bool = False):
-
+        
         # Static properties
         self.__dev_name: str = name.strip()
         self.__dev_virtual = virtual or not self.__dev_name
@@ -95,6 +95,21 @@ class GeecsDevice:
 
         if not GeecsDevice.appdata_path.is_dir():
             os.makedirs(GeecsDevice.appdata_path)
+        
+        # Initialize EventHandler to handle general updates
+        self.event_handler = EventHandler(['update'])
+
+        # Initialize TcpSubscriber and register the callback for updates
+        if self.dev_tcp:
+            self.dev_tcp.set_message_callback(self.handle_tcp_update)
+
+    # Handle updates (new messages) from TcpSubscriber and publish the 'update' event
+    def handle_tcp_update(self, message):
+        # Here we could update the state or do any necessary processing
+        self.state['last_message'] = message
+
+        # Notify all subscribers about the update
+        self.event_handler.publish('update', message)
 
     def init_resources(self):
         if not self.__dev_virtual:
@@ -556,13 +571,15 @@ class GeecsDevice:
         self._cleanup_threads()
 
         with GeecsDevice.threads_lock:
-            # if nothing running and commands in queue
-            if (not self.own_threads) and (not self.queue_cmds.empty()):
+            # Keep processing commands from the queue until it's empty
+            while not self.queue_cmds.empty():
                 try:
                     cmd_str, cmd_label, async_thread, attempts_max = self.queue_cmds.get_nowait()
                     self._process_command(cmd_str, cmd_label, thread_info=async_thread, attempts_max=attempts_max)
+                    time.sleep(0.5)  # Add 0.2 seconds delay between attempts to dequeue the next command
                 except queue.Empty:
-                    pass
+                    break  # Exit if queue is empty
+
 
     def _process_command(self, cmd_str: str, cmd_label: str,
                          thread_info: ThreadInfo = (None, None), attempts_max: int = 5):
@@ -654,21 +671,22 @@ class GeecsDevice:
 
     def handle_subscription(self, net_msg: mh.NetworkMessage) -> tuple[str, int, dict[str, str]]:
         try:
+            # Extract necessary parts from the NetworkMessage object
             dev_name, shot_nb, dict_vals = GeecsDevice._subscription_parser(net_msg.msg)
-            
+        
             # Queue & notify
             if self.notify_on_tcp:
                 self.queue_tcp_msgs.put((dev_name, shot_nb, dict_vals))
                 self.notifier_tcp_msgs.notify_all()
 
             # Error handling
-            if net_msg.err.is_error or net_msg.err.is_warning:
+            if net_msg.err and net_msg.err.is_error:
                 print(net_msg.err)
 
             # Update dictionaries
             if dev_name == self.get_name() and dict_vals:
                 self.state['shot number'] = shot_nb
-                
+            
                 for var, val in dict_vals.items():
                     if var in self.generic_vars:
                         self.interpret_generic_variables(var, val)
@@ -676,19 +694,18 @@ class GeecsDevice:
                     if var in self.var_aliases_by_name:
                         var_alias: VarAlias = self.var_aliases_by_name[var][0]
                         self.state[var_alias] = self.interpret_value(var_alias, val)
-                        self.state['fresh']=True
-                        
+                        self.state['fresh'] = True
                     else:
                         if self.use_alias_in_TCP_subscription:
                             var_alias = self.find_alias_by_var(var)
                         else:
-                            var_alias = var #SB: don't always like switching from user defined variable to the alias
+                            var_alias = var  # Don't always switch from user-defined variable to alias
                         try:
                             val = float(val)
                         except Exception:
                             pass
                         self.state[var_alias] = val
-                        self.state['fresh']=True
+                        self.state['fresh'] = True
 
             return dev_name, shot_nb, dict_vals
 
@@ -696,6 +713,7 @@ class GeecsDevice:
             err = ErrorAPI(str(ex), f'Class {self.__class_name}, method "{inspect.stack()[0][3]}"')
             print(err)
             return '', 0, {}
+    
 
     @staticmethod
     def _subscription_parser(msg: str = '') -> tuple[str, int, dict[str, str]]:

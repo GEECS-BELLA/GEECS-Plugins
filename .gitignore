@@ -14,3 +14,4 @@ GEECS-PythonAPI/*.xml
 .idea
 Xopt-GEECS/config.lnk
 Xopt-GEECS/testing nb.ipynb
+*.log
