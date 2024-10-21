@@ -553,7 +553,7 @@ class DeviceManager:
         """
         
         # Step 1: Close all subscribers
-        self.close_subscribers()
+        self._clear_existing_devices()
 
         # Step 2: Clear internal state (reset lists)
         self.event_driven_observables.clear()
