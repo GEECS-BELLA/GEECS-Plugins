@@ -1007,7 +1007,7 @@ class DataInterface():
             if i < len(dependent_files):
                 dependent_file = dependent_files[i]
                 master_new_name = re.sub(r'_\d+$', '', master_file.stem)  # Remove trailing number
-                new_name = f"Scan{scan_number}_{master_new_name}_{str(row_index + 1).zfill(3)}{suffix}{dependent_file.suffix}"
+                new_name = f"{scan_number}_{master_new_name}{suffix}{dependent_file.suffix}_{str(row_index + 1).zfill(3)}"
                 new_path = dependent_file.parent / new_name
                 dependent_file.rename(new_path)
                 logging.info(f"Renamed {dependent_file} to {new_path}")
@@ -1020,7 +1020,7 @@ class DataInterface():
         """
         for file_path, row_index in matched_rows:
             row_number = str(row_index + 1).zfill(3)
-            new_file_name = f"Scan{scan_number}_{device_name}_{row_number}{file_path.suffix}"
+            new_file_name = f"{scan_number}_{device_name}_{row_number}{file_path.suffix}"
             new_file_path = file_path.parent / new_file_name
             if not new_file_path.exists():
                 logging.info(f"Renaming {file_path} to {new_file_path}")
