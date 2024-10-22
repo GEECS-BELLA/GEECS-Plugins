@@ -728,16 +728,59 @@ class ScanManager():
 
         return log_df
 
-    def _execute_step(self, component_vars, wait_time, is_composite):
-       
+    # def _execute_step(self, component_vars, wait_time, is_composite):
+    #
+    #     """
+    #     Execute a single step of the scan, handling both composite and normal variables.
+    #
+    #     Args:
+    #         component_vars (dict): Dictionary of variables and their values for the scan step.
+    #         wait_time (float): The time to wait during after devices have be changed. This is the
+    #                             acquisition time effectively
+    #         is_composite (bool): Flag indicating whether the step involves composite variables.
+    #     """
+    #
+    #     logging.info("Pausing logging. Turning trigger off before moving devices.")
+    #     self.data_logger.bin_num += 1
+    #     self.trigger_off()
+    #
+    #     logging.info(f"shot control state: {self.shot_control.state}")
+    #     if not self.device_manager.is_statistic_noscan(component_vars):
+    #         for device_var, current_value in component_vars.items():
+    #             device_name, var_name = device_var.split(':', 1)
+    #             device = self.device_manager.devices.get(device_name)
+    #
+    #             if device:
+    #                 device.set(var_name, current_value)
+    #                 logging.info(f"Set {var_name} to {current_value} for {device_name}")
+    #
+    #     logging.info("Resuming logging. Turning trigger on after all devices have been moved.")
+    #     self.trigger_on()
+    #     logging.info(f"shot control state: {self.shot_control.state}")
+    #
+    #     current_time = 0
+    #     interval_time = 0.1
+    #     while current_time < wait_time:
+    #         if self.stop_scanning_thread_event.is_set():
+    #             logging.info("Scanning has been stopped externally.")
+    #             break
+    #
+    #         time.sleep(interval_time)
+    #         current_time += interval_time
+    #
+    #     self.trigger_off()
+    #     logging.info(f"shot control state: {self.shot_control.state}")
+    
+    def _execute_step(self, component_vars, wait_time, is_composite, max_retries=3, retry_delay=0.5):
         """
         Execute a single step of the scan, handling both composite and normal variables.
 
         Args:
             component_vars (dict): Dictionary of variables and their values for the scan step.
-            wait_time (float): The time to wait during after devices have be changed. This is the
-                                acquisition time effectively
+            wait_time (float): The time to wait after devices have been changed. This is the acquisition time effectively.
             is_composite (bool): Flag indicating whether the step involves composite variables.
+            max_retries (int): Maximum number of retries if setting the value is outside the tolerance.
+            retry_delay (float): Delay in seconds between retries.
         """
 
         logging.info("Pausing logging. Turning trigger off before moving devices.")
@@ -745,19 +788,44 @@ class ScanManager():
         self.trigger_off()
 
         logging.info(f"shot control state: {self.shot_control.state}")
+    
         if not self.device_manager.is_statistic_noscan(component_vars):
-            for device_var, current_value in component_vars.items():
+            for device_var, set_val in component_vars.items():
                 device_name, var_name = device_var.split(':', 1)
                 device = self.device_manager.devices.get(device_name)
 
                 if device:
-                    device.set(var_name, current_value)
-                    logging.info(f"Set {var_name} to {current_value} for {device_name}")
+                    # Retrieve the tolerance for the variable
+                    tol = float(self.device_manager.exp_info['devices'][device_name][var_name]['tolerance'])
+
+                    # Retry logic for setting device value
+                    success = False
+                    attempt = 0
+
+                    while attempt < max_retries:
+                        ret_val = device.set(var_name, set_val)  # Send the command to set the value
+                        logging.info(f"Attempt {attempt + 1}: Setting {var_name} to {set_val} on {device_name}, returned {ret_val}")
+
+                        # Check if the return value is within tolerance
+                        if ret_val - tol <= set_val <= ret_val + tol:
+                            logging.info(f"Success: {var_name} set to {ret_val} (within tolerance {tol}) on {device_name}")
+                            success = True
+                            break
+                        else:
+                            logging.warning(f"Attempt {attempt + 1}: {var_name} on {device_name} not within tolerance ({ret_val} != {set_val})")
+                            attempt += 1
+                            time.sleep(retry_delay)  # Wait before retrying
+
+                    if not success:
+                        logging.error(f"Failed to set {var_name} on {device_name} after {max_retries} attempts")
+                else:
+                    logging.warning(f"Device {device_name} not found in device manager.")
 
         logging.info("Resuming logging. Turning trigger on after all devices have been moved.")
         self.trigger_on()
         logging.info(f"shot control state: {self.shot_control.state}")
 
+        # Wait for acquisition time (or until scanning is externally stopped)
         current_time = 0
         interval_time = 0.1
         while current_time < wait_time:
@@ -768,8 +836,12 @@ class ScanManager():
             time.sleep(interval_time)
             current_time += interval_time
 
+        # Turn trigger off after waiting
         self.trigger_off()
         logging.info(f"shot control state: {self.shot_control.state}")
+    
+    
+    
 
     def estimate_acquisition_time(self, scan_config):
         
