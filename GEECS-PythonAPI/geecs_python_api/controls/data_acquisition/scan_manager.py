@@ -796,7 +796,7 @@ class ScanManager():
 
                 if device:
                     # Retrieve the tolerance for the variable
-                    tol = float(self.device_manager.exp_info['devices'][device_name][var_name]['tolerance'])
+                    tol = float(GeecsDevice.exp_info['devices'][device_name][var_name]['tolerance'])
 
                     # Retry logic for setting device value
                     success = False
