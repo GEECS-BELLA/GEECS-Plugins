@@ -6,7 +6,7 @@ from warnings import warn
 
 import numpy as np
 import png
-from imageio.v3 import imread
+from imageio.v3 import imread, imopen
 
 import struct
 
@@ -118,7 +118,7 @@ def get_imaq_timestamp_from_png(file_path):
 
     return 0  # Return 0 if the timestamp wasn't found
 
-def read_picoscopeV2_timestamp_property(file_path):
+def get_picoscopeV2_timestamp(file_path):
     # Load the TDMS file
     tdms_file = TdmsFile.read(file_path)
     
@@ -127,6 +127,51 @@ def read_picoscopeV2_timestamp_property(file_path):
     
     return timestamp
 
+def get_magspecstitcher_timestamp(file_path):
+
+    timestamp_high_key = "TimeStampHigh"
+    timestamp_low_key = "TimeStampLow"
+    high_chunk = low_chunk = None
+
+    with open(file_path, 'rb') as f:
+        # Read the PNG signature (8 bytes)
+        signature = f.read(8)
+    
+        while True:
+            # Read chunk length (4 bytes, big-endian)
+            chunk_len = struct.unpack('>I', f.read(4))[0]
+            
+            # Read chunk type (4 bytes)
+            chunk_type = f.read(4)
+            # print(chunk_type)
+            if chunk_type == b'IDAT':  # Stop at image data chunk
+                break
+    
+            # Read the chunk data based on the length
+            chunk_data = f.read(chunk_len)
+            
+            # Read the CRC (4 bytes, skip it)
+            f.read(4)
+    
+            if chunk_type == b'tEXt':
+                # Find the null character to separate keyword and content
+                null_pos = chunk_data.find(b'\x00')
+                if null_pos != -1:
+                    chunk_keyword = chunk_data[:null_pos].decode('utf-8')
+                    chunk_content = chunk_data[null_pos+1:]
+                    
+                    if chunk_keyword == timestamp_high_key:
+                        high_chunk = chunk_content
+                    elif chunk_keyword == timestamp_low_key:
+                        low_chunk = chunk_content
+    
+            # Stop searching if both timestamp chunks are found
+            if high_chunk and low_chunk:
+                break
+
+        timestamp = (int(high_chunk,2)*2**32 + int(low_chunk,2)) / 1e9
+        return timestamp
+    
 class ROI:
     """ Specify a region of interest for an ImageAnalyzer to crop with.
     
