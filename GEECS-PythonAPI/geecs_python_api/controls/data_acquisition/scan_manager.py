@@ -202,7 +202,9 @@ class ScanDataManager:
         # Modify the headers
         new_headers = self.modify_headers(log_df.columns)
         log_df.columns = new_headers
-
+        
+        log_df['Shotnumber'] = log_df.index + 1
+        
         return log_df
 
     def modify_headers(self, headers):
