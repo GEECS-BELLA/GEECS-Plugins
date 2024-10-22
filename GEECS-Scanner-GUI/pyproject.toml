@@ -9,7 +9,7 @@ readme = "README.md"
 python = ">=3.9,<3.11"
 PyQt5 = "^5.15.9"
 pyqt5-tools = "^5.15.9.3.3"
-geecs-pythonapi = {path = "../GEECS-PythonAPI"}
+geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
 pyyaml = "^6.0.2"
 
 
