@@ -1240,7 +1240,7 @@ class DataLogger():
                     logging.info(f"Registering logging for event-driven observable: {observable}")
                     device.event_handler.register('update', 'logger', lambda msg, dev=device: log_update(msg, dev))
 
-    def _start_async_polling(self, async_observables, log_entries, timeout=10):
+    def _start_async_polling(self, async_observables, log_entries, timeout=30):
         """
         Start polling for asynchronous observables in a separate thread.
 

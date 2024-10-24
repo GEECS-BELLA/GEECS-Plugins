@@ -743,8 +743,8 @@ class ScanManager():
             if self.stop_scanning_thread_event.is_set():
                 logging.info("Scanning has been stopped externally.")
                 break
-            
-            self.data_logger.virtual_variable_value = self.virtual_variable_list[counter]
+            if self.virtual_variable_name is not None:
+                self.data_logger.virtual_variable_value = self.virtual_variable_list[counter]
             scan_step = self.scan_steps.pop(0)
             self._execute_step(scan_step['variables'], scan_step['wait_time'], scan_step['is_composite'])
             counter+=1
