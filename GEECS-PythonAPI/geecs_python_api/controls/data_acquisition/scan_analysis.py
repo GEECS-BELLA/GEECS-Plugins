@@ -148,21 +148,67 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
             logging.warning(f"Warning: Data directory '{self.data_subdirectory}' does not exist or is empty. Skipping analysis.")
             self.data_subdirectory = None
 
+    # def load_charge_data(self):
+    #     """
+    #     Load charge-per-energy data from files.
+    #     """
+    #     charge_data_files = sorted(self.data_subdirectory.glob('*.txt'))
+    #     charge_density_matrix = []
+    #     energy_values = None
+    #
+    #     for file in charge_data_files:
+    #         data = pd.read_csv(file, delimiter='\t')
+    #         if energy_values is None:
+    #             energy_values = data.iloc[:, 0].values
+    #         charge_density_matrix.append(data.iloc[:, 1].values)
+    #
+    #     return energy_values, np.array(charge_density_matrix)
+        
     def load_charge_data(self):
         """
-        Load charge-per-energy data from files.
+        Load charge-per-energy data from files, using shot numbers from auxiliary data.
+        If data for a shot is missing, replace with properly sized arrays of zeros.
         """
-        charge_data_files = sorted(self.data_subdirectory.glob('*.txt'))
         charge_density_matrix = []
         energy_values = None
+        missing_shots_placeholder = []  # To keep track of shots missing data
+        
+        # Get the shot numbers from the auxiliary data
+        shot_numbers = self.auxiliary_data['Shotnumber'].values
 
-        for file in charge_data_files:
-            data = pd.read_csv(file, delimiter='\t')
-            if energy_values is None:
-                energy_values = data.iloc[:, 0].values
-            charge_density_matrix.append(data.iloc[:, 1].values)
+        for shot_num in shot_numbers:
+            try:
+                # Check if a file exists for this shot
+                shot_file = next(self.data_subdirectory.glob(f'*_{shot_num:03d}.txt'), None)
+
+                if shot_file:
+                    data = pd.read_csv(shot_file, delimiter='\t')
+                    if energy_values is None:
+                        energy_values = data.iloc[:, 0].values  # Initialize energy values from first valid file
+
+                    charge_density_matrix.append(data.iloc[:, 1].values)  # Second column is charge density
+                else:
+                    # If no file found for this shot, append a placeholder (None) to handle later
+                    logging.warning(f"Missing data for shot {shot_num}, adding placeholder.")
+                    charge_density_matrix.append(None)
+                    missing_shots_placeholder.append(len(charge_density_matrix) - 1)  # Track the index of missing shots
+            
+            except Exception as e:
+                logging.error(f"Error reading data for shot {shot_num}: {e}")
+                charge_density_matrix.append(None)  # Append None in case of error
+                missing_shots_placeholder.append(len(charge_density_matrix) - 1)
+
+        # After the loop, if energy_values is still None, log an error and exit
+        if energy_values is None:
+            logging.error("No valid shot data found. Cannot proceed with analysis.")
+            return None, None
+
+        # Replace all placeholders with zero arrays of the correct size
+        for idx in missing_shots_placeholder:
+            charge_density_matrix[idx] = np.zeros_like(energy_values)
 
         return energy_values, np.array(charge_density_matrix)
+    
 
     def interpolate_data(self, energy_values, charge_density_matrix, min_energy=0.06, max_energy=0.2, num_points=1000):
         """
@@ -172,7 +218,13 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
         interpolated_matrix = np.empty((charge_density_matrix.shape[0], num_points))
 
         for i, row in enumerate(charge_density_matrix):
-            interpolated_matrix[i] = np.interp(linear_energy_axis, energy_values, row)
+            try:
+                interpolated_matrix[i] = np.interp(linear_energy_axis, energy_values, row)
+            except Exception as e:
+                logging.warning(f"Interpolation failed for shot {i}. Using zeros. Error: {e}")
+                interpolated_matrix[i] = np.zeros(num_points)  # Handle any interpolation failure
+            
+            # interpolated_matrix[i] = np.interp(linear_energy_axis, energy_values, row)
 
         return linear_energy_axis, interpolated_matrix
 
@@ -227,6 +279,10 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
 
         try:
             energy_values, charge_density_matrix = self.load_charge_data()
+            
+            if energy_values is None or len(charge_density_matrix) == 0:
+                logging.error("No valid charge data found. Skipping analysis.")
+                return
 
             # Interpolate for unbinned plot
             linear_energy_axis, interpolated_charge_density_matrix = self.interpolate_data(energy_values, charge_density_matrix)
