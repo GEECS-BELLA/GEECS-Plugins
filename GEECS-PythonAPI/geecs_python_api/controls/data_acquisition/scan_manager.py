@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from .data_acquisition import DeviceManager, ActionManager, DataInterface, DataLogger
+
 from .utils import ConsoleLogger
 
 from geecs_python_api.controls.interface import load_config
@@ -14,6 +15,8 @@ from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
 from nptdms import TdmsWriter, ChannelObject
+
+import importlib
 
 config = load_config()
 
@@ -28,6 +31,11 @@ else:
 GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
 device_dict = GeecsDevice.exp_info['devices']
 
+
+ANALYSIS_CLASS_MAPPING = {
+    'MagSpecStitcherAnalysis': 'geecs_python_api.controls.data_acquisition.scan_analysis.MagSpecStitcherAnalysis',
+    'SomeOtherAnalysis': 'geecs_python_api.controls.data_acquisition.scan_analysis.SomeOtherAnalysis'
+}
 
 class ScanDataManager:
     """
@@ -353,6 +361,8 @@ class ScanManager():
         self.console_logger.setup_logging()
         
         self.bin_num = 0  # Initialize bin as 0
+        self.virtual_variable_list = []
+        self.virtual_variable_name = None
 
         self.acquisition_time = 0
 
@@ -520,7 +530,13 @@ class ScanManager():
     
         # Step 4: Turn the trigger back on
         self._set_trigger('on', 0.5)
+        
+        if self.device_manager.scan_closeout_action is not None:
+            logging.info("Attempting to execute closeout actions.")
+            logging.info(f"Action list {self.device_manager.scan_closeout_action}")
 
+            self.action_manager.add_action({'closeout_action': self.device_manager.scan_closeout_action})
+            self.action_manager.execute_action('closeout_action')
 
         if self.save_data:
             # Step 6: Process results, save to disk, and log data
@@ -528,6 +544,9 @@ class ScanManager():
 
             # Step 7: Process and rename data files
             self.data_interface.process_and_rename()
+
+        # Perform post-scan analysis
+        self.run_post_analysis()
 
         # Step 8: Stop the console logging
         self.console_logger.stop_logging()
@@ -537,7 +556,7 @@ class ScanManager():
             # Access the path from ScanDataManager
             log_folder_path = Path(self.scan_data_manager.data_txt_path).parent
             self.console_logger.move_log_file(log_folder_path)
-
+            
         return log_df
     
     def _stop_saving_devices(self):
@@ -650,6 +669,7 @@ class ScanManager():
                 'is_composite': False
             })
         elif self.device_manager.is_composite_variable(device_var):
+            self.data_logger.virtual_variable_name = device_var
             current_value = scan_config['start']
             while current_value <= scan_config['end']:
                 component_vars = self.device_manager.get_composite_components(device_var, current_value)
@@ -658,7 +678,9 @@ class ScanManager():
                     'wait_time': scan_config.get('wait_time', 1),
                     'is_composite': True
                 })
+                self.virtual_variable_list.append(current_value)
                 current_value += scan_config['step']
+                
         else:
             current_value = scan_config['start']
             while current_value <= scan_config['end']:
@@ -714,64 +736,22 @@ class ScanManager():
         """
         
         log_df = pd.DataFrame()  # Initialize in case of early exit
-
+        
+        counter = 0
         while self.scan_steps:
             # Check if the stop event is set, and exit if so
             if self.stop_scanning_thread_event.is_set():
                 logging.info("Scanning has been stopped externally.")
                 break
-                
+            
+            self.data_logger.virtual_variable_value = self.virtual_variable_list[counter]
             scan_step = self.scan_steps.pop(0)
             self._execute_step(scan_step['variables'], scan_step['wait_time'], scan_step['is_composite'])
+            counter+=1
         
-
-
         logging.info("Stopping logging.")
 
         return log_df
-
-    # def _execute_step(self, component_vars, wait_time, is_composite):
-    #
-    #     """
-    #     Execute a single step of the scan, handling both composite and normal variables.
-    #
-    #     Args:
-    #         component_vars (dict): Dictionary of variables and their values for the scan step.
-    #         wait_time (float): The time to wait during after devices have be changed. This is the
-    #                             acquisition time effectively
-    #         is_composite (bool): Flag indicating whether the step involves composite variables.
-    #     """
-    #
-    #     logging.info("Pausing logging. Turning trigger off before moving devices.")
-    #     self.data_logger.bin_num += 1
-    #     self.trigger_off()
-    #
-    #     logging.info(f"shot control state: {self.shot_control.state}")
-    #     if not self.device_manager.is_statistic_noscan(component_vars):
-    #         for device_var, current_value in component_vars.items():
-    #             device_name, var_name = device_var.split(':', 1)
-    #             device = self.device_manager.devices.get(device_name)
-    #
-    #             if device:
-    #                 device.set(var_name, current_value)
-    #                 logging.info(f"Set {var_name} to {current_value} for {device_name}")
-    #
-    #     logging.info("Resuming logging. Turning trigger on after all devices have been moved.")
-    #     self.trigger_on()
-    #     logging.info(f"shot control state: {self.shot_control.state}")
-    #
-    #     current_time = 0
-    #     interval_time = 0.1
-    #     while current_time < wait_time:
-    #         if self.stop_scanning_thread_event.is_set():
-    #             logging.info("Scanning has been stopped externally.")
-    #             break
-    #
-    #         time.sleep(interval_time)
-    #         current_time += interval_time
-    #
-    #     self.trigger_off()
-    #     logging.info(f"shot control state: {self.shot_control.state}")
     
     def _execute_step(self, component_vars, wait_time, is_composite, max_retries=3, retry_delay=0.5):
         """
@@ -840,10 +820,7 @@ class ScanManager():
 
         # Turn trigger off after waiting
         self.trigger_off()
-        logging.info(f"shot control state: {self.shot_control.state}")
-    
-    
-    
+        logging.info(f"shot control state: {self.shot_control.state}")  
 
     def estimate_acquisition_time(self, scan_config):
         
@@ -939,3 +916,33 @@ class ScanManager():
 
         logging.info("All devices restored to their initial states.")
         
+    def run_post_analysis(self):
+        for device_name, analysis_config in self.device_manager.device_analysis.items():
+            post_analysis_class_name = analysis_config.get('post_analysis_class')
+            if post_analysis_class_name:
+                try:
+                    # Dynamically load and run the analysis class
+                    module_and_class = ANALYSIS_CLASS_MAPPING.get(post_analysis_class_name)
+                    if module_and_class:
+                        module_name, class_name = module_and_class.rsplit('.', 1)
+                        logging.info(f'module name {module_name}')
+                        module = importlib.import_module(module_name)
+                        analysis_class = getattr(module, class_name)
+                        logging.info(f'analysis_class {analysis_class}')
+                        full_scan_path = self.data_interface.build_device_save_paths('device_name')
+                        paths = self.data_interface.build_device_save_paths(device_name)
+                        full_scan_path = paths[1].parent
+                        analysis_instance = analysis_class(scan_directory=full_scan_path,
+                                                           # data_subdirectory=device_name)
+                                                           device_name=device_name)
+                                                           #########
+                                                           #########
+                                                           # hardcoded above for testing
+                                                           #########
+                                                           #########
+                        logging.info(f"Running post-analysis for {device_name} using {post_analysis_class_name}.")
+                        analysis_instance.run_analysis()
+                    else:
+                        logging.error(f"Post-analysis class '{post_analysis_class_name}' not found in mapping.")
+                except Exception as e:
+                    logging.error(f"Error during post-analysis for {device_name}: {e}")

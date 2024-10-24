@@ -15,7 +15,6 @@ import re
 
 import concurrent.futures
 
-
 from nptdms import TdmsWriter, ChannelObject
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -240,6 +239,7 @@ class ActionManager:
                 action_type = step['action']
                 value = step.get('value')
                 expected_value = step.get('expected_value')
+                wait_for_execution = step.get('wait_for_execution', True)
 
                 # Instantiate device if it hasn't been done yet
                 if device_name not in self.instantiated_devices:
@@ -248,12 +248,12 @@ class ActionManager:
                 device = self.instantiated_devices[device_name]
 
                 if action_type == 'set':
-                    self._set_device(device, variable, value)
+                    self._set_device(device, variable, value, sync = wait_for_execution)
                 elif action_type == 'get':
                     self._get_device(device, variable, expected_value)
 
 
-    def _set_device(self, device, variable, value):
+    def _set_device(self, device, variable, value, sync = True):
         """
         Set a device variable to a specified value.
 
@@ -263,7 +263,7 @@ class ActionManager:
             value (any): The value to set for the variable.
         """
         
-        result = device.set(variable, value)
+        result = device.set(variable, value, sync = sync)
         logging.info(f"Set {device.get_name()}:{variable} to {value}. Result: {result}")
 
     def _get_device(self, device, variable, expected_value):
@@ -313,10 +313,14 @@ class DeviceManager:
             experiment_dir (str, optional): Path to the directory where experiment configurations are stored.
         """
         self.devices = {}
+        self.device_analysis = {} 
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
         self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
         self.composite_variables = None
+        self.scan_setup_action = {'steps': []}
+        self.scan_closeout_action = {'steps': []}
+        
 
         if experiment_dir is not None:
             # Set the experiment directory
@@ -403,16 +407,27 @@ class DeviceManager:
         
         # Load scan info
         self.scan_base_description = config_dictionary.get('scan_info', {}).get('description', '')
-        self.scan_parameters = config_dictionary.get('scan_parameters', {})
-        self.scan_setup_action = config_dictionary.get('setup_action', None)
-
+        # # self.scan_parameters = config_dictionary.get('scan_parameters', {})
+        # self.scan_setup_action = config_dictionary.get('setup_action', None)
+        # self.scan_closeout_action = config_dictionary.get('closeout_action', None)
+        
+        # Append setup action from config
+        setup_actions = config_dictionary.get('setup_action', {}).get('steps', [])
+        if setup_actions:
+            self.scan_setup_action['steps'].extend(setup_actions)
+        
+        # Append closeout action from config
+        closeout_actions = config_dictionary.get('closeout_action', {}).get('steps', [])
+        if closeout_actions:
+            self.scan_closeout_action['steps'].extend(closeout_actions)
+        
         self._load_devices_from_config(config_dictionary)
 
         # Initialize the subscribers
         self.initialize_subscribers(self.event_driven_observables + self.async_observables, clear_devices=False)
 
         logging.info(f"Loaded scan info: {self.scan_base_description}")
-        logging.info(f"Loaded scan parameters: {self.scan_parameters}")
+        # logging.info(f"Loaded scan parameters: {self.scan_parameters}")
 
     def _load_devices_from_config(self, config):
         """
@@ -428,7 +443,9 @@ class DeviceManager:
             variable_list = device_config.get('variable_list', [])
             synchronous = device_config.get('synchronous', False)
             save_non_scalar = device_config.get('save_nonscalar_data', False)
-
+            post_analysis_class_name = device_config.get('post_analysis_class', None)
+            scan_setup = device_config.get('scan_setup', None)
+            logging.info(f"{device_name}: Post Analysis = {post_analysis_class_name}")
             logging.info(f"{device_name}: Synchronous = {synchronous}, Save_Non_Scalar = {save_non_scalar}")
 
             # Add to non-scalar saving devices if applicable
@@ -447,8 +464,54 @@ class DeviceManager:
             else:
                 # If device exists, append new variables to its subscription
                 self.devices[device_name].subscribe_var_values(variable_list)
+                
+            # Append scan setup actions if they exist
+            if scan_setup:
+                self.append_device_setup_closeout_actions(device_name, scan_setup)
+                
+            # Store post_analysis_class in device_analysis dictionary
+            if post_analysis_class_name:
+                self.device_analysis[device_name] = {
+                    'post_analysis_class': post_analysis_class_name
+                }
 
         logging.info(f"Devices loaded: {self.devices.keys()}")
+        
+    def append_device_setup_closeout_actions(self, device_name, scan_setup):
+        """
+        Append actions to setup_action and closeout_action for the specified device based on scan_setup.
+
+        Args:
+            device_name (str): The name of the device.
+            scan_setup (dict): Dictionary containing scan setup actions and their corresponding setup/closeout values.
+        """
+        # Iterate over each key in the 'scan_setup' dictionary
+        for analysis_type, values in scan_setup.items():
+            # Ensure the setup and closeout values exist in the 'scan_setup'
+            if len(values) != 2:
+                logging.warning(f"Invalid scan setup actions for {device_name}: {analysis_type} (Expected 2 values, got {len(values)})")
+                continue
+        
+            setup_value, closeout_value = values
+
+            # Append to setup_action
+            self.scan_setup_action['steps'].append({
+                'action': 'set',
+                'device': device_name,
+                'value': setup_value,  # setup value
+                'variable': analysis_type
+            })
+        
+            # Append to closeout_action
+            self.scan_closeout_action['steps'].append({
+                'action': 'set',
+                'device': device_name,
+                'value': closeout_value,  # closeout value
+                'variable': analysis_type
+            })
+
+            logging.info(f"Added setup and closeout actions for {device_name}: {analysis_type} (setup={setup_value}, closeout={closeout_value})")
+
 
     def is_statistic_noscan(self, variable_name):
         """
@@ -1066,6 +1129,10 @@ class DataLogger():
         # Initialize the sound player
         self.sound_player = SoundPlayer()
         self.shot_index = 0
+        
+        self.virtual_variable_name = None
+        self.virtual_variable_value = 0
+        
 
     def start_logging(self):
         """
@@ -1338,6 +1405,8 @@ class DataLogger():
             log_entries[elapsed_time] = {'Elapsed Time': elapsed_time}
             # Log configuration variables (such as 'bin') only when a new entry is created
             log_entries[elapsed_time]['Bin #'] = self.bin_num
+            if self.virtual_variable_name is not None:
+                log_entries[elapsed_time][self.virtual_variable_name] = self.virtual_variable_value
             # os.system('afplay trimmed_tink.aiff')  # This plays a sound on macOS
             # Trigger the beep in the background
             self.sound_player.play_beep()  # Play the beep sound

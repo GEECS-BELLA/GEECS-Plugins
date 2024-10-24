@@ -13,23 +13,43 @@ Devices:
     variable_list: ["timestamp"]
     synchronous: True
     save_nonscalar_data: True
+    post_analysis_class: MagSpecStitcherAnalysis
 
   UC_BCaveMagSpecCam1:
     variable_list: ["Charge","timestamp"]
     synchronous: True
     save_nonscalar_data: True
+    scan_setup: 
+      Analysis:
+      - 'on'
+      - 'on'
 
   UC_BCaveMagSpecCam2:
     variable_list: ["Charge","timestamp"]
     synchronous: True
     save_nonscalar_data: True
+    scan_setup: 
+      Analysis:
+      - 'on'
+      - 'on'
 
   UC_BCaveMagSpecCam3:
     variable_list: ["Charge","timestamp"]
     synchronous: True
     save_nonscalar_data: True
+    scan_setup: 
+      Analysis:
+      - 'on'
+      - 'on'
 
   UC_HiResMagCam:
     variable_list: ["Python Result 1","Python Result 2","Python Result 3","Python Result 4","Python Result 5","Python Result 6","Python Result 7","Python Result 8","Python Result 9","Python Result 10","Python Result 11","Python Result 12","Python Result 13", "Python Result 14", "Python Result 15","timestamp"]
     synchronous: True
     save_nonscalar_data: True
+    scan_setup: 
+      Analysis:
+      - 'on'
+      - 'off'
+      PythonAnalysis:
+      - 'on'
+      - 'off'

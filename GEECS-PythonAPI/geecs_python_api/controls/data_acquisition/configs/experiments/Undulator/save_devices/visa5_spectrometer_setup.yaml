@@ -5,6 +5,14 @@ Devices:
     variable_list:
     - MeanCounts
     - timestamp
+    scan_setup: 
+      Analysis:
+      - 'on'
+      - 'off'
+      PythonAnalysis:
+      - 'on'
+      - 'off'
+    post_analysis_class: MagSpecStitcherAnalysis
   UC_VisaEBeam5:
     save_nonscalar_data: true
     synchronous: true
@@ -12,15 +20,15 @@ Devices:
     - timestamp
 scan_info:
   description: collecting data on visa5EBeam and U_Spectrometer
-setup_action:
-  steps:
-  - action: execute
-    action_name: remove_visa_plungers
-  - action: set
-    device: U_VisaPlungers
-    value: 'on'
-    variable: DigitalOutput.Channel 3
-  - action: set
-    device: U_Velmex
-    value: 3500
-    variable: Position
+# setup_action:
+#   steps:
+#   - action: execute
+#     action_name: remove_visa_plungers
+#   - action: set
+#     device: U_VisaPlungers
+#     value: 'on'
+#     variable: DigitalOutput.Channel 3
+#   - action: set
+#     device: U_Velmex
+#     value: 3500
+#     variable: Position
