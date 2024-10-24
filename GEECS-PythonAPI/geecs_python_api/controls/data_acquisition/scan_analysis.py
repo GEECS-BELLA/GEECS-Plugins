@@ -265,10 +265,8 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
         if save_dir and save_name:
             save_path = Path(save_dir) / save_name
             plt.savefig(save_path, bbox_inches='tight')
-            print(f"Plot saved to {save_path}")
+            logging.info(f"Plot saved to {save_path}")
         
-        plt.show()
-
     def run_analysis(self):
         """
         Main function to run the analysis and generate plots.
@@ -288,7 +286,6 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
             linear_energy_axis, interpolated_charge_density_matrix = self.interpolate_data(energy_values, charge_density_matrix)
 
             shot_num_labels = self.generate_limited_shotnumber_labels(self.total_shots, max_labels = 20)
-            print(shot_num_labels)
             # Plot unbinned data
             self.plot_waterfall_with_labels(linear_energy_axis, interpolated_charge_density_matrix,
                                             f'{str(self.scan_directory)}', 'Shotnumber',
