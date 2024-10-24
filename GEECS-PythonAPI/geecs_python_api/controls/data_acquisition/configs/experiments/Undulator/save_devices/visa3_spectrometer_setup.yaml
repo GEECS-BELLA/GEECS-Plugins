@@ -9,13 +9,13 @@ Devices:
       Analysis:
       - 'on'
       - 'off'
-  UC_VisaEBeam5:
+  UC_VisaEBeam3:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
     - timestamp
 scan_info:
-  description: collecting data on visa5EBeam and U_Spectrometer
+  description: collecting data on visa3EBeam and U_Spectrometer
 setup_action:
   steps:
   - action: execute
@@ -23,8 +23,8 @@ setup_action:
   - action: set
     device: U_VisaPlungers
     value: 'on'
-    variable: DigitalOutput.Channel 3
+    variable: DigitalOutput.Channel 5
   - action: set
     device: U_Velmex
-    value: 1931
+    value: 2930
     variable: Position
