@@ -28,7 +28,6 @@ from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_ti
 
 from .utils import get_full_config_path  # Import the utility function
 
-
 # For Windows-specific imports
 if platform.system() == "Windows":
     import winsound
@@ -251,7 +250,6 @@ class ActionManager:
                     self._set_device(device, variable, value, sync = wait_for_execution)
                 elif action_type == 'get':
                     self._get_device(device, variable, expected_value)
-
 
     def _set_device(self, device, variable, value, sync = True):
         """
@@ -499,7 +497,8 @@ class DeviceManager:
                 'action': 'set',
                 'device': device_name,
                 'value': setup_value,  # setup value
-                'variable': analysis_type
+                'variable': analysis_type,
+                'wait_for_execution': False
             })
         
             # Append to closeout_action
@@ -507,11 +506,12 @@ class DeviceManager:
                 'action': 'set',
                 'device': device_name,
                 'value': closeout_value,  # closeout value
-                'variable': analysis_type
+                'variable': analysis_type,
+                'wait_for_execution': False
+    
             })
 
             logging.info(f"Added setup and closeout actions for {device_name}: {analysis_type} (setup={setup_value}, closeout={closeout_value})")
-
 
     def is_statistic_noscan(self, variable_name):
         """
@@ -642,6 +642,9 @@ class DeviceManager:
             self.load_from_config(config_path)
         elif config_dictionary is not None:
             self.load_from_dictionary(config_dictionary)
+            
+        self.scan_setup_action['steps'] = []
+        self.scan_closeout_action['steps'] =[]
 
         logging.info("DeviceManager instance has been reinitialized.")
 
