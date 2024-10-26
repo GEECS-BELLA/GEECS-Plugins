@@ -360,7 +360,6 @@ class ScanManager():
         self.console_logger = ConsoleLogger(log_file="scan_execution.log", level=logging.INFO, console=True)
         self.console_logger.setup_logging()
         
-        self.bin_num = 0  # Initialize bin as 0
         self.virtual_variable_list = []
         self.virtual_variable_name = None
 
@@ -657,7 +656,7 @@ class ScanManager():
             list: A list of scan steps, each containing the variables and their corresponding values.
         """
         
-        self.bin_num = 0
+        self.data_logger.bin_num = 0
         steps = []
         
         device_var = scan_config['device_var']
