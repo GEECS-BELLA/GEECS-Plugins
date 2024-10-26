@@ -38,10 +38,8 @@ def get_full_config_path(experiment: str, config_type:str, config_file: str) -> 
         raise FileNotFoundError(f"The config file {config_path} does not exist.")
 
     return config_path
-    
+
 def visa_config_generator(visa_key, diagnostic_type):
-    
-    # input_filename = '../../geecs_python_api/controls/data_acquisition/configs/HTU/visa_plunger_lookup.yaml'
     
     input_filename = get_full_config_path('Undulator', 'aux_configs', 'visa_plunger_lookup.yaml')
     
@@ -49,9 +47,7 @@ def visa_config_generator(visa_key, diagnostic_type):
         visa_lookup = yaml.safe_load(file)
     
     device_info = visa_lookup[visa_key]
-
-    # Define the VisaEBeam camera dynamically based on the visa_key
-    visa_ebeam_camera = f"UC_VisaEBeam{visa_key[-1]}"  # Extracts the last number from visa_key (e.g., visa1 -> UC_VisaEBEam1)
+    visa_ebeam_camera = f"UC_VisaEBeam{visa_key[-1]}"
 
     if diagnostic_type == 'energy':
         description = f"collecting data on {visa_key}EBeam and U_FELEnergyMeter"
@@ -64,17 +60,23 @@ def visa_config_generator(visa_key, diagnostic_type):
             visa_ebeam_camera: {
                 'variable_list': ["timestamp"],
                 'synchronous': True,
-                'save_nonscalar_data': True
+                'save_nonscalar_data': True,
+                'scan_setup': {
+                    'Analysis': ['on', 'off']
+                }
             },
             'U_FELEnergyMeter': {
                 'variable_list': ["Python Results.ChA", "timestamp"],
                 'synchronous': True,
-                'save_nonscalar_data': True
+                'save_nonscalar_data': True,
+                'scan_setup': {
+                    'Analysis': ['on', 'off']
+                }
             }
         }
     
     elif diagnostic_type == 'spectrometer':
-        description = f"collecting data on {visa_key}EBeam and U_Spectrometer"
+        description = f"collecting data on {visa_key}EBeam and UC_UndulatorRad2"
         setup_steps = [
             {'action': 'execute', 'action_name': 'remove_visa_plungers'},
             {'device': device_info['device'], 'variable': device_info['variable'], 'action': 'set', 'value': 'on'},
@@ -84,12 +86,16 @@ def visa_config_generator(visa_key, diagnostic_type):
             visa_ebeam_camera: {
                 'variable_list': ["timestamp"],
                 'synchronous': True,
-                'save_nonscalar_data': True
+                'save_nonscalar_data': True,
+                'post_analysis_class': 'CameraImageAnalysis'
             },
             'UC_UndulatorRad2': {
                 'variable_list': ["MeanCounts", "timestamp"],
                 'synchronous': True,
-                'save_nonscalar_data': True
+                'save_nonscalar_data': True,
+                'scan_setup': {
+                    'Analysis': ['on', 'off']
+                }
             }
         }
 
@@ -105,13 +111,11 @@ def visa_config_generator(visa_key, diagnostic_type):
     }
 
     # Writing to a YAML file
-    
-    output_filename = input_filename.parent.parent / 'save_devices' / f'{visa_key}_{diagnostic_type}_setup.yaml'
+    output_filename = Path(input_filename).parent.parent / 'save_devices' / f'{visa_key}_{diagnostic_type}_setup.yaml'
     with open(output_filename, 'w') as outfile:
         yaml.dump(output_data, outfile, default_flow_style=False)
 
-    # print(f"YAML file {output_filename} generated successfully!")
-    return output_filename    
+    return output_filename
             
 class ConsoleLogger:
     def __init__(self, log_file="system_log.log", level=logging.INFO, console=False):
