@@ -1,21 +1,22 @@
 Devices:
   UC_UndulatorRad2:
     save_nonscalar_data: true
+    scan_setup:
+      Analysis:
+      - 'on'
+      - 'off'
     synchronous: true
     variable_list:
     - MeanCounts
     - timestamp
-    scan_setup: 
-      Analysis:
-      - 'on'
-      - 'off'
   UC_VisaEBeam2:
+    post_analysis_class: CameraImageAnalysis
     save_nonscalar_data: true
     synchronous: true
     variable_list:
     - timestamp
 scan_info:
-  description: collecting data on visa2EBeam and U_Spectrometer
+  description: collecting data on visa2EBeam and UC_UndulatorRad2
 setup_action:
   steps:
   - action: execute
