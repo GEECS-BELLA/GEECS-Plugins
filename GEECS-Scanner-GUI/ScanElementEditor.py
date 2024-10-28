@@ -24,6 +24,9 @@ class ScanElementEditor(QDialog):
         self.ui.buttonRemoveDevice.clicked.connect(self.remove_device)
         self.ui.listDevices.itemSelectionChanged.connect(self.update_variable_list)
 
+        self.ui.buttonAddVariable.clicked.connect(self.add_variable)
+        self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
+
         self.ui.checkboxSynchronous.clicked.connect(self.update_device_checkboxes)
         self.ui.checkboxSaveNonscalar.clicked.connect(self.update_device_checkboxes)
 
@@ -89,6 +92,29 @@ class ScanElementEditor(QDialog):
             self.ui.listVariables.addItem(variable)
         self.ui.checkboxSynchronous.setChecked(device['synchronous'])
         self.ui.checkboxSaveNonscalar.setChecked(device['save_nonscalar_data'])
+
+    def add_variable(self):
+        device = self.get_selected_device()
+        if device is not None:
+            text = self.ui.lineVariableName.text().strip()
+            if text and text not in device['variable_list']:
+                if "variable_list" in device:
+                    device["variable_list"].append(text)
+                else:
+                    device["variable_list"] = [text]
+                self.update_variable_list()
+
+    def remove_variable(self):
+        device = self.get_selected_device()
+        if device is not None:
+            selected_variable = self.ui.listVariables.selectedItems()
+            if not selected_variable:
+                return
+            for selection in selected_variable:
+                text = selection.text()
+                if text in device['variable_list']:
+                    device["variable_list"].remove(text)
+            self.update_variable_list()
 
     def update_device_checkboxes(self):
         device = self.get_selected_device()
