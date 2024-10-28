@@ -24,6 +24,9 @@ class ScanElementEditor(QDialog):
         self.ui.buttonRemoveDevice.clicked.connect(self.remove_device)
         self.ui.listDevices.itemSelectionChanged.connect(self.update_variable_list)
 
+        self.ui.checkboxSynchronous.clicked.connect(self.update_device_checkboxes)
+        self.ui.checkboxSaveNonscalar.clicked.connect(self.update_device_checkboxes)
+
         self.ui.buttonWindowSave.clicked.connect(self.save_element)
         self.ui.buttonWindowCancel.clicked.connect(self.close_window)
         self.ui.buttonWindowLoad.clicked.connect(self.open_element)
@@ -54,27 +57,45 @@ class ScanElementEditor(QDialog):
                 del self.devices_dict[text]
         self.update_device_list()
 
-    def update_variable_list(self):
-        self.ui.listVariables.clear()
-
+    def get_selected_device(self):
         selected_device = self.ui.listDevices.selectedItems()
         no_selection = not selected_device
-        self.ui.checkboxSynchronous.setEnabled(not no_selection)
-        self.ui.checkboxSaveNonscalar.setEnabled(not no_selection)
-        self.ui.buttonAddVariable.setEnabled(not no_selection)
-        self.ui.buttonRemoveVariable.setEnabled(not no_selection)
-        self.ui.lineVariableName.setEnabled(not no_selection)
-
         if no_selection:
-            return
+            return None
+
+        device = None
         for selection in selected_device:
             text = selection.text()
             if text in self.devices_dict:
                 device = self.devices_dict[text]
-                for variable in device['variable_list']:
-                    self.ui.listVariables.addItem(variable)
-                self.ui.checkboxSynchronous.setChecked(device['synchronous'])
-                self.ui.checkboxSaveNonscalar.setChecked(device['save_nonscalar_data'])
+        return device
+
+    def update_variable_list(self):
+        self.ui.listVariables.clear()
+
+        device = self.get_selected_device()
+        enable_variables = device is not None
+
+        self.ui.checkboxSynchronous.setEnabled(enable_variables)
+        self.ui.checkboxSaveNonscalar.setEnabled(enable_variables)
+        self.ui.buttonAddVariable.setEnabled(enable_variables)
+        self.ui.buttonRemoveVariable.setEnabled(enable_variables)
+        self.ui.lineVariableName.setEnabled(enable_variables)
+
+        if device is None:
+            return
+
+        for variable in device['variable_list']:
+            self.ui.listVariables.addItem(variable)
+        self.ui.checkboxSynchronous.setChecked(device['synchronous'])
+        self.ui.checkboxSaveNonscalar.setChecked(device['save_nonscalar_data'])
+
+    def update_device_checkboxes(self):
+        device = self.get_selected_device()
+        if device is not None:
+            device['synchronous'] = self.ui.checkboxSynchronous.isChecked()
+            device['save_nonscalar_data'] = self.ui.checkboxSaveNonscalar.isChecked()
+            self.update_variable_list()
 
     def save_element(self):
         print("Save")
