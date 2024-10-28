@@ -6,7 +6,11 @@ from warnings import warn
 
 import numpy as np
 import png
-from imageio.v3 import imread
+from imageio.v3 import imread, imopen
+
+import struct
+
+from nptdms import TdmsFile
 
 
 def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
@@ -32,7 +36,6 @@ def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
         significant_bits = ord(significant_bits)
         return np.right_shift(image, bitdepth - significant_bits)
 
-
 def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
     """ Read BELLA camera image, in particular handle NI PNG files correctly.
     """
@@ -45,7 +48,130 @@ def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
     else:
         return imread(file_path)
 
+def get_imaq_timestamp_from_png(file_path):
+    """
+    Extracts the timestamp from the PNG file's text (tEXt) chunks.
+    The function looks for the 'IMAQdxTimestampHigh' and 'IMAQdxTimestampLow' keys
+    and calculates the timestamp.  
+    
+    Args:
+        file_path (str): The path to the PNG file.
+    
+    Returns:
+        float: The timestamp in seconds if found, otherwise 0.
+    """
+    timestamp_high_key = "IMAQdxTimestampHigh"
+    timestamp_low_key = "IMAQdxTimestampLow"
+    high_chunk = low_chunk = None
 
+    with open(file_path, 'rb') as f:
+        # Read the PNG signature (8 bytes)
+        signature = f.read(8)
+
+        while True:
+            # Read chunk length (4 bytes, big-endian)
+            chunk_len = struct.unpack('>I', f.read(4))[0]
+            
+            # Read chunk type (4 bytes)
+            chunk_type = f.read(4)
+
+            if chunk_type == b'IDAT':  # Stop at image data chunk
+                break
+
+            # Read the chunk data based on the length
+            chunk_data = f.read(chunk_len)
+            
+            # Read the CRC (4 bytes, skip it)
+            f.read(4)
+
+            if chunk_type == b'tEXt':
+                # Find the null character to separate keyword and content
+                null_pos = chunk_data.find(b'\x00')
+                if null_pos != -1:
+                    chunk_keyword = chunk_data[:null_pos].decode('utf-8')
+                    chunk_content = chunk_data[null_pos+1:]
+                    
+                    if chunk_keyword == timestamp_high_key:
+                        high_chunk = chunk_content
+                    elif chunk_keyword == timestamp_low_key:
+                        low_chunk = chunk_content
+
+            # Stop searching if both timestamp chunks are found
+            if high_chunk and low_chunk:
+                break
+
+    if high_chunk and low_chunk:
+        # Extract last 4 bytes for high and low parts of the timestamp
+        high_bytes = high_chunk[-4:]
+        low_bytes = low_chunk[-4:]
+
+        # Convert bytes to integer values
+        high_value = int.from_bytes(high_bytes, 'big')
+        low_value = int.from_bytes(low_bytes, 'big')
+
+        # Combine high and low to get the full timestamp in nanoseconds
+        timestamp = (high_value << 32) + low_value
+
+        # Convert nanoseconds to seconds
+        timestamp_seconds = timestamp * 8e-9
+        return timestamp_seconds
+
+    return 0  # Return 0 if the timestamp wasn't found
+
+def get_picoscopeV2_timestamp(file_path):
+    # Load the TDMS file
+    tdms_file = TdmsFile.read(file_path)
+    
+    # Access the file properties
+    timestamp = tdms_file.properties.get('timestamp', None)
+    
+    return timestamp
+
+def get_magspecstitcher_timestamp(file_path):
+
+    timestamp_high_key = "TimeStampHigh"
+    timestamp_low_key = "TimeStampLow"
+    high_chunk = low_chunk = None
+
+    with open(file_path, 'rb') as f:
+        # Read the PNG signature (8 bytes)
+        signature = f.read(8)
+    
+        while True:
+            # Read chunk length (4 bytes, big-endian)
+            chunk_len = struct.unpack('>I', f.read(4))[0]
+            
+            # Read chunk type (4 bytes)
+            chunk_type = f.read(4)
+            # print(chunk_type)
+            if chunk_type == b'IDAT':  # Stop at image data chunk
+                break
+    
+            # Read the chunk data based on the length
+            chunk_data = f.read(chunk_len)
+            
+            # Read the CRC (4 bytes, skip it)
+            f.read(4)
+    
+            if chunk_type == b'tEXt':
+                # Find the null character to separate keyword and content
+                null_pos = chunk_data.find(b'\x00')
+                if null_pos != -1:
+                    chunk_keyword = chunk_data[:null_pos].decode('utf-8')
+                    chunk_content = chunk_data[null_pos+1:]
+                    
+                    if chunk_keyword == timestamp_high_key:
+                        high_chunk = chunk_content
+                    elif chunk_keyword == timestamp_low_key:
+                        low_chunk = chunk_content
+    
+            # Stop searching if both timestamp chunks are found
+            if high_chunk and low_chunk:
+                break
+
+        timestamp = (int(high_chunk,2)*2**32 + int(low_chunk,2)) / 1e9
+        return timestamp
+    
 class ROI:
     """ Specify a region of interest for an ImageAnalyzer to crop with.
     
@@ -138,7 +264,6 @@ class ROI:
     def __repr__(self):
         return f"ROI({self.top}, {self.bottom}, {self.left}, {self.right})"
     
-
 class NotAPath(Path().__class__):
     """ A Path instance that evaluates to false in, for example, if statements.
     """
