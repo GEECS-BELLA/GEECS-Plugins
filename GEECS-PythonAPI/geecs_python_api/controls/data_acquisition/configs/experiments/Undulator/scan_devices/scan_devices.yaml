@@ -22,3 +22,4 @@ single_scan_devices:
   Hexapod Angle U: 'U_Hexapod:uangle'
   Hexapod Angle V: 'U_Hexapod:vangle'
   Hexapod Angle W: 'U_Hexapod:wangle'
+  Gaia Lamp timing: 'U_1HzShiftedBox:delay.Channel_C'

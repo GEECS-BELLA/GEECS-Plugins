@@ -15,7 +15,6 @@ import re
 
 import concurrent.futures
 
-
 from nptdms import TdmsWriter, ChannelObject
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -25,10 +24,9 @@ from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
 import geecs_python_api.controls.interface.message_handling as mh
 
-from image_analysis.utils import get_imaq_timestamp_from_png
+from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_magspecstitcher_timestamp
 
 from .utils import get_full_config_path  # Import the utility function
-
 
 # For Windows-specific imports
 if platform.system() == "Windows":
@@ -240,6 +238,7 @@ class ActionManager:
                 action_type = step['action']
                 value = step.get('value')
                 expected_value = step.get('expected_value')
+                wait_for_execution = step.get('wait_for_execution', True)
 
                 # Instantiate device if it hasn't been done yet
                 if device_name not in self.instantiated_devices:
@@ -248,12 +247,11 @@ class ActionManager:
                 device = self.instantiated_devices[device_name]
 
                 if action_type == 'set':
-                    self._set_device(device, variable, value)
+                    self._set_device(device, variable, value, sync = wait_for_execution)
                 elif action_type == 'get':
                     self._get_device(device, variable, expected_value)
 
-
-    def _set_device(self, device, variable, value):
+    def _set_device(self, device, variable, value, sync = True):
         """
         Set a device variable to a specified value.
 
@@ -263,7 +261,7 @@ class ActionManager:
             value (any): The value to set for the variable.
         """
         
-        result = device.set(variable, value)
+        result = device.set(variable, value, sync = sync)
         logging.info(f"Set {device.get_name()}:{variable} to {value}. Result: {result}")
 
     def _get_device(self, device, variable, expected_value):
@@ -313,10 +311,14 @@ class DeviceManager:
             experiment_dir (str, optional): Path to the directory where experiment configurations are stored.
         """
         self.devices = {}
+        self.device_analysis = {} 
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
         self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
         self.composite_variables = None
+        self.scan_setup_action = {'steps': []}
+        self.scan_closeout_action = {'steps': []}
+        
 
         if experiment_dir is not None:
             # Set the experiment directory
@@ -382,10 +384,10 @@ class DeviceManager:
         """
         
         # Load base configuration first
-        self.load_base_config()
+        # self.load_base_config()
 
         # Load the specific config for the experiment
-        config_path = get_full_config_path(self.experiment_dir, 'save_device', config_filename)
+        config_path = get_full_config_path(self.experiment_dir, 'save_devices', config_filename)
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
         logging.info(f"Loaded configuration from {config_path}")
@@ -403,16 +405,27 @@ class DeviceManager:
         
         # Load scan info
         self.scan_base_description = config_dictionary.get('scan_info', {}).get('description', '')
-        self.scan_parameters = config_dictionary.get('scan_parameters', {})
-        self.scan_setup_action = config_dictionary.get('setup_action', None)
-
+        # # self.scan_parameters = config_dictionary.get('scan_parameters', {})
+        # self.scan_setup_action = config_dictionary.get('setup_action', None)
+        # self.scan_closeout_action = config_dictionary.get('closeout_action', None)
+        
+        # Append setup action from config
+        setup_actions = config_dictionary.get('setup_action', {}).get('steps', [])
+        if setup_actions:
+            self.scan_setup_action['steps'].extend(setup_actions)
+        
+        # Append closeout action from config
+        closeout_actions = config_dictionary.get('closeout_action', {}).get('steps', [])
+        if closeout_actions:
+            self.scan_closeout_action['steps'].extend(closeout_actions)
+        
         self._load_devices_from_config(config_dictionary)
 
         # Initialize the subscribers
         self.initialize_subscribers(self.event_driven_observables + self.async_observables, clear_devices=False)
 
         logging.info(f"Loaded scan info: {self.scan_base_description}")
-        logging.info(f"Loaded scan parameters: {self.scan_parameters}")
+        # logging.info(f"Loaded scan parameters: {self.scan_parameters}")
 
     def _load_devices_from_config(self, config):
         """
@@ -428,7 +441,9 @@ class DeviceManager:
             variable_list = device_config.get('variable_list', [])
             synchronous = device_config.get('synchronous', False)
             save_non_scalar = device_config.get('save_nonscalar_data', False)
-
+            post_analysis_class_name = device_config.get('post_analysis_class', None)
+            scan_setup = device_config.get('scan_setup', None)
+            logging.info(f"{device_name}: Post Analysis = {post_analysis_class_name}")
             logging.info(f"{device_name}: Synchronous = {synchronous}, Save_Non_Scalar = {save_non_scalar}")
 
             # Add to non-scalar saving devices if applicable
@@ -447,8 +462,56 @@ class DeviceManager:
             else:
                 # If device exists, append new variables to its subscription
                 self.devices[device_name].subscribe_var_values(variable_list)
+                
+            # Append scan setup actions if they exist
+            if scan_setup:
+                self.append_device_setup_closeout_actions(device_name, scan_setup)
+                
+            # Store post_analysis_class in device_analysis dictionary
+            if post_analysis_class_name:
+                self.device_analysis[device_name] = {
+                    'post_analysis_class': post_analysis_class_name
+                }
 
         logging.info(f"Devices loaded: {self.devices.keys()}")
+        
+    def append_device_setup_closeout_actions(self, device_name, scan_setup):
+        """
+        Append actions to setup_action and closeout_action for the specified device based on scan_setup.
+
+        Args:
+            device_name (str): The name of the device.
+            scan_setup (dict): Dictionary containing scan setup actions and their corresponding setup/closeout values.
+        """
+        # Iterate over each key in the 'scan_setup' dictionary
+        for analysis_type, values in scan_setup.items():
+            # Ensure the setup and closeout values exist in the 'scan_setup'
+            if len(values) != 2:
+                logging.warning(f"Invalid scan setup actions for {device_name}: {analysis_type} (Expected 2 values, got {len(values)})")
+                continue
+        
+            setup_value, closeout_value = values
+
+            # Append to setup_action
+            self.scan_setup_action['steps'].append({
+                'action': 'set',
+                'device': device_name,
+                'value': setup_value,  # setup value
+                'variable': analysis_type,
+                'wait_for_execution': False
+            })
+        
+            # Append to closeout_action
+            self.scan_closeout_action['steps'].append({
+                'action': 'set',
+                'device': device_name,
+                'value': closeout_value,  # closeout value
+                'variable': analysis_type,
+                'wait_for_execution': False
+    
+            })
+
+            logging.info(f"Added setup and closeout actions for {device_name}: {analysis_type} (setup={setup_value}, closeout={closeout_value})")
 
     def is_statistic_noscan(self, variable_name):
         """
@@ -553,7 +616,7 @@ class DeviceManager:
         """
         
         # Step 1: Close all subscribers
-        self.close_subscribers()
+        self._clear_existing_devices()
 
         # Step 2: Clear internal state (reset lists)
         self.event_driven_observables.clear()
@@ -579,6 +642,9 @@ class DeviceManager:
             self.load_from_config(config_path)
         elif config_dictionary is not None:
             self.load_from_dictionary(config_dictionary)
+            
+        self.scan_setup_action['steps'] = []
+        self.scan_closeout_action['steps'] =[]
 
         logging.info("DeviceManager instance has been reinitialized.")
 
@@ -723,6 +789,8 @@ class DeviceManager:
 
 
 class DataInterface():
+    DEPENDENT_SUFFIXES = ["-interp", "-interpSpec", "-interpDiv"]
+    
     def __init__(self):
         # Initialize domain, base path, and current date
         self.domain = self.get_domain_windows()
@@ -880,7 +948,7 @@ class DataInterface():
         if device_dir.exists():
             return len(list(device_dir.glob('*.png')))  # Assuming you are counting .png files
         return 0
-
+    
     def process_and_rename(self, scan_number=None):
         """
         Process the device directories and rename files based on timestamps and scan data.
@@ -890,22 +958,20 @@ class DataInterface():
         Args:
             scan_number (int, optional): Specific scan number to process. If None, uses `next_scan_folder`.
         """
-        # Use the provided scan number or default to next_scan_folder
-        scan = f'Scan{scan_number:03d}' if scan_number is not None else self.next_scan_folder
-    
-        # Access paths directly from the DataInterface instance
+        scan_number_str = f'Scan{scan_number:03d}' if scan_number is not None else self.next_scan_folder
         base = self.local_scan_dir_base
-        directory_path = Path(base) / scan
+        directory_path = Path(base) / scan_number_str
 
         logging.info(f"Processing scan folder: {directory_path}")
 
-        # List directories that correspond to device names
-        device_directories = [d for d in directory_path.iterdir() if d.is_dir()]
-
-        # Load the DataFrame (only keep columns relevant for timestamps)
-        analysis_base = self.local_analysis_dir_base
+        # Exclude directories with certain suffixes
+        device_directories = [
+            d for d in directory_path.iterdir() if d.is_dir() and not any(d.name.endswith(suffix) for suffix in self.DEPENDENT_SUFFIXES)
+        ]
+        
+        # Load scan data
         scan_num = self.get_last_scan_number()
-        sPath = Path(analysis_base / f's{scan_num}.txt')
+        sPath = Path(self.local_analysis_dir_base / f's{scan_num}.txt')
         logging.info(f"Loading scan data from: {sPath}")
 
         try:
@@ -916,113 +982,118 @@ class DataInterface():
 
         # Process each device directory concurrently using threads
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            # Submit each device directory for processing in a separate thread
-            futures = [executor.submit(self.process_device_files, device_dir, df) for device_dir in device_directories]
-
-            # Wait for all threads to complete
+            futures = [executor.submit(self.process_device_files, device_dir, df, scan_number_str) for device_dir in device_directories]
             for future in concurrent.futures.as_completed(futures):
                 try:
-                    future.result()  # Retrieve the result to handle any exceptions
+                    future.result()
                 except Exception as e:
                     logging.error(f"Error during file processing: {e}")
 
-    def process_device_files(self, device_dir, df):
+    def process_device_files(self, device_dir, df, scan_number):
         """
         Generic method to process device files and rename them based on timestamps.
-        The specific timestamp extraction function is selected based on the device type.
         """
         device_name = device_dir.name
         logging.info(f"Processing device directory: {device_name}")
 
-        # Lookup the device type
+        # Get the device type and extract relevant data
         device_type = GeecsDatabase.find_device_type(device_name)
-
         if not device_type:
-            logging.warning(f"Could not find device type for {device_name}. Skipping.")
+            logging.warning(f"Device type for {device_name} not found. Skipping.")
             return
 
-        # Collect all files in the directory
+        # Collect and match files with timestamps
         device_files = list(device_dir.glob("*"))
+        matched_rows = self.process_and_match_files(device_files, df, device_name, device_type)
 
-        # Create the timestamp column name corresponding to the device
+        # Rename master and dependent files
+        self.rename_files(matched_rows, scan_number, device_name)
+        self.process_dependent_directories(device_name, device_dir, matched_rows, scan_number)
+
+    def process_and_match_files(self, device_files, df, device_name, device_type):
+        """
+        Match device files with timestamps from the DataFrame.
+        """
+        matched_rows = []
         device_timestamp_column = f'{device_name} timestamp'
 
-        logging.info(f"Found {len(device_files)} files in {device_name} directory.")
-
-        # Check if the device has a corresponding timestamp column in the DataFrame
         if device_timestamp_column not in df.columns:
-            logging.warning(f"No matching timestamp column for {device_name} in scan data. Skipping.")
-            return
-
-        # Round timestamps in the DataFrame for matching
-        rounded_df_timestamps = df[device_timestamp_column].round(3)  # Round to milliseconds
-        matched_rows = []
-
-        # Choose the correct timestamp extraction function based on the device type
+            logging.warning(f"No matching timestamp column for {device_name} in scan data.")
+            return matched_rows
+        
+        tolerance = 1
+        rounded_df_timestamps = df[device_timestamp_column].round(tolerance)
         for device_file in device_files:
             try:
-                if device_type == "Point Grey Camera":
-                    file_timestamp = get_imaq_timestamp_from_png(device_file)
-                elif device_type == "spectrometer":
-                    file_timestamp = self.extract_timestamp_spectrometer(device_file)
-                elif device_type == "energy_meter":
-                    file_timestamp = self.extract_timestamp_energy_meter(device_file)
+                file_timestamp = self.extract_timestamp_from_file(device_file, device_type)
+                file_timestamp_rounded = round(file_timestamp, tolerance)
+                match = rounded_df_timestamps[rounded_df_timestamps == file_timestamp_rounded]
+                if not match.empty:
+                    matched_rows.append((device_file, match.index[0]))
+                    logging.info(f"Matched file {device_file} with row {match.index[0]}")
                 else:
-                    logging.warning(f"Unsupported device type '{device_type}' for {device_name}. Skipping.")
-                    continue
+                    logging.warning(f"No match for {device_file} with timestamp {file_timestamp_rounded}")
             except Exception as e:
                 logging.error(f"Error extracting timestamp from {device_file}: {e}")
-                continue
 
-            # Round the file timestamp for comparison
-            file_timestamp_rounded = round(file_timestamp, 3)
+        return matched_rows
 
-            # Find the row index where the rounded timestamps match
-            match = rounded_df_timestamps[rounded_df_timestamps == file_timestamp_rounded]
+    def extract_timestamp_from_file(self, device_file, device_type):
+        """
+        Extract timestamp from a device file based on its type.
+        """
+        device_map = {
+            "Point Grey Camera": get_imaq_timestamp_from_png,
+            "MagSpecCamera": get_imaq_timestamp_from_png,
+            "PicoscopeV2": get_picoscopeV2_timestamp,
+            "MagSpecStitcher": get_magspecstitcher_timestamp
+        }
 
-            if not match.empty:
-                matched_rows.append((device_file, match.index[0]))
-                logging.info(f"Matched file {device_file} with row {match.index[0]}")
+        if device_type in device_map:
+            return device_map[device_type](device_file)
+        else:
+            raise ValueError(f"Unsupported device type: {device_type}")
+
+    def process_dependent_directories(self, device_name, device_dir, matched_rows, scan_number):
+        """
+        Process and rename files in dependent directories.
+        """
+        for suffix in self.DEPENDENT_SUFFIXES:
+            dependent_dir = device_dir.parent / f"{device_name}{suffix}"
+            if dependent_dir.exists() and dependent_dir.is_dir():
+                logging.info(f"Processing dependent directory: {dependent_dir}")
+                dependent_files = list(dependent_dir.glob("*"))
+                self.rename_files_in_dependent_directory(dependent_files, matched_rows, scan_number, suffix)
+
+    def rename_files_in_dependent_directory(self, dependent_files, matched_rows, scan_number, suffix):
+        """
+        Rename dependent files based on matched rows from the master directory.
+        """
+        for i, (master_file, row_index) in enumerate(matched_rows):
+            if i < len(dependent_files):
+                dependent_file = dependent_files[i]
+                master_new_name = re.sub(r'_\d+$', '', master_file.stem)  # Remove trailing number
+                new_name = f"{scan_number}_{master_new_name}{suffix}_{str(row_index + 1).zfill(3)}{dependent_file.suffix}"
+                new_path = dependent_file.parent / new_name
+                dependent_file.rename(new_path)
+                logging.info(f"Renamed {dependent_file} to {new_path}")
             else:
-                logging.warning(f"No match found for file {device_file} with timestamp {file_timestamp_rounded}")
+                logging.warning(f"Not enough files in dependent directory to match {master_file}")
 
-        # Rename the files based on scan number, device name, and matched row index (starting at 1)
-        self.rename_files(matched_rows)
-
-    def extract_timestamp_spectrometer(self, file_path):
+    def rename_files(self, matched_rows, scan_number, device_name):
         """
-        Extracts the timestamp from a spectrometer file (to be implemented).
-        """
-        logging.info(f"Extracting timestamp from spectrometer file {file_path}")
-        # Implement specific logic to extract timestamps from spectrometer files
-        return 0  # Placeholder
-
-    def extract_timestamp_energy_meter(self, file_path):
-        """
-        Extracts the timestamp from an energy meter file (to be implemented).
-        """
-        logging.info(f"Extracting timestamp from energy meter file {file_path}")
-        # Implement specific logic to extract timestamps from energy meter files
-        return 0  # Placeholder
-
-    def rename_files(self, matched_rows):
-        """
-        Rename the files based on scan number, device name, and matched row index (starting at 1).
+        Rename master files based on scan number, device name, and matched row index.
         """
         for file_path, row_index in matched_rows:
-            device_name = file_path.parent.name
-            scan_number = file_path.parent.parent.name.replace("Scan", "")
             row_number = str(row_index + 1).zfill(3)
-
-            new_file_name = f"Scan{scan_number}_{device_name}_{row_number}{file_path.suffix}"
+            new_file_name = f"{scan_number}_{device_name}_{row_number}{file_path.suffix}"
             new_file_path = file_path.parent / new_file_name
-
             if not new_file_path.exists():
                 logging.info(f"Renaming {file_path} to {new_file_path}")
                 os.rename(file_path, new_file_path)
             else:
-                logging.warning(f"File {new_file_path} already exists. Skipping renaming.")
-
+                logging.warning(f"File {new_file_path} already exists. Skipping.")
+    
 
 class DataLogger():
     
@@ -1061,6 +1132,10 @@ class DataLogger():
         # Initialize the sound player
         self.sound_player = SoundPlayer()
         self.shot_index = 0
+        
+        self.virtual_variable_name = None
+        self.virtual_variable_value = 0
+        
 
     def start_logging(self):
         """
@@ -1168,7 +1243,7 @@ class DataLogger():
                     logging.info(f"Registering logging for event-driven observable: {observable}")
                     device.event_handler.register('update', 'logger', lambda msg, dev=device: log_update(msg, dev))
 
-    def _start_async_polling(self, async_observables, log_entries, timeout=10):
+    def _start_async_polling(self, async_observables, log_entries, timeout=30):
         """
         Start polling for asynchronous observables in a separate thread.
 
@@ -1333,6 +1408,8 @@ class DataLogger():
             log_entries[elapsed_time] = {'Elapsed Time': elapsed_time}
             # Log configuration variables (such as 'bin') only when a new entry is created
             log_entries[elapsed_time]['Bin #'] = self.bin_num
+            if self.virtual_variable_name is not None:
+                log_entries[elapsed_time][self.virtual_variable_name] = self.virtual_variable_value
             # os.system('afplay trimmed_tink.aiff')  # This plays a sound on macOS
             # Trigger the beep in the background
             self.sound_player.play_beep()  # Play the beep sound

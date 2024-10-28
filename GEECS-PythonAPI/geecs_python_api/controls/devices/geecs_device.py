@@ -608,7 +608,12 @@ class GeecsDevice:
 
     def handle_response(self, net_msg: mh.NetworkMessage) -> tuple[str, str, str, bool]:
         try:
-            dev_name, cmd_received, dev_val, err_status = GeecsDevice._response_parser(net_msg.msg)
+            response = GeecsDevice._response_parser(net_msg.msg)
+            if len(response) == 4:
+                dev_name, cmd_received, dev_val, err_status = response
+            else:
+                # Handle cases where the return value is not as expected
+                print(f"Unexpected response structure: {response}")
 
             # Queue & notify
             if self.notify_on_udp:
@@ -738,10 +743,11 @@ class GeecsDevice:
         # Examples:
         # 'U_ESP_JetXYZ>>getJet_X (mm)>>>>error,Error occurred during access CVT -  "jet_x (mm)" variable not found'
         # 'U_ESP_JetXYZ>>getPosition.Axis 1>>7.600390>>no error,'
-
+        
         dev_name, cmd_received, dev_val, err_msg = msg.split('>>')
-        err_status, err_msg = err_msg.split(',')
+        err_status, err_msg = err_msg.split(',', 1)
         err_status = (err_status == 'error')
+
         if err_status:
             api_error.error(err_msg, f'Failed to execute command "{cmd_received}", error originated in control system')
 
