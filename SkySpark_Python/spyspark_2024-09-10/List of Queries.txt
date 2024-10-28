@@ -1,0 +1,5 @@
+readAll(bellaCurValPolling)
+
+
+
+[@p:integration:r:267ea201-e198290b,@p:integration:r:267ea201-ddf21d90,@p:integration:r:267ea201-8f32486c,@p:integration:r:267ea201-ec8e91ee,@p:integration:r:267ea201-8710bdaa,@p:integration:r:267ea201-eff8bf7b,@p:integration:r:267ea201-196a07a3]
