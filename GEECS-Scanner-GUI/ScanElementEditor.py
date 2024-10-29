@@ -52,8 +52,18 @@ list_of_actions = [
     'get',
     'wait',
     'execute',
-    #'run'
+    # 'run'
 ]
+
+
+def parse_variable_text(text):
+    try:
+        return int(text)
+    except ValueError:
+        try:
+            return float(text)
+        except ValueError:
+            return text
 
 
 class ScanElementEditor(QDialog):
@@ -135,11 +145,13 @@ class ScanElementEditor(QDialog):
             self.show_variable_list(self.ui.lineVariableName)
             self.ui.buttonAddVariable.setDefault(True)
             return True
-        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1 and self.action_mode in ['set', 'get']:
+        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1 and self.action_mode in [
+            'set', 'get']:
             self.show_device_list(self.ui.lineActionOption1)
             self.dummyButton.setDefault(True)
             return True
-        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2 and self.action_mode in ['set', 'get']:
+        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2 and self.action_mode in [
+            'set', 'get']:
             self.show_variable_list(self.ui.lineActionOption2, source='action')
             self.dummyButton.setDefault(True)
             return True
@@ -371,7 +383,7 @@ class ScanElementEditor(QDialog):
                 self.action_mode = 'wait'
                 self.ui.labelActionOption1.setText("Wait Time (s):")
                 self.ui.lineActionOption1.setEnabled(True)
-                self.ui.lineActionOption1.setText(action.get("wait"))
+                self.ui.lineActionOption1.setText(str(action.get("wait")))
             elif action['action'] == 'execute':
                 self.action_mode = 'execute'
                 self.ui.labelActionOption1.setText("Action Name:")
@@ -395,7 +407,7 @@ class ScanElementEditor(QDialog):
                 self.ui.lineActionOption2.setText(action.get("variable"))
                 self.ui.labelActionOption3.setText("Set Value:")
                 self.ui.lineActionOption3.setEnabled(True)
-                self.ui.lineActionOption3.setText(action.get("value"))
+                self.ui.lineActionOption3.setText(str(action.get("value")))
             elif action['action'] == 'get':
                 self.action_mode = 'get'
                 self.ui.labelActionOption1.setText("GEECS Device Name:")
@@ -406,7 +418,7 @@ class ScanElementEditor(QDialog):
                 self.ui.lineActionOption2.setText(action.get("variable"))
                 self.ui.labelActionOption3.setText("Expected Value:")
                 self.ui.lineActionOption3.setEnabled(True)
-                self.ui.lineActionOption3.setText(action.get("expected_value"))
+                self.ui.lineActionOption3.setText(str(action.get("expected_value")))
 
     def update_action_info(self):
         current_selection = self.get_action_list_and_index()
@@ -422,7 +434,7 @@ class ScanElementEditor(QDialog):
         if action is None:
             return
         if action.get("wait") is not None:
-            action['wait'] = self.ui.lineActionOption1.text().strip()
+            action['wait'] = parse_variable_text(self.ui.lineActionOption1.text().strip())
         elif action['action'] == 'execute':
             action['action_name'] = self.ui.lineActionOption1.text().strip()
         elif action['action'] == 'run':
@@ -431,11 +443,11 @@ class ScanElementEditor(QDialog):
         elif action['action'] == 'set':
             action["device"] = self.ui.lineActionOption1.text().strip()
             action["variable"] = self.ui.lineActionOption2.text().strip()
-            action["value"] = self.ui.lineActionOption3.text().strip()
+            action["value"] = parse_variable_text(self.ui.lineActionOption3.text().strip())
         elif action['action'] == 'get':
             action["device"] = self.ui.lineActionOption1.text().strip()
             action["variable"] = self.ui.lineActionOption2.text().strip()
-            action["expected_value"] = self.ui.lineActionOption3.text().strip()
+            action["expected_value"] = parse_variable_text(self.ui.lineActionOption3.text().strip())
 
         # TODO There is a weird bug where hitting enter on Option 1 presses "Move Sooner"
         current_selection = self.get_action_list_and_index()
@@ -467,8 +479,8 @@ class ScanElementEditor(QDialog):
             return
         action_list, i, index = current_selection
         if action_list is not None and 0 < i < len(action_list):
-            action_list[i], action_list[i-1] = action_list[i-1], action_list[i]
-            index = index-1
+            action_list[i], action_list[i - 1] = action_list[i - 1], action_list[i]
+            index = index - 1
         self.update_action_list(index=index)
 
     def move_action_later(self):
@@ -476,9 +488,9 @@ class ScanElementEditor(QDialog):
         if current_selection is None:
             return
         action_list, i, index = current_selection
-        if action_list is not None and 0 <= i < len(action_list)-1:
+        if action_list is not None and 0 <= i < len(action_list) - 1:
             action_list[i], action_list[i + 1] = action_list[i + 1], action_list[i]
-            index = index+1
+            index = index + 1
         self.update_action_list(index=index)
 
     def set_as_setup(self):
@@ -511,9 +523,9 @@ class ScanElementEditor(QDialog):
         destination.append(action)
 
         if index == i:
-            new_position = len(self.actions_dict['setup'])+len(self.actions_dict['closeout'])
+            new_position = len(self.actions_dict['setup']) + len(self.actions_dict['closeout'])
         else:
-            new_position = len(self.actions_dict['setup'])-1
+            new_position = len(self.actions_dict['setup']) - 1
 
         self.update_action_list(index=new_position)
 
@@ -524,22 +536,29 @@ class ScanElementEditor(QDialog):
         else:
             file = self.config_folder + filename + ".yaml"
             print(f"Saving config to {file}")
+            setup_action = {'steps': self.actions_dict['setup']}
+            closeout_action = {'steps': self.actions_dict['closeout']}
             full_dictionary = {
                 'Devices': self.devices_dict,
-                'Actions': self.actions_dict
+                'setup_action': setup_action,
+                'closeout_action': closeout_action
             }
+            if not setup_action['steps']:
+                del full_dictionary['setup_action']
+            if not closeout_action['steps']:
+                del full_dictionary['closeout_action']
             print(full_dictionary)
             with open(file, 'w') as f:
                 yaml.dump(full_dictionary, f, default_flow_style=False)
 
     def close_window(self):
-        print("Cancel")
         self.close()
 
     def open_element(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", self.config_folder, "YAML Files (*yaml)", options=options)
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", self.config_folder, "YAML Files (*yaml)",
+                                                   options=options)
         if file_name:
             self.load_settings_from_file(file_name)
             self.update_device_list()
@@ -555,13 +574,15 @@ class ScanElementEditor(QDialog):
         else:
             self.devices_dict = {}
 
-        if 'Actions' in full_dictionary:
-            self.actions_dict = full_dictionary['Actions']
-        else:
-            self.actions_dict = {
-                'setup': [],
-                'closeout': []
-            }
+        self.actions_dict = {
+            'setup': [],
+            'closeout': []
+        }
+        if 'setup_action' in full_dictionary:
+            self.actions_dict['setup'] = full_dictionary['setup_action']['steps']
+        if 'closeout_action' in full_dictionary:
+            self.actions_dict['closeout'] = full_dictionary['setup_action']['steps']
+
         base_name = os.path.basename(config_filename)
         root, ext = os.path.splitext(base_name)
         self.ui.lineElementName.setText(root)
