@@ -216,7 +216,8 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.foundDevices.addItem(item)
 
     def open_element_editor(self):
-        self.element_editor = ScanElementEditor()
+        database_dict = self.RunControl.get_database_dict()
+        self.element_editor = ScanElementEditor(database_dict=database_dict)
         self.element_editor.exec_()
 
     def update_scan_edit_state(self):

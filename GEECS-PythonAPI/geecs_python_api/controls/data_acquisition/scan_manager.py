@@ -28,6 +28,7 @@ else:
 GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
 device_dict = GeecsDevice.exp_info['devices']
 
+
 class ScanManager():
     
     """
@@ -62,6 +63,10 @@ class ScanManager():
         self.initial_state = None
 
         self.scan_steps = []  # To store the precomputed scan steps
+
+    def get_database_dict(self):
+        """TODO This should probably be a class variable"""
+        return device_dict
 
     def reinitialize(self, config_path=None, config_dictionary=None):
         self.initial_state = None

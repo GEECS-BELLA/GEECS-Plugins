@@ -12,6 +12,12 @@ class RunControl:
         self.is_in_setup = False
         self.is_in_stopping = False
 
+    def get_database_dict(self):
+        if self.scan_manager is None:
+            return None
+        else:
+            return self.scan_manager.get_database_dict()
+
     def submit_run(self, config_dictionary, scan_config):
         if self.scan_manager is not None:
             self.is_in_setup = True
