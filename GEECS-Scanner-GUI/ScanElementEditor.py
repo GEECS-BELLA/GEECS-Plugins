@@ -107,6 +107,9 @@ class ScanElementEditor(QDialog):
         self.ui.buttonWindowCancel.clicked.connect(self.close_window)
         self.ui.buttonWindowLoad.clicked.connect(self.open_element)
 
+        self.ui.radioIsPost.clicked.connect(self.set_as_closeout)
+        self.ui.radioIsSetup.clicked.connect(self.set_as_setup)
+
         self.update_device_list()
         self.update_action_list()
         self.update_action_display()
@@ -297,38 +300,33 @@ class ScanElementEditor(QDialog):
     def add_action(self):
         text = self.ui.lineActionName.text().strip()
         if text:
-            self.actions_dict['setup'].append(get_new_action(text))
+            if self.ui.radioIsSetup.isChecked():
+                self.actions_dict['setup'].append(get_new_action(text))
+            else:
+                self.actions_dict['closeout'].append(get_new_action(text))
         self.update_action_list()
 
     def remove_action(self):
-        self.get_selected_action(do_remove=True)
+        current_selection = self.get_action_list_and_index()
+        if current_selection is not None and current_selection[0] is not None:
+            action_list, i, absolute_index = current_selection
+            del action_list[i]
         self.update_action_list()
-
-    def get_selected_action(self, do_remove=False):
-        selected_action = self.ui.listActions.selectedItems()
-        if not selected_action:
-            return
-        for action in selected_action:
-            index = self.ui.listActions.row(action)
-            setup_length = len(self.actions_dict['setup'])
-            if index < setup_length:
-                action_list = self.actions_dict['setup']
-            elif index == setup_length:
-                return
-            else:
-                action_list = self.actions_dict['closeout']
-                index = index - 1 - setup_length
-            if do_remove:
-                del action_list[index]
-            else:
-                return action_list[index]
 
     def focus_action(self):
         self.ui.lineActionName.clear()
         self.update_action_display()
 
     def update_action_display(self):
-        action = self.get_selected_action()
+        current_selection = self.get_action_list_and_index()
+        if current_selection is None:
+            action = None
+        else:
+            action_list, i, absolute_index = current_selection
+            if action_list is None:
+                action = None
+            else:
+                action = action_list[i]
 
         if action is None:
             self.action_mode = None
@@ -341,49 +339,64 @@ class ScanElementEditor(QDialog):
             self.ui.lineActionOption1.setEnabled(False)
             self.ui.lineActionOption2.setEnabled(False)
             self.ui.lineActionOption3.setEnabled(False)
-        elif action.get("wait") is not None:
-            self.action_mode = 'wait'
-            self.ui.labelActionOption1.setText("Wait Time (s):")
-            self.ui.lineActionOption1.setEnabled(True)
-            self.ui.lineActionOption1.setText(action.get("wait"))
-        elif action['action'] == 'execute':
-            self.action_mode = 'execute'
-            self.ui.labelActionOption1.setText("Action Name:")
-            self.ui.lineActionOption1.setEnabled(True)
-            self.ui.lineActionOption1.setText(action.get("action_name"))
-        elif action['action'] == 'run':
-            self.action_mode = 'run'
-            self.ui.labelActionOption1.setText("File Location:")
-            self.ui.lineActionOption1.setEnabled(True)
-            self.ui.lineActionOption1.setText(action.get("file_name"))
-            self.ui.labelActionOption2.setText("Class Name:")
-            self.ui.lineActionOption2.setEnabled(True)
-            self.ui.lineActionOption2.setText(action.get("class_name"))
-        elif action['action'] == 'set':
-            self.action_mode = 'set'
-            self.ui.labelActionOption1.setText("GEECS Device Name:")
-            self.ui.lineActionOption1.setEnabled(True)
-            self.ui.lineActionOption1.setText(action.get("device"))
-            self.ui.labelActionOption2.setText("Variable Name:")
-            self.ui.lineActionOption2.setEnabled(True)
-            self.ui.lineActionOption2.setText(action.get("variable"))
-            self.ui.labelActionOption3.setText("Set Value:")
-            self.ui.lineActionOption3.setEnabled(True)
-            self.ui.lineActionOption3.setText(action.get("value"))
-        elif action['action'] == 'get':
-            self.action_mode = 'get'
-            self.ui.labelActionOption1.setText("GEECS Device Name:")
-            self.ui.lineActionOption1.setEnabled(True)
-            self.ui.lineActionOption1.setText(action.get("device"))
-            self.ui.labelActionOption2.setText("Variable Name:")
-            self.ui.lineActionOption2.setEnabled(True)
-            self.ui.lineActionOption2.setText(action.get("variable"))
-            self.ui.labelActionOption3.setText("Expected Value:")
-            self.ui.lineActionOption3.setEnabled(True)
-            self.ui.lineActionOption3.setText(action.get("expected_value"))
+        else:
+            if i == absolute_index:
+                self.ui.radioIsSetup.setChecked(True)
+            else:
+                self.ui.radioIsPost.setChecked(True)
+
+            if action.get("wait") is not None:
+                self.action_mode = 'wait'
+                self.ui.labelActionOption1.setText("Wait Time (s):")
+                self.ui.lineActionOption1.setEnabled(True)
+                self.ui.lineActionOption1.setText(action.get("wait"))
+            elif action['action'] == 'execute':
+                self.action_mode = 'execute'
+                self.ui.labelActionOption1.setText("Action Name:")
+                self.ui.lineActionOption1.setEnabled(True)
+                self.ui.lineActionOption1.setText(action.get("action_name"))
+            elif action['action'] == 'run':
+                self.action_mode = 'run'
+                self.ui.labelActionOption1.setText("File Location:")
+                self.ui.lineActionOption1.setEnabled(True)
+                self.ui.lineActionOption1.setText(action.get("file_name"))
+                self.ui.labelActionOption2.setText("Class Name:")
+                self.ui.lineActionOption2.setEnabled(True)
+                self.ui.lineActionOption2.setText(action.get("class_name"))
+            elif action['action'] == 'set':
+                self.action_mode = 'set'
+                self.ui.labelActionOption1.setText("GEECS Device Name:")
+                self.ui.lineActionOption1.setEnabled(True)
+                self.ui.lineActionOption1.setText(action.get("device"))
+                self.ui.labelActionOption2.setText("Variable Name:")
+                self.ui.lineActionOption2.setEnabled(True)
+                self.ui.lineActionOption2.setText(action.get("variable"))
+                self.ui.labelActionOption3.setText("Set Value:")
+                self.ui.lineActionOption3.setEnabled(True)
+                self.ui.lineActionOption3.setText(action.get("value"))
+            elif action['action'] == 'get':
+                self.action_mode = 'get'
+                self.ui.labelActionOption1.setText("GEECS Device Name:")
+                self.ui.lineActionOption1.setEnabled(True)
+                self.ui.lineActionOption1.setText(action.get("device"))
+                self.ui.labelActionOption2.setText("Variable Name:")
+                self.ui.lineActionOption2.setEnabled(True)
+                self.ui.lineActionOption2.setText(action.get("variable"))
+                self.ui.labelActionOption3.setText("Expected Value:")
+                self.ui.lineActionOption3.setEnabled(True)
+                self.ui.lineActionOption3.setText(action.get("expected_value"))
 
     def update_action_info(self):
-        action = self.get_selected_action()
+        current_selection = self.get_action_list_and_index()
+        if current_selection is None:
+            action = None
+        else:
+            action_list, i, absolute_index = current_selection
+            if action_list is None:
+                action = None
+            else:
+                action = action_list[i]
+
         if action is None:
             return
         if action.get("wait") is not None:
@@ -445,6 +458,42 @@ class ScanElementEditor(QDialog):
             action_list[i], action_list[i + 1] = action_list[i + 1], action_list[i]
             index = index+1
         self.update_action_list(index=index)
+
+    def set_as_setup(self):
+        self.toggle_radio(button="setup")
+
+    def set_as_closeout(self):
+        self.toggle_radio(button="closeout")
+
+    def toggle_radio(self, button="None"):
+        # If the action is either not selected or is --Scan--, do nothing
+        current_selection = self.get_action_list_and_index()
+        if current_selection is None:
+            return
+        action_list, i, index = current_selection
+        if action_list is None:
+            return
+
+        # Else, Move the selected action to the back of the other action list
+        if action_list == self.actions_dict['setup'] and button == "closeout":
+            source = self.actions_dict['setup']
+            destination = self.actions_dict['closeout']
+        elif action_list == self.actions_dict['closeout'] and button == "setup":
+            source = self.actions_dict['closeout']
+            destination = self.actions_dict['setup']
+        else:
+            return
+
+        action = source[i]
+        del source[i]
+        destination.append(action)
+
+        if index == i:
+            new_position = len(self.actions_dict['setup'])+len(self.actions_dict['closeout'])
+        else:
+            new_position = len(self.actions_dict['setup'])-1
+
+        self.update_action_list(index=new_position)
 
     def save_element(self):
         print("Save")
