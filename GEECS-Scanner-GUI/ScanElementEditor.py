@@ -56,7 +56,7 @@ list_of_actions = [
 
 
 class ScanElementEditor(QDialog):
-    def __init__(self, database_dict=None):
+    def __init__(self, config_folder="./", database_dict=None):
         super().__init__()
 
         self.dummyButton = QPushButton("", self)
@@ -66,6 +66,7 @@ class ScanElementEditor(QDialog):
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
 
+        self.config_folder = config_folder
         self.database_dict = database_dict
 
         self.devices_dict = {}
@@ -82,6 +83,8 @@ class ScanElementEditor(QDialog):
         self.ui.lineVariableName.installEventFilter(self)
         self.ui.buttonAddVariable.clicked.connect(self.add_variable)
         self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
+
+        self.ui.linePostAnalysis.editingFinished.connect(self.update_device_post_analysis_class)
 
         self.ui.checkboxSynchronous.clicked.connect(self.update_device_checkboxes)
         self.ui.checkboxSaveNonscalar.clicked.connect(self.update_device_checkboxes)
@@ -223,6 +226,7 @@ class ScanElementEditor(QDialog):
         self.ui.buttonAddVariable.setEnabled(enable_variables)
         self.ui.buttonRemoveVariable.setEnabled(enable_variables)
         self.ui.lineVariableName.setEnabled(enable_variables)
+        self.ui.linePostAnalysis.setEnabled(enable_variables)
 
         if device is None:
             return
@@ -231,6 +235,11 @@ class ScanElementEditor(QDialog):
             self.ui.listVariables.addItem(variable)
         self.ui.checkboxSynchronous.setChecked(device['synchronous'])
         self.ui.checkboxSaveNonscalar.setChecked(device['save_nonscalar_data'])
+
+        if "post_analysis_class" in device:
+            self.ui.linePostAnalysis.setText(device["post_analysis_class"])
+        else:
+            self.ui.linePostAnalysis.setText("")
 
     def add_variable(self):
         device = self.get_selected_device()
@@ -260,6 +269,15 @@ class ScanElementEditor(QDialog):
         if device is not None:
             device['synchronous'] = self.ui.checkboxSynchronous.isChecked()
             device['save_nonscalar_data'] = self.ui.checkboxSaveNonscalar.isChecked()
+            self.update_variable_list()
+
+    def update_device_post_analysis_class(self):
+        device = self.get_selected_device()
+        text = self.ui.linePostAnalysis.text().strip()
+        if device is not None:
+            device['post_analysis_class'] = text
+            if text == "":
+                del device['post_analysis_class']
             self.update_variable_list()
 
     def show_action_list(self):
@@ -497,6 +515,8 @@ class ScanElementEditor(QDialog):
 
     def save_element(self):
         print("Save")
+        print(self.devices_dict)
+        print(self.actions_dict)
 
     def close_window(self):
         print("Cancel")
