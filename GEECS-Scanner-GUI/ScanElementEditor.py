@@ -1,4 +1,4 @@
-import sys
+import os
 import yaml
 from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton, QFileDialog
 from PyQt5.QtCore import Qt, QEvent
@@ -532,7 +532,6 @@ class ScanElementEditor(QDialog):
             with open(file, 'w') as f:
                 yaml.dump(full_dictionary, f, default_flow_style=False)
 
-
     def close_window(self):
         print("Cancel")
         self.close()
@@ -554,7 +553,7 @@ class ScanElementEditor(QDialog):
         if 'Devices' in full_dictionary:
             self.devices_dict = full_dictionary['Devices']
         else:
-            self.devices_dict={}
+            self.devices_dict = {}
 
         if 'Actions' in full_dictionary:
             self.actions_dict = full_dictionary['Actions']
@@ -563,3 +562,6 @@ class ScanElementEditor(QDialog):
                 'setup': [],
                 'closeout': []
             }
+        base_name = os.path.basename(config_filename)
+        root, ext = os.path.splitext(base_name)
+        self.ui.lineElementName.setText(root)
