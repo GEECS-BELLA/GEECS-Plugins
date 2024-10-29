@@ -1,5 +1,5 @@
 import sys
-from PyQt5.QtWidgets import QDialog, QCompleter
+from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton
 from PyQt5.QtCore import Qt, QEvent
 from ScanElementEditor_ui import Ui_Dialog
 
@@ -51,16 +51,22 @@ list_of_actions = [
     'get',
     'wait',
     'execute',
-    'run'
+    #'run'
 ]
 
 
 class ScanElementEditor(QDialog):
-    def __init__(self):
+    def __init__(self, database_dict=None):
         super().__init__()
+
+        self.dummyButton = QPushButton("", self)
+        self.dummyButton.setDefault(True)
+        self.dummyButton.setVisible(False)
 
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
+
+        self.database_dict = database_dict
 
         self.devices_dict = {}
         self.actions_dict = {
@@ -68,10 +74,12 @@ class ScanElementEditor(QDialog):
             'closeout': []
         }
 
+        self.ui.lineDeviceName.installEventFilter(self)
         self.ui.buttonAddDevice.clicked.connect(self.add_device)
         self.ui.buttonRemoveDevice.clicked.connect(self.remove_device)
         self.ui.listDevices.itemSelectionChanged.connect(self.update_variable_list)
 
+        self.ui.lineVariableName.installEventFilter(self)
         self.ui.buttonAddVariable.clicked.connect(self.add_variable)
         self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
 
@@ -85,9 +93,15 @@ class ScanElementEditor(QDialog):
         self.ui.buttonAddAction.clicked.connect(self.add_action)
         self.ui.buttonRemoveAction.clicked.connect(self.remove_action)
 
+        self.action_mode = None
+        self.ui.lineActionOption1.installEventFilter(self)
+        self.ui.lineActionOption2.installEventFilter(self)
         self.ui.lineActionOption1.editingFinished.connect(self.update_action_info)
         self.ui.lineActionOption2.editingFinished.connect(self.update_action_info)
         self.ui.lineActionOption3.editingFinished.connect(self.update_action_info)
+
+        self.ui.buttonMoveSooner.clicked.connect(self.move_action_sooner)
+        self.ui.buttonMoveLater.clicked.connect(self.move_action_later)
 
         self.ui.buttonWindowSave.clicked.connect(self.save_element)
         self.ui.buttonWindowCancel.clicked.connect(self.close_window)
@@ -101,8 +115,55 @@ class ScanElementEditor(QDialog):
         # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionName:
             self.show_action_list()
+            self.ui.buttonAddAction.setDefault(True)
+            return True
+        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineDeviceName:
+            self.show_device_list(self.ui.lineDeviceName)
+            self.ui.buttonAddDevice.setDefault(True)
+            return True
+        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableName:
+            self.show_variable_list(self.ui.lineVariableName)
+            self.ui.buttonAddVariable.setDefault(True)
+            return True
+        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1 and self.action_mode in ['set', 'get']:
+            self.show_device_list(self.ui.lineActionOption1)
+            self.dummyButton.setDefault(True)
+            return True
+        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2 and self.action_mode in ['set', 'get']:
+            self.show_variable_list(self.ui.lineActionOption2, source='action')
+            self.dummyButton.setDefault(True)
             return True
         return super().eventFilter(source, event)
+
+    def show_device_list(self, location):
+        if location.isEnabled():
+            location.selectAll()
+            completer = QCompleter(self.database_dict.keys(), self)
+            completer.setCompletionMode(QCompleter.PopupCompletion)
+            completer.setCaseSensitivity(Qt.CaseSensitive)
+
+            location.setCompleter(completer)
+            location.setFocus()
+            completer.complete()
+
+    def show_variable_list(self, location, source='device'):
+        if location.isEnabled():
+            if source == 'device':
+                device_name = self.get_selected_device_name()
+            elif source == 'action':
+                device_name = self.ui.lineActionOption1.text().strip()
+            else:
+                device_name = None
+
+            if device_name in self.database_dict:
+                location.selectAll()
+                completer = QCompleter(self.database_dict[device_name].keys(), self)
+                completer.setCompletionMode(QCompleter.PopupCompletion)
+                completer.setCaseSensitivity(Qt.CaseSensitive)
+
+                location.setCompleter(completer)
+                location.setFocus()
+                completer.complete()
 
     def update_device_list(self):
         self.ui.listDevices.clear()
@@ -128,18 +189,25 @@ class ScanElementEditor(QDialog):
                 del self.devices_dict[text]
         self.update_device_list()
 
-    def get_selected_device(self):
+    def get_selected_device_name(self):
         selected_device = self.ui.listDevices.selectedItems()
         no_selection = not selected_device
         if no_selection:
             return None
 
-        device = None
+        device_name = None
         for selection in selected_device:
             text = selection.text()
             if text in self.devices_dict:
-                device = self.devices_dict[text]
-        return device
+                device_name = text
+        return device_name
+
+    def get_selected_device(self):
+        device_name = self.get_selected_device_name()
+        if device_name is None:
+            return None
+        else:
+            return self.devices_dict[device_name]
 
     def update_variable_list(self):
         self.ui.listVariables.clear()
@@ -215,13 +283,16 @@ class ScanElementEditor(QDialog):
             description = f"{action['action']} {action['device']}:{action['variable']} {action.get('expected_value')}"
         return description
 
-    def update_action_list(self):
+    def update_action_list(self, index=None):
         self.ui.listActions.clear()
+        self.dummyButton.setDefault(True)
         for item in self.actions_dict['setup']:
             self.ui.listActions.addItem(self.generate_action_description(item))
         self.ui.listActions.addItem("---Scan---")
         for item in self.actions_dict['closeout']:
             self.ui.listActions.addItem(self.generate_action_description(item))
+        if index is not None and 0 <= index < self.ui.listActions.count():
+            self.ui.listActions.setCurrentRow(index)
 
     def add_action(self):
         text = self.ui.lineActionName.text().strip()
@@ -257,29 +328,31 @@ class ScanElementEditor(QDialog):
         self.update_action_display()
 
     def update_action_display(self):
-        self.ui.labelActionOption1.setText("")
-        self.ui.labelActionOption2.setText("")
-        self.ui.labelActionOption3.setText("")
-        self.ui.lineActionOption1.setText("")
-        self.ui.lineActionOption2.setText("")
-        self.ui.lineActionOption3.setText("")
-        self.ui.lineActionOption1.setEnabled(False)
-        self.ui.lineActionOption2.setEnabled(False)
-        self.ui.lineActionOption3.setEnabled(False)
-
         action = self.get_selected_action()
-        if action is None:
-            return
 
-        if action.get("wait") is not None:
+        if action is None:
+            self.action_mode = None
+            self.ui.labelActionOption1.setText("")
+            self.ui.labelActionOption2.setText("")
+            self.ui.labelActionOption3.setText("")
+            self.ui.lineActionOption1.setText("")
+            self.ui.lineActionOption2.setText("")
+            self.ui.lineActionOption3.setText("")
+            self.ui.lineActionOption1.setEnabled(False)
+            self.ui.lineActionOption2.setEnabled(False)
+            self.ui.lineActionOption3.setEnabled(False)
+        elif action.get("wait") is not None:
+            self.action_mode = 'wait'
             self.ui.labelActionOption1.setText("Wait Time (s):")
             self.ui.lineActionOption1.setEnabled(True)
             self.ui.lineActionOption1.setText(action.get("wait"))
         elif action['action'] == 'execute':
+            self.action_mode = 'execute'
             self.ui.labelActionOption1.setText("Action Name:")
             self.ui.lineActionOption1.setEnabled(True)
             self.ui.lineActionOption1.setText(action.get("action_name"))
         elif action['action'] == 'run':
+            self.action_mode = 'run'
             self.ui.labelActionOption1.setText("File Location:")
             self.ui.lineActionOption1.setEnabled(True)
             self.ui.lineActionOption1.setText(action.get("file_name"))
@@ -287,6 +360,7 @@ class ScanElementEditor(QDialog):
             self.ui.lineActionOption2.setEnabled(True)
             self.ui.lineActionOption2.setText(action.get("class_name"))
         elif action['action'] == 'set':
+            self.action_mode = 'set'
             self.ui.labelActionOption1.setText("GEECS Device Name:")
             self.ui.lineActionOption1.setEnabled(True)
             self.ui.lineActionOption1.setText(action.get("device"))
@@ -297,6 +371,7 @@ class ScanElementEditor(QDialog):
             self.ui.lineActionOption3.setEnabled(True)
             self.ui.lineActionOption3.setText(action.get("value"))
         elif action['action'] == 'get':
+            self.action_mode = 'get'
             self.ui.labelActionOption1.setText("GEECS Device Name:")
             self.ui.lineActionOption1.setEnabled(True)
             self.ui.lineActionOption1.setText(action.get("device"))
@@ -309,6 +384,8 @@ class ScanElementEditor(QDialog):
 
     def update_action_info(self):
         action = self.get_selected_action()
+        if action is None:
+            return
         if action.get("wait") is not None:
             action['wait'] = self.ui.lineActionOption1.text().strip()
         elif action['action'] == 'execute':
@@ -324,6 +401,50 @@ class ScanElementEditor(QDialog):
             action["device"] = self.ui.lineActionOption1.text().strip()
             action["variable"] = self.ui.lineActionOption2.text().strip()
             action["expected_value"] = self.ui.lineActionOption3.text().strip()
+
+        # TODO There is a weird bug where hitting enter on Option 1 presses "Move Sooner"
+        current_selection = self.get_action_list_and_index()
+        if current_selection is None:
+            return
+        action_list, i, index = current_selection
+        self.update_action_list(index=index)
+
+    def get_action_list_and_index(self):
+        selected_action = self.ui.listActions.selectedItems()
+        if not selected_action:
+            return
+        for action in selected_action:
+            absolute_index = self.ui.listActions.row(action)
+            setup_length = len(self.actions_dict['setup'])
+            if absolute_index < setup_length:
+                action_list = self.actions_dict['setup']
+                index = absolute_index
+            elif absolute_index == setup_length:
+                return None, None, absolute_index
+            else:
+                action_list = self.actions_dict['closeout']
+                index = absolute_index - 1 - setup_length
+            return action_list, index, absolute_index
+
+    def move_action_sooner(self):
+        current_selection = self.get_action_list_and_index()
+        if current_selection is None:
+            return
+        action_list, i, index = current_selection
+        if action_list is not None and 0 < i < len(action_list):
+            action_list[i], action_list[i-1] = action_list[i-1], action_list[i]
+            index = index-1
+        self.update_action_list(index=index)
+
+    def move_action_later(self):
+        current_selection = self.get_action_list_and_index()
+        if current_selection is None:
+            return
+        action_list, i, index = current_selection
+        if action_list is not None and 0 <= i < len(action_list)-1:
+            action_list[i], action_list[i + 1] = action_list[i + 1], action_list[i]
+            index = index+1
+        self.update_action_list(index=index)
 
     def save_element(self):
         print("Save")
