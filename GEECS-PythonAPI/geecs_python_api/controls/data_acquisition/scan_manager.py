@@ -34,7 +34,7 @@ device_dict = GeecsDevice.exp_info['devices']
 
 ANALYSIS_CLASS_MAPPING = {
     'MagSpecStitcherAnalysis': 'geecs_python_api.controls.data_acquisition.scan_analysis.MagSpecStitcherAnalysis',
-    'SomeOtherAnalysis': 'geecs_python_api.controls.data_acquisition.scan_analysis.SomeOtherAnalysis'
+    'CameraImageAnalysis': 'geecs_python_api.controls.data_acquisition.scan_analysis.CameraImageAnalysis'
 }
 
 class ScanDataManager:
