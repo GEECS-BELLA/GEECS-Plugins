@@ -1,5 +1,6 @@
 import sys
-from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton
+import yaml
+from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton, QFileDialog
 from PyQt5.QtCore import Qt, QEvent
 from ScanElementEditor_ui import Ui_Dialog
 
@@ -56,7 +57,7 @@ list_of_actions = [
 
 
 class ScanElementEditor(QDialog):
-    def __init__(self, config_folder="./", database_dict=None):
+    def __init__(self, database_dict=None, config_folder="./", load_config=None):
         super().__init__()
 
         self.dummyButton = QPushButton("", self)
@@ -66,7 +67,6 @@ class ScanElementEditor(QDialog):
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
 
-        self.config_folder = config_folder
         self.database_dict = database_dict
 
         self.devices_dict = {}
@@ -106,12 +106,16 @@ class ScanElementEditor(QDialog):
         self.ui.buttonMoveSooner.clicked.connect(self.move_action_sooner)
         self.ui.buttonMoveLater.clicked.connect(self.move_action_later)
 
+        self.ui.radioIsPost.clicked.connect(self.set_as_closeout)
+        self.ui.radioIsSetup.clicked.connect(self.set_as_setup)
+
+        self.config_folder = config_folder
+        if load_config is not None:
+            self.load_settings_from_file(config_folder + load_config)
+
         self.ui.buttonWindowSave.clicked.connect(self.save_element)
         self.ui.buttonWindowCancel.clicked.connect(self.close_window)
         self.ui.buttonWindowLoad.clicked.connect(self.open_element)
-
-        self.ui.radioIsPost.clicked.connect(self.set_as_closeout)
-        self.ui.radioIsSetup.clicked.connect(self.set_as_setup)
 
         self.update_device_list()
         self.update_action_list()
@@ -514,13 +518,48 @@ class ScanElementEditor(QDialog):
         self.update_action_list(index=new_position)
 
     def save_element(self):
-        print("Save")
-        print(self.devices_dict)
-        print(self.actions_dict)
+        filename = self.ui.lineElementName.text().strip()
+        if filename == "":
+            print("Need an element name")
+        else:
+            file = self.config_folder + filename + ".yaml"
+            print(f"Saving config to {file}")
+            full_dictionary = {
+                'Devices': self.devices_dict,
+                'Actions': self.actions_dict
+            }
+            print(full_dictionary)
+            with open(file, 'w') as f:
+                yaml.dump(full_dictionary, f, default_flow_style=False)
+
 
     def close_window(self):
         print("Cancel")
         self.close()
 
     def open_element(self):
-        print("Open")
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", self.config_folder, "YAML Files (*yaml)", options=options)
+        if file_name:
+            self.load_settings_from_file(file_name)
+            self.update_device_list()
+            self.update_action_list()
+            self.update_action_display()
+
+    def load_settings_from_file(self, config_filename):
+        with open(config_filename, 'r') as file:
+            full_dictionary = yaml.safe_load(file)
+
+        if 'Devices' in full_dictionary:
+            self.devices_dict = full_dictionary['Devices']
+        else:
+            self.devices_dict={}
+
+        if 'Actions' in full_dictionary:
+            self.actions_dict = full_dictionary['Actions']
+        else:
+            self.actions_dict = {
+                'setup': [],
+                'closeout': []
+            }

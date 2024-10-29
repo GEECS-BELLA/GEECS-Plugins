@@ -67,7 +67,8 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.removeDeviceButton.clicked.connect(self.remove_files)
         self.ui.selectedDevices.itemDoubleClicked.connect(self.remove_files)
 
-        self.ui.newDeviceButton.clicked.connect(self.open_element_editor)
+        self.ui.newDeviceButton.clicked.connect(self.open_element_editor_new)
+        self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
 
         self.ui.noscanRadioButton.setChecked(True)
         self.ui.noscanRadioButton.toggled.connect(self.update_scan_edit_state)
@@ -215,10 +216,48 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.selectedDevices.takeItem(self.ui.selectedDevices.row(item))
             self.ui.foundDevices.addItem(item)
 
-    def open_element_editor(self):
+    def open_element_editor_new(self):
         database_dict = self.RunControl.get_database_dict()
-        self.element_editor = ScanElementEditor(database_dict=database_dict)
+        config_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
+        self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder)
         self.element_editor.exec_()
+        self.refresh_element_list()
+
+    def open_element_editor_load(self):
+        selected_element = self.ui.foundDevices.selectedItems()
+        if not selected_element:
+            print("Select from the Found list")
+            return
+        element_name = None
+        for selection in selected_element:
+            element_name = selection.text().strip() + ".yaml"
+
+        database_dict = self.RunControl.get_database_dict()
+        config_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
+        self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder, load_config=element_name)
+        self.element_editor.exec_()
+        self.refresh_element_list()
+
+    def refresh_element_list(self):
+        try:
+            experiment_preset_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
+
+            selected_elements_list = {self.ui.selectedDevices.item(i).text() for i in range(self.ui.selectedDevices.count())}
+
+            self.ui.foundDevices.clear()
+            self.ui.selectedDevices.clear()
+
+            for file_name in os.listdir(experiment_preset_folder):
+                full_path = os.path.join(experiment_preset_folder, file_name)
+                if os.path.isfile(full_path):
+                    root, ext = os.path.splitext(file_name)
+                    if root in selected_elements_list:
+                        self.ui.selectedDevices.addItem(root)
+                    else:
+                        self.ui.foundDevices.addItem(root)
+
+        except OSError:
+            self.clear_lists()
 
     def update_scan_edit_state(self):
         # Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
