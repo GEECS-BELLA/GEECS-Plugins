@@ -80,8 +80,8 @@ UC_VisaEBeam2:
   Rotate: 0
   Calibration: 0.0000075
   Apply Mask: True
-  Cross1: [200,99]
-  Cross2: [200,465]
+  Cross1: [193,97]
+  Cross2: [193,465]
   Cross Shift: 0
 
 UC_VisaEBeam3:

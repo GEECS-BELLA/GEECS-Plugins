@@ -217,7 +217,7 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
         return energy_values, np.array(charge_density_matrix)
     
 
-    def interpolate_data(self, energy_values, charge_density_matrix, min_energy=0.06, max_energy=0.2, num_points=1000):
+    def interpolate_data(self, energy_values, charge_density_matrix, min_energy=0.06, max_energy=.3, num_points=1500):
         """
         Linearly interpolate the data for plotting.
         """
@@ -420,7 +420,6 @@ class CameraImageAnalysis(ScanAnalysis):
 
         return np.mean(images, axis=0).astype(np.uint16)  # Keep 16-bit format for the averaged image
 
-
     def save_image(self, image, save_dir, save_name, bit_depth=16):
         """
         Save an image as a .png file.
@@ -455,8 +454,7 @@ class CameraImageAnalysis(ScanAnalysis):
         normalized_image = (image/(2**16-1)*255).astype(np.uint8)
         
         return normalized_image
-    
-    
+       
     def create_image_array(self, avg_images):
         """
         Arrange the averaged images into a sensibly sized grid and display them with scan parameter labels.
@@ -559,7 +557,7 @@ class CameraImageAnalysis(ScanAnalysis):
         avg_images = []
         try:
             unique_bins = np.unique(self.bins)
-            logging.warning(f"unique_bins: {unique_bins}")
+            logging.info(f"unique_bins: {unique_bins}")
 
             for bin_number in unique_bins:
                 # Load all images for this bin
