@@ -31,11 +31,11 @@ else:
 GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
 device_dict = GeecsDevice.exp_info['devices']
 
-
 ANALYSIS_CLASS_MAPPING = {
     'MagSpecStitcherAnalysis': 'geecs_python_api.controls.data_acquisition.scan_analysis.MagSpecStitcherAnalysis',
     'SomeOtherAnalysis': 'geecs_python_api.controls.data_acquisition.scan_analysis.SomeOtherAnalysis'
 }
+
 
 class ScanDataManager:
     """
@@ -286,17 +286,17 @@ class ScanDataManager:
         Fill NaN values and empty strings in asynchronous observable columns with the most recent non-NaN value.
         If a column starts with NaN or empty strings, it will backfill with the first non-NaN value.
         After forward and backward filling, remaining NaN or empty entries are filled with `fill_value`. The
-        back/front filling is meant to 
+        back/front filling is meant to
 
         Args:
             log_df (pd.DataFrame): The DataFrame containing the logged data.
             async_observables (list): A list of asynchronous observables (columns) to process.
             fill_value (int, float): Value to fill remaining NaN and empty entries (default is 0).
-        
+
         Returns:
             pandas.DataFrame: DataFrame with NaN values filled.
         """
-        
+
         # Convert empty strings ('') to NaN
         log_df.replace('', pd.NA, inplace=True)
 
@@ -317,13 +317,11 @@ class ScanDataManager:
 
         # Use infer_objects to downcast the object dtype arrays appropriately
         log_df = log_df.infer_objects(copy=False)
-
         logging.info(f"Filled remaining NaN and empty values with {fill_value}.")
         return log_df
-  
-  
-class ScanManager():
-    
+
+
+class ScanManager:
     """
     Manages the execution of scans, including configuration, device control, 
     and data logging. This class handles the interaction between devices, 
@@ -331,7 +329,7 @@ class ScanManager():
     to the device_manager to initialize the desired saving configuration. 
     """
     
-    def __init__(self, experiment_dir=None, device_manager=None, data_interface=None):
+    def __init__(self, experiment_dir=None, device_manager=None, data_interface=None, shot_control_device=""):
         
         """
         Initialize the ScanManager and its components.
@@ -340,6 +338,7 @@ class ScanManager():
             experiment_dir (str, optional): Directory where experiment data is stored.
             device_manager (DeviceManager, optional): DeviceManager instance for managing devices.
             data_interface (DataInterface, optional): Interface for managing data paths and file handling.
+            shot_control_device (str, optional): GEECS Device that controls the shot timing
         """
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
         self.data_interface = data_interface or DataInterface()
@@ -351,7 +350,7 @@ class ScanManager():
         self.data_logger = DataLogger(experiment_dir, self.device_manager)  # Initialize DataLogger
         self.save_data = True
 
-        self.shot_control = GeecsDevice('U_DG645_ShotControl')
+        self.shot_control = GeecsDevice(shot_control_device)
         self.results = {}  # Store results for later processing
 
         self.stop_scanning_thread_event = threading.Event()  # Event to signal the logging thread to stop
@@ -369,6 +368,10 @@ class ScanManager():
 
         self.initial_state = None
         self.scan_steps = []  # To store the precomputed scan steps
+
+    def get_database_dict(self):
+        """TODO This should probably be a class variable"""
+        return device_dict
 
     def reinitialize(self, config_path=None, config_dictionary=None):
         """

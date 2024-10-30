@@ -12,6 +12,7 @@ import yaml
 from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter
 from PyQt5.QtCore import Qt, QEvent, QTimer
 from GEECSScanner_ui import Ui_MainWindow
+from ScanElementEditor import ScanElementEditor
 from LogStream import EmittingStream, MultiStream
 from RunControl import RunControl
 
@@ -36,12 +37,12 @@ class GEECSScannerWindow(QMainWindow):
         #sys.stdout = MultiStream(sys.stdout, EmittingStream(self.ui.logDisplay))
         #sys.stderr = MultiStream(sys.stderr, EmittingStream(self.ui.logDisplay))
 
-        self.experiment = "<None Selected>"
-        self.repetition_rate = ""
+        self.experiment = ""
+        self.repetition_rate = 0
         self.shot_control_device = ""
         self.load_config_settings()
 
-        self.RunControl = RunControl(experiment_name=self.experiment)
+        self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
 
         self.noscan_num = 100
         self.scan_start = 0
@@ -49,7 +50,7 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_step_size = 0
         self.scan_shot_per_step = 0
 
-        self.ui.repititionRateDisplay.setText(self.repetition_rate)
+        self.ui.repititionRateDisplay.setText(str(self.repetition_rate))
         self.ui.repititionRateDisplay.editingFinished.connect(self.update_repetition_rate)
         self.ui.lineTimingDevice.setText(self.shot_control_device)
         self.ui.lineTimingDevice.editingFinished.connect(self.update_shot_control_device)
@@ -65,6 +66,10 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.foundDevices.itemDoubleClicked.connect(self.add_files)
         self.ui.removeDeviceButton.clicked.connect(self.remove_files)
         self.ui.selectedDevices.itemDoubleClicked.connect(self.remove_files)
+
+        self.ui.newDeviceButton.clicked.connect(self.open_element_editor_new)
+        self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
+        self.ui.buttonRefreshLists.clicked.connect(self.refresh_element_list)
 
         self.ui.noscanRadioButton.setChecked(True)
         self.ui.noscanRadioButton.toggled.connect(self.update_scan_edit_state)
@@ -116,12 +121,12 @@ class GEECSScannerWindow(QMainWindow):
                 default_experiment = config['Experiment']['expt']
             except KeyError:
                 print("Could not find 'expt' in config")
-                default_experiment = "<None Selected>"
+                default_experiment = ""
             if os.path.isdir(RELATIVE_PATH + "experiments/" + default_experiment):
                 self.experiment = default_experiment
 
             try:
-                self.repetition_rate = config['Experiment']['rep_rate_hz']
+                self.repetition_rate = float(config['Experiment']['rep_rate_hz'])
             except KeyError:
                 print("Could not find 'rep_rate_hz' in config")
 
@@ -155,6 +160,7 @@ class GEECSScannerWindow(QMainWindow):
             if os.path.isdir(new_folder_path):
                 self.experiment = selected_experiment
                 self.ui.experimentDisplay.setText(self.experiment)
+                self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
                 self.populate_found_list()
 
             self.ui.lineScanVariable.setText("")
@@ -175,12 +181,15 @@ class GEECSScannerWindow(QMainWindow):
                 self.repetition_rate = rep_rate
             else:
                 self.ui.repititionRateDisplay.setText("N/A")
+                self.repetition_rate = 0
         except ValueError:
             self.ui.repititionRateDisplay.setText("N/A")
+            self.repetition_rate = 0
 
     def update_shot_control_device(self):
         # Updates the shot control device when it is changed in the text box
-        self.repetition_rate = self.ui.lineTimingDevice.text()
+        self.shot_control_device = self.ui.lineTimingDevice.text()
+        self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
 
     def populate_found_list(self):
         # List all files in the save_devices folder under chosen experiment:
@@ -207,6 +216,51 @@ class GEECSScannerWindow(QMainWindow):
         for item in selected_items:
             self.ui.selectedDevices.takeItem(self.ui.selectedDevices.row(item))
             self.ui.foundDevices.addItem(item)
+
+    def open_element_editor_new(self):
+        database_dict = self.RunControl.get_database_dict()
+        config_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
+        self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder)
+        self.element_editor.exec_()
+        self.refresh_element_list()
+
+    def open_element_editor_load(self):
+        selected_element = self.ui.foundDevices.selectedItems()
+        if not selected_element:
+            print("Select from the Found list")
+            return
+        element_name = None
+        for selection in selected_element:
+            element_name = selection.text().strip() + ".yaml"
+
+        database_dict = self.RunControl.get_database_dict()
+        config_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
+        self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder, load_config=element_name)
+        self.element_editor.exec_()
+        self.refresh_element_list()
+
+    def refresh_element_list(self):
+        print("Refreshing element list...")
+        try:
+            experiment_preset_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
+
+            selected_elements_list = {self.ui.selectedDevices.item(i).text() for i in range(self.ui.selectedDevices.count())}
+
+            self.ui.foundDevices.clear()
+            self.ui.selectedDevices.clear()
+
+            for file_name in os.listdir(experiment_preset_folder):
+                full_path = os.path.join(experiment_preset_folder, file_name)
+                if os.path.isfile(full_path):
+                    root, ext = os.path.splitext(file_name)
+                    if root in selected_elements_list:
+                        self.ui.selectedDevices.addItem(root)
+                    else:
+                        self.ui.foundDevices.addItem(root)
+            print(" ...Done!")
+        except OSError:
+            print("OSError occurred!")
+            self.clear_lists()
 
     def update_scan_edit_state(self):
         # Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
@@ -437,76 +491,86 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.listScanPresets.clear()
         self.populate_preset_list()
 
+    def check_for_errors(self):
+        if not self.repetition_rate > 0:
+            print("Error: Need nonzero repetition rate")
+            return True
+        return False
+
     def initialize_scan(self):
-        # From the information provided in the GUI, create a scan configuration file and submit to GEECS for
-        #  data logging.
-        self.ui.startScanButton.setEnabled(False)
-        self.ui.startScanButton.setText("Starting...")
-        QApplication.processEvents()
+        if not self.check_for_errors():
+            # From the information provided in the GUI, create a scan configuration file and submit to GEECS for
+            #  data logging.
+            self.ui.startScanButton.setEnabled(False)
+            self.ui.experimentDisplay.setEnabled(False)
+            self.ui.repititionRateDisplay.setEnabled(False)
+            self.ui.lineTimingDevice.setEnabled(False)
+            self.ui.startScanButton.setText("Starting...")
+            QApplication.processEvents()
 
-        save_device_list = {}
-        list_of_steps = []
-        for i in range(self.ui.selectedDevices.count()):
-            filename = self.ui.selectedDevices.item(i).text()
-            fullpath = RELATIVE_PATH + f"experiments/{self.experiment}/save_devices/{filename}.yaml"
-            with open(fullpath, 'r') as file:
-                try:
-                    data = yaml.safe_load(file)
-                    save_device_list.update(data['Devices'])
+            save_device_list = {}
+            list_of_steps = []
+            for i in range(self.ui.selectedDevices.count()):
+                filename = self.ui.selectedDevices.item(i).text()
+                fullpath = RELATIVE_PATH + f"experiments/{self.experiment}/save_devices/{filename}.yaml"
+                with open(fullpath, 'r') as file:
+                    try:
+                        data = yaml.safe_load(file)
+                        save_device_list.update(data['Devices'])
 
-                    if 'setup_action' in data:
-                        setup_action = data['setup_action']
-                        list_of_steps.extend(setup_action['steps'])
-                except yaml.YAMLError as exc:
-                    print(f"Error reading YAML file: {exc}")
+                        if 'setup_action' in data:
+                            setup_action = data['setup_action']
+                            list_of_steps.extend(setup_action['steps'])
+                    except yaml.YAMLError as exc:
+                        print(f"Error reading YAML file: {exc}")
 
-        scan_information = {
-            'experiment': self.experiment,
-            'description': self.ui.textEditScanInfo.toPlainText()
-        }
-
-        if self.ui.scanRadioButton.isChecked():
-            scan_variable_tag = self.read_device_tag_from_nickname(self.scan_variable)
-            scan_config = {
-                'device_var': scan_variable_tag,
-                'start': self.scan_start,
-                'end': self.scan_stop,
-                'step': self.scan_step_size,
-                'wait_time': self.scan_shot_per_step + 0.5
+            scan_information = {
+                'experiment': self.experiment,
+                'description': self.ui.textEditScanInfo.toPlainText().replace('\n', ' ')
             }
-            scan_mode = scan_variable_tag
-            scan_array_initial = self.scan_start
-            scan_array_final = self.scan_stop
-        elif self.ui.noscanRadioButton.isChecked():
-            scan_config = {
-                'device_var': 'noscan',
-                'wait_time': self.noscan_num + 0.5
+
+            if self.ui.scanRadioButton.isChecked():
+                scan_variable_tag = self.read_device_tag_from_nickname(self.scan_variable)
+                scan_config = {
+                    'device_var': scan_variable_tag,
+                    'start': self.scan_start,
+                    'end': self.scan_stop,
+                    'step': self.scan_step_size,
+                    'wait_time': (self.scan_shot_per_step + 0.5)/self.repetition_rate
+                }
+                scan_mode = scan_variable_tag
+                scan_array_initial = self.scan_start
+                scan_array_final = self.scan_stop
+            elif self.ui.noscanRadioButton.isChecked():
+                scan_config = {
+                    'device_var': 'noscan',
+                    'wait_time': (self.noscan_num + 0.5)/self.repetition_rate
+                }
+                scan_mode = "noscan"
+                scan_array_initial = 0
+                scan_array_final = self.noscan_num
+            else:
+                scan_config = None
+                scan_mode = ""
+                scan_array_initial = 0
+                scan_array_final = 0
+
+            scan_parameters = {  # TODO What does this even do???
+                'scan_mode': scan_mode,
+                'scan_range': [scan_array_initial, scan_array_final]
             }
-            scan_mode = "noscan"
-            scan_array_initial = 0
-            scan_array_final = self.noscan_num
-        else:
-            scan_config = None
-            scan_mode = ""
-            scan_array_initial = 0
-            scan_array_final = 0
 
-        scan_parameters = {  # TODO What does this even do???
-            'scan_mode': scan_mode,
-            'scan_range': [scan_array_initial, scan_array_final]
-        }
+            run_config = {
+                'Devices': save_device_list,
+                'scan_info': scan_information,
+                'scan_parameters': scan_parameters,
+            }
+            if list_of_steps:
+                steps = {'steps': list_of_steps}
+                run_config['setup_action'] = steps
 
-        run_config = {
-            'Devices': save_device_list,
-            'scan_info': scan_information,
-            'scan_parameters': scan_parameters,
-        }
-        if list_of_steps:
-            steps = {'steps': list_of_steps}
-            run_config['setup_action'] = steps
-
-        self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
-        self.ui.startScanButton.setText("Start Scan")
+            self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
+            self.ui.startScanButton.setText("Start Scan")
 
     def update_indicator(self):
         if self.RunControl.is_active():
@@ -519,6 +583,10 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
             self.ui.stopScanButton.setEnabled(False)
             self.RunControl.clear_stop_state()
+
+        self.ui.experimentDisplay.setEnabled(self.ui.startScanButton.isEnabled())
+        self.ui.repititionRateDisplay.setEnabled(self.ui.startScanButton.isEnabled())
+        self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
 
     def stop_scan(self):
         self.ui.stopScanButton.setEnabled(False)
