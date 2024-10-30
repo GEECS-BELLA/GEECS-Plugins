@@ -425,7 +425,6 @@ class DeviceManager:
         self.initialize_subscribers(self.event_driven_observables + self.async_observables, clear_devices=False)
 
         logging.info(f"Loaded scan info: {self.scan_base_description}")
-        # logging.info(f"Loaded scan parameters: {self.scan_parameters}")
 
     def _load_devices_from_config(self, config):
         """
@@ -622,7 +621,12 @@ class DeviceManager:
         self.event_driven_observables.clear()
         self.async_observables.clear()
         self.non_scalar_saving_devices.clear()
-
+        self.device_analysis.clear()
+        
+        logging.info(f'synchronous variables after reset: {self.event_driven_observables}')
+        logging.info(f'asynchronous variables after reset: {self.async_observables}')
+        logging.info(f'non_scalar_saving_devices devices after reset: {self.non_scalar_saving_devices}')
+        logging.info(f'devices devices after reset: {self.devices}')
         logging.info("DeviceManager instance has been reset and is ready for reinitialization.")
 
     def reinitialize(self, config_path=None, config_dictionary=None):
@@ -1137,7 +1141,9 @@ class DataLogger():
         self.virtual_variable_name = None
         self.virtual_variable_value = 0
         
-
+        self.data_recording = False
+        self.idle_time = 0
+        
     def start_logging(self):
         """
         Start logging data for all devices. Event-driven observables trigger logs, and asynchronous
@@ -1197,11 +1203,11 @@ class DataLogger():
         logging.info("Logging has started for all event-driven devices.")
 
         # Start the asynchronous polling in a separate thread
-        self._start_async_polling(async_observables, log_entries, timeout=10)
+        self._start_async_polling(async_observables, log_entries, timeout=30)
 
         # # Start a thread to monitor device warnings
-        # self.warning_thread = threading.Thread(target=self._monitor_warnings, args=(event_driven_observables, async_observables))
-        # self.warning_thread.start()
+        self.warning_thread = threading.Thread(target=self._monitor_warnings, args=(event_driven_observables, async_observables))
+        self.warning_thread.start()
 
         return log_entries
 
@@ -1244,7 +1250,7 @@ class DataLogger():
                     logging.info(f"Registering logging for event-driven observable: {observable}")
                     device.event_handler.register('update', 'logger', lambda msg, dev=device: log_update(msg, dev))
 
-    def _start_async_polling(self, async_observables, log_entries, timeout=30):
+    def _start_async_polling(self, async_observables, log_entries, timeout=10):
         """
         Start polling for asynchronous observables in a separate thread.
 
@@ -1314,6 +1320,7 @@ class DataLogger():
 
             if elapsed_time in log_entries:
                 log_entries[elapsed_time].update({f"{device_name}:{var_name}": value})
+                logging.info(f"updating async var {device_name}:{var_name}: {value}.")
             # else:
             #     logging.warning(f"No existing row for elapsed time {elapsed_time}. Skipping log for {observable}.")
 
@@ -1426,27 +1433,28 @@ class DataLogger():
         """
         while not self.stop_event.is_set():
             current_time = time.time()
+            
+            if self.data_recording:
+                # Check synchronous devices (event-driven observables)
+                for observable in event_driven_observables:
+                    device_name = observable.split(':')[0]
+                    last_log_time = self.last_log_time_sync.get(device_name, None)
 
-            # Check synchronous devices (event-driven observables)
-            for observable in event_driven_observables:
-                device_name = observable.split(':')[0]
-                last_log_time = self.last_log_time_sync.get(device_name, None)
+                    if last_log_time and (current_time - (last_log_time + + self.idle_time)) > self.warning_timeout_sync:
+                        logging.warning(
+                            f"Synchronous device {device_name} hasn't updated in over {self.warning_timeout_sync} seconds.")
 
-                if last_log_time and (current_time - last_log_time) > self.warning_timeout_sync:
-                    logging.warning(
-                        f"Synchronous device {device_name} hasn't updated in over {self.warning_timeout_sync} seconds.")
+                # Check asynchronous devices
+                async_timeout = self.polling_interval * self.warning_timeout_async_factor
+                for observable in async_observables:
+                    device_name = observable.split(':')[0]
+                    last_log_time = self.last_log_time_async.get(device_name, None)
 
-            # Check asynchronous devices
-            async_timeout = self.polling_interval * self.warning_timeout_async_factor
-            for observable in async_observables:
-                device_name = observable.split(':')[0]
-                last_log_time = self.last_log_time_async.get(device_name, None)
+                    if last_log_time and (current_time - last_log_time) > async_timeout:
+                        logging.warning(
+                            f"Asynchronous device {device_name} hasn't updated in over {async_timeout} seconds.")
 
-                if last_log_time and (current_time - last_log_time) > async_timeout:
-                    logging.warning(
-                        f"Asynchronous device {device_name} hasn't updated in over {async_timeout} seconds.")
-
-            time.sleep(1)  # Monitor the warnings every second
+                time.sleep(1)  # Monitor the warnings every second
 
     def stop_logging(self):
         """

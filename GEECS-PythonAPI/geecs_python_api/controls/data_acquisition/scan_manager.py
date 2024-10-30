@@ -366,6 +366,10 @@ class ScanManager():
         self.acquisition_time = 0
 
         self.scanning_thread = None  # NEW: Separate thread for scanning
+        
+        self.scan_step_start_time = 0
+        self.scan_step_end_time = 0
+
 
         self.initial_state = None
         self.scan_steps = []  # To store the precomputed scan steps
@@ -382,6 +386,7 @@ class ScanManager():
         self.initial_state = None
         self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
         self.data_logger.reinitialize_sound_player()
+        self.data_logger.last_log_time_sync = {}
         self.console_logger.stop_logging()
         self.console_logger.setup_logging()
 
@@ -555,6 +560,10 @@ class ScanManager():
             # Access the path from ScanDataManager
             log_folder_path = Path(self.scan_data_manager.data_txt_path).parent
             self.console_logger.move_log_file(log_folder_path)
+            
+        self.scan_step_start_time = 0
+        self.scan_step_end_time = 0
+        self.data_logger.idle_time = 0
             
         return log_df
     
@@ -742,8 +751,6 @@ class ScanManager():
             if self.stop_scanning_thread_event.is_set():
                 logging.info("Scanning has been stopped externally.")
                 break
-            if self.data_logger.virtual_variable_name is not None:
-                self.data_logger.virtual_variable_value = self.virtual_variable_list[counter]
             scan_step = self.scan_steps.pop(0)
             self._execute_step(scan_step['variables'], scan_step['wait_time'], scan_step['is_composite'])
             counter+=1
@@ -765,9 +772,14 @@ class ScanManager():
         """
 
         logging.info("Pausing logging. Turning trigger off before moving devices.")
+        if self.data_logger.virtual_variable_name is not None:
+            self.data_logger.virtual_variable_value = self.virtual_variable_list[self.data_logger.bin_num]
+            logging.info(f"updating virtual value in data_logger from scan_manager to: {self.data_logger.virtual_variable_value}.")
+            
         self.data_logger.bin_num += 1
+       
         self.trigger_off()
-
+        
         logging.info(f"shot control state: {self.shot_control.state}")
     
         if not self.device_manager.is_statistic_noscan(component_vars):
@@ -803,7 +815,21 @@ class ScanManager():
                     logging.warning(f"Device {device_name} not found in device manager.")
 
         logging.info("Resuming logging. Turning trigger on after all devices have been moved.")
+        
         self.trigger_on()
+        
+        #code below used with data_logger to determine if a device is non responsive
+        self.scan_step_start_time = time.time()
+        self.data_logger.data_recording = True
+        
+        # first step of the scan, self.scan_step_end_time is equal to zero.
+        # after that, it gets updated. As does the self.scan_step_start_time.
+        # idle time should be the time between then end of the "previous" step
+        # and the start of the next step.
+        if self.scan_step_end_time > 0:
+            self.data_logger.idle_time = self.scan_step_start_time - self.scan_step_end_time
+            logging.info(f'idle time between scan steps: {self.data_logger.idle_time}')
+
         logging.info(f"shot control state: {self.shot_control.state}")
 
         # Wait for acquisition time (or until scanning is externally stopped)
@@ -819,6 +845,11 @@ class ScanManager():
 
         # Turn trigger off after waiting
         self.trigger_off()
+        self.scan_step_end_time = time.time()
+        self.data_logger.data_recording = False
+        
+        
+        
         logging.info(f"shot control state: {self.shot_control.state}")  
 
     def estimate_acquisition_time(self, scan_config):
