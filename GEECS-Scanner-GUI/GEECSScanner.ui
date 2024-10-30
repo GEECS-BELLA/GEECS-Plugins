@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>GEECS Scanner</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <widget class="QLineEdit" name="experimentDisplay">
@@ -92,27 +92,27 @@
    <widget class="QLabel" name="label_2">
     <property name="geometry">
      <rect>
-      <x>150</x>
+      <x>160</x>
       <y>40</y>
-      <width>151</width>
+      <width>121</width>
       <height>16</height>
      </rect>
     </property>
     <property name="text">
-     <string>Available Save Devices</string>
+     <string>Available Elements</string>
     </property>
    </widget>
    <widget class="QLabel" name="label_3">
     <property name="geometry">
      <rect>
-      <x>390</x>
+      <x>410</x>
       <y>40</y>
-      <width>131</width>
+      <width>111</width>
       <height>20</height>
      </rect>
     </property>
     <property name="text">
-     <string>Selected Save Devices</string>
+     <string>Selected Elements</string>
     </property>
    </widget>
    <widget class="QRadioButton" name="noscanRadioButton">
@@ -174,7 +174,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Edit</string>
+     <string>Open</string>
     </property>
    </widget>
    <widget class="QPushButton" name="newDeviceButton">
@@ -377,54 +377,6 @@
      <string>Repition Rate (Hz):</string>
     </property>
    </widget>
-   <widget class="QLineEdit" name="repititionRateDisplay">
-    <property name="geometry">
-     <rect>
-      <x>330</x>
-      <y>10</y>
-      <width>41</width>
-      <height>22</height>
-     </rect>
-    </property>
-    <property name="autoFillBackground">
-     <bool>false</bool>
-    </property>
-    <property name="text">
-     <string/>
-    </property>
-    <property name="readOnly">
-     <bool>true</bool>
-    </property>
-   </widget>
-   <widget class="QLineEdit" name="lineDeviceOption">
-    <property name="enabled">
-     <bool>false</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>560</x>
-      <y>90</y>
-      <width>51</width>
-      <height>22</height>
-     </rect>
-    </property>
-    <property name="dragEnabled">
-     <bool>false</bool>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_12">
-    <property name="geometry">
-     <rect>
-      <x>560</x>
-      <y>70</y>
-      <width>51</width>
-      <height>20</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Option:</string>
-    </property>
-   </widget>
    <widget class="QLabel" name="label_13">
     <property name="geometry">
      <rect>
@@ -546,8 +498,40 @@
      </rect>
     </property>
    </widget>
+   <widget class="QLineEdit" name="repititionRateDisplay">
+    <property name="geometry">
+     <rect>
+      <x>330</x>
+      <y>10</y>
+      <width>41</width>
+      <height>22</height>
+     </rect>
+    </property>
+    <property name="autoFillBackground">
+     <bool>false</bool>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+    <property name="readOnly">
+     <bool>false</bool>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="buttonRefreshLists">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>160</y>
+      <width>93</width>
+      <height>28</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Refresh Lists</string>
+    </property>
+   </widget>
   </widget>
-  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QStatusBar" name="statusBar"/>
   <action name="actionLog">
    <property name="text">
     <string>Log</string>
