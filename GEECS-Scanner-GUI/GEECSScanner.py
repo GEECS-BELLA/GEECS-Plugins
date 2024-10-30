@@ -523,7 +523,7 @@ class GEECSScannerWindow(QMainWindow):
 
             scan_information = {
                 'experiment': self.experiment,
-                'description': self.ui.textEditScanInfo.toPlainText()
+                'description': self.ui.textEditScanInfo.toPlainText().replace('\n', ' ')
             }
 
             if self.ui.scanRadioButton.isChecked():
