@@ -673,6 +673,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.experimentDisplay.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.repititionRateDisplay.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
+            self.ui.buttonUpdateConfig.setEnabled(self.ui.startScanButton.isEnabled())
 
     def stop_scan(self):
         self.ui.stopScanButton.setEnabled(False)
