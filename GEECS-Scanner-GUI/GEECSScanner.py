@@ -7,24 +7,20 @@ Script to contain the logic for the GEECSScanner GUI
 import sys
 import os
 import traceback
-
+import importlib
 import yaml
-from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter
+import configparser
+
+from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter, QMessageBox
 from PyQt5.QtCore import Qt, QEvent, QTimer
 from GEECSScanner_ui import Ui_MainWindow
 from ScanElementEditor import ScanElementEditor
 from LogStream import EmittingStream, MultiStream
-from RunControl import RunControl
-
-try:
-    from geecs_python_api.controls.interface import load_config
-except TypeError:
-    print("No configuration file found!  This is required for GEECSScanner!")
-    # sys.exit()
 
 MAXIMUM_SCAN_SIZE = 1e6
 RELATIVE_PATH = "../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/"
 PRESET_LOCATIONS = "./scan_presets/"
+CONFIG_PATH = os.path.expanduser('~/.config/geecs_python_api/config.ini')
 
 class GEECSScannerWindow(QMainWindow):
     def __init__(self):
@@ -42,7 +38,8 @@ class GEECSScannerWindow(QMainWindow):
         self.shot_control_device = ""
         self.load_config_settings()
 
-        self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
+        self.RunControl = None
+        self.reinitialize_run_control()
 
         self.noscan_num = 100
         self.scan_start = 0
@@ -54,6 +51,8 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.repititionRateDisplay.editingFinished.connect(self.update_repetition_rate)
         self.ui.lineTimingDevice.setText(self.shot_control_device)
         self.ui.lineTimingDevice.editingFinished.connect(self.update_shot_control_device)
+
+        self.ui.buttonUpdateConfig.clicked.connect(self.reset_config_file)
 
         self.ui.experimentDisplay.setText(self.experiment)
         self.ui.experimentDisplay.installEventFilter(self)
@@ -113,31 +112,105 @@ class GEECSScannerWindow(QMainWindow):
             return True
         return super().eventFilter(source, event)
 
+    def reinitialize_run_control(self):
+        print("Reinitialization of Run Control")
+        try:
+            # The experiment name in the config is very embedded in geecs-python-api, so we have to rewrite it here...
+            config = configparser.ConfigParser()
+            config.read(CONFIG_PATH)
+            if config['Experiment']['expt'] != self.experiment:
+                print("Experiment name changed, rewriting config file")
+                config.set('Experiment', 'expt', self.experiment)
+                with open(CONFIG_PATH, 'w') as file:
+                    config.write(file)
+
+            RunControl = getattr(importlib.import_module('RunControl'), 'RunControl')
+            self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
+        except AttributeError:
+            print("ERROR: presumably because the entered experiment is not in the GEECS database")
+            self.RunControl = None
+
     def load_config_settings(self):
         # Loads in the experiment name and repetition rate from the configuration file located in ~/.config/
         try:
+            module = importlib.import_module('geecs_python_api.controls.interface')
+            load_config = getattr(module, 'load_config')
             config = load_config()
+
             try:
-                default_experiment = config['Experiment']['expt']
+                self.experiment = config['Experiment']['expt']
             except KeyError:
-                print("Could not find 'expt' in config")
-                default_experiment = ""
-            if os.path.isdir(RELATIVE_PATH + "experiments/" + default_experiment):
-                self.experiment = default_experiment
+                self.prompt_config_reset("Could not find 'expt' in config")
 
             try:
                 self.repetition_rate = float(config['Experiment']['rep_rate_hz'])
             except KeyError:
-                print("Could not find 'rep_rate_hz' in config")
+                self.prompt_config_reset("Could not find 'rep_rate_hz' in config")
 
             try:
                 self.shot_control_device = config['Experiment']['shot_control']
             except KeyError:
-                print("Could not find 'rep_rate_hz' in config")
+                self.prompt_config_reset("Could not find 'shot_control' in config")
 
+        except TypeError:
+            self.prompt_config_reset("No configuration file found")
         except NameError:
-            print("Could not read from config file")
+            self.prompt_config_reset("No configuration file found")
         return
+
+    def prompt_config_reset(self, notice_str="Message"):
+        reply = QMessageBox.question(self, notice_str, 'Generate and/or repair .config file?',
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.reset_config_file()
+            self.load_config_settings()
+        else:
+            print("Shutting Down")
+            sys.exit()
+
+    def reset_config_file(self):
+        if not os.path.exists(CONFIG_PATH):
+            os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+            default_content = configparser.ConfigParser()
+            default_content['Paths'] = {
+                'geecs_data': 'C:\GEECS\\user data\\'
+            }
+            default_content['Experiment'] = {
+                'expt': 'none',
+                'rep_rate_hz': 'none',
+                'shot_control': 'none'
+            }
+            with open(CONFIG_PATH, 'w') as config_file:
+                default_content.write(config_file)
+            print(f"Wrote new config file to {CONFIG_PATH}")
+
+        config = configparser.ConfigParser()
+        config.read(CONFIG_PATH)
+
+        config = self.prompt_config_update(config, 'Paths', 'geecs_data',
+                                           'Enter GEECS data path: (ex: C:\\GEECS\\user data\\)')
+        config = self.prompt_config_update(config, 'Experiment', 'expt',
+                                           'Enter Experiment Name: (ex: Undulator)')
+        config = self.prompt_config_update(config, 'Experiment', 'rep_rate_hz',
+                                           'Enter repetition rate in Hz: (ex: 1)')
+        config = self.prompt_config_update(config, 'Experiment', 'shot_control',
+                                           'Enter shot control device: (ex: U_DG645_ShotControl)')
+
+        print(f"Writing config file to {CONFIG_PATH}")
+        with open(CONFIG_PATH, 'w') as file:
+            config.write(file)
+        self.load_config_settings()
+        self.reinitialize_run_control()
+
+    def prompt_config_update(self, config, section, option, information):
+        if config.has_section(section) and config.has_option(section, option):
+            current = config[section][option]
+        else:
+            current = None
+        text, ok = QInputDialog.getText(self, 'Config File Edit', information, text=current)
+        if ok:
+            config.set(section, option, text)
+        return config
 
     def show_experiment_list(self):
         # Displays the found experiments in the ./experiments/ subfolder for selecting experiment
@@ -160,7 +233,7 @@ class GEECSScannerWindow(QMainWindow):
             if os.path.isdir(new_folder_path):
                 self.experiment = selected_experiment
                 self.ui.experimentDisplay.setText(self.experiment)
-                self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
+                self.reinitialize_run_control()
                 self.populate_found_list()
 
             self.ui.lineScanVariable.setText("")
@@ -189,7 +262,7 @@ class GEECSScannerWindow(QMainWindow):
     def update_shot_control_device(self):
         # Updates the shot control device when it is changed in the text box
         self.shot_control_device = self.ui.lineTimingDevice.text()
-        self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
+        self.reinitialize_run_control()
 
     def populate_found_list(self):
         # List all files in the save_devices folder under chosen experiment:
@@ -218,7 +291,10 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.foundDevices.addItem(item)
 
     def open_element_editor_new(self):
-        database_dict = self.RunControl.get_database_dict()
+        if self.RunControl is not None:
+            database_dict = self.RunControl.get_database_dict()
+        else:
+            database_dict = None
         config_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
         self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder)
         self.element_editor.exec_()
@@ -233,7 +309,10 @@ class GEECSScannerWindow(QMainWindow):
         for selection in selected_element:
             element_name = selection.text().strip() + ".yaml"
 
-        database_dict = self.RunControl.get_database_dict()
+        if self.RunControl is not None:
+            database_dict = self.RunControl.get_database_dict()
+        else:
+            database_dict = None
         config_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
         self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder, load_config=element_name)
         self.element_editor.exec_()
@@ -573,20 +652,25 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.startScanButton.setText("Start Scan")
 
     def update_indicator(self):
-        if self.RunControl.is_active():
+        if self.RunControl is None:
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: grey;")
+            self.ui.startScanButton.setEnabled(False)
+            self.ui.stopScanButton.setEnabled(False)
+        elif self.RunControl.is_active():
             self.ui.scanStatusIndicator.setStyleSheet("background-color: red;")
             self.ui.startScanButton.setEnabled(False)
             self.ui.stopScanButton.setEnabled(not self.RunControl.is_stopping())
             self.ui.progressBar.setValue(int(self.RunControl.get_progress()))
         else:
             self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
-            self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
             self.ui.stopScanButton.setEnabled(False)
+            self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
             self.RunControl.clear_stop_state()
 
-        self.ui.experimentDisplay.setEnabled(self.ui.startScanButton.isEnabled())
-        self.ui.repititionRateDisplay.setEnabled(self.ui.startScanButton.isEnabled())
-        self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
+        if self.RunControl is not None:
+            self.ui.experimentDisplay.setEnabled(self.ui.startScanButton.isEnabled())
+            self.ui.repititionRateDisplay.setEnabled(self.ui.startScanButton.isEnabled())
+            self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
 
     def stop_scan(self):
         self.ui.stopScanButton.setEnabled(False)
