@@ -46,6 +46,7 @@ ENDTEMPLATE_ID = config['DEFAULT']['EndTemplateID']
 TEMPLATEFOLDER_ID = config['DEFAULT']['TemplateFolderID']
 LOGFOLDER_ID = config['DEFAULT']['LogFolderID']
 SCREENSHOTFOLDER_ID = config['DEFAULT']['ScreenshotFolderID']
+SKIP_ECS = config['DEFAULT']['skipecs']
 
 # GOOGLE SPREADSHEET INFO FOR OPTIONAL DATA OF LAST ROW OF THIS SPREADSHEET
 spreadsheetID = config['SPREADSHEET']['SpreadsheetID']
@@ -142,9 +143,16 @@ currentvalues = configparser.ConfigParser()
 currentvalues['DEFAULT']["MM-DD-YY"]=date
 #get timestamp of ecs file for this scan
 ecsfilepath = localECSfolder + '/Scan' + scanNo + '.txt'
-#if os.path.exists(ecsfilepath):
+if os.path.exists(ecsfilepath):
+    filedate = os.path.getctime(ecsfilepath)
+else:
+    print('local scan folder')
+    intScanNo = int(scanNo)
+    formated_string = f'{localscanfolder}/Scan{intScanNo:03}'
+    print(formated_string)
+    filedate = os.path.getctime(formated_string)
 
-filedate = os.path.getctime(ecsfilepath)
+    
 hourandminuteandsecond = datetime.fromtimestamp(filedate).strftime('%H:%M:%S')
 currentvalues['DEFAULT']["-HHMM-"]=hourandminuteandsecond
 
@@ -177,11 +185,17 @@ for i in range(0,4):
 
 print('**Scanfiles found**')
 if specificscan != '0': 
-    docgen.getValueForNameKeysECS(localECSfolder,"Scan*"+specificscan,placeholderlist,currentvalues,argcurrentvalues)
-    docgen.getValueForNameKeysScanFiles(latestScanDir,"ScanInfo*"+specificscan,currentvalues,argcurrentvalues)
+    if SKIP_ECS:
+        docgen.getValueForNameKeysScanFiles(latestScanDir,"ScanInfo*"+specificscan,currentvalues,argcurrentvalues)
+    else:
+        docgen.getValueForNameKeysScanFiles(latestScanDir,"ScanInfo*"+specificscan,currentvalues,argcurrentvalues)
+        docgen.getValueForNameKeysECS(localECSfolder,"Scan*"+specificscan,placeholderlist,currentvalues,argcurrentvalues)
 else: 
-    docgen.getValueForNameKeysECS(localECSfolder,"Scan*",placeholderlist,currentvalues,argcurrentvalues)
-    docgen.getValueForNameKeysScanFiles(latestScanDir,"ScanInfo*",currentvalues,argcurrentvalues)
+    if SKIP_ECS:
+        docgen.getValueForNameKeysScanFiles(latestScanDir,"ScanInfo*",currentvalues,argcurrentvalues)
+    else:
+        docgen.getValueForNameKeysECS(localECSfolder,"Scan*",placeholderlist,currentvalues,argcurrentvalues)
+        docgen.getValueForNameKeysScanFiles(latestScanDir,"ScanInfo*",currentvalues,argcurrentvalues)
 
 returnvalue = 2
 for i in range(0,4):
