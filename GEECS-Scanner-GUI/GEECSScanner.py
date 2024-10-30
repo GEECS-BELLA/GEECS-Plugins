@@ -60,7 +60,6 @@ class GEECSScannerWindow(QMainWindow):
 
         self.populate_found_list()
 
-        # Connect buttons to their respective functions
         self.ui.addDeviceButton.clicked.connect(self.add_files)
         self.ui.foundDevices.itemDoubleClicked.connect(self.add_files)
         self.ui.removeDeviceButton.clicked.connect(self.remove_files)
@@ -69,6 +68,9 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.newDeviceButton.clicked.connect(self.open_element_editor_new)
         self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
         self.ui.buttonRefreshLists.clicked.connect(self.refresh_element_list)
+
+        self.ui.buttonActionLibrary.setEnabled(False)
+        self.ui.buttonScanVariables.setEnabled(False)
 
         self.ui.noscanRadioButton.setChecked(True)
         self.ui.noscanRadioButton.toggled.connect(self.update_scan_edit_state)
