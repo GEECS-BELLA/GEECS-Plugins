@@ -69,6 +69,7 @@ class GEECSScannerWindow(QMainWindow):
 
         self.ui.newDeviceButton.clicked.connect(self.open_element_editor_new)
         self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
+        self.ui.buttonRefreshLists.clicked.connect(self.refresh_element_list)
 
         self.ui.noscanRadioButton.setChecked(True)
         self.ui.noscanRadioButton.toggled.connect(self.update_scan_edit_state)
@@ -239,6 +240,7 @@ class GEECSScannerWindow(QMainWindow):
         self.refresh_element_list()
 
     def refresh_element_list(self):
+        print("Refreshing element list...")
         try:
             experiment_preset_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
 
@@ -255,8 +257,9 @@ class GEECSScannerWindow(QMainWindow):
                         self.ui.selectedDevices.addItem(root)
                     else:
                         self.ui.foundDevices.addItem(root)
-
+            print(" ...Done!")
         except OSError:
+            print("OSError occurred!")
             self.clear_lists()
 
     def update_scan_edit_state(self):
