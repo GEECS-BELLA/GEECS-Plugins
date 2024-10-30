@@ -36,6 +36,7 @@ ANALYSIS_CLASS_MAPPING = {
     'SomeOtherAnalysis': 'geecs_python_api.controls.data_acquisition.scan_analysis.SomeOtherAnalysis'
 }
 
+
 class ScanDataManager:
     """
     Manages data preparation, organization and saving during and after a scan.
@@ -285,17 +286,17 @@ class ScanDataManager:
         Fill NaN values and empty strings in asynchronous observable columns with the most recent non-NaN value.
         If a column starts with NaN or empty strings, it will backfill with the first non-NaN value.
         After forward and backward filling, remaining NaN or empty entries are filled with `fill_value`. The
-        back/front filling is meant to 
+        back/front filling is meant to
 
         Args:
             log_df (pd.DataFrame): The DataFrame containing the logged data.
             async_observables (list): A list of asynchronous observables (columns) to process.
             fill_value (int, float): Value to fill remaining NaN and empty entries (default is 0).
-        
+
         Returns:
             pandas.DataFrame: DataFrame with NaN values filled.
         """
-        
+
         # Convert empty strings ('') to NaN
         log_df.replace('', pd.NA, inplace=True)
 
@@ -316,13 +317,11 @@ class ScanDataManager:
 
         # Use infer_objects to downcast the object dtype arrays appropriately
         log_df = log_df.infer_objects(copy=False)
-
         logging.info(f"Filled remaining NaN and empty values with {fill_value}.")
         return log_df
-  
-  
-  class ScanManager():
-    
+
+
+class ScanManager:
     """
     Manages the execution of scans, including configuration, device control, 
     and data logging. This class handles the interaction between devices, 
