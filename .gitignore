@@ -17,3 +17,4 @@ Xopt-GEECS/testing nb.ipynb
 *.log
 LogMaker 4 GoogleDocs/source/HTUcurrentvalues.ini
 LogMaker 4 GoogleDocs/source/HTUparameters.ini
+*.spyproject
