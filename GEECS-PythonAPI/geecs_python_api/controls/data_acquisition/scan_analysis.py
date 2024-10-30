@@ -217,7 +217,6 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
         return energy_values, np.array(charge_density_matrix)
     
 
-    def interpolate_data(self, energy_values, charge_density_matrix, min_energy=0.06, max_energy=0.2, num_points=1000):
         """
         Linearly interpolate the data for plotting.
         """

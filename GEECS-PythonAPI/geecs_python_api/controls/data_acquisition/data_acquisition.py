@@ -636,6 +636,9 @@ class DeviceManager:
         
         # First, reset the current state
         self.reset()
+        
+        self.scan_setup_action['steps'] = []
+        self.scan_closeout_action['steps'] =[]
 
         # Now load the new configuration and reinitialize the instance
         if config_path is not None:
@@ -643,8 +646,6 @@ class DeviceManager:
         elif config_dictionary is not None:
             self.load_from_dictionary(config_dictionary)
             
-        self.scan_setup_action['steps'] = []
-        self.scan_closeout_action['steps'] =[]
 
         logging.info("DeviceManager instance has been reinitialized.")
 
