@@ -562,16 +562,24 @@ class GEECSScannerWindow(QMainWindow):
     def populate_preset_list(self):
         """Searches for existing presets in the designated folder and populates each preset to the list on the GUI"""
         self.ui.listScanPresets.clear()
+        for preset in self.load_preset_list():
+            self.ui.listScanPresets.addItem(preset)
+
+    def load_preset_list(self):
+        """
+        :return: List containing the names of all presets in the designated folder
+        """
+        preset_list = []
         try:
             experiment_folder = PRESET_LOCATIONS + self.experiment + "/"
             for file_name in os.listdir(experiment_folder):
                 full_path = os.path.join(experiment_folder, file_name)
                 if os.path.isfile(full_path):
                     root, ext = os.path.splitext(file_name)
-                    self.ui.listScanPresets.addItem(root)
+                    preset_list.append(root)
         except OSError:
             print("Could not locate pre-existing scan presets.")
-            self.ui.listScanPresets.clear()
+        return preset_list
 
     def save_current_preset(self):
         """Takes the current scan configuration and prompts the user if they would like to save it as a preset.  If so,
@@ -607,6 +615,12 @@ class GEECSScannerWindow(QMainWindow):
         """Loads the yaml file selected in the preset list, clears all current information on the GUI, then
         systematically populate everything so that the GUI is equivalent to when it was saved as a preset"""
         selected_element = self.ui.listScanPresets.selectedItems()
+        self.apply_preset_from_selected_element(selected_element)
+
+    def apply_preset_from_selected_element(self, selected_element):
+        """
+        :param selected_element: the ListWidget element from which to load a preset of
+        """
         settings = {}
         for preset in selected_element:
             preset_filename = f"{PRESET_LOCATIONS}{self.experiment}/{preset.text()}.yaml"
