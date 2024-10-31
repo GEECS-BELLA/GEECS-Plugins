@@ -15,6 +15,13 @@ Devices:
     synchronous: true
     variable_list:
     - timestamp
+  U_BCaveICT:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - Python Results.ChA
+    - Python Results.ChB
+    - timestamp
 scan_info:
   description: collecting data on visa3EBeam and UC_UndulatorRad2
 setup_action:
