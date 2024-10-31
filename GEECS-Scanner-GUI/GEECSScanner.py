@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter,
 from PyQt5.QtCore import Qt, QEvent, QTimer
 from GEECSScanner_ui import Ui_MainWindow
 from ScanElementEditor import ScanElementEditor
+from MultiScanner import MultiScanner
 from LogStream import EmittingStream, MultiStream
 
 MAXIMUM_SCAN_SIZE = 1e6
@@ -57,8 +58,12 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.lineTimingDevice.setText(self.shot_control_device)
         self.ui.lineTimingDevice.editingFinished.connect(self.update_shot_control_device)
 
-        # Button to lauch dialog for changing the config file contents
+        # Button to launch dialog for changing the config file contents
         self.ui.buttonUpdateConfig.clicked.connect(self.reset_config_file)
+
+        # Button to launch the multiscan window
+        self.is_in_multiscan = False
+        self.ui.buttonLaunchMultiScan.clicked.connect(self.open_multiscanner)
 
         # Line edit for the experiment display
         self.ui.experimentDisplay.setText(self.experiment)
@@ -378,6 +383,16 @@ class GEECSScannerWindow(QMainWindow):
         self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder, load_config=element_name)
         self.element_editor.exec_()
         self.refresh_element_list()
+
+    def open_multiscanner(self):
+        self.multiscanner_window = MultiScanner(self)
+        self.multiscanner_window.show()
+
+        self.is_in_multiscan = True
+        self.update_indicator()
+
+    def exit_multiscan_mode(self):
+        self.is_in_multiscan = False
 
     def refresh_element_list(self):
         """Refreshes the list of available and selected elements, but does not clear them.  Instead, all previously
@@ -734,7 +749,7 @@ class GEECSScannerWindow(QMainWindow):
         """Checks the current status of any ongoing run and updates the GUI accordingly.  Several configurations are
         represented here, but the overall goal is to not allow RunControl to be edited or Start Scan to be clicked when
         a scan is currently running.  If a scan is running, the Stop Scan button is enabled and the progress bar shows
-        the current progress."""
+        the current progress.  When multiscan window is open, you can't launch a single scan or change run control"""
         if self.RunControl is None:
             self.ui.scanStatusIndicator.setStyleSheet("background-color: grey;")
             self.ui.startScanButton.setEnabled(False)
@@ -751,10 +766,14 @@ class GEECSScannerWindow(QMainWindow):
             self.RunControl.clear_stop_state()
 
         if self.RunControl is not None:
+            if self.is_in_multiscan:
+                self.ui.scanStatusIndicator.setStyleSheet("background-color: blue;")
+                self.ui.startScanButton.setEnabled(False)
             self.ui.experimentDisplay.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.repititionRateDisplay.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.buttonUpdateConfig.setEnabled(self.ui.startScanButton.isEnabled())
+            self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
 
     def stop_scan(self):
         """Submits a request to RunControl to stop the current scan.  In the meantime, disable the Stop Scan button so
