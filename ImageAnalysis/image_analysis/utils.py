@@ -8,8 +8,9 @@ import numpy as np
 import png
 from imageio.v3 import imread, imopen
 
+###new dependencies added by Sam
 import struct
-
+import re
 from nptdms import TdmsFile
 
 
@@ -171,6 +172,22 @@ def get_magspecstitcher_timestamp(file_path):
 
         timestamp = (int(high_chunk,2)*2**32 + int(low_chunk,2)) / 1e9
         return timestamp
+
+def extract_shot_number(filename):
+    """
+    Extract the shot number from the filename.
+
+    Args:
+        filename (str): The filename from which to extract the shot number.
+
+    Returns:
+        int: The extracted shot number, or None if the format is incorrect.
+    """
+    # Match the last number before the .png extension
+    match = re.search(r'_(\d+)\.png$', filename)
+    if match:
+        return int(match.group(1))
+    return None
     
 class ROI:
     """ Specify a region of interest for an ImageAnalyzer to crop with.
