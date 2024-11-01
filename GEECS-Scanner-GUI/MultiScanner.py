@@ -23,6 +23,8 @@ class MultiScanner(QWidget):
 
         self.ui.buttonAddElement.clicked.connect(self.add_element_preset)
         self.ui.buttonRemoveElement.clicked.connect(self.remove_element_preset)
+        self.ui.buttonAddScan.clicked.connect(self.add_scan_preset)
+        self.ui.buttonRemoveScan.clicked.connect(self.remove_scan_preset)
 
         self.ui.checkBoxEnableScanList.clicked.connect(self.toggle_split_preset_mode)
         self.toggle_split_preset_mode()
@@ -52,6 +54,12 @@ class MultiScanner(QWidget):
     def remove_element_preset(self):
         self.remove_from_list(self.ui.listElementPresets, self.element_preset_list)
 
+    def add_scan_preset(self):
+        self.add_to_list(self.ui.listAvailablePresets.selectedItems(), self.scan_preset_list)
+
+    def remove_scan_preset(self):
+        self.remove_from_list(self.ui.listScanPresets, self.scan_preset_list)
+
     def add_to_list(self, selected_items, target_list):
         if not selected_items:
             return
@@ -64,7 +72,9 @@ class MultiScanner(QWidget):
         if not selected_items:
             return
         for selection in selected_items:
-            del target_list[list_widget.row(selection)]
+            index = list_widget.row(selection)
+            if index < len(target_list):
+                del target_list[list_widget.row(selection)]
         self.refresh_multiscan_lists()
 
     def toggle_split_preset_mode(self):
