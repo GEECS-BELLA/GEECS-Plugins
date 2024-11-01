@@ -10,7 +10,7 @@ Devices:
     - MeanCounts
     - timestamp
   UC_VisaEBeam2:
-    post_analysis_class: CameraImageAnalysis
+    post_analysis_class: VisaEBeamAnalysis
     save_nonscalar_data: true
     synchronous: true
     variable_list:
