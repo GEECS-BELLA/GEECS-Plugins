@@ -29,6 +29,11 @@ class MultiScanner(QWidget):
         self.ui.checkBoxEnableScanList.clicked.connect(self.toggle_split_preset_mode)
         self.toggle_split_preset_mode()
 
+        self.ui.buttonElementSooner.clicked.connect(self.move_element_sooner)
+        self.ui.buttonElementLater.clicked.connect(self.move_element_later)
+        self.ui.buttonScanSooner.clicked.connect(self.move_scan_sooner)
+        self.ui.buttonScanLater.clicked.connect(self.move_scan_later)
+
     def populate_preset_list(self):
         self.ui.listAvailablePresets.clear()
         for preset in self.main_window.load_preset_list():
@@ -37,16 +42,19 @@ class MultiScanner(QWidget):
     def apply_preset_to_main_window(self):
         self.main_window.apply_preset_from_selected_element(self.ui.listAvailablePresets.selectedItems())
 
-    def refresh_multiscan_lists(self):
+    def refresh_multiscan_lists(self, list_widget=None, index=None):
         self.ui.listElementPresets.clear()
         self.ui.listScanPresets.clear()
         number_scans = max(len(self.element_preset_list), len(self.scan_preset_list))
         for i in range(number_scans):
-            try: self.ui.listElementPresets.addItem(f"{i}. {self.element_preset_list[i]}")
+            try: self.ui.listElementPresets.addItem(f"{i+1}:  {self.element_preset_list[i]}")
             except IndexError: self.ui.listElementPresets.addItem(f"{i}.")
             if self.ui.checkBoxEnableScanList.isChecked():
-                try: self.ui.listScanPresets.addItem(f"{i}. {self.scan_preset_list[i]}")
+                try: self.ui.listScanPresets.addItem(f"{i+1}:  {self.scan_preset_list[i]}")
                 except IndexError:  self.ui.listScanPresets.addItem(f"{i}.")
+        if index is not None and list_widget is not None:
+            list_widget.setCurrentRow(index)
+            list_widget.setCurrentRow(index)
 
     def add_element_preset(self):
         self.add_to_list(self.ui.listAvailablePresets.selectedItems(), self.element_preset_list)
@@ -90,6 +98,33 @@ class MultiScanner(QWidget):
         self.ui.buttonCopyRowElement.setEnabled(is_enabled)
 
         self.refresh_multiscan_lists()
+
+    def move_element_sooner(self):
+        self.move_ordering(list_widget=self.ui.listElementPresets, target_list=self.element_preset_list, sooner=True)
+
+    def move_element_later(self):
+        self.move_ordering(list_widget=self.ui.listElementPresets, target_list=self.element_preset_list, later=True)
+
+    def move_scan_sooner(self):
+        self.move_ordering(list_widget=self.ui.listScanPresets, target_list=self.scan_preset_list, sooner=True)
+
+    def move_scan_later(self):
+        self.move_ordering(list_widget=self.ui.listScanPresets, target_list=self.scan_preset_list, later=True)
+
+    def move_ordering(self, list_widget, target_list, sooner=False, later=False):
+        """Moves the selected action to an earlier or later position in the same list"""
+        selected_items = list_widget.selectedItems()
+        if not selected_items:
+            return
+        for selection in selected_items:
+            i = list_widget.row(selection)
+        if sooner and 0 < i < len(target_list):
+            target_list[i], target_list[i - 1] = target_list[i - 1], target_list[i]
+            i = i - 1
+        if later and 0 <= i < len(target_list) - 1:
+            target_list[i], target_list[i + 1] = target_list[i + 1], target_list[i]
+            i = i + 1
+        self.refresh_multiscan_lists(list_widget=list_widget, index=i)
 
     def close_window(self):
         self.main_window.exit_multiscan_mode()
