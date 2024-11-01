@@ -41,7 +41,7 @@ class SoundPlayer:
     A class to handle playing sounds (beep and toot) in a background thread.
     """
     
-    def __init__(self, beep_frequency=500, beep_duration=0.1, toot_frequency=1500, toot_duration=0.75, sample_rate=44100):
+    def __init__(self, beep_frequency=700, beep_duration=0.1, toot_frequency=1200, toot_duration=0.75, sample_rate=44100):
         """
         Initialize the SoundPlayer with default or user-defined frequency, duration, and sample rate.
 
@@ -76,6 +76,12 @@ class SoundPlayer:
         """Add a toot sound request to the queue."""
         self.sound_queue.put('toot')
 
+    def play_advanced_toot(self):
+        self.sound_queue.put('custom1')
+        self.sound_queue.put('custom2')
+        self.sound_queue.put('custom3')
+        self.sound_queue.put('custom4')
+
     def stop(self):
         """Stop the sound player by sending a termination signal."""
         self.running = False
@@ -102,7 +108,14 @@ class SoundPlayer:
                     self._play_sound(self.beep_frequency, self.beep_duration)
                 elif sound_type == 'toot':
                     self._play_sound(self.toot_frequency, self.toot_duration)
-
+                elif sound_type == 'custom1':
+                    self._play_sound(784, 0.25)
+                elif sound_type == 'custom2':
+                    self._play_sound(1047, 0.25)
+                elif sound_type == 'custom3':
+                    self._play_sound(1175, 0.25)
+                elif sound_type == 'custom4':
+                    self._play_sound(1568, 0.5)
                 # Mark the task as done
                 self.sound_queue.task_done()
             except Exception as e:
@@ -1496,3 +1509,11 @@ class DataLogger():
             float: The current shot index.
         """
         return float(self.shot_index)
+
+
+if __name__ == '__main__':
+    sound_player = SoundPlayer(beep_frequency=800, toot_frequency=2000)
+    sound_player.play_advanced_toot()
+    sound_player._process_queue()
+    time.sleep(1)
+    sound_player.stop()
