@@ -9,6 +9,7 @@ UC_Phosphor1:
   Threshold: 0
   Rotate: False
   Calibration: 0.0000165
+
 UC_ALineEbeam1:
   Background Level: 60
   Left ROI: 1
@@ -22,6 +23,7 @@ UC_ALineEbeam1:
   Threshold: 65
   Rotate: True
   Calibration: 0.00002217
+
 UC_ALineEBeam2:
   Background Level: 18
   Left ROI: 100
@@ -33,6 +35,7 @@ UC_ALineEBeam2:
   Threshold: 10
   Rotate: True
   Calibration: 0.00002394
+
 UC_ALineEBeam3:
   Background Level: 10
   Left ROI: 180
@@ -44,6 +47,7 @@ UC_ALineEBeam3:
   Threshold: 10
   Rotate: False
   Calibration: 0.0000244
+
 UC_VisaEBeam1:
   Background Level: 15
   Left ROI: 558
@@ -123,7 +127,7 @@ UC_VisaEBeam4:
   Cross1: [268,175]
   Cross2: [287,533]
   Cross Shift: -4
-  
+
 UC_VisaEBeam5:
   Background Level: 25
   Left ROI: 135
@@ -163,7 +167,7 @@ UC_VisaEBeam6:
   Cross1: [315,85]
   Cross2: [310,425]
   Cross Shift: 0
-  
+
 UC_VisaEBeam7:
   Background Level: 15
   Left ROI: 120
@@ -200,7 +204,6 @@ UC_VisaEBeam8:
   Rotate: 0
   Calibration: 0.0000075
   Apply Mask: True
-  Cross1: [380,172]
-  Cross2: [380,435]
+  Cross1: [402, 183]
+  Cross2: [410, 459]
   Cross Shift: 0
-  
