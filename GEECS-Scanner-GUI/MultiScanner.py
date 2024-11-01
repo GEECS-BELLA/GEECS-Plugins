@@ -36,6 +36,8 @@ class MultiScanner(QWidget):
 
         self.ui.buttonCopyElementToScan.clicked.connect(self.copy_list_element_to_scan)
         self.ui.buttonCopyScanToElement.clicked.connect(self.copy_list_scan_to_element)
+        self.ui.buttonCopyRowElement.clicked.connect(self.copy_row_to_list_element)
+        self.ui.buttonCopyRowScan.clicked.connect(self.copy_row_to_list_scan)
 
     def populate_preset_list(self):
         self.ui.listAvailablePresets.clear()
@@ -136,6 +138,39 @@ class MultiScanner(QWidget):
     def copy_list_scan_to_element(self):
         self.element_preset_list = self.scan_preset_list.copy()
         self.refresh_multiscan_lists()
+
+    def copy_row_to_list_element(self):
+        self.copy_row_to_list(list_widget=self.ui.listElementPresets, target_list=self.element_preset_list)
+
+    def copy_row_to_list_scan(self):
+        self.copy_row_to_list(list_widget=self.ui.listScanPresets, target_list=self.scan_preset_list)
+
+    def copy_row_to_list(self, list_widget, target_list):
+        """Logic of copying a row element to the rest of the list.  Would be easy except that I also want to add the
+        feature of allowing to copy a blank line to clear the list, and copy a single line to fill that list to the
+        same length as the other list.  TODO there are two for loops here and I think they could be written better..."""
+        selected_items = list_widget.selectedItems()
+        if not selected_items:
+            return
+        for selection in selected_items:
+            i = list_widget.row(selection)
+
+        if i >= len(target_list):
+            replacement = ''
+        else:
+            replacement = target_list[i]
+
+        for j in range(max(len(self.element_preset_list), len(self.scan_preset_list))):
+            if j >= len(target_list):
+                target_list.append(replacement)
+            else:
+                target_list[j] = replacement
+
+        for j in list(reversed(range(max(len(self.element_preset_list), len(self.scan_preset_list))))):
+            if target_list[j] == '':
+                del target_list[j]
+
+        self.refresh_multiscan_lists(list_widget=list_widget, index=i)
 
     def close_window(self):
         self.main_window.exit_multiscan_mode()
