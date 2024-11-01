@@ -21,7 +21,9 @@ from LogStream import EmittingStream, MultiStream
 MAXIMUM_SCAN_SIZE = 1e6
 RELATIVE_PATH = "../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/"
 PRESET_LOCATIONS = "./scan_presets/"
+MULTISCAN_CONFIGS = "./multiscan_presets/"
 CONFIG_PATH = os.path.expanduser('~/.config/geecs_python_api/config.ini')
+
 
 class GEECSScannerWindow(QMainWindow):
     def __init__(self):
@@ -385,7 +387,7 @@ class GEECSScannerWindow(QMainWindow):
         self.refresh_element_list()
 
     def open_multiscanner(self):
-        self.multiscanner_window = MultiScanner(self)
+        self.multiscanner_window = MultiScanner(self, f"{MULTISCAN_CONFIGS}{self.experiment}/")
         self.multiscanner_window.show()
 
         self.is_in_multiscan = True

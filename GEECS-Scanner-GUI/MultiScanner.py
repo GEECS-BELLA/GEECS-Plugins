@@ -1,9 +1,11 @@
-from PyQt5.QtWidgets import QWidget
+import os
+import yaml
+from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog
 from MultiScanner_ui import Ui_Form
 
 
 class MultiScanner(QWidget):
-    def __init__(self, main_window):
+    def __init__(self, main_window, multiscan_configurations_location):
         super().__init__()
 
         self.main_window = main_window
@@ -39,6 +41,10 @@ class MultiScanner(QWidget):
         self.ui.buttonCopyRowElement.clicked.connect(self.copy_row_to_list_element)
         self.ui.buttonCopyRowScan.clicked.connect(self.copy_row_to_list_scan)
 
+        self.config_folder = multiscan_configurations_location
+        self.ui.buttonSaveMultiscan.clicked.connect(self.save_multiscan_configuration)
+        self.ui.buttonLoadMultiscan.clicked.connect(self.load_multiscan_configuration)
+
     def populate_preset_list(self):
         self.ui.listAvailablePresets.clear()
         for preset in self.main_window.load_preset_list():
@@ -50,13 +56,19 @@ class MultiScanner(QWidget):
     def refresh_multiscan_lists(self, list_widget=None, index=None):
         self.ui.listElementPresets.clear()
         self.ui.listScanPresets.clear()
-        number_scans = max(len(self.element_preset_list), len(self.scan_preset_list))
+
+        if self.ui.checkBoxEnableScanList:
+            number_scans = max(len(self.element_preset_list), len(self.scan_preset_list))
+        else:
+            number_scans = len(self.element_preset_list)
+
         for i in range(number_scans):
             try: self.ui.listElementPresets.addItem(f"{i+1}:  {self.element_preset_list[i]}")
             except IndexError: self.ui.listElementPresets.addItem(f"{i+1}.")
             if self.ui.checkBoxEnableScanList.isChecked():
                 try: self.ui.listScanPresets.addItem(f"{i+1}:  {self.scan_preset_list[i]}")
                 except IndexError:  self.ui.listScanPresets.addItem(f"{i+1}.")
+
         if index is not None and list_widget is not None:
             list_widget.setCurrentRow(index)
             list_widget.setCurrentRow(index)
@@ -171,6 +183,50 @@ class MultiScanner(QWidget):
                 del target_list[j]
 
         self.refresh_multiscan_lists(list_widget=list_widget, index=i)
+
+    def save_multiscan_configuration(self):
+        text, ok = QInputDialog.getText(self, 'Save Configuration', 'Enter filename:')
+        if ok and text:
+            settings = {
+                'Element Presets': self.element_preset_list,
+                'Split Preset Mode': self.ui.checkBoxEnableScanList.isChecked()
+            }
+            if len(self.scan_preset_list) > 0:
+                settings['Scan Presets'] = self.scan_preset_list
+
+            os.makedirs(self.config_folder, exist_ok=True)
+
+            with open(f"{self.config_folder}/{text}.yaml", 'w') as file:
+                yaml.dump(settings, file, default_flow_style=False)
+
+    def load_multiscan_configuration(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", self.config_folder, "YAML Files (*yaml)",
+                                                   options=options)
+        if file_name:
+            self.load_settings_from_file(file_name)
+            self.toggle_split_preset_mode()
+            self.refresh_multiscan_lists()
+
+    def load_settings_from_file(self, file_name):
+        with open(file_name, 'r') as file:
+            settings = yaml.safe_load(file)
+
+        if 'Element Presets' in settings:
+            self.element_preset_list = settings['Element Presets']
+        else:
+            self.element_preset_list = []
+
+        if 'Split Preset Mode' in settings and settings['Split Preset Mode']:
+            self.ui.checkBoxEnableScanList.setChecked(True)
+            if 'Scan Presets' in settings:
+                self.scan_preset_list = settings['Scan Presets']
+            else:
+                self.scan_preset_list = []
+        else:
+            self.ui.checkBoxEnableScanList.setChecked(False)
+            self.scan_preset_list = []
 
     def close_window(self):
         self.main_window.exit_multiscan_mode()
