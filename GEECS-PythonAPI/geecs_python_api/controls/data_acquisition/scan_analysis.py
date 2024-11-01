@@ -506,49 +506,19 @@ class CameraImageAnalysis(ScanAnalysis):
         logging.info(f"Saved final image grid as {save_name}.")
         self.close_or_show_plot()
 
-    def create_cross_mask(self, image, cross_center, angle, cross_height=54,
-                          cross_width=54, thickness=8):
+    def crop_image(self, image, analysis_settings):
         """
-        Creates a mask with a cross centered at `cross_center` with the cross being zeros and the rest ones.
-
-        Args:
-        - image (np.array): The image on which to base the mask size.
-        - cross_center (tuple): The (x, y) center coordinates of the cross.
-        - cross_height (int): The height of the cross extending vertically from the center.
-        - cross_width (int): The width of the cross extending horizontally from the center.
-        - thickness (int): The thickness of the lines of the cross.
-
-        Returns:
-        - np.array: The mask with the cross.
-        """
-        mask = np.ones_like(image, dtype=np.uint16)
-        x_center, y_center = cross_center
-        vertical_start, vertical_end = max(y_center - cross_height, 0), min(y_center + cross_height, image.shape[0])
-        horizontal_start, horizontal_end = max(x_center - cross_width, 0), min(x_center + cross_width, image.shape[1])
-        mask[vertical_start:vertical_end, x_center - thickness // 2:x_center + thickness // 2] = 0
-        mask[y_center - thickness // 2:y_center + thickness // 2, horizontal_start:horizontal_end] = 0
-
-        M = cv2.getRotationMatrix2D(cross_center, angle, 1.0)
-        rotated_mask = cv2.warpAffine(mask, M, (image.shape[1], image.shape[0]), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=1)
-        return rotated_mask
-
-    def preprocess_visa_image(self, image, analysis_settings):
-        """
-        This function loads uses predefined analysis_settings to crop an image and mask out "crosses" from the images.
+        This function loads uses predefined analysis_settings to crop an image.
 
         Args:
         - image: loaded image to be processed.
 
         """
-        mask1 = self.create_cross_mask(image, analysis_settings['Cross1'], analysis_settings['Rotate'])
-        mask2 = self.create_cross_mask(image, analysis_settings['Cross2'], analysis_settings['Rotate'])
 
-        masked_image = image * mask1 * mask2
-        cropped_image = masked_image[analysis_settings['Top ROI']:analysis_settings['Top ROI'] + analysis_settings['Size_Y'],
+        cropped_image = image[analysis_settings['Top ROI']:analysis_settings['Top ROI'] + analysis_settings['Size_Y'],
                               analysis_settings['Left ROI']:analysis_settings['Left ROI'] + analysis_settings['Size_X']]
 
-        processed_image = cropped_image
-        return processed_image
+        return cropped_image
 
     def run_analysis(self):
         """
@@ -557,6 +527,7 @@ class CameraImageAnalysis(ScanAnalysis):
         MAY BE DEPRECATED. DEDICATED RUN ANALYSIS FOR VISA IMAGES EXISTS BELOW.
         SHOULD REDUCE FOR BASE IMAGE ANALYSIS.
         """
+
         if self.data_subdirectory is None or self.auxiliary_data is None:
             logging.info(f"Skipping analysis due to missing data or auxiliary file.")
             return
@@ -580,7 +551,7 @@ class CameraImageAnalysis(ScanAnalysis):
 
                 if self.device_name in self.camera_analysis_configs.keys():
                     analysis_settings = self.camera_analysis_configs[self.device_name]
-                    avg_image_processed = self.preprocess_visa_image(avg_image, analysis_settings)
+                    avg_image_processed = self.crop_image(avg_image, analysis_settings)
                     avg_images.append(avg_image_processed)
 
                     # Save the averaged image
