@@ -9,6 +9,7 @@ UC_Phosphor1:
   Threshold: 0
   Rotate: False
   Calibration: 0.0000165
+
 UC_ALineEbeam1:
   Background Level: 60
   Left ROI: 1
@@ -22,6 +23,7 @@ UC_ALineEbeam1:
   Threshold: 65
   Rotate: True
   Calibration: 0.00002217
+
 UC_ALineEBeam2:
   Background Level: 18
   Left ROI: 100
@@ -33,6 +35,7 @@ UC_ALineEBeam2:
   Threshold: 10
   Rotate: True
   Calibration: 0.00002394
+
 UC_ALineEBeam3:
   Background Level: 10
   Left ROI: 180
@@ -44,7 +47,7 @@ UC_ALineEBeam3:
   Threshold: 10
   Rotate: False
   Calibration: 0.0000244
-  
+
 UC_VisaEBeam1:
   Background Level: 15
   Left ROI: 558
@@ -62,6 +65,8 @@ UC_VisaEBeam1:
   Cross1: [732,290]
   Cross2: [732,631]
   Cross Shift: -4
+  Blue Centroid X: 764
+  Blue Centroid Y: 449
 
 UC_VisaEBeam2:
   Background Level: 20
@@ -80,6 +85,8 @@ UC_VisaEBeam2:
   Cross1: [193,97]
   Cross2: [193,465]
   Cross Shift: 0
+  Blue Centroid X: 216
+  Blue Centroid Y: 252
 
 UC_VisaEBeam3:
   Background Level: 15
@@ -98,6 +105,8 @@ UC_VisaEBeam3:
   Cross1: [374,127]
   Cross2: [338,485]
   Cross Shift: 0
+  Blue Centroid X: 315
+  Blue Centroid Y: 264
 
 UC_VisaEBeam4:
   Background Level: 15
@@ -116,7 +125,9 @@ UC_VisaEBeam4:
   Cross1: [268,175]
   Cross2: [287,533]
   Cross Shift: -4
-  
+  Blue Centroid X: 318
+  Blue Centroid Y: 336
+
 UC_VisaEBeam5:
   Background Level: 25
   Left ROI: 135
@@ -134,6 +145,8 @@ UC_VisaEBeam5:
   Cross1: [267,95]
   Cross2: [262,440]
   Cross Shift: 0
+  Blue Centroid X: 270
+  Blue Centroid Y: 232
 
 UC_VisaEBeam6:
   Background Level: 25
@@ -152,7 +165,9 @@ UC_VisaEBeam6:
   Cross1: [295,85]
   Cross2: [290,425]
   Cross Shift: 0
-  
+  Blue Centroid X: 289
+  Blue Centroid Y: 204
+
 UC_VisaEBeam7:
   Background Level: 15
   Left ROI: 120
@@ -170,6 +185,8 @@ UC_VisaEBeam7:
   Cross1: [275,328]
   Cross2: [275,550]
   Cross Shift: 0
+  Blue Centroid X: 201
+  Blue Centroid Y: 289
 
 UC_VisaEBeam8:
   Background Level: 30
@@ -188,6 +205,8 @@ UC_VisaEBeam8:
   Cross1: [400,187]
   Cross2: [403,450]
   Cross Shift: 0
+  Blue Centroid X: 222
+  Blue Centroid Y: 249
 
 
 UC_UndulatorRad2:
