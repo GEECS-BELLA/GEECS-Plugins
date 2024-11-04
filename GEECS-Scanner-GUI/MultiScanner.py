@@ -54,6 +54,9 @@ class MultiScanner(QWidget):
         self.ui.buttonSaveMultiscan.clicked.connect(self.save_multiscan_configuration)
         self.ui.buttonLoadMultiscan.clicked.connect(self.load_multiscan_configuration)
 
+        self.ui.spinBoxStartPosition.setMinimum(1)
+        self.ui.spinBoxStartPosition.setMaximum(1)
+
         self.worker_thread = None
         self.worker = None
         self.is_stopping = False
@@ -94,6 +97,12 @@ class MultiScanner(QWidget):
         if index is not None and list_widget is not None:
             list_widget.setCurrentRow(index)
             list_widget.setCurrentRow(index)
+
+        if number_scans == 0:
+            number_scans = 1
+        if self.ui.spinBoxStartPosition.value() > number_scans:
+            self.ui.spinBoxStartPosition.setValue(number_scans)
+        self.ui.spinBoxStartPosition.setMaximum(number_scans)
 
     def add_element_preset(self):
         self.add_to_list(self.ui.listAvailablePresets.selectedItems(), self.element_preset_list)
