@@ -10,10 +10,17 @@ Devices:
     - MeanCounts
     - timestamp
   UC_VisaEBeam6:
-    post_analysis_class: CameraImageAnalysis
+    post_analysis_class: VisaEBeamAnalysis
     save_nonscalar_data: true
     synchronous: true
     variable_list:
+    - timestamp
+  U_BCaveICT:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - Python Results.ChA
+    - Python Results.ChB
     - timestamp
 scan_info:
   description: collecting data on visa6EBeam and UC_UndulatorRad2

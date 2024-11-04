@@ -372,6 +372,22 @@ class ScanManager:
 
         self.initial_state = None
         self.scan_steps = []  # To store the precomputed scan steps
+        
+        self.pause_scan_event = threading.Event()  # Event to handle scan pausing
+        self.pause_scan_event.set()  # Set to 'running' by default
+        self.pause_time = 0
+
+    def pause_scan(self):
+        """Pause the scanning process by clearing the pause event."""
+        if self.pause_scan_event.is_set():
+            self.pause_scan_event.clear()
+            logging.info("Scanning paused.")
+
+    def resume_scan(self):
+        """Resume the scanning process by setting the pause event."""
+        if not self.pause_scan_event.is_set():
+            self.pause_scan_event.set()
+            logging.info("Scanning resumed.")
 
     def get_database_dict(self):
         """TODO This should probably be a class variable"""
@@ -772,8 +788,7 @@ class ScanManager:
             is_composite (bool): Flag indicating whether the step involves composite variables.
             max_retries (int): Maximum number of retries if setting the value is outside the tolerance.
             retry_delay (float): Delay in seconds between retries.
-        """
-
+        """        
         logging.info("Pausing logging. Turning trigger off before moving devices.")
         if self.data_logger.virtual_variable_name is not None:
             self.data_logger.virtual_variable_value = self.virtual_variable_list[self.data_logger.bin_num]
@@ -830,7 +845,7 @@ class ScanManager:
         # idle time should be the time between then end of the "previous" step
         # and the start of the next step.
         if self.scan_step_end_time > 0:
-            self.data_logger.idle_time = self.scan_step_start_time - self.scan_step_end_time
+            self.data_logger.idle_time = self.scan_step_start_time - self.scan_step_end_time + self.pause_time
             logging.info(f'idle time between scan steps: {self.data_logger.idle_time}')
 
         logging.info(f"shot control state: {self.shot_control.state}")
@@ -838,20 +853,32 @@ class ScanManager:
         # Wait for acquisition time (or until scanning is externally stopped)
         current_time = 0
         interval_time = 0.1
+        self.pause_time = 0
         while current_time < wait_time:
             if self.stop_scanning_thread_event.is_set():
                 logging.info("Scanning has been stopped externally.")
                 break
+            
+            # Check if the scan is paused, and wait until it’s resumed
+            if not self.pause_scan_event.is_set():
+                self.trigger_off()
+                self.data_logger.data_recording = False
+                t0 = time.time()
+                logging.info("Scan is paused, waiting to resume...")
+                self.pause_scan_event.wait()  # Blocks until the event is set (i.e., resumed)
+                self.pause_time = time.time() - t0
+                self.trigger_on()
+                self.data_logger.data_recording = True
+                
 
             time.sleep(interval_time)
             current_time += interval_time
 
         # Turn trigger off after waiting
         self.trigger_off()
+        
         self.scan_step_end_time = time.time()
         self.data_logger.data_recording = False
-        
-        
         
         logging.info(f"shot control state: {self.shot_control.state}")  
 

@@ -1439,7 +1439,7 @@ class DataLogger():
                     device_name = observable.split(':')[0]
                     last_log_time = self.last_log_time_sync.get(device_name, None)
 
-                    if last_log_time and (current_time - (last_log_time + + self.idle_time)) > self.warning_timeout_sync:
+                    if last_log_time and (current_time - (last_log_time + self.idle_time)) > self.warning_timeout_sync:
                         logging.warning(
                             f"Synchronous device {device_name} hasn't updated in over {self.warning_timeout_sync} seconds.")
 
@@ -1449,7 +1449,7 @@ class DataLogger():
                     device_name = observable.split(':')[0]
                     last_log_time = self.last_log_time_async.get(device_name, None)
 
-                    if last_log_time and (current_time - last_log_time) > async_timeout:
+                    if last_log_time and (current_time - (last_log_time + self.idle_time)) > async_timeout:
                         logging.warning(
                             f"Asynchronous device {device_name} hasn't updated in over {async_timeout} seconds.")
 
