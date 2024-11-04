@@ -704,10 +704,10 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
                     
                     # Save the averaged image
                     save_name = f'{self.device_name}_{bin_number}_processed.png'
-                    self.save_geecs_scaled_image(avg_image_processed, save_dir=self.scan_directory, save_name=save_name)
+                    self.save_geecs_scaled_image(avg_image_processed_cropped, save_dir=self.scan_directory, save_name=save_name)
                     
                     if analysis_settings.get('Median Filter Size', None):
-                        filtered_image = self.filter_image(avg_image_processed, analysis_settings)
+                        filtered_image = self.filter_image(avg_image_processed_cropped, analysis_settings)
                         avg_images.append(filtered_image)
                         
                         save_name = f'{self.device_name}_{bin_number}_processed_filtered.png'
@@ -716,7 +716,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
                         self.save_normalized_image(filtered_image, save_dir=self.scan_directory, save_name=save_name)
 
                     else:
-                        avg_images.append(avg_image_processed)
+                        avg_images.append(avg_image_processed_cropped)
                     
                     
                 else: 
