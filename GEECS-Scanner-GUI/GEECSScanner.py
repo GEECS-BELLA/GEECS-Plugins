@@ -618,47 +618,48 @@ class GEECSScannerWindow(QMainWindow):
         """Loads the yaml file selected in the preset list, clears all current information on the GUI, then
         systematically populate everything so that the GUI is equivalent to when it was saved as a preset"""
         selected_element = self.ui.listScanPresets.selectedItems()
-        self.apply_preset_from_selected_element(selected_element)
-
-    def apply_preset_from_selected_element(self, selected_element):
-        """
-        :param selected_element: the ListWidget element from which to load a preset of
-        """
-        settings = {}
         for preset in selected_element:
-            preset_filename = f"{PRESET_LOCATIONS}{self.experiment}/{preset.text()}.yaml"
-            with open(preset_filename, 'r') as file:
-                settings = yaml.safe_load(file)
+            preset_name = f"{preset.text()}"
 
-        self.clear_lists()
-        self.populate_found_list()
-        self.populate_preset_list()
+        self.apply_preset_from_name(preset_name)
 
-        devices_to_select = []
-        for index in range(self.ui.foundDevices.count()):
-            item = self.ui.foundDevices.item(index)
-            if item.text() in settings['Devices']:
-                devices_to_select.append(item)
-        for device in devices_to_select:
-            self.ui.foundDevices.takeItem(self.ui.foundDevices.row(device))
-            self.ui.selectedDevices.addItem(device)
+    def apply_preset_from_name(self, preset_name, load_save_elements=True, load_scan_params=True):
+        preset_filename = f"{PRESET_LOCATIONS}{self.experiment}/{preset_name}.yaml"
+        with open(preset_filename, 'r') as file:
+            settings = yaml.safe_load(file)
 
         self.ui.textEditScanInfo.setText(str(settings['Info']))
-        if settings['Scan Mode'] in "No Scan":
-            self.ui.noscanRadioButton.setChecked(True)
-            self.update_scan_edit_state()
-            self.ui.lineNumShots.setText(str(settings['Num Shots']))
-            self.update_noscan_num_shots()
-        elif settings['Scan Mode'] in "1D Scan":
-            self.ui.scanRadioButton.setChecked(True)
-            self.update_scan_edit_state()
-            self.ui.lineScanVariable.setText(str(settings['Variable']))
-            self.check_scan_device()
-            self.ui.lineStartValue.setText(str(settings['Start']))
-            self.ui.lineStopValue.setText(str(settings['Stop']))
-            self.ui.lineStepSize.setText(str(settings['Step Size']))
-            self.ui.lineShotStep.setText(str(settings['Shot per Step']))
-            self.calculate_num_shots()
+
+        if load_save_elements:
+            self.clear_lists()
+            self.populate_found_list()
+            self.populate_preset_list()
+
+            devices_to_select = []
+            for index in range(self.ui.foundDevices.count()):
+                item = self.ui.foundDevices.item(index)
+                if item.text() in settings['Devices']:
+                    devices_to_select.append(item)
+            for device in devices_to_select:
+                self.ui.foundDevices.takeItem(self.ui.foundDevices.row(device))
+                self.ui.selectedDevices.addItem(device)
+
+        if load_scan_params:
+            if settings['Scan Mode'] in "No Scan":
+                self.ui.noscanRadioButton.setChecked(True)
+                self.update_scan_edit_state()
+                self.ui.lineNumShots.setText(str(settings['Num Shots']))
+                self.update_noscan_num_shots()
+            elif settings['Scan Mode'] in "1D Scan":
+                self.ui.scanRadioButton.setChecked(True)
+                self.update_scan_edit_state()
+                self.ui.lineScanVariable.setText(str(settings['Variable']))
+                self.check_scan_device()
+                self.ui.lineStartValue.setText(str(settings['Start']))
+                self.ui.lineStopValue.setText(str(settings['Stop']))
+                self.ui.lineStepSize.setText(str(settings['Step Size']))
+                self.ui.lineShotStep.setText(str(settings['Shot per Step']))
+                self.calculate_num_shots()
 
     def delete_selected_preset(self):
         """Deletes the preset that is currently selected in the list.  Afterwards, refreshes the preset list"""

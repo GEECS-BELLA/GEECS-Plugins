@@ -76,7 +76,11 @@ class MultiScanner(QWidget):
             self.ui.listAvailablePresets.addItem(preset)
 
     def apply_preset_to_main_window(self):
-        self.main_window.apply_preset_from_selected_element(self.ui.listAvailablePresets.selectedItems())
+        selected_element = self.ui.listAvailablePresets.selectedItems()
+        for preset in selected_element:
+            preset_name = f"{preset.text()}"
+
+        self.main_window.apply_preset_from_name(preset_name)
 
     def refresh_multiscan_lists(self, list_widget=None, index=None):
         self.ui.listElementPresets.clear()
@@ -265,7 +269,7 @@ class MultiScanner(QWidget):
 
         # Make a list of presets to execute
         element_list = self.element_preset_list
-        scan_list = None
+        scan_list = []
         if self.ui.checkBoxEnableScanList.isChecked():
             scan_list = self.scan_preset_list
 
@@ -276,6 +280,7 @@ class MultiScanner(QWidget):
         self.worker.moveToThread(self.worker_thread)
 
         self.worker_thread.started.connect(self.worker.start_work)
+        self.worker.submit_next.connect(self.push_next_preset_scan)
         self.worker.finished.connect(self.worker_thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
         self.worker_thread.finished.connect(self.cleanup_worker)
@@ -284,6 +289,23 @@ class MultiScanner(QWidget):
         self.worker_thread.start()
 
         self.ui.buttonStopMultiscan.setEnabled(True)
+
+    @pyqtSlot(int, list, list)
+    def push_next_preset_scan(self, current_position, element_presets, scan_presets):
+        info = f"Scan #{current_position + 1}: {element_presets[current_position]}"
+        if not scan_presets:
+            print("Just elements")
+            self.main_window.apply_preset_from_name(element_presets[current_position])
+        else:
+            print("Split")
+            self.main_window.apply_preset_from_name(element_presets[current_position], load_scan_params=False)
+            self.main_window.apply_preset_from_name(scan_presets[current_position], load_save_elements=False)
+            info = info + f" --> {scan_presets[current_position]}"
+
+        self.main_window.ui.textEditScanInfo.setText(info)
+        #self.main_window.initialize_scan()
+
+        print("Initialized")
 
     def stop_multiscan(self):
         """Stop the ongoing multiscan and any current scan on the main window, as well as clean up the worker"""
@@ -338,6 +360,7 @@ class MultiScanner(QWidget):
 
 class Worker(QObject):
     finished = pyqtSignal()
+    submit_next = pyqtSignal(int, list, list)
 
     def __init__(self, main_window, start_number, element_presets, scan_presets=None):
         super().__init__()
@@ -362,10 +385,7 @@ class Worker(QObject):
         return self.main_window.is_ready_for_scan()
 
     def send_command(self):
-        print("Running preset:", self.element_presets[self.current_position])
-
-        self.main_window.apply_preset_from_selected_element(self.element_presets[self.current_position])
-        self.main_window.initialize_scan()
+        self.submit_next.emit(self.current_position, self.element_presets, self.scan_presets)
 
         self.current_position += 1
         if self.current_position >= len(self.element_presets):
