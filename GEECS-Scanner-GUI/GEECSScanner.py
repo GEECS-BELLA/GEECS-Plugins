@@ -395,6 +395,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def exit_multiscan_mode(self):
         self.is_in_multiscan = False
+        self.multiscanner_window = None
 
     def refresh_element_list(self):
         """Refreshes the list of available and selected elements, but does not clear them.  Instead, all previously
@@ -790,6 +791,12 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.buttonUpdateConfig.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
+
+    def is_ready_for_scan(self):
+        if self.RunControl is None:
+            return False
+        else:
+            return not self.RunControl.is_active()
 
     def stop_scan(self):
         """Submits a request to RunControl to stop the current scan.  In the meantime, disable the Stop Scan button so

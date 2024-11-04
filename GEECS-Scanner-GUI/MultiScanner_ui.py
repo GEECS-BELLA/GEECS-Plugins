@@ -109,6 +109,12 @@ class Ui_Form(object):
         self.checkBoxEnableScanList = QtWidgets.QCheckBox(Form)
         self.checkBoxEnableScanList.setGeometry(QtCore.QRect(400, 10, 121, 20))
         self.checkBoxEnableScanList.setObjectName("checkBoxEnableScanList")
+        self.lineProgress = QtWidgets.QLineEdit(Form)
+        self.lineProgress.setGeometry(QtCore.QRect(370, 400, 61, 22))
+        self.lineProgress.setObjectName("lineProgress")
+        self.label_3 = QtWidgets.QLabel(Form)
+        self.label_3.setGeometry(QtCore.QRect(370, 380, 55, 16))
+        self.label_3.setObjectName("label_3")
 
         self.retranslateUi(Form)
         QtCore.QMetaObject.connectSlotsByName(Form)
@@ -138,3 +144,4 @@ class Ui_Form(object):
         self.buttonStopMultiscan.setText(_translate("Form", "Stop"))
         self.label_4.setText(_translate("Form", "at"))
         self.checkBoxEnableScanList.setText(_translate("Form", "Scan Commands"))
+        self.label_3.setText(_translate("Form", "Progress:"))

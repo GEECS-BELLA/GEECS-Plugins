@@ -1,6 +1,15 @@
+"""
+TODO need to accoutn for fringe cases.  IE, no running with no presets, running with mismatched presets, start index is
+too large, etc.
+
+-Chris
+"""
+
 import os
 import yaml
+import time
 from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog
+from PyQt5.QtCore import Qt, QEvent, QTimer, QObject, QThread, pyqtSignal, pyqtSlot
 from MultiScanner_ui import Ui_Form
 
 
@@ -44,6 +53,19 @@ class MultiScanner(QWidget):
         self.config_folder = multiscan_configurations_location
         self.ui.buttonSaveMultiscan.clicked.connect(self.save_multiscan_configuration)
         self.ui.buttonLoadMultiscan.clicked.connect(self.load_multiscan_configuration)
+
+        self.worker_thread = None
+        self.worker = None
+        self.is_stopping = False
+        self.ui.buttonStartMultiscan.clicked.connect(self.start_multiscan)
+        self.ui.buttonStopMultiscan.clicked.connect(self.stop_multiscan)
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_progress)
+        self.ui.lineProgress.setText("-/-")
+        self.ui.lineProgress.setReadOnly(True)
+        self.timer.start(500)
+        self.update_progress()
 
     def populate_preset_list(self):
         self.ui.listAvailablePresets.clear()
@@ -228,10 +250,117 @@ class MultiScanner(QWidget):
             self.ui.checkBoxEnableScanList.setChecked(False)
             self.scan_preset_list = []
 
+    def start_multiscan(self):
+        """Initializes a thread to periodically send presets and start scan commands to GEECS Scanner."""
+        self.ui.buttonStartMultiscan.setEnabled(False)
+
+        # Make a list of presets to execute
+        element_list = self.element_preset_list
+        scan_list = None
+        if self.ui.checkBoxEnableScanList.isChecked():
+            scan_list = self.scan_preset_list
+
+        # Start a thread to check if the main window is not running a scan.  If so, load the next preset and start scan
+        self.worker = Worker(main_window=self.main_window, start_number=self.ui.spinBoxStartPosition.value()-1,
+                             element_presets=element_list, scan_presets=scan_list)
+        self.worker_thread = QThread()
+        self.worker.moveToThread(self.worker_thread)
+
+        self.worker_thread.started.connect(self.worker.start_work)
+        self.worker.finished.connect(self.worker_thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.worker_thread.finished.connect(self.cleanup_worker)
+        self.worker_thread.finished.connect(self.worker_thread.deleteLater)
+
+        self.worker_thread.start()
+
+        self.ui.buttonStopMultiscan.setEnabled(True)
+
+    def stop_multiscan(self):
+        """Stop the ongoing multiscan and any current scan on the main window, as well as clean up the worker"""
+        self.is_stopping = True
+        self.ui.buttonStopMultiscan.setEnabled(False)
+
+        if self.worker:
+            # Kill the multiscan push thread
+            self.worker.stop_work()
+            self.cleanup_worker()
+
+            # Send stop command to main window
+            self.main_window.stop_scan()
+
+    def cleanup_worker(self):
+        """Sets the worker and its thread back to None"""
+        if self.worker_thread:
+            self.worker_thread.quit()
+            self.worker_thread.wait()
+            self.worker_thread = None
+        self.worker = None
+
+    def update_progress(self):
+        """Checks for the current status of multiscan and updates the display of the GUI accordingly"""
+
+        # If the multiscan is currently running, check the position in the thread list & set is_running to False if done
+        if self.worker:
+            self.ui.lineProgress.setText(self.worker.get_status())
+
+        # If is_stopping is true, check if the main window has reset and set is_stopping back to False
+        if self.is_stopping:
+            if not self.worker:
+                self.is_stopping = False
+
+        start_button_logic = not self.worker and not self.is_stopping
+        self.ui.buttonStartMultiscan.setEnabled(start_button_logic)
+        stop_button_logic = (self.worker is not None) and not self.is_stopping
+        self.ui.buttonStopMultiscan.setEnabled(stop_button_logic)
+
+        return
+
     def close_window(self):
+        self.stop_multiscan()
         self.main_window.exit_multiscan_mode()
         self.close()
 
     def closeEvent(self, event):
+        self.stop_multiscan()
         self.main_window.exit_multiscan_mode()
         event.accept()
+
+
+class Worker(QObject):
+    finished = pyqtSignal()
+
+    def __init__(self, main_window, start_number, element_presets, scan_presets=None):
+        super().__init__()
+        self._running = False
+        self.main_window = main_window
+        self.element_presets = element_presets
+        self.scan_presets = scan_presets
+        self.current_position = start_number
+
+    def start_work(self):
+        self._running = True
+        while self._running:
+            if self.check_condition():
+                self.send_command()
+            time.sleep(1)
+        self.finished.emit()
+
+    def stop_work(self):
+        self._running = False
+
+    def check_condition(self):
+        return self.main_window.is_ready_for_scan()
+
+    def send_command(self):
+        print("Running preset:", self.element_presets[self.current_position])
+
+        self.main_window.apply_preset_from_selected_element(self.element_presets[self.current_position])
+        self.main_window.initialize_scan()
+
+        self.current_position += 1
+        if self.current_position >= len(self.element_presets):
+            self.stop_work()
+
+    def get_status(self):
+        return f"{self.current_position}/{len(self.element_presets)}"
