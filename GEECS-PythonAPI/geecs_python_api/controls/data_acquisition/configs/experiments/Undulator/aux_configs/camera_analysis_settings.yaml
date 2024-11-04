@@ -67,6 +67,8 @@ UC_VisaEBeam1:
   Cross1: [732,290]
   Cross2: [732,631]
   Cross Shift: -4
+  Blue Centroid X: 764
+  Blue Centroid Y: 449
 
 UC_VisaEBeam2:
   Background Level: 20
@@ -87,6 +89,8 @@ UC_VisaEBeam2:
   Cross1: [193,97]
   Cross2: [193,465]
   Cross Shift: 0
+  Blue Centroid X: 216
+  Blue Centroid Y: 252
 
 UC_VisaEBeam3:
   Background Level: 15
@@ -107,6 +111,8 @@ UC_VisaEBeam3:
   Cross1: [374,127]
   Cross2: [338,485]
   Cross Shift: 0
+  Blue Centroid X: 315
+  Blue Centroid Y: 264
 
 UC_VisaEBeam4:
   Background Level: 15
@@ -127,6 +133,8 @@ UC_VisaEBeam4:
   Cross1: [268,175]
   Cross2: [287,533]
   Cross Shift: -4
+  Blue Centroid X: 318
+  Blue Centroid Y: 336
 
 UC_VisaEBeam5:
   Background Level: 25
@@ -147,6 +155,8 @@ UC_VisaEBeam5:
   Cross1: [280,95]
   Cross2: [275,440]
   Cross Shift: 0
+  Blue Centroid X: 270
+  Blue Centroid Y: 232
 
 UC_VisaEBeam6:
   Background Level: 25
@@ -167,6 +177,8 @@ UC_VisaEBeam6:
   Cross1: [315,85]
   Cross2: [310,425]
   Cross Shift: 0
+  Blue Centroid X: 289
+  Blue Centroid Y: 204
 
 UC_VisaEBeam7:
   Background Level: 15
@@ -187,6 +199,8 @@ UC_VisaEBeam7:
   Cross1: [278,325]
   Cross2: [275,550]
   Cross Shift: 0
+  Blue Centroid X: 201
+  Blue Centroid Y: 289
 
 UC_VisaEBeam8:
   Background Level: 30
@@ -207,3 +221,5 @@ UC_VisaEBeam8:
   Cross1: [402, 183]
   Cross2: [410, 459]
   Cross Shift: 0
+  Blue Centroid X: 222
+  Blue Centroid Y: 249
