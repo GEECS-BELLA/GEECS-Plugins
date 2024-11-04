@@ -1,6 +1,5 @@
 """
-TODO need to accoutn for fringe cases.  IE, no running with no presets, running with mismatched presets, start index is
-too large, etc.
+
 
 -Chris
 """
@@ -8,8 +7,8 @@ too large, etc.
 import os
 import yaml
 import time
-from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog
-from PyQt5.QtCore import Qt, QEvent, QTimer, QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog, QMessageBox
+from PyQt5.QtCore import QTimer, QObject, QThread, pyqtSignal, pyqtSlot
 from MultiScanner_ui import Ui_Form
 from multiscan_sound_player import play_finish_jingle
 
@@ -268,28 +267,43 @@ class MultiScanner(QWidget):
         """Initializes a thread to periodically send presets and start scan commands to GEECS Scanner."""
         self.ui.buttonStartMultiscan.setEnabled(False)
 
-        # Make a list of presets to execute
-        element_list = self.element_preset_list
-        scan_list = []
-        if self.ui.checkBoxEnableScanList.isChecked():
-            scan_list = self.scan_preset_list
+        if len(self.element_preset_list) == 0:
+            self.display_message("Number of element presets must be greater than zero.")
+        elif self.ui.checkBoxEnableScanList.isChecked() and len(self.element_preset_list) != len(self.scan_preset_list):
+            self.display_message("Need equivalent number of presents in both element and scan lists.")
+        else:
+            # Make a list of presets to execute
+            element_list = self.element_preset_list
+            scan_list = []
+            if self.ui.checkBoxEnableScanList.isChecked():
+                scan_list = self.scan_preset_list
 
-        # Start a thread to check if the main window is not running a scan.  If so, load the next preset and start scan
-        self.worker = Worker(main_window=self.main_window, start_number=self.ui.spinBoxStartPosition.value()-1,
-                             element_presets=element_list, scan_presets=scan_list)
-        self.worker_thread = QThread()
-        self.worker.moveToThread(self.worker_thread)
+            # Start a thread to push the next scan when the main gui window can accept a new scan
+            self.worker = Worker(main_window=self.main_window, start_number=self.ui.spinBoxStartPosition.value()-1,
+                                 element_presets=element_list, scan_presets=scan_list)
+            self.worker_thread = QThread()
+            self.worker.moveToThread(self.worker_thread)
 
-        self.worker_thread.started.connect(self.worker.start_work)
-        self.worker.submit_next.connect(self.push_next_preset_scan)
-        self.worker.finished.connect(self.worker_thread.quit)
-        self.worker.finished.connect(self.worker.deleteLater)
-        self.worker_thread.finished.connect(self.cleanup_worker)
-        self.worker_thread.finished.connect(self.worker_thread.deleteLater)
+            self.worker_thread.started.connect(self.worker.start_work)
+            self.worker.submit_next.connect(self.push_next_preset_scan)
+            self.worker.finished.connect(self.worker_thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.worker_thread.finished.connect(self.cleanup_worker)
+            self.worker_thread.finished.connect(self.worker_thread.deleteLater)
 
-        self.worker_thread.start()
+            self.worker_thread.start()
 
-        self.ui.buttonStopMultiscan.setEnabled(True)
+            self.ui.buttonStopMultiscan.setEnabled(True)
+
+    @staticmethod
+    def display_message(message):
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Information)
+        msg.setText("Error starting multiscan:")
+        msg.setInformativeText(message)
+        msg.setWindowTitle("Multiscan Error")
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec_()
 
     @pyqtSlot(int, list, list)
     def push_next_preset_scan(self, current_position, element_presets, scan_presets):
