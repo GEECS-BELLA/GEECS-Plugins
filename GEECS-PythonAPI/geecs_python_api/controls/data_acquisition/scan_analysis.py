@@ -632,6 +632,64 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
 
         return processed_image
 
+    def create_image_array(self, avg_images, diode_ref=True):
+        """
+        Arrange the averaged images into a sensibly sized grid and display them with scan parameter labels.
+        For visualization purposes, images will be normalized to 8-bit.
+
+        Args:
+            avg_images (list of np.ndarray): List of averaged images.
+            diode_ref (bool): Setting whether to include blue beam alignment reference
+        """
+        if len(avg_images) == 0:
+            logging.warning("No averaged images to arrange into an array.")
+            return
+
+        # set up diode reference information
+        if diode_ref:
+            analysis_settings = self.camera_analysis_configs[self.device_name]
+            diode_coords = (analysis_settings['Blue Centroid X'] - analysis_settings['Left ROI'],
+                            analysis_settings['Blue Centroid Y'] - analysis_settings['Top ROI'])
+
+        # Calculate grid size for arranging images in a square-like layout
+        num_images = len(avg_images)
+        grid_cols = int(np.ceil(np.sqrt(num_images)))
+        grid_rows = int(np.ceil(num_images / grid_cols))
+
+        # Create a figure with the appropriate number of subplots
+        fig, axs = plt.subplots(grid_rows, grid_cols, figsize=(grid_cols * 3, grid_rows * 3))
+
+        # Flatten axes array for easy indexing (if there's only one row/col, axs won't be a 2D array)
+        axs = axs.flatten()
+
+        # # Flatten all images in the batch to find global percentiles
+        all_pixels = np.concatenate([img.ravel() for img in avg_images if img is not None])
+
+        max_val = np.max(all_pixels)
+        low = 0
+        high = max_val
+
+        for i, (img, param_value) in enumerate(zip(avg_images, self.binned_param_values)):
+
+            # Display with adjusted scale
+            axs[i].imshow(img, cmap='plasma', vmin=low, vmax=high)
+            axs[i].set_title(f'{self.scan_parameter}: {param_value:.2f}', fontsize=10)  # Use scan parameter for label
+            axs[i].axis('off')  # Turn off axes for cleaner display
+
+            if diode_ref:
+                axs[i].plot(diode_coords[0], diode_coords[1], color='g', marker='o')
+
+        # Hide any unused subplots
+        for j in range(i + 1, len(axs)):
+            axs[j].axis('off')
+
+        # Save the final image grid for visualization
+        save_name = f'{self.device_name}_averaged_image_grid.png'
+        plt.tight_layout()
+        plt.savefig(Path(self.scan_directory) / save_name, bbox_inches='tight')
+        logging.info(f"Saved final image grid as {save_name}.")
+        self.close_or_show_plot()
+
     def run_analysis(self):
         """
         Main function to UC_VisaEBeam image analysis.
