@@ -11,6 +11,7 @@ import time
 from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog
 from PyQt5.QtCore import Qt, QEvent, QTimer, QObject, QThread, pyqtSignal, pyqtSlot
 from MultiScanner_ui import Ui_Form
+from multiscan_sound_player import play_finish_jingle
 
 
 class MultiScanner(QWidget):
@@ -374,6 +375,7 @@ class Worker(QObject):
             if self.check_condition():
                 self.send_command()
             time.sleep(1)
+        play_finish_jingle()
         self.finished.emit()
 
     def stop_work(self):
