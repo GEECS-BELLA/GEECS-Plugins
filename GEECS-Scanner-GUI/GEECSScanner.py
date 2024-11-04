@@ -117,6 +117,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.presetDeleteButton.clicked.connect(self.delete_selected_preset)
 
         # Buttons to start and stop the current scan
+        self.is_starting = False
         self.ui.startScanButton.clicked.connect(self.initialize_scan)
         self.ui.stopScanButton.clicked.connect(self.stop_scan)
 
@@ -692,6 +693,7 @@ class GEECSScannerWindow(QMainWindow):
         if not self.check_for_errors():
             # From the information provided in the GUI, create a scan configuration file and submit to GEECS for
             #  data logging.
+            self.is_starting = True
             self.ui.startScanButton.setEnabled(False)
             self.ui.experimentDisplay.setEnabled(False)
             self.ui.repititionRateDisplay.setEnabled(False)
@@ -762,6 +764,7 @@ class GEECSScannerWindow(QMainWindow):
 
             self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
             self.ui.startScanButton.setText("Start Scan")
+            self.is_starting = False
 
     def update_indicator(self):
         """Checks the current status of any ongoing run and updates the GUI accordingly.  Several configurations are
@@ -797,7 +800,7 @@ class GEECSScannerWindow(QMainWindow):
         if self.RunControl is None:
             return False
         else:
-            return not self.RunControl.is_active()
+            return not (self.RunControl.is_active() or self.is_starting)
 
     def stop_scan(self):
         """Submits a request to RunControl to stop the current scan.  In the meantime, disable the Stop Scan button so

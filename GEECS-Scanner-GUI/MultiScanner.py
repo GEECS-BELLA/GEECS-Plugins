@@ -292,18 +292,16 @@ class MultiScanner(QWidget):
 
     @pyqtSlot(int, list, list)
     def push_next_preset_scan(self, current_position, element_presets, scan_presets):
-        info = f"Scan #{current_position + 1}: {element_presets[current_position]}"
+        info = f"Multi-Scan #{current_position + 1}: {element_presets[current_position]}"
         if not scan_presets:
-            print("Just elements")
             self.main_window.apply_preset_from_name(element_presets[current_position])
         else:
-            print("Split")
             self.main_window.apply_preset_from_name(element_presets[current_position], load_scan_params=False)
             self.main_window.apply_preset_from_name(scan_presets[current_position], load_save_elements=False)
             info = info + f" --> {scan_presets[current_position]}"
 
         self.main_window.ui.textEditScanInfo.setText(info)
-        #self.main_window.initialize_scan()
+        self.main_window.initialize_scan()
 
         print("Initialized")
 
@@ -385,11 +383,11 @@ class Worker(QObject):
         return self.main_window.is_ready_for_scan()
 
     def send_command(self):
-        self.submit_next.emit(self.current_position, self.element_presets, self.scan_presets)
-
-        self.current_position += 1
         if self.current_position >= len(self.element_presets):
             self.stop_work()
+        else:
+            self.submit_next.emit(self.current_position, self.element_presets, self.scan_presets)
+            self.current_position += 1
 
     def get_status(self):
         return f"{self.current_position}/{len(self.element_presets)}"
