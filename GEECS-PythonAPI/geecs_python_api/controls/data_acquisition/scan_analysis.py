@@ -458,7 +458,7 @@ class CameraImageAnalysis(ScanAnalysis):
 
         return normalized_image
 
-    def create_image_array(self, avg_images):
+    def create_image_array(self, avg_images, ref_coords=None):
         """
         Arrange the averaged images into a sensibly sized grid and display them with scan parameter labels.
         For visualization purposes, images will be normalized to 8-bit.
@@ -495,6 +495,9 @@ class CameraImageAnalysis(ScanAnalysis):
             axs[i].set_title(f'{self.scan_parameter}: {param_value:.2f}', fontsize=10)  # Use scan parameter for label
             axs[i].axis('off')  # Turn off axes for cleaner display
 
+            if ref_coords is not None:
+                axs[i].plot(ref_coords[0], ref_coords[1], color='g', marker='o')
+
         # Hide any unused subplots
         for j in range(i + 1, len(axs)):
             axs[j].axis('off')
@@ -505,6 +508,18 @@ class CameraImageAnalysis(ScanAnalysis):
         plt.savefig(Path(self.scan_directory) / save_name, bbox_inches='tight')
         logging.info(f"Saved final image grid as {save_name}.")
         self.close_or_show_plot()
+
+    def initialize_analysis(self):
+
+        # skip analysis if data is missing
+        if self.data_subdirectory is None or self.auxiliary_data is None:
+            logging.info(f"Skipping analysis due to missing data or auxiliary file.")
+            bool_flag = True
+
+        else:
+            bool_flag = False
+
+        return bool_flag
 
     def crop_image(self, image, analysis_settings):
         """
@@ -520,57 +535,84 @@ class CameraImageAnalysis(ScanAnalysis):
 
         return cropped_image
 
+    def perform_bulk_image_analysis(self, save_directory=None, logging_flag=True):
+
+        # preallocate storage
+        avg_images = []
+
+        # identify unique parameter bins
+        unique_bins = np.unique(self.bins)
+        if logging_flag:
+            logging.info(f"unique_bins: {unique_bins}")
+
+        # iterate parameter bins
+        for bin_number in unique_bins:
+
+            # load all images for this bin
+            images = self.load_images_for_bin(bin_number)
+            if len(images) == 0 and logging_flag:
+                logging.warning(f"No images found for bin {bin_number}.")
+                continue
+
+            # average the images, save raw averaged image, log
+            avg_image = self.average_images(images)
+
+            if save_directory is not None:
+                save_name = f"{self.device_name}_{bin_number}.png"
+                self.save_image(avg_image, save_dir=save_directory, save_name=save_name)
+
+            if save_directory is not None and logging_flag:
+                logging.info(f"Averaged images for bin {bin_number} and saved as {save_name}.")
+            elif logging_flag:
+                logging.info(f"Averaged images for bin {bin_number} but not saved.")
+
+            # check if camera analysis settings exist in config
+            if self.device_name in self.camera_analysis_configs.keys():
+
+                # get analysis settings
+                analysis_settings = self.camera_analysis_configs[self.device_name]
+
+                # crop image, save image
+                avg_cropped_image = self.crop_image(avg_image, analysis_settings)
+                if save_directory is not None:
+                    self.save_image(avg_cropped_image, save_dir=save_directory,
+                                    save_name=f"{self.device_name}_{bin_number}_cropped.png")
+
+                # perform specialized image processing, save image
+                # avg_image_processed = self.image_processing(avg_cropped_image, analysis_settings)
+                # if save_directory is not None:
+                #     self.save_image(avg_cropped_image, save_dir=save_directory,
+                #                     save_name=f"{self.device_name}_{bin_number}_processed.png")
+                avg_image_processed = avg_cropped_image.copy()
+
+                # rename image for convenience
+                avg_image = avg_image_processed.copy()
+
+            # append average image
+            avg_images.append(avg_image)
+
+        return avg_images
+
     def run_analysis(self):
         """
         Main function to run the image analysis.
 
-        MAY BE DEPRECATED. DEDICATED RUN ANALYSIS FOR VISA IMAGES EXISTS BELOW.
-        SHOULD REDUCE FOR BASE IMAGE ANALYSIS.
         """
 
-        if self.data_subdirectory is None or self.auxiliary_data is None:
-            logging.info(f"Skipping analysis due to missing data or auxiliary file.")
+        # initialize analysis
+        bool_flag = self.initialize_analysis()
+        if bool_flag:
             return
 
-        avg_images = []
+        # attempt analysis
         try:
-            unique_bins = np.unique(self.bins)
-            logging.info(f"unique_bins: {unique_bins}")
-
-            for bin_number in unique_bins:
-                # Load all images for this bin
-                images = self.load_images_for_bin(bin_number)
-
-                if len(images) == 0:
-                    logging.warning(f"No images found for bin {bin_number}.")
-                    continue
-
-                # Average the images
-                avg_image = self.average_images(images)
-
-
-                if self.device_name in self.camera_analysis_configs.keys():
-                    analysis_settings = self.camera_analysis_configs[self.device_name]
-                    avg_image_processed = self.crop_image(avg_image, analysis_settings)
-                    avg_images.append(avg_image_processed)
-
-                    # Save the averaged image
-                    save_name = f'{self.device_name}_{bin_number}_processed.png'
-                    self.save_image(avg_image_processed, save_dir=self.scan_directory, save_name=save_name)
-
-                else:
-                    avg_images.append(avg_image)
-
-
-                # Save the averaged image
-                save_name = f'{self.device_name}_{bin_number}.png'
-                self.save_image(avg_image, save_dir=self.scan_directory, save_name=save_name)
-
-                logging.info(f"Averaged images for bin {bin_number} and saved as {save_name}.")
+            # perform bulk image analysis
+            avg_images = self.perform_bulk_image_analysis(save_directory=self.scan_directory)
 
             # Once all bins are processed, create an array of the averaged images
             self.create_image_array(avg_images)
 
+        # throw warning if analysis fails
         except Exception as e:
             logging.warning(f"Warning: Image analysis failed due to: {e}")
             return
@@ -613,135 +655,121 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         rotated_mask = cv2.warpAffine(mask, M, (image.shape[1], image.shape[0]), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=1)
         return rotated_mask
 
-    def preprocess_visa_image(self, image, analysis_settings):
-        """
-        This function loads uses predefined analysis_settings to crop an image and mask out "crosses" from the images.
+    def apply_cross_mask(self, image, analysis_settings):
 
-        Args:
-        - image: loaded image to be processed.
+        # create crosshair masks
+        mask1 = self.create_cross_mask(image,
+                                       [analysis_settings['Cross1'][0] - analysis_settings['Left ROI'],
+                                        analysis_settings['Cross1'][1] - analysis_settings['Top ROI']],
+                                       analysis_settings['Rotate'])
+        mask2 = self.create_cross_mask(image,
+                                       [analysis_settings['Cross2'][0] - analysis_settings['Left ROI'],
+                                        analysis_settings['Cross2'][1] - analysis_settings['Top ROI']],
+                                       analysis_settings['Rotate'])
 
-        """
-        mask1 = self.create_cross_mask(image, analysis_settings['Cross1'], analysis_settings['Rotate'])
-        mask2 = self.create_cross_mask(image, analysis_settings['Cross2'], analysis_settings['Rotate'])
-
-        masked_image = image * mask1 * mask2
-        cropped_image = masked_image[analysis_settings['Top ROI']:analysis_settings['Top ROI'] + analysis_settings['Size_Y'],
-                              analysis_settings['Left ROI']:analysis_settings['Left ROI'] + analysis_settings['Size_X']]
-
-        processed_image = cropped_image
+        # apply cross mask
+        processed_image = image * mask1 * mask2
 
         return processed_image
 
     def create_image_array(self, avg_images, diode_ref=True):
         """
-        Arrange the averaged images into a sensibly sized grid and display them with scan parameter labels.
-        For visualization purposes, images will be normalized to 8-bit.
+        Wrapper class for CameraImageAnalysis.create_image_array. Pass blue diode coordinates.
 
         Args:
             avg_images (list of np.ndarray): List of averaged images.
             diode_ref (bool): Setting whether to include blue beam alignment reference
         """
-        if len(avg_images) == 0:
-            logging.warning("No averaged images to arrange into an array.")
-            return
 
         # set up diode reference information
         if diode_ref:
             analysis_settings = self.camera_analysis_configs[self.device_name]
             diode_coords = (analysis_settings['Blue Centroid X'] - analysis_settings['Left ROI'],
                             analysis_settings['Blue Centroid Y'] - analysis_settings['Top ROI'])
+        else:
+            diode_coords = None
 
-        # Calculate grid size for arranging images in a square-like layout
-        num_images = len(avg_images)
-        grid_cols = int(np.ceil(np.sqrt(num_images)))
-        grid_rows = int(np.ceil(num_images / grid_cols))
+        # call super function and pass blue diode coords
+        super().create_image_array(avg_images, ref_coords=diode_coords)
 
-        # Create a figure with the appropriate number of subplots
-        fig, axs = plt.subplots(grid_rows, grid_cols, figsize=(grid_cols * 3, grid_rows * 3))
+    def image_processing(self, image, analysis_settings):
 
-        # Flatten axes array for easy indexing (if there's only one row/col, axs won't be a 2D array)
-        axs = axs.flatten()
+        # apply cross mask
+        processed_image = self.apply_cross_mask(image, analysis_settings)
 
-        # # Flatten all images in the batch to find global percentiles
-        all_pixels = np.concatenate([img.ravel() for img in avg_images if img is not None])
+        return processed_image
 
-        max_val = np.max(all_pixels)
-        low = 0
-        high = max_val
+    def perform_bulk_image_analysis(self, save_directory=None, logging_flag=True):
 
-        for i, (img, param_value) in enumerate(zip(avg_images, self.binned_param_values)):
+        # preallocate storage
+        avg_images = []
 
-            # Display with adjusted scale
-            axs[i].imshow(img, cmap='plasma', vmin=low, vmax=high)
-            axs[i].set_title(f'{self.scan_parameter}: {param_value:.2f}', fontsize=10)  # Use scan parameter for label
-            axs[i].axis('off')  # Turn off axes for cleaner display
+        # identify unique parameter bins
+        unique_bins = np.unique(self.bins)
+        if logging_flag:
+            logging.info(f"unique_bins: {unique_bins}")
 
-            if diode_ref:
-                axs[i].plot(diode_coords[0], diode_coords[1], color='g', marker='o')
+        # iterate parameter bins
+        for bin_number in unique_bins:
 
-        # Hide any unused subplots
-        for j in range(i + 1, len(axs)):
-            axs[j].axis('off')
+            # load all images for this bin
+            images = self.load_images_for_bin(bin_number)
+            if len(images) == 0 and logging_flag:
+                logging.warning(f"No images found for bin {bin_number}.")
+                continue
 
-        # Save the final image grid for visualization
-        save_name = f'{self.device_name}_averaged_image_grid.png'
-        plt.tight_layout()
-        plt.savefig(Path(self.scan_directory) / save_name, bbox_inches='tight')
-        logging.info(f"Saved final image grid as {save_name}.")
-        self.close_or_show_plot()
+            # average the images, save raw averaged image, log
+            avg_image = self.average_images(images)
+
+            if save_directory is not None:
+                save_name = f"{self.device_name}_{bin_number}.png"
+                self.save_image(avg_image, save_dir=save_directory, save_name=save_name)
+
+            if save_directory is not None and logging_flag:
+                logging.info(f"Averaged images for bin {bin_number} and saved as {save_name}.")
+            elif logging_flag:
+                logging.info(f"Averaged images for bin {bin_number} but not saved.")
+
+            # check if camera analysis settings exist in config
+            if self.device_name in self.camera_analysis_configs.keys():
+
+                # get analysis settings
+                analysis_settings = self.camera_analysis_configs[self.device_name]
+
+                # crop image, save image
+                avg_cropped_image = super().crop_image(avg_image, analysis_settings)
+                if save_directory is not None:
+                    self.save_image(avg_cropped_image, save_dir=save_directory,
+                                    save_name=f"{self.device_name}_{bin_number}_cropped.png")
+
+                # perform specialized image processing, save image
+                avg_image_processed = self.image_processing(avg_cropped_image, analysis_settings)
+                if save_directory is not None:
+                    self.save_image(avg_cropped_image, save_dir=save_directory,
+                                    save_name=f"{self.device_name}_{bin_number}_processed.png")
+
+                # rename image for convenience
+                avg_image = avg_image_processed.copy()
+
+            # append average image
+            avg_images.append(avg_image)
+
+        return avg_images
 
     def run_analysis(self):
         """
         Main function to UC_VisaEBeam image analysis.
         """
 
-        # skip analysis if data is missing
-        if self.data_subdirectory is None or self.auxiliary_data is None:
-            logging.info(f"Skipping analysis due to missing data or auxiliary file.")
+        # initialize analysis
+        bool_flag = super().initialize_analysis()
+        if bool_flag:
             return
-
-        # preallocate storage
-        avg_images = []
 
         # attempt analysis
         try:
-
-            # identify unique parameter bins
-            unique_bins = np.unique(self.bins)
-            logging.info(f"unique_bins: {unique_bins}")
-
-            # iterate parameter bins
-            for bin_number in unique_bins:
-
-                # load all images for this bin
-                images = self.load_images_for_bin(bin_number)
-                if len(images) == 0:
-                    logging.warning(f"No images found for bin {bin_number}.")
-                    continue
-
-                # average the images
-                avg_image = self.average_images(images)
-
-                # check if camera analysis settings exist in config
-                if self.device_name in self.camera_analysis_configs.keys():
-
-                    # extract analysis settings, apply preprocessing routine
-                    analysis_settings = self.camera_analysis_configs[self.device_name]
-                    avg_image_processed = self.preprocess_visa_image(avg_image, analysis_settings)
-                    avg_images.append(avg_image_processed)
-
-                    # Save the averaged image
-                    save_name = f'{self.device_name}_{bin_number}_processed.png'
-                    self.save_image(avg_image_processed, save_dir=self.scan_directory, save_name=save_name)
-
-                else:
-                    avg_images.append(avg_image)
-
-                # save the averaged image
-                save_name = f'{self.device_name}_{bin_number}.png'
-                self.save_image(avg_image, save_dir=self.scan_directory, save_name=save_name)
-
-                logging.info(f"Averaged images for bin {bin_number} and saved as {save_name}.")
+            # perform bulk image analysis
+            avg_images = self.perform_bulk_image_analysis(save_directory=self.scan_directory)
 
             # Once all bins are processed, create an array of the averaged images
             self.create_image_array(avg_images)
