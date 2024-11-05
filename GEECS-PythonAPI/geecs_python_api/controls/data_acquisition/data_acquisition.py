@@ -1320,7 +1320,7 @@ class DataLogger():
 
             if elapsed_time in log_entries:
                 log_entries[elapsed_time].update({f"{device_name}:{var_name}": value})
-                logging.info(f"updating async var {device_name}:{var_name}: {value}.")
+                # logging.info(f"updating async var {device_name}:{var_name}: {value}.")
             # else:
             #     logging.warning(f"No existing row for elapsed time {elapsed_time}. Skipping log for {observable}.")
 

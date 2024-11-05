@@ -40,82 +40,86 @@ def get_full_config_path(experiment: str, config_type:str, config_file: str) -> 
     return config_path
 
 def visa_config_generator(visa_key, diagnostic_type):
-    
+    """Generate VISA configuration based on diagnostic type."""
+    # Load configuration file
     input_filename = get_full_config_path('Undulator', 'aux_configs', 'visa_plunger_lookup.yaml')
-    
     with open(input_filename, 'r') as file:
         visa_lookup = yaml.safe_load(file)
-    
+
+    # Base device info
     device_info = visa_lookup[visa_key]
     visa_ebeam_camera = f"UC_VisaEBeam{visa_key[-1]}"
-
-    if diagnostic_type == 'energy':
-        description = f"collecting data on {visa_key}EBeam and U_FELEnergyMeter"
-        setup_steps = [
-            {'action': 'execute', 'action_name': 'remove_visa_plungers'},
-            {'device': device_info['device'], 'variable': device_info['variable'], 'action': 'set', 'value': 'on'},
-            {'device': 'U_Velmex', 'variable': 'Position', 'action': 'set', 'value': device_info['energy_meter_position']}
-        ]
-        devices = {
-            visa_ebeam_camera: {
-                'variable_list': ["timestamp"],
-                'synchronous': True,
-                'save_nonscalar_data': True,
-                'scan_setup': {
-                    'Analysis': ['on', 'off']
-                }
-            },
-            'U_FELEnergyMeter': {
-                'variable_list': ["Python Results.ChA", "timestamp"],
-                'synchronous': True,
-                'save_nonscalar_data': True,
-                'scan_setup': {
-                    'Analysis': ['on', 'off']
-                }
-            }
-        }
     
-    elif diagnostic_type == 'spectrometer':
-        description = f"collecting data on {visa_key}EBeam and UC_UndulatorRad2"
-        setup_steps = [
-            {'action': 'execute', 'action_name': 'remove_visa_plungers'},
-            {'device': device_info['device'], 'variable': device_info['variable'], 'action': 'set', 'value': 'on'},
-            {'device': 'U_Velmex', 'variable': 'Position', 'action': 'set', 'value': device_info['spectrometer_position']}
-        ]
-        devices = {
-            visa_ebeam_camera: {
-                'variable_list': ["timestamp"],
-                'synchronous': True,
-                'save_nonscalar_data': True,
-                'post_analysis_class': 'CameraImageAnalysis'
-            },
-            'UC_UndulatorRad2': {
-                'variable_list': ["MeanCounts", "timestamp"],
-                'synchronous': True,
-                'save_nonscalar_data': True,
-                'scan_setup': {
-                    'Analysis': ['on', 'off']
-                }
-            }
-        }
-
-    # Constructing the YAML structure
-    output_data = {
-        'Devices': devices,
-        'scan_info': {
-            'description': description
+    # Common device configuration
+    common_devices = {
+        visa_ebeam_camera: {
+            'variable_list': ["timestamp"],
+            'synchronous': True,
+            'save_nonscalar_data': True
         },
-        'setup_action': {
-            'steps': setup_steps
+        'U_BCaveICT': {
+            'variable_list': ["Python Results.ChA", "Python Results.ChB", "timestamp"],
+            'synchronous': True,
+            'save_nonscalar_data': True
         }
     }
 
-    # Writing to a YAML file
+    # Diagnostic-specific settings
+    diagnostic_settings = {
+        'energy': {
+            'description': f"collecting data on {visa_key}EBeam and U_FELEnergyMeter",
+            'position': device_info['energy_meter_position'],
+            'extra_device': {
+                'U_FELEnergyMeter': {
+                    'variable_list': ["Python Results.ChA", "timestamp"],
+                    'synchronous': True,
+                    'save_nonscalar_data': True,
+                    'scan_setup': {'Analysis': ['on', 'off']}
+                }
+            }
+        },
+        'spectrometer': {
+            'description': f"collecting data on {visa_key}EBeam and UC_UndulatorRad2",
+            'position': device_info['spectrometer_position'],
+            'extra_device': {
+                'UC_UndulatorRad2': {
+                    'variable_list': ["MeanCounts", "timestamp"],
+                    'synchronous': True,
+                    'save_nonscalar_data': True,
+                    'scan_setup': {'Analysis': ['on', 'off']}
+                }
+            },
+            'post_analysis_class': 'CameraImageAnalysis'
+        }
+    }
+
+    # Merge common and diagnostic-specific devices
+    config = diagnostic_settings[diagnostic_type]
+    devices = {**common_devices, **config['extra_device']}
+    if diagnostic_type == 'spectrometer':
+        devices[visa_ebeam_camera]['post_analysis_class'] = config.get('post_analysis_class')
+
+    # Setup steps
+    setup_steps = [
+        {'action': 'execute', 'action_name': 'remove_visa_plungers'},
+        {'device': device_info['device'], 'variable': device_info['variable'], 'action': 'set', 'value': 'on'},
+        {'device': 'U_Velmex', 'variable': 'Position', 'action': 'set', 'value': config['position']}
+    ]
+
+    # Constructing the output YAML structure
+    output_data = {
+        'Devices': devices,
+        'scan_info': {'description': config['description']},
+        'setup_action': {'steps': setup_steps}
+    }
+
+    # Save to output YAML file
     output_filename = Path(input_filename).parent.parent / 'save_devices' / f'{visa_key}_{diagnostic_type}_setup.yaml'
     with open(output_filename, 'w') as outfile:
         yaml.dump(output_data, outfile, default_flow_style=False)
 
     return output_filename
+
             
 class ConsoleLogger:
     def __init__(self, log_file="system_log.log", level=logging.INFO, console=False):
