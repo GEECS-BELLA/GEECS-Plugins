@@ -31,13 +31,19 @@ A GUI has been developed to provide an easy to use interface for running scans i
 
 Much of the code is meant to be easily applicable across arbitrary BELLA Center labs. However, it has been developed while only testing on HTU. As such, some aspects may still be preferentially coded with HTU in mind. 
 
-Currently supported GEECS device types:
+Currently fully supported GEECS device types:
 - Point Grey Camera
 - PicoscopeV2
+- MagSpecStitcher
+- MagSpecCamera
+
+Currently partially supported GEECS device types:
+- ThorlabsWFS, need to addtime stamp to saved images
+- Haso4_3, timestamp add in GEECS
 
 Devices to add:
 - Thorlabs Spectrometer
-- Haso
+- FROG
 - Other scopes.
 - etc.
 
