@@ -223,3 +223,4 @@ UC_UndulatorRad2:
   Rotate: 0
   Calibration: 0.0000075
   Apply Mask: True  
+  Plot Scale: 20
