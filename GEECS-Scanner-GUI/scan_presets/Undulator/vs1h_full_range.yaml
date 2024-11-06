@@ -1,0 +1,8 @@
+Devices: []
+Info: ''
+Scan Mode: 1D Scan
+Shot per Step: 20
+Start: -5.0
+Step Size: 1.0
+Stop: 5.0
+Variable: VS1H

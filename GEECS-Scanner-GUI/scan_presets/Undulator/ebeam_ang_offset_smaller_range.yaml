@@ -1,0 +1,8 @@
+Devices: []
+Info: ''
+Scan Mode: 1D Scan
+Shot per Step: 20
+Start: -0.4
+Step Size: 0.2
+Stop: 0.4
+Variable: ALine_e_beam_angle_offset_x
