@@ -11,7 +11,7 @@ from image_analysis.analyzers.online_analysis_modules.directory_functions import
 
 
 class NewScanLookout:
-    def __init__(self, exp, year, month, day, overwrite_previous=False, ignore_list=None, check_interval=2):
+    def __init__(self, exp, year, month, day, overwrite_previous=False, ignore_list=None, check_interval=2, do_print=False):
         self.experiment = exp
         self.year = year
         self.month = month
@@ -29,6 +29,8 @@ class NewScanLookout:
 
         self.stop_event = threading.Event()
         self.lookout_thread = threading.Thread(target=self.scan_folder_check_loop)
+
+        self.do_print = do_print
 
     def start_lookout(self):
         self.lookout_thread.start()
@@ -71,14 +73,15 @@ class NewScanLookout:
 
                         # Send those analysis commands to the appropriate analyzers.
                         # TODO implement command
-                        print(f"{self.month}/{self.day}/{self.year}; Scan{scan_number}: {valid_analyzers}")
+                        if self.do_print:
+                            print(f"{self.month}/{self.day}/{self.year}; Scan{scan_number}: {valid_analyzers}")
 
         # If there was a new scan, update the yaml file
         if do_yaml_update:
             self.write_processed_list()
 
-        print("-Check Complete")
-        return
+        if self.do_print:
+            print("-Check Complete")
 
     def read_processed_list(self):
         contents = self.read_yaml_file()
@@ -101,13 +104,11 @@ class NewScanLookout:
     def write_processed_list(self):
         data = self.read_yaml_file()
         new_contents = {str(self.year): {str(self.month): {str(self.day): self.processed_list}}}
-        print(data)
         if data is None:
             data = new_contents
         else:
             data = recursive_update(data, new_contents)
 
-        print(data)
         with open(self.processed_list_filename, 'w') as file:
             yaml.safe_dump(data, file)
 
