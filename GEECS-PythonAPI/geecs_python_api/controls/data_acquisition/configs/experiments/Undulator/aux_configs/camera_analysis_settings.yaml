@@ -52,7 +52,7 @@ UC_ALineEBeam3:
 
 UC_VisaEBeam1:
   Background Level: 15
-  Left ROI: 558
+  Left ROI: 528
   Top ROI: 290
   Size_X: 333
   Size_Y: 333
@@ -64,8 +64,8 @@ UC_VisaEBeam1:
   Rotate: 0
   Calibration: 0.0000075
   Apply Mask: True
-  Cross1: [732,290]
-  Cross2: [732,631]
+  Cross1: [702,290]
+  Cross2: [704,631]
   Cross Shift: -4
   Blue Centroid X: 764
   Blue Centroid Y: 449
@@ -105,7 +105,7 @@ UC_VisaEBeam3:
   Calibration: 0.0000075
   Apply Mask: True
   Cross1: [374,127]
-  Cross2: [338,485]
+  Cross2: [343,485]
   Cross Shift: 0
   Blue Centroid X: 315
   Blue Centroid Y: 264
@@ -117,9 +117,9 @@ UC_VisaEBeam4:
   Size_X: 333
   Size_Y: 333
   Median Filter Size: 5
-  Median Filter Cycles: 1
+  Median Filter Cycles: 2
   Gaussian Filter Size: 3
-  Gaussian Filter Cycles: 0
+  Gaussian Filter Cycles: 1
   Threshold: 0
   Rotate: 2.5
   Calibration: 0.0000075
