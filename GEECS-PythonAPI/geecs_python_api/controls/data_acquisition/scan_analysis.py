@@ -745,7 +745,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
                 # perform specialized image processing, save image
                 avg_image_processed = self.image_processing(avg_cropped_image, analysis_settings)
                 if save_directory is not None:
-                    self.save_image(avg_cropped_image, save_dir=save_directory,
+                    self.save_image(avg_image_processed, save_dir=save_directory,
                                     save_name=f"{self.device_name}_{bin_number}_processed.png")
 
                 # rename image for convenience
