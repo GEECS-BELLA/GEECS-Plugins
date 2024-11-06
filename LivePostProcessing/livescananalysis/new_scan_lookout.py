@@ -4,9 +4,10 @@ Watches the scan folders for a given day and reports any new scans
 
 import os
 import time
+import yaml
 import threading
 from devices_to_analysis_mapping import check_for_analysis_match
-from image_analysis.analyzers.online_analysis_modules.directory_functions import  compile_daily_path
+from image_analysis.analyzers.online_analysis_modules.directory_functions import compile_daily_path
 
 
 class NewScanLookout:
@@ -16,13 +17,13 @@ class NewScanLookout:
         self.month = month
         self.day = day
         self.root_folder = compile_daily_path(self.day, self.month, self.year, experiment=self.experiment)
-
-        self.overwrite_previous = overwrite_previous
+        self.processed_list_filename = f"processed_scans_{self.experiment}.yaml"
 
         self.processed_list = []
         if ignore_list is not None:
             self.processed_list = ignore_list
-        # TODO load previously-processed scans to the processed_list
+        if not overwrite_previous:
+            self.read_processed_list()
 
         self.check_interval = check_interval
 
@@ -43,6 +44,12 @@ class NewScanLookout:
         self.lookout_thread.join()
 
     def check_for_new_files(self):
+        do_yaml_update = False
+
+        if not os.path.isdir(self.root_folder):
+            print(f"'{self.root_folder}' is not a valid path")
+            return
+
         # For each folder in the root_folder
         for folder_name in os.listdir(self.root_folder):
             if folder_name.startswith("Scan") and folder_name[4:].isdigit():
@@ -58,19 +65,65 @@ class NewScanLookout:
 
                         # If so, add it to the processed list and figure out what analyses can be run
                         self.processed_list.append(scan_number)
+                        do_yaml_update = True
+
                         valid_analyzers = check_for_analysis_match(scan_folder)
 
                         # Send those analysis commands to the appropriate analyzers.
                         # TODO implement command
-                        print(f"{self.day}/{self.month}/{self.year}; Scan{scan_number}: {valid_analyzers}")
+                        print(f"{self.month}/{self.day}/{self.year}; Scan{scan_number}: {valid_analyzers}")
+
+        # If there was a new scan, update the yaml file
+        if do_yaml_update:
+            self.write_processed_list()
 
         print("-Check Complete")
         return
 
+    def read_processed_list(self):
+        contents = self.read_yaml_file()
+
+        year_data = contents.get(str(self.year)) if contents is not None else None
+        month_data = year_data.get(str(self.month)) if year_data is not None else None
+        day_data = month_data.get(str(self.day)) if month_data is not None else None
+
+        if day_data is not None:
+            for scan in day_data:
+                self.processed_list.append(scan)
+
+    def read_yaml_file(self):
+        contents = None
+        if os.path.exists(self.processed_list_filename):
+            with open(self.processed_list_filename, 'r') as file:
+                contents = yaml.safe_load(file) or []
+        return contents
+
+    def write_processed_list(self):
+        data = self.read_yaml_file()
+        new_contents = {str(self.year): {str(self.month): {str(self.day): self.processed_list}}}
+        print(data)
+        if data is None:
+            data = new_contents
+        else:
+            data = recursive_update(data, new_contents)
+
+        print(data)
+        with open(self.processed_list_filename, 'w') as file:
+            yaml.safe_dump(data, file)
+
+
+def recursive_update(base, new):
+    for key, value in new.items():
+        if isinstance(value, dict):
+            base[key] = recursive_update(base.get(key, {}), value)
+        else:
+            base[key] = value
+    return base
+
 
 if __name__ == "__main__":
     print("--Starting Lookout")
-    lookout = NewScanLookout(exp='Undulator', year=2024, month=11, day=5)
+    lookout = NewScanLookout(exp='Undulator', year=2024, month=10, day=31)
     lookout.start_lookout()
 
     print("--Sleeping for 10 seconds")
