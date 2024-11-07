@@ -388,6 +388,7 @@ class GEECSScannerWindow(QMainWindow):
         self.refresh_element_list()
 
     def open_multiscanner(self):
+        """Opens the multiscanner window, and in the process sets a flag that disables starting scans on the main gui"""
         self.multiscanner_window = MultiScanner(self, f"{MULTISCAN_CONFIGS}{self.experiment}/")
         self.multiscanner_window.show()
 
@@ -395,6 +396,7 @@ class GEECSScannerWindow(QMainWindow):
         self.update_indicator()
 
     def exit_multiscan_mode(self):
+        """Cleans up the multiscanner window and resets the enable-ability for buttons on the main window"""
         self.is_in_multiscan = False
         self.multiscanner_window = None
 
@@ -625,6 +627,11 @@ class GEECSScannerWindow(QMainWindow):
         self.apply_preset_from_name(preset_name)
 
     def apply_preset_from_name(self, preset_name, load_save_elements=True, load_scan_params=True):
+        """
+        :param preset_name: Name of the preset
+        :param load_save_elements: Defaults to True, flag to load the save elements from a preset file
+        :param load_scan_params: Defaults to True, flag to load the scan parameters from a preset file
+        """
         preset_filename = f"{PRESET_LOCATIONS}{self.experiment}/{preset_name}.yaml"
         with open(preset_filename, 'r') as file:
             settings = yaml.safe_load(file)
@@ -797,6 +804,9 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
 
     def is_ready_for_scan(self):
+        """
+        :return: True if Run control is initialized, and not currently starting up or scanning
+        """
         if self.RunControl is None:
             return False
         else:

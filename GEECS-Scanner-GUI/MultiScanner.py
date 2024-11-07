@@ -1,5 +1,6 @@
 """
-
+GUI that can organize a list of presets into a multi-scan script.  This list can be separated into two lists to
+independently set presets for the save device elements
 
 -Chris
 """
