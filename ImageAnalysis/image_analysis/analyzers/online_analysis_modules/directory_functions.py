@@ -8,14 +8,14 @@ Module for compiling filepaths
 
 import os
 
-SUPER_PATH = "Z:/data/Undulator/"
+SUPER_PATH = "Z:/data/"
 
 
-def compile_daily_path(day, month, year):
+def compile_daily_path(day, month, year, experiment='Undulator'):
     year_path = 'Y'+'{:04d}'.format(year)
     month_path = '{:02d}'.format(month) + '-' + month_lookup(month)
     day_path = '{:02d}'.format(year%100) + '_' + '{:02d}'.format(month) + '{:02d}'.format(day)
-    return SUPER_PATH + year_path + '/' + month_path + '/' + day_path + '/scans'
+    return SUPER_PATH + experiment + '/' + year_path + '/' + month_path + '/' + day_path + '/scans'
 
 
 def compile_plot_info(day, month, year, scan, shot=None, camera_name =''):
