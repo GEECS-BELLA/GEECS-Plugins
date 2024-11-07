@@ -8,7 +8,7 @@ import yaml
 
 import cv2
 
-from scipy.ndimage import median_filter
+from scipy.ndimage import median_filter, gaussian_filter
 
 from .utils import get_full_config_path  # Import the utility function
 
@@ -68,8 +68,6 @@ class ScanAnalysis:
         except FileNotFoundError as e:
             logging.warining(f"Warning: {e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
             return
-
-
 
     def extract_scan_parameter_from_ini(self, ini_file_path):
         """
@@ -364,22 +362,6 @@ class CameraImageAnalysis(ScanAnalysis):
         with open(camaera_analysis_configs_file, 'r') as file:
             self.camera_analysis_configs = yaml.safe_load(file)
 
-    def extract_shot_number(self, filename):
-        """
-        Extract the shot number from the filename.
-
-        Args:
-            filename (str): The filename from which to extract the shot number.
-
-        Returns:
-            int: The extracted shot number, or None if the format is incorrect.
-        """
-        # Match the last number before the .png extension
-        match = re.search(r'_(\d+)\.png$', filename)
-        if match:
-            return int(match.group(1))
-        return None
-
     def load_images_for_bin(self, bin_number):
         """
         Load all images corresponding to a specific bin number by matching the shot number.
@@ -455,7 +437,7 @@ class CameraImageAnalysis(ScanAnalysis):
         # Save the image using cv2
         cv2.imwrite(str(save_path), image)
         logging.info(f"Image saved at {save_path}")
-        
+
     def save_normalized_image(self, image, save_dir, save_name):
         """Display and optionally save a 16-bit image with specified min/max values for visualization."""
 
@@ -476,6 +458,7 @@ class CameraImageAnalysis(ScanAnalysis):
             logging.info(f"Image saved at {save_path}")
 
     def create_image_array(self, avg_images, ref_coords=None, plot_scale = None):
+
         """
         Arrange the averaged images into a sensibly sized grid and display them with scan parameter labels.
         For visualization purposes, images will be normalized to 8-bit.
@@ -549,7 +532,7 @@ class CameraImageAnalysis(ScanAnalysis):
         - image: loaded image to be processed.
 
         """
-
+        
         cropped_image = image[analysis_settings['Top ROI']:analysis_settings['Top ROI'] + analysis_settings['Size_Y'],
                               analysis_settings['Left ROI']:analysis_settings['Left ROI'] + analysis_settings['Size_X']]
 
@@ -630,7 +613,7 @@ class CameraImageAnalysis(ScanAnalysis):
             avg_images.append(avg_image)
 
         return avg_images
-
+    
     def run_analysis(self):
         """
         Main function to run the image analysis.
@@ -668,7 +651,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         super().__init__(scan_directory, device_name, use_gui=use_gui)
 
     def create_cross_mask(self, image, cross_center, angle, cross_height=54,
-                          cross_width=54, thickness=8):
+                          cross_width=54, thickness=10):
         """
         Creates a mask with a cross centered at `cross_center` with the cross being zeros and the rest ones.
 

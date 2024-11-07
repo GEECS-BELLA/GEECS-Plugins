@@ -41,7 +41,7 @@ class SoundPlayer:
     A class to handle playing sounds (beep and toot) in a background thread.
     """
     
-    def __init__(self, beep_frequency=500, beep_duration=0.1, toot_frequency=1500, toot_duration=0.75, sample_rate=44100):
+    def __init__(self, beep_frequency=700, beep_duration=0.1, toot_frequency=1200, toot_duration=0.75, sample_rate=44100):
         """
         Initialize the SoundPlayer with default or user-defined frequency, duration, and sample rate.
 
@@ -102,7 +102,6 @@ class SoundPlayer:
                     self._play_sound(self.beep_frequency, self.beep_duration)
                 elif sound_type == 'toot':
                     self._play_sound(self.toot_frequency, self.toot_duration)
-
                 # Mark the task as done
                 self.sound_queue.task_done()
             except Exception as e:
@@ -1320,7 +1319,7 @@ class DataLogger():
 
             if elapsed_time in log_entries:
                 log_entries[elapsed_time].update({f"{device_name}:{var_name}": value})
-                logging.info(f"updating async var {device_name}:{var_name}: {value}.")
+                # logging.info(f"updating async var {device_name}:{var_name}: {value}.")
             # else:
             #     logging.warning(f"No existing row for elapsed time {elapsed_time}. Skipping log for {observable}.")
 
@@ -1496,3 +1495,11 @@ class DataLogger():
             float: The current shot index.
         """
         return float(self.shot_index)
+
+
+if __name__ == '__main__':
+    sound_player = SoundPlayer(beep_frequency=800, toot_frequency=2000)
+    sound_player.play_toot()
+    sound_player._process_queue()
+    time.sleep(1)
+    sound_player.stop()

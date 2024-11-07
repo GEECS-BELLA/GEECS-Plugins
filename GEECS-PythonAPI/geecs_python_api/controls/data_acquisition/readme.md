@@ -31,13 +31,19 @@ A GUI has been developed to provide an easy to use interface for running scans i
 
 Much of the code is meant to be easily applicable across arbitrary BELLA Center labs. However, it has been developed while only testing on HTU. As such, some aspects may still be preferentially coded with HTU in mind. 
 
-Currently supported GEECS device types:
+Currently fully supported GEECS device types:
 - Point Grey Camera
 - PicoscopeV2
+- MagSpecStitcher
+- MagSpecCamera
+
+Currently partially supported GEECS device types:
+- ThorlabsWFS, need to addtime stamp to saved images
+- Haso4_3, timestamp add in GEECS
 
 Devices to add:
 - Thorlabs Spectrometer
-- Haso
+- FROG
 - Other scopes.
 - etc.
 
@@ -139,7 +145,13 @@ scan_manager.start_scan_thread(scan_config=scan_config)
 ## Future Improvements
 this could contain quite lot of things
 - **Enhanced Error Handling**: Improve exception handling for edge cases during device communication. In particular, enable more obvious warnings/errors when synchronous devices are not reporting regularly
-- **Post scan actions**: Post scan actions, including bespoke data analysis would be excellent to integrate
 - **Integrate optimization**: Some of the initial impetus for this was to improve optimization workflows
 - **Develop framework for automating basic procedure**: For example, basic start up of HTU e-beam currently involves executing and analyzing a few basic jet position scans, picking optimal positions, then steering the beam to the center of a phosphor screen. Could be automated (or done through optimization)
-- **Lots of small/specific code improvements**: Contact Chris/Sam to learn more and contribute
+- **Lots of small/specific code improvements**: 
+- *** UC_Rad2 analysis class: crop image by something (other saved camera, velmex position, etc.)
+- *** migrate relevant scan_analysis methods out to image_analysis. Maybe generalize better to not rely on "analysis_settings"
+- *** send post analysis to it's own thread (or, maybe just use livepostproccessing?)
+- *** automate blue beam calibration scan and update references.
+- *** multi scan analysis for plotting visa trajectories
+- *** add script ecxecution as a possible action type to the action manager
+- *** organize scan_analysis to be more BELLA Center generalizable

@@ -1,3 +1,12 @@
+"""
+GUI that displays the organization of individual scan elements and allows the user to edit these scan elements.  Also
+allows for a user to load and save the information displayed into this GUI to/from .yaml files for scan elements.
+
+# TODO Currently the 'run' action is not implemented, but potentially could be a feature to run a python script
+
+-Chris
+"""
+
 import os
 import yaml
 from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton, QFileDialog
@@ -6,6 +15,9 @@ from ScanElementEditor_ui import Ui_Dialog
 
 
 def get_default_device_dictionary():
+    """
+    :return: Default dictionary for devices when they are added to the element's list of devices
+    """
     return {
         'variable_list': ['timestamp'],
         'synchronous': True,
@@ -13,7 +25,13 @@ def get_default_device_dictionary():
     }
 
 
-def get_new_action(action):
+def get_new_action(action):  # TODO Can probably convert this from an if-else block to a dictionary...
+    """
+    Translates a given action keyword to a default dictionary that is populated into the action list.
+
+    :param action: action keyword
+    :return: default dictionary for the associated action
+    """
     default = None
     if action == 'set':
         default = {
@@ -46,7 +64,7 @@ def get_new_action(action):
         }
     return default
 
-
+# List of available actions, to be used by the completer for the add action line edit
 list_of_actions = [
     'set',
     'get',
@@ -57,6 +75,11 @@ list_of_actions = [
 
 
 def parse_variable_text(text):
+    """ Attempts to convert a string first to an int, then a float, and finally just returns the string if unsuccessful
+
+    :param text: string
+    :return: either an int, float, or string of the input, in that order
+    """
     try:
         return int(text)
     except ValueError:
@@ -67,9 +90,23 @@ def parse_variable_text(text):
 
 
 class ScanElementEditor(QDialog):
+    """
+    GUI for viewing/editing scan save elements.  To be opened from the GEECSScanner GUI.  The code here is organized by
+    having master dictionaries on the backend with all the information, then the GUI adds/subtracts/changes this
+    dictionary.  Upon the dictionary changing or a different selection made on the GUI, the visible information on the
+    GUI changes to reflect what the user is currently looking at.
+    """
     def __init__(self, database_dict=None, config_folder="./", load_config=None):
+        """
+        Initializes the GUI
+
+        :param database_dict: dictionary that contains all devices and variables in the selected experiment
+        :param config_folder: folder that contains other element config files for this experiment
+        :param load_config: optional; filename to populate the initial state of the GUI's backend dictionary
+        """
         super().__init__()
 
+        # Dummy button to try and contain where pressing "Enter" goes, but TODO find a better solution
         self.dummyButton = QPushButton("", self)
         self.dummyButton.setDefault(True)
         self.dummyButton.setVisible(False)
@@ -77,35 +114,48 @@ class ScanElementEditor(QDialog):
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
 
+        # Dictionary containing all the devices and variables in the experiment
         self.database_dict = database_dict
 
+        # Backend dictionaries for the element devices and actions.  Each action dictionary is an ordered list
         self.devices_dict = {}
         self.actions_dict = {
             'setup': [],
             'closeout': []
         }
 
+        # Functionality to add and remove devices, show device list when selecting line edit, and update the visible
+        #  device information when the selection in the device list is changed
         self.ui.lineDeviceName.installEventFilter(self)
         self.ui.buttonAddDevice.clicked.connect(self.add_device)
         self.ui.buttonRemoveDevice.clicked.connect(self.remove_device)
         self.ui.listDevices.itemSelectionChanged.connect(self.update_variable_list)
 
+        # Functionality to add and remove variables from the selected device, as well as show the list of variables
+        #  when the variable line edit is selected
         self.ui.lineVariableName.installEventFilter(self)
         self.ui.buttonAddVariable.clicked.connect(self.add_variable)
         self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
 
+        # Update the device's post analysis class information when the line edit is changed
         self.ui.linePostAnalysis.editingFinished.connect(self.update_device_post_analysis_class)
 
+        # Update the device flags when either of the checkboxes are clicked
         self.ui.checkboxSynchronous.clicked.connect(self.update_device_checkboxes)
         self.ui.checkboxSaveNonscalar.clicked.connect(self.update_device_checkboxes)
 
+        # Make the action line edit only editable from the dropdown completer list of available actions
         self.ui.lineActionName.setReadOnly(True)
         self.ui.lineActionName.installEventFilter(self)
 
+        # Functionality to add and remove actions to and from the visible list
         self.ui.listActions.itemSelectionChanged.connect(self.focus_action)
         self.ui.buttonAddAction.clicked.connect(self.add_action)
         self.ui.buttonRemoveAction.clicked.connect(self.remove_action)
 
+        # Functionality for the options associated with each of the types of actions.  A variable stores what action
+        #  type is currently selected, and options 1 and 2 have dropdowns to show available devices and variables when
+        #  the 'set' and 'get' types are visible.  When any of the 3 line edits are changed, update the dictionary
         self.action_mode = None
         self.ui.lineActionOption1.installEventFilter(self)
         self.ui.lineActionOption2.installEventFilter(self)
@@ -113,26 +163,32 @@ class ScanElementEditor(QDialog):
         self.ui.lineActionOption2.editingFinished.connect(self.update_action_info)
         self.ui.lineActionOption3.editingFinished.connect(self.update_action_info)
 
+        # Functionality to change the ordering of the actions in the lists
         self.ui.buttonMoveSooner.clicked.connect(self.move_action_sooner)
         self.ui.buttonMoveLater.clicked.connect(self.move_action_later)
 
+        # Functionality to move actions to/from the setup and closeout lists
         self.ui.radioIsPost.clicked.connect(self.set_as_closeout)
         self.ui.radioIsSetup.clicked.connect(self.set_as_setup)
 
+        # If a .yaml file is given, load the dictionary into the backend dictionaries to start with
         self.config_folder = config_folder
         if load_config is not None:
             self.load_settings_from_file(config_folder + load_config)
 
+        # Buttons at the bottom to save, open, and close
         self.ui.buttonWindowSave.clicked.connect(self.save_element)
         self.ui.buttonWindowCancel.clicked.connect(self.close_window)
         self.ui.buttonWindowLoad.clicked.connect(self.open_element)
 
+        # At the end of initialization, update all the visible information on the GUI
         self.update_device_list()
         self.update_action_list()
         self.update_action_display()
 
     def eventFilter(self, source, event):
-        # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
+        """Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
+        """
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionName:
             self.show_action_list()
             self.ui.buttonAddAction.setDefault(True)
@@ -158,6 +214,11 @@ class ScanElementEditor(QDialog):
         return super().eventFilter(source, event)
 
     def show_device_list(self, location):
+        """
+        Shows the list of available experimental devices as a hint completer
+
+        :param location: gui element where the list should be shown
+        """
         if location.isEnabled():
             location.selectAll()
             completer = QCompleter(self.database_dict.keys(), self)
@@ -169,6 +230,12 @@ class ScanElementEditor(QDialog):
             completer.complete()
 
     def show_variable_list(self, location, source='device'):
+        """
+        Shows the list of variables for the currently selected device
+
+        :param location: gui element where the list should be shown
+        :param source: if the variable list is in the device or action section, defaults to device section
+        """
         if location.isEnabled():
             if source == 'device':
                 device_name = self.get_selected_device_name()
@@ -188,6 +255,8 @@ class ScanElementEditor(QDialog):
                 completer.complete()
 
     def update_device_list(self):
+        """Update the visible list of devices from the dictionary on the backend
+        """
         self.ui.listDevices.clear()
 
         for device in self.devices_dict:
@@ -196,12 +265,14 @@ class ScanElementEditor(QDialog):
         self.update_variable_list()
 
     def add_device(self):
+        """Adds a device to the element device list, based on what is entered in the device line edit"""
         text = self.ui.lineDeviceName.text().strip()
         if text and text not in self.devices_dict:
             self.devices_dict[text] = get_default_device_dictionary()
             self.update_device_list()
 
     def remove_device(self):
+        """Removes a device from the element device list, based on what is currently selected"""
         selected_device = self.ui.listDevices.selectedItems()
         if not selected_device:
             return
@@ -212,6 +283,7 @@ class ScanElementEditor(QDialog):
         self.update_device_list()
 
     def get_selected_device_name(self):
+        """Returns the name of the currently-selected device on the GUI"""
         selected_device = self.ui.listDevices.selectedItems()
         no_selection = not selected_device
         if no_selection:
@@ -225,6 +297,7 @@ class ScanElementEditor(QDialog):
         return device_name
 
     def get_selected_device(self):
+        """Returns the device information on the currently-selected device"""
         device_name = self.get_selected_device_name()
         if device_name is None:
             return None
@@ -232,6 +305,7 @@ class ScanElementEditor(QDialog):
             return self.devices_dict[device_name]
 
     def update_variable_list(self):
+        """Updates the visible variable information based on the currently-selected device"""
         self.ui.listVariables.clear()
 
         device = self.get_selected_device()
@@ -258,6 +332,7 @@ class ScanElementEditor(QDialog):
             self.ui.linePostAnalysis.setText("")
 
     def add_variable(self):
+        """Adds variable to the element's device variable list, based on the variable line edit"""
         device = self.get_selected_device()
         if device is not None:
             text = self.ui.lineVariableName.text().strip()
@@ -269,6 +344,7 @@ class ScanElementEditor(QDialog):
                 self.update_variable_list()
 
     def remove_variable(self):
+        """Removes variable from the element's device variable list, based on what is currently selected"""
         device = self.get_selected_device()
         if device is not None:
             selected_variable = self.ui.listVariables.selectedItems()
@@ -281,6 +357,7 @@ class ScanElementEditor(QDialog):
             self.update_variable_list()
 
     def update_device_checkboxes(self):
+        """Updates the checkboxes for the device flags"""
         device = self.get_selected_device()
         if device is not None:
             device['synchronous'] = self.ui.checkboxSynchronous.isChecked()
@@ -288,6 +365,7 @@ class ScanElementEditor(QDialog):
             self.update_variable_list()
 
     def update_device_post_analysis_class(self):
+        """Updates the post analysis class for the device"""
         device = self.get_selected_device()
         text = self.ui.linePostAnalysis.text().strip()
         if device is not None:
@@ -297,6 +375,7 @@ class ScanElementEditor(QDialog):
             self.update_variable_list()
 
     def show_action_list(self):
+        """Shows the list of available actions at the add action line edit"""
         self.ui.listActions.clearSelection()
         completer = QCompleter(list_of_actions, self)
         completer.setCompletionMode(QCompleter.PopupCompletion)
@@ -306,7 +385,9 @@ class ScanElementEditor(QDialog):
         self.ui.lineActionName.setFocus()
         completer.complete()
 
-    def generate_action_description(self, action):
+    @staticmethod
+    def generate_action_description(action):
+        """For each action in the list, generate a string that displays all the information for that action step"""
         description = "???"
         if action.get("wait") is not None:
             description = f"wait {action['wait']}"
@@ -321,6 +402,7 @@ class ScanElementEditor(QDialog):
         return description
 
     def update_action_list(self, index=None):
+        """Updates the visible list of actions on the GUI according to the current state of the action dictionary"""
         self.ui.listActions.clear()
         self.dummyButton.setDefault(True)
         for item in self.actions_dict['setup']:
@@ -332,6 +414,8 @@ class ScanElementEditor(QDialog):
             self.ui.listActions.setCurrentRow(index)
 
     def add_action(self):
+        """Appends action to the end of either the setup or closeout action list based on the currently-selected
+        radio button.  The action is specified by the action line edit."""
         text = self.ui.lineActionName.text().strip()
         if text:
             if self.ui.radioIsSetup.isChecked():
@@ -341,6 +425,7 @@ class ScanElementEditor(QDialog):
         self.update_action_list()
 
     def remove_action(self):
+        """Removes the currently-selected action from the list of actions"""
         current_selection = self.get_action_list_and_index()
         if current_selection is not None and current_selection[0] is not None:
             action_list, i, absolute_index = current_selection
@@ -348,10 +433,12 @@ class ScanElementEditor(QDialog):
         self.update_action_list()
 
     def focus_action(self):
+        """Refreshes the list of actions, and in the process removes any currently-selected action"""
         self.ui.lineActionName.clear()
         self.update_action_display()
 
     def update_action_display(self):
+        """Updates the visible list of information based on the currently-selected action"""
         current_selection = self.get_action_list_and_index()
         if current_selection is None:
             action = None
@@ -421,6 +508,7 @@ class ScanElementEditor(QDialog):
                 self.ui.lineActionOption3.setText(str(action.get("expected_value")))
 
     def update_action_info(self):
+        """Updates the backend action dictionary when one of the line edits for options is changed"""
         current_selection = self.get_action_list_and_index()
         if current_selection is None:
             action = None
@@ -457,6 +545,13 @@ class ScanElementEditor(QDialog):
         self.update_action_list(index=index)
 
     def get_action_list_and_index(self):
+        """Finds the location of the currently-selected action in the visible list on the GUI.  This is tricky since
+        the GUI has two different lists separated by a dummy list element.
+
+        :return: If no selection, returns None.  If the dummy element is selected, return a truple with None as the list
+        and the current index in the list.  If a real action is selected, return the action list where the action is
+        located (setup or closeout), the relative index in that list, and the index in the GUI list
+        """
         selected_action = self.ui.listActions.selectedItems()
         if not selected_action:
             return
@@ -474,6 +569,7 @@ class ScanElementEditor(QDialog):
             return action_list, index, absolute_index
 
     def move_action_sooner(self):
+        """Moves the selected action to an earlier position in the same list"""
         current_selection = self.get_action_list_and_index()
         if current_selection is None:
             return
@@ -484,6 +580,7 @@ class ScanElementEditor(QDialog):
         self.update_action_list(index=index)
 
     def move_action_later(self):
+        """Moves the selected action to a later position in the same list"""
         current_selection = self.get_action_list_and_index()
         if current_selection is None:
             return
@@ -494,12 +591,17 @@ class ScanElementEditor(QDialog):
         self.update_action_list(index=index)
 
     def set_as_setup(self):
+        """Toggle radio button to 'setup' mode"""
         self.toggle_radio(button="setup")
 
     def set_as_closeout(self):
+        """Toggle radio button to 'closeout' mode"""
         self.toggle_radio(button="closeout")
 
     def toggle_radio(self, button="None"):
+        """Either changes the parent list of the currently-selected action, or if no action is selected then this
+        updates which parent list a future new action will be assigned to"""
+
         # If the action is either not selected or is --Scan--, do nothing
         current_selection = self.get_action_list_and_index()
         if current_selection is None:
@@ -530,6 +632,7 @@ class ScanElementEditor(QDialog):
         self.update_action_list(index=new_position)
 
     def save_element(self):
+        """Save the current dictionaries as a new element in the experimental folder with the correct formatting"""
         filename = self.ui.lineElementName.text().strip()
         if filename == "":
             print("Need an element name")
@@ -552,9 +655,11 @@ class ScanElementEditor(QDialog):
                 yaml.dump(full_dictionary, f, default_flow_style=False)
 
     def close_window(self):
+        """Exits the window"""
         self.close()
 
     def open_element(self):
+        """Prompts the user to select a .yaml file from which to load element dictionary information"""
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
         file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", self.config_folder, "YAML Files (*yaml)",
@@ -566,6 +671,7 @@ class ScanElementEditor(QDialog):
             self.update_action_display()
 
     def load_settings_from_file(self, config_filename):
+        """Given a .yaml file, loads the dictionary and parses it to the backend dictionaries for the GUI"""
         with open(config_filename, 'r') as file:
             full_dictionary = yaml.safe_load(file)
 

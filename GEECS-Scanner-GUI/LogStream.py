@@ -1,5 +1,7 @@
 """
 Custom classes to handle the printing out of system messages into both the normal console and the text box on the GUI
+
+TODO Need to return to implementing this for the GUI.  Still a work in progress...
 """
 
 

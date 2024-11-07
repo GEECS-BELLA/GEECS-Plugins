@@ -1,5 +1,5 @@
 """
-Script to contain the logic for the GEECSScanner GUI
+Script to contain the logic for the GEECSScanner GUI.  Can be launched by running this script in python.
 
 -Chris
 """
@@ -7,24 +7,23 @@ Script to contain the logic for the GEECSScanner GUI
 import sys
 import os
 import traceback
-
+import importlib
 import yaml
-from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter
+import configparser
+
+from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter, QMessageBox
 from PyQt5.QtCore import Qt, QEvent, QTimer
 from GEECSScanner_ui import Ui_MainWindow
 from ScanElementEditor import ScanElementEditor
+from MultiScanner import MultiScanner
 from LogStream import EmittingStream, MultiStream
-from RunControl import RunControl
-
-try:
-    from geecs_python_api.controls.interface import load_config
-except TypeError:
-    print("No configuration file found!  This is required for GEECSScanner!")
-    # sys.exit()
 
 MAXIMUM_SCAN_SIZE = 1e6
 RELATIVE_PATH = "../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/"
 PRESET_LOCATIONS = "./scan_presets/"
+MULTISCAN_CONFIGS = "./multiscan_presets/"
+CONFIG_PATH = os.path.expanduser('~/.config/geecs_python_api/config.ini')
+
 
 class GEECSScannerWindow(QMainWindow):
     def __init__(self):
@@ -33,69 +32,96 @@ class GEECSScannerWindow(QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
+        # Sets up the log at the bottom of the GUI to display errors.  TODO need to fix this, was crashing
         self.ui.logDisplay.setReadOnly(True)
         #sys.stdout = MultiStream(sys.stdout, EmittingStream(self.ui.logDisplay))
         #sys.stderr = MultiStream(sys.stderr, EmittingStream(self.ui.logDisplay))
 
+        # Load experiment, repetition rate, and shot control device from the .config file
         self.experiment = ""
         self.repetition_rate = 0
         self.shot_control_device = ""
         self.load_config_settings()
 
-        self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
+        # Initializes run control if possible, this serves as the interface to scan_manager and data_acquisition
+        self.RunControl = None
+        self.reinitialize_run_control()
 
+        # Default values for the line edits
         self.noscan_num = 100
         self.scan_start = 0
         self.scan_stop = 0
         self.scan_step_size = 0
         self.scan_shot_per_step = 0
 
+        # Line edits for the repetition rate and timing device
         self.ui.repititionRateDisplay.setText(str(self.repetition_rate))
         self.ui.repititionRateDisplay.editingFinished.connect(self.update_repetition_rate)
         self.ui.lineTimingDevice.setText(self.shot_control_device)
         self.ui.lineTimingDevice.editingFinished.connect(self.update_shot_control_device)
 
+        # Button to launch dialog for changing the config file contents
+        self.ui.buttonUpdateConfig.clicked.connect(self.reset_config_file)
+
+        # Button to launch the multiscan window
+        self.is_in_multiscan = False
+        self.ui.buttonLaunchMultiScan.clicked.connect(self.open_multiscanner)
+
+        # Line edit for the experiment display
         self.ui.experimentDisplay.setText(self.experiment)
         self.ui.experimentDisplay.installEventFilter(self)
         self.ui.experimentDisplay.editingFinished.connect(self.experiment_selected)
 
+        # Populates the list of available save elements
         self.populate_found_list()
 
-        # Connect buttons to their respective functions
+        # Functionality to move elements back and forth between the available and selected elements list
         self.ui.addDeviceButton.clicked.connect(self.add_files)
         self.ui.foundDevices.itemDoubleClicked.connect(self.add_files)
         self.ui.removeDeviceButton.clicked.connect(self.remove_files)
         self.ui.selectedDevices.itemDoubleClicked.connect(self.remove_files)
 
+        # Buttons to launch the element editor and refresh the list of available elements
         self.ui.newDeviceButton.clicked.connect(self.open_element_editor_new)
         self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
         self.ui.buttonRefreshLists.clicked.connect(self.refresh_element_list)
 
+        # Buttons to launch the side guis for the action library and scan variables
+        self.ui.buttonActionLibrary.setEnabled(False)
+        self.ui.buttonScanVariables.setEnabled(False)
+
+        # Radio buttons that select if the next scan is to be a noscan or 1dscan
         self.ui.noscanRadioButton.setChecked(True)
         self.ui.noscanRadioButton.toggled.connect(self.update_scan_edit_state)
         self.ui.scanRadioButton.toggled.connect(self.update_scan_edit_state)
         self.update_scan_edit_state()
 
+        # Upon changing a scan parameter, recalculate the total number of shots
         self.ui.lineStartValue.editingFinished.connect(self.calculate_num_shots)
         self.ui.lineStopValue.editingFinished.connect(self.calculate_num_shots)
         self.ui.lineStepSize.editingFinished.connect(self.calculate_num_shots)
         self.ui.lineShotStep.editingFinished.connect(self.calculate_num_shots)
         self.ui.lineNumShots.editingFinished.connect(self.update_noscan_num_shots)
 
+        # Connect the line edit for the 1d scan variable to the list of available scan variables
         self.scan_variable = ""
         self.scan_device_list = []
         self.populate_scan_devices()
         self.ui.lineScanVariable.editingFinished.connect(self.check_scan_device)
         self.ui.lineScanVariable.installEventFilter(self)
 
+        # Buttons to save the current scan as a preset, delete selected preset, and double-clicking loads the preset
         self.populate_preset_list()
         self.ui.listScanPresets.itemDoubleClicked.connect(self.apply_preset)
         self.ui.presetSaveButton.clicked.connect(self.save_current_preset)
         self.ui.presetDeleteButton.clicked.connect(self.delete_selected_preset)
 
+        # Buttons to start and stop the current scan
+        self.is_starting = False
         self.ui.startScanButton.clicked.connect(self.initialize_scan)
         self.ui.stopScanButton.clicked.connect(self.stop_scan)
 
+        # Every 200 ms, check status of any ongoing scan and update the GUI accordingly
         self.ui.progressBar.setValue(0)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_indicator)
@@ -113,34 +139,137 @@ class GEECSScannerWindow(QMainWindow):
             return True
         return super().eventFilter(source, event)
 
-    def load_config_settings(self):
-        # Loads in the experiment name and repetition rate from the configuration file located in ~/.config/
+    def reinitialize_run_control(self):
+        """
+        Attempts to reinitialize the instance of RunControl, typically done when the experiment or shot control device
+        is changed.  To do so, the experiment name in the config file is updated because geecs-python-api is heavily
+        dependent on this for loading the correct database.
+        """
+        print("Reinitialization of Run Control")
         try:
+            # The experiment name in the config is very embedded in geecs-python-api, so we have to rewrite it here...
+            config = configparser.ConfigParser()
+            config.read(CONFIG_PATH)
+            if config['Experiment']['expt'] != self.experiment:
+                print("Experiment name changed, rewriting config file")
+                config.set('Experiment', 'expt', self.experiment)
+                with open(CONFIG_PATH, 'w') as file:
+                    config.write(file)
+
+            RunControl = getattr(importlib.import_module('RunControl'), 'RunControl')
+            self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
+        except AttributeError:
+            print("ERROR: presumably because the entered experiment is not in the GEECS database")
+            self.RunControl = None
+
+    def load_config_settings(self):
+        """
+        Loads the experiment name, repetition rate, and shot control device from the config file on the current computer
+        If an error occurs during this process, the user is prompted to fix the config file.
+        """
+        try:
+            module = importlib.import_module('geecs_python_api.controls.interface')
+            load_config = getattr(module, 'load_config')
             config = load_config()
+
             try:
-                default_experiment = config['Experiment']['expt']
+                self.experiment = config['Experiment']['expt']
             except KeyError:
-                print("Could not find 'expt' in config")
-                default_experiment = ""
-            if os.path.isdir(RELATIVE_PATH + "experiments/" + default_experiment):
-                self.experiment = default_experiment
+                self.prompt_config_reset("Could not find 'expt' in config")
 
             try:
                 self.repetition_rate = float(config['Experiment']['rep_rate_hz'])
             except KeyError:
-                print("Could not find 'rep_rate_hz' in config")
+                self.prompt_config_reset("Could not find 'rep_rate_hz' in config")
 
             try:
                 self.shot_control_device = config['Experiment']['shot_control']
             except KeyError:
-                print("Could not find 'rep_rate_hz' in config")
+                self.prompt_config_reset("Could not find 'shot_control' in config")
 
+        except TypeError:
+            self.prompt_config_reset("No configuration file found")
         except NameError:
-            print("Could not read from config file")
+            self.prompt_config_reset("No configuration file found")
         return
 
+    def prompt_config_reset(self, notice_str="Message"):
+        """
+        Asks the user if they would like to repair the config file.  If not, close the GUI
+
+        :param notice_str: Text displayed at the title of the question box
+        """
+        reply = QMessageBox.question(self, notice_str, 'Generate and/or repair .config file?',
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.reset_config_file()
+            self.load_config_settings()
+        else:
+            print("Shutting Down")
+            sys.exit()
+
+    def reset_config_file(self):
+        """
+        If the config file does not exist, create one and give it default entries.  Then, ask the user if they would
+        like to update the four crucial elements of this config file.  Afterwards, the new dictionary is written as the
+        current config file and run control is reinitialized.
+        """
+        if not os.path.exists(CONFIG_PATH):
+            os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+            default_content = configparser.ConfigParser()
+            default_content['Paths'] = {
+                'geecs_data': 'C:\GEECS\\user data\\'
+            }
+            default_content['Experiment'] = {
+                'expt': 'none',
+                'rep_rate_hz': 'none',
+                'shot_control': 'none'
+            }
+            with open(CONFIG_PATH, 'w') as config_file:
+                default_content.write(config_file)
+            print(f"Wrote new config file to {CONFIG_PATH}")
+
+        config = configparser.ConfigParser()
+        config.read(CONFIG_PATH)
+
+        config = self.prompt_config_update(config, 'Paths', 'geecs_data',
+                                           'Enter GEECS data path: (ex: C:\\GEECS\\user data\\)')
+        config = self.prompt_config_update(config, 'Experiment', 'expt',
+                                           'Enter Experiment Name: (ex: Undulator)')
+        config = self.prompt_config_update(config, 'Experiment', 'rep_rate_hz',
+                                           'Enter repetition rate in Hz: (ex: 1)')
+        config = self.prompt_config_update(config, 'Experiment', 'shot_control',
+                                           'Enter shot control device: (ex: U_DG645_ShotControl)')
+
+        print(f"Writing config file to {CONFIG_PATH}")
+        with open(CONFIG_PATH, 'w') as file:
+            config.write(file)
+        self.load_config_settings()
+        self.reinitialize_run_control()
+
+    def prompt_config_update(self, config, section, option, information):
+        """
+        Prompts the user for a string to replace what is currently in the config file.
+
+        :param config: the current configuration dictionary
+        :param section: section in the config
+        :param option: option in the specified section
+        :param information: text to be displayed in the dialog box
+        :return: the updated configuration dictionary
+        """
+        if config.has_section(section) and config.has_option(section, option):
+            current = config[section][option]
+        else:
+            current = None
+        text, ok = QInputDialog.getText(self, 'Config File Edit', information, text=current)
+        if ok:
+            config.set(section, option, text)
+        return config
+
     def show_experiment_list(self):
-        # Displays the found experiments in the ./experiments/ subfolder for selecting experiment
+        """
+        Displays the found experiments in the ./experiments/ subfolder for selecting experiment
+        """
         folders = [f for f in os.listdir(RELATIVE_PATH + "experiments/")
                    if os.path.isdir(os.path.join(RELATIVE_PATH + "experiments", f))]
         completer = QCompleter(folders, self)
@@ -152,7 +281,9 @@ class GEECSScannerWindow(QMainWindow):
         completer.complete()
 
     def experiment_selected(self):
-        # Upon selecting the experiment, reset the list of save devices and scan devices.
+        """
+        Upon selecting the experiment, reset the list of save devices and scan devices and reinitialize Run Control
+        """
         selected_experiment = self.ui.experimentDisplay.text()
         if not (selected_experiment in self.experiment):
             self.clear_lists()
@@ -160,7 +291,7 @@ class GEECSScannerWindow(QMainWindow):
             if os.path.isdir(new_folder_path):
                 self.experiment = selected_experiment
                 self.ui.experimentDisplay.setText(self.experiment)
-                self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
+                self.reinitialize_run_control()
                 self.populate_found_list()
 
             self.ui.lineScanVariable.setText("")
@@ -168,13 +299,16 @@ class GEECSScannerWindow(QMainWindow):
             self.populate_scan_devices()
 
     def clear_lists(self):
-        # Clears the list of found and selected save devices
+        """
+        Clear all the lists in the GUI.  Used when a fresh start is needed, such as new experiment name or using preset
+        """
         self.ui.selectedDevices.clear()
         self.ui.foundDevices.clear()
         self.ui.listScanPresets.clear()
 
     def update_repetition_rate(self):
-        # Updates the repetition rate when it is changed in the text box
+        """Updates the repetition rate when it is changed in the text box, making sure it is a number
+        """
         try:
             rep_rate = float(self.ui.repititionRateDisplay.text())
             if rep_rate > 0:
@@ -187,12 +321,14 @@ class GEECSScannerWindow(QMainWindow):
             self.repetition_rate = 0
 
     def update_shot_control_device(self):
-        # Updates the shot control device when it is changed in the text box
+        """Updates the shot control device when it is changed in the text box, then reinitializes Run Control
+        """
         self.shot_control_device = self.ui.lineTimingDevice.text()
-        self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
+        self.reinitialize_run_control()
 
     def populate_found_list(self):
-        # List all files in the save_devices folder under chosen experiment:
+        """Gets all files in the save_devices folder under chosen experiment and adds it to the available elements list
+        """
         try:
             experiment_preset_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
             for file_name in os.listdir(experiment_preset_folder):
@@ -204,27 +340,36 @@ class GEECSScannerWindow(QMainWindow):
             self.clear_lists()
 
     def add_files(self):
-        # Move selected files from the "Found" list to the "Selected" list
+        """Move selected files from the "Found" list to the "Selected" list"""
         selected_items = self.ui.foundDevices.selectedItems()
         for item in selected_items:
             self.ui.foundDevices.takeItem(self.ui.foundDevices.row(item))
             self.ui.selectedDevices.addItem(item)
 
     def remove_files(self):
-        # Move selected files from the "Selected" list back to the "Found" list
+        """Move selected files from the "Selected" list back to the "Found" list"""
         selected_items = self.ui.selectedDevices.selectedItems()
         for item in selected_items:
             self.ui.selectedDevices.takeItem(self.ui.selectedDevices.row(item))
             self.ui.foundDevices.addItem(item)
 
     def open_element_editor_new(self):
-        database_dict = self.RunControl.get_database_dict()
+        """Opens the ScanElementEditor GUI with a blank template.  If Run Control is initialized then the database
+        dictionary is passed for device/variable hints.  Afterwards, refresh the lists of the available and selected
+        elements."""
+        if self.RunControl is not None:
+            database_dict = self.RunControl.get_database_dict()
+        else:
+            database_dict = None
         config_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
         self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder)
         self.element_editor.exec_()
         self.refresh_element_list()
 
     def open_element_editor_load(self):
+        """Opens the ScanElementEditor GUI with using the selected element as a template.  If Run Control is initialized
+        then the database dictionary is passed for device/variable hints.  Afterwards, refresh the lists of the
+        available and selected elements."""
         selected_element = self.ui.foundDevices.selectedItems()
         if not selected_element:
             print("Select from the Found list")
@@ -233,13 +378,30 @@ class GEECSScannerWindow(QMainWindow):
         for selection in selected_element:
             element_name = selection.text().strip() + ".yaml"
 
-        database_dict = self.RunControl.get_database_dict()
+        if self.RunControl is not None:
+            database_dict = self.RunControl.get_database_dict()
+        else:
+            database_dict = None
         config_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
         self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder, load_config=element_name)
         self.element_editor.exec_()
         self.refresh_element_list()
 
+    def open_multiscanner(self):
+        self.multiscanner_window = MultiScanner(self, f"{MULTISCAN_CONFIGS}{self.experiment}/")
+        self.multiscanner_window.show()
+
+        self.is_in_multiscan = True
+        self.update_indicator()
+
+    def exit_multiscan_mode(self):
+        self.is_in_multiscan = False
+        self.multiscanner_window = None
+
     def refresh_element_list(self):
+        """Refreshes the list of available and selected elements, but does not clear them.  Instead, all previously
+        selected elements remain in the selected list, new files are added to the available list, and deleted files are
+        removed from either list."""
         print("Refreshing element list...")
         try:
             experiment_preset_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/save_devices/"
@@ -263,8 +425,8 @@ class GEECSScannerWindow(QMainWindow):
             self.clear_lists()
 
     def update_scan_edit_state(self):
-        # Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
-        #  variable scan.  Previous values are saved so the user can switch between the two scan modes easily.
+        """Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
+        variable scan.  Previous values are saved so the user can switch between the two scan modes easily."""
         if self.ui.noscanRadioButton.isChecked():
             self.ui.lineScanVariable.setEnabled(False)
             self.ui.lineScanVariable.setText("")
@@ -294,7 +456,7 @@ class GEECSScannerWindow(QMainWindow):
             self.calculate_num_shots()
 
     def populate_scan_devices(self):
-        # Generates a list of found scan devices from the scan_devices.yaml file
+        """Generates a list of found scan devices from the scan_devices.yaml file"""
         self.scan_device_list = []
         try:
             experiment_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/scan_devices/"
@@ -316,7 +478,12 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.lineScanVariable.setCompleter(completer)
 
     def read_device_tag_from_nickname(self, name):
-        print(name)
+        """
+        Given a string, use it as a key in the scan_devices.yaml file and return the associated GEECS variable name.
+        If the key is not found, assume it is a composite variable and just return the key itself.
+
+        :param name: Selected scan variable to be converted to GEECS variable and/or composite variable
+        """
         try:
             experiment_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/scan_devices/"
             with open(experiment_folder + "scan_devices.yaml", 'r') as file:
@@ -330,7 +497,7 @@ class GEECSScannerWindow(QMainWindow):
             print(f"Error loading scan_devices.yaml file: {e}")
 
     def show_scan_device_list(self):
-        # Displays the list of scan devices when the user interacts with the scan variable selection text box
+        """Displays the list of scan devices when the user interacts with the scan variable selection text box"""
         completer = QCompleter(self.scan_device_list, self)
         completer.setMaxVisibleItems(30)
         completer.setCompletionMode(QCompleter.PopupCompletion)
@@ -341,7 +508,8 @@ class GEECSScannerWindow(QMainWindow):
         completer.complete()
 
     def check_scan_device(self):
-        # Checks what is inputted into the scan variable selection box against the list of scan variables
+        """Checks what is inputted into the scan variable selection box against the list of scan variables.  Otherwise,
+        reset the line edit."""
         scan_device = self.ui.lineScanVariable.text()
         if scan_device in self.scan_device_list:
             self.scan_variable = scan_device
@@ -350,7 +518,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineScanVariable.setText("")
 
     def calculate_num_shots(self):
-        # Given the parameters for a 1D scan, calculate the total number of shots
+        """Given the parameters for a 1D scan, calculate the total number of shots and display it on the GUI"""
         try:
             start = float(self.ui.lineStartValue.text())
             self.scan_start = start
@@ -371,7 +539,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineNumShots.setText("N/A")
 
     def build_shot_array(self):
-        # Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot
+        """Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot."""
         if (self.scan_stop - self.scan_start) / self.scan_step_size * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
             return []
         else:
@@ -384,7 +552,7 @@ class GEECSScannerWindow(QMainWindow):
             return array
 
     def update_noscan_num_shots(self):
-        # Updates the value of the number of shots in noscan mode, but only if it is a positive integer.
+        """Updates the value of the number of shots in noscan mode, but only if it is a positive integer."""
         if self.ui.noscanRadioButton.isChecked():
             try:
                 num_shots = int(self.ui.lineNumShots.text())
@@ -396,19 +564,30 @@ class GEECSScannerWindow(QMainWindow):
                 self.ui.lineNumShots.setText("N/A")
 
     def populate_preset_list(self):
+        """Searches for existing presets in the designated folder and populates each preset to the list on the GUI"""
         self.ui.listScanPresets.clear()
+        for preset in self.load_preset_list():
+            self.ui.listScanPresets.addItem(preset)
+
+    def load_preset_list(self):
+        """
+        :return: List containing the names of all presets in the designated folder
+        """
+        preset_list = []
         try:
             experiment_folder = PRESET_LOCATIONS + self.experiment + "/"
             for file_name in os.listdir(experiment_folder):
                 full_path = os.path.join(experiment_folder, file_name)
                 if os.path.isfile(full_path):
                     root, ext = os.path.splitext(file_name)
-                    self.ui.listScanPresets.addItem(root)
+                    preset_list.append(root)
         except OSError:
             print("Could not locate pre-existing scan presets.")
-            self.ui.listScanPresets.clear()
+        return preset_list
 
     def save_current_preset(self):
+        """Takes the current scan configuration and prompts the user if they would like to save it as a preset.  If so,
+        the user give a filename to save under and the information is compiled into a yaml that "apply_preset" uses"""
         text, ok = QInputDialog.getText(self, 'Save Configuration', 'Enter filename:')
         if ok and text:
             save_device_list = []
@@ -437,44 +616,54 @@ class GEECSScannerWindow(QMainWindow):
             self.populate_preset_list()
 
     def apply_preset(self):
+        """Loads the yaml file selected in the preset list, clears all current information on the GUI, then
+        systematically populate everything so that the GUI is equivalent to when it was saved as a preset"""
         selected_element = self.ui.listScanPresets.selectedItems()
-        settings = {}
         for preset in selected_element:
-            preset_filename = f"{PRESET_LOCATIONS}{self.experiment}/{preset.text()}.yaml"
-            with open(preset_filename, 'r') as file:
-                settings = yaml.safe_load(file)
+            preset_name = f"{preset.text()}"
 
-        self.clear_lists()
-        self.populate_found_list()
-        self.populate_preset_list()
+        self.apply_preset_from_name(preset_name)
 
-        devices_to_select = []
-        for index in range(self.ui.foundDevices.count()):
-            item = self.ui.foundDevices.item(index)
-            if item.text() in settings['Devices']:
-                devices_to_select.append(item)
-        for device in devices_to_select:
-            self.ui.foundDevices.takeItem(self.ui.foundDevices.row(device))
-            self.ui.selectedDevices.addItem(device)
+    def apply_preset_from_name(self, preset_name, load_save_elements=True, load_scan_params=True):
+        preset_filename = f"{PRESET_LOCATIONS}{self.experiment}/{preset_name}.yaml"
+        with open(preset_filename, 'r') as file:
+            settings = yaml.safe_load(file)
 
         self.ui.textEditScanInfo.setText(str(settings['Info']))
-        if settings['Scan Mode'] in "No Scan":
-            self.ui.noscanRadioButton.setChecked(True)
-            self.update_scan_edit_state()
-            self.ui.lineNumShots.setText(str(settings['Num Shots']))
-            self.update_noscan_num_shots()
-        elif settings['Scan Mode'] in "1D Scan":
-            self.ui.scanRadioButton.setChecked(True)
-            self.update_scan_edit_state()
-            self.ui.lineScanVariable.setText(str(settings['Variable']))
-            self.check_scan_device()
-            self.ui.lineStartValue.setText(str(settings['Start']))
-            self.ui.lineStopValue.setText(str(settings['Stop']))
-            self.ui.lineStepSize.setText(str(settings['Step Size']))
-            self.ui.lineShotStep.setText(str(settings['Shot per Step']))
-            self.calculate_num_shots()
+
+        if load_save_elements:
+            self.clear_lists()
+            self.populate_found_list()
+            self.populate_preset_list()
+
+            devices_to_select = []
+            for index in range(self.ui.foundDevices.count()):
+                item = self.ui.foundDevices.item(index)
+                if item.text() in settings['Devices']:
+                    devices_to_select.append(item)
+            for device in devices_to_select:
+                self.ui.foundDevices.takeItem(self.ui.foundDevices.row(device))
+                self.ui.selectedDevices.addItem(device)
+
+        if load_scan_params:
+            if settings['Scan Mode'] in "No Scan":
+                self.ui.noscanRadioButton.setChecked(True)
+                self.update_scan_edit_state()
+                self.ui.lineNumShots.setText(str(settings['Num Shots']))
+                self.update_noscan_num_shots()
+            elif settings['Scan Mode'] in "1D Scan":
+                self.ui.scanRadioButton.setChecked(True)
+                self.update_scan_edit_state()
+                self.ui.lineScanVariable.setText(str(settings['Variable']))
+                self.check_scan_device()
+                self.ui.lineStartValue.setText(str(settings['Start']))
+                self.ui.lineStopValue.setText(str(settings['Stop']))
+                self.ui.lineStepSize.setText(str(settings['Step Size']))
+                self.ui.lineShotStep.setText(str(settings['Shot per Step']))
+                self.calculate_num_shots()
 
     def delete_selected_preset(self):
+        """Deletes the preset that is currently selected in the list.  Afterwards, refreshes the preset list"""
         selected_element = self.ui.listScanPresets.selectedItems()
         for preset in selected_element:
             preset_filename = f"{PRESET_LOCATIONS}{self.experiment}/{preset.text()}.yaml"
@@ -492,15 +681,19 @@ class GEECSScannerWindow(QMainWindow):
         self.populate_preset_list()
 
     def check_for_errors(self):
+        """Checks the full GUI for any blatant errors.  To be used before submitting a scan to be run"""
         if not self.repetition_rate > 0:
             print("Error: Need nonzero repetition rate")
             return True
         return False
 
     def initialize_scan(self):
+        """Compiles the information from the GUI into a dictionary that can be used by scan_manager.  This dictionary is
+        then sent to RunControl to be submitted for a scan."""
         if not self.check_for_errors():
             # From the information provided in the GUI, create a scan configuration file and submit to GEECS for
             #  data logging.
+            self.is_starting = True
             self.ui.startScanButton.setEnabled(False)
             self.ui.experimentDisplay.setEnabled(False)
             self.ui.repititionRateDisplay.setEnabled(False)
@@ -571,31 +764,60 @@ class GEECSScannerWindow(QMainWindow):
 
             self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
             self.ui.startScanButton.setText("Start Scan")
+            self.is_starting = False
 
     def update_indicator(self):
-        if self.RunControl.is_active():
+        """Checks the current status of any ongoing run and updates the GUI accordingly.  Several configurations are
+        represented here, but the overall goal is to not allow RunControl to be edited or Start Scan to be clicked when
+        a scan is currently running.  If a scan is running, the Stop Scan button is enabled and the progress bar shows
+        the current progress.  When multiscan window is open, you can't launch a single scan or change run control"""
+        if self.RunControl is None:
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: grey;")
+            self.ui.startScanButton.setEnabled(False)
+            self.ui.stopScanButton.setEnabled(False)
+        elif self.RunControl.is_active():
             self.ui.scanStatusIndicator.setStyleSheet("background-color: red;")
             self.ui.startScanButton.setEnabled(False)
             self.ui.stopScanButton.setEnabled(not self.RunControl.is_stopping())
             self.ui.progressBar.setValue(int(self.RunControl.get_progress()))
         else:
             self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
-            self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
             self.ui.stopScanButton.setEnabled(False)
+            self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
             self.RunControl.clear_stop_state()
 
-        self.ui.experimentDisplay.setEnabled(self.ui.startScanButton.isEnabled())
-        self.ui.repititionRateDisplay.setEnabled(self.ui.startScanButton.isEnabled())
-        self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
+        if self.RunControl is not None:
+            if self.is_in_multiscan:
+                self.ui.scanStatusIndicator.setStyleSheet("background-color: blue;")
+                self.ui.startScanButton.setEnabled(False)
+            self.ui.experimentDisplay.setEnabled(self.ui.startScanButton.isEnabled())
+            self.ui.repititionRateDisplay.setEnabled(self.ui.startScanButton.isEnabled())
+            self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
+            self.ui.buttonUpdateConfig.setEnabled(self.ui.startScanButton.isEnabled())
+            self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
+
+    def is_ready_for_scan(self):
+        if self.RunControl is None:
+            return False
+        else:
+            return not (self.RunControl.is_active() or self.is_starting)
 
     def stop_scan(self):
+        """Submits a request to RunControl to stop the current scan.  In the meantime, disable the Stop Scan button so
+        that the user can't click this button multiple times."""
         self.ui.stopScanButton.setEnabled(False)
         QApplication.processEvents()
         self.RunControl.stop_scan()
 
 
 def exception_hook(exctype, value, tb):
-    # This is a global wrapper to print out tracebacks of python errors.  PyCharm wasn't doing this with PyQT windows
+    """
+    Global wrapper to print out tracebacks of python errors during the execution of a PyQT window.
+
+    :param exctype: Exception Type
+    :param value: Value of the exception
+    :param tb: Traceback
+    """
     print("An error occurred:")
     traceback.print_exception(exctype, value, tb)
     sys.__excepthook__(exctype, value, tb)
@@ -603,7 +825,7 @@ def exception_hook(exctype, value, tb):
 
 
 if __name__ == '__main__':
-    # When this python file is run, open and display the GEECSScanner main window
+    """Launches the GEECS Scanner GUI"""
     sys.excepthook = exception_hook
     app = QApplication(sys.argv)
 
