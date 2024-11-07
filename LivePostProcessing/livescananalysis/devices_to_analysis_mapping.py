@@ -1,7 +1,7 @@
 """
 Here we map analysis classes to combinations of cameras
 """
-import os
+from pathlib import Path
 
 undulator_scan_analyzers = {
     'MagSpec': {'AND': ['U_BCaveICT', 'U_BCaveMagSpec']},
@@ -21,6 +21,7 @@ def check_for_analysis_match(scan_folder):
     :param scan_folder: scan data folder
     :return: List of all analyses that can be performed
     """
+    scan_folder = Path(scan_folder)
     saved_devices = get_available_directories(scan_folder)
     valid_analyzers = []
     for analyzer in undulator_scan_analyzers:
@@ -46,7 +47,7 @@ def evaluate_condition(condition, saved_devices):
 
 def get_available_directories(root):
     try:
-        return [d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
+        return [d.name for d in root.iterdir() if d.is_dir()]
     except FileNotFoundError:
         print(f"Folder '{root}' does not exist.")
         return []

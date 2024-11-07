@@ -2,10 +2,10 @@
 Watches the scan folders for a given day and reports any new scans
 """
 
-import os
 import time
 import yaml
 import threading
+from pathlib import Path
 from devices_to_analysis_mapping import check_for_analysis_match
 from image_analysis.analyzers.online_analysis_modules.directory_functions import compile_daily_path
 
@@ -16,8 +16,8 @@ class NewScanLookout:
         self.year = year
         self.month = month
         self.day = day
-        self.root_folder = compile_daily_path(self.day, self.month, self.year, experiment=self.experiment)
-        self.processed_list_filename = f"processed_scans_{self.experiment}.yaml"
+        self.root_folder = Path(compile_daily_path(self.day, self.month, self.year, experiment=self.experiment))
+        self.processed_list_filename = Path(f"./processed_scans_{self.experiment}.yaml")
 
         self.processed_list = []
         if ignore_list is not None:
@@ -48,28 +48,27 @@ class NewScanLookout:
     def check_for_new_files(self):
         do_yaml_update = False
 
-        if not os.path.isdir(self.root_folder):
+        if not self.root_folder.is_dir():
             print(f"'{self.root_folder}' is not a valid path")
             return
 
         # For each folder in the root_folder
-        for folder_name in os.listdir(self.root_folder):
-            if folder_name.startswith("Scan") and folder_name[4:].isdigit():
-                scan_number = int(folder_name[4:])
+        for folder in self.root_folder.iterdir():
+            if folder.name.startswith("Scan") and folder.name[4:].isdigit():
+                scan_number = int(folder.name[4:])
 
                 # Are they currently in the processed_list?
                 if scan_number not in self.processed_list:
 
                     # Else, do they have a .tdms file?
-                    scan_folder = os.path.join(self.root_folder, folder_name)
-                    tdms_file = os.path.join(scan_folder, f"{folder_name}.tdms")
-                    if os.path.exists(tdms_file):
+                    tdms_file = folder.joinpath(f"{folder.name}.tdms")
+                    if tdms_file.exists():
 
                         # If so, add it to the processed list and figure out what analyses can be run
                         self.processed_list.append(scan_number)
                         do_yaml_update = True
 
-                        valid_analyzers = check_for_analysis_match(scan_folder)
+                        valid_analyzers = check_for_analysis_match(folder)
 
                         # Send those analysis commands to the appropriate analyzers.
                         # TODO implement command
@@ -96,7 +95,7 @@ class NewScanLookout:
 
     def read_yaml_file(self):
         contents = None
-        if os.path.exists(self.processed_list_filename):
+        if self.processed_list_filename.exists():
             with open(self.processed_list_filename, 'r') as file:
                 contents = yaml.safe_load(file) or []
         return contents
@@ -124,7 +123,7 @@ def recursive_update(base, new):
 
 if __name__ == "__main__":
     print("--Starting Lookout")
-    lookout = NewScanLookout(exp='Undulator', year=2024, month=10, day=31)
+    lookout = NewScanLookout(exp='Undulator', year=2024, month=10, day=31, overwrite_previous=False, do_print=True)
     lookout.start_lookout()
 
     print("--Sleeping for 10 seconds")
