@@ -423,9 +423,12 @@ class CameraImageAnalysis(ScanAnalysis):
 
         return np.mean(images, axis=0).astype(np.uint16)  # Keep 16-bit format for the averaged image
 
-    def save_image(self, image, save_dir, save_name, bit_depth=16):
+    def save_geecs_scaled_image(self, image, save_dir, save_name, bit_depth=16):
         """
-        Save an image as a .png file.
+        Images saved through GEECS typically are saved as 16bit, but the hardware saves
+        12 bit. In other words, the last 4 bits are unused. This method will save as 
+        16 bit image or, if 8bit representation is desired for visualization, it will
+        scale to 8 bits properly
 
         Args:
             image (np.ndarray): The image to save.
@@ -435,30 +438,44 @@ class CameraImageAnalysis(ScanAnalysis):
         """
         save_path = Path(save_dir) / save_name
 
-        # Save in 16-bit for the averaged image
+        # Ensure the directory exists
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert to 16-bit if required
         if bit_depth == 16:
-            plt.imsave(save_path, image, cmap='gray', format='png', vmin=0, vmax=65535)  # 16-bit depth
+            if image.dtype == np.uint8:
+                image = (image.astype(np.uint16)) * 256  # Scale 8-bit to 16-bit
+            elif image.dtype != np.uint16:
+                raise ValueError("Image must be either 8-bit or 16-bit format.")
+        elif bit_depth == 8:
+            image = (image * 2**4).astype(np.uint8)
         else:
-            plt.imsave(save_path, image, cmap='gray')  # For 8-bit visualization
+            raise ValueError("Unsupported bit depth. Only 8 or 16 bits are supported.")
 
+        # Save the image using cv2
+        cv2.imwrite(str(save_path), image)
         logging.info(f"Image saved at {save_path}")
+        
+    def save_normalized_image(self, image, save_dir, save_name):
+        """Display and optionally save a 16-bit image with specified min/max values for visualization."""
 
-    def normalize_for_visualization(self, image):
-        """
-        Normalize a 16-bit image to 8-bit for visualization purposes.
+        max_val = np.max(image)
 
-        Args:
-            image (np.ndarray): The 16-bit image to normalize.
+        # Display the image
+        plt.clf()
+        
+        plt.imshow(image, cmap='gray', vmin=0, vmax=max_val)
+        plt.colorbar()  # Adds a color scale bar
+        plt.axis('off')  # Hide axis for a cleaner look
 
-        Returns:
-            np.ndarray: The normalized 8-bit image.
-        """
-        # Normalize 16-bit image to 8-bit by scaling the pixel values
-        normalized_image = (image/(2**16-1)*255).astype(np.uint8)
+        # Save the image if a path is provided
+        if save_dir and save_name:
+            save_path = Path(save_dir) / save_name
+            save_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
+            plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
+            logging.info(f"Image saved at {save_path}")
 
-        return normalized_image
-
-    def create_image_array(self, avg_images, ref_coords=None):
+    def create_image_array(self, avg_images, ref_coords=None, plot_scale = None):
         """
         Arrange the averaged images into a sensibly sized grid and display them with scan parameter labels.
         For visualization purposes, images will be normalized to 8-bit.
@@ -487,6 +504,9 @@ class CameraImageAnalysis(ScanAnalysis):
         max_val = np.max(all_pixels)
         low = 0
         high = max_val
+        
+        if plot_scale is not None:
+            high = plot_scale
 
         for i, (img, param_value) in enumerate(zip(avg_images, self.binned_param_values)):
 
@@ -534,14 +554,37 @@ class CameraImageAnalysis(ScanAnalysis):
                               analysis_settings['Left ROI']:analysis_settings['Left ROI'] + analysis_settings['Size_X']]
 
         return cropped_image
+    
+    def filter_image(self, image, analysis_settings):
+        """
+        This function uses predefined analysis_settings to filter an image.
 
+        Args:
+        - image: loaded image to be processed.
+        - analysis_settings: settings for filtering.
+
+        Returns:
+        - Processed image with specified filters applied.
+        """
+        processed_image = image.astype(np.float32)  # Ensure a consistent numeric type
+    
+        for _ in range(analysis_settings.get('Median Filter Cycles', 0)):
+            processed_image = median_filter(processed_image, size=analysis_settings['Median Filter Size'])
+
+        for _ in range(analysis_settings.get('Gaussian Filter Cycles', 0)):
+            processed_image = gaussian_filter(processed_image, sigma=analysis_settings['Gaussian Filter Size'])
+        
+        # Optionally cast back to a 16-bit integer if needed
+        return processed_image.astype(np.uint16) if image.dtype == np.uint16 else processed_image
+    
+    
     def perform_bulk_image_analysis(self, save_directory=None, logging_flag=True):
-
+        
         # preallocate storage
         avg_images = []
 
         # identify unique parameter bins
-        unique_bins = np.unique(self.bins)
+        self.unique_bins = np.unique(self.bins)
         if logging_flag:
             logging.info(f"unique_bins: {unique_bins}")
 
@@ -559,7 +602,7 @@ class CameraImageAnalysis(ScanAnalysis):
 
             if save_directory is not None:
                 save_name = f"{self.device_name}_{bin_number}.png"
-                self.save_image(avg_image, save_dir=save_directory, save_name=save_name)
+                self.save_geecs_scaled_image(avg_image, save_dir=save_directory, save_name=save_name)
 
             if save_directory is not None and logging_flag:
                 logging.info(f"Averaged images for bin {bin_number} and saved as {save_name}.")
@@ -575,14 +618,9 @@ class CameraImageAnalysis(ScanAnalysis):
                 # crop image, save image
                 avg_cropped_image = self.crop_image(avg_image, analysis_settings)
                 if save_directory is not None:
-                    self.save_image(avg_cropped_image, save_dir=save_directory,
+                    self.save_geecs_scaled_image(avg_cropped_image, save_dir=save_directory,
                                     save_name=f"{self.device_name}_{bin_number}_cropped.png")
 
-                # perform specialized image processing, save image
-                # avg_image_processed = self.image_processing(avg_cropped_image, analysis_settings)
-                # if save_directory is not None:
-                #     self.save_image(avg_cropped_image, save_dir=save_directory,
-                #                     save_name=f"{self.device_name}_{bin_number}_processed.png")
                 avg_image_processed = avg_cropped_image.copy()
 
                 # rename image for convenience
@@ -657,19 +695,24 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
 
     def apply_cross_mask(self, image, analysis_settings):
 
-        # create crosshair masks
-        mask1 = self.create_cross_mask(image,
-                                       [analysis_settings['Cross1'][0] - analysis_settings['Left ROI'],
-                                        analysis_settings['Cross1'][1] - analysis_settings['Top ROI']],
-                                       analysis_settings['Rotate'])
-        mask2 = self.create_cross_mask(image,
-                                       [analysis_settings['Cross2'][0] - analysis_settings['Left ROI'],
-                                        analysis_settings['Cross2'][1] - analysis_settings['Top ROI']],
-                                       analysis_settings['Rotate'])
+        """
+        This function loads uses predefined analysis_settings to crop an image and mask out "crosses" from the images.
 
-        # apply cross mask
-        processed_image = image * mask1 * mask2
+        Args:
+        - image: loaded image to be processed.
 
+        """
+        
+        # Check if both 'Cross1' and 'Cross2' exist in analysis_settings
+        if analysis_settings.get('Cross1') and analysis_settings.get('Cross2'):
+            mask1 = self.create_cross_mask(image, analysis_settings['Cross1'], analysis_settings['Rotate'])
+            mask2 = self.create_cross_mask(image, analysis_settings['Cross2'], analysis_settings['Rotate'])
+            masked_image = image * mask1 * mask2
+        else:
+            masked_image = image
+            
+        processed_image = masked_image
+        
         return processed_image
 
     def create_image_array(self, avg_images, diode_ref=True):
@@ -723,7 +766,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
 
             if save_directory is not None:
                 save_name = f"{self.device_name}_{bin_number}.png"
-                self.save_image(avg_image, save_dir=save_directory, save_name=save_name)
+                self.save_geecs_scaled_image(avg_image, save_dir=save_directory, save_name=save_name)
 
             if save_directory is not None and logging_flag:
                 logging.info(f"Averaged images for bin {bin_number} and saved as {save_name}.")
@@ -735,21 +778,23 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
 
                 # get analysis settings
                 analysis_settings = self.camera_analysis_configs[self.device_name]
-
-                # crop image, save image
-                avg_cropped_image = super().crop_image(avg_image, analysis_settings)
-                if save_directory is not None:
-                    self.save_image(avg_cropped_image, save_dir=save_directory,
-                                    save_name=f"{self.device_name}_{bin_number}_cropped.png")
-
+                
                 # perform specialized image processing, save image
-                avg_image_processed = self.image_processing(avg_cropped_image, analysis_settings)
+                avg_image_processed = self.image_processing(avg_image, analysis_settings)
                 if save_directory is not None:
-                    self.save_image(avg_image_processed, save_dir=save_directory,
+                    self.save_geecs_scaled_image(avg_image_processed, save_dir=save_directory,
                                     save_name=f"{self.device_name}_{bin_number}_processed.png")
 
+                # crop image, save image
+                avg_cropped_image = super().crop_image(avg_image_processed, analysis_settings)
+                if save_directory is not None:
+                    self.save_geecs_scaled_image(avg_cropped_image, save_dir=save_directory,
+                                    save_name=f"{self.device_name}_{bin_number}_cropped.png")
+
+
+
                 # rename image for convenience
-                avg_image = avg_image_processed.copy()
+                avg_image = avg_cropped_image.copy()
 
             # append average image
             avg_images.append(avg_image)
