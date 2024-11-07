@@ -221,7 +221,7 @@ class ScanElementEditor(QDialog):
         """
         if location.isEnabled():
             location.selectAll()
-            completer = QCompleter(self.database_dict.keys(), self)
+            completer = QCompleter(sorted(self.database_dict.keys()), self)
             completer.setCompletionMode(QCompleter.PopupCompletion)
             completer.setCaseSensitivity(Qt.CaseSensitive)
 
@@ -246,7 +246,7 @@ class ScanElementEditor(QDialog):
 
             if device_name in self.database_dict:
                 location.selectAll()
-                completer = QCompleter(self.database_dict[device_name].keys(), self)
+                completer = QCompleter(sorted(self.database_dict[device_name].keys()), self)
                 completer.setCompletionMode(QCompleter.PopupCompletion)
                 completer.setCaseSensitivity(Qt.CaseSensitive)
 
