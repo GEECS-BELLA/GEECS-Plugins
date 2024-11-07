@@ -421,10 +421,14 @@ class GEECSScannerWindow(QMainWindow):
                         self.ui.selectedDevices.addItem(root)
                     else:
                         self.ui.foundDevices.addItem(root)
-            print(" ...Done!")
         except OSError:
             print("OSError occurred!")
             self.clear_lists()
+
+        print("Refreshing scan variable list...")
+        self.populate_scan_devices()
+
+        print(" ...Done!")
 
     def update_scan_edit_state(self):
         """Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
