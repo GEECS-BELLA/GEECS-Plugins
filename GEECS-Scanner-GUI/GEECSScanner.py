@@ -732,6 +732,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def check_for_errors(self):
         """Checks the full GUI for any blatant errors.  To be used before submitting a scan to be run"""
+        # TODO Need to add more logic in here.  IE, at least 1 shot, at least 1 save device, etc etc
         if not self.repetition_rate > 0:
             print("Error: Need nonzero repetition rate")
             return True
@@ -798,7 +799,7 @@ class GEECSScannerWindow(QMainWindow):
                 scan_array_initial = 0
                 scan_array_final = 0
 
-            scan_parameters = {  # TODO What does this even do???
+            scan_parameters = {  # TODO What does this even do?  Perhaps remove from dictionary?
                 'scan_mode': scan_mode,
                 'scan_range': [scan_array_initial, scan_array_final]
             }
@@ -821,6 +822,8 @@ class GEECSScannerWindow(QMainWindow):
         represented here, but the overall goal is to not allow RunControl to be edited or Start Scan to be clicked when
         a scan is currently running.  If a scan is running, the Stop Scan button is enabled and the progress bar shows
         the current progress.  When multiscan window is open, you can't launch a single scan or change run control"""
+
+        # TODO Could be useful to clean up the logic here.  It has become quite a mess with all the combinations
         if self.RunControl is None:
             self.ui.scanStatusIndicator.setStyleSheet("background-color: grey;")
             self.ui.startScanButton.setEnabled(False)
@@ -863,6 +866,7 @@ class GEECSScannerWindow(QMainWindow):
         self.RunControl.stop_scan()
 
     def closeEvent(self, event):
+        """Upon the GUI closing, also attempts to close child windows and stop any currently-running scans"""
         if self.multiscanner_window:
             self.multiscanner_window.stop_multiscan()
             self.multiscanner_window.close()
