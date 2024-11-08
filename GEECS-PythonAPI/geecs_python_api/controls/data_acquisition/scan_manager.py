@@ -583,7 +583,10 @@ class ScanManager:
         self.scan_step_start_time = 0
         self.scan_step_end_time = 0
         self.data_logger.idle_time = 0
-            
+
+        # Step 10: Reset the device manager to clear up the current subscribers
+        self.device_manager.reset()
+
         return log_df
     
     def _stop_saving_devices(self):
