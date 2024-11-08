@@ -81,6 +81,11 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.removeDeviceButton.clicked.connect(self.remove_files)
         self.ui.selectedDevices.itemDoubleClicked.connect(self.remove_files)
 
+        self.updating_found_list = False
+        self.updating_selected_list = False
+        self.ui.foundDevices.itemSelectionChanged.connect(self.clear_selected_list_selection)
+        self.ui.selectedDevices.itemSelectionChanged.connect(self.clear_found_list_selection)
+
         # Buttons to launch the element editor and refresh the list of available elements
         self.ui.newDeviceButton.clicked.connect(self.open_element_editor_new)
         self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
@@ -353,6 +358,20 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.selectedDevices.takeItem(self.ui.selectedDevices.row(item))
             self.ui.foundDevices.addItem(item)
 
+    def clear_found_list_selection(self):
+        """When the selected list is changed, clear the found list selection (without recursively clearing this list)"""
+        if not self.updating_selected_list:
+            self.updating_found_list = True
+            self.ui.foundDevices.clearSelection()
+            self.updating_found_list = False
+
+    def clear_selected_list_selection(self):
+        """When the found list is changed, clear the selected list selection (without recursively clearing this list)"""
+        if not self.updating_found_list:
+            self.updating_selected_list = True
+            self.ui.selectedDevices.clearSelection()
+            self.updating_selected_list = False
+
     def open_element_editor_new(self):
         """Opens the ScanElementEditor GUI with a blank template.  If Run Control is initialized then the database
         dictionary is passed for device/variable hints.  Afterwards, refresh the lists of the available and selected
@@ -372,8 +391,11 @@ class GEECSScannerWindow(QMainWindow):
         available and selected elements."""
         selected_element = self.ui.foundDevices.selectedItems()
         if not selected_element:
-            print("Select from the Found list")
-            return
+            selected_element = self.ui.selectedDevices.selectedItems()
+            if not selected_element:
+                self.open_element_editor_new()
+                return
+
         element_name = None
         for selection in selected_element:
             element_name = selection.text().strip() + ".yaml"
