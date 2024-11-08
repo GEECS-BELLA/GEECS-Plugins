@@ -113,7 +113,8 @@ class GEECSScannerWindow(QMainWindow):
 
         # Connect the line edit for the 1d scan variable to the list of available scan variables
         self.scan_variable = ""
-        self.scan_device_list = []
+        self.scan_variable_list = []
+        self.scan_composite_list = []
         self.populate_scan_devices()
         self.ui.lineScanVariable.editingFinished.connect(self.check_scan_device)
         self.ui.lineScanVariable.installEventFilter(self)
@@ -488,24 +489,25 @@ class GEECSScannerWindow(QMainWindow):
 
     def populate_scan_devices(self):
         """Generates a list of found scan devices from the scan_devices.yaml file"""
-        self.scan_device_list = []
+        self.scan_variable_list = []
+        self.scan_composite_list = []
         try:
             experiment_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/scan_devices/"
             with open(experiment_folder + "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 devices = data['single_scan_devices']
-                self.scan_device_list = list(devices.keys())
+                self.scan_variable_list = list(devices.keys())
 
             composite_variables_location = RELATIVE_PATH + "experiments/" + self.experiment + "/aux_configs/"
             with open(composite_variables_location + "composite_variables.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 composite_vars = data['composite_variables']
-                self.scan_device_list.extend(list(composite_vars.keys()))
+                self.scan_composite_list = list(composite_vars.keys())
 
         except Exception as e:
             print(f"Error loading file: {e}")
 
-        completer = QCompleter(self.scan_device_list, self.ui.lineScanVariable)
+        completer = QCompleter(self.scan_variable_list + self.scan_composite_list, self.ui.lineScanVariable)
         self.ui.lineScanVariable.setCompleter(completer)
 
     def read_device_tag_from_nickname(self, name):
@@ -529,7 +531,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def show_scan_device_list(self):
         """Displays the list of scan devices when the user interacts with the scan variable selection text box"""
-        completer = QCompleter(self.scan_device_list, self)
+        completer = QCompleter(self.scan_variable_list + self.scan_composite_list, self)
         completer.setMaxVisibleItems(30)
         completer.setCompletionMode(QCompleter.PopupCompletion)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -542,11 +544,19 @@ class GEECSScannerWindow(QMainWindow):
         """Checks what is inputted into the scan variable selection box against the list of scan variables.  Otherwise,
         reset the line edit."""
         scan_device = self.ui.lineScanVariable.text()
-        if scan_device in self.scan_device_list:
+        if scan_device in self.scan_variable_list:
             self.scan_variable = scan_device
+            self.ui.labelStartValue.setText("Start Value: (abs)")
+            self.ui.labelStopValue.setText("Stop Value: (abs)")
+        elif scan_device in self.scan_composite_list:
+            self.scan_variable = scan_device
+            self.ui.labelStartValue.setText("Start Value: (rel)")
+            self.ui.labelStopValue.setText("Stop Value: (rel)")
         else:
             self.scan_variable = ""
             self.ui.lineScanVariable.setText("")
+            self.ui.labelStartValue.setText("Start Value:")
+            self.ui.labelStopValue.setText("Stop Value:")
 
     def calculate_num_shots(self):
         """Given the parameters for a 1D scan, calculate the total number of shots and display it on the GUI"""
