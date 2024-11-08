@@ -18,6 +18,8 @@ from ScanElementEditor import ScanElementEditor
 from MultiScanner import MultiScanner
 from LogStream import EmittingStream, MultiStream
 
+CURRENT_VERSION = 'v0.1' # Try to keep this up-to-date, increase the version # with significant changes :)
+
 MAXIMUM_SCAN_SIZE = 1e6
 RELATIVE_PATH = "../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/"
 PRESET_LOCATIONS = "./scan_presets/"
@@ -31,6 +33,7 @@ class GEECSScannerWindow(QMainWindow):
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+        self.setWindowTitle(f"GEECS Scanner - {CURRENT_VERSION}")
 
         # Sets up the log at the bottom of the GUI to display errors.  TODO need to fix this, was crashing
         self.ui.logDisplay.setReadOnly(True)
