@@ -139,6 +139,9 @@ class GEECSScannerWindow(QMainWindow):
         self.timer.start(200)
         self.update_indicator()
 
+        self.element_editor = None
+        self.multiscanner_window = None
+
     def eventFilter(self, source, event):
         # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
         if event.type() == QEvent.MouseButtonPress and source == self.ui.experimentDisplay:
@@ -860,7 +863,14 @@ class GEECSScannerWindow(QMainWindow):
         self.RunControl.stop_scan()
 
     def closeEvent(self, event):
-        print("Shutting Down...currently active threads:")
+        if self.multiscanner_window:
+            self.multiscanner_window.stop_multiscan()
+            self.multiscanner_window.close()
+        if self.element_editor:
+            self.element_editor.close()
+
+        self.stop_scan()
+
         for thread in threading.enumerate():
             print(thread.name)
 
