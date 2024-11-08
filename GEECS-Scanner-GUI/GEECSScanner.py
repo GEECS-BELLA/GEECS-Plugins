@@ -6,6 +6,7 @@ Script to contain the logic for the GEECSScanner GUI.  Can be launched by runnin
 
 import sys
 import os
+import threading
 import traceback
 import importlib
 import yaml
@@ -857,6 +858,11 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.stopScanButton.setEnabled(False)
         QApplication.processEvents()
         self.RunControl.stop_scan()
+
+    def closeEvent(self, event):
+        print("Shutting Down...currently active threads:")
+        for thread in threading.enumerate():
+            print(thread.name)
 
 
 def exception_hook(exctype, value, tb):
