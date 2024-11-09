@@ -13,13 +13,13 @@
             "class": "logging.FileHandler",
             "level": "INFO",
             "formatter": "time_source_level_message",
-            "filename": "log/livepostprocessing.log"
+            "filename": "livepostprocessing.log"
         },
         "scan_analyzer_file_handler": {
             "class": "logging.FileHandler",
             "level": "INFO",
             "formatter": "time_source_level_message",
-            "filename": "log/scan_analyzer.log"
+            "filename": "scan_analyzer.log"
         }
     },
     "loggers": {

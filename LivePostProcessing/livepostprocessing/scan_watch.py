@@ -11,10 +11,13 @@ from multiprocessing import Process
 import logging
 import logging.config
 import json
+
+print(Path(__file__).parents[1] / "logging_config.json")
+
 logging.config.dictConfig(
     json.load(
         (Path(__file__).parents[1] / "logging_config.json")
-            .open()
+        .open()
     )
 )
 logger = logging.getLogger("live_run_analysis")
@@ -24,12 +27,12 @@ from .scan_analyzer import ScanAnalyzer
 
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
+
 if TYPE_CHECKING:
     from watchdog.events import DirCreatedEvent, FileCreatedEvent
 
 
 class AnalysisFolderEventHandler(FileSystemEventHandler):
-
     s_filename_regex = re.compile(r"s(?P<scan_number>\d+).txt")
 
     def __init__(self, scan_analyzer: ScanAnalyzer):
@@ -70,9 +73,9 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
 
 
 class ScanWatch:
-    def __init__(self, date_folder_name: str, 
-                 scan_analyzer: Optional[ScanAnalyzer] = None, 
-                ):
+    def __init__(self, date_folder_name: str,
+                 scan_analyzer: Optional[ScanAnalyzer] = None,
+                 ):
         """
         Parameters
         ----------
@@ -81,7 +84,7 @@ class ScanWatch:
         scan_analyzer : Optional[ScanAnalyzer]
             use an existing ScanAnalyzer instance, or (default) create a new one.
         """
-        self.watch_folder: Path = get_run_folder(date_folder_name)/"analysis"
+        self.watch_folder: Path = get_run_folder(date_folder_name) / "analysis"
         if scan_analyzer is None:
             self.scan_analyzer = ScanAnalyzer()
         else:
@@ -110,7 +113,7 @@ class ScanWatch:
                 raise FileNotFoundError(f"Watch folder {self.watch_folder} does not exist. "
                                         "Either create it, or set watch_folder_not_exist "
                                         "to 'wait' or 'create'"
-                                    )
+                                        )
 
             elif watch_folder_not_exist == 'create':
                 logger.info(f"Creating {self.watch_folder}.")
@@ -122,7 +125,6 @@ class ScanWatch:
                     sleep(10)
             else:
                 raise ValueError(f"Unknown value for watch_folder_not_exist: {watch_folder_not_exist}")
-
 
     def run(self, watch_folder_not_exist: str = 'raise'):
         """
@@ -138,7 +140,7 @@ class ScanWatch:
                 'raise': raise FileNotFoundError
         
         """
-        
+
         self._check_watch_folder_exists(watch_folder_not_exist)
 
         self.observer.start()
@@ -154,8 +156,8 @@ if __name__ == '__main__':
     ap.add_argument("--date_folder_name",
                     type=str,
                     default=datetime.now().strftime("%y_%m%d"),
-                    help="date folder to watch for scans, in yy_mmdd format", 
-                   )
+                    help="date folder to watch for scans, in yy_mmdd format",
+                    )
     ap.add_argument("--watch_folder_not_exist",
                     type=str,
                     choices=['wait', 'create', 'raise'],
@@ -164,8 +166,8 @@ if __name__ == '__main__':
                           "'wait': wait for the watch folder to be created by the control system; "
                           "'create': create the folder ourselves; "
                           "'raise': raise FileNotFoundError; "
-                         ) 
-                   )
+                          )
+                    )
 
     args = ap.parse_args()
 
