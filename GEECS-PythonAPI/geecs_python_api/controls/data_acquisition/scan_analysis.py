@@ -832,41 +832,6 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
 
         return binned_data
 
-    #def run_analysis(self, analysis_settings=None):
-        """
-        Main function to UC_VisaEBeam image analysis.
-        """
-
-        #super().run_analysis()
-
-        # if analysis_settings is None:
-        #     analysis_settings = self.camera_analysis_settings
-
-        # # initialize analysis
-        # bool_flag = super().initialize_analysis()
-        # if bool_flag:
-        #     return
-
-        # # attempt analysis
-        # try:
-
-        #     # bin data
-        #     binned_data = self.bin_images()
-
-        #     # perform bulk image analysis
-        #     binned_data = self.perform_bulk_image_analysis(binned_data)
-
-        #     # Once all bins are processed, create an array of the averaged images
-        #     if len(binned_data) > 1 and self.flag_save_images:
-        #         plot_scale = analysis_settings.get('Plot Scale', None)
-        #         self.create_image_array(binned_data, plot_scale = plot_scale)
-
-        # # throw warning if analysis fails
-        # except Exception as e:
-        #     if self.flag_logging:
-        #         logging.warning(f"Warning: Image analysis failed due to: {e}")
-        #     return
-
 # %% testing
 
 def testing_routine():
