@@ -9,12 +9,7 @@ experiment using the GEECS/Master Control environment.
 - [Installation](#installation)
 - [Overview](#overview)
 - [Core Classes](#core-classes)
-  - [ScanManager](#scanmanager)
-  - [ScanDataManager](#scandatamanager)
-  - [DeviceManager](#devicemanager)
-  - [DataLogger](#datalogger)
-  - [SoundPlayer](#soundplayer)
-  - [ActionManager](#actionmanager)
+  - [GEECSScanner](#geecs-scanner)
 - [Basic Usage](#basic-usage)
 - [Future Improvements](#future-improvements)
 
