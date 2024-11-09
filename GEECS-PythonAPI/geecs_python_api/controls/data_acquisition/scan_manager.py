@@ -169,22 +169,42 @@ class ScanDataManager:
         df.to_csv(self.sFile_txt_path, sep='\t', index=False)
         logging.info(f"Data saved to {self.data_txt_path}")
 
-    def dataframe_to_tdms(self, df, is_index=False):
+        
+    def dataframe_to_tdms(df, is_index=False):
         """
-        Save the data from a DataFrame to a TDMS file.
+        Save the data from a DataFrame to a TDMS file, grouping by device name 
+        and removing any alias information in variable names.
 
         Args:
             df (pandas.DataFrame): DataFrame containing the data to be saved.
+            output_path (Path): Path where the TDMS file will be saved.
             is_index (bool): If True, saves to a TDMS index file; otherwise, saves the actual data.
         """
-
+        # Initialize the TDMS writer
+        
         tdms_writer = self.tdms_index_writer if is_index else self.tdms_writer
         with tdms_writer:
             for column in df.columns:
-                group_name, channel_name = (column.split(':', 1) if ':' in column else (column, column))
+                # Extract device name as the first word, handle special cases that don't conform
+                # to that protocol first
+                if column == 'Bin #' or column =='Elapsed Time':
+                    device_name = column
+                else:
+                    device_name = column.split(' ', 1)[0]
+
+                # print(device_name)
+                # Extract the variable name by removing the device name and any leading space
+                variable_name = column[len(device_name):].strip()
+            
+                # Remove alias information if "Alias:" appears in the variable name
+                variable_name = variable_name.split(" Alias:", 1)[0].strip()
+                variable_name = f'{device_name} {variable_name}'
+                # Get the data for this channel
                 data = [] if is_index else df[column].values
-                ch_object = ChannelObject(group_name, channel_name, data)
+                # Create a ChannelObject and write it to the TDMS file
+                ch_object = ChannelObject(device_name, variable_name, data)
                 tdms_writer.write_segment([ch_object])
+
         logging.info(f"TDMS {'index' if is_index else 'data'} file written successfully.")
         
     def convert_to_dataframe(self, log_entries):
