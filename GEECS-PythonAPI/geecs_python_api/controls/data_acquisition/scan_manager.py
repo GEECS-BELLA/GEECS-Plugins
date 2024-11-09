@@ -810,6 +810,7 @@ class ScanManager:
 
                 if device:
                     # Retrieve the tolerance for the variable
+                    # TODO Better error handling when tolerance not defined in database editor
                     tol = float(GeecsDevice.exp_info['devices'][device_name][var_name]['tolerance'])
 
                     # Retry logic for setting device value
