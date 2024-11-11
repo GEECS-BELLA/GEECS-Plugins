@@ -170,7 +170,6 @@ class ScanData:
             return {}
     
     
-    
     def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
         dev_data = self.get_device_data(device)
         if not dev_data:
@@ -227,6 +226,10 @@ class ScanData:
                     pass
                 try:
                     self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = (self.scan_info['Scan Parameter'].split(':', maxsplit=1))
+                except:
+                    pass
+                try:
+                    self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = ('Composite variable', self.scan_info['Scan Parameter'])
                 except UnidentifiedScanVariable:
                     sParam = self.scan_info['Scan Parameter']
                     api_error.warning(f'ScanInfo file has unknown scan variable', f'{sParam}')
