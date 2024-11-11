@@ -924,7 +924,6 @@ class DataInterface():
         """
 
         tdms_save_path = self.local_scan_dir_base / self.next_scan_folder / f"{self.next_scan_folder}.tdms"
-        tdms_index_save_path = self.local_scan_dir_base / self.next_scan_folder / f"{self.next_scan_folder}.tdms_index"
 
         data_txt_path = self.local_scan_dir_base / self.next_scan_folder / f"ScanData{self.next_scan_folder}.txt"
         data_h5_path = self.local_scan_dir_base / self.next_scan_folder / f"ScanData{self.next_scan_folder}.h5"
@@ -933,7 +932,7 @@ class DataInterface():
         sFile_txt_path = self.local_analysis_dir_base / f"s{int(self.next_scan_folder[-3:])}.txt"
         sFile_info_path = self.local_analysis_dir_base / f"s{int(self.next_scan_folder[-3:])}_info.txt"
 
-        return tdms_save_path, tdms_index_save_path, data_txt_path, data_h5_path, sFile_txt_path
+        return tdms_save_path, data_txt_path, data_h5_path, sFile_txt_path
 
     def create_device_save_dir(self, local_device_save_path):
         """
