@@ -142,7 +142,7 @@ class ScanData:
             self.load_scalar_data()
         else:
             self.data_dict = {}
-
+    
     @staticmethod
     def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') \
             -> Path:
@@ -168,7 +168,9 @@ class ScanData:
             return self.data_dict[device_name]
         else:
             return {}
-
+    
+    
+    
     def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
         dev_data = self.get_device_data(device)
         if not dev_data:
@@ -194,8 +196,8 @@ class ScanData:
         parameter_avgs_match_setpoints = all([inds.size == expected.shots for inds in measured.indexes])
         parameter_avgs_match_setpoints = parameter_avgs_match_setpoints and (len(measured.indexes) == expected.steps)
         if not parameter_avgs_match_setpoints:
-            api_error.warning(f'Observed data binning does not match expected scan parameters (.ini)',
-                              f'Function "{inspect.stack()[0][3]}"')
+            temp_function = inspect.stack()[0][3]
+            api_error.warning(f'Observed data binning does not match expected scan parameters (.ini)', f'Function {temp_function}')
 
         if parameter_avgs_match_setpoints:
             indexes = expected.indexes
@@ -215,11 +217,23 @@ class ScanData:
             self.scan_info.update({key: value.strip("'\"")
                                    for key, value in config_parser.items("Scan Info")})
             if 'Scan Parameter' in self.scan_info:
-                self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = (
-                    self.scan_info['Scan Parameter'].split(' ', maxsplit=1))
+                # have two cases to handle how scan parameters are entered in to the ScanInfo.ini file.
+                # there are slight differences when useing MC or the python based geecs scaner
+                # TO do: this doesn't handle the case of composite variable scans. Those variables should be read
+                # from the files that stores composite variables
+                try:
+                    self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = (self.scan_info['Scan Parameter'].split(' ', maxsplit=1))
+                except:
+                    pass
+                try:
+                    self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = (self.scan_info['Scan Parameter'].split(':', maxsplit=1))
+                except UnidentifiedScanVariable:
+                    sParam = self.scan_info['Scan Parameter']
+                    api_error.warning(f'ScanInfo file has unknown scan variable', f'{sParam}')
+                    
         except NoSectionError:
-            api_error.warning(f'ScanInfo file does not have a "Scan Info" section',
-                              f'ScanData class, method "{inspect.stack()[0][3]}"')
+            temp_scan_data = inspect.stack()[0][3]
+            api_error.warning(f'ScanInfo file does not have a "Scan Info" section', f'ScanData class, method {temp_scan_data}')
 
     def load_scalar_data(self) -> bool:
         tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
