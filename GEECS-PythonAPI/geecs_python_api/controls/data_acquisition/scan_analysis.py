@@ -10,7 +10,7 @@ import cv2
 
 from scipy.ndimage import median_filter, gaussian_filter
 
-from utils import get_full_config_path  # Import the utility function
+from geecs_python_api.controls.data_acquisition.utils import get_full_config_path  # Import the utility function
 
 import re
 

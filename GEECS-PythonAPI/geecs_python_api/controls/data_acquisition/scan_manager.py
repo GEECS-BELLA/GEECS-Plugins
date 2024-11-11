@@ -90,7 +90,7 @@ class ScanDataManager:
         self.data_interface.create_device_save_dir(analysis_save_path)
 
         tdms_output_path, self.data_txt_path, self.data_h5_path, self.sFile_txt_path = self.data_interface.build_scalar_data_save_paths()
-        self.initialize_tdms_writers(tdms_output_path)
+        self.initialize_tdms_writers(str(tdms_output_path))
         
         time.sleep(1)
 
@@ -196,7 +196,7 @@ class ScanDataManager:
                 variable_name = variable_name.split(" Alias:", 1)[0].strip()
                 variable_name = f'{device_name} {variable_name}'
                 # Get the data for this channel
-                data = [] if is_index else df[column].values
+                data = df[column].values
                 # Create a ChannelObject and write it to the TDMS file
                 ch_object = ChannelObject(device_name, variable_name, data)
                 tdms_writer.write_segment([ch_object])
