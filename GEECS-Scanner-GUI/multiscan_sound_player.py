@@ -1,3 +1,9 @@
+"""
+Module with a lightweight audio player for sounds specific to the GEECS Scanner GUI and its associated gui windows
+
+-Chris
+"""
+
 import platform
 import os
 import time
@@ -14,6 +20,7 @@ SAMPLE_RATE = 44100
 
 
 def play_finish_jingle():
+    """Play a jingle of 4 notes, used at the end of a multiscan script"""
     notes = [
         (784, 0.25, 0),
         (1047, 0.10, 0.15),

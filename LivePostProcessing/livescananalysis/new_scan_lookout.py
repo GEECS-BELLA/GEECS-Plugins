@@ -79,8 +79,8 @@ class NewScanLookout:
         if do_yaml_update:
             self.write_processed_list()
 
-        if self.do_print:
-            print("-Check Complete")
+            if self.do_print:
+                print("-Check Complete")
 
     def read_processed_list(self):
         contents = self.read_yaml_file()
@@ -123,7 +123,7 @@ def recursive_update(base, new):
 
 if __name__ == "__main__":
     print("--Starting Lookout")
-    lookout = NewScanLookout(exp='Undulator', year=2024, month=10, day=31, overwrite_previous=False, do_print=True)
+    lookout = NewScanLookout(exp='Undulator', year=2024, month=11, day=7, overwrite_previous=False, do_print=True)
     lookout.start_lookout()
 
     print("--Sleeping for 10 seconds")
