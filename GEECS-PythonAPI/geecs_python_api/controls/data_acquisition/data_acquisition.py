@@ -317,7 +317,8 @@ class DeviceManager:
         self.composite_variables = None
         self.scan_setup_action = {'steps': []}
         self.scan_closeout_action = {'steps': []}
-        
+
+        self.is_reset = False  # Used to determine if a reset is required upon reinitialization
 
         if experiment_dir is not None:
             # Set the experiment directory
@@ -627,6 +628,7 @@ class DeviceManager:
         logging.info(f'non_scalar_saving_devices devices after reset: {self.non_scalar_saving_devices}')
         logging.info(f'devices devices after reset: {self.devices}')
         logging.info("DeviceManager instance has been reset and is ready for reinitialization.")
+        self.is_reset = True
 
     def reinitialize(self, config_path=None, config_dictionary=None):
         """
@@ -638,7 +640,9 @@ class DeviceManager:
         """
         
         # First, reset the current state
-        self.reset()
+        if not self.is_reset:
+            self.reset()
+        self.is_reset = False
         
         self.scan_setup_action['steps'] = []
         self.scan_closeout_action['steps'] =[]
@@ -1142,7 +1146,7 @@ class DataLogger():
         
         self.data_recording = False
         self.idle_time = 0
-        
+
     def start_logging(self):
         """
         Start logging data for all devices. Event-driven observables trigger logs, and asynchronous

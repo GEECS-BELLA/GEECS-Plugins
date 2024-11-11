@@ -583,7 +583,10 @@ class ScanManager:
         self.scan_step_start_time = 0
         self.scan_step_end_time = 0
         self.data_logger.idle_time = 0
-            
+
+        # Step 10: Reset the device manager to clear up the current subscribers
+        self.device_manager.reset()
+
         return log_df
     
     def _stop_saving_devices(self):
@@ -807,6 +810,7 @@ class ScanManager:
 
                 if device:
                     # Retrieve the tolerance for the variable
+                    # TODO Better error handling when tolerance not defined in database editor
                     tol = float(GeecsDevice.exp_info['devices'][device_name][var_name]['tolerance'])
 
                     # Retry logic for setting device value

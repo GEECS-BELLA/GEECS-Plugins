@@ -6,6 +6,7 @@ Script to contain the logic for the GEECSScanner GUI.  Can be launched by runnin
 
 import sys
 import os
+import threading
 import traceback
 import importlib
 import yaml
@@ -17,6 +18,8 @@ from GEECSScanner_ui import Ui_MainWindow
 from ScanElementEditor import ScanElementEditor
 from MultiScanner import MultiScanner
 from LogStream import EmittingStream, MultiStream
+
+CURRENT_VERSION = 'v0.1' # Try to keep this up-to-date, increase the version # with significant changes :)
 
 MAXIMUM_SCAN_SIZE = 1e6
 RELATIVE_PATH = "../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/"
@@ -31,6 +34,7 @@ class GEECSScannerWindow(QMainWindow):
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+        self.setWindowTitle(f"GEECS Scanner - {CURRENT_VERSION}")
 
         # Sets up the log at the bottom of the GUI to display errors.  TODO need to fix this, was crashing
         self.ui.logDisplay.setReadOnly(True)
@@ -81,6 +85,11 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.removeDeviceButton.clicked.connect(self.remove_files)
         self.ui.selectedDevices.itemDoubleClicked.connect(self.remove_files)
 
+        self.updating_found_list = False
+        self.updating_selected_list = False
+        self.ui.foundDevices.itemSelectionChanged.connect(self.clear_selected_list_selection)
+        self.ui.selectedDevices.itemSelectionChanged.connect(self.clear_found_list_selection)
+
         # Buttons to launch the element editor and refresh the list of available elements
         self.ui.newDeviceButton.clicked.connect(self.open_element_editor_new)
         self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
@@ -105,7 +114,8 @@ class GEECSScannerWindow(QMainWindow):
 
         # Connect the line edit for the 1d scan variable to the list of available scan variables
         self.scan_variable = ""
-        self.scan_device_list = []
+        self.scan_variable_list = []
+        self.scan_composite_list = []
         self.populate_scan_devices()
         self.ui.lineScanVariable.editingFinished.connect(self.check_scan_device)
         self.ui.lineScanVariable.installEventFilter(self)
@@ -128,6 +138,9 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.scanStatusIndicator.setText("")
         self.timer.start(200)
         self.update_indicator()
+
+        self.element_editor = None
+        self.multiscanner_window = None
 
     def eventFilter(self, source, event):
         # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
@@ -353,6 +366,20 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.selectedDevices.takeItem(self.ui.selectedDevices.row(item))
             self.ui.foundDevices.addItem(item)
 
+    def clear_found_list_selection(self):
+        """When the selected list is changed, clear the found list selection (without recursively clearing this list)"""
+        if not self.updating_selected_list:
+            self.updating_found_list = True
+            self.ui.foundDevices.clearSelection()
+            self.updating_found_list = False
+
+    def clear_selected_list_selection(self):
+        """When the found list is changed, clear the selected list selection (without recursively clearing this list)"""
+        if not self.updating_found_list:
+            self.updating_selected_list = True
+            self.ui.selectedDevices.clearSelection()
+            self.updating_selected_list = False
+
     def open_element_editor_new(self):
         """Opens the ScanElementEditor GUI with a blank template.  If Run Control is initialized then the database
         dictionary is passed for device/variable hints.  Afterwards, refresh the lists of the available and selected
@@ -372,8 +399,11 @@ class GEECSScannerWindow(QMainWindow):
         available and selected elements."""
         selected_element = self.ui.foundDevices.selectedItems()
         if not selected_element:
-            print("Select from the Found list")
-            return
+            selected_element = self.ui.selectedDevices.selectedItems()
+            if not selected_element:
+                self.open_element_editor_new()
+                return
+
         element_name = None
         for selection in selected_element:
             element_name = selection.text().strip() + ".yaml"
@@ -388,6 +418,7 @@ class GEECSScannerWindow(QMainWindow):
         self.refresh_element_list()
 
     def open_multiscanner(self):
+        """Opens the multiscanner window, and in the process sets a flag that disables starting scans on the main gui"""
         self.multiscanner_window = MultiScanner(self, f"{MULTISCAN_CONFIGS}{self.experiment}/")
         self.multiscanner_window.show()
 
@@ -395,6 +426,7 @@ class GEECSScannerWindow(QMainWindow):
         self.update_indicator()
 
     def exit_multiscan_mode(self):
+        """Cleans up the multiscanner window and resets the enable-ability for buttons on the main window"""
         self.is_in_multiscan = False
         self.multiscanner_window = None
 
@@ -419,10 +451,14 @@ class GEECSScannerWindow(QMainWindow):
                         self.ui.selectedDevices.addItem(root)
                     else:
                         self.ui.foundDevices.addItem(root)
-            print(" ...Done!")
         except OSError:
             print("OSError occurred!")
             self.clear_lists()
+
+        print("Refreshing scan variable list...")
+        self.populate_scan_devices()
+
+        print(" ...Done!")
 
     def update_scan_edit_state(self):
         """Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
@@ -457,24 +493,25 @@ class GEECSScannerWindow(QMainWindow):
 
     def populate_scan_devices(self):
         """Generates a list of found scan devices from the scan_devices.yaml file"""
-        self.scan_device_list = []
+        self.scan_variable_list = []
+        self.scan_composite_list = []
         try:
             experiment_folder = RELATIVE_PATH + "experiments/" + self.experiment + "/scan_devices/"
             with open(experiment_folder + "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 devices = data['single_scan_devices']
-                self.scan_device_list = list(devices.keys())
+                self.scan_variable_list = list(devices.keys())
 
             composite_variables_location = RELATIVE_PATH + "experiments/" + self.experiment + "/aux_configs/"
             with open(composite_variables_location + "composite_variables.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 composite_vars = data['composite_variables']
-                self.scan_device_list.extend(list(composite_vars.keys()))
+                self.scan_composite_list = list(composite_vars.keys())
 
         except Exception as e:
             print(f"Error loading file: {e}")
 
-        completer = QCompleter(self.scan_device_list, self.ui.lineScanVariable)
+        completer = QCompleter(self.scan_variable_list + self.scan_composite_list, self.ui.lineScanVariable)
         self.ui.lineScanVariable.setCompleter(completer)
 
     def read_device_tag_from_nickname(self, name):
@@ -498,7 +535,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def show_scan_device_list(self):
         """Displays the list of scan devices when the user interacts with the scan variable selection text box"""
-        completer = QCompleter(self.scan_device_list, self)
+        completer = QCompleter(self.scan_variable_list + self.scan_composite_list, self)
         completer.setMaxVisibleItems(30)
         completer.setCompletionMode(QCompleter.PopupCompletion)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -511,11 +548,19 @@ class GEECSScannerWindow(QMainWindow):
         """Checks what is inputted into the scan variable selection box against the list of scan variables.  Otherwise,
         reset the line edit."""
         scan_device = self.ui.lineScanVariable.text()
-        if scan_device in self.scan_device_list:
+        if scan_device in self.scan_variable_list:
             self.scan_variable = scan_device
+            self.ui.labelStartValue.setText("Start Value: (abs)")
+            self.ui.labelStopValue.setText("Stop Value: (abs)")
+        elif scan_device in self.scan_composite_list:
+            self.scan_variable = scan_device
+            self.ui.labelStartValue.setText("Start Value: (rel)")
+            self.ui.labelStopValue.setText("Stop Value: (rel)")
         else:
             self.scan_variable = ""
             self.ui.lineScanVariable.setText("")
+            self.ui.labelStartValue.setText("Start Value:")
+            self.ui.labelStopValue.setText("Stop Value:")
 
     def calculate_num_shots(self):
         """Given the parameters for a 1D scan, calculate the total number of shots and display it on the GUI"""
@@ -625,6 +670,11 @@ class GEECSScannerWindow(QMainWindow):
         self.apply_preset_from_name(preset_name)
 
     def apply_preset_from_name(self, preset_name, load_save_elements=True, load_scan_params=True):
+        """
+        :param preset_name: Name of the preset
+        :param load_save_elements: Defaults to True, flag to load the save elements from a preset file
+        :param load_scan_params: Defaults to True, flag to load the scan parameters from a preset file
+        """
         preset_filename = f"{PRESET_LOCATIONS}{self.experiment}/{preset_name}.yaml"
         with open(preset_filename, 'r') as file:
             settings = yaml.safe_load(file)
@@ -682,6 +732,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def check_for_errors(self):
         """Checks the full GUI for any blatant errors.  To be used before submitting a scan to be run"""
+        # TODO Need to add more logic in here.  IE, at least 1 shot, at least 1 save device, etc etc
         if not self.repetition_rate > 0:
             print("Error: Need nonzero repetition rate")
             return True
@@ -748,7 +799,7 @@ class GEECSScannerWindow(QMainWindow):
                 scan_array_initial = 0
                 scan_array_final = 0
 
-            scan_parameters = {  # TODO What does this even do???
+            scan_parameters = {  # TODO What does this even do?  Perhaps remove from dictionary?
                 'scan_mode': scan_mode,
                 'scan_range': [scan_array_initial, scan_array_final]
             }
@@ -771,6 +822,8 @@ class GEECSScannerWindow(QMainWindow):
         represented here, but the overall goal is to not allow RunControl to be edited or Start Scan to be clicked when
         a scan is currently running.  If a scan is running, the Stop Scan button is enabled and the progress bar shows
         the current progress.  When multiscan window is open, you can't launch a single scan or change run control"""
+
+        # TODO Could be useful to clean up the logic here.  It has become quite a mess with all the combinations
         if self.RunControl is None:
             self.ui.scanStatusIndicator.setStyleSheet("background-color: grey;")
             self.ui.startScanButton.setEnabled(False)
@@ -797,6 +850,9 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
 
     def is_ready_for_scan(self):
+        """
+        :return: True if Run control is initialized, and not currently starting up or scanning
+        """
         if self.RunControl is None:
             return False
         else:
@@ -808,6 +864,19 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.stopScanButton.setEnabled(False)
         QApplication.processEvents()
         self.RunControl.stop_scan()
+
+    def closeEvent(self, event):
+        """Upon the GUI closing, also attempts to close child windows and stop any currently-running scans"""
+        if self.multiscanner_window:
+            self.multiscanner_window.stop_multiscan()
+            self.multiscanner_window.close()
+        if self.element_editor:
+            self.element_editor.close()
+
+        self.stop_scan()
+
+        for thread in threading.enumerate():
+            print(thread.name)
 
 
 def exception_hook(exctype, value, tb):
