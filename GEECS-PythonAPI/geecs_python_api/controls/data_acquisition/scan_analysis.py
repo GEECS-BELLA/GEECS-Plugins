@@ -681,12 +681,13 @@ class CameraImageAnalysis(ScanAnalysis):
 
         return binned_data
 
-    def run_analysis(self, analysis_settings=None):
+    def run_analysis(self, analysis_settings=None, flag_save=None):
         """
         Main function to run the image analysis.
 
         """
-
+        if flag_save is None:
+            flag_save = self.flag_save_images
         if analysis_settings is None:
             analysis_settings = self.camera_analysis_settings
 
@@ -698,13 +699,14 @@ class CameraImageAnalysis(ScanAnalysis):
         try:
 
             # bin data
-            binned_data = self.bin_images()
+            binned_data = self.bin_images(flag_save=flag_save)
 
             # perform bulk image analysis
-            binned_data = self.perform_bulk_image_analysis(binned_data)
+            binned_data = self.perform_bulk_image_analysis(binned_data,
+                                                           flag_save=flag_save)
 
             # Once all bins are processed, create an array of the averaged images
-            if len(binned_data) > 1 and self.flag_save_images:
+            if len(binned_data) > 1 and flag_save:
                 plot_scale = analysis_settings.get('Plot Scale', None)
                 self.create_image_array(binned_data, plot_scale = plot_scale)
 

@@ -28,8 +28,26 @@ class MultiScanAnalysis():
     Not sure how to generalize at this point.
     """
 
-    def __init__(self):
+    def __init__(self, input_scans):
+        """
+
+
+        Parameters
+        ----------
+        input_scans : TYPE
+            Needs structure documentation! Example in executable routine below.
+
+        Returns
+        -------
+        None.
+
+        """
+
+        # initialize data interface object
         self.data_interface = DataInterface()
+
+        # parse scan information based in input_scans dict
+        self.scans = self.parse_scans(input_scans)
 
     def parse_scans(self, input_scans):
         """
@@ -89,11 +107,7 @@ class MultiScanAnalysis():
 class MultiScanAnalysis_Visa(MultiScanAnalysis):
 
     def __init__(self, input_scans):
-
-        # initialize data interface object
-        self.data_interface = DataInterface()
-
-        self.scans = self.parse_scans(input_scans)
+        super().__init__(input_scans)
 
     def parse_scans(self, input_scans):
         """
@@ -123,39 +137,26 @@ class MultiScanAnalysis_Visa(MultiScanAnalysis):
 
         return scan_dict
 
-    def scan_analysis_backup(self, scan, scan_parameter=None):
-
-        # load sfile
-        sfile = super().load_sfile(scan['path_sfile'])
-
-        # identify scan parameter bin values
-        bins = sfile[scan_parameter].unique()
-
-        # identify shots for each bin
-        binned_shots = {val: sfile.loc[sfile[scan_parameter] == val, 'Shotnumber'].tolist() for val in bins}
-
-        # for each bin, load images and average
-
-        pass
-
     def scan_analysis(self, scan):
 
         # initialize VisaEBeamAnalysis
         analyzer = VisaEBeamAnalysis(scan['path_scan'], scan['device'])
         self.scan_parameter = analyzer.scan_parameter
+        analysis_settings = analyzer.camera_analysis_settings
 
         # get blue diode coordinates
-        analysis_settings = analyzer.camera_analysis_configs[scan['device']]
         scan['diode_coords'] = (analysis_settings['Blue Centroid X'] - analysis_settings['Left ROI'],
                                 analysis_settings['Blue Centroid Y'] - analysis_settings['Top ROI'])
 
         # perform visa e beam analysis
-        binned_images = analyzer.perform_bulk_image_analysis()
+        binned_data = analyzer.bin_images(flag_save=False)
+        binned_data = analyzer.perform_bulk_image_analysis(binned_data,
+                                                           flag_save=False)
 
         # record in scan dict
-        scan['binned_data'] = {ind+1: {'value': val,
-                                       'image': binned_images[ind]}
-                               for ind, val in enumerate(analyzer.binned_param_values)}
+        scan['binned_data'] = {key: {'value': item['value'],
+                                     'image': item['image']}
+                               for key, item in binned_data.items()}
 
         return scan
 
@@ -169,15 +170,20 @@ class MultiScanAnalysis_Visa(MultiScanAnalysis):
         # initialize VisaEBeamAnalysis
         analyzer = VisaEBeamAnalysis(scan['path_scan'], scan['device'])
         self.scan_parameter = analyzer.scan_parameter
+        analysis_settings = analyzer.camera_analysis_settings
+
+        # get blue diode coordinates
+        scan['diode_coords'] = (analysis_settings['Blue Centroid X'] - analysis_settings['Left ROI'],
+                                analysis_settings['Blue Centroid Y'] - analysis_settings['Top ROI'])
 
         # get bin numbers and values (assumes correlated bin number and value!!)
         bin_num = np.unique(analyzer.bins)
         bin_vals = analyzer.binned_param_values
 
         # load already processed images
-        img = cv2.imread('Z:/data/Undulator/Y2024/10-Oct/24_1031/scans/Scan053/UC_VisaEBeam1_1_processed.png', cv2.IMREAD_UNCHANGED)
+        # img = cv2.imread('Z:/data/Undulator/Y2024/11-Nov/24_1105/scans/Scan033/UC_VisaEBeam1_1_processed.png', cv2.IMREAD_UNCHANGED)
         scan['binned_data'] = {val: {'value': bin_vals[ind],
-                                     'image': read_imaq_image(analyzer.scan_directory / f"{scan['device']}_{val}_processed.png")}
+                                     'image': cv2.imread(analyzer.scan_directory / f"{scan['device']}_{val}_processed.png", cv2.IMREAD_UNCHANGED)}
                                for ind, val in enumerate(bin_num)}
 
         return scan
@@ -279,13 +285,13 @@ def run_multiscan_visa():
     scans = {'year': '2024',
              'month': 'Nov',
              'day': '05',
-             'scan_num': [37, 38, 39, 40]}
+             'scan_num': [33, 34, 35, 36]}
 
     # initialize analyzer
     analyzer = MultiScanAnalysis_Visa(scans)
 
     # run routine
-    analyzer.run_routine(run_analysis=True)
+    analyzer.run_routine(run_analysis=False)
 
 # =============================================================================
 # %% execute
