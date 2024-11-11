@@ -58,7 +58,6 @@ class ScanDataManager:
         self.data_interface = data_interface
         self.device_manager = device_manager  # Explicitly pass device_manager
         self.tdms_writer = None
-        self.tdms_index_writer = None
         self.data_txt_path = None
         self.data_h5_path = None
         self.sFile_txt_path = None
@@ -90,22 +89,20 @@ class ScanDataManager:
         analysis_save_path = self.data_interface.build_analysis_save_path()
         self.data_interface.create_device_save_dir(analysis_save_path)
 
-        tdms_output_path, tdms_index_output_path, self.data_txt_path, self.data_h5_path, self.sFile_txt_path = self.data_interface.build_scalar_data_save_paths()
-        self.initialize_tdms_writers(tdms_output_path, tdms_index_output_path)
+        tdms_output_path, self.data_txt_path, self.data_h5_path, self.sFile_txt_path = self.data_interface.build_scalar_data_save_paths()
+        self.initialize_tdms_writers(tdms_output_path)
         
         time.sleep(1)
 
-    def initialize_tdms_writers(self, tdms_output_path, tdms_index_output_path):
+    def initialize_tdms_writers(self, tdms_output_path):
         """
         Initialize the TDMS writers for scalar data and index data.
 
         Args:
             tdms_output_path (str): Path to the TDMS file for saving scalar data.
-            tdms_index_output_path (str): Path to the TDMS index file.
         """
-        self.tdms_writer = TdmsWriter(tdms_output_path)
-        self.tdms_index_writer = TdmsWriter(tdms_index_output_path)
-        logging.info(f"TDMS writers initialized with paths: {tdms_output_path}, {tdms_index_output_path}")
+        self.tdms_writer = TdmsWriter(tdms_output_path, index_file = True)
+        logging.info(f"TDMS writer initialized with path: {tdms_output_path}")
     
     def write_scan_info_ini(self, scan_config):
         """
@@ -170,7 +167,7 @@ class ScanDataManager:
         logging.info(f"Data saved to {self.data_txt_path}")
 
         
-    def dataframe_to_tdms(df, is_index=False):
+    def dataframe_to_tdms(self, df):
         """
         Save the data from a DataFrame to a TDMS file, grouping by device name 
         and removing any alias information in variable names.
@@ -178,11 +175,10 @@ class ScanDataManager:
         Args:
             df (pandas.DataFrame): DataFrame containing the data to be saved.
             output_path (Path): Path where the TDMS file will be saved.
-            is_index (bool): If True, saves to a TDMS index file; otherwise, saves the actual data.
         """
         # Initialize the TDMS writer
         
-        tdms_writer = self.tdms_index_writer if is_index else self.tdms_writer
+        tdms_writer = self.tdms_writer
         with tdms_writer:
             for column in df.columns:
                 # Extract device name as the first word, handle special cases that don't conform
@@ -205,7 +201,7 @@ class ScanDataManager:
                 ch_object = ChannelObject(device_name, variable_name, data)
                 tdms_writer.write_segment([ch_object])
 
-        logging.info(f"TDMS {'index' if is_index else 'data'} file written successfully.")
+        logging.info(f"TDMS file written successfully.")
         
     def convert_to_dataframe(self, log_entries):
         """
@@ -274,9 +270,8 @@ class ScanDataManager:
         Process and save scan results to multiple formats.
 
         This method converts the results of a scan into a DataFrame, saves the data 
-        to both text and HDF5 formats, and writes the data to TDMS files. It also handles 
-        writing a TDMS index file.
-
+        to both text and HDF5 formats, and writes the data to TDMS files. 
+        
         Args:
             results (dict): Dictionary containing scan results with timestamps and data.
 
@@ -294,7 +289,6 @@ class ScanDataManager:
 
             # Write TDMS files (data and index)
             self.dataframe_to_tdms(log_df)
-            self.dataframe_to_tdms(log_df, is_index=True)
 
             return log_df
         else:
