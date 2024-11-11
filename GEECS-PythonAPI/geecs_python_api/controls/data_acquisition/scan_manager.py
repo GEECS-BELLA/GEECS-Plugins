@@ -90,7 +90,7 @@ class ScanDataManager:
         self.data_interface.create_device_save_dir(analysis_save_path)
 
         tdms_output_path, self.data_txt_path, self.data_h5_path, self.sFile_txt_path = self.data_interface.build_scalar_data_save_paths()
-        self.initialize_tdms_writers(tdms_output_path)
+        self.initialize_tdms_writers(str(tdms_output_path))
         
         time.sleep(1)
 
@@ -182,9 +182,25 @@ class ScanDataManager:
         tdms_writer = self.tdms_writer
         with tdms_writer:
             for column in df.columns:
-                group_name, channel_name = (column.split(':', 1) if ':' in column else (column, column))
-                data = [] if is_index else df[column].values
-                ch_object = ChannelObject(group_name, channel_name, data)
+
+                # Extract device name as the first word, handle special cases that don't conform
+                # to that protocol first
+                if column == 'Bin #' or column =='Elapsed Time':
+                    device_name = column
+                else:
+                    device_name = column.split(' ', 1)[0]
+
+                # print(device_name)
+                # Extract the variable name by removing the device name and any leading space
+                variable_name = column[len(device_name):].strip()
+            
+                # Remove alias information if "Alias:" appears in the variable name
+                variable_name = variable_name.split(" Alias:", 1)[0].strip()
+                variable_name = f'{device_name} {variable_name}'
+                # Get the data for this channel
+                data = df[column].values
+                # Create a ChannelObject and write it to the TDMS file
+                ch_object = ChannelObject(device_name, variable_name, data)
                 tdms_writer.write_segment([ch_object])
 
         logging.info(f"TDMS file written successfully.")
