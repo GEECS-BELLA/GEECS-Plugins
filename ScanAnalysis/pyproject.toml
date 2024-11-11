@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "scan_analysis"
+version = "0.1.0"
+description = "Modules for performing analyses routines on full scans"
+authors = ["Christopher Doss <CEDoss@lbl.gov>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.9 <3.11"
+ImageAnalysis = { path = "../ImageAnalysis", develop = true }
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
