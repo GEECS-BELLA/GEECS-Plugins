@@ -7,7 +7,8 @@ import yaml
 import threading
 from pathlib import Path
 from devices_to_analysis_mapping import check_for_analysis_match
-from image_analysis.analyzers.online_analysis_modules.directory_functions import compile_daily_path
+from image_analysis.analyzers.online_analysis_modules.directory_functions import compile_daily_path  # TODO change
+from scan_analysis.execute_scan_analysis import analyze_folder
 
 
 class NewScanLookout:
