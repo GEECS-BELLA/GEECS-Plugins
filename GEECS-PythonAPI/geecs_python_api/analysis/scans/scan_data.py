@@ -21,7 +21,6 @@ from geecs_python_api.tools.distributions.binning import unsupervised_binning, B
 from image_analysis.labview_adapters import analyzer_from_device_type
 # from image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
 
-
 class ScanData:
     """ Represents a GEECS experiment scan """
 
@@ -168,8 +167,7 @@ class ScanData:
             return self.data_dict[device_name]
         else:
             return {}
-    
-    
+
     def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
         dev_data = self.get_device_data(device)
         if not dev_data:
@@ -207,6 +205,24 @@ class ScanData:
 
         return indexes, setpoints, parameter_avgs_match_setpoints
 
+
+    # subclass ValueError to create a custom exception
+    class UnidentifiedScanVariable(ValueError):
+        pass
+
+    def split_scan_parameter(scan_parameter: str) -> tuple[str, str]:
+        # using a for loop with breaks ensures that splitting by : doesn't happen
+        # if splitting by space succeeds
+        for separator in [' ', ':']:
+            try:
+                scan_device, scan_variable = scan_parameter.split(separator)
+                return scan_device, scan_variable  
+        
+            except ValueError:  # this is the Exception that is raised if the split doesn't produce enough values
+                pass
+    
+        raise UnidentifiedScanVariable(f"Failed to split scan parameter: {scan_parameter}")
+       
     def load_scan_info(self):
         config_parser = ConfigParser()
         config_parser.optionxform = str
@@ -216,24 +232,18 @@ class ScanData:
             self.scan_info.update({key: value.strip("'\"")
                                    for key, value in config_parser.items("Scan Info")})
             if 'Scan Parameter' in self.scan_info:
-                # have two cases to handle how scan parameters are entered in to the ScanInfo.ini file.
-                # there are slight differences when useing MC or the python based geecs scaner
-                # TO do: this doesn't handle the case of composite variable scans. Those variables should be read
-                # from the files that stores composite variables
-                try:
-                    self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = (self.scan_info['Scan Parameter'].split(' ', maxsplit=1))
-                except:
-                    pass
-                try:
-                    self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = (self.scan_info['Scan Parameter'].split(':', maxsplit=1))
-                except:
-                    pass
-                try:
-                    self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = ('Composite variable', self.scan_info['Scan Parameter'])
-                except UnidentifiedScanVariable:
-                    sParam = self.scan_info['Scan Parameter']
-                    api_error.warning(f'ScanInfo file has unknown scan variable', f'{sParam}')
-                    
+                scan_parameter = self.scan_info['Scan Parameter']
+                if scan_parameter == 'noscan' or scan_parameter == 'shotnumber':
+                    self.scan_info["Scan Device"], self.scan_info['Scan Variable'] = ("None", "noscan")
+                else:
+                    try:
+                        self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = split_scan_parameter(self.scan_info['Scan Parameter'])
+                    # now this except block runs if the split_scan_parameter function raises the custom exception,
+                    # but any other errors aren't caught, which is desirable
+                    except UnidentifiedScanVariable as err:
+                        sParam = self.scan_info['Scan Parameter']
+                        api_error.warning(f'ScanInfo file has unknown scan variable', f'{sParam}')
+
         except NoSectionError:
             temp_scan_data = inspect.stack()[0][3]
             api_error.warning(f'ScanInfo file does not have a "Scan Info" section', f'ScanData class, method {temp_scan_data}')
