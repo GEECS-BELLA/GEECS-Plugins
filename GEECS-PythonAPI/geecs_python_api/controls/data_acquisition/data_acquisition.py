@@ -1147,7 +1147,6 @@ class DataLogger():
         
         self.lock = threading.Lock()
 
-
     def start_logging(self):
         """
         Start logging data for all devices. Event-driven observables trigger logs, and asynchronous
@@ -1325,7 +1324,6 @@ class DataLogger():
                 log_entries[elapsed_time][f"{device_name}:{var_name}"] = value
                 logging.info(f"Updated async var {device_name}:{var_name} to {value} for elapsed time {elapsed_time}.")
 
-
     def _log_device_data(self, device, event_driven_observables, log_entries, elapsed_time):
         
         """
@@ -1412,7 +1410,6 @@ class DataLogger():
 
         # Reset the stop_event for future logging sessions
         self.stop_event.clear()
-
 
     def reinitialize_sound_player(self):
         """
