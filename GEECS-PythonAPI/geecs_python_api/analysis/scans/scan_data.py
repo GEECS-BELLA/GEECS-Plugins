@@ -21,6 +21,10 @@ from geecs_python_api.tools.distributions.binning import unsupervised_binning, B
 from image_analysis.labview_adapters import analyzer_from_device_type
 # from image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
 
+from geecs_python_api.controls.data_acquisition import DeviceManager
+import pandas as pd
+
+
 class ScanData:
     """ Represents a GEECS experiment scan """
 
@@ -121,6 +125,9 @@ class ScanData:
 
         if not self.identified:
             raise ValueError
+            
+        # Instantiate a DeviceManager to make easy gathering composite variables for the specific experiment
+        self.device_manager = DeviceManager(str(exp_name))
 
         # scan info
         self.load_scan_info()
@@ -205,12 +212,11 @@ class ScanData:
 
         return indexes, setpoints, parameter_avgs_match_setpoints
 
-
     # subclass ValueError to create a custom exception
     class UnidentifiedScanVariable(ValueError):
         pass
 
-    def split_scan_parameter(scan_parameter: str) -> tuple[str, str]:
+    def split_scan_parameter(self, scan_parameter: str) -> tuple[str, str]:
         # using a for loop with breaks ensures that splitting by : doesn't happen
         # if splitting by space succeeds
         for separator in [' ', ':']:
@@ -233,11 +239,14 @@ class ScanData:
                                    for key, value in config_parser.items("Scan Info")})
             if 'Scan Parameter' in self.scan_info:
                 scan_parameter = self.scan_info['Scan Parameter']
+                #handle special scan types, e.g. noscan or composite variable scan
                 if scan_parameter == 'noscan' or scan_parameter == 'shotnumber':
                     self.scan_info["Scan Device"], self.scan_info['Scan Variable'] = ("None", "noscan")
+                elif scan_parameter in self.device_manager.composite_variables.keys():
+                    self.scan_info["Scan Device"], self.scan_info['Scan Variable'] = ("Composite_variable", scan_parameter)
                 else:
                     try:
-                        self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = split_scan_parameter(self.scan_info['Scan Parameter'])
+                        self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = self.split_scan_parameter(self.scan_info['Scan Parameter'])
                     # now this except block runs if the split_scan_parameter function raises the custom exception,
                     # but any other errors aren't caught, which is desirable
                     except UnidentifiedScanVariable as err:
@@ -252,6 +261,10 @@ class ScanData:
         tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
         if tdms_path.is_file():
             self.data_dict = read_geecs_tdms(tdms_path)
+        
+        txt_path = self.__folder / f'ScanDataScan{self.__tag.number:03d}.txt'
+        if txt_path.is_file():
+            self.data_frame = pd.read_csv(txt_path, delimiter='\t')
 
         return tdms_path.is_file()
 
