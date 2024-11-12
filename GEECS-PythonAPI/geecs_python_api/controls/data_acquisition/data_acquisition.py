@@ -1146,6 +1146,9 @@ class DataLogger():
         
         self.data_recording = False
         self.idle_time = 0
+        
+        self.lock = threading.Lock()
+
 
     def start_logging(self):
         """
@@ -1176,6 +1179,7 @@ class DataLogger():
             """
             
             nonlocal async_t0_set  # Keep track if async t0 has been set
+            
             current_timestamp = self._extract_timestamp(message, device)
 
             if current_timestamp is None:
@@ -1205,8 +1209,8 @@ class DataLogger():
 
         logging.info("Logging has started for all event-driven devices.")
 
-        # Start the asynchronous polling in a separate thread
-        self._start_async_polling(async_observables, log_entries, timeout=30)
+        ## Start the asynchronous polling in a separate thread
+        # self._start_async_polling(async_observables, log_entries, timeout=30)
 
         # # Start a thread to monitor device warnings
         self.warning_thread = threading.Thread(target=self._monitor_warnings, args=(event_driven_observables, async_observables))
@@ -1297,6 +1301,7 @@ class DataLogger():
         while not self.stop_event.is_set():
             for observable in async_observables:
                 self._poll_single_observable(observable, log_entries)
+                logging.info(f'polling async {observable}')
             time.sleep(self.polling_interval)
 
     def _poll_single_observable(self, observable, log_entries):
@@ -1314,16 +1319,20 @@ class DataLogger():
 
         device_name, var_name = observable.split(':')
         device = self.device_manager.devices.get(device_name)
-
+        logging.info("polling device: {device}.")
         if device:
             current_time = time.time()
             elapsed_time = round(current_time - self.async_t0)
+            logging.info(f"async elapsed time: {elapsed_time}.")
 
+            status = device.state
+            logging.info(f"getting device state: {status}.")
+            logging.info(f"trying to parse value of : {var_name}.")
             value = device.state.get(var_name, 'N/A')
 
             if elapsed_time in log_entries:
                 log_entries[elapsed_time].update({f"{device_name}:{var_name}": value})
-                # logging.info(f"updating async var {device_name}:{var_name}: {value}.")
+                logging.info(f"updating async var {device_name}:{var_name}: {value}.")
             # else:
             #     logging.warning(f"No existing row for elapsed time {elapsed_time}. Skipping log for {observable}.")
 
@@ -1394,6 +1403,27 @@ class DataLogger():
             return True
         last_timestamps[device.get_name()] = current_timestamp
         return False
+        
+    def update_async_observables(self, async_observables, log_entries, elapsed_time):
+        """
+        Update log entries with the latest values for asynchronous observables.
+
+        Args:
+            async_observables (list): List of asynchronous observables to update.
+            log_entries (dict): Dictionary to store the logged data.
+            elapsed_time (int): The time elapsed since the logging started.
+        """
+        for observable in async_observables:
+            device_name, var_name = observable.split(':')
+            device = self.device_manager.devices.get(device_name)
+            
+            if device:
+                # Get the latest value from the device state
+                value = device.state.get(var_name, 'N/A')
+                # Update the log entry for this async variable
+                log_entries[elapsed_time][f"{device_name}:{var_name}"] = value
+                logging.info(f"Updated async var {device_name}:{var_name} to {value} for elapsed time {elapsed_time}.")
+
 
     def _log_device_data(self, device, event_driven_observables, log_entries, elapsed_time):
         
@@ -1416,12 +1446,16 @@ class DataLogger():
             for observable in event_driven_observables if observable.startswith(device.get_name())
         }
         if elapsed_time not in log_entries:
+            logging.info(f'elapsed time in sync devices {elapsed_time}')
             log_entries[elapsed_time] = {'Elapsed Time': elapsed_time}
             # Log configuration variables (such as 'bin') only when a new entry is created
             log_entries[elapsed_time]['Bin #'] = self.bin_num
             if self.virtual_variable_name is not None:
                 log_entries[elapsed_time][self.virtual_variable_name] = self.virtual_variable_value
-            # os.system('afplay trimmed_tink.aiff')  # This plays a sound on macOS
+                
+            # Update with async observable values
+            self.update_async_observables(self.device_manager.async_observables, log_entries, elapsed_time)
+            
             # Trigger the beep in the background
             self.sound_player.play_beep()  # Play the beep sound
             self.shot_index += 1
