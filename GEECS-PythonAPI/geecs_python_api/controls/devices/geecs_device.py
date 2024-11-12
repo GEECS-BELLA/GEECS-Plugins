@@ -58,7 +58,7 @@ class GeecsDevice:
         self.use_alias_in_TCP_subscription = True
 
         self.setpoints: dict[VarAlias, Any] = {}
-        self.state: dict[VarAlias, Any] = {'fresh': True,"shot number":None,"GEECS device error":False}
+        self.state: dict[VarAlias, Any] = {'fresh': True, "shot number": None, "GEECS device error": False}
         
         self.generic_vars = ['Device Status', 'device error', 'device preset']
 
@@ -555,8 +555,7 @@ class GeecsDevice:
                 os.remove(backup_file_path)
             except Exception as remove_ex:
                 print(f'Failed to remove backup file: {remove_ex}')
-                
-                
+
     def get_status(self, exec_timeout: float = 2.0, sync=True) -> Optional[Union[float, AsyncResult]]:
         return self.get('Device Status', exec_timeout=exec_timeout, sync=sync)
 
@@ -700,11 +699,12 @@ class GeecsDevice:
                         var_alias: VarAlias = self.var_aliases_by_name[var][0]
                         self.state[var_alias] = self.interpret_value(var_alias, val)
                         self.state['fresh'] = True
+ 
                     else:
                         if self.use_alias_in_TCP_subscription:
                             var_alias = self.find_alias_by_var(var)
                         else:
-                            var_alias = var  # Don't always switch from user-defined variable to alias
+                            var_alias = var  # SB: don't always like switching from user defined variable to the alias
                         try:
                             val = float(val)
                         except Exception:

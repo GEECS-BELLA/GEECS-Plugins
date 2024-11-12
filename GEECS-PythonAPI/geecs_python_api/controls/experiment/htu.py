@@ -28,7 +28,7 @@ class HtuExp(Experiment):
 
         self.__initialized = True
 
-    def connect(self, laser: bool = True, jet: bool = True, diagnostics: bool = True, transport: bool = True):
+    def connect(self, laser: bool = False, jet: bool = False, diagnostics: bool = False, transport: bool = False):
         # Devices
         if isinstance(self.laser, Laser):
             self.laser.close()
