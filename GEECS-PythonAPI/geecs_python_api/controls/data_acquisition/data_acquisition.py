@@ -1126,8 +1126,6 @@ class DataLogger():
         self.device_manager = device_manager or DeviceManager(experiment_dir)
 
         self.stop_event = threading.Event()  # Event to control polling thread
-        self.poll_thread = None  # Placeholder for polling thread
-        self.async_t0 = None  # Placeholder for async t0
         self.warning_timeout_sync = 2  # Timeout for synchronous devices (seconds)
         self.warning_timeout_async_factor = 1  # Factor of polling interval for async timeout
         self.last_log_time_sync = {}  # Dictionary to track last log time for synchronous devices
@@ -1163,7 +1161,6 @@ class DataLogger():
         initial_timestamps = {}
         standby_mode = {}
         log_entries = {}
-        async_t0_set = False  # Track if async t0 has been set
 
         # Access event-driven and async observables from DeviceManager
         event_driven_observables = self.device_manager.event_driven_observables
@@ -1177,8 +1174,6 @@ class DataLogger():
                 message (str): Message from the device containing data to be logged.
                 device (GeecsDevice): The device object from which the message originated.
             """
-            
-            nonlocal async_t0_set  # Keep track if async t0 has been set
             
             current_timestamp = self._extract_timestamp(message, device)
 
@@ -1195,22 +1190,10 @@ class DataLogger():
 
             self._log_device_data(device, event_driven_observables, log_entries, elapsed_time)
 
-            # Set the t0 for asynchronous devices when the first log entry is created
-            if not async_t0_set:
-                self.async_t0 = time.time()  # Set t0 for async logging
-                async_t0_set = True
-                logging.info(f"Asynchronous devices t0 set to {self.async_t0}")
-
-            # Update the last log time for this synchronous device
-            self.last_log_time_sync[device.get_name()] = time.time()
-
         # Register the logging function for event-driven observables
         self._register_event_logging(event_driven_observables, log_update)
 
         logging.info("Logging has started for all event-driven devices.")
-
-        ## Start the asynchronous polling in a separate thread
-        # self._start_async_polling(async_observables, log_entries, timeout=30)
 
         # # Start a thread to monitor device warnings
         self.warning_thread = threading.Thread(target=self._monitor_warnings, args=(event_driven_observables, async_observables))
@@ -1256,88 +1239,6 @@ class DataLogger():
                 if observable.startswith(device_name):
                     logging.info(f"Registering logging for event-driven observable: {observable}")
                     device.event_handler.register('update', 'logger', lambda msg, dev=device: log_update(msg, dev))
-
-    def _start_async_polling(self, async_observables, log_entries, timeout=10):
-        """
-        Start polling for asynchronous observables in a separate thread.
-
-        Args:
-            async_observables (list): A list of asynchronous observables to poll.
-            log_entries (dict): Dictionary to store logged data.
-            timeout (int): Timeout in seconds to wait for async_t0 to be set.
-        """
-        
-        # If there's an existing polling thread, wait for it to finish before starting a new one
-        if self.poll_thread and self.poll_thread.is_alive():
-            self.poll_thread.join()
-
-        self.poll_thread = threading.Thread(target=self.poll_async_observables,
-                                            args=(async_observables, log_entries, timeout))
-        self.poll_thread.start()
-
-    def poll_async_observables(self, async_observables, log_entries, timeout):
-        """
-        Poll asynchronous observables at a regular interval and log the data.
-
-        Args:
-            async_observables (list): List of observables to poll.
-            log_entries (dict): Dictionary to store the logged data.
-            timeout (int): Timeout in seconds to wait for async_t0.
-        """
-        
-        wait_time = 0
-        check_interval = 0.1  # Poll every 0.1 seconds to check if async_t0 is set
-
-        # Wait for async_t0 to be set or until timeout is reached
-        while not self.async_t0 and wait_time < timeout:
-            time.sleep(check_interval)
-            wait_time += check_interval
-
-        if not self.async_t0:
-            logging.error("Timeout: async_t0 was not set in time.")
-            return  # Exit the polling if async_t0 is not set in time
-
-        # Poll each asynchronous observable and log the data
-        while not self.stop_event.is_set():
-            for observable in async_observables:
-                self._poll_single_observable(observable, log_entries)
-                logging.info(f'polling async {observable}')
-            time.sleep(self.polling_interval)
-
-    def _poll_single_observable(self, observable, log_entries):
-        """
-        Poll a single asynchronous observable and log its data.
-
-        Args:
-            observable (str): The observable to poll.
-            log_entries (dict): Dictionary to store the logged data.
-        """
-        
-        if not self.async_t0:
-            logging.warning("Async t0 is not set. Skipping polling for now.")
-            return
-
-        device_name, var_name = observable.split(':')
-        device = self.device_manager.devices.get(device_name)
-        logging.info("polling device: {device}.")
-        if device:
-            current_time = time.time()
-            elapsed_time = round(current_time - self.async_t0)
-            logging.info(f"async elapsed time: {elapsed_time}.")
-
-            status = device.state
-            logging.info(f"getting device state: {status}.")
-            logging.info(f"trying to parse value of : {var_name}.")
-            value = device.state.get(var_name, 'N/A')
-
-            if elapsed_time in log_entries:
-                log_entries[elapsed_time].update({f"{device_name}:{var_name}": value})
-                logging.info(f"updating async var {device_name}:{var_name}: {value}.")
-            # else:
-            #     logging.warning(f"No existing row for elapsed time {elapsed_time}. Skipping log for {observable}.")
-
-            # Update the last log time for this asynchronous device
-            self.last_log_time_async[device_name] = time.time()
 
     def _initialize_standby_mode(self, device, standby_mode, initial_timestamps, current_timestamp):
         """
@@ -1441,28 +1342,29 @@ class DataLogger():
             - Plays a beep sound on a new log entry.
         """
         
-        observables_data = {
-            observable.split(':')[1]: device.state.get(observable.split(':')[1], '')
-            for observable in event_driven_observables if observable.startswith(device.get_name())
-        }
-        if elapsed_time not in log_entries:
-            logging.info(f'elapsed time in sync devices {elapsed_time}')
-            log_entries[elapsed_time] = {'Elapsed Time': elapsed_time}
-            # Log configuration variables (such as 'bin') only when a new entry is created
-            log_entries[elapsed_time]['Bin #'] = self.bin_num
-            if self.virtual_variable_name is not None:
-                log_entries[elapsed_time][self.virtual_variable_name] = self.virtual_variable_value
+        with self.lock:
+            observables_data = {
+                observable.split(':')[1]: device.state.get(observable.split(':')[1], '')
+                for observable in event_driven_observables if observable.startswith(device.get_name())
+            }
+            if elapsed_time not in log_entries:
+                logging.info(f'elapsed time in sync devices {elapsed_time}')
+                log_entries[elapsed_time] = {'Elapsed Time': elapsed_time}
+                # Log configuration variables (such as 'bin') only when a new entry is created
+                log_entries[elapsed_time]['Bin #'] = self.bin_num
+                if self.virtual_variable_name is not None:
+                    log_entries[elapsed_time][self.virtual_variable_name] = self.virtual_variable_value
+                    
+                # Update with async observable values
+                self.update_async_observables(self.device_manager.async_observables, log_entries, elapsed_time)
                 
-            # Update with async observable values
-            self.update_async_observables(self.device_manager.async_observables, log_entries, elapsed_time)
-            
-            # Trigger the beep in the background
-            self.sound_player.play_beep()  # Play the beep sound
-            self.shot_index += 1
+                # Trigger the beep in the background
+                self.sound_player.play_beep()  # Play the beep sound
+                self.shot_index += 1
 
-        log_entries[elapsed_time].update({
-            f"{device.get_name()}:{key}": value for key, value in observables_data.items()
-        })
+            log_entries[elapsed_time].update({
+                f"{device.get_name()}:{key}": value for key, value in observables_data.items()
+            })
 
     def _monitor_warnings(self, event_driven_observables, async_observables):
         """
@@ -1508,13 +1410,9 @@ class DataLogger():
         
         self.sound_player.stop()
 
-        if self.poll_thread and self.poll_thread.is_alive():
-            self.poll_thread.join()  # Ensure the polling thread has finished
-
         # Reset the stop_event for future logging sessions
         self.stop_event.clear()
-        self.poll_thread = None
-        self.async_t0 = None
+
 
     def reinitialize_sound_player(self):
         """
