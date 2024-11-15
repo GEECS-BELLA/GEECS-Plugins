@@ -26,6 +26,7 @@ from geecs_python_api.tools.interfaces.prompts import text_input
 from labview_interface.HTU.htu_classes import Handler
 from image_analysis.analyzers.UC_BeamSpot import UC_BeamSpotImageAnalyzer
 from image_analysis.utils import ROI as ImageAnalyzerROI
+from image_analysis.utils import read_imaq_png_image
 
 
 class ScanImages:
@@ -39,7 +40,8 @@ class ScanImages:
     fig_size = (int(round(screeninfo.get_monitors()[0].width / 540. * 10) / 10),
                 int(round(screeninfo.get_monitors()[0].height / 450. * 10) / 10))
 
-    def __init__(self, scan: ScanData, camera: Union[int, Camera, str], angle: Optional[int] = None):
+    def __init__(self, scan: ScanData, camera: Union[int, Camera, str], angle: Optional[int] = None,
+                flag_logging=False, flag_save_images=True):
         """
         Container for data analysis of a set of images collected at an undulator station.
 
@@ -104,7 +106,19 @@ class ScanImages:
 
         self.average_image: Optional[np.ndarray] = None
         self.average_analysis: Optional[dict[str, Any]] = None
-
+        
+        
+        ######################
+        ##### >>>>>>>>>>>>> migrating some methods from other scan_analysis module 
+        ######################
+        # define flags
+        self.flag_logging = flag_logging
+        self.flag_save_images = flag_save_images
+        # self.scan_data = scan
+        ######################
+        ##### <<<<<<<<<<<< migrating some methods from other scan_analysis module 
+        ######################
+        
     @staticmethod
     def _new_analysis_dict() -> dict[str, Any]:
         return {'paths': {}, 'camera': {}, 'filters': {}, 'arrays': {}, 'positions': {}, 'flags': {}, 'metrics': {}}
@@ -467,7 +481,97 @@ class ScanImages:
                 ScanImages.calculate_target_offset(self.analyses[0], self.summary['positions_roi']['fit'][k])
             self.summary['deltas']['fit']['um_xy'] = \
                 np.fliplr(self.summary['deltas']['fit']['pix_ij']) * um_per_pix
+    
+    ######################
+    ##### migrating some methods from other scan_analysis module >>>>>>>>
+    ######################
+    def bin_images(self, flag_save=None):
 
+        # set default
+        if flag_save is None:
+            flag_save = self.flag_save_images
+
+        # identify unique paramter bins
+        unique_bins = np.unique(scan.bins)
+        if self.flag_logging:
+            logging.info(f"unique_bins: {unique_bins}")
+
+        # preallocate storage
+        binned_data = {bin: {} for bin in unique_bins}
+
+        # iterate parameter bins
+        for bin_ind, bin_val in enumerate(unique_bins):
+
+            # load all images for this bin
+            images = self.load_images_for_bin(bin_val)
+            if len(images) == 0:
+                if self.logging_flag:
+                    logging.warning(f"No images found for bin {bin_val}.")
+                continue
+
+            # average the images
+            # need to confirm this is fool proof, are binned_param_values completely correlated?
+            avg_image = self.average_images(images)
+            binned_data[bin_val] = {'value': self.binned_param_values[bin_ind],
+                                    'image': avg_image}
+
+            if flag_save:
+                save_name = f"{self.device_name}_{bin_val}.png"
+                self.save_geecs_scaled_image(avg_image,
+                                             save_dir=self.path_dict['save'],
+                                             save_name=save_name)
+
+                if self.flag_logging:
+                    logging.info(f"Averaged images for bin {bin_val} and saved as {save_name}.")
+
+            else:
+                if self.flag_logging:
+                    logging.info(f"Averaged images for bin {bin_val} but not saved.")
+
+        return binned_data
+    
+    
+    def load_images_for_bin(self, bin_number):
+        """
+        Load all images corresponding to a specific bin number by matching the shot number.
+
+        Args:
+            bin_number (int): The bin number for which to load images.
+
+        Returns:
+            list of np.ndarray: List of images in the bin.
+        """
+        images = []
+        # original version for binning
+        # shots_in_bin = self.auxiliary_data[self.auxiliary_data['Bin #'] == bin_number]['Shotnumber'].values
+        
+        # new version for binning images
+        shots_in_bin = scan.data_frame[scan.data_frame['Bin #'] == bin_number]['Shotnumber'].values
+        
+        expected_image_size = None
+
+        for shot_num in shots_in_bin:
+            camera_data_path = Path(self.scan_data_folder / self.camera_name)
+            image_file = next(camera_data_path.glob(f'*_{shot_num:03d}.png'), None)
+            if image_file:
+                image = read_imaq_png_image(image_file)
+                images.append(image)
+                if expected_image_size is None:
+                    expected_image_size = image.shape  # Determine image size from the first valid image
+            else:
+                if self.flag_logging:
+                    logging.warning(f"Missing data for shot {shot_num}, adding zero array.")
+                # kj comment: not sure the below makes sense.
+                # Will keep code for now but comment out.
+                # if expected_image_size:
+                #     images.append(np.zeros(expected_image_size, dtype=np.uint16))
+
+        return images
+        
+    ######################
+    ##### <<<<<<<<<<<< migrating some methods from other scan_analysis module 
+    ######################
+ 
     @staticmethod  # tmp
     def old_processed_to_original_ij(coords_ij: Union[tuple[int, int], np.ndarray], raw_shape_ij: tuple[int, int],
                                      rot_deg: int = 0) -> Union[tuple[int, int], np.ndarray]:

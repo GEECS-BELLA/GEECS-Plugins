@@ -125,9 +125,16 @@ class ScanData:
 
         if not self.identified:
             raise ValueError
-            
+        
+        
+        ######################
+        ##### >>>>>>>>>>>>> migrating some methods from other scan_analysis module 
+        ######################
         # Instantiate a DeviceManager to make easy gathering composite variables for the specific experiment
         self.device_manager = DeviceManager(str(exp_name))
+        ######################
+        ##### <<<<<<<<<<<<< migrating some methods from other scan_analysis module 
+        ######################    
 
         # scan info
         self.load_scan_info()
@@ -148,6 +155,17 @@ class ScanData:
             self.load_scalar_data()
         else:
             self.data_dict = {}
+            
+        ######################
+        ##### >>>>>>>>>>>>> migrating some methods from other scan_analysis module 
+        ######################
+        # Instantiate a DeviceManager to make easy gathering composite variables for the specific experiment
+        self.bins = np.array(self.data_frame['Bin #'])
+        
+        
+        ######################
+        ##### <<<<<<<<<<<<< migrating some methods from other scan_analysis module 
+        ######################
     
     @staticmethod
     def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') \
