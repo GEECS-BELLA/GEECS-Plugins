@@ -349,13 +349,9 @@ class CameraImageAnalysis(ScanAnalysis):
                                                              'camera_analysis_settings.yaml')
                           }
 
-        # if self.camera_analysis_config_path.exists():
-        if self.path_dict['cam_configs'].exists():
-            self.camera_analysis_configs = self.load_camera_analysis_config()
-            self.camera_analysis_settings = self.camera_analysis_configs[self.device_name]
-        else:
-            self.camera_analysis_configs = None
-            self.camera_analysis_settings = None
+        # get camera analysis parameters
+        self.camera_analysis_configs = self.load_camera_analysis_config()
+        self.camera_analysis_settings = self.camera_analysis_configs.get(self.device_name, None)
 
         # Check if data directory exists and is not empty
         if not self.path_dict['data_img'].exists() or not any(self.path_dict['data_img'].iterdir()):
