@@ -10,6 +10,7 @@ python = ">=3.7,<3.11"
 
 # numeric libraries
 numpy = "^1.21"
+nptdms = "^1.7.0"
 
 
 [build-system]

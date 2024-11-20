@@ -18,6 +18,7 @@ from geecs_python_api.tools.images.spot import profile_fit, std_to_fwhm
 # from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults"""
 
 from api_defs import SysPath, ScanTag
+from tdms import read_geecs_tdms
 
 
 class ScanData:
