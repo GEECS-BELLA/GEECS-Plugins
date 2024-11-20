@@ -1,18 +1,17 @@
 import os
 import re
 import inspect
+import pandas as pd
 import calendar as cal
 from pathlib import Path
 from datetime import datetime as dtime, date
 from typing import Optional, Union, Any, NamedTuple
 from configparser import ConfigParser, NoSectionError
-#from geecs_python_api.controls.experiment.htu import HtuExp
-#from geecs_python_api.controls.interface import api_error
-#from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
 from api_defs import SysPath, ScanTag
 from tdms import read_geecs_tdms
 from utils import UnidentifiedScanVariable
+from geecs_errors import api_error
 
 
 class ScanData:
@@ -20,9 +19,9 @@ class ScanData:
 
     def __init__(self, folder: Optional[SysPath] = None,
                  tag: Optional[Union[int, ScanTag, tuple]] = None,
-                 load_scalars: bool = True,
-                 ignore_experiment_name: bool = False,
-                 experiment_base_path: Optional[SysPath] = None):
+                 experiment: Optional[str] = None,
+                 load_scalars: bool = True
+                 ):
         """
         Parameter(s)
         ----------
@@ -35,11 +34,8 @@ class ScanData:
             Either of:
                 - Tuple with the scan identification information, e.g. (year, month, day, scan #) = (2023, 5, 1, 2)
                 - scan number only, today's date is used
-        ignore_experiment_name : bool
-              Allows working offline with local copy of the data, when specifying a folder
-        experiment_base_path : SysPath
-              Allows working offline with local copy of the data, when specifying a tag
-              e.g. experiment_base_path='C:/Users/GuillaumePlateau/Documents/LBL/Data/Undulator'
+        experiment : str
+              Experiment name, e.g. 'Undulator'.  Necessary if just given a tag
         """
 
         self.identified = False
@@ -50,13 +46,17 @@ class ScanData:
         self.__tag_date: Optional[date] = None
         self.__analysis_folder: Optional[Path] = None
 
+        if folder is None:
+            if tag and experiment:
+                folder = self.build_folder_path(tag, experiment=experiment)
+
         if folder:
             try:
                 folder = Path(folder)
 
-                (exp_name, year_folder_name, month_folder_name, date_folder_name, 
+                (exp_name, year_folder_name, month_folder_name, date_folder_name,
                  scans_literal, scan_folder_name) = folder.parts[-6:]
-                
+
                 if (not re.match(r"Y\d{4}", year_folder_name)) or \
                    (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
                    (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
@@ -70,48 +70,12 @@ class ScanData:
                 self.__tag = \
                     ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
 
-                self.identified = ignore_experiment_name or (exp_name == GeecsDevice.exp_info['name'])
+                self.identified = folder.is_dir()
                 if self.identified:
                     self.__folder = folder
 
             except Exception:
                 raise
-
-        if not self.identified and tag:
-            if isinstance(tag, int):
-                self.__tag_date = dtime.now().date()
-                tag = ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, tag)
-
-            if isinstance(tag, tuple):
-                try:
-                    if not isinstance(tag, ScanTag):
-                        tag = ScanTag(*tag)
-
-                    if experiment_base_path is None:
-                        exp_path = Path(GeecsDevice.exp_info['data_path'])
-                    else:
-                        exp_path = Path(experiment_base_path)
-
-                    if not exp_path.is_dir():
-                        raise ValueError("Experiment base folder does not exist")
-
-                    if self.__tag_date is None:
-                        self.__tag_date = date(tag.year, tag.month, tag.day)
-
-                    folder = (exp_path /
-                              self.__tag_date.strftime("Y%Y") /
-                              self.__tag_date.strftime("%m-%b") /
-                              self.__tag_date.strftime("%y_%m%d") /
-                              'scans'/f'Scan{tag.number:03d}')
-                    self.identified = folder.is_dir()
-                    if self.identified:
-                        self.__tag = tag
-                        self.__folder = folder
-                    else:
-                        raise OSError
-
-                except Exception:
-                    raise
 
         if not self.identified:
             raise ValueError
@@ -162,26 +126,6 @@ class ScanData:
         else:
             return {}
 
-    def load_scalar_data(self) -> bool:
-        tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
-        if tdms_path.is_file():
-            self.data_dict = read_geecs_tdms(tdms_path)
-
-        return tdms_path.is_file()
-
-    def split_scan_parameter(self, scan_parameter: str) -> tuple[str, str]:
-        # using a for loop with breaks ensures that splitting by : doesn't happen
-        # if splitting by space succeeds
-        for separator in [' ', ':']:
-            try:
-                scan_device, scan_variable = scan_parameter.split(separator)
-                return scan_device, scan_variable
-
-            except ValueError:  # this is the Exception that is raised if the split doesn't produce enough values
-                pass
-
-        raise UnidentifiedScanVariable(f"Failed to split scan parameter: {scan_parameter}")
-
     def load_scan_info(self):
         config_parser = ConfigParser()
         config_parser.optionxform = str
@@ -190,24 +134,6 @@ class ScanData:
             config_parser.read(self.__folder / f'ScanInfoScan{self.__tag.number:03d}.ini')
             self.scan_info.update({key: value.strip("'\"")
                                    for key, value in config_parser.items("Scan Info")})
-            if 'Scan Parameter' in self.scan_info:
-                scan_parameter = self.scan_info['Scan Parameter']
-                # handle special scan types, e.g. noscan or composite variable scan
-                if scan_parameter == 'noscan' or scan_parameter == 'shotnumber':
-                    self.scan_info["Scan Device"], self.scan_info['Scan Variable'] = ("None", "noscan")
-                elif scan_parameter in self.device_manager.composite_variables.keys():
-                    self.scan_info["Scan Device"], self.scan_info['Scan Variable'] = (
-                    "Composite_variable", scan_parameter)
-                else:
-                    try:
-                        self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = self.split_scan_parameter(
-                            self.scan_info['Scan Parameter'])
-                    # now this except block runs if the split_scan_parameter function raises the custom exception,
-                    # but any other errors aren't caught, which is desirable
-                    except UnidentifiedScanVariable as err:
-                        sParam = self.scan_info['Scan Parameter']
-                        api_error.warning(f'ScanInfo file has unknown scan variable', f'{sParam}')
-
         except NoSectionError:
             temp_scan_data = inspect.stack()[0][3]
             api_error.warning(f'ScanInfo file does not have a "Scan Info" section',
@@ -226,22 +152,13 @@ class ScanData:
 
 
 if __name__ == '__main__':
-    _htu = HtuExp(get_info=True)
-    _base_tag = ScanTag(2023, 8, 9, 4)
+    experiment_name = 'Undulator'
+    scan_tag = ScanTag(2023, 8, 9, 4)
 
-    _folder = ScanData.build_folder_path(_base_tag, _htu.base_path)
-    _scan_data = ScanData(_folder, ignore_experiment_name=_htu.is_offline)
+    folder = ScanData.build_folder_path(scan_tag, experiment=experiment_name)
+    scan_data = ScanData(folder)
 
-    _magspec_data = _scan_data.load_mag_spec_data()
-    _device, _variable = _scan_data.scan_info['Scan Parameter'].split(' ', maxsplit=1)
-    _indexes, _setpoints, _matching = _scan_data.group_shots_by_step(_device, _variable)
-    _magspec_analysis = _scan_data.analyze_mag_spec(_indexes)
-
-    # plt.figure()
-    # for x, ind in zip(measured.avg_x, measured.indexes):
-    #     plt.plot(x * np.ones(ind.shape), ind, '.', alpha=0.3)
-    # plt.xlabel('Current [A]')
-    # plt.ylabel('Indexes')
-    # plt.show(block=True)
-
-    print('Done')
+    print(scan_data.files['devices'])
+    print(scan_data.files['files'])
+    print(scan_data.get_folder())
+    print(scan_data.get_analysis_folder())
