@@ -6,9 +6,6 @@ Created on Fri Nov  1 11:46:43 2024
 """
 # =============================================================================
 # %% imports
-from skimage.measure import regionprops, label
-from scipy.ndimage import median_filter
-
 from geecs_python_api.controls.data_acquisition.scan_analysis import CameraImageAnalysis
 from image_analysis.utils import read_imaq_image
 from image_analysis.tools.general import image_signal_thresholding, find_beam_properties
