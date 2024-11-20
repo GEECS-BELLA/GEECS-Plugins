@@ -1,24 +1,18 @@
 import os
 import re
 import inspect
-import numpy as np
 import calendar as cal
 from pathlib import Path
 from datetime import datetime as dtime, date
 from typing import Optional, Union, Any, NamedTuple
 from configparser import ConfigParser, NoSectionError
-"""from geecs_python_api.controls.api_defs import SysPath, ScanTag
-from geecs_python_api.controls.experiment.htu import HtuExp
-from geecs_python_api.tools.images.batches import list_files
-from geecs_python_api.controls.interface import api_error
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-import geecs_python_api.tools.images.ni_vision as ni
-from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
-from geecs_python_api.tools.images.spot import profile_fit, std_to_fwhm
-# from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults"""
+#from geecs_python_api.controls.experiment.htu import HtuExp
+#from geecs_python_api.controls.interface import api_error
+#from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
 from api_defs import SysPath, ScanTag
 from tdms import read_geecs_tdms
+from utils import UnidentifiedScanVariable
 
 
 class ScanData:
@@ -168,6 +162,26 @@ class ScanData:
         else:
             return {}
 
+    def load_scalar_data(self) -> bool:
+        tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
+        if tdms_path.is_file():
+            self.data_dict = read_geecs_tdms(tdms_path)
+
+        return tdms_path.is_file()
+
+    def split_scan_parameter(self, scan_parameter: str) -> tuple[str, str]:
+        # using a for loop with breaks ensures that splitting by : doesn't happen
+        # if splitting by space succeeds
+        for separator in [' ', ':']:
+            try:
+                scan_device, scan_variable = scan_parameter.split(separator)
+                return scan_device, scan_variable
+
+            except ValueError:  # this is the Exception that is raised if the split doesn't produce enough values
+                pass
+
+        raise UnidentifiedScanVariable(f"Failed to split scan parameter: {scan_parameter}")
+
     def load_scan_info(self):
         config_parser = ConfigParser()
         config_parser.optionxform = str
@@ -176,14 +190,37 @@ class ScanData:
             config_parser.read(self.__folder / f'ScanInfoScan{self.__tag.number:03d}.ini')
             self.scan_info.update({key: value.strip("'\"")
                                    for key, value in config_parser.items("Scan Info")})
+            if 'Scan Parameter' in self.scan_info:
+                scan_parameter = self.scan_info['Scan Parameter']
+                # handle special scan types, e.g. noscan or composite variable scan
+                if scan_parameter == 'noscan' or scan_parameter == 'shotnumber':
+                    self.scan_info["Scan Device"], self.scan_info['Scan Variable'] = ("None", "noscan")
+                elif scan_parameter in self.device_manager.composite_variables.keys():
+                    self.scan_info["Scan Device"], self.scan_info['Scan Variable'] = (
+                    "Composite_variable", scan_parameter)
+                else:
+                    try:
+                        self.scan_info['Scan Device'], self.scan_info['Scan Variable'] = self.split_scan_parameter(
+                            self.scan_info['Scan Parameter'])
+                    # now this except block runs if the split_scan_parameter function raises the custom exception,
+                    # but any other errors aren't caught, which is desirable
+                    except UnidentifiedScanVariable as err:
+                        sParam = self.scan_info['Scan Parameter']
+                        api_error.warning(f'ScanInfo file has unknown scan variable', f'{sParam}')
+
         except NoSectionError:
+            temp_scan_data = inspect.stack()[0][3]
             api_error.warning(f'ScanInfo file does not have a "Scan Info" section',
-                              f'ScanData class, method "{inspect.stack()[0][3]}"')
+                              f'ScanData class, method {temp_scan_data}')
 
     def load_scalar_data(self) -> bool:
         tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
         if tdms_path.is_file():
             self.data_dict = read_geecs_tdms(tdms_path)
+
+        txt_path = self.__folder / f'ScanDataScan{self.__tag.number:03d}.txt'
+        if txt_path.is_file():
+            self.data_frame = pd.read_csv(txt_path, delimiter='\t')
 
         return tdms_path.is_file()
 
