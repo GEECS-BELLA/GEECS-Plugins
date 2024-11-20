@@ -13,8 +13,8 @@ import matplotlib.pyplot as plt
 from geecs_python_api.controls.data_acquisition.scan_analysis import CameraImageAnalysis
 from image_analysis.tools.general import find_beam_properties, image_signal_thresholding
 
-from geecs_python_api.controls.data_acquisition.calibrations.Undulator.calibration_data.experimental_config import get_experimental_config_distance
-from geecs_python_api.controls.data_acquisition.calibrations.Undulator.utils import get_calibration_location
+from ScanAnalysis.calibrations.Undulator.calibration_data.experimental_config import get_experimental_config_distance
+from ScanAnalysis.calibrations.Undulator.utils import get_calibration_location
 # =============================================================================
 # %% classes
 
@@ -180,10 +180,7 @@ class MagnetTrajectoryCalibration(CameraImageAnalysis):
 
 def routine():
 
-    from geecs_python_api.controls.data_acquisition.utils import visa_config_generator
     from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
-    from geecs_python_api.controls.data_acquisition.scan_analysis import VisaEBeamAnalysis, CameraImageAnalysis
-
 
     # define scan information
     scan = {'year': '2024',
