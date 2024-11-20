@@ -6,11 +6,12 @@ authors = ["Christopher Doss <CEDoss@lbl.gov>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.7,<3.11"
+python = ">=3.9,<3.11"
 
 # numeric libraries
 numpy = "^1.21"
 nptdms = "^1.7.0"
+pandas = "^2.0"
 
 
 [build-system]

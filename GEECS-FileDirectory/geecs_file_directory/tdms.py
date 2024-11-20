@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import nptdms as tdms
 from typing import Optional
 from pathlib import Path
@@ -24,6 +25,13 @@ def read_geecs_tdms(file_path: Path) -> Optional[dict[str, dict[str, np.ndarray]
 
     else:
         return None
+
+
+def geecs_tdms_dict_to_panda(data_dict: dict[str, dict[str, np.ndarray]]) -> pd.DataFrame:
+    data_frame: pd.DataFrame = pd.concat(map(pd.DataFrame, data_dict.values()),
+                                         keys=data_dict.keys(),
+                                         axis=1).set_index('Shotnumber')
+    return data_frame
 
 
 if __name__ == '__main__':
