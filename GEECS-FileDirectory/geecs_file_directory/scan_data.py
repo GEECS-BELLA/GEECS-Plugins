@@ -172,6 +172,8 @@ class ScanData:
 
 
 if __name__ == '__main__':
+    print("First test, with first building the scan folder")
+
     experiment_name = 'Undulator'
     scan_tag = ScanTag(2023, 8, 9, 4)
 
@@ -184,7 +186,16 @@ if __name__ == '__main__':
     print(scan_data.get_analysis_folder())
     print(ScanData.build_device_shot_path(scan_tag, 'UC_Device', 5))
 
+    print()
+    print("Another test, this time using a scan with a corrupted .tdms and with the tag+exp name")
+    print()
+
     experiment_name = 'Undulator'
     scan_tag = ScanTag(2024, 11, 19, 18)
 
     scan_data = ScanData(tag=scan_tag, experiment=experiment_name)
+    print(scan_data.files['devices'])
+    print(scan_data.files['files'])
+    print(scan_data.get_folder())
+    print(scan_data.get_analysis_folder())
+    print(ScanData.build_device_shot_path(scan_tag, scan_data.files['devices'][0], 5))
