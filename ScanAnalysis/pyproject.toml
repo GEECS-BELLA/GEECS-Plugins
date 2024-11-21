@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "scan_analysis"
+name = "scananalysis"
 version = "0.1.0"
 description = "Modules for performing analyses routines on full scans"
 authors = ["Christopher Doss <CEDoss@lbl.gov>"]
