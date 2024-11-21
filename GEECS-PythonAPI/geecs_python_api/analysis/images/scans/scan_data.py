@@ -20,9 +20,10 @@ from geecs_python_api.tools.distributions.binning import unsupervised_binning, B
 # from image_analysis.analyzers import default_analyzer_generators
 from image_analysis.labview_adapters import analyzer_from_device_type
 # from image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
+from geecs_python_api.analysis.images.scans.scan_folder import ScanFolder
 
 
-class ScanData:
+class ScanData(ScanFolder):
     """ Represents a GEECS experiment scan """
 
     def __init__(self, folder: Optional[SysPath] = None,
@@ -48,7 +49,7 @@ class ScanData:
               Allows working offline with local copy of the data, when specifying a tag
               e.g. experiment_base_path='C:/Users/GuillaumePlateau/Documents/LBL/Data/Undulator'
         """
-
+        super().__init__(folder=folder, tag=tag, experiment=None, load_scalars=load_scalars)
         self.identified = False
         self.scan_info: dict[str, str] = {}
 
@@ -146,28 +147,7 @@ class ScanData:
     @staticmethod
     def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') \
             -> Path:
-        base_directory = Path(base_directory)
-        folder: Path = base_directory / experiment
-        folder = folder / f'Y{tag[0]}' / f'{tag[1]:02d}-{cal.month_name[tag[1]][:3]}'
-        folder = folder / f'{str(tag[0])[-2:]}_{tag[1]:02d}{tag[2]:02d}'
-        folder = folder / 'scans' / f'Scan{tag[3]:03d}'
-
-        return folder
-
-    def get_folder(self) -> Optional[Path]:
-        return self.__folder
-
-    def get_tag(self) -> Optional[ScanTag]:
-        return self.__tag
-
-    def get_analysis_folder(self) -> Optional[Path]:
-        return self.__analysis_folder
-
-    def get_device_data(self, device_name: str):
-        if device_name in self.data_dict:
-            return self.data_dict[device_name]
-        else:
-            return {}
+        return ScanFolder.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
 
     def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
         dev_data = self.get_device_data(device)
@@ -205,18 +185,6 @@ class ScanData:
             setpoints = measured.avg_x
 
         return indexes, setpoints, parameter_avgs_match_setpoints
-
-    def load_scan_info(self):
-        config_parser = ConfigParser()
-        config_parser.optionxform = str
-
-        try:
-            config_parser.read(self.__folder / f'ScanInfoScan{self.__tag.number:03d}.ini')
-            self.scan_info.update({key: value.strip("'\"")
-                                   for key, value in config_parser.items("Scan Info")})
-        except NoSectionError:
-            api_error.warning(f'ScanInfo file does not have a "Scan Info" section',
-                              f'ScanData class, method "{inspect.stack()[0][3]}"')
 
     def load_scalar_data(self) -> bool:
         tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
