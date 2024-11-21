@@ -210,19 +210,18 @@ UC_VisaEBeam8:
   Blue Centroid X: 222
   Blue Centroid Y: 249
 
-
 UC_UndulatorRad2:
-  Background Level: 15
+  Background Level: 1
   Left ROI: 1
   Top ROI: 1
   Size_X: 2590
   Size_Y: 2040
   Median Filter Size: 5
-  Median Filter Cycles: 1
+  Median Filter Cycles: 0
   Gaussian Filter Size: 3
   Gaussian Filter Cycles: 0
   Threshold: 0
   Rotate: 0
   Calibration: 0.0000075
-  Apply Mask: True  
+  Apply Mask: False
   Plot Scale: 20
