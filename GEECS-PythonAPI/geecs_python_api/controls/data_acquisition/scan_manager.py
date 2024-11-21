@@ -670,7 +670,9 @@ class ScanManager:
             self.action_manager.add_action({'setup_action': self.device_manager.scan_setup_action})
             self.action_manager.execute_action('setup_action')
         
+        logging.info(f'attempting to generate ECS live dump using {self.MC_ip}')
         if self.MC_ip is not None:
+            logging.info(f'attempting to generate ECS live dump using {self.MC_ip}')            
             self.generate_live_ECS_dump(self.MC_ip)
 
         logging.info("Pre-logging setup completed.")
@@ -681,7 +683,7 @@ class ScanManager:
             "Main: Check scans path>>None",
             "Save Live Expt Devices Configuration>>ScanStart"
         ]
-    
+        
         for step in steps:
             success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
             time.sleep(1)
