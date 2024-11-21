@@ -28,7 +28,6 @@ from ..tools.filtering import clip_hot_pixels
 # =============================================================================
 # %% beam spot analyzer
 
-
 class BeamSpotAnalyzer(LabviewImageAnalyzer):
     """
     Image analysis for e-beam or laser beam spot profiles.
@@ -69,7 +68,7 @@ class BeamSpotAnalyzer(LabviewImageAnalyzer):
         return image.astype(data_type)
 
     @staticmethod
-    def find_beam_properties(image: np.ndarray) -> dict[str, Any]:
+    def find_beam_properties(image: np.ndarray):
 
         # initialize beam properties dict
         beam_properties = {}

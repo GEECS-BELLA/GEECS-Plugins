@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Modules for performing analyses routines on full scans"
 authors = ["Christopher Doss <CEDoss@lbl.gov>"]
 readme = "README.md"
+packages = [{include = "scan_analysis"},
+            {include = "live_watch"},
+            {include = "calibrations"},
+            {include = "multiscan_analysis"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9 <3.11"
