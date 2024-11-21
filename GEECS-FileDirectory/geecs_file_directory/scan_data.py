@@ -5,12 +5,11 @@ import pandas as pd
 import calendar as cal
 from pathlib import Path
 from datetime import datetime as dtime, date
-from typing import Optional, Union, Any, NamedTuple
+from typing import Optional, Union
 from configparser import ConfigParser, NoSectionError
 
 from api_defs import SysPath, ScanTag
 from tdms import read_geecs_tdms
-from utils import UnidentifiedScanVariable
 from geecs_errors import api_error
 
 
@@ -48,7 +47,7 @@ class ScanData:
 
         if folder is None:
             if tag and experiment:
-                folder = self.build_folder_path(tag, experiment=experiment)
+                folder = self.build_scan_folder_path(tag, experiment=experiment)
 
         if folder:
             try:
@@ -101,8 +100,8 @@ class ScanData:
             self.data_dict = {}
 
     @staticmethod
-    def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') \
-            -> Path:
+    def build_scan_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data',
+                               experiment: str = 'Undulator') -> Path:
         base_directory = Path(base_directory)
         folder: Path = base_directory / experiment
         folder = folder / f'Y{tag[0]}' / f'{tag[1]:02d}-{cal.month_name[tag[1]][:3]}'
@@ -110,6 +109,13 @@ class ScanData:
         folder = folder / 'scans' / f'Scan{tag[3]:03d}'
 
         return folder
+
+    @staticmethod
+    def build_device_shot_path(tag: ScanTag, device_name: str, shot_number: int, file_extension: str = 'png',
+                               base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') -> Path:
+        scan_path = ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
+        file = scan_path / f'{device_name}' / f'Scan{tag[3]:03d}_{device_name}_{shot_number:03d}.{file_extension}'
+        return file
 
     def get_folder(self) -> Optional[Path]:
         return self.__folder
@@ -155,10 +161,16 @@ if __name__ == '__main__':
     experiment_name = 'Undulator'
     scan_tag = ScanTag(2023, 8, 9, 4)
 
-    folder = ScanData.build_folder_path(scan_tag, experiment=experiment_name)
-    scan_data = ScanData(folder)
+    scan_folder = ScanData.build_scan_folder_path(scan_tag, experiment=experiment_name)
+    scan_data = ScanData(scan_folder)
 
     print(scan_data.files['devices'])
     print(scan_data.files['files'])
     print(scan_data.get_folder())
     print(scan_data.get_analysis_folder())
+    print(ScanData.build_device_shot_path(scan_tag, 'UC_Device', 5))
+
+    experiment_name = 'Undulator'
+    scan_tag = ScanTag(2024, 11, 19, 18)
+
+    scan_data = ScanData(tag=scan_tag, experiment=experiment_name)
