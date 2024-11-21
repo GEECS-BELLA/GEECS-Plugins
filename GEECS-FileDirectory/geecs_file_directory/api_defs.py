@@ -4,6 +4,7 @@ from pathlib import Path
 from threading import Thread, Event
 from typing import Optional, Any, Union, NamedTuple
 
+# TODO this was taken from geecs_python_api.controls.api_defs, cut one of these to reduce duplicate code
 
 # if TYPE_CHECKING:
 VarDict = dict[str, dict[str, Any]]

@@ -1,5 +1,7 @@
 from typing import Optional
 
+# TODO this was taken from geecs_python_api.controls.interface.geecs_errors, cut one of these to reduce duplicate code
+
 
 class ErrorAPI(Exception):
 

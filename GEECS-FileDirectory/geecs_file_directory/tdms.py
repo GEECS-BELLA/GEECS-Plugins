@@ -4,6 +4,8 @@ import nptdms as tdms
 from typing import Optional
 from pathlib import Path
 
+# TODO this was taken from geecs_python_api.tools.interfaces.tdms, cut one of these to reduce duplicate code
+
 
 def read_geecs_tdms(file_path: Path) -> Optional[dict[str, dict[str, np.ndarray]]]:
     file_extension: str = file_path.suffix.lower()
