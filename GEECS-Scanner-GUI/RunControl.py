@@ -5,7 +5,7 @@ class RunControl:
     """
     Interface class between the GEECS Scanner GUI and the Scan Manager that controls the scan execution
     """
-    def __init__(self, experiment_name="", shot_control=""):
+    def __init__(self, experiment_name="", shot_control="", MC_ip=None):
         """
         Initializes ScanManager instance using the given experiment information.
 
@@ -17,7 +17,7 @@ class RunControl:
             print("Specify experiment name and shot control device")
             self.scan_manager = None
         else:
-            self.scan_manager = ScanManager(experiment_dir=experiment_name, shot_control_device=shot_control)
+            self.scan_manager = ScanManager(experiment_dir=experiment_name, shot_control_device=shot_control, MC_ip=MC_ip)
 
         self.is_in_setup = False
         self.is_in_stopping = False
