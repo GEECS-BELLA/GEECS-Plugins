@@ -148,7 +148,12 @@ class ScanData:
     def load_scalar_data(self) -> bool:
         tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
         if tdms_path.is_file():
-            self.data_dict = read_geecs_tdms(tdms_path)
+            try:
+                self.data_dict = read_geecs_tdms(tdms_path)
+            except ValueError:
+                api_error.warning(f'Could not read tdms file',
+                                  f'{tdms_path}')
+                self.data_dict = {}
 
         txt_path = self.__folder / f'ScanDataScan{self.__tag.number:03d}.txt'
         if txt_path.is_file():
