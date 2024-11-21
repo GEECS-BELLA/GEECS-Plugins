@@ -1,28 +1,18 @@
 import os
-from os import PathLike
 import re
 import inspect
 import pandas as pd
 import calendar as cal
 from pathlib import Path
 from datetime import datetime as dtime, date
-from typing import Optional, Union, NamedTuple
+from typing import Optional, Union
 from configparser import ConfigParser, NoSectionError
-from tdms import read_geecs_tdms
-from geecs_errors import api_error
+from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
+from geecs_python_api.controls.interface import api_error
+from geecs_python_api.controls.api_defs import SysPath, ScanTag
 
 
-SysPath = Union[str, bytes, PathLike, Path]
-
-
-class ScanTag(NamedTuple):
-    year: int
-    month: int
-    day: int
-    number: int
-
-
-class ScanData:
+class ScanFolder:
     """ Represents a GEECS experiment scan """
 
     def __init__(self, folder: Optional[SysPath] = None,
@@ -122,7 +112,7 @@ class ScanData:
     @staticmethod
     def build_device_shot_path(tag: ScanTag, device_name: str, shot_number: int, file_extension: str = 'png',
                                base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') -> Path:
-        scan_path = ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
+        scan_path = ScanFolder.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
         file = scan_path / f'{device_name}' / f'Scan{tag[3]:03d}_{device_name}_{shot_number:03d}.{file_extension}'
         return file
 
@@ -177,14 +167,14 @@ if __name__ == '__main__':
     experiment_name = 'Undulator'
     scan_tag = ScanTag(2023, 8, 9, 4)
 
-    scan_folder = ScanData.build_scan_folder_path(scan_tag, experiment=experiment_name)
-    scan_data = ScanData(scan_folder)
+    scan_folder = ScanFolder.build_scan_folder_path(scan_tag, experiment=experiment_name)
+    scan_data = ScanFolder(scan_folder)
 
     print(scan_data.files['devices'])
     print(scan_data.files['files'])
     print(scan_data.get_folder())
     print(scan_data.get_analysis_folder())
-    print(ScanData.build_device_shot_path(scan_tag, 'UC_Device', 5))
+    print(ScanFolder.build_device_shot_path(scan_tag, 'UC_Device', 5))
 
     print()
     print("Another test, this time using a scan with a corrupted .tdms and with the tag+exp name")
@@ -193,9 +183,9 @@ if __name__ == '__main__':
     experiment_name = 'Undulator'
     scan_tag = ScanTag(2024, 11, 19, 18)
 
-    scan_data = ScanData(tag=scan_tag, experiment=experiment_name)
+    scan_data = ScanFolder(tag=scan_tag, experiment=experiment_name)
     print(scan_data.files['devices'])
     print(scan_data.files['files'])
     print(scan_data.get_folder())
     print(scan_data.get_analysis_folder())
-    print(ScanData.build_device_shot_path(scan_tag, scan_data.files['devices'][0], 5))
+    print(ScanFolder.build_device_shot_path(scan_tag, scan_data.files['devices'][0], 5))
