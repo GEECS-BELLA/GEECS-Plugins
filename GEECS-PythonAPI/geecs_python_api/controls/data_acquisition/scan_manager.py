@@ -345,7 +345,7 @@ class ScanManager:
     to the device_manager to initialize the desired saving configuration. 
     """
     
-    def __init__(self, experiment_dir=None, device_manager=None, data_interface=None, shot_control_device=""):
+    def __init__(self, experiment_dir=None, device_manager=None, data_interface=None, shot_control_device="", MC_ip = None):
         
         """
         Initialize the ScanManager and its components.
@@ -359,6 +359,7 @@ class ScanManager:
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
         self.data_interface = data_interface or DataInterface()
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
+        self.MC_ip = MC_ip
         
         # Initialize ScanDataManager with data_interface and device_manager
         self.scan_data_manager = ScanDataManager(self.data_interface, self.device_manager)
@@ -668,9 +669,26 @@ class ScanManager:
 
             self.action_manager.add_action({'setup_action': self.device_manager.scan_setup_action})
             self.action_manager.execute_action('setup_action')
+        
+        if self.MC_ip is not None:
+            self.generate_live_ECS_dump(self.MC_ip)
 
         logging.info("Pre-logging setup completed.")
-
+    
+    def generate_live_ECS_dump(self, client_ip: str = '192.168.0.1'):
+        steps = [
+            "enable remote scan ECS dumps",
+            "Main: Check scans path>>None",
+            "Save Live Expt Devices Configuration>>ScanStart"
+        ]
+    
+        for step in steps:
+            success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
+            time.sleep(1)
+            if not success:
+                logging.warning(f"Failed to generate an ECS live dump")
+                break
+    
     def _add_scan_devices_to_async_observables(self, scan_config):
         """
         Add the devices and variables involved in the scan to async_observables. This ensures their values
