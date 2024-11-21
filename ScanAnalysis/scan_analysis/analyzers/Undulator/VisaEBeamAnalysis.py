@@ -26,6 +26,9 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         super().__init__(scan_directory, device_name, use_gui=use_gui, experiment_dir=experiment_dir,
                          flag_logging=flag_logging, flag_save_images=flag_save_images)
 
+        # reset save path to this analysis folder
+        self.path_dict['save'] = self.path_dict['save'].parent / "VisaEBeamAnalysis"
+
     def create_cross_mask(self, image, cross_center, angle, cross_height=54,
                           cross_width=54, thickness=10):
         """
@@ -138,10 +141,10 @@ def testing_routine():
 
     # define scan information
     scan = {'year': '2024',
-            'month': 'Oct',
-            'day': '31',
-            'num': 53}
-    device_name = "UC_VisaEBeam1"
+            'month': 'Nov',
+            'day': '19',
+            'num': 15}
+    device_name = "UC_VisaEBeam2"
 
     # initialize data interface and analysis class
     data_interface = DataInterface()

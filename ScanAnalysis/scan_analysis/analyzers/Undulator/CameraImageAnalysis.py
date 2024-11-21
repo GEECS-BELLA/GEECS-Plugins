@@ -41,10 +41,8 @@ class CameraImageAnalysis(ScanAnalysis):
 
         # organize various paths
         self.path_dict = {'data_img': Path(scan_directory) / f"{device_name}",
-                          'save': scan_directory,
-                          'cam_configs': get_full_config_path(self.experiment_dir,
-                                                             'aux_configs',
-                                                             'camera_analysis_settings.yaml')
+                          'save': scan_directory.parent.parent / 'analysis' / scan_directory.name / f"{device_name}" / "CameraImageAnalysis",
+                          'cam_configs': get_full_config_path(self.experiment_dir, 'aux_configs', 'camera_analysis_settings.yaml')
                           }
 
         # if self.camera_analysis_config_path.exists():
@@ -393,6 +391,10 @@ class CameraImageAnalysis(ScanAnalysis):
         if self.initialize_analysis():
             return
 
+        # if saving, make sure save location exists
+        if flag_save and not self.path_dict['save'].exists():
+            self.path_dict['save'].mkdir(parents=True)
+
         # attempt analysis
         try:
 
@@ -421,10 +423,11 @@ def testing_routine():
 
     # define scan information
     scan = {'year': '2024',
-            'month': 'Oct',
-            'day': '31',
-            'num': 53}
-    device_name = "UC_VisaEBeam1"
+            'month': 'Nov',
+            'day': '19',
+            'num': 15}
+    # device_name = "UC_VisaEBeam1"
+    device_name = "UC_UndulatorRad2"
 
     # initialize data interface and analysis class
     data_interface = DataInterface()

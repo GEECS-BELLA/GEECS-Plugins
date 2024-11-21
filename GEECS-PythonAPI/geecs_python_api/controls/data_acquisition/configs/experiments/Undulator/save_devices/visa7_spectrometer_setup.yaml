@@ -1,5 +1,6 @@
 Devices:
   UC_UndulatorRad2:
+    post_analysis_class: CameraImageAnalysis
     save_nonscalar_data: true
     scan_setup:
       Analysis:
