@@ -1,16 +1,25 @@
 import os
+from os import PathLike
 import re
 import inspect
 import pandas as pd
 import calendar as cal
 from pathlib import Path
 from datetime import datetime as dtime, date
-from typing import Optional, Union
+from typing import Optional, Union, NamedTuple
 from configparser import ConfigParser, NoSectionError
-
-from api_defs import SysPath, ScanTag
 from tdms import read_geecs_tdms
 from geecs_errors import api_error
+
+
+SysPath = Union[str, bytes, PathLike, Path]
+
+
+class ScanTag(NamedTuple):
+    year: int
+    month: int
+    day: int
+    number: int
 
 
 class ScanData:
