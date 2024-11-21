@@ -95,16 +95,16 @@ class UdpHandler:
 
         return accepted
 
-    def send_scan_cmd(self, cmd: str) -> bool:
+    def send_scan_cmd(self, cmd: str, client_ip: str = 'localhost') -> bool:
         accepted: bool = False
         sock_mc = None
-
+        
         try:
             sock_mc = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
             sock_mc.settimeout(5.0)
-            sock_mc.bind(('localhost', 0))
+            sock_mc.bind(('', 0))
 
-            sock_mc.sendto(cmd.encode('ascii'), ('localhost', self.mc_port + 2))
+            sock_mc.sendto(cmd.encode('ascii'), (client_ip, self.mc_port + 2))
             accepted = self.ack_cmd(sock=sock_mc, timeout=5.0)
 
         except Exception as ex:

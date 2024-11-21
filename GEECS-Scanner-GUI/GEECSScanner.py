@@ -45,6 +45,7 @@ class GEECSScannerWindow(QMainWindow):
         self.experiment = ""
         self.repetition_rate = 0
         self.shot_control_device = ""
+        self.MC_ip = None
         self.load_config_settings()
 
         # Initializes run control if possible, this serves as the interface to scan_manager and data_acquisition
@@ -170,7 +171,7 @@ class GEECSScannerWindow(QMainWindow):
                     config.write(file)
 
             RunControl = getattr(importlib.import_module('RunControl'), 'RunControl')
-            self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device)
+            self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device, MC_ip=self.MC_ip)
         except AttributeError:
             print("ERROR: presumably because the entered experiment is not in the GEECS database")
             self.RunControl = None
@@ -199,6 +200,10 @@ class GEECSScannerWindow(QMainWindow):
                 self.shot_control_device = config['Experiment']['shot_control']
             except KeyError:
                 self.prompt_config_reset("Could not find 'shot_control' in config")
+            try:
+                self.MC_ip = config['Experiment']['MC_ip']
+            except:
+                pass
 
         except TypeError:
             self.prompt_config_reset("No configuration file found")
