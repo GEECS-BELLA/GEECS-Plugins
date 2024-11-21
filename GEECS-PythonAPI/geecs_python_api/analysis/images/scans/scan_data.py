@@ -186,12 +186,14 @@ class ScanData(ScanFolder):
 
         return indexes, setpoints, parameter_avgs_match_setpoints
 
+    """    
     def load_scalar_data(self) -> bool:
         tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
         if tdms_path.is_file():
             self.data_dict = read_geecs_tdms(tdms_path)
 
         return tdms_path.is_file()
+    """
 
     def load_mag_spec_data(self) -> dict[str, Any]:
         magspec_dict = {'full': {}, 'hres': {}}
