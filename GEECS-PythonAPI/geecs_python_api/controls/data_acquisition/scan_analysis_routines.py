@@ -832,7 +832,7 @@ def testing_routine():
 
     from geecs_python_api.controls.data_acquisition.utils import visa_config_generator
     from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
-    from geecs_python_api.controls.data_acquisition.scan_analysis import VisaEBeamAnalysis, CameraImageAnalysis
+    from geecs_python_api.controls.data_acquisition.scan_analysis_routines import VisaEBeamAnalysis, CameraImageAnalysis
 
 
     # define scan information
