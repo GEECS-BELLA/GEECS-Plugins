@@ -176,7 +176,29 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
 # %% executable
 
 def testing_routine():
-    pass
+
+    from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
+
+    # define scan information
+    scan = {'year': '2024',
+            'month': 'Nov',
+            'day': '21',
+            'num': 3}
+    # device_name = "UC_VisaEBeam1"
+    device_name = "U_BCaveMagSpec"
+
+    # initialize data interface and analysis class
+    data_interface = DataInterface()
+    data_interface.year = scan['year']
+    data_interface.month = scan['month']
+    data_interface.day = scan['day']
+    (raw_data_path,
+     analysis_data_path) = data_interface.create_data_path(scan['num'])
+
+    scan_directory = raw_data_path / f"Scan{scan['num']:03d}"
+    analysis_class = MagSpecStitcherAnalysis(scan_directory, device_name)
+
+    analysis_class.run_analysis()
 
 if __name__=="__main__":
     testing_routine()
