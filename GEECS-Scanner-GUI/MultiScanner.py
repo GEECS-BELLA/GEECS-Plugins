@@ -424,6 +424,7 @@ class Worker(QObject):
         self.element_presets = element_presets
         self.scan_presets = scan_presets
         self.current_position = start_number
+        self.is_waiting = False
 
     def start_work(self):
         """Begin loop to check status of GEECS Scanner every second"""
@@ -431,6 +432,7 @@ class Worker(QObject):
         while self._running:
             if self.check_condition():
                 self.send_command()
+                self.is_waiting = True
             time.sleep(1)
         play_finish_jingle()
         self.finished.emit()
@@ -443,7 +445,11 @@ class Worker(QObject):
         """
         :return:  True if the main window can accept a new scan request, False otherwise
         """
-        return self.main_window.is_ready_for_scan()
+        if self.main_window.is_ready_for_scan():
+            return not self.is_waiting
+        else:
+            self.is_waiting = False
+            return False
 
     def send_command(self):
         """Emits signal to start next scan, sending the two preset lists and current index in the multiscan"""
