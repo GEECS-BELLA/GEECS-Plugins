@@ -393,6 +393,8 @@ class ScanManager:
         self.pause_scan_event = threading.Event()  # Event to handle scan pausing
         self.pause_scan_event.set()  # Set to 'running' by default
         self.pause_time = 0
+        
+        self.enable_live_ECS_dump(client_ip = self.MC_ip)
 
     def pause_scan(self):
         """Pause the scanning process by clearing the pause event."""
@@ -676,17 +678,28 @@ class ScanManager:
             self.generate_live_ECS_dump(self.MC_ip)
 
         logging.info("Pre-logging setup completed.")
+  
+    def enable_live_ECS_dump(self, client_ip: str = '192.168.0.1'):
+        steps = [
+            "enable remote scan ECS dumps",
+        ]
+        
+        for step in steps:
+            success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
+            time.sleep(.5)
+            if not success:
+                logging.warning(f"Failed to enable live ECS dumps on MC on computer: {client_ip}")
+                break
     
     def generate_live_ECS_dump(self, client_ip: str = '192.168.0.1'):
         steps = [
-            "enable remote scan ECS dumps",
             "Main: Check scans path>>None",
             "Save Live Expt Devices Configuration>>ScanStart"
         ]
         
         for step in steps:
             success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
-            time.sleep(1)
+            time.sleep(.5)
             if not success:
                 logging.warning(f"Failed to generate an ECS live dump")
                 break
