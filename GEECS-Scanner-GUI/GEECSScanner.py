@@ -93,6 +93,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.selectedDevices.itemSelectionChanged.connect(self.clear_found_list_selection)
 
         # Buttons to launch the element editor and refresh the list of available elements
+        self.load_element_name = None
         self.ui.newDeviceButton.clicked.connect(self.open_element_editor_new)
         self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
         self.ui.buttonRefreshLists.clicked.connect(self.refresh_element_list)
@@ -393,7 +394,8 @@ class GEECSScannerWindow(QMainWindow):
         else:
             database_dict = None
         config_folder = RELATIVE_PATH / "experiments" / self.experiment / "save_devices"
-        self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder)
+        self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder,
+                                                load_config=self.load_element_name)
         self.element_editor.exec_()
         self.refresh_element_list()
 
@@ -411,15 +413,9 @@ class GEECSScannerWindow(QMainWindow):
         element_name = None
         for selection in selected_element:
             element_name = selection.text().strip() + ".yaml"
-
-        if self.RunControl is not None:
-            database_dict = self.RunControl.get_database_dict()
-        else:
-            database_dict = None
-        config_folder = RELATIVE_PATH / "experiments" / self.experiment / "save_devices"
-        self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder, load_config=element_name)
-        self.element_editor.exec_()
-        self.refresh_element_list()
+        self.load_element_name = element_name
+        self.open_element_editor_new()
+        self.load_element_name = None
 
     def open_multiscanner(self):
         """Opens the multiscanner window, and in the process sets a flag that disables starting scans on the main gui"""
