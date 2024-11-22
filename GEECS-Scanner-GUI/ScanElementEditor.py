@@ -8,6 +8,7 @@ allows for a user to load and save the information displayed into this GUI to/fr
 """
 
 from typing import TYPE_CHECKING, Optional, Union, Dict, List, Any, Tuple
+
 if TYPE_CHECKING:
     from PyQt5.QtWidgets import QLineEdit
 
@@ -102,6 +103,7 @@ class ScanElementEditor(QDialog):
     dictionary.  Upon the dictionary changing or a different selection made on the GUI, the visible information on the
     GUI changes to reflect what the user is currently looking at.
     """
+
     def __init__(self, database_dict: Optional[dict] = None,
                  config_folder: Path = Path('.'), load_config: Optional[Path] = None):
         """
@@ -208,13 +210,13 @@ class ScanElementEditor(QDialog):
             self.show_variable_list(self.ui.lineVariableName)
             self.ui.buttonAddVariable.setDefault(True)
             return True
-        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1 and self.action_mode in [
-            'set', 'get']:
+        elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1
+              and self.action_mode in ['set', 'get']):
             self.show_device_list(self.ui.lineActionOption1)
             self.dummyButton.setDefault(True)
             return True
-        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2 and self.action_mode in [
-            'set', 'get']:
+        elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2
+              and self.action_mode in ['set', 'get']):
             self.show_variable_list(self.ui.lineActionOption2, source='action')
             self.dummyButton.setDefault(True)
             return True
@@ -449,9 +451,10 @@ class ScanElementEditor(QDialog):
     def update_action_display(self):
         """Updates the visible list of information based on the currently-selected action"""
         current_selection = self.get_action_list_and_index()
-        if current_selection is None:
-            action = None
-        else:
+        action = None
+        i = None
+        absolute_index = None
+        if current_selection is not None:
             action_list, i, absolute_index = current_selection
             if action_list is None:
                 action = None
@@ -557,7 +560,7 @@ class ScanElementEditor(QDialog):
         """Finds the location of the currently-selected action in the visible list on the GUI.  This is tricky since
         the GUI has two different lists separated by a dummy list element.
 
-        :return: If no selection, returns None.  If the dummy element is selected, return a truple with None as the list
+        :return: If no selection, returns None.  If the dummy element is selected, return a tuple with None as the list
         and the current index in the list.  If a real action is selected, return the action list where the action is
         located (setup or closeout), the relative index in that list, and the index in the GUI list
         """
