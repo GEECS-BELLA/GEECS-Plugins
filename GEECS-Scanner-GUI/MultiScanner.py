@@ -5,14 +5,14 @@ independently set presets for the save device elements
 -Chris
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 if TYPE_CHECKING:
     from GEECSScanner import GEECSScannerWindow
     from PyQt5.QtWidgets import QListWidget, QListWidgetItem
 
-import os
 import yaml
 import time
+from pathlib import Path
 from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog, QMessageBox
 from PyQt5.QtCore import QTimer, QObject, QThread, pyqtSignal, pyqtSlot
 from MultiScanner_ui import Ui_Form
@@ -20,7 +20,7 @@ from multiscan_sound_player import play_finish_jingle
 
 
 class MultiScanner(QWidget):
-    def __init__(self, main_window: 'GEECSScannerWindow', multiscan_configurations_location):
+    def __init__(self, main_window: 'GEECSScannerWindow', multiscan_configurations_location: Union[Path, str]):
         super().__init__()
 
         self.main_window = main_window
@@ -65,7 +65,7 @@ class MultiScanner(QWidget):
         self.ui.buttonCopyRowScan.clicked.connect(self.copy_row_to_list_scan)
 
         # Buttons to save and load multiscan configurations
-        self.config_folder = multiscan_configurations_location
+        self.config_folder = Path(multiscan_configurations_location)
         self.ui.buttonSaveMultiscan.clicked.connect(self.save_multiscan_configuration)
         self.ui.buttonLoadMultiscan.clicked.connect(self.load_multiscan_configuration)
 
@@ -269,23 +269,24 @@ class MultiScanner(QWidget):
             if len(self.scan_preset_list) > 0:
                 settings['Scan Presets'] = self.scan_preset_list
 
-            os.makedirs(self.config_folder, exist_ok=True)
+            self.config_folder.mkdir(parents=True, exist_ok=True)
+            filename = Path(text)
 
-            with open(f"{self.config_folder}/{text}.yaml", 'w') as file:
+            with open(self.config_folder / filename.with_suffix('.yaml'), 'w') as file:
                 yaml.dump(settings, file, default_flow_style=False)
 
     def load_multiscan_configuration(self):
         """Prompts the user to specify a yaml file from which to load a multiscan configuration"""
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", self.config_folder, "YAML Files (*yaml)",
-                                                   options=options)
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", str(self.config_folder),
+                                                   "YAML Files (*yaml)", options=options)
         if file_name:
-            self.load_settings_from_file(file_name)
+            self.load_settings_from_file(Path(file_name))
             self.toggle_split_preset_mode()
             self.refresh_multiscan_lists()
 
-    def load_settings_from_file(self, file_name):
+    def load_settings_from_file(self, file_name: Union[Path, str]):
         """Loads multiscan configuration from the given file name"""
         with open(file_name, 'r') as file:
             settings = yaml.safe_load(file)
