@@ -5,7 +5,7 @@ independently set presets for the save device elements
 -Chris
 """
 
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Union, Optional
 if TYPE_CHECKING:
     from GEECSScanner import GEECSScannerWindow
     from PyQt5.QtWidgets import QListWidget, QListWidgetItem
@@ -104,7 +104,7 @@ class MultiScanner(QWidget):
 
         self.main_window.apply_preset_from_name(preset_name)
 
-    def refresh_multiscan_lists(self, list_widget: 'QListWidget' = None, index: int = None):
+    def refresh_multiscan_lists(self, list_widget: Optional['QListWidget'] = None, index: Optional[int] = None):
         """Updates the gui lists with the current state of the class lists, while preserving the selection position"""
         self.ui.listElementPresets.clear()
         self.ui.listScanPresets.clear()
