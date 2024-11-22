@@ -99,10 +99,12 @@ class MultiScanner(QWidget):
     def apply_preset_to_main_window(self):
         """Applies the selected scan preset to the main window gui"""
         selected_element = self.ui.listAvailablePresets.selectedItems()
+        preset_name = None
         for preset in selected_element:
             preset_name = f"{preset.text()}"
 
-        self.main_window.apply_preset_from_name(preset_name)
+        if preset_name is not None:
+            self.main_window.apply_preset_from_name(preset_name)
 
     def refresh_multiscan_lists(self, list_widget: Optional['QListWidget'] = None, index: Optional[int] = None):
         """Updates the gui lists with the current state of the class lists, while preserving the selection position"""
@@ -203,15 +205,19 @@ class MultiScanner(QWidget):
         selected_items = list_widget.selectedItems()
         if not selected_items:
             return
+
+        i = None
         for selection in selected_items:
             i = list_widget.row(selection)
-        if sooner and 0 < i < len(target_list):
-            target_list[i], target_list[i - 1] = target_list[i - 1], target_list[i]
-            i = i - 1
-        if later and 0 <= i < len(target_list) - 1:
-            target_list[i], target_list[i + 1] = target_list[i + 1], target_list[i]
-            i = i + 1
-        self.refresh_multiscan_lists(list_widget=list_widget, index=i)
+
+        if i is not None:
+            if sooner and 0 < i < len(target_list):
+                target_list[i], target_list[i - 1] = target_list[i - 1], target_list[i]
+                i = i - 1
+            if later and 0 <= i < len(target_list) - 1:
+                target_list[i], target_list[i + 1] = target_list[i + 1], target_list[i]
+                i = i + 1
+            self.refresh_multiscan_lists(list_widget=list_widget, index=i)
 
     def copy_list_element_to_scan(self):
         """Copies the full element preset list into the scan preset list"""
@@ -238,25 +244,28 @@ class MultiScanner(QWidget):
         selected_items = list_widget.selectedItems()
         if not selected_items:
             return
+
+        i = None
         for selection in selected_items:
             i = list_widget.row(selection)
 
-        if i >= len(target_list):
-            replacement = ''
-        else:
-            replacement = target_list[i]
-
-        for j in range(max(len(self.element_preset_list), len(self.scan_preset_list))):
-            if j >= len(target_list):
-                target_list.append(replacement)
+        if i is not None:
+            if i >= len(target_list):
+                replacement = ''
             else:
-                target_list[j] = replacement
+                replacement = target_list[i]
 
-        for j in list(reversed(range(max(len(self.element_preset_list), len(self.scan_preset_list))))):
-            if target_list[j] == '':
-                del target_list[j]
+            for j in range(max(len(self.element_preset_list), len(self.scan_preset_list))):
+                if j >= len(target_list):
+                    target_list.append(replacement)
+                else:
+                    target_list[j] = replacement
 
-        self.refresh_multiscan_lists(list_widget=list_widget, index=i)
+            for j in list(reversed(range(max(len(self.element_preset_list), len(self.scan_preset_list))))):
+                if target_list[j] == '':
+                    del target_list[j]
+
+            self.refresh_multiscan_lists(list_widget=list_widget, index=i)
 
     def save_multiscan_configuration(self):
         """Saves the current multiscan configuration to a yaml file specified by the user"""
