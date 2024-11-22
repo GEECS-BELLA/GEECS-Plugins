@@ -19,7 +19,7 @@ from ScanElementEditor import ScanElementEditor
 from MultiScanner import MultiScanner
 from LogStream import EmittingStream, MultiStream
 
-CURRENT_VERSION = 'v0.1' # Try to keep this up-to-date, increase the version # with significant changes :)
+CURRENT_VERSION = 'v0.2'  # Try to keep this up-to-date, increase the version # with significant changes :)
 
 MAXIMUM_SCAN_SIZE = 1e6
 RELATIVE_PATH = "../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/"
@@ -837,7 +837,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.scanStatusIndicator.setStyleSheet("background-color: red;")
             self.ui.startScanButton.setEnabled(False)
             self.ui.stopScanButton.setEnabled(not self.RunControl.is_stopping())
-            self.ui.progressBar.setValue(int(self.RunControl.get_progress()))
+            self.ui.progressBar.setValue(self.RunControl.get_progress())
         else:
             self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
             self.ui.stopScanButton.setEnabled(False)
