@@ -3,6 +3,7 @@ Script to contain the logic for the GEECSScanner GUI.  Can be launched by runnin
 
 -Chris
 """
+from typing import List
 
 import sys
 from pathlib import Path
@@ -265,7 +266,8 @@ class GEECSScannerWindow(QMainWindow):
         self.load_config_settings()
         self.reinitialize_run_control()
 
-    def prompt_config_update(self, config, section, option, information):
+    def prompt_config_update(self, config: configparser.ConfigParser,
+                             section: str, option: str, information: str) -> configparser.ConfigParser:
         """
         Prompts the user for a string to replace what is currently in the config file.
 
@@ -515,7 +517,7 @@ class GEECSScannerWindow(QMainWindow):
         completer = QCompleter(self.scan_variable_list + self.scan_composite_list, self.ui.lineScanVariable)
         self.ui.lineScanVariable.setCompleter(completer)
 
-    def read_device_tag_from_nickname(self, name):
+    def read_device_tag_from_nickname(self, name: str):
         """
         Given a string, use it as a key in the scan_devices.yaml file and return the associated GEECS variable name.
         If the key is not found, assume it is a composite variable and just return the key itself.
@@ -584,7 +586,7 @@ class GEECSScannerWindow(QMainWindow):
         except ValueError:
             self.ui.lineNumShots.setText("N/A")
 
-    def build_shot_array(self):
+    def build_shot_array(self) -> List[int]:
         """Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot."""
         if (self.scan_stop - self.scan_start) / self.scan_step_size * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
             return []
@@ -615,7 +617,7 @@ class GEECSScannerWindow(QMainWindow):
         for preset in self.load_preset_list():
             self.ui.listScanPresets.addItem(preset)
 
-    def load_preset_list(self):
+    def load_preset_list(self) -> List[str]:
         """
         :return: List containing the names of all presets in the designated folder
         """
@@ -669,7 +671,7 @@ class GEECSScannerWindow(QMainWindow):
 
         self.apply_preset_from_name(preset_name)
 
-    def apply_preset_from_name(self, preset_name, load_save_elements=True, load_scan_params=True):
+    def apply_preset_from_name(self, preset_name: str, load_save_elements: bool = True, load_scan_params: bool = True):
         """
         :param preset_name: Name of the preset
         :param load_save_elements: Defaults to True, flag to load the save elements from a preset file
@@ -730,7 +732,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.listScanPresets.clear()
         self.populate_preset_list()
 
-    def check_for_errors(self):
+    def check_for_errors(self) -> bool:
         """Checks the full GUI for any blatant errors.  To be used before submitting a scan to be run"""
         # TODO Need to add more logic in here.  IE, at least 1 shot, at least 1 save device, etc etc
         if not self.repetition_rate > 0:
