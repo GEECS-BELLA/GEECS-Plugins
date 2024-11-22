@@ -185,7 +185,7 @@ class ScanElementEditor(QDialog):
 
         # Buttons at the bottom to save, open, and close
         self.ui.buttonWindowSave.clicked.connect(self.save_element)
-        self.ui.buttonWindowCancel.clicked.connect(self.close_window)
+        self.ui.buttonWindowClose.clicked.connect(self.close_window)
         self.ui.buttonWindowLoad.clicked.connect(self.open_element)
 
         # At the end of initialization, update all the visible information on the GUI
