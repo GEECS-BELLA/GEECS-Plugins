@@ -29,13 +29,14 @@ def get_default_device_dictionary() -> Dict[str, bool | List[Any]]:
     }
 
 
-def get_new_action(action) -> Union[None, Dict[str]]:  # TODO Can probably convert this from an if-else block to a dictionary...
+def get_new_action(action) -> Union[None, Dict[str, str]]:
     """
     Translates a given action keyword to a default dictionary that is populated into the action list.
 
     :param action: action keyword
     :return: default dictionary for the associated action
     """
+    # TODO Can probably convert this from an if-else block to a dictionary...
     default = None
     if action == 'set':
         default = {
