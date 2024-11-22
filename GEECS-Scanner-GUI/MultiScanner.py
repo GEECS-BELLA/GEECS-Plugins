@@ -117,11 +117,15 @@ class MultiScanner(QWidget):
             number_scans = len(self.element_preset_list)
 
         for i in range(number_scans):
-            try: self.ui.listElementPresets.addItem(f"{i+1}:  {self.element_preset_list[i]}")
-            except IndexError: self.ui.listElementPresets.addItem(f"{i+1}.")
+            try:
+                self.ui.listElementPresets.addItem(f"{i+1}:  {self.element_preset_list[i]}")
+            except IndexError:
+                self.ui.listElementPresets.addItem(f"{i+1}.")
             if self.ui.checkBoxEnableScanList.isChecked():
-                try: self.ui.listScanPresets.addItem(f"{i+1}:  {self.scan_preset_list[i]}")
-                except IndexError:  self.ui.listScanPresets.addItem(f"{i+1}.")
+                try:
+                    self.ui.listScanPresets.addItem(f"{i+1}:  {self.scan_preset_list[i]}")
+                except IndexError:
+                    self.ui.listScanPresets.addItem(f"{i+1}.")
 
         if index is not None and list_widget is not None:
             list_widget.setCurrentRow(index)
