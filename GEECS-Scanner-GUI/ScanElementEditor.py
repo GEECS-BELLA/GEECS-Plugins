@@ -7,8 +7,10 @@ allows for a user to load and save the information displayed into this GUI to/fr
 -Chris
 """
 
-import os
+from typing import Optional, Union
+
 import yaml
+from pathlib import Path
 from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton, QFileDialog
 from PyQt5.QtCore import Qt, QEvent
 from ScanElementEditor_ui import Ui_Dialog
@@ -96,7 +98,7 @@ class ScanElementEditor(QDialog):
     dictionary.  Upon the dictionary changing or a different selection made on the GUI, the visible information on the
     GUI changes to reflect what the user is currently looking at.
     """
-    def __init__(self, database_dict=None, config_folder="./", load_config=None):
+    def __init__(self, database_dict=None, config_folder: Path = "./", load_config: Optional[Union[Path, None]] = None):
         """
         Initializes the GUI
 
@@ -172,9 +174,9 @@ class ScanElementEditor(QDialog):
         self.ui.radioIsSetup.clicked.connect(self.set_as_setup)
 
         # If a .yaml file is given, load the dictionary into the backend dictionaries to start with
-        self.config_folder = config_folder
+        self.config_folder = Path(config_folder)
         if load_config is not None:
-            self.load_settings_from_file(config_folder + load_config)
+            self.load_settings_from_file(config_folder / load_config)
 
         # Buttons at the bottom to save, open, and close
         self.ui.buttonWindowSave.clicked.connect(self.save_element)
@@ -664,15 +666,15 @@ class ScanElementEditor(QDialog):
         """Prompts the user to select a .yaml file from which to load element dictionary information"""
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", self.config_folder, "YAML Files (*yaml)",
-                                                   options=options)
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", str(self.config_folder),
+                                                   "YAML Files (*yaml)", options=options)
         if file_name:
-            self.load_settings_from_file(file_name)
+            self.load_settings_from_file(Path(file_name))
             self.update_device_list()
             self.update_action_list()
             self.update_action_display()
 
-    def load_settings_from_file(self, config_filename):
+    def load_settings_from_file(self, config_filename: Path):
         """Given a .yaml file, loads the dictionary and parses it to the backend dictionaries for the GUI"""
         with open(config_filename, 'r') as file:
             full_dictionary = yaml.safe_load(file)
@@ -691,6 +693,4 @@ class ScanElementEditor(QDialog):
         if 'closeout_action' in full_dictionary:
             self.actions_dict['closeout'] = full_dictionary['setup_action']['steps']
 
-        base_name = os.path.basename(config_filename)
-        root, ext = os.path.splitext(base_name)
-        self.ui.lineElementName.setText(root)
+        self.ui.lineElementName.setText(config_filename.stem)
