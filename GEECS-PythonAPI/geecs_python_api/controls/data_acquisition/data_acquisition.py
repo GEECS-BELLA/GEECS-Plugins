@@ -1406,7 +1406,7 @@ class DataLogger():
         self.stop_event.set()
         
         self.sound_player.stop()
-
+        # TODO check if this needs to be moved.  It might be cleared before the stop is registered
         # Reset the stop_event for future logging sessions
         self.stop_event.clear()
 
