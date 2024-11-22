@@ -1,3 +1,4 @@
+from typing import Optional
 from geecs_python_api.controls.data_acquisition.scan_manager import ScanManager
 
 
@@ -5,7 +6,7 @@ class RunControl:
     """
     Interface class between the GEECS Scanner GUI and the Scan Manager that controls the scan execution
     """
-    def __init__(self, experiment_name="", shot_control="", MC_ip=None):
+    def __init__(self, experiment_name: str = "", shot_control: str = "", master_control_ip: Optional[str] = None):
         """
         Initializes ScanManager instance using the given experiment information.
 
@@ -17,19 +18,20 @@ class RunControl:
             print("Specify experiment name and shot control device")
             self.scan_manager = None
         else:
-            self.scan_manager = ScanManager(experiment_dir=experiment_name, shot_control_device=shot_control, MC_ip=MC_ip)
+            self.scan_manager = ScanManager(experiment_dir=experiment_name, shot_control_device=shot_control,
+                                            MC_ip=master_control_ip)
 
         self.is_in_setup = False
         self.is_in_stopping = False
 
-    def get_database_dict(self):
+    def get_database_dict(self) -> dict | None:
         """Returns the dictionary of the entire database, which is stored in Scan Manager"""
         if self.scan_manager is None:
             return None
         else:
             return self.scan_manager.get_database_dict()
 
-    def submit_run(self, config_dictionary, scan_config):
+    def submit_run(self, config_dictionary: dict, scan_config: dict):
         """Submits a scan request to Scan Manager after reinitializing it
 
         :param config_dictionary: Dictionary of devices to be saved and actions to take
@@ -43,22 +45,22 @@ class RunControl:
 
             self.is_in_setup = False
 
-    def get_progress(self):
+    def get_progress(self) -> int:
         """
         :return:  Current percentage of completion according to Scan Manager
         """
         if self.scan_manager is not None:
-            return self.scan_manager.estimate_current_completion()*100
+            return int(self.scan_manager.estimate_current_completion()*100)
         else:
             return 0
 
-    def is_busy(self):
+    def is_busy(self) -> bool:
         """ TODO should check if this actually does anything...
         :return: True if it is in setup, false if not.
         """
         return self.is_in_setup
 
-    def is_active(self):
+    def is_active(self) -> bool:
         """
         :return: True if a scan is currently active, False otherwise
         """
@@ -75,7 +77,7 @@ class RunControl:
                 self.is_in_stopping = True
                 self.scan_manager.stop_scanning_thread()
 
-    def is_stopping(self):
+    def is_stopping(self) -> bool:
         """
         :return: True if a stop scan request has recently been submitted, False otherwise
         """
