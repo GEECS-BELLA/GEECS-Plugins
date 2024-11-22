@@ -646,7 +646,7 @@ class ScanElementEditor(QDialog):
         if filename == "":
             print("Need an element name")
         else:
-            file = self.config_folder + filename + ".yaml"
+            file = self.config_folder / (filename + ".yaml")
             print(f"Saving config to {file}")
             setup_action = {'steps': self.actions_dict['setup']}
             closeout_action = {'steps': self.actions_dict['closeout']}
