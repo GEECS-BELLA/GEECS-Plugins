@@ -18,6 +18,7 @@ class ScanFolder:
     def __init__(self, folder: Optional[SysPath] = None,
                  tag: Optional[Union[int, ScanTag, tuple]] = None,
                  experiment: Optional[str] = None,
+                 base_path: Optional[Union[Path, str]] = r'Z:\data',
                  load_scalars: bool = True
                  ):
         """
@@ -46,7 +47,7 @@ class ScanFolder:
 
         if folder is None:
             if tag and experiment:
-                folder = self.build_scan_folder_path(tag, experiment=experiment)
+                folder = self.build_scan_folder_path(tag, base_directory=base_path, experiment=experiment)
 
         if folder:
             try:
@@ -97,6 +98,12 @@ class ScanFolder:
             self.load_scalar_data()
         else:
             self.data_dict = {}
+
+        # TODO needed for child classes to have access to these protected variables
+        self.folder = self.__folder
+        self.tag = self.__tag
+        self.tag_date = self.__tag_date
+        self.analysis_folder = self.__analysis_folder
 
     @staticmethod
     def build_scan_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data',

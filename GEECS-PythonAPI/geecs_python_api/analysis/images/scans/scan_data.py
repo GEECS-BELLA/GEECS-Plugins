@@ -49,100 +49,24 @@ class ScanData(ScanFolder):
               Allows working offline with local copy of the data, when specifying a tag
               e.g. experiment_base_path='C:/Users/GuillaumePlateau/Documents/LBL/Data/Undulator'
         """
-        super().__init__(folder=folder, tag=tag, experiment=None, load_scalars=load_scalars)
-        self.identified = False
-        self.scan_info: dict[str, str] = {}
-
-        self.__folder: Optional[Path] = None
-        self.__tag: Optional[ScanTag] = None
-        self.__tag_date: Optional[date] = None
-        self.__analysis_folder: Optional[Path] = None
-
-        if folder:
-            try:
-                folder = Path(folder)
-
-                (exp_name, year_folder_name, month_folder_name, date_folder_name, 
-                 scans_literal, scan_folder_name) = folder.parts[-6:]
-                
-                if (not re.match(r"Y\d{4}", year_folder_name)) or \
-                   (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
-                   (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
-                   (not scans_literal == 'scans') or \
-                   (not re.match(r"Scan\d{3,}", scan_folder_name)):
-                    raise ValueError("Folder path does not appear to follow convention")
-                elif not folder.exists():
-                    raise ValueError("Folder does not exist")
-
-                self.__tag_date = dtime.strptime(date_folder_name, "%y_%m%d").date()
-                self.__tag = \
-                    ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
-
-                self.identified = ignore_experiment_name or (exp_name == GeecsDevice.exp_info['name'])
-                if self.identified:
-                    self.__folder = folder
-
-            except Exception:
-                raise
-
-        if not self.identified and tag:
-            if isinstance(tag, int):
-                self.__tag_date = dtime.now().date()
-                tag = ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, tag)
-
-            if isinstance(tag, tuple):
-                try:
-                    if not isinstance(tag, ScanTag):
-                        tag = ScanTag(*tag)
-
-                    if experiment_base_path is None:
-                        exp_path = Path(GeecsDevice.exp_info['data_path'])
-                    else:
-                        exp_path = Path(experiment_base_path)
-
-                    if not exp_path.is_dir():
-                        raise ValueError("Experiment base folder does not exist")
-
-                    if self.__tag_date is None:
-                        self.__tag_date = date(tag.year, tag.month, tag.day)
-
-                    folder = (exp_path /
-                              self.__tag_date.strftime("Y%Y") /
-                              self.__tag_date.strftime("%m-%b") /
-                              self.__tag_date.strftime("%y_%m%d") /
-                              'scans'/f'Scan{tag.number:03d}')
-                    self.identified = folder.is_dir()
-                    if self.identified:
-                        self.__tag = tag
-                        self.__folder = folder
-                    else:
-                        raise OSError
-
-                except Exception:
-                    raise
-
-        if not self.identified:
-            raise ValueError
-
-        # scan info
-        self.load_scan_info()
-
-        # folders & files
-        top_content = next(os.walk(self.__folder))
-        self.files = {'devices': top_content[1], 'files': top_content[2]}
-
-        parts = list(Path(self.__folder).parts)
-        parts[-2] = 'analysis'
-        self.__analysis_folder = Path(*parts)
-        if not self.__analysis_folder.is_dir():
-            os.makedirs(self.__analysis_folder)
-
-        # scalar data
-        self.data_frame = None  # use tdms.geecs_tdms_dict_to_panda
-        if load_scalars:
-            self.load_scalar_data()
+        if not ignore_experiment_name:
+            exp_name = GeecsDevice.exp_info['name']
         else:
-            self.data_dict = {}
+            exp_name = None
+
+        if experiment_base_path is None:
+            exp_path = Path(GeecsDevice.exp_info['data_path'])
+            base_path = exp_path.parent
+        else:
+            base_path = experiment_base_path
+
+        super().__init__(folder=folder, tag=tag, experiment=exp_name, load_scalars=load_scalars, base_path=base_path)
+
+        # TODO could not access the parent's __vars after __init__, need to reassign for the child.
+        self.__folder = self.folder
+        self.__tag = self.tag
+        self.__tag_date = self.tag_date
+        self.__analysis_folder = self.analysis_folder
 
     @staticmethod
     def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') \
