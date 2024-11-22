@@ -20,10 +20,10 @@ from geecs_python_api.tools.distributions.binning import unsupervised_binning, B
 # from image_analysis.analyzers import default_analyzer_generators
 from image_analysis.labview_adapters import analyzer_from_device_type
 # from image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
-from geecs_python_api.analysis.images.scans.scan_folder import ScanFolder
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 
-class ScanData(ScanFolder):
+class ScanDataMagspec(ScanData):
     """ Represents a GEECS experiment scan """
 
     def __init__(self, folder: Optional[SysPath] = None,
@@ -71,7 +71,7 @@ class ScanData(ScanFolder):
     @staticmethod
     def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') \
             -> Path:
-        return ScanFolder.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
+        return ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
 
     def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
         dev_data = self.get_device_data(device)
@@ -352,8 +352,8 @@ if __name__ == '__main__':
     _htu = HtuExp(get_info=True)
     _base_tag = ScanTag(2023, 8, 9, 4)
 
-    _folder = ScanData.build_folder_path(_base_tag, _htu.base_path)
-    _scan_data = ScanData(_folder, ignore_experiment_name=_htu.is_offline)
+    _folder = ScanDataMagspec.build_folder_path(_base_tag, _htu.base_path)
+    _scan_data = ScanDataMagspec(_folder, ignore_experiment_name=_htu.is_offline)
 
     _magspec_data = _scan_data.load_mag_spec_data()
     _device, _variable = _scan_data.scan_info['Scan Parameter'].split(' ', maxsplit=1)
