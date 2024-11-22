@@ -18,7 +18,7 @@ from PyQt5.QtCore import Qt, QEvent, QTimer
 from GEECSScanner_ui import Ui_MainWindow
 from ScanElementEditor import ScanElementEditor
 from MultiScanner import MultiScanner
-from LogStream import EmittingStream, MultiStream
+# from LogStream import EmittingStream, MultiStream
 
 CURRENT_VERSION = 'v0.2'  # Try to keep this up-to-date, increase the version # with significant changes :)
 
@@ -39,8 +39,8 @@ class GEECSScannerWindow(QMainWindow):
 
         # Sets up the log at the bottom of the GUI to display errors.  TODO need to fix this, was crashing
         self.ui.logDisplay.setReadOnly(True)
-        #sys.stdout = MultiStream(sys.stdout, EmittingStream(self.ui.logDisplay))
-        #sys.stderr = MultiStream(sys.stderr, EmittingStream(self.ui.logDisplay))
+        # sys.stdout = MultiStream(sys.stdout, EmittingStream(self.ui.logDisplay))
+        # sys.stderr = MultiStream(sys.stderr, EmittingStream(self.ui.logDisplay))
 
         # Load experiment, repetition rate, and shot control device from the .config file
         self.experiment = ""
@@ -173,7 +173,8 @@ class GEECSScannerWindow(QMainWindow):
                     config.write(file)
 
             RunControl = getattr(importlib.import_module('RunControl'), 'RunControl')
-            self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device, master_control_ip=self.MC_ip)
+            self.RunControl = RunControl(experiment_name=self.experiment, shot_control=self.shot_control_device,
+                                         master_control_ip=self.MC_ip)
         except AttributeError:
             print("ERROR: presumably because the entered experiment is not in the GEECS database")
             self.RunControl = None
@@ -238,7 +239,7 @@ class GEECSScannerWindow(QMainWindow):
             CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
             default_content = configparser.ConfigParser()
             default_content['Paths'] = {
-                'geecs_data': 'C:\GEECS\\user data\\'
+                'geecs_data': 'C:\\GEECS\\user data\\'
             }
             default_content['Experiment'] = {
                 'expt': 'none',
@@ -662,10 +663,12 @@ class GEECSScannerWindow(QMainWindow):
         """Loads the yaml file selected in the preset list, clears all current information on the GUI, then
         systematically populate everything so that the GUI is equivalent to when it was saved as a preset"""
         selected_element = self.ui.listScanPresets.selectedItems()
+        preset_name = None
         for preset in selected_element:
             preset_name = f"{preset.text()}"
 
-        self.apply_preset_from_name(preset_name)
+        if preset_name is not None:
+            self.apply_preset_from_name(preset_name)
 
     def apply_preset_from_name(self, preset_name: str, load_save_elements: bool = True, load_scan_params: bool = True):
         """
