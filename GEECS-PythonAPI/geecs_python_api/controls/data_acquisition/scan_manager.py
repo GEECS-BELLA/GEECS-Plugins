@@ -6,9 +6,9 @@ from pathlib import Path
 
 import numpy as np
 
-from .data_acquisition import DeviceManager, ActionManager, DataInterface, DataLogger
+from geecs_python_api.controls.data_acquisition import DeviceManager, ActionManager, DataInterface, DataLogger
 
-from .utils import ConsoleLogger
+from geecs_python_api.controls.data_acquisition.utils import ConsoleLogger
 
 from geecs_python_api.controls.interface import load_config
 from geecs_python_api.controls.interface import GeecsDatabase
@@ -32,9 +32,9 @@ GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
 device_dict = GeecsDevice.exp_info['devices']
 
 ANALYSIS_CLASS_MAPPING = {
-    'MagSpecStitcherAnalysis': 'ScanAnalysis.scan_analysis.analyzers.Undulator.MagSpecStitcherAnalysis',
-    'CameraImageAnalysis': 'ScanAnalysis.scan_analysis.analyzers.Undulator.CameraImageAnalysis',
-    'VisaEBeamAnalysis': 'ScanAnalysis.scan_analysis.analyzers.Undulator.VisaEBeamAnalysis'
+    'MagSpecStitcherAnalysis': 'scan_analysis.analyzers.Undulator.MagSpecStitcherAnalysis.MagSpecStitcherAnalysis',
+    'CameraImageAnalysis': 'scan_analysis.analyzers.Undulator.CameraImageAnalysis.CameraImageAnalysis',
+    'VisaEBeamAnalysis': 'scan_analysis.analyzers.Undulator.VisaEBeamAnalysis.VisaEBeamAnalysis'
 }
 
 
@@ -1059,3 +1059,14 @@ class ScanManager:
                         logging.error(f"Post-analysis class '{post_analysis_class_name}' not found in mapping.")
                 except Exception as e:
                     logging.error(f"Error during post-analysis for {device_name}: {e}")
+
+
+if __name__ == '__main__':
+    print("testing")
+    module_and_class = 'scan_analysis.analyzers.Undulator.CameraImageAnalysis.CameraImageAnalysis'
+    if module_and_class:
+        module_name, class_name = module_and_class.rsplit('.', 1)
+        print(module_name, class_name)
+        module = importlib.import_module(module_name)
+        analysis_class = getattr(module, class_name)
+        print(analysis_class)

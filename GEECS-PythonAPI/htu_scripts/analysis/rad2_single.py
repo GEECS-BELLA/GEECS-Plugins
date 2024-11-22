@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from image_analysis.utils import read_imaq_png_image
 
 from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
-from geecs_python_api.controls.data_acquisition.scan_analysis import VisaEBeamAnalysis, CameraImageAnalysis
+from geecs_python_api.controls.data_acquisition.scan_analysis_routines import VisaEBeamAnalysis, CameraImageAnalysis
 
 data_day = '19'  # 28
 data_month = 'Nov'#11  # 3

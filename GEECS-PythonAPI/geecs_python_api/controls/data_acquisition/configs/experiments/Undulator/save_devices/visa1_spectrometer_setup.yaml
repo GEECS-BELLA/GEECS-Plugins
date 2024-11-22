@@ -23,8 +23,6 @@ Devices:
     - Python Results.ChA
     - Python Results.ChB
     - timestamp
-scan_info:
-  description: collecting data on visa1EBeam and UC_UndulatorRad2
 setup_action:
   steps:
   - action: execute
@@ -35,5 +33,5 @@ setup_action:
     variable: DigitalOutput.Channel 7
   - action: set
     device: U_Velmex
-    value: 3888
+    value: 3898
     variable: Position
