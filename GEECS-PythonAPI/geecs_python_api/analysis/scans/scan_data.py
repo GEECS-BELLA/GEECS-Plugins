@@ -101,12 +101,6 @@ class ScanData:
         else:
             self.data_dict = {}
 
-        # TODO needed for child classes to have access to these protected variables
-        self.folder = self.__folder
-        self.tag = self.__tag
-        self.tag_date = self.__tag_date
-        self.analysis_folder = self.__analysis_folder
-
     @staticmethod
     def build_scan_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data',
                                experiment: str = 'Undulator') -> Path:
@@ -130,6 +124,9 @@ class ScanData:
 
     def get_tag(self) -> Optional[ScanTag]:
         return self.__tag
+
+    def get_tag_date(self) -> Optional[date]:
+        return self.__tag_date
 
     def get_analysis_folder(self) -> Optional[Path]:
         return self.__analysis_folder

@@ -61,12 +61,6 @@ class ScanDataMagspec(ScanData):
 
         super().__init__(folder=folder, tag=tag, experiment=exp_name, load_scalars=load_scalars, base_path=base_path)
 
-        # TODO could not access the parent's __vars after __init__, need to reassign for the child.
-        self.__folder = self.folder
-        self.__tag = self.tag
-        self.__tag_date = self.tag_date
-        self.__analysis_folder = self.analysis_folder
-
     @staticmethod
     def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') \
             -> Path:
@@ -76,15 +70,15 @@ class ScanDataMagspec(ScanData):
         magspec_dict = {'full': {}, 'hres': {}}
 
         magspec_dict['hres']['txt_files'] = False
-        path_hres_source: Path = self.__folder
+        path_hres_source: Path = self.get_folder()
         path_found = False
 
         for use_txt, folder in zip([False] * 3 + [True], ['UC_HiResMagCam',
                                                           'U_HiResMagCam',
                                                           'UC_TestCam',
                                                           'U_HiResMagCam-interpSpec']):
-            if (self.__folder / folder).exists():
-                path_hres_source = self.__folder / folder
+            if (self.get_folder() / folder).exists():
+                path_hres_source = self.get_folder() / folder
                 magspec_dict['hres']['txt_files'] = use_txt
                 path_found = True
                 break
