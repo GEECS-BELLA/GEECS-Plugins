@@ -16,7 +16,6 @@ from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 import geecs_python_api.tools.images.ni_vision as ni
 from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
 from geecs_python_api.tools.images.spot import profile_fit, std_to_fwhm
-from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
 # from image_analysis.analyzers import default_analyzer_generators
 from image_analysis.labview_adapters import analyzer_from_device_type
 # from image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
@@ -72,52 +71,6 @@ class ScanDataMagspec(ScanData):
     def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') \
             -> Path:
         return ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
-
-    def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
-        dev_data = self.get_device_data(device)
-        if not dev_data:
-            return [], None, False
-
-        measured: BinningResults = unsupervised_binning(dev_data[variable], dev_data['shot #'])
-
-        Expected = NamedTuple('Expected',
-                              start=float,
-                              end=float,
-                              steps=int,
-                              shots=int,
-                              setpoints=np.ndarray,
-                              indexes=list)
-        parameter_start = float(self.scan_info['Start'])
-        parameter_end = float(self.scan_info['End'])
-        num_steps: int = 1 + round(np.abs(parameter_end - parameter_start) / float(self.scan_info['Step size']))
-        num_shots_per_step: int = int(self.scan_info['Shots per step'])
-        expected = Expected(start=parameter_start, end=parameter_end, steps=num_steps, shots=num_shots_per_step,
-                            setpoints=np.linspace(parameter_start, parameter_end, num_steps),
-                            indexes=[np.arange(p * num_shots_per_step, (p+1) * num_shots_per_step) for p in range(num_steps)])
-
-        parameter_avgs_match_setpoints = all([inds.size == expected.shots for inds in measured.indexes])
-        parameter_avgs_match_setpoints = parameter_avgs_match_setpoints and (len(measured.indexes) == expected.steps)
-        if not parameter_avgs_match_setpoints:
-            api_error.warning(f'Observed data binning does not match expected scan parameters (.ini)',
-                              f'Function "{inspect.stack()[0][3]}"')
-
-        if parameter_avgs_match_setpoints:
-            indexes = expected.indexes
-            setpoints = expected.setpoints
-        else:
-            indexes = measured.indexes
-            setpoints = measured.avg_x
-
-        return indexes, setpoints, parameter_avgs_match_setpoints
-
-    """    
-    def load_scalar_data(self) -> bool:
-        tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
-        if tdms_path.is_file():
-            self.data_dict = read_geecs_tdms(tdms_path)
-
-        return tdms_path.is_file()
-    """
 
     def load_mag_spec_data(self) -> dict[str, Any]:
         magspec_dict = {'full': {}, 'hres': {}}
