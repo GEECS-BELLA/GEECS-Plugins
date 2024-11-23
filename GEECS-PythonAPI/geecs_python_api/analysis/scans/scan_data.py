@@ -8,7 +8,7 @@ from datetime import datetime as dtime, date
 from typing import Optional, Union
 from configparser import ConfigParser, NoSectionError
 from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
-from geecs_python_api.controls.interface import api_error
+from geecs_python_api.controls.interface.geecs_errors import api_error  # TODO this enforces loading the config...
 from geecs_python_api.controls.api_defs import SysPath, ScanTag
 
 
