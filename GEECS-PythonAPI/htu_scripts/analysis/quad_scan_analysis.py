@@ -7,10 +7,10 @@ import matplotlib.pyplot as plt
 from typing import Any, Optional
 from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.controls.experiment.htu import HtuExp
-from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.analysis.scans.scan_data import ScanData
 from geecs_python_api.tools.interfaces.prompts import text_input
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
-from geecs_python_api.analysis.images.scans.scan_analysis import ScanAnalysis
+from geecs_python_api.analysis.scans.scan_images import ScanImages
+from geecs_python_api.analysis.scans.scan_analysis import ScanAnalysis
 from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.interfaces.exports import save_py
 from geecs_python_api.tools.images.displays import polyfit_label

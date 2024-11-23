@@ -6,8 +6,8 @@ from typing import Optional, Union
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.tools.distributions.binning import unsupervised_binning
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
-from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.analysis.scans.scan_images import ScanImages
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 
 # class SteeringScan:

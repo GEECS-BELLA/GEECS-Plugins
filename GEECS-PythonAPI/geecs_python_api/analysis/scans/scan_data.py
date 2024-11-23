@@ -1,25 +1,17 @@
 import os
-from os import PathLike
 import re
 import inspect
+import numpy as np
 import pandas as pd
 import calendar as cal
 from pathlib import Path
 from datetime import datetime as dtime, date
 from typing import Optional, Union, NamedTuple
 from configparser import ConfigParser, NoSectionError
-from tdms import read_geecs_tdms
-from geecs_errors import api_error
-
-
-SysPath = Union[str, bytes, PathLike, Path]
-
-
-class ScanTag(NamedTuple):
-    year: int
-    month: int
-    day: int
-    number: int
+from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
+from geecs_python_api.controls.interface.geecs_errors import api_error  # TODO this enforces loading the config...
+from geecs_python_api.controls.api_defs import SysPath, ScanTag
+from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
 
 
 class ScanData:
@@ -28,6 +20,7 @@ class ScanData:
     def __init__(self, folder: Optional[SysPath] = None,
                  tag: Optional[Union[int, ScanTag, tuple]] = None,
                  experiment: Optional[str] = None,
+                 base_path: Optional[Union[Path, str]] = r'Z:\data',
                  load_scalars: bool = True
                  ):
         """
@@ -56,7 +49,7 @@ class ScanData:
 
         if folder is None:
             if tag and experiment:
-                folder = self.build_scan_folder_path(tag, experiment=experiment)
+                folder = self.build_scan_folder_path(tag, base_directory=base_path, experiment=experiment)
 
         if folder:
             try:
@@ -132,6 +125,9 @@ class ScanData:
     def get_tag(self) -> Optional[ScanTag]:
         return self.__tag
 
+    def get_tag_date(self) -> Optional[date]:
+        return self.__tag_date
+
     def get_analysis_folder(self) -> Optional[Path]:
         return self.__analysis_folder
 
@@ -169,6 +165,43 @@ class ScanData:
             self.data_frame = pd.read_csv(txt_path, delimiter='\t')
 
         return tdms_path.is_file()
+
+    def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
+        dev_data = self.get_device_data(device)
+        if not dev_data:
+            return [], None, False
+
+        measured: BinningResults = unsupervised_binning(dev_data[variable], dev_data['shot #'])
+
+        Expected = NamedTuple('Expected',
+                              start=float,
+                              end=float,
+                              steps=int,
+                              shots=int,
+                              setpoints=np.ndarray,
+                              indexes=list)
+        parameter_start = float(self.scan_info['Start'])
+        parameter_end = float(self.scan_info['End'])
+        num_steps: int = 1 + round(np.abs(parameter_end - parameter_start) / float(self.scan_info['Step size']))
+        num_shots_per_step: int = int(self.scan_info['Shots per step'])
+        expected = Expected(start=parameter_start, end=parameter_end, steps=num_steps, shots=num_shots_per_step,
+                            setpoints=np.linspace(parameter_start, parameter_end, num_steps),
+                            indexes=[np.arange(p * num_shots_per_step, (p+1) * num_shots_per_step) for p in range(num_steps)])
+
+        parameter_avgs_match_setpoints = all([inds.size == expected.shots for inds in measured.indexes])
+        parameter_avgs_match_setpoints = parameter_avgs_match_setpoints and (len(measured.indexes) == expected.steps)
+        if not parameter_avgs_match_setpoints:
+            api_error.warning(f'Observed data binning does not match expected scan parameters (.ini)',
+                              f'Function "{inspect.stack()[0][3]}"')
+
+        if parameter_avgs_match_setpoints:
+            indexes = expected.indexes
+            setpoints = expected.setpoints
+        else:
+            indexes = measured.indexes
+            setpoints = measured.avg_x
+
+        return indexes, setpoints, parameter_avgs_match_setpoints
 
 
 if __name__ == '__main__':
