@@ -782,7 +782,7 @@ if __name__ == '__main__':
         _base_tag = ScanTag(2023, 8, 9, 25)
         _camera = 'A3'
 
-        _folder = ScanData.build_folder_path(_base_tag, htu.base_path)
+        _folder = ScanData.build_scan_folder_path(_base_tag, htu.base_path)
         _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_offline)
         _scan_images = ScanImages(_scan_data, _camera)
 

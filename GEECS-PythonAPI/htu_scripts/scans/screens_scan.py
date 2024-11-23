@@ -5,10 +5,10 @@ from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.HTU.diagnostics import EBeamDiagnostics
 from htu_scripts.analysis.screens_scan_analysis import screens_scan_analysis
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
+from geecs_python_api.analysis.scans.scan_images import ScanImages
 from geecs_python_api.tools.interfaces.prompts import text_input
 from geecs_python_api.tools.images.filtering import FiltersParameters
-from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 
 def screens_scan(e_diagnostics: EBeamDiagnostics,
