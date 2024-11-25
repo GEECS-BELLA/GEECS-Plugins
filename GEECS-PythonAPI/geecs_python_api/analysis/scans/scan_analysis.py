@@ -9,8 +9,8 @@ from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.controls.experiment.htu import HtuExp
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
-from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.analysis.scans.scan_images import ScanImages
+from geecs_python_api.analysis.scans.scan_data import ScanData
 from geecs_python_api.tools.images.batches import average_images
 from geecs_python_api.tools.images.filtering import FiltersParameters
 from geecs_python_api.tools.images.displays import polyfit_label
@@ -303,8 +303,9 @@ if __name__ == '__main__':
     _metric = 'median'
     # _metric = 'mean'
 
-    _folder = ScanData.build_folder_path(_base_tag, htu.base_path)
-    _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_offline)
+    _folder = ScanData.build_scan_folder_path(_base_tag, htu.base_path)
+    # _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_offline)
+    _scan_data = ScanData(_folder)
     _scan_images = ScanImages(_scan_data, _camera)
     _scan_analysis = ScanAnalysis(_scan_data, _scan_images, _device)
 
