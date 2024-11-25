@@ -59,12 +59,15 @@ class SoundPlayer:
         self.toot_frequency = toot_frequency
         self.toot_duration = toot_duration
         self.sample_rate = sample_rate
-        
+
         # Create a queue to hold sound requests
         self.sound_queue = queue.Queue()
         # Create and start the background thread
         self.sound_thread = threading.Thread(target=self._process_queue)
         self.sound_thread.daemon = True  # Mark thread as a daemon so it exits when the main program exits
+        self.running = False  # Flag to control thread running
+
+    def start_queue(self):
         self.running = True  # Flag to control thread running
         self.sound_thread.start()
 
@@ -1132,12 +1135,12 @@ class DataLogger():
         self.polling_interval = .5
         self.results = {}  # Store results for later processing
 
-        self.bin_num = 0  # Initialize bin as 0
-        
         # Initialize the sound player
         self.sound_player = SoundPlayer()
         self.shot_index = 0
-        
+
+        self.bin_num = 0  # Initialize bin as 0
+
         self.virtual_variable_name = None
         self.virtual_variable_value = 0
         
@@ -1159,6 +1162,9 @@ class DataLogger():
         initial_timestamps = {}
         standby_mode = {}
         log_entries = {}
+
+        # Start the sound player
+        self.sound_player.start_queue()
 
         # Access event-driven and async observables from DeviceManager
         event_driven_observables = self.device_manager.event_driven_observables
