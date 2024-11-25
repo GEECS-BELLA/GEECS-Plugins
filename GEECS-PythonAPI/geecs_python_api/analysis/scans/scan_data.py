@@ -102,6 +102,14 @@ class ScanData:
     @staticmethod
     def get_latest_scan_tag(experiment: str, year: Optional[int] = None,
                             month: Optional[int] = None, day: Optional[int] = None) -> 'ScanTag':
+        """
+        Locates the last generated scan of the given day.  If no day is given or info incomplete, then assume it's today
+        :param experiment: The name of the experiment
+        :param year: Optional, the year as a 4-digit int
+        :param month: Optional, the month as a 1/2-digit int
+        :param day: Optional, the day as a 1/2-digit int
+        :return: The ScanTag tuple representing the last, existing scan folder
+        """
         if year is None or month is None or day is None:
             today = datetime.today()
             year = today.year
@@ -122,12 +130,14 @@ class ScanData:
     @staticmethod
     def get_latest_scan_data(experiment: str, year: Optional[int] = None,
                              month: Optional[int] = None, day: Optional[int] = None) -> 'ScanData':
+        """ :return: the ScanData class of the latest scan on the given day (or today if no date given) """
         latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
         return ScanData(tag=latest_tag, experiment=experiment, load_scalars=True, read_mode=True)
 
     @staticmethod
     def get_next_scan_folder(experiment: str, year: Optional[int] = None,
                              month: Optional[int] = None, day: Optional[int] = None) -> Path:
+        """ :return: the Path to the folder of the next scan on the given day (or today if no date given) """
         latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
         next_tag = ScanTag(latest_tag.year, latest_tag.month, latest_tag.day, latest_tag.number + 1)
         return ScanData.build_scan_folder_path(tag=next_tag, experiment=experiment)
@@ -135,6 +145,7 @@ class ScanData:
     @staticmethod
     def build_next_scan_data(experiment: str, year: Optional[int] = None,
                              month: Optional[int] = None, day: Optional[int] = None) -> 'ScanData':
+        """ :return: the ScanData the next scan and builds the folder for the given day (or today if no date given) """
         next_scan_folder = ScanData.get_next_scan_folder(experiment, year, month, day)
         return ScanData(folder=next_scan_folder, load_scalars=False, read_mode=False)
 
