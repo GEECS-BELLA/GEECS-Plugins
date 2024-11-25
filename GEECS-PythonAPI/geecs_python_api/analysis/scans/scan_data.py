@@ -21,7 +21,8 @@ class ScanData:
                  tag: Optional[Union[int, ScanTag, tuple]] = None,
                  experiment: Optional[str] = None,
                  base_path: Optional[Union[Path, str]] = r'Z:\data',
-                 load_scalars: bool = False
+                 load_scalars: bool = False,
+                 read_mode: bool = True
                  ):
         """
         Parameter(s)
@@ -55,31 +56,31 @@ class ScanData:
                 folder = self.build_scan_folder_path(tag, base_directory=base_path, experiment=experiment)
 
         if folder:
-            try:
-                folder = Path(folder)
+            folder = Path(folder)
 
-                (exp_name, year_folder_name, month_folder_name, date_folder_name,
-                 scans_literal, scan_folder_name) = folder.parts[-6:]
+            (exp_name, year_folder_name, month_folder_name, date_folder_name,
+             scans_literal, scan_folder_name) = folder.parts[-6:]
 
-                if (not re.match(r"Y\d{4}", year_folder_name)) or \
-                   (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
-                   (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
-                   (not scans_literal == 'scans') or \
-                   (not re.match(r"Scan\d{3,}", scan_folder_name)):
-                    raise ValueError("Folder path does not appear to follow convention")
-                elif not folder.exists():
+            if not folder.exists():
+                if read_mode:
                     raise ValueError("Folder does not exist")
+                else:
+                    folder.mkdir(parents=True, exist_ok=True)
 
-                self.__tag_date = dtime.strptime(date_folder_name, "%y_%m%d").date()
-                self.__tag = \
-                    ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
+            if (not re.match(r"Y\d{4}", year_folder_name)) or \
+               (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
+               (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
+               (not scans_literal == 'scans') or \
+               (not re.match(r"Scan\d{3,}", scan_folder_name)):
+                raise ValueError("Folder path does not appear to follow convention")
 
-                self.identified = folder.is_dir()
-                if self.identified:
-                    self.__folder = folder
+            self.__tag_date = dtime.strptime(date_folder_name, "%y_%m%d").date()
+            self.__tag = \
+                ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
 
-            except Exception:
-                raise
+            self.identified = folder.is_dir()
+            if self.identified:
+                self.__folder = folder
 
         if not self.identified:
             raise ValueError
