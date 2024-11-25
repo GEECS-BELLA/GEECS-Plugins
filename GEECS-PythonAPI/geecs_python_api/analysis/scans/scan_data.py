@@ -4,6 +4,7 @@ import inspect
 import numpy as np
 import pandas as pd
 import calendar as cal
+from datetime import datetime
 from pathlib import Path
 from datetime import datetime as dtime, date
 from typing import Optional, Union, NamedTuple
@@ -97,6 +98,45 @@ class ScanData:
         scan_path = ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
         file = scan_path / f'{device_name}' / f'Scan{tag[3]:03d}_{device_name}_{shot_number:03d}.{file_extension}'
         return file
+
+    @staticmethod
+    def get_latest_scan_tag(experiment: str, year: Optional[int] = None,
+                            month: Optional[int] = None, day: Optional[int] = None) -> 'ScanTag':
+        if year is None or month is None or day is None:
+            today = datetime.today()
+            year = today.year
+            month = today.month
+            day = today.day
+
+        i = 1
+        new_scan_flag = True
+        while new_scan_flag:
+            tag = ScanTag(year, month, day, i)
+            try:
+                ScanData(tag=tag, experiment=experiment, load_scalars=False, read_mode=True)
+            except ValueError:
+                break
+            i = i+1
+        return ScanTag(year, month, day, i-1)
+
+    @staticmethod
+    def get_latest_scan_data(experiment: str, year: Optional[int] = None,
+                             month: Optional[int] = None, day: Optional[int] = None) -> 'ScanData':
+        latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
+        return ScanData(tag=latest_tag, experiment=experiment, load_scalars=True, read_mode=True)
+
+    @staticmethod
+    def get_next_scan_folder(experiment: str, year: Optional[int] = None,
+                             month: Optional[int] = None, day: Optional[int] = None) -> Path:
+        latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
+        next_tag = ScanTag(latest_tag.year, latest_tag.month, latest_tag.day, latest_tag.number + 1)
+        return ScanData.build_scan_folder_path(tag=next_tag, experiment=experiment)
+
+    @staticmethod
+    def build_next_scan_data(experiment: str, year: Optional[int] = None,
+                             month: Optional[int] = None, day: Optional[int] = None) -> 'ScanData':
+        next_scan_folder = ScanData.get_next_scan_folder(experiment, year, month, day)
+        return ScanData(folder=next_scan_folder, load_scalars=False, read_mode=False)
 
     def get_folder(self) -> Optional[Path]:
         return self.__folder
@@ -206,8 +246,10 @@ if __name__ == '__main__':
     scan_folder = ScanData.build_scan_folder_path(scan_tag, experiment=experiment_name)
     scan_data = ScanData(scan_folder)
 
-    print(scan_data.files['devices'])
-    print(scan_data.files['files'])
+    files = scan_data.get_folders_and_files()
+
+    print(files['devices'])
+    print(files['files'])
     print(scan_data.get_folder())
     print(scan_data.get_analysis_folder())
     print(ScanData.build_device_shot_path(scan_tag, 'UC_Device', 5))
@@ -220,8 +262,26 @@ if __name__ == '__main__':
     scan_tag = ScanTag(2024, 11, 19, 18)
 
     scan_data = ScanData(tag=scan_tag, experiment=experiment_name)
-    print(scan_data.files['devices'])
-    print(scan_data.files['files'])
+    files = scan_data.get_folders_and_files()
+    print(files['devices'])
+    print(files['files'])
     print(scan_data.get_folder())
     print(scan_data.get_analysis_folder())
-    print(ScanData.build_device_shot_path(scan_tag, scan_data.files['devices'][0], 5))
+    print(ScanData.build_device_shot_path(scan_tag, files['devices'][0], 5))
+
+    print()
+    print("Testing function to create next scan data:")
+    print()
+
+    folder = ScanData.get_next_scan_folder(experiment=experiment_name)
+    print("For today:")
+    print("Next Folder: (no creation)")
+    print(folder)
+    scan_data = ScanData.build_next_scan_data(experiment=experiment_name)
+    print("Next Folder: (w/ creation)")
+    print(scan_data.get_folder())
+    print(scan_data.get_analysis_folder())
+
+    scan_data = ScanData.get_latest_scan_data(experiment=experiment_name, year=2024, month=11, day=21)
+    print("Last scan data for previous run:")
+    print(scan_data.get_folder())
