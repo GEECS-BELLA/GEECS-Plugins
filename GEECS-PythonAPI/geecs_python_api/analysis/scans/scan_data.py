@@ -11,7 +11,7 @@ from typing import Optional, Union, NamedTuple
 from configparser import ConfigParser, NoSectionError
 from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
 from geecs_python_api.controls.interface.geecs_errors import api_error  # TODO this enforces loading the config...
-from geecs_python_api.controls.api_defs import SysPath, ScanTag
+from geecs_python_api.controls.api_defs import SysPath, ScanTag, month_to_int
 from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
 
 
@@ -80,6 +80,15 @@ class ScanData:
 
         if load_scalars:
             self.load_scalar_data()
+
+    @staticmethod
+    def get_scan_tag(year, month, day, number):
+        year = int(year)
+        if 10 <= year <= 99:
+            year = year + 2000
+        month = month_to_int(month)
+
+        return ScanTag(year, month, int(day), int(number))
 
     @staticmethod
     def build_scan_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data',
@@ -249,10 +258,10 @@ class ScanData:
 
 
 if __name__ == '__main__':
-    print("First test, with first building the scan folder")
 
+    print("First test, with first building the scan folder")
     experiment_name = 'Undulator'
-    scan_tag = ScanTag(2023, 8, 9, 4)
+    scan_tag = ScanData.get_scan_tag(23, '8', 9, 4)
 
     scan_folder = ScanData.build_scan_folder_path(scan_tag, experiment=experiment_name)
     scan_data = ScanData(scan_folder)
@@ -270,7 +279,7 @@ if __name__ == '__main__':
     print()
 
     experiment_name = 'Undulator'
-    scan_tag = ScanTag(2024, 11, 19, 18)
+    scan_tag = ScanData.get_scan_tag('2024', 'nov', 19, 18)
 
     scan_data = ScanData(tag=scan_tag, experiment=experiment_name)
     files = scan_data.get_folders_and_files()
