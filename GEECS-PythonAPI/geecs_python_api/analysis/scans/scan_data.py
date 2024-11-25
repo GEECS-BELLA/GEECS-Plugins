@@ -293,10 +293,10 @@ if __name__ == '__main__':
     print("Testing function to create next scan data:")
     print()
 
-    folder = ScanData.get_next_scan_folder(experiment=experiment_name)
+    next_folder = ScanData.get_next_scan_folder(experiment=experiment_name)
     print("For today:")
     print("Next Folder: (no creation)")
-    print(folder)
+    print(next_folder)
     scan_data = ScanData.build_next_scan_data(experiment=experiment_name)
     print("Next Folder: (w/ creation)")
     print(scan_data.get_folder())
