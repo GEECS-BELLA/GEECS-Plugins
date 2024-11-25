@@ -16,13 +16,13 @@ from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 import geecs_python_api.tools.images.ni_vision as ni
 from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
 from geecs_python_api.tools.images.spot import profile_fit, std_to_fwhm
-from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
 # from image_analysis.analyzers import default_analyzer_generators
 from image_analysis.labview_adapters import analyzer_from_device_type
 # from image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 
-class ScanData:
+class ScanDataMagspec(ScanData):
     """ Represents a GEECS experiment scan """
 
     def __init__(self, folder: Optional[SysPath] = None,
@@ -48,196 +48,37 @@ class ScanData:
               Allows working offline with local copy of the data, when specifying a tag
               e.g. experiment_base_path='C:/Users/GuillaumePlateau/Documents/LBL/Data/Undulator'
         """
-
-        self.identified = False
-        self.scan_info: dict[str, str] = {}
-
-        self.__folder: Optional[Path] = None
-        self.__tag: Optional[ScanTag] = None
-        self.__tag_date: Optional[date] = None
-        self.__analysis_folder: Optional[Path] = None
-
-        if folder:
-            try:
-                folder = Path(folder)
-
-                (exp_name, year_folder_name, month_folder_name, date_folder_name, 
-                 scans_literal, scan_folder_name) = folder.parts[-6:]
-                
-                if (not re.match(r"Y\d{4}", year_folder_name)) or \
-                   (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
-                   (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
-                   (not scans_literal == 'scans') or \
-                   (not re.match(r"Scan\d{3,}", scan_folder_name)):
-                    raise ValueError("Folder path does not appear to follow convention")
-                elif not folder.exists():
-                    raise ValueError("Folder does not exist")
-
-                self.__tag_date = dtime.strptime(date_folder_name, "%y_%m%d").date()
-                self.__tag = \
-                    ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
-
-                self.identified = ignore_experiment_name or (exp_name == GeecsDevice.exp_info['name'])
-                if self.identified:
-                    self.__folder = folder
-
-            except Exception:
-                raise
-
-        if not self.identified and tag:
-            if isinstance(tag, int):
-                self.__tag_date = dtime.now().date()
-                tag = ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, tag)
-
-            if isinstance(tag, tuple):
-                try:
-                    if not isinstance(tag, ScanTag):
-                        tag = ScanTag(*tag)
-
-                    if experiment_base_path is None:
-                        exp_path = Path(GeecsDevice.exp_info['data_path'])
-                    else:
-                        exp_path = Path(experiment_base_path)
-
-                    if not exp_path.is_dir():
-                        raise ValueError("Experiment base folder does not exist")
-
-                    if self.__tag_date is None:
-                        self.__tag_date = date(tag.year, tag.month, tag.day)
-
-                    folder = (exp_path /
-                              self.__tag_date.strftime("Y%Y") /
-                              self.__tag_date.strftime("%m-%b") /
-                              self.__tag_date.strftime("%y_%m%d") /
-                              'scans'/f'Scan{tag.number:03d}')
-                    self.identified = folder.is_dir()
-                    if self.identified:
-                        self.__tag = tag
-                        self.__folder = folder
-                    else:
-                        raise OSError
-
-                except Exception:
-                    raise
-
-        if not self.identified:
-            raise ValueError
-
-        # scan info
-        self.load_scan_info()
-
-        # folders & files
-        top_content = next(os.walk(self.__folder))
-        self.files = {'devices': top_content[1], 'files': top_content[2]}
-
-        parts = list(Path(self.__folder).parts)
-        parts[-2] = 'analysis'
-        self.__analysis_folder = Path(*parts)
-        if not self.__analysis_folder.is_dir():
-            os.makedirs(self.__analysis_folder)
-
-        # scalar data
-        self.data_frame = None  # use tdms.geecs_tdms_dict_to_panda
-        if load_scalars:
-            self.load_scalar_data()
+        if not ignore_experiment_name:
+            exp_name = GeecsDevice.exp_info['name']
         else:
-            self.data_dict = {}
+            exp_name = None
+
+        if experiment_base_path is None:
+            exp_path = Path(GeecsDevice.exp_info['data_path'])
+            base_path = exp_path.parent
+        else:
+            base_path = experiment_base_path
+
+        super().__init__(folder=folder, tag=tag, experiment=exp_name, load_scalars=load_scalars, base_path=base_path)
 
     @staticmethod
     def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') \
             -> Path:
-        base_directory = Path(base_directory)
-        folder: Path = base_directory / experiment
-        folder = folder / f'Y{tag[0]}' / f'{tag[1]:02d}-{cal.month_name[tag[1]][:3]}'
-        folder = folder / f'{str(tag[0])[-2:]}_{tag[1]:02d}{tag[2]:02d}'
-        folder = folder / 'scans' / f'Scan{tag[3]:03d}'
-
-        return folder
-
-    def get_folder(self) -> Optional[Path]:
-        return self.__folder
-
-    def get_tag(self) -> Optional[ScanTag]:
-        return self.__tag
-
-    def get_analysis_folder(self) -> Optional[Path]:
-        return self.__analysis_folder
-
-    def get_device_data(self, device_name: str):
-        if device_name in self.data_dict:
-            return self.data_dict[device_name]
-        else:
-            return {}
-
-    def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
-        dev_data = self.get_device_data(device)
-        if not dev_data:
-            return [], None, False
-
-        measured: BinningResults = unsupervised_binning(dev_data[variable], dev_data['shot #'])
-
-        Expected = NamedTuple('Expected',
-                              start=float,
-                              end=float,
-                              steps=int,
-                              shots=int,
-                              setpoints=np.ndarray,
-                              indexes=list)
-        parameter_start = float(self.scan_info['Start'])
-        parameter_end = float(self.scan_info['End'])
-        num_steps: int = 1 + round(np.abs(parameter_end - parameter_start) / float(self.scan_info['Step size']))
-        num_shots_per_step: int = int(self.scan_info['Shots per step'])
-        expected = Expected(start=parameter_start, end=parameter_end, steps=num_steps, shots=num_shots_per_step,
-                            setpoints=np.linspace(parameter_start, parameter_end, num_steps),
-                            indexes=[np.arange(p * num_shots_per_step, (p+1) * num_shots_per_step) for p in range(num_steps)])
-
-        parameter_avgs_match_setpoints = all([inds.size == expected.shots for inds in measured.indexes])
-        parameter_avgs_match_setpoints = parameter_avgs_match_setpoints and (len(measured.indexes) == expected.steps)
-        if not parameter_avgs_match_setpoints:
-            api_error.warning(f'Observed data binning does not match expected scan parameters (.ini)',
-                              f'Function "{inspect.stack()[0][3]}"')
-
-        if parameter_avgs_match_setpoints:
-            indexes = expected.indexes
-            setpoints = expected.setpoints
-        else:
-            indexes = measured.indexes
-            setpoints = measured.avg_x
-
-        return indexes, setpoints, parameter_avgs_match_setpoints
-
-    def load_scan_info(self):
-        config_parser = ConfigParser()
-        config_parser.optionxform = str
-
-        try:
-            config_parser.read(self.__folder / f'ScanInfoScan{self.__tag.number:03d}.ini')
-            self.scan_info.update({key: value.strip("'\"")
-                                   for key, value in config_parser.items("Scan Info")})
-        except NoSectionError:
-            api_error.warning(f'ScanInfo file does not have a "Scan Info" section',
-                              f'ScanData class, method "{inspect.stack()[0][3]}"')
-
-    def load_scalar_data(self) -> bool:
-        tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
-        if tdms_path.is_file():
-            self.data_dict = read_geecs_tdms(tdms_path)
-
-        return tdms_path.is_file()
+        return ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
 
     def load_mag_spec_data(self) -> dict[str, Any]:
         magspec_dict = {'full': {}, 'hres': {}}
 
         magspec_dict['hres']['txt_files'] = False
-        path_hres_source: Path = self.__folder
+        path_hres_source: Path = self.get_folder()
         path_found = False
 
         for use_txt, folder in zip([False] * 3 + [True], ['UC_HiResMagCam',
                                                           'U_HiResMagCam',
                                                           'UC_TestCam',
                                                           'U_HiResMagCam-interpSpec']):
-            if (self.__folder / folder).exists():
-                path_hres_source = self.__folder / folder
+            if (self.get_folder() / folder).exists():
+                path_hres_source = self.get_folder() / folder
                 magspec_dict['hres']['txt_files'] = use_txt
                 path_found = True
                 break
@@ -458,8 +299,8 @@ if __name__ == '__main__':
     _htu = HtuExp(get_info=True)
     _base_tag = ScanTag(2023, 8, 9, 4)
 
-    _folder = ScanData.build_folder_path(_base_tag, _htu.base_path)
-    _scan_data = ScanData(_folder, ignore_experiment_name=_htu.is_offline)
+    _folder = ScanDataMagspec.build_folder_path(_base_tag, _htu.base_path)
+    _scan_data = ScanDataMagspec(_folder, ignore_experiment_name=_htu.is_offline)
 
     _magspec_data = _scan_data.load_mag_spec_data()
     _device, _variable = _scan_data.scan_info['Scan Parameter'].split(' ', maxsplit=1)

@@ -17,7 +17,7 @@ from geecs_python_api.tools.images.batches import list_files
 from geecs_python_api.controls.devices.geecs_device import api_error
 import geecs_python_api.tools.images.ni_vision as ni
 from geecs_python_api.tools.interfaces.exports import save_py
-from geecs_python_api.analysis.images.scans.scan_data import ScanData
+from geecs_python_api.analysis.scans.scan_data import ScanData
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.HTU.diagnostics.cameras import Camera
 from geecs_python_api.tools.images.filtering import FiltersParameters
@@ -782,7 +782,7 @@ if __name__ == '__main__':
         _base_tag = ScanTag(2023, 8, 9, 25)
         _camera = 'A3'
 
-        _folder = ScanData.build_folder_path(_base_tag, htu.base_path)
+        _folder = ScanData.build_scan_folder_path(_base_tag, htu.base_path)
         _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_offline)
         _scan_images = ScanImages(_scan_data, _camera)
 
