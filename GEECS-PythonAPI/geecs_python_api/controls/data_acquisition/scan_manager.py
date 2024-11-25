@@ -430,7 +430,7 @@ class ScanManager:
 
     def _set_trigger(self, state: str, amplitude: float):
         """
-        Set the trigger state and amplitude.
+        Set the trigger state and amplitude.  # TODO make a "laser OFF" mode that has 'on': 'Internal'
 
         Args:
             state (str): Either 'on' or 'off' to control the trigger.
@@ -438,7 +438,7 @@ class ScanManager:
         """
 
         valid_states = {
-            'on': 'Internal',#'External rising edges',
+            'on': 'External rising edges',
             'off': 'Single shot external rising edges'
         }
         if state in valid_states:
