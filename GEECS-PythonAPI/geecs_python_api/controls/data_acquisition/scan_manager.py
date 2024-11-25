@@ -6,9 +6,9 @@ from pathlib import Path
 
 import numpy as np
 
-from .data_acquisition import DeviceManager, ActionManager, DataInterface, DataLogger
+from geecs_python_api.controls.data_acquisition import DeviceManager, ActionManager, DataInterface, DataLogger
 
-from .utils import ConsoleLogger
+from geecs_python_api.controls.data_acquisition.utils import ConsoleLogger
 
 from geecs_python_api.controls.interface import load_config
 from geecs_python_api.controls.interface import GeecsDatabase
@@ -32,9 +32,9 @@ GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
 device_dict = GeecsDevice.exp_info['devices']
 
 ANALYSIS_CLASS_MAPPING = {
-    'MagSpecStitcherAnalysis': 'ScanAnalysis.scan_analysis.analyzers.Undulator.MagSpecStitcherAnalysis',
-    'CameraImageAnalysis': 'ScanAnalysis.scan_analysis.analyzers.Undulator.CameraImageAnalysis',
-    'VisaEBeamAnalysis': 'ScanAnalysis.scan_analysis.analyzers.Undulator.VisaEBeamAnalysis'
+    'MagSpecStitcherAnalysis': 'scan_analysis.analyzers.Undulator.MagSpecStitcherAnalysis.MagSpecStitcherAnalysis',
+    'CameraImageAnalysis': 'scan_analysis.analyzers.Undulator.CameraImageAnalysis.CameraImageAnalysis',
+    'VisaEBeamAnalysis': 'scan_analysis.analyzers.Undulator.VisaEBeamAnalysis.VisaEBeamAnalysis'
 }
 
 
@@ -393,6 +393,8 @@ class ScanManager:
         self.pause_scan_event = threading.Event()  # Event to handle scan pausing
         self.pause_scan_event.set()  # Set to 'running' by default
         self.pause_time = 0
+        
+        self.enable_live_ECS_dump(client_ip = self.MC_ip)
 
     def pause_scan(self):
         """Pause the scanning process by clearing the pause event."""
@@ -676,17 +678,28 @@ class ScanManager:
             self.generate_live_ECS_dump(self.MC_ip)
 
         logging.info("Pre-logging setup completed.")
+  
+    def enable_live_ECS_dump(self, client_ip: str = '192.168.0.1'):
+        steps = [
+            "enable remote scan ECS dumps",
+        ]
+        
+        for step in steps:
+            success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
+            time.sleep(.5)
+            if not success:
+                logging.warning(f"Failed to enable live ECS dumps on MC on computer: {client_ip}")
+                break
     
     def generate_live_ECS_dump(self, client_ip: str = '192.168.0.1'):
         steps = [
-            "enable remote scan ECS dumps",
             "Main: Check scans path>>None",
             "Save Live Expt Devices Configuration>>ScanStart"
         ]
         
         for step in steps:
             success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
-            time.sleep(1)
+            time.sleep(.5)
             if not success:
                 logging.warning(f"Failed to generate an ECS live dump")
                 break
@@ -1046,3 +1059,14 @@ class ScanManager:
                         logging.error(f"Post-analysis class '{post_analysis_class_name}' not found in mapping.")
                 except Exception as e:
                     logging.error(f"Error during post-analysis for {device_name}: {e}")
+
+
+if __name__ == '__main__':
+    print("testing")
+    module_and_class = 'scan_analysis.analyzers.Undulator.CameraImageAnalysis.CameraImageAnalysis'
+    if module_and_class:
+        module_name, class_name = module_and_class.rsplit('.', 1)
+        print(module_name, class_name)
+        module = importlib.import_module(module_name)
+        analysis_class = getattr(module, class_name)
+        print(analysis_class)

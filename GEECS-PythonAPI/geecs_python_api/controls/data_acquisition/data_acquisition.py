@@ -1194,8 +1194,8 @@ class DataLogger():
         logging.info("Logging has started for all event-driven devices.")
 
         # # Start a thread to monitor device warnings
-        self.warning_thread = threading.Thread(target=self._monitor_warnings, args=(event_driven_observables, async_observables))
-        self.warning_thread.start()
+        # self.warning_thread = threading.Thread(target=self._monitor_warnings, args=(event_driven_observables, async_observables))
+        # self.warning_thread.start()
 
         return log_entries
 
