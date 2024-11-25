@@ -199,6 +199,7 @@ class ScanData:
             temp_scan_data = inspect.stack()[0][3]
             api_error.warning(f'ScanInfo file does not have a "Scan Info" section',
                               f'ScanData class, method {temp_scan_data}')
+        return self.scan_info
 
     def load_scalar_data(self) -> bool:
         tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
