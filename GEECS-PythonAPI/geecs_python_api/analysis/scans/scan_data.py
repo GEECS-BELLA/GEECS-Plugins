@@ -39,8 +39,6 @@ class ScanData:
         experiment : str
               Experiment name, e.g. 'Undulator'.  Necessary if just given a tag
         """
-
-        self.identified = False
         self.scan_info: dict[str, str] = {}
 
         self.__folder: Optional[Path] = None
@@ -77,13 +75,7 @@ class ScanData:
             self.__tag_date = dtime.strptime(date_folder_name, "%y_%m%d").date()
             self.__tag = \
                 ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
-
-            self.identified = folder.is_dir()
-            if self.identified:
-                self.__folder = folder
-
-        if not self.identified:
-            raise ValueError
+            self.__folder = folder
 
         if load_scalars:
             self.load_scalar_data()
