@@ -319,6 +319,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineScanVariable.setText("")
             self.scan_variable = ""
             self.populate_scan_devices()
+            self.populate_preset_list()
 
     def clear_lists(self):
         """
