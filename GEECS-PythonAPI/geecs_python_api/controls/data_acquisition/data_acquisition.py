@@ -59,12 +59,15 @@ class SoundPlayer:
         self.toot_frequency = toot_frequency
         self.toot_duration = toot_duration
         self.sample_rate = sample_rate
-        
+
         # Create a queue to hold sound requests
         self.sound_queue = queue.Queue()
         # Create and start the background thread
         self.sound_thread = threading.Thread(target=self._process_queue)
         self.sound_thread.daemon = True  # Mark thread as a daemon so it exits when the main program exits
+        self.running = False  # Flag to control thread running
+
+    def start_queue(self):
         self.running = True  # Flag to control thread running
         self.sound_thread.start()
 
@@ -157,16 +160,17 @@ class ActionManager:
         Args:
             experiment_dir (str): The directory where the actions.yaml file is located.
         """
+        # Dictionary to store instantiated GeecsDevices
+        self.instantiated_devices = {}
+        self.actions = {}
 
         if experiment_dir is not None:
             # Use the utility function to get the path to the actions.yaml file
-            self.actions_file_path = get_full_config_path(experiment_dir, 'aux_configs', 'actions.yaml')
-
-            # Dictionary to store instantiated GeecsDevices
-            self.instantiated_devices = {}
-            self.actions = {}
-            if self.actions_file_path.exists():
+            try:
+                self.actions_file_path = get_full_config_path(experiment_dir, 'aux_configs', 'actions.yaml')
                 self.load_actions()
+            except FileNotFoundError:
+                logging.warning(f"actions.yaml file not found.")
 
     def load_actions(self):
         
@@ -314,7 +318,7 @@ class DeviceManager:
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
         self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
-        self.composite_variables = None
+        self.composite_variables = {}
         self.scan_setup_action = {'steps': []}
         self.scan_closeout_action = {'steps': []}
 
@@ -324,12 +328,14 @@ class DeviceManager:
             # Set the experiment directory
             self.experiment_dir = experiment_dir
             
-            # Use self.experiment_dir when calling the utility function
-            self.base_config_file_path = get_full_config_path(self.experiment_dir, 'save_devices', 'Base_Monitoring_Devices.yaml')
-            self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'aux_configs', 'composite_variables.yaml')
-           
-            # Load composite variables from the file
-            self.composite_variables = self.load_composite_variables(self.composite_variables_file_path)
+            try:
+                # Use self.experiment_dir when calling the utility function
+                self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'aux_configs', 'composite_variables.yaml')
+
+                # Load composite variables from the file
+                self.composite_variables = self.load_composite_variables(self.composite_variables_file_path)
+            except FileNotFoundError:
+                logging.warning(f"Composite variables file not found.")
 
     def load_composite_variables(self, composite_file):
         
@@ -351,28 +357,6 @@ class DeviceManager:
         except FileNotFoundError:
             logging.warning(f"Composite variables file not found: {composite_file}.")
             return {}
-
-    def load_base_config(self):
-        """
-        Load a base configuration of core devices from the base configuration file. 
-        If the file does not exist, log a warning and skip the base configuration load.
-        NOTE: this method is potentially unnecessary. Doesn't really do anything the load_from_config
-        doesn't already do. It was meant to "silently" load a base list of devices to be saved.
-        """
-        try:
-            if not self.base_config_file_path.exists():
-                logging.warning(
-                    f"Base configuration file not found: {self.base_config_file_path}. Skipping base config.")
-                return
-
-            with open(self.base_config_file_path, 'r') as file:
-                base_config = yaml.safe_load(file)
-
-            logging.info(f"Loaded base configuration from {self.base_config_file_path}")
-            self._load_devices_from_config(base_config)
-
-        except Exception as e:
-            logging.error(f"Error loading base configuration from {self.base_config_file_path}: {e}")
 
     def load_from_config(self, config_filename):
         """
@@ -405,7 +389,6 @@ class DeviceManager:
         
         # Load scan info
         self.scan_base_description = config_dictionary.get('scan_info', {}).get('description', '')
-        # # self.scan_parameters = config_dictionary.get('scan_parameters', {})
         # self.scan_setup_action = config_dictionary.get('setup_action', None)
         # self.scan_closeout_action = config_dictionary.get('closeout_action', None)
         
@@ -1132,12 +1115,12 @@ class DataLogger():
         self.polling_interval = .5
         self.results = {}  # Store results for later processing
 
-        self.bin_num = 0  # Initialize bin as 0
-        
         # Initialize the sound player
         self.sound_player = SoundPlayer()
         self.shot_index = 0
-        
+
+        self.bin_num = 0  # Initialize bin as 0
+
         self.virtual_variable_name = None
         self.virtual_variable_value = 0
         
@@ -1159,6 +1142,9 @@ class DataLogger():
         initial_timestamps = {}
         standby_mode = {}
         log_entries = {}
+
+        # Start the sound player
+        self.sound_player.start_queue()
 
         # Access event-driven and async observables from DeviceManager
         event_driven_observables = self.device_manager.event_driven_observables
@@ -1406,7 +1392,7 @@ class DataLogger():
         self.stop_event.set()
         
         self.sound_player.stop()
-
+        # TODO check if this needs to be moved.  It might be cleared before the stop is registered
         # Reset the stop_event for future logging sessions
         self.stop_event.clear()
 

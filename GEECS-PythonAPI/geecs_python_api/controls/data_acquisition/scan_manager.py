@@ -167,8 +167,6 @@ class ScanDataManager:
         df.to_csv(self.sFile_txt_path, sep='\t', index=False)
         logging.info(f"Data saved to {self.data_txt_path}")
 
-
-
     def dataframe_to_tdms(self, df):
         """
         Save the data from a DataFrame to a TDMS file.
@@ -198,6 +196,7 @@ class ScanDataManager:
                 # Remove alias information if "Alias:" appears in the variable name
                 variable_name = variable_name.split(" Alias:", 1)[0].strip()
                 variable_name = f'{device_name} {variable_name}'
+                variable_name = variable_name.strip()
                 # Get the data for this channel
                 data = df[column].values
                 # Create a ChannelObject and write it to the TDMS file
@@ -430,7 +429,7 @@ class ScanManager:
 
     def _set_trigger(self, state: str, amplitude: float):
         """
-        Set the trigger state and amplitude.
+        Set the trigger state and amplitude.  # TODO make a "laser OFF" mode that has 'on': 'Internal'
 
         Args:
             state (str): Either 'on' or 'off' to control the trigger.
