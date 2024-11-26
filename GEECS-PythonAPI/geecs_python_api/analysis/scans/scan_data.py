@@ -16,6 +16,39 @@ from geecs_python_api.controls.interface.geecs_errors import api_error  # TODO t
 from geecs_python_api.controls.api_defs import SysPath, ScanTag, month_to_int
 from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
 
+import subprocess
+import platform
+
+def get_domain_windows():
+    """
+    Attempt to retrieve the Windows domain from the system info.
+    Returns the domain name if found, otherwise returns None.
+    """
+    try:
+        result = subprocess.check_output(['systeminfo'], stderr=subprocess.STDOUT, text=True)
+        domain_line = next((line for line in result.splitlines() if "Domain" in line), None)
+        if domain_line:
+            return domain_line.split(':')[1].strip()
+    except Exception as e:
+        # Log the error if necessary
+        return None
+
+def get_local_base_path():
+    """
+    Determines the base path for data storage based on domain or hostname.
+    """
+    domain = get_domain_windows()
+    hostname = platform.node()
+
+    if domain == 'loasis.gov':
+        return Path('Z:/data/')
+    elif hostname == 'Samuels-MacBook-Pro.local':
+        return Path('/Volumes/hdna2/data/')
+    else:
+        raise ValueError('Unknown computer. Path to data is unknown.')
+
+DOMAIN = get_domain_windows()
+LOCAL_BASE_PATH = get_local_base_path()
 
 class ScanData:
     """ Represents a GEECS experiment scan """
@@ -48,13 +81,17 @@ class ScanData:
         self.__tag: Optional[ScanTag] = None
         self.__tag_date: Optional[date] = None
         self.__analysis_folder: Optional[Path] = None
+        
+        self.domain = DOMAIN
+        self.local_base_path = LOCAL_BASE_PATH
+        self.client_base_path = Path('Z:/data/')
 
         self.data_dict = {}
         self.data_frame = None  # use tdms.geecs_tdms_dict_to_panda
 
         if folder is None:
             if tag and experiment:
-                folder = self.build_scan_folder_path(tag, base_directory=base_path, experiment=experiment)
+                folder = self.build_scan_folder_path(tag, base_directory=self.local_base_path, experiment=experiment)
 
         if folder:
             folder = Path(folder)
@@ -91,7 +128,7 @@ class ScanData:
         month = month_to_int(month)
 
         return ScanTag(year, month, int(day), int(number))
-
+    
     @staticmethod
     def build_scan_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data',
                                experiment: str = 'Undulator') -> Path:
@@ -148,7 +185,7 @@ class ScanData:
                              month: Optional[int] = None, day: Optional[int] = None) -> 'ScanData':
         """ :return: the ScanData class of the latest scan on the given day (or today if no date given) """
         latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
-        return ScanData(tag=latest_tag, experiment=experiment, load_scalars=True, read_mode=True)
+        return ScanData(tag=latest_tag, experiment=experiment, load_scalars=True, read_mode=True, base_directory = LOCAL_BASE_PATH)
 
     @staticmethod
     def get_next_scan_folder(experiment: str, year: Optional[int] = None,
@@ -156,7 +193,7 @@ class ScanData:
         """ :return: the Path to the folder of the next scan on the given day (or today if no date given) """
         latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
         next_tag = ScanTag(latest_tag.year, latest_tag.month, latest_tag.day, latest_tag.number + 1)
-        return ScanData.build_scan_folder_path(tag=next_tag, experiment=experiment)
+        return ScanData.build_scan_folder_path(tag=next_tag, experiment=experiment, base_directory = LOCAL_BASE_PATH)
 
     @staticmethod
     def build_next_scan_data(experiment: str, year: Optional[int] = None,
