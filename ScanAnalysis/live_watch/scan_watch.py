@@ -4,6 +4,7 @@ ScanAnalysis.  If this remains the case, then TODO should make a shared version 
 """
 from __future__ import annotations
 
+import time
 from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
@@ -12,9 +13,20 @@ from typing import TYPE_CHECKING, Optional, Union
 import re
 from multiprocessing import Process
 
+from geecs_python_api.analysis.scans.scan_data import ScanData
+from scan_analysis.execute_scan_analysis import test_command
+from devices_to_analysis_mapping import check_for_analysis_match
+
+from watchdog.observers.polling import PollingObserver
+from watchdog.events import FileSystemEventHandler
+
+if TYPE_CHECKING:
+    from watchdog.events import DirCreatedEvent, FileCreatedEvent
+
 import logging
 import logging.config
 import json
+import yaml
 
 print(Path(__file__).parents[1] / "logging_config.json")
 
@@ -26,22 +38,13 @@ logging.config.dictConfig(
 )
 logger = logging.getLogger("live_run_analysis")
 
-from .utils import get_run_folder
-from .scan_analyzer import ScanAnalyzer
-
-from watchdog.observers.polling import PollingObserver
-from watchdog.events import FileSystemEventHandler
-
-if TYPE_CHECKING:
-    from watchdog.events import DirCreatedEvent, FileCreatedEvent
-
 
 class AnalysisFolderEventHandler(FileSystemEventHandler):
     s_filename_regex = re.compile(r"s(?P<scan_number>\d+).txt")
 
-    def __init__(self, scan_analyzer: ScanAnalyzer):
-        self.scan_analyzer = scan_analyzer
+    def __init__(self, scan_watch_instance):
         super().__init__()
+        self.scan_watch: ScanWatch = scan_watch_instance
 
     def on_created(self, event: Union[DirCreatedEvent, FileCreatedEvent]):
         # ignore new directories
@@ -56,12 +59,19 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
             return
 
         scan_number = int(m['scan_number'])
+
+        valid_analyzers = check_for_analysis_match(Path(event.src_path).parents[1] / 'scans' / f"Scan{scan_number:03d}")
+        tag = ScanData.get_scan_tag(scan_watch.tag.year, scan_watch.tag.month, scan_watch.tag.day, scan_number)
+        self.scan_watch.processed_list.append(scan_number)
+
         logger.info(f"Found s-file {filename}, starting analysis on scan {date_folder_name}:Scan{scan_number:03d}")
 
         try:
-            self.scan_analyzer.analyze_scan(date_folder_name, scan_number)
+            test_command(tag, valid_analyzers)
         except Exception as err:
             logger.error(f"Error in analyze_scan({date_folder_name}, {scan_number:d}): {err}")
+
+        self.scan_watch.write_processed_list()
 
         # try:
         #     self.scan_analyzer.save_scan_metrics()
@@ -77,9 +87,8 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
 
 
 class ScanWatch:
-    def __init__(self, date_folder_name: str,
-                 scan_analyzer: Optional[ScanAnalyzer] = None,
-                 ):
+    def __init__(self, experiment_name: str, year, month, day,
+                 ignore_list=None, overwrite_previous=False):
         """
         Parameters
         ----------
@@ -88,13 +97,21 @@ class ScanWatch:
         scan_analyzer : Optional[ScanAnalyzer]
             use an existing ScanAnalyzer instance, or (default) create a new one.
         """
-        self.watch_folder: Path = get_run_folder(date_folder_name) / "analysis"
-        if scan_analyzer is None:
-            self.scan_analyzer = ScanAnalyzer()
-        else:
-            self.scan_analyzer = scan_analyzer
+        self.tag = ScanData.get_scan_tag(year, month, day, number=0)
+        self.watch_folder = ScanData.build_scan_folder_path(tag=self.tag,
+                                                            experiment=experiment_name).parents[1] / "analysis"
+
+        self.processed_list_filename = Path(f"./processed_scans_{experiment_name}.yaml")
+        self.processed_list = []
+        if ignore_list is not None:
+            self.processed_list = ignore_list
+        if not overwrite_previous:
+            self.read_processed_list()
+
         self.observer = PollingObserver()
-        self.observer.schedule(AnalysisFolderEventHandler(self.scan_analyzer), self.watch_folder)
+        self.observer.schedule(AnalysisFolderEventHandler(self), str(self.watch_folder))
+
+        # Initial check of scan folder
 
     def _check_watch_folder_exists(self, watch_folder_not_exist: str = 'raise'):
         """
@@ -154,14 +171,47 @@ class ScanWatch:
         self.observer.stop()
         self.observer.join()
 
+    def read_processed_list(self):
+        contents = self._read_yaml_file()
+
+        year_data = contents.get(str(self.tag.year)) if contents is not None else None
+        month_data = year_data.get(str(self.tag.month)) if year_data is not None else None
+        day_data = month_data.get(str(self.tag.day)) if month_data is not None else None
+
+        if day_data is not None:
+            for scan in day_data:
+                self.processed_list.append(scan)
+
+    def _read_yaml_file(self):
+        contents = None
+        if self.processed_list_filename.exists():
+            with open(self.processed_list_filename, 'r') as file:
+                contents = yaml.safe_load(file) or []
+        return contents
+
+    def write_processed_list(self):
+        data = self._read_yaml_file()
+        new_contents = {str(self.tag.year): {str(self.tag.month): {str(self.tag.day): self.processed_list}}}
+        if data is None:
+            data = new_contents
+        else:
+            data = recursive_update(data, new_contents)
+
+        with open(self.processed_list_filename, 'w') as file:
+            yaml.safe_dump(data, file)
+
+
+def recursive_update(base, new):
+    for key, value in new.items():
+        if isinstance(value, dict):
+            base[key] = recursive_update(base.get(key, {}), value)
+        else:
+            base[key] = value
+    return base
+
 
 if __name__ == '__main__':
-    ap = ArgumentParser()
-    ap.add_argument("--date_folder_name",
-                    type=str,
-                    default=datetime.now().strftime("%y_%m%d"),
-                    help="date folder to watch for scans, in yy_mmdd format",
-                    )
+    """ap = ArgumentParser()
     ap.add_argument("--watch_folder_not_exist",
                     type=str,
                     choices=['wait', 'create', 'raise'],
@@ -171,9 +221,19 @@ if __name__ == '__main__':
                           "'create': create the folder ourselves; "
                           "'raise': raise FileNotFoundError; "
                           )
-                    )
+                    )"""
 
-    args = ap.parse_args()
+    exp = 'Undulator'
+    year = 2024
+    month = 11
+    day = 26
 
-    scan_watch = ScanWatch(args.date_folder_name)
-    scan_watch.run(watch_folder_not_exist=args.watch_folder_not_exist)
+    scan_watch = ScanWatch(experiment_name=exp, year=year, month=month, day=day)
+    print("Starting...")
+    scan_watch.run(watch_folder_not_exist='wait')
+
+    while True:
+        time.sleep(10)
+        pass
+    #time.sleep(10)
+    #scan_watch.stop()
