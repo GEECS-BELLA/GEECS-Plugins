@@ -167,8 +167,6 @@ class ScanDataManager:
         df.to_csv(self.sFile_txt_path, sep='\t', index=False)
         logging.info(f"Data saved to {self.data_txt_path}")
 
-
-    # TODO the tdms writes an extra whitespace in the channel name that messes up all of the old analysis code
     def dataframe_to_tdms(self, df):
         """
         Save the data from a DataFrame to a TDMS file.
