@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import re
 import inspect
@@ -110,7 +112,7 @@ class ScanData:
 
     @staticmethod
     def get_latest_scan_tag(experiment: str, year: Optional[int] = None,
-                            month: Optional[int] = None, day: Optional[int] = None) -> 'ScanTag':
+                            month: Optional[int] = None, day: Optional[int] = None) -> Optional[ScanTag]:
         """
         Locates the last generated scan of the given day.  If no day is given or info incomplete, then assume it's today
         :param experiment: The name of the experiment
