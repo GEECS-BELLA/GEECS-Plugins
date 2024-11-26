@@ -198,6 +198,7 @@ class ScanDataManager:
                 # Remove alias information if "Alias:" appears in the variable name
                 variable_name = variable_name.split(" Alias:", 1)[0].strip()
                 variable_name = f'{device_name} {variable_name}'
+                variable_name = variable_name.strip()
                 # Get the data for this channel
                 data = df[column].values
                 # Create a ChannelObject and write it to the TDMS file
