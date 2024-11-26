@@ -21,3 +21,9 @@ def analyze_scan(analyzer_name, scan_folder):
     analyzer_class = ANALYSIS_DICT.get(analyzer_name)
     analyzer = analyzer_class()
 
+if __name__ == '__main__':
+    # Given scan tag and string for analysis:
+
+    # Convert string to analysis class
+
+    # Call analysis with scan tag

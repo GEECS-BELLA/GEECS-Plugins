@@ -61,6 +61,9 @@ class ScanAnalysis:
             logging.warining(f"Warning: {e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
             return
 
+    def analyze_scan(self):  #TODO add Scantag as argument (maybe config for options??)
+        raise NotImplementedError
+
     def extract_scan_parameter_from_ini(self, ini_file_path):
         """
         Extract the scan parameter from the .ini file.
