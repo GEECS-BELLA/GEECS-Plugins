@@ -785,32 +785,17 @@ class GEECSScannerWindow(QMainWindow):
                     'step': self.scan_step_size,
                     'wait_time': (self.scan_shot_per_step + 0.5)/self.repetition_rate
                 }
-                scan_mode = scan_variable_tag
-                scan_array_initial = self.scan_start
-                scan_array_final = self.scan_stop
             elif self.ui.noscanRadioButton.isChecked():
                 scan_config = {
                     'device_var': 'noscan',
                     'wait_time': (self.noscan_num + 0.5)/self.repetition_rate
                 }
-                scan_mode = "noscan"
-                scan_array_initial = 0
-                scan_array_final = self.noscan_num
             else:
                 scan_config = None
-                scan_mode = ""
-                scan_array_initial = 0
-                scan_array_final = 0
-
-            scan_parameters = {  # TODO What does this even do?  Perhaps remove from dictionary?
-                'scan_mode': scan_mode,
-                'scan_range': [scan_array_initial, scan_array_final]
-            }
 
             run_config = {
                 'Devices': save_device_list,
                 'scan_info': scan_information,
-                'scan_parameters': scan_parameters,
             }
             if list_of_steps:
                 steps = {'steps': list_of_steps}

@@ -389,7 +389,6 @@ class DeviceManager:
         
         # Load scan info
         self.scan_base_description = config_dictionary.get('scan_info', {}).get('description', '')
-        # # self.scan_parameters = config_dictionary.get('scan_parameters', {})
         # self.scan_setup_action = config_dictionary.get('setup_action', None)
         # self.scan_closeout_action = config_dictionary.get('closeout_action', None)
         
