@@ -119,11 +119,13 @@ class ScanData:
         :param day: Optional, the day as a 1/2-digit int
         :return: The ScanTag tuple representing the last, existing scan folder
         """
+        old_date = True
         if year is None or month is None or day is None:
             today = datetime.today()
             year = today.year
             month = today.month
             day = today.day
+            old_date = False
 
         i = 1
         new_scan_flag = True
@@ -134,7 +136,10 @@ class ScanData:
             except ValueError:
                 break
             i = i+1
-        return ScanTag(year, month, day, i-1)
+        if old_date and (i-1 == 0):
+            return None  # In this case, there were no scans performed on the day in question.
+        else:
+            return ScanTag(year, month, day, i-1)
 
     @staticmethod
     def get_latest_scan_data(experiment: str, year: Optional[int] = None,
