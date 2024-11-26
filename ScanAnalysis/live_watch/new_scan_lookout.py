@@ -7,8 +7,8 @@ import yaml
 import threading
 from pathlib import Path
 from devices_to_analysis_mapping import check_for_analysis_match
-from image_analysis.analyzers.online_analysis_modules.directory_functions import compile_daily_path  # TODO change
-from scan_analysis.execute_scan_analysis import analyze_folder
+from geecs_python_api.analysis.scans.scan_data import ScanData
+#from scan_analysis.execute_scan_analysis import analyze_folder
 
 
 class NewScanLookout:
@@ -21,7 +21,8 @@ class NewScanLookout:
         self.year = year
         self.month = month
         self.day = day
-        self.root_folder = Path(compile_daily_path(self.day, self.month, self.year, experiment=self.experiment))
+        self.root_folder = ScanData.build_scan_folder_path(tag=ScanData.get_scan_tag(year, month, day, number=0),
+                                                           experiment=exp).parent
         self.processed_list_filename = Path(f"./processed_scans_{self.experiment}.yaml")
 
         self.processed_list = []
