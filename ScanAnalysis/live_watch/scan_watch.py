@@ -42,7 +42,7 @@ logger = logging.getLogger("scan_analyzer")
 
 
 class AnalysisFolderEventHandler(FileSystemEventHandler):
-    s_filename_regex = re.compile(r"s(?P<scan_number>\d+).txt")
+    s_filename_regex = re.compile(r"s(?P<scan_number>\d+).txt")  # TODO fix duplicate definition in ScanWatch
 
     def __init__(self, scan_watch_queue):
         super().__init__()
@@ -89,7 +89,7 @@ class ScanWatch:
         if ignore_list is not None:
             self.processed_list = ignore_list
         if not overwrite_previous:
-            self.read_processed_list()
+            self._read_processed_list()
 
         self.observer = PollingObserver()
         self.observer.schedule(AnalysisFolderEventHandler(self.analysis_queue), str(self.watch_folder))
@@ -162,7 +162,7 @@ class ScanWatch:
         tag: ScanTag = self.analysis_queue.get()
         self.processed_list.append(tag.number)
         scan_folder = ScanData.build_scan_folder_path(tag=tag, experiment=self.experiment_name)
-        self.evaluate_folder(tag, scan_folder)
+        self._evaluate_folder(tag, scan_folder)
 
     def initial_search_of_watch_folder(self):
         logger.info(f"Searching for untouched scans on {self.tag.month}/{self.tag.day}/{self.tag.year}:")
@@ -179,7 +179,7 @@ class ScanWatch:
                             self.analysis_queue.put(tag)
         logger.info(f"Found {self.analysis_queue.qsize()} untouched scans.")
 
-    def evaluate_folder(self, tag: ScanTag, scan_folder):
+    def _evaluate_folder(self, tag: ScanTag, scan_folder: Path):
         logger.info(
             f"Starting analysis on scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}")
         valid_analyzers = check_for_analysis_match(scan_folder)
@@ -189,11 +189,11 @@ class ScanWatch:
         except Exception as err:
             logger.error(f"Error in analyze_scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}): {err}")
 
-        self.write_processed_list()
+        self._write_processed_list()
 
         logger.info(f"Finished analysis on scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}")
 
-    def read_processed_list(self):
+    def _read_processed_list(self):
         contents = self._read_yaml_file()
 
         year_data = contents.get(str(self.tag.year)) if contents is not None else None
@@ -204,14 +204,14 @@ class ScanWatch:
             for scan in day_data:
                 self.processed_list.append(scan)
 
-    def _read_yaml_file(self):
+    def _read_yaml_file(self) -> dict:
         contents = None
         if self.processed_list_filename.exists():
             with open(self.processed_list_filename, 'r') as file:
                 contents = yaml.safe_load(file) or []
         return contents
 
-    def write_processed_list(self):
+    def _write_processed_list(self):
         data = self._read_yaml_file()
         new_contents = {str(self.tag.year): {str(self.tag.month): {str(self.tag.day): self.processed_list}}}
         if data is None:
@@ -223,7 +223,7 @@ class ScanWatch:
             yaml.safe_dump(data, file)
 
 
-def recursive_update(base, new):
+def recursive_update(base: dict, new: dict) -> dict:
     for key, value in new.items():
         if isinstance(value, dict):
             base[key] = recursive_update(base.get(key, {}), value)

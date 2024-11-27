@@ -2,6 +2,7 @@
 Here we map analysis classes to combinations of cameras
 """
 from pathlib import Path
+from typing import Union, List
 
 undulator_scan_analyzers = {
     'MagSpec': {'AND': ['U_BCaveICT', 'U_BCaveMagSpec']},
@@ -14,7 +15,7 @@ undulator_scan_analyzers = {
 }
 
 
-def check_for_analysis_match(scan_folder):
+def check_for_analysis_match(scan_folder: Union[Path, str]) -> List[str]:
     """
     Checks list of potential analyzers against what is actually saved for a given scan
 
