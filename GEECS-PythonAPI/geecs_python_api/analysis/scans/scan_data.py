@@ -93,7 +93,7 @@ def load_geecs_paths(
     logger.info(f"Device server base path: {server_base_path}")
     logger.info(f"Experiment: {experiment}")
 
-    return local_base_path.resolve(), server_base_path.resolve(), experiment
+    return local_base_path.resolve(), server_base_path, experiment
 
 GEECS_DATA_LOCAL_BASE_PATH, GEECS_DEVICE_SERVER_DATA_BASE_PATH, EXPERIMENT = load_geecs_paths()
 
@@ -125,6 +125,7 @@ class ScanData:
         self.scan_info: dict[str, str] = {}
 
         self.__folder: Optional[Path] = None
+        self.__client_folder: Optional[Path] = None
         self.__tag: Optional[ScanTag] = None
         self.__tag_date: Optional[date] = None
         self.__analysis_folder: Optional[Path] = None
@@ -137,11 +138,13 @@ class ScanData:
         self.data_frame = None  # use tdms.geecs_tdms_dict_to_panda
 
         if folder is None:
+            client_folder = None
             if tag and experiment:
-                folder = self.build_scan_folder_path(tag, base_directory=self.local_base_path, experiment=experiment)
-
+                folder, client_folder = self.build_scan_folder_path(tag, base_directory=self.local_base_path, experiment=experiment)
+                
         if folder:
             folder = Path(folder)
+            client_folder = Path(client_folder)
 
             (exp_name, year_folder_name, month_folder_name, date_folder_name,
              scans_literal, scan_folder_name) = folder.parts[-6:]
@@ -163,6 +166,7 @@ class ScanData:
             self.__tag = \
                 ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
             self.__folder = folder
+            self.__client_folder = client_folder
 
         if load_scalars:
             self.load_scalar_data()
@@ -178,19 +182,26 @@ class ScanData:
     
     @staticmethod
     def build_scan_folder_path(tag: ScanTag, base_directory: Union[Path, str] = GEECS_DATA_LOCAL_BASE_PATH,
+                               base_client_directory: Union[Path, str] = GEECS_DEVICE_SERVER_DATA_BASE_PATH,
                                experiment: str = EXPERIMENT) -> Path:
-        base_directory = Path(base_directory)
-        folder: Path = base_directory / experiment
-        folder = folder / f'Y{tag[0]}' / f'{tag[1]:02d}-{cal.month_name[tag[1]][:3]}'
-        folder = folder / f'{str(tag[0])[-2:]}_{tag[1]:02d}{tag[2]:02d}'
-        folder = folder / 'scans' / f'Scan{tag[3]:03d}'
+                               
+        base_directories = [Path(base_directory),Path(base_client_directory)]
+        
+        paths = []
+        for base_directory in base_directories:
+            base_directory = Path(base_directory)
+            folder = base_directory / experiment
+            folder = folder / f'Y{tag[0]}' / f'{tag[1]:02d}-{cal.month_name[tag[1]][:3]}'
+            folder = folder / f'{str(tag[0])[-2:]}_{tag[1]:02d}{tag[2]:02d}'
+            folder = folder / 'scans' / f'Scan{tag[3]:03d}'
+            paths.append(folder)
 
-        return folder
+        return tuple(paths)
 
     @staticmethod
     def build_device_shot_path(tag: ScanTag, device_name: str, shot_number: int, file_extension: str = 'png',
                                base_directory: Union[Path, str] = GEECS_DATA_LOCAL_BASE_PATH, experiment: str = EXPERIMENT) -> Path:
-        scan_path = ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
+        scan_path, scan_client_path = ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
         file = scan_path / f'{device_name}' / f'Scan{tag[3]:03d}_{device_name}_{shot_number:03d}.{file_extension}'
         return file
 
@@ -233,7 +244,15 @@ class ScanData:
         """ :return: the ScanData class of the latest scan on the given day (or today if no date given) """
         latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
         return ScanData(tag=latest_tag, experiment=experiment, load_scalars=True, read_mode=True, base_path = GEECS_DATA_LOCAL_BASE_PATH)
-
+    
+    @staticmethod
+    def get_next_scan_tag(experiment: str = EXPERIMENT, year: Optional[int] = None,
+                             month: Optional[int] = None, day: Optional[int] = None) -> Path:
+        """ :return: the Path to the folder of the next scan on the given day (or today if no date given) """
+        latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
+        next_tag = ScanTag(latest_tag.year, latest_tag.month, latest_tag.day, latest_tag.number + 1)
+        return next_tag
+        
     @staticmethod
     def get_next_scan_folder(experiment: str = EXPERIMENT, year: Optional[int] = None,
                              month: Optional[int] = None, day: Optional[int] = None) -> Path:
@@ -246,12 +265,15 @@ class ScanData:
     def build_next_scan_data(experiment: str = EXPERIMENT, year: Optional[int] = None,
                              month: Optional[int] = None, day: Optional[int] = None) -> 'ScanData':
         """ :return: the ScanData the next scan and builds the folder for the given day (or today if no date given) """
-        next_scan_folder = ScanData.get_next_scan_folder(experiment, year, month, day)
-        return ScanData(folder=next_scan_folder, load_scalars=False, read_mode=False)
+        next_scan_tag = ScanData.get_next_scan_tag(experiment, year, month, day)
+        return ScanData(tag=next_scan_tag, load_scalars=False, read_mode=False)
 
     def get_folder(self) -> Optional[Path]:
         return self.__folder
 
+    def get_client_folder(self) -> Optional[Path]:
+        return self.__client_folder
+        
     def get_tag(self) -> Optional[ScanTag]:
         return self.__tag
 
