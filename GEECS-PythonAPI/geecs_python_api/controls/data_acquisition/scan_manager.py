@@ -13,6 +13,7 @@ from geecs_python_api.controls.data_acquisition.utils import ConsoleLogger
 from geecs_python_api.controls.interface import load_config
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from nptdms import TdmsWriter, ChannelObject
 
@@ -22,9 +23,9 @@ config = load_config()
 
 if config and 'Experiment' in config and 'expt' in config['Experiment']:
     default_experiment = config['Experiment']['expt']
-    print(f"default experiment is: {default_experiment}")
+    logging.info(f"default experiment is: {default_experiment}")
 else:
-    print(
+    logging.warning(
         "Configuration file not found or default experiment not defined. While use Undulator as experiment. Could be a problem for you.")
     default_experiment = 'Undulator'
 
@@ -48,7 +49,7 @@ class ScanDataManager:
     This class is designed to be used primarily (or even exclusively) with the ScanMananger
     """
 
-    def __init__(self, data_interface, device_manager):
+    def __init__(self, data_interface, device_manager, scan_data):
         """
         Initialize the ScanDataManager with references to the DataInterface and DeviceManager.
 
@@ -58,10 +59,12 @@ class ScanDataManager:
         """
         self.data_interface = data_interface
         self.device_manager = device_manager  # Explicitly pass device_manager
+        self.scan_data = scan_data
         self.tdms_writer = None
         self.data_txt_path = None
         self.data_h5_path = None
         self.sFile_txt_path = None
+    
 
     def create_and_set_data_paths(self):
         """
@@ -70,13 +73,15 @@ class ScanDataManager:
         This method sets up the necessary directories and paths for saving device data,
         then initializes the TDMS writers for logging scalar and non-scalar data.
         """
-
-        self.data_interface.next_scan_folder = self.data_interface.get_next_scan_folder()
-
+                
+        self.scan_data = ScanData.build_next_scan_data()
+        
         for device_name in self.device_manager.non_scalar_saving_devices:
-            data_path_client_side, data_path_local_side = self.data_interface.build_device_save_paths(device_name)
-            self.data_interface.create_device_save_dir(data_path_local_side)
-
+            data_path_client_side =  self.scan_data.get_client_folder() / device_name
+            data_path_local_side = self.scan_data.get_folder() / device_name
+            
+            data_path_local_side.mkdir(parents=True, exist_ok=True)
+            
             device = self.device_manager.devices.get(device_name)
             if device:
                 save_path = str(data_path_client_side).replace('/', "\\")
@@ -86,11 +91,19 @@ class ScanDataManager:
                 device.set('save', 'on', sync=False)
             else:
                 logging.warning(f"Device {device_name} not found in DeviceManager.")
+        
+        analysis_save_path = self.scan_data.get_analysis_folder()
+        
+        parsed_scan_string = self.scan_data.get_folder().parts[-1]
+        scan_number_int = int(parsed_scan_string[-3:])
 
-        analysis_save_path = self.data_interface.build_analysis_save_path()
-        self.data_interface.create_device_save_dir(analysis_save_path)
+        tdms_output_path = self.scan_data.get_folder() / f"{parsed_scan_string}.tdms"
+        data_txt_path = self.scan_data.get_folder() / f"ScanData{{parsed_scan_string}}.txt"
+        data_h5_path = self.scan_data.get_folder() /  f"ScanData{{parsed_scan_string}}.h5"
 
-        tdms_output_path, self.data_txt_path, self.data_h5_path, self.sFile_txt_path = self.data_interface.build_scalar_data_save_paths()
+        sFile_txt_path = self.scan_data.get_analysis_folder() / f"s{scan_number_int}.txt"
+        sFile_info_path = self.scan_data.get_analysis_folder() / f"s{scan_number_int}_info.txt"
+        
         self.initialize_tdms_writers(str(tdms_output_path))
 
         time.sleep(1)
@@ -345,7 +358,7 @@ class ScanManager:
     to the device_manager to initialize the desired saving configuration.
     """
     
-    def __init__(self, experiment_dir=None, device_manager=None, data_interface=None, shot_control_device="", MC_ip = None):
+    def __init__(self, experiment_dir=None, device_manager=None, data_interface=None, shot_control_device="", MC_ip = None, scan_data=None):
         """
         Initialize the ScanManager and its components.
 
@@ -357,11 +370,12 @@ class ScanManager:
         """
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
         self.data_interface = data_interface or DataInterface()
+        self.scan_data = scan_data or ScanData()
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
         self.MC_ip = MC_ip
         
         # Initialize ScanDataManager with data_interface and device_manager
-        self.scan_data_manager = ScanDataManager(self.data_interface, self.device_manager)
+        self.scan_data_manager = ScanDataManager(self.data_interface, self.device_manager, self.scan_data)
 
         self.data_logger = DataLogger(experiment_dir, self.device_manager)  # Initialize DataLogger
         self.save_data = True
