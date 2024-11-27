@@ -24,86 +24,117 @@ logger = logging.getLogger(__name__)
 if not logging.getLogger().hasHandlers():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-
-# function to parse pertitent path information from a config file
-# if the config file doesn't exist, or the relevent entries in the config
-# file don't exist, pre defined values for base paths and experiment are used
-# note: for most methods the default values can be superseded by directly passing
-# values for things like experiment
-def load_geecs_paths(
-    config_path: Path = Path('~/.config/geecs_python_api/config.ini').expanduser(),
-    default_local_path: Path = Path('Z:/data'),
-    default_server_path: Path = Path('Z:/data'),
-    default_experiment: str = "Undulator"
-) -> Tuple[Path, Path, str]:
+class GeecsPathsConfig:
     """
-    Load paths for GEECS data from a configuration file.
-    
-    Parameters:
+    Manages configuration for GEECS-related paths and experiment settings.
+
+    This class loads pertinent path and experiment information from a configuration file.
+    If the configuration file or the relevant entries are missing, predefined default values
+    are used for the local base path, client base path, and experiment name.
+
+    Attributes:
     ----------
-    config_path : Path
-        Path to the configuration file.
-    default_local_path : Path
-        Default path to use for local GEECS data if not found in config.
-    default_server_path : Path
-        Default path to use for server GEECS data if not found in config.
-    default_experiment : str
-        Default experiment name to use if not found in the config.
+    local_base_path : Path
+        The base directory for storing GEECS data locally.
+    client_base_path : Path
+        The base directory for accessing GEECS data on the server.
+    experiment : str
+        The default experiment name.
 
-    Returns:
+    Methods:
     -------
-    Tuple[Path, Path, str]
-        A tuple containing the resolved local base path, device server base path, and experiment name.
-    
-    Raises:
-    ------
-    ValueError
-        If the resolved local base path does not exist.
+    _load_paths(config_path, default_local_path, default_server_path, default_experiment)
+        Loads configuration values for paths and experiment settings from a config file or
+        falls back to predefined defaults.
     """
-    # Set default paths
-    local_base_path = default_local_path
-    server_base_path = default_server_path
-    experiment = default_experiment
+    
+    def __init__(self):
+        """
+        Initializes the GeecsConfig object by loading configuration values.
 
-    # Attempt to load configuration
-    config = ConfigParser()
-    if config_path.exists():
-        try:
-            config.read(config_path)
-            local_base_path = Path(
-                config['Paths'].get('GEECS_DATA_LOCAL_BASE_PATH', str(default_local_path))
+        Loads the local base path, client base path, and experiment name from a configuration
+        file. If the file or specific entries are missing, defaults are used. The resulting
+        values are stored as instance attributes for consistent access throughout the application.
+        """
+        self.local_base_path, self.client_base_path, self.experiment = self._load_paths()
+
+    @staticmethod
+    def _load_paths(
+        config_path: Path = Path('~/.config/geecs_python_api/config.ini').expanduser(),
+        default_local_path: Path = Path('Z:/data'),
+        default_server_path: Path = Path('Z:/data'),
+        default_experiment: str = "Undulator"
+    ) -> Tuple[Path, Path, str]:
+        """
+        Loads paths and experiment settings from a configuration file.
+
+        If the configuration file is missing or specific entries are not defined, this method
+        uses predefined default values for the local base path, client base path, and experiment name.
+
+        Parameters:
+        ----------
+        config_path : Path, optional
+            Path to the configuration file (default: ~/.config/geecs_python_api/config.ini).
+        default_local_path : Path, optional
+            Default path for storing local GEECS data (default: Z:/data).
+        default_server_path : Path, optional
+            Default path for server-based GEECS data (default: Z:/data).
+        default_experiment : str, optional
+            Default experiment name (default: "Undulator").
+
+        Returns:
+        -------
+        Tuple[Path, Path, str]
+            A tuple containing:
+            - The resolved local base path.
+            - The resolved client base path.
+            - The experiment name.
+
+        Raises:
+        ------
+        ValueError
+            If the resolved local base path does not exist.
+        """
+        local_base_path = default_local_path
+        server_base_path = default_server_path
+        experiment = default_experiment
+
+        config = ConfigParser()
+        if config_path.exists():
+            try:
+                config.read(config_path)
+                # Retrieve paths and experiment name from the configuration file
+                local_base_path = Path(
+                    config['Paths'].get('GEECS_DATA_LOCAL_BASE_PATH', str(default_local_path))
+                )
+                server_base_path = Path(
+                    config['Paths'].get('GEECS_DEVICE_SERVER_DATA_BASE_PATH', str(default_server_path))
+                )
+                experiment = config['Experiment'].get('expt', default_experiment)
+            except Exception as e:
+                logger.error(f"Error reading config file {config_path}: {e}")
+        else:
+            logger.warning(f"Config file {config_path} not found. Using default paths.")
+
+        # Validate that the local base path exists
+        if not local_base_path.is_dir():
+            raise ValueError(
+                f"Data path {local_base_path} does not exist. Check the configuration file or default paths."
             )
-            server_base_path = Path(
-                config['Paths'].get('GEECS_DEVICE_SERVER_DATA_BASE_PATH', str(default_server_path))
-            )
-            experiment = config['Experiment'].get('expt', default_experiment)
-        except Exception as e:
-            logger.error(f"Error reading config file {config_path}: {e}")
-    else:
-        logger.warning(f"Config file {config_path} not found. Using default paths.")
 
-    # Validate the existence of the local base path
-    if not local_base_path.is_dir():
-        raise ValueError(
-            f"Data path {local_base_path} does not exist. Check the configuration file or default paths."
-        )
-
-    # Log resolved paths
-    logger.info(f"Local base path: {local_base_path}")
-    logger.info(f"Device server base path: {server_base_path}")
-    logger.info(f"Experiment: {experiment}")
-
-    return local_base_path.resolve(), server_base_path, experiment
-
-GEECS_DATA_LOCAL_BASE_PATH, GEECS_DEVICE_SERVER_DATA_BASE_PATH, EXPERIMENT = load_geecs_paths()
+        return local_base_path.resolve(), server_base_path, experiment
+        
+# Instantiate the configuration (singleton pattern)
+CONFIG = GeecsPathsConfig()
 
 class ScanData:
     """ Represents a GEECS experiment scan """
 
     def __init__(self, folder: Optional[SysPath] = None,
                  tag: Optional[Union[int, ScanTag, tuple]] = None,
-                 experiment: Optional[str] = EXPERIMENT,
-                 base_path: Optional[Union[Path, str]] = GEECS_DATA_LOCAL_BASE_PATH,
+                 experiment: Optional[str] = None,
+                 base_path: Optional[Union[Path, str]] = None,
+                 client_base_path: Optional[Union[Path, str]] = None,
                  load_scalars: bool = False,
                  read_mode: bool = True
                  ):
@@ -122,54 +153,87 @@ class ScanData:
         experiment : str
               Experiment name, e.g. 'Undulator'.  Necessary if just given a tag
         """
+                 
         self.scan_info: dict[str, str] = {}
 
         self.__folder: Optional[Path] = None
         self.__client_folder: Optional[Path] = None
         self.__tag: Optional[ScanTag] = None
         self.__tag_date: Optional[date] = None
-        self.__analysis_folder: Optional[Path] = None
+        self.__analysis_folder: Optional[Path] = None 
+               
+        self.experiment = experiment or CONFIG.experiment
+        self.local_base_path = Path(base_path or CONFIG.local_base_path)
+        self.client_base_path = Path(client_base_path or CONFIG.client_base_path)
         
-        self.local_base_path = GEECS_DATA_LOCAL_BASE_PATH 
-        self.client_base_path =  GEECS_DEVICE_SERVER_DATA_BASE_PATH
-        self.experiment = EXPERIMENT
 
         self.data_dict = {}
         self.data_frame = None  # use tdms.geecs_tdms_dict_to_panda
 
-        if folder is None:
+        # Handle folder initialization
+        if folder is None and tag is not None:
+            folder, client_folder = self.build_scan_folder_path(tag)
+        else:
             client_folder = None
-            if tag and experiment:
-                folder, client_folder = self.build_scan_folder_path(tag, base_directory=self.local_base_path, experiment=experiment)
-                
+
         if folder:
-            folder = Path(folder)
-            client_folder = Path(client_folder)
+            self._initialize_folders(folder, client_folder, read_mode)
 
-            (exp_name, year_folder_name, month_folder_name, date_folder_name,
-             scans_literal, scan_folder_name) = folder.parts[-6:]
-
-            if not folder.exists():
-                if read_mode:
-                    raise ValueError("Folder does not exist")
-                else:
-                    folder.mkdir(parents=True, exist_ok=True)
-
-            if (not re.match(r"Y\d{4}", year_folder_name)) or \
-               (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
-               (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
-               (not scans_literal == 'scans') or \
-               (not re.match(r"Scan\d{3,}", scan_folder_name)):
-                raise ValueError("Folder path does not appear to follow convention")
-
-            self.__tag_date = dtime.strptime(date_folder_name, "%y_%m%d").date()
-            self.__tag = \
-                ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
-            self.__folder = folder
-            self.__client_folder = client_folder
-
+        # Load scalar data if requested
         if load_scalars:
             self.load_scalar_data()
+
+    def _initialize_folders(self, folder: Path, client_folder: Optional[Path], read_mode: bool):
+        """
+        Initialize and validate folder paths for the scan.
+
+        Parameters:
+        ----------
+        folder : Path
+            Local folder path for the scan.
+        client_folder : Optional[Path]
+            Client folder path for the scan.
+        read_mode : bool
+            If True, raise an error if the folder does not exist.
+
+        Raises:
+        ------
+        ValueError
+            If the folder path does not exist (in read mode) or does not follow the expected convention.
+        """
+        folder = Path(folder)
+        client_folder = Path(client_folder) if client_folder else None
+
+        # Extract the relevant parts of the folder path
+        try:
+            exp_name, year_folder_name, month_folder_name, date_folder_name, scans_literal, scan_folder_name = folder.parts[-6:]
+        except ValueError:
+            raise ValueError(f"Folder path {folder} does not contain the expected structure.")
+
+        # Validate folder existence and create if necessary
+        if not folder.exists():
+            if read_mode:
+                raise ValueError(f"Folder {folder} does not exist.")
+            else:
+                folder.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Created folder: {folder}")
+
+        # Validate folder naming conventions
+        if (not re.match(r"Y\d{4}", year_folder_name)) or \
+           (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
+           (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
+           (not scans_literal == 'scans') or \
+           (not re.match(r"Scan\d{3,}", scan_folder_name)):
+            raise ValueError(f"Folder path {folder} does not appear to follow the expected naming convention.")
+
+        # Infer the ScanTag and tag date from the folder name
+        self.__tag_date = dtime.strptime(date_folder_name, "%y_%m%d").date()
+        self.__tag = ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
+
+        # Assign folder attributes
+        self.__folder = folder
+        self.__client_folder = client_folder
+    
 
     @staticmethod
     def get_scan_tag(year, month, day, number):
@@ -181,92 +245,214 @@ class ScanData:
         return ScanTag(year, month, int(day), int(number))
     
     @staticmethod
-    def build_scan_folder_path(tag: ScanTag, base_directory: Union[Path, str] = GEECS_DATA_LOCAL_BASE_PATH,
-                               base_client_directory: Union[Path, str] = GEECS_DEVICE_SERVER_DATA_BASE_PATH,
-                               experiment: str = EXPERIMENT) -> Path:
-                               
-        base_directories = [Path(base_directory),Path(base_client_directory)]
-        
-        paths = []
-        for base_directory in base_directories:
-            base_directory = Path(base_directory)
-            folder = base_directory / experiment
-            folder = folder / f'Y{tag[0]}' / f'{tag[1]:02d}-{cal.month_name[tag[1]][:3]}'
-            folder = folder / f'{str(tag[0])[-2:]}_{tag[1]:02d}{tag[2]:02d}'
-            folder = folder / 'scans' / f'Scan{tag[3]:03d}'
-            paths.append(folder)
-
-        return tuple(paths)
-
-    @staticmethod
-    def build_device_shot_path(tag: ScanTag, device_name: str, shot_number: int, file_extension: str = 'png',
-                               base_directory: Union[Path, str] = GEECS_DATA_LOCAL_BASE_PATH, experiment: str = EXPERIMENT) -> Path:
-        scan_path, scan_client_path = ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
-        file = scan_path / f'{device_name}' / f'Scan{tag[3]:03d}_{device_name}_{shot_number:03d}.{file_extension}'
-        return file
-
-    @staticmethod
-    def get_latest_scan_tag(experiment: str = EXPERIMENT, year: Optional[int] = None,
-                            month: Optional[int] = None, day: Optional[int] = None) -> Optional[ScanTag]:
+    def build_scan_folder_path(tag: NamedTuple,
+                               base_directory: Optional[Union[Path, str]] = None,
+                               client_base_directory: Optional[Union[Path, str]] = None,
+                               experiment: Optional[str] = None) -> Tuple[Path, Path]:
         """
-        Locates the last generated scan of the given day.  If no day is given or info incomplete, then assume it's today
-        :param experiment: The name of the experiment
-        :param year: Optional, the year as a 4-digit int
-        :param month: Optional, the month as a 1/2-digit int
-        :param day: Optional, the day as a 1/2-digit int
-        :return: The ScanTag tuple representing the last, existing scan folder
+        Build scan folder paths for local and client directories.
         """
-        old_date = True
-        if year is None or month is None or day is None:
-            today = datetime.today()
-            year = today.year
-            month = today.month
-            day = today.day
-            old_date = False
+        base_directory = Path(base_directory or CONFIG.local_base_path)
+        client_base_directory = Path(client_base_directory or CONFIG.client_base_path)
+        experiment = experiment or CONFIG.experiment
 
-        i = 1
-        new_scan_flag = True
-        while new_scan_flag:
-            tag = ScanTag(year, month, day, i)
-            try:
-                ScanData(tag=tag, experiment=experiment, load_scalars=False, read_mode=True, base_path=GEECS_DATA_LOCAL_BASE_PATH)
-            except ValueError:
-                break
-            i = i+1
-        if old_date and (i-1 == 0):
-            return None  # In this case, there were no scans performed on the day in question.
-        else:
-            return ScanTag(year, month, day, i-1)
+        def build_path(base: Path) -> Path:
+            folder = base / experiment
+            folder = folder / f'Y{tag.year}' / f'{tag.month:02d}-{cal.month_name[tag.month][:3]}'
+            folder = folder / f'{str(tag.year)[-2:]}_{tag.month:02d}{tag.day:02d}'
+            folder = folder / 'scans' / f'Scan{tag.number:03d}'
+            return folder
 
-    @staticmethod
-    def get_latest_scan_data(experiment: str = EXPERIMENT, year: Optional[int] = None,
-                             month: Optional[int] = None, day: Optional[int] = None) -> 'ScanData':
-        """ :return: the ScanData class of the latest scan on the given day (or today if no date given) """
-        latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
-        return ScanData(tag=latest_tag, experiment=experiment, load_scalars=True, read_mode=True, base_path = GEECS_DATA_LOCAL_BASE_PATH)
+        return build_path(base_directory), build_path(client_base_directory)
     
     @staticmethod
-    def get_next_scan_tag(experiment: str = EXPERIMENT, year: Optional[int] = None,
-                             month: Optional[int] = None, day: Optional[int] = None) -> Path:
-        """ :return: the Path to the folder of the next scan on the given day (or today if no date given) """
-        latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
-        next_tag = ScanTag(latest_tag.year, latest_tag.month, latest_tag.day, latest_tag.number + 1)
-        return next_tag
-        
-    @staticmethod
-    def get_next_scan_folder(experiment: str = EXPERIMENT, year: Optional[int] = None,
-                             month: Optional[int] = None, day: Optional[int] = None) -> Path:
-        """ :return: the Path to the folder of the next scan on the given day (or today if no date given) """
-        latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
-        next_tag = ScanTag(latest_tag.year, latest_tag.month, latest_tag.day, latest_tag.number + 1)
-        return ScanData.build_scan_folder_path(tag=next_tag, experiment=experiment)
+    def build_device_shot_path(tag: ScanTag, device_name: str, shot_number: int, file_extension: str = 'png',
+                               base_directory: Optional[Union[Path, str]] = None, experiment: Optional[str] = None) -> Path:
+        """
+        Builds the full path to a device's shot file based on the scan tag, device name, and shot number.
+
+        Parameters:
+        ----------
+        tag : ScanTag
+            The scan tag containing year, month, day, and scan number.
+        device_name : str
+            The name of the device.
+        shot_number : int
+            The shot number.
+        file_extension : str, optional
+            File extension for the shot file (default: 'png').
+        base_directory : Optional[Union[Path, str]], optional
+            Base directory for the scan (default: CONFIG.local_base_path).
+        experiment : Optional[str], optional
+            Experiment name (default: CONFIG.experiment).
+
+        Returns:
+        -------
+        Path
+            The full path to the device's shot file.
+        """
+        base_directory = base_directory or CONFIG.local_base_path
+        experiment = experiment or CONFIG.experiment
+
+        scan_path, _ = ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
+        file = scan_path / f'{device_name}' / f'Scan{tag.number:03d}_{device_name}_{shot_number:03d}.{file_extension}'
+        return file
+
 
     @staticmethod
-    def build_next_scan_data(experiment: str = EXPERIMENT, year: Optional[int] = None,
+    def get_latest_scan_tag(experiment: Optional[str] = None, year: Optional[int] = None,
+                            month: Optional[int] = None, day: Optional[int] = None) -> Optional[ScanTag]:
+        """
+        Locates the last generated scan for the given day or defaults to today if no date is provided.
+
+        Parameters:
+        ----------
+        experiment : Optional[str], optional
+            Experiment name (default: CONFIG.experiment).
+        year : Optional[int], optional
+            Year of the scan (4-digit, default: current year if not provided).
+        month : Optional[int], optional
+            Month of the scan (1-12, default: current month if not provided).
+        day : Optional[int], optional
+            Day of the scan (1-31, default: current day if not provided).
+
+        Returns:
+        -------
+        Optional[ScanTag]
+            The ScanTag representing the latest scan folder, or None if no scans exist for the given day.
+        """
+        experiment = experiment or CONFIG.experiment
+        today = datetime.today()
+
+        year = year or today.year
+        month = month or today.month
+        day = day or today.day
+
+        i = 1
+        while True:
+            tag = ScanTag(year, month, day, i)
+            try:
+                ScanData(tag=tag, experiment=experiment, load_scalars=False, read_mode=True, base_path=CONFIG.local_base_path)
+            except ValueError:
+                break
+            i += 1
+
+        if i == 1:
+            return None  # No scans exist for the given day
+        return ScanTag(year, month, day, i - 1)
+
+
+    @staticmethod
+    def get_latest_scan_data(experiment: Optional[str] = None, year: Optional[int] = None,
                              month: Optional[int] = None, day: Optional[int] = None) -> 'ScanData':
-        """ :return: the ScanData the next scan and builds the folder for the given day (or today if no date given) """
-        next_scan_tag = ScanData.get_next_scan_tag(experiment, year, month, day)
-        return ScanData(tag=next_scan_tag, load_scalars=False, read_mode=False)
+        """
+        Retrieves the ScanData object for the latest scan on the given day or today if no date is provided.
+
+        Parameters:
+        ----------
+        experiment : Optional[str], optional
+            Experiment name (default: CONFIG.experiment).
+        year : Optional[int], optional
+            Year of the scan (4-digit, default: current year if not provided).
+        month : Optional[int], optional
+            Month of the scan (1-12, default: current month if not provided).
+        day : Optional[int], optional
+            Day of the scan (1-31, default: current day if not provided).
+
+        Returns:
+        -------
+        ScanData
+            The ScanData object for the latest scan.
+        """
+        latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
+        if not latest_tag:
+            raise ValueError("No scans found for the specified date.")
+        return ScanData(tag=latest_tag, experiment=experiment, load_scalars=True, read_mode=True, base_path=CONFIG.local_base_path)
+
+
+    @staticmethod
+    def get_next_scan_tag(experiment: Optional[str] = None, year: Optional[int] = None,
+                          month: Optional[int] = None, day: Optional[int] = None) -> ScanTag:
+        """
+        Determines the next available scan tag for the given day or today if no date is provided.
+
+        Parameters:
+        ----------
+        experiment : Optional[str], optional
+            Experiment name (default: CONFIG.experiment).
+        year : Optional[int], optional
+            Year of the scan (4-digit, default: current year if not provided).
+        month : Optional[int], optional
+            Month of the scan (1-12, default: current month if not provided).
+        day : Optional[int], optional
+            Day of the scan (1-31, default: current day if not provided).
+
+        Returns:
+        -------
+        ScanTag
+            The ScanTag for the next available scan.
+        """
+        latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
+        if not latest_tag:
+            today = datetime.today()
+            year = year or today.year
+            month = month or today.month
+            day = day or today.day
+            return ScanTag(year, month, day, 1)
+
+        return ScanTag(latest_tag.year, latest_tag.month, latest_tag.day, latest_tag.number + 1)
+
+
+    @staticmethod
+    def get_next_scan_folder(experiment: Optional[str] = None, year: Optional[int] = None,
+                             month: Optional[int] = None, day: Optional[int] = None) -> Path:
+        """
+        Builds the folder path for the next scan on the given day or today if no date is provided.
+
+        Parameters:
+        ----------
+        experiment : Optional[str], optional
+            Experiment name (default: CONFIG.experiment).
+        year : Optional[int], optional
+            Year of the scan (4-digit, default: current year if not provided).
+        month : Optional[int], optional
+            Month of the scan (1-12, default: current month if not provided).
+        day : Optional[int], optional
+            Day of the scan (1-31, default: current day if not provided).
+
+        Returns:
+        -------
+        Path
+            The Path to the folder for the next scan.
+        """
+        next_tag = ScanData.get_next_scan_tag(experiment, year, month, day)
+        return ScanData.build_scan_folder_path(tag=next_tag, experiment=experiment)[0]
+
+
+    @staticmethod
+    def build_next_scan_data(experiment: Optional[str] = None, year: Optional[int] = None,
+                             month: Optional[int] = None, day: Optional[int] = None) -> 'ScanData':
+        """
+        Creates the ScanData object for the next scan and builds its folder.
+
+        Parameters:
+        ----------
+        experiment : Optional[str], optional
+            Experiment name (default: CONFIG.experiment).
+        year : Optional[int], optional
+            Year of the scan (4-digit, default: current year if not provided).
+        month : Optional[int], optional
+            Month of the scan (1-12, default: current month if not provided).
+        day : Optional[int], optional
+            Day of the scan (1-31, default: current day if not provided).
+
+        Returns:
+        -------
+        ScanData
+            The ScanData object for the next scan.
+        """
+        next_tag = ScanData.get_next_scan_tag(experiment, year, month, day)
+        return ScanData(tag=next_tag, experiment=experiment, load_scalars=False, read_mode=False)
 
     def get_folder(self) -> Optional[Path]:
         return self.__folder
