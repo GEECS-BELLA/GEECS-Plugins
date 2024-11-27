@@ -1,5 +1,8 @@
 """
 Watches the scan folders for a given day and reports any new scans
+
+DEPRECATED:  scan_watch.py is the newer, better version
+
 """
 
 import time
