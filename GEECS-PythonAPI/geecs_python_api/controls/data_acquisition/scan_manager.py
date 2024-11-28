@@ -3,10 +3,11 @@ import threading
 import logging
 import pandas as pd
 from pathlib import Path
+import os
 
 import numpy as np
 
-from geecs_python_api.controls.data_acquisition import DeviceManager, ActionManager, DataInterface, DataLogger
+from geecs_python_api.controls.data_acquisition import DeviceManager, ActionManager, DataLogger
 
 from geecs_python_api.controls.data_acquisition.utils import ConsoleLogger
 
@@ -16,6 +17,11 @@ from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from nptdms import TdmsWriter, ChannelObject
+
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_magspecstitcher_timestamp
 
 import importlib
 
@@ -45,27 +51,30 @@ class ScanDataManager:
 
     This class is responsible for setting up data paths, initializing writers for different formats
     (e.g., TDMS, HDF5), and handling the saving and processing of scan data. It works alongside
-    DeviceManager and DataInterface to ensure all relevant data is logged and stored appropriately.
+    DeviceManager and ScanData to ensure all relevant data is logged and stored appropriately.
     This class is designed to be used primarily (or even exclusively) with the ScanMananger
     """
+    
+    DEPENDENT_SUFFIXES = ["-interp", "-interpSpec", "-interpDiv"]
+    
 
-    def __init__(self, data_interface, device_manager, scan_data):
+    def __init__(self, device_manager, scan_data):
         """
-        Initialize the ScanDataManager with references to the DataInterface and DeviceManager.
+        Initialize the ScanDataManager with references to the ScanData and DeviceManager.
 
         Args:
-            data_interface (DataInterface): Interface for handling data paths and file operations.
             device_manager (DeviceManager): Manages the devices involved in the scan.
+            scan_data (ScanData): manages scan data
         """
-        self.data_interface = data_interface
         self.device_manager = device_manager  # Explicitly pass device_manager
         self.scan_data = scan_data
         self.tdms_writer = None
         self.data_txt_path = None
         self.data_h5_path = None
         self.sFile_txt_path = None
+        self.parsed_scan_string = None
+        self.scan_number_int = None
     
-
     def create_and_set_data_paths(self):
         """
         Create data paths for devices that need non-scalar saving, and initialize the TDMS writers.
@@ -94,19 +103,21 @@ class ScanDataManager:
         
         analysis_save_path = self.scan_data.get_analysis_folder()
         
-        parsed_scan_string = self.scan_data.get_folder().parts[-1]
-        scan_number_int = int(parsed_scan_string[-3:])
+        self.parsed_scan_string = self.scan_data.get_folder().parts[-1]
+        self.scan_number_int = int(self.parsed_scan_string[-3:])
 
-        tdms_output_path = self.scan_data.get_folder() / f"{parsed_scan_string}.tdms"
-        data_txt_path = self.scan_data.get_folder() / f"ScanData{{parsed_scan_string}}.txt"
-        data_h5_path = self.scan_data.get_folder() /  f"ScanData{{parsed_scan_string}}.h5"
+        self.tdms_output_path = self.scan_data.get_folder() / f"{self.parsed_scan_string}.tdms"
+        self.data_txt_path = self.scan_data.get_folder() / f"ScanData{self.parsed_scan_string}.txt"
+        self.data_h5_path = self.scan_data.get_folder() /  f"ScanData{self.parsed_scan_string}.h5"
 
-        sFile_txt_path = self.scan_data.get_analysis_folder() / f"s{scan_number_int}.txt"
-        sFile_info_path = self.scan_data.get_analysis_folder() / f"s{scan_number_int}_info.txt"
+        self.sFile_txt_path = self.scan_data.get_analysis_folder().parent / f"s{self.scan_number_int}.txt"
+        self.sFile_info_path = self.scan_data.get_analysis_folder().parent / f"s{self.scan_number_int}_info.txt"
         
-        self.initialize_tdms_writers(str(tdms_output_path))
+        self.initialize_tdms_writers(str(self.tdms_output_path))
 
         time.sleep(1)
+        
+        return self.scan_data
 
     def initialize_tdms_writers(self, tdms_output_path):
         """
@@ -130,10 +141,14 @@ class ScanDataManager:
         if not isinstance(scan_config, dict):
             logging.error(f"scan_config is not a dictionary: {type(scan_config)}")
             return
+        
+        # TODO: should probably add some exception handling here. the self.parsed_scan_string and
+        # self.scan_number_int are set in create_and_set_data_paths. This method is only called
+        # once immediately after that, so it should be ok, but if these variables aren't set
+        # something sensible should happend...
+        scan_folder = self.parsed_scan_string
+        scan_number = self.scan_number_int
 
-        # Define the file name, replacing 'XXX' with the scan number
-        scan_folder = self.data_interface.next_scan_folder
-        scan_number = int(scan_folder[-3:])
         filename = f"ScanInfo{scan_folder}.ini"
 
         scan_var = scan_config.get('device_var', '')
@@ -155,7 +170,7 @@ class ScanDataManager:
         ]
 
         # Create the full path for the file
-        full_path = Path(self.data_txt_path.parent) / filename
+        full_path = Path(self.data_txt_path).parent / filename
         full_path.parent.mkdir(parents=True, exist_ok=True)
 
         logging.info(f"Attempting to write to {full_path}")
@@ -349,7 +364,152 @@ class ScanDataManager:
         logging.info(f"Filled remaining NaN and empty values with {fill_value}.")
         return log_df
 
+    def process_and_rename(self, scan_number=None):
+        """
+        Process the device directories and rename files based on timestamps and scan data.
+        The device type is dynamically determined from the directory name, and the appropriate
+        timestamp extraction method is used based on the device type.
 
+        Args:
+            scan_number (int, optional): Specific scan number to process. If None, uses `next_scan_folder`.
+        """
+        # scan_number_str = f'Scan{scan_number:03d}' if scan_number is not None else self.next_scan_folder
+        # base = self.local_scan_dir_base
+        directory_path = self.scan_data.get_folder()
+
+        logging.info(f"Processing scan folder: {directory_path}")
+
+        # Exclude directories with certain suffixes
+        device_directories = [
+            d for d in directory_path.iterdir() if d.is_dir() and not any(d.name.endswith(suffix) for suffix in self.DEPENDENT_SUFFIXES)
+        ]
+        
+        # Load scan data
+        scan_num = self.scan_number_int
+        # sPath = Path(self.local_analysis_dir_base / f's{scan_num}.txt')
+        sPath = self.scan_data.get_analysis_folder().parent / f's{scan_num}.txt'
+        
+        logging.info(f"Loading scan data from: {sPath}")
+
+        try:
+            df = pd.read_csv(sPath, sep='\t')
+        except FileNotFoundError:
+            logging.error(f"Scan data file {sPath} not found.")
+            return
+
+        # Process each device directory concurrently using threads
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = [executor.submit(self.process_device_files, device_dir, df, self.parsed_scan_string) for device_dir in device_directories]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logging.error(f"Error during file processing: {e}")
+
+    def process_device_files(self, device_dir, df, scan_number):
+        """
+        Generic method to process device files and rename them based on timestamps.
+        """
+        device_name = device_dir.name
+        logging.info(f"Processing device directory: {device_name}")
+
+        # Get the device type and extract relevant data
+        device_type = GeecsDatabase.find_device_type(device_name)
+        if not device_type:
+            logging.warning(f"Device type for {device_name} not found. Skipping.")
+            return
+
+        # Collect and match files with timestamps
+        device_files = list(device_dir.glob("*"))
+        matched_rows = self.process_and_match_files(device_files, df, device_name, device_type)
+
+        # Rename master and dependent files
+        self.rename_files(matched_rows, scan_number, device_name)
+        self.process_dependent_directories(device_name, device_dir, matched_rows, scan_number)
+
+    def process_and_match_files(self, device_files, df, device_name, device_type):
+        """
+        Match device files with timestamps from the DataFrame.
+        """
+        matched_rows = []
+        device_timestamp_column = f'{device_name} timestamp'
+
+        if device_timestamp_column not in df.columns:
+            logging.warning(f"No matching timestamp column for {device_name} in scan data.")
+            return matched_rows
+        
+        tolerance = 1
+        rounded_df_timestamps = df[device_timestamp_column].round(tolerance)
+        for device_file in device_files:
+            try:
+                file_timestamp = self.extract_timestamp_from_file(device_file, device_type)
+                file_timestamp_rounded = round(file_timestamp, tolerance)
+                match = rounded_df_timestamps[rounded_df_timestamps == file_timestamp_rounded]
+                if not match.empty:
+                    matched_rows.append((device_file, match.index[0]))
+                    logging.info(f"Matched file {device_file} with row {match.index[0]}")
+                else:
+                    logging.warning(f"No match for {device_file} with timestamp {file_timestamp_rounded}")
+            except Exception as e:
+                logging.error(f"Error extracting timestamp from {device_file}: {e}")
+
+        return matched_rows
+
+    def extract_timestamp_from_file(self, device_file, device_type):
+        """
+        Extract timestamp from a device file based on its type.
+        """
+        device_map = {
+            "Point Grey Camera": get_imaq_timestamp_from_png,
+            "MagSpecCamera": get_imaq_timestamp_from_png,
+            "PicoscopeV2": get_picoscopeV2_timestamp,
+            "MagSpecStitcher": get_magspecstitcher_timestamp
+        }
+
+        if device_type in device_map:
+            return device_map[device_type](device_file)
+        else:
+            raise ValueError(f"Unsupported device type: {device_type}")
+
+    def process_dependent_directories(self, device_name, device_dir, matched_rows, scan_number):
+        """
+        Process and rename files in dependent directories.
+        """
+        for suffix in self.DEPENDENT_SUFFIXES:
+            dependent_dir = device_dir.parent / f"{device_name}{suffix}"
+            if dependent_dir.exists() and dependent_dir.is_dir():
+                logging.info(f"Processing dependent directory: {dependent_dir}")
+                dependent_files = list(dependent_dir.glob("*"))
+                self.rename_files_in_dependent_directory(dependent_files, matched_rows, scan_number, suffix)
+
+    def rename_files_in_dependent_directory(self, dependent_files, matched_rows, scan_number, suffix):
+        """
+        Rename dependent files based on matched rows from the master directory.
+        """
+        for i, (master_file, row_index) in enumerate(matched_rows):
+            if i < len(dependent_files):
+                dependent_file = dependent_files[i]
+                master_new_name = re.sub(r'_\d+$', '', master_file.stem)  # Remove trailing number
+                new_name = f"{scan_number}_{master_new_name}{suffix}_{str(row_index + 1).zfill(3)}{dependent_file.suffix}"
+                new_path = dependent_file.parent / new_name
+                dependent_file.rename(new_path)
+                logging.info(f"Renamed {dependent_file} to {new_path}")
+            else:
+                logging.warning(f"Not enough files in dependent directory to match {master_file}")
+
+    def rename_files(self, matched_rows, scan_number, device_name):
+        """
+        Rename master files based on scan number, device name, and matched row index.
+        """
+        for file_path, row_index in matched_rows:
+            row_number = str(row_index + 1).zfill(3)
+            new_file_name = f"{scan_number}_{device_name}_{row_number}{file_path.suffix}"
+            new_file_path = file_path.parent / new_file_name
+            if not new_file_path.exists():
+                logging.info(f"Renaming {file_path} to {new_file_path}")
+                os.rename(file_path, new_file_path)
+            else:
+                logging.warning(f"File {new_file_path} already exists. Skipping.")
 class ScanManager:
     """
     Manages the execution of scans, including configuration, device control,
@@ -358,24 +518,22 @@ class ScanManager:
     to the device_manager to initialize the desired saving configuration.
     """
     
-    def __init__(self, experiment_dir=None, device_manager=None, data_interface=None, shot_control_device="", MC_ip = None, scan_data=None):
+    def __init__(self, experiment_dir=None, device_manager=None, shot_control_device="", MC_ip = None, scan_data=None):
         """
         Initialize the ScanManager and its components.
 
         Args:
             experiment_dir (str, optional): Directory where experiment data is stored.
             device_manager (DeviceManager, optional): DeviceManager instance for managing devices.
-            data_interface (DataInterface, optional): Interface for managing data paths and file handling.
             shot_control_device (str, optional): GEECS Device that controls the shot timing
         """
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
-        self.data_interface = data_interface or DataInterface()
         self.scan_data = scan_data or ScanData()
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
         self.MC_ip = MC_ip
         
-        # Initialize ScanDataManager with data_interface and device_manager
-        self.scan_data_manager = ScanDataManager(self.data_interface, self.device_manager, self.scan_data)
+        # Initialize ScanDataManager with device_manager and scan_data
+        self.scan_data_manager = ScanDataManager(self.device_manager, self.scan_data)
 
         self.data_logger = DataLogger(experiment_dir, self.device_manager)  # Initialize DataLogger
         self.save_data = True
@@ -451,7 +609,9 @@ class ScanManager:
         """
 
         valid_states = {
-            'on': 'External rising edges',
+            # 'on': 'External rising edges',
+            'on': 'Internal',
+            
             'off': 'Single shot external rising edges'
         }
         if state in valid_states:
@@ -598,10 +758,11 @@ class ScanManager:
             log_df = self.scan_data_manager._process_results(self.results)
 
             # Step 7: Process and rename data files
-            self.data_interface.process_and_rename()
+            self.scan_data_manager.process_and_rename()
+            
 
-        # Perform post-scan analysis
-        self.run_post_analysis()
+        # # Perform post-scan analysis
+        # self.run_post_analysis()
 
         # Step 8: Stop the console logging
         self.console_logger.stop_logging()
@@ -1042,36 +1203,36 @@ class ScanManager:
 
         logging.info("All devices restored to their initial states.")
 
-    def run_post_analysis(self):
-        for device_name, analysis_config in self.device_manager.device_analysis.items():
-            post_analysis_class_name = analysis_config.get('post_analysis_class')
-            if post_analysis_class_name:
-                try:
-                    # Dynamically load and run the analysis class
-                    module_and_class = ANALYSIS_CLASS_MAPPING.get(post_analysis_class_name)
-                    if module_and_class:
-                        module_name, class_name = module_and_class.rsplit('.', 1)
-                        logging.info(f'module name {module_name}')
-                        module = importlib.import_module(module_name)
-                        analysis_class = getattr(module, class_name)
-                        logging.info(f'analysis_class {analysis_class}')
-                        full_scan_path = self.data_interface.build_device_save_paths('device_name')
-                        paths = self.data_interface.build_device_save_paths(device_name)
-                        full_scan_path = paths[1].parent
-                        analysis_instance = analysis_class(scan_directory=full_scan_path,
-                                                           # data_subdirectory=device_name)
-                                                           device_name=device_name)
-                                                           #########
-                                                           #########
-                                                           # hardcoded above for testing
-                                                           #########
-                                                           #########
-                        logging.info(f"Running post-analysis for {device_name} using {post_analysis_class_name}.")
-                        analysis_instance.run_analysis()
-                    else:
-                        logging.error(f"Post-analysis class '{post_analysis_class_name}' not found in mapping.")
-                except Exception as e:
-                    logging.error(f"Error during post-analysis for {device_name}: {e}")
+    # def run_post_analysis(self):
+    #     for device_name, analysis_config in self.device_manager.device_analysis.items():
+    #         post_analysis_class_name = analysis_config.get('post_analysis_class')
+    #         if post_analysis_class_name:
+    #             try:
+    #                 # Dynamically load and run the analysis class
+    #                 module_and_class = ANALYSIS_CLASS_MAPPING.get(post_analysis_class_name)
+    #                 if module_and_class:
+    #                     module_name, class_name = module_and_class.rsplit('.', 1)
+    #                     logging.info(f'module name {module_name}')
+    #                     module = importlib.import_module(module_name)
+    #                     analysis_class = getattr(module, class_name)
+    #                     logging.info(f'analysis_class {analysis_class}')
+    #                     full_scan_path = self.data_interface.build_device_save_paths('device_name')
+    #                     paths = self.data_interface.build_device_save_paths(device_name)
+    #                     full_scan_path = paths[1].parent
+    #                     analysis_instance = analysis_class(scan_directory=full_scan_path,
+    #                                                        # data_subdirectory=device_name)
+    #                                                        device_name=device_name)
+    #                                                        #########
+    #                                                        #########
+    #                                                        # hardcoded above for testing
+    #                                                        #########
+    #                                                        #########
+    #                     logging.info(f"Running post-analysis for {device_name} using {post_analysis_class_name}.")
+    #                     analysis_instance.run_analysis()
+    #                 else:
+    #                     logging.error(f"Post-analysis class '{post_analysis_class_name}' not found in mapping.")
+    #             except Exception as e:
+    #                 logging.error(f"Error during post-analysis for {device_name}: {e}")
 
 
 if __name__ == '__main__':
