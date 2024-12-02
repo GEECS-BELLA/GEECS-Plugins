@@ -53,6 +53,7 @@ class ScanData:
         self.data_frame = None  # use tdms.geecs_tdms_dict_to_panda
 
         if folder is None:
+            experiment = tag.experiment if tag.experiment is not None else experiment
             if tag and experiment:
                 folder = self.build_scan_folder_path(tag, base_directory=base_path, experiment=experiment)
 
@@ -84,18 +85,20 @@ class ScanData:
             self.load_scalar_data()
 
     @staticmethod
-    def get_scan_tag(year, month, day, number):
+    def get_scan_tag(year, month, day, number, experiment_name: Optional[str]=None):
         year = int(year)
         if 10 <= year <= 99:
             year = year + 2000
         month = month_to_int(month)
 
-        return ScanTag(year, month, int(day), int(number))
+        return ScanTag(year, month, int(day), int(number), experiment=experiment_name)
 
     @staticmethod
     def build_scan_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data',
                                experiment: str = 'Undulator') -> Path:
         base_directory = Path(base_directory)
+        experiment = tag.experiment if tag.experiment is not None else experiment
+
         folder: Path = base_directory / experiment
         folder = folder / f'Y{tag[0]}' / f'{tag[1]:02d}-{cal.month_name[tag[1]][:3]}'
         folder = folder / f'{str(tag[0])[-2:]}_{tag[1]:02d}{tag[2]:02d}'
@@ -106,6 +109,8 @@ class ScanData:
     @staticmethod
     def build_device_shot_path(tag: ScanTag, device_name: str, shot_number: int, file_extension: str = 'png',
                                base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') -> Path:
+        experiment = tag.experiment if tag.experiment is not None else experiment
+
         scan_path = ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
         file = scan_path / f'{device_name}' / f'Scan{tag[3]:03d}_{device_name}_{shot_number:03d}.{file_extension}'
         return file
@@ -132,7 +137,7 @@ class ScanData:
         i = 1
         new_scan_flag = True
         while new_scan_flag:
-            tag = ScanTag(year, month, day, i)
+            tag = ScanTag(year, month, day, i, experiment=experiment)
             try:
                 ScanData(tag=tag, experiment=experiment, load_scalars=False, read_mode=True)
             except ValueError:
@@ -141,7 +146,7 @@ class ScanData:
         if old_date and (i-1 == 0):
             return None  # In this case, there were no scans performed on the day in question.
         else:
-            return ScanTag(year, month, day, i-1)
+            return ScanTag(year, month, day, i-1, experiment=experiment)
 
     @staticmethod
     def get_latest_scan_data(experiment: str, year: Optional[int] = None,
@@ -155,7 +160,8 @@ class ScanData:
                              month: Optional[int] = None, day: Optional[int] = None) -> Path:
         """ :return: the Path to the folder of the next scan on the given day (or today if no date given) """
         latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
-        next_tag = ScanTag(latest_tag.year, latest_tag.month, latest_tag.day, latest_tag.number + 1)
+        next_tag = ScanTag(latest_tag.year, latest_tag.month, latest_tag.day,
+                           latest_tag.number + 1, experiment=latest_tag.experiment)
         return ScanData.build_scan_folder_path(tag=next_tag, experiment=experiment)
 
     @staticmethod
