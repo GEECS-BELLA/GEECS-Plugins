@@ -15,7 +15,7 @@ from multiprocessing import Process
 from queue import Queue
 
 from geecs_python_api.analysis.scans.scan_data import ScanData
-from scan_analysis.execute_scan_analysis import test_command
+from scan_analysis.execute_scan_analysis import analyze_scan
 from devices_to_analysis_mapping import check_for_analysis_match
 
 from watchdog.observers.polling import PollingObserver
@@ -44,9 +44,10 @@ logger = logging.getLogger("scan_analyzer")
 class AnalysisFolderEventHandler(FileSystemEventHandler):
     s_filename_regex = re.compile(r"s(?P<scan_number>\d+).txt")  # TODO fix duplicate definition in ScanWatch
 
-    def __init__(self, scan_watch_queue):
+    def __init__(self, scan_watch_queue, experiment_name):
         super().__init__()
         self.queue: Queue = scan_watch_queue
+        self.experiment = experiment_name
 
     def on_created(self, event: Union[DirCreatedEvent, FileCreatedEvent]):
         # ignore new directories
@@ -62,7 +63,8 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
 
         logger.info(f"Found new s-file: {filename}")
         scan_number = int(m['scan_number'])
-        tag = ScanData.get_scan_tag(scan_watch.tag.year, scan_watch.tag.month, scan_watch.tag.day, scan_number)
+        tag = ScanData.get_scan_tag(scan_watch.tag.year, scan_watch.tag.month, scan_watch.tag.day,
+                                    scan_number, experiment_name=self.experiment)
         self.queue.put(tag)
 
 
@@ -77,10 +79,8 @@ class ScanWatch:
         scan_analyzer : Optional[ScanAnalyzer]
             use an existing ScanAnalyzer instance, or (default) create a new one.
         """
-        self.experiment_name = experiment_name
-        self.tag = ScanData.get_scan_tag(year, month, day, number=0)
-        self.watch_folder = ScanData.build_scan_folder_path(tag=self.tag,
-                                                            experiment=experiment_name).parents[1] / "analysis"
+        self.tag = ScanData.get_scan_tag(year, month, day, number=0, experiment_name=experiment_name)
+        self.watch_folder = ScanData.build_scan_folder_path(tag=self.tag).parents[1] / "analysis"
 
         self.analysis_queue = Queue()
 
@@ -92,7 +92,7 @@ class ScanWatch:
             self._read_processed_list()
 
         self.observer = PollingObserver()
-        self.observer.schedule(AnalysisFolderEventHandler(self.analysis_queue), str(self.watch_folder))
+        self.observer.schedule(AnalysisFolderEventHandler(self.analysis_queue, experiment_name), str(self.watch_folder))
 
         # Initial check of scan folder
         self.initial_search_of_watch_folder()
@@ -161,7 +161,7 @@ class ScanWatch:
 
         tag: ScanTag = self.analysis_queue.get()
         self.processed_list.append(tag.number)
-        scan_folder = ScanData.build_scan_folder_path(tag=tag, experiment=self.experiment_name)
+        scan_folder = ScanData.build_scan_folder_path(tag=tag)
         self._evaluate_folder(tag, scan_folder)
 
     def initial_search_of_watch_folder(self):
@@ -175,7 +175,7 @@ class ScanWatch:
                         scan_number = int(m['scan_number'])
                         if scan_number not in self.processed_list:
                             tag = ScanData.get_scan_tag(self.tag.year, self.tag.month,
-                                                        self.tag.day, scan_number)
+                                                        self.tag.day, scan_number, experiment_name=self.tag.experiment)
                             self.analysis_queue.put(tag)
         logger.info(f"Found {self.analysis_queue.qsize()} untouched scans.")
 
@@ -185,7 +185,7 @@ class ScanWatch:
         valid_analyzers = check_for_analysis_match(scan_folder)
 
         try:
-            test_command(tag, valid_analyzers)
+            analyze_scan(tag, valid_analyzers)
         except Exception as err:
             logger.error(f"Error in analyze_scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}): {err}")
 
@@ -248,7 +248,7 @@ if __name__ == '__main__':
     exp = 'Undulator'
     year = 2024
     month = 11
-    day = 26
+    day = 5
 
     scan_watch = ScanWatch(experiment_name=exp, year=year, month=month, day=day)
     print("Starting...")

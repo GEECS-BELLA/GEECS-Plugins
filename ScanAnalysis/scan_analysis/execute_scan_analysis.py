@@ -27,7 +27,7 @@ ANALYSIS_DICT = {
 }
 
 
-def analyze_scan(experiment_name: str, tag: ScanTag, analyzer_list: List[str]):
+def analyze_scan(tag: ScanTag, analyzer_list: List[str]):
     for analyzer_name in analyzer_list:
         if analyzer_name not in ANALYSIS_DICT:
             print(f"Error:  '{analyzer_name}' not defined in analysis_dict within execute_scan_analysis.py")
