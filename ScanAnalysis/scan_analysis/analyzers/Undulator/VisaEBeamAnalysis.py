@@ -14,7 +14,7 @@ from scan_analysis.analyzers.Undulator.CameraImageAnalysis import CameraImageAna
 
 class VisaEBeamAnalysis(CameraImageAnalysis):
 
-    def __init__(self, scan_directory, device_name, use_gui=True, experiment_dir = 'Undulator',
+    def __init__(self, scan_directory, device_name=None, use_gui=True, experiment_dir = 'Undulator',
                  flag_logging=True, flag_save_images=True):
         """
         Initialize the CameraImageAnalysis class.
@@ -23,6 +23,9 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
             scan_directory (str or Path): Path to the scan directory containing data.
             device_name (str): Name of the device to construct the subdirectory path.
         """
+        if device_name is None:
+            # TODO determine which VSIA screen is saved by scan_directory contents
+            pass
         super().__init__(scan_directory, device_name, use_gui=use_gui, experiment_dir=experiment_dir,
                          flag_logging=flag_logging, flag_save_images=flag_save_images)
 

@@ -20,7 +20,7 @@ from image_analysis.utils import read_imaq_png_image
 # %% classes
 class CameraImageAnalysis(ScanAnalysis):
 
-    def __init__(self, scan_directory, device_name, use_gui=True, experiment_dir = 'Undulator',
+    def __init__(self, scan_directory, device_name, use_gui=True, experiment_dir='Undulator',
                  flag_logging=True, flag_save_images=True):
         """
         Initialize the CameraImageAnalysis class.
