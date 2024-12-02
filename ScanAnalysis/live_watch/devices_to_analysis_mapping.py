@@ -4,6 +4,9 @@ Here we map analysis classes to combinations of cameras
 from pathlib import Path
 from typing import Union, List
 
+# AND blocks are evaluated true if all the devices exist in a given scan folder
+# OR blocks are evaluated true if at least one of the devices exist
+# AND/OR dict blocks can be written as recursive elements.  See Rad2Spec as an example
 undulator_scan_analyzers = {
     'MagSpec': {'AND': ['U_BCaveICT', 'U_BCaveMagSpec']},
     'VISAEBeam': {'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
@@ -31,7 +34,14 @@ def check_for_analysis_match(scan_folder: Union[Path, str]) -> List[str]:
     return valid_analyzers
 
 
-def evaluate_condition(condition, saved_devices):
+def evaluate_condition(condition: Union[dict[str, list], set, str], saved_devices: List[str]) -> bool:
+    """
+    Recursive function to evaluate the conditions defined in `undulator_scan_analyzers` for the given list of devices
+
+    :param condition: either a dict of 'AND/OR' with a list of requirements, or just a single name. TODO check type hint
+    :param saved_devices: list of saved devices
+    :return: True if the list of saved devices matches the requirements in the given condition
+    """
     if 'AND' in condition:
         and_conditions = condition['AND']
         return all(
@@ -46,7 +56,11 @@ def evaluate_condition(condition, saved_devices):
         return all(dir in saved_devices for dir in condition)
 
 
-def get_available_directories(root):
+def get_available_directories(root: Path) -> List[str]:
+    """
+    :param root:  Path of scan folder
+    :return: All folder names in root path, which correspond to saved devices for that scan
+    """
     try:
         return [d.name for d in root.iterdir() if d.is_dir()]
     except FileNotFoundError:
