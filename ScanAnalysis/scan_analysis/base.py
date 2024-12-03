@@ -34,6 +34,7 @@ class ScanAnalysis:
 
         Args:
             scan_tag (ScanTag): NamedTuple containing the scan's experiment, date, and scan number
+            use_gui (bool): Flag to ultimately try plt.show() or not.  # TODO make a more clearer name?
         """
         self.scan_directory = ScanData.build_scan_folder_path(tag=scan_tag)
         self.experiment_dir = scan_tag.experiment
