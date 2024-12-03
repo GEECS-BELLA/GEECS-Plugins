@@ -1,16 +1,19 @@
+from __future__ import annotations
+
 import os
 import re
 import inspect
 import numpy as np
 import pandas as pd
 import calendar as cal
+from datetime import datetime
 from pathlib import Path
 from datetime import datetime as dtime, date
 from typing import Optional, Union, NamedTuple
 from configparser import ConfigParser, NoSectionError
 from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
 from geecs_python_api.controls.interface.geecs_errors import api_error  # TODO this enforces loading the config...
-from geecs_python_api.controls.api_defs import SysPath, ScanTag
+from geecs_python_api.controls.api_defs import SysPath, ScanTag, month_to_int
 from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
 
 
@@ -21,7 +24,8 @@ class ScanData:
                  tag: Optional[Union[int, ScanTag, tuple]] = None,
                  experiment: Optional[str] = None,
                  base_path: Optional[Union[Path, str]] = r'Z:\data',
-                 load_scalars: bool = False
+                 load_scalars: bool = False,
+                 read_mode: bool = True
                  ):
         """
         Parameter(s)
@@ -38,8 +42,6 @@ class ScanData:
         experiment : str
               Experiment name, e.g. 'Undulator'.  Necessary if just given a tag
         """
-
-        self.identified = False
         self.scan_info: dict[str, str] = {}
 
         self.__folder: Optional[Path] = None
@@ -55,37 +57,40 @@ class ScanData:
                 folder = self.build_scan_folder_path(tag, base_directory=base_path, experiment=experiment)
 
         if folder:
-            try:
-                folder = Path(folder)
+            folder = Path(folder)
 
-                (exp_name, year_folder_name, month_folder_name, date_folder_name,
-                 scans_literal, scan_folder_name) = folder.parts[-6:]
+            (exp_name, year_folder_name, month_folder_name, date_folder_name,
+             scans_literal, scan_folder_name) = folder.parts[-6:]
 
-                if (not re.match(r"Y\d{4}", year_folder_name)) or \
-                   (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
-                   (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
-                   (not scans_literal == 'scans') or \
-                   (not re.match(r"Scan\d{3,}", scan_folder_name)):
-                    raise ValueError("Folder path does not appear to follow convention")
-                elif not folder.exists():
+            if not folder.exists():
+                if read_mode:
                     raise ValueError("Folder does not exist")
+                else:
+                    folder.mkdir(parents=True, exist_ok=True)
 
-                self.__tag_date = dtime.strptime(date_folder_name, "%y_%m%d").date()
-                self.__tag = \
-                    ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
+            if (not re.match(r"Y\d{4}", year_folder_name)) or \
+               (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
+               (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
+               (not scans_literal == 'scans') or \
+               (not re.match(r"Scan\d{3,}", scan_folder_name)):
+                raise ValueError("Folder path does not appear to follow convention")
 
-                self.identified = folder.is_dir()
-                if self.identified:
-                    self.__folder = folder
-
-            except Exception:
-                raise
-
-        if not self.identified:
-            raise ValueError
+            self.__tag_date = dtime.strptime(date_folder_name, "%y_%m%d").date()
+            self.__tag = \
+                ScanTag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day, int(scan_folder_name[4:]))
+            self.__folder = folder
 
         if load_scalars:
             self.load_scalar_data()
+
+    @staticmethod
+    def get_scan_tag(year, month, day, number):
+        year = int(year)
+        if 10 <= year <= 99:
+            year = year + 2000
+        month = month_to_int(month)
+
+        return ScanTag(year, month, int(day), int(number))
 
     @staticmethod
     def build_scan_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data',
@@ -104,6 +109,61 @@ class ScanData:
         scan_path = ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
         file = scan_path / f'{device_name}' / f'Scan{tag[3]:03d}_{device_name}_{shot_number:03d}.{file_extension}'
         return file
+
+    @staticmethod
+    def get_latest_scan_tag(experiment: str, year: Optional[int] = None,
+                            month: Optional[int] = None, day: Optional[int] = None) -> Optional[ScanTag]:
+        """
+        Locates the last generated scan of the given day.  If no day is given or info incomplete, then assume it's today
+        :param experiment: The name of the experiment
+        :param year: Optional, the year as a 4-digit int
+        :param month: Optional, the month as a 1/2-digit int
+        :param day: Optional, the day as a 1/2-digit int
+        :return: The ScanTag tuple representing the last, existing scan folder
+        """
+        old_date = True
+        if year is None or month is None or day is None:
+            today = datetime.today()
+            year = today.year
+            month = today.month
+            day = today.day
+            old_date = False
+
+        i = 1
+        new_scan_flag = True
+        while new_scan_flag:
+            tag = ScanTag(year, month, day, i)
+            try:
+                ScanData(tag=tag, experiment=experiment, load_scalars=False, read_mode=True)
+            except ValueError:
+                break
+            i = i+1
+        if old_date and (i-1 == 0):
+            return None  # In this case, there were no scans performed on the day in question.
+        else:
+            return ScanTag(year, month, day, i-1)
+
+    @staticmethod
+    def get_latest_scan_data(experiment: str, year: Optional[int] = None,
+                             month: Optional[int] = None, day: Optional[int] = None) -> 'ScanData':
+        """ :return: the ScanData class of the latest scan on the given day (or today if no date given) """
+        latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
+        return ScanData(tag=latest_tag, experiment=experiment, load_scalars=True, read_mode=True)
+
+    @staticmethod
+    def get_next_scan_folder(experiment: str, year: Optional[int] = None,
+                             month: Optional[int] = None, day: Optional[int] = None) -> Path:
+        """ :return: the Path to the folder of the next scan on the given day (or today if no date given) """
+        latest_tag = ScanData.get_latest_scan_tag(experiment, year, month, day)
+        next_tag = ScanTag(latest_tag.year, latest_tag.month, latest_tag.day, latest_tag.number + 1)
+        return ScanData.build_scan_folder_path(tag=next_tag, experiment=experiment)
+
+    @staticmethod
+    def build_next_scan_data(experiment: str, year: Optional[int] = None,
+                             month: Optional[int] = None, day: Optional[int] = None) -> 'ScanData':
+        """ :return: the ScanData the next scan and builds the folder for the given day (or today if no date given) """
+        next_scan_folder = ScanData.get_next_scan_folder(experiment, year, month, day)
+        return ScanData(folder=next_scan_folder, load_scalars=False, read_mode=False)
 
     def get_folder(self) -> Optional[Path]:
         return self.__folder
@@ -146,6 +206,7 @@ class ScanData:
             temp_scan_data = inspect.stack()[0][3]
             api_error.warning(f'ScanInfo file does not have a "Scan Info" section',
                               f'ScanData class, method {temp_scan_data}')
+        return self.scan_info
 
     def load_scalar_data(self) -> bool:
         tdms_path = self.__folder / f'Scan{self.__tag.number:03d}.tdms'
@@ -202,33 +263,3 @@ class ScanData:
             setpoints = measured.avg_x
 
         return indexes, setpoints, parameter_avgs_match_setpoints
-
-
-if __name__ == '__main__':
-    print("First test, with first building the scan folder")
-
-    experiment_name = 'Undulator'
-    scan_tag = ScanTag(2023, 8, 9, 4)
-
-    scan_folder = ScanData.build_scan_folder_path(scan_tag, experiment=experiment_name)
-    scan_data = ScanData(scan_folder)
-
-    print(scan_data.files['devices'])
-    print(scan_data.files['files'])
-    print(scan_data.get_folder())
-    print(scan_data.get_analysis_folder())
-    print(ScanData.build_device_shot_path(scan_tag, 'UC_Device', 5))
-
-    print()
-    print("Another test, this time using a scan with a corrupted .tdms and with the tag+exp name")
-    print()
-
-    experiment_name = 'Undulator'
-    scan_tag = ScanTag(2024, 11, 19, 18)
-
-    scan_data = ScanData(tag=scan_tag, experiment=experiment_name)
-    print(scan_data.files['devices'])
-    print(scan_data.files['files'])
-    print(scan_data.get_folder())
-    print(scan_data.get_analysis_folder())
-    print(ScanData.build_device_shot_path(scan_tag, scan_data.files['devices'][0], 5))

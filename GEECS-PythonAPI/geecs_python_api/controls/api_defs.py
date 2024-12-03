@@ -1,6 +1,7 @@
 # from __future__ import annotations
 from os import PathLike
 from pathlib import Path
+from dateutil.parser import parse as dateparse
 from threading import Thread, Event
 from typing import Optional, Any, Union, NamedTuple
 
@@ -28,3 +29,18 @@ class ScanTag(NamedTuple):
     month: int
     day: int
     number: int
+
+
+def month_to_int(month: Union[str, int]) -> int:
+    """ :return: an integer representing the given month """
+    try:
+        month_int = int(month)
+        if 1 <= month_int <= 12:
+            return month_int
+    except ValueError:
+        pass
+
+    if isinstance(month, str):
+        return dateparse(month).month
+    else:
+        raise ValueError(f"'{month}' is not a valid month")
