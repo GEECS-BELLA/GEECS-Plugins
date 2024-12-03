@@ -21,7 +21,7 @@ class ScanData:
                  tag: Optional[Union[int, ScanTag, tuple]] = None,
                  experiment: Optional[str] = None,
                  base_path: Optional[Union[Path, str]] = r'Z:\data',
-                 load_scalars: bool = True
+                 load_scalars: bool = False
                  ):
         """
         Parameter(s)
@@ -46,6 +46,9 @@ class ScanData:
         self.__tag: Optional[ScanTag] = None
         self.__tag_date: Optional[date] = None
         self.__analysis_folder: Optional[Path] = None
+
+        self.data_dict = {}
+        self.data_frame = None  # use tdms.geecs_tdms_dict_to_panda
 
         if folder is None:
             if tag and experiment:
@@ -81,25 +84,8 @@ class ScanData:
         if not self.identified:
             raise ValueError
 
-        # scan info
-        self.load_scan_info()
-
-        # folders & files
-        top_content = next(os.walk(self.__folder))
-        self.files = {'devices': top_content[1], 'files': top_content[2]}
-
-        parts = list(Path(self.__folder).parts)
-        parts[-2] = 'analysis'
-        self.__analysis_folder = Path(*parts)
-        if not self.__analysis_folder.is_dir():
-            os.makedirs(self.__analysis_folder)
-
-        # scalar data
-        self.data_frame = None  # use tdms.geecs_tdms_dict_to_panda
         if load_scalars:
             self.load_scalar_data()
-        else:
-            self.data_dict = {}
 
     @staticmethod
     def build_scan_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data',
@@ -129,7 +115,18 @@ class ScanData:
         return self.__tag_date
 
     def get_analysis_folder(self) -> Optional[Path]:
+        if self.__analysis_folder is None:
+            parts = list(Path(self.__folder).parts)
+            parts[-2] = 'analysis'
+            self.__analysis_folder = Path(*parts)
+            if not self.__analysis_folder.is_dir():
+                os.makedirs(self.__analysis_folder)
+
         return self.__analysis_folder
+
+    def get_folders_and_files(self) -> dict[str, list[str]]:
+        top_content = next(os.walk(self.__folder))
+        return {'devices': top_content[1], 'files': top_content[2]}
 
     def get_device_data(self, device_name: str):
         if device_name in self.data_dict:
@@ -167,6 +164,9 @@ class ScanData:
         return tdms_path.is_file()
 
     def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
+        if not self.scan_info:
+            self.load_scan_info()
+
         dev_data = self.get_device_data(device)
         if not dev_data:
             return [], None, False
