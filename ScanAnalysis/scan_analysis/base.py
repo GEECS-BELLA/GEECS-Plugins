@@ -63,7 +63,7 @@ class ScanAnalysis:
             self.total_shots = len(self.auxiliary_data)
 
         except FileNotFoundError as e:
-            logging.warning(f"Warning: {e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
+            logging.warning(f"{e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
             return
 
     def run_analysis(self, config_options: Optional[str] = None):
@@ -104,7 +104,7 @@ class ScanAnalysis:
                 return bins, auxiliary_data, None
 
         except (KeyError, FileNotFoundError) as e:
-            logging.warning(f"Warning: {e}. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping analysis")
+            logging.warning(f"{e}. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping")
             return None, None, None
 
     def close_or_show_plot(self):
@@ -156,9 +156,11 @@ class ScanAnalysis:
         else:
             return None, None
 
+
 # %% executable
 def testing_routine():
     pass
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     testing_routine()
