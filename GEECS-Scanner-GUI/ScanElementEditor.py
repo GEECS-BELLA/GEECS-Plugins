@@ -7,14 +7,19 @@ allows for a user to load and save the information displayed into this GUI to/fr
 -Chris
 """
 
-import os
+from typing import TYPE_CHECKING, Optional, Union, Dict, List, Any, Tuple
+
+if TYPE_CHECKING:
+    from PyQt5.QtWidgets import QLineEdit
+
 import yaml
+from pathlib import Path
 from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton, QFileDialog
 from PyQt5.QtCore import Qt, QEvent
 from ScanElementEditor_ui import Ui_Dialog
 
 
-def get_default_device_dictionary():
+def get_default_device_dictionary() -> Dict[str, bool | List[Any]]:
     """
     :return: Default dictionary for devices when they are added to the element's list of devices
     """
@@ -25,13 +30,14 @@ def get_default_device_dictionary():
     }
 
 
-def get_new_action(action):  # TODO Can probably convert this from an if-else block to a dictionary...
+def get_new_action(action) -> Union[None, Dict[str, str]]:
     """
     Translates a given action keyword to a default dictionary that is populated into the action list.
 
     :param action: action keyword
     :return: default dictionary for the associated action
     """
+    # TODO Can probably convert this from an if-else block to a dictionary...
     default = None
     if action == 'set':
         default = {
@@ -64,6 +70,7 @@ def get_new_action(action):  # TODO Can probably convert this from an if-else bl
         }
     return default
 
+
 # List of available actions, to be used by the completer for the add action line edit
 list_of_actions = [
     'set',
@@ -74,7 +81,7 @@ list_of_actions = [
 ]
 
 
-def parse_variable_text(text):
+def parse_variable_text(text) -> Union[int, float, str]:
     """ Attempts to convert a string first to an int, then a float, and finally just returns the string if unsuccessful
 
     :param text: string
@@ -96,7 +103,9 @@ class ScanElementEditor(QDialog):
     dictionary.  Upon the dictionary changing or a different selection made on the GUI, the visible information on the
     GUI changes to reflect what the user is currently looking at.
     """
-    def __init__(self, database_dict=None, config_folder="./", load_config=None):
+
+    def __init__(self, database_dict: Optional[dict] = None,
+                 config_folder: Path = Path('.'), load_config: Optional[Path] = None):
         """
         Initializes the GUI
 
@@ -172,13 +181,13 @@ class ScanElementEditor(QDialog):
         self.ui.radioIsSetup.clicked.connect(self.set_as_setup)
 
         # If a .yaml file is given, load the dictionary into the backend dictionaries to start with
-        self.config_folder = config_folder
+        self.config_folder = Path(config_folder)
         if load_config is not None:
-            self.load_settings_from_file(config_folder + load_config)
+            self.load_settings_from_file(config_folder / load_config)
 
         # Buttons at the bottom to save, open, and close
         self.ui.buttonWindowSave.clicked.connect(self.save_element)
-        self.ui.buttonWindowCancel.clicked.connect(self.close_window)
+        self.ui.buttonWindowClose.clicked.connect(self.close_window)
         self.ui.buttonWindowLoad.clicked.connect(self.open_element)
 
         # At the end of initialization, update all the visible information on the GUI
@@ -201,19 +210,19 @@ class ScanElementEditor(QDialog):
             self.show_variable_list(self.ui.lineVariableName)
             self.ui.buttonAddVariable.setDefault(True)
             return True
-        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1 and self.action_mode in [
-            'set', 'get']:
+        elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1
+              and self.action_mode in ['set', 'get']):
             self.show_device_list(self.ui.lineActionOption1)
             self.dummyButton.setDefault(True)
             return True
-        elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2 and self.action_mode in [
-            'set', 'get']:
+        elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2
+              and self.action_mode in ['set', 'get']):
             self.show_variable_list(self.ui.lineActionOption2, source='action')
             self.dummyButton.setDefault(True)
             return True
         return super().eventFilter(source, event)
 
-    def show_device_list(self, location):
+    def show_device_list(self, location: 'QLineEdit'):
         """
         Shows the list of available experimental devices as a hint completer
 
@@ -229,7 +238,7 @@ class ScanElementEditor(QDialog):
             location.setFocus()
             completer.complete()
 
-    def show_variable_list(self, location, source='device'):
+    def show_variable_list(self, location: 'QLineEdit', source: str = 'device'):
         """
         Shows the list of variables for the currently selected device
 
@@ -284,7 +293,7 @@ class ScanElementEditor(QDialog):
                 del self.devices_dict[text]
         self.update_device_list()
 
-    def get_selected_device_name(self):
+    def get_selected_device_name(self) -> Optional[str]:
         """Returns the name of the currently-selected device on the GUI"""
         selected_device = self.ui.listDevices.selectedItems()
         no_selection = not selected_device
@@ -298,7 +307,7 @@ class ScanElementEditor(QDialog):
                 device_name = text
         return device_name
 
-    def get_selected_device(self):
+    def get_selected_device(self):  # TODO improve type hinting for complex dictionaries
         """Returns the device information on the currently-selected device"""
         device_name = self.get_selected_device_name()
         if device_name is None:
@@ -388,7 +397,7 @@ class ScanElementEditor(QDialog):
         completer.complete()
 
     @staticmethod
-    def generate_action_description(action):
+    def generate_action_description(action: dict[str, list]) -> str:
         """For each action in the list, generate a string that displays all the information for that action step"""
         description = "???"
         if action.get("wait") is not None:
@@ -403,7 +412,7 @@ class ScanElementEditor(QDialog):
             description = f"{action['action']} {action['device']}:{action['variable']} {action.get('expected_value')}"
         return description
 
-    def update_action_list(self, index=None):
+    def update_action_list(self, index: Optional[int] = None):
         """Updates the visible list of actions on the GUI according to the current state of the action dictionary"""
         self.ui.listActions.clear()
         self.dummyButton.setDefault(True)
@@ -442,9 +451,10 @@ class ScanElementEditor(QDialog):
     def update_action_display(self):
         """Updates the visible list of information based on the currently-selected action"""
         current_selection = self.get_action_list_and_index()
-        if current_selection is None:
-            action = None
-        else:
+        action = None
+        i = None
+        absolute_index = None
+        if current_selection is not None:
             action_list, i, absolute_index = current_selection
             if action_list is None:
                 action = None
@@ -546,11 +556,11 @@ class ScanElementEditor(QDialog):
         action_list, i, index = current_selection
         self.update_action_list(index=index)
 
-    def get_action_list_and_index(self):
+    def get_action_list_and_index(self) -> Optional[Tuple[Optional[list], Optional[int], int]]:
         """Finds the location of the currently-selected action in the visible list on the GUI.  This is tricky since
         the GUI has two different lists separated by a dummy list element.
 
-        :return: If no selection, returns None.  If the dummy element is selected, return a truple with None as the list
+        :return: If no selection, returns None.  If the dummy element is selected, return a tuple with None as the list
         and the current index in the list.  If a real action is selected, return the action list where the action is
         located (setup or closeout), the relative index in that list, and the index in the GUI list
         """
@@ -600,7 +610,7 @@ class ScanElementEditor(QDialog):
         """Toggle radio button to 'closeout' mode"""
         self.toggle_radio(button="closeout")
 
-    def toggle_radio(self, button="None"):
+    def toggle_radio(self, button: str):
         """Either changes the parent list of the currently-selected action, or if no action is selected then this
         updates which parent list a future new action will be assigned to"""
 
@@ -639,7 +649,7 @@ class ScanElementEditor(QDialog):
         if filename == "":
             print("Need an element name")
         else:
-            file = self.config_folder + filename + ".yaml"
+            file = self.config_folder / (filename + ".yaml")
             print(f"Saving config to {file}")
             setup_action = {'steps': self.actions_dict['setup']}
             closeout_action = {'steps': self.actions_dict['closeout']}
@@ -664,15 +674,15 @@ class ScanElementEditor(QDialog):
         """Prompts the user to select a .yaml file from which to load element dictionary information"""
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", self.config_folder, "YAML Files (*yaml)",
-                                                   options=options)
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", str(self.config_folder),
+                                                   "YAML Files (*yaml)", options=options)
         if file_name:
-            self.load_settings_from_file(file_name)
+            self.load_settings_from_file(Path(file_name))
             self.update_device_list()
             self.update_action_list()
             self.update_action_display()
 
-    def load_settings_from_file(self, config_filename):
+    def load_settings_from_file(self, config_filename: Path):
         """Given a .yaml file, loads the dictionary and parses it to the backend dictionaries for the GUI"""
         with open(config_filename, 'r') as file:
             full_dictionary = yaml.safe_load(file)
@@ -691,6 +701,4 @@ class ScanElementEditor(QDialog):
         if 'closeout_action' in full_dictionary:
             self.actions_dict['closeout'] = full_dictionary['setup_action']['steps']
 
-        base_name = os.path.basename(config_filename)
-        root, ext = os.path.splitext(base_name)
-        self.ui.lineElementName.setText(root)
+        self.ui.lineElementName.setText(config_filename.stem)

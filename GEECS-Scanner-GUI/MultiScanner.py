@@ -5,9 +5,14 @@ independently set presets for the save device elements
 -Chris
 """
 
-import os
+from typing import TYPE_CHECKING, Union, Optional
+if TYPE_CHECKING:
+    from GEECSScanner import GEECSScannerWindow
+    from PyQt5.QtWidgets import QListWidget, QListWidgetItem
+
 import yaml
 import time
+from pathlib import Path
 from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog, QMessageBox
 from PyQt5.QtCore import QTimer, QObject, QThread, pyqtSignal, pyqtSlot
 from MultiScanner_ui import Ui_Form
@@ -15,7 +20,7 @@ from multiscan_sound_player import play_finish_jingle
 
 
 class MultiScanner(QWidget):
-    def __init__(self, main_window, multiscan_configurations_location):
+    def __init__(self, main_window: 'GEECSScannerWindow', multiscan_configurations_location: Union[Path, str]):
         super().__init__()
 
         self.main_window = main_window
@@ -34,8 +39,8 @@ class MultiScanner(QWidget):
         self.ui.listAvailablePresets.itemDoubleClicked.connect(self.apply_preset_to_main_window)
 
         # Initializes the two lists to empty
-        self.element_preset_list = []
-        self.scan_preset_list = []
+        self.element_preset_list: list[str] = []
+        self.scan_preset_list: list[str] = []
 
         # Buttons to add and remove presets to each of the two lists
         self.ui.buttonAddElement.clicked.connect(self.add_element_preset)
@@ -60,7 +65,7 @@ class MultiScanner(QWidget):
         self.ui.buttonCopyRowScan.clicked.connect(self.copy_row_to_list_scan)
 
         # Buttons to save and load multiscan configurations
-        self.config_folder = multiscan_configurations_location
+        self.config_folder = Path(multiscan_configurations_location)
         self.ui.buttonSaveMultiscan.clicked.connect(self.save_multiscan_configuration)
         self.ui.buttonLoadMultiscan.clicked.connect(self.load_multiscan_configuration)
 
@@ -94,12 +99,14 @@ class MultiScanner(QWidget):
     def apply_preset_to_main_window(self):
         """Applies the selected scan preset to the main window gui"""
         selected_element = self.ui.listAvailablePresets.selectedItems()
+        preset_name = None
         for preset in selected_element:
             preset_name = f"{preset.text()}"
 
-        self.main_window.apply_preset_from_name(preset_name)
+        if preset_name is not None:
+            self.main_window.apply_preset_from_name(preset_name)
 
-    def refresh_multiscan_lists(self, list_widget=None, index=None):
+    def refresh_multiscan_lists(self, list_widget: Optional['QListWidget'] = None, index: Optional[int] = None):
         """Updates the gui lists with the current state of the class lists, while preserving the selection position"""
         self.ui.listElementPresets.clear()
         self.ui.listScanPresets.clear()
@@ -110,11 +117,15 @@ class MultiScanner(QWidget):
             number_scans = len(self.element_preset_list)
 
         for i in range(number_scans):
-            try: self.ui.listElementPresets.addItem(f"{i+1}:  {self.element_preset_list[i]}")
-            except IndexError: self.ui.listElementPresets.addItem(f"{i+1}.")
+            try:
+                self.ui.listElementPresets.addItem(f"{i+1}:  {self.element_preset_list[i]}")
+            except IndexError:
+                self.ui.listElementPresets.addItem(f"{i+1}.")
             if self.ui.checkBoxEnableScanList.isChecked():
-                try: self.ui.listScanPresets.addItem(f"{i+1}:  {self.scan_preset_list[i]}")
-                except IndexError:  self.ui.listScanPresets.addItem(f"{i+1}.")
+                try:
+                    self.ui.listScanPresets.addItem(f"{i+1}:  {self.scan_preset_list[i]}")
+                except IndexError:
+                    self.ui.listScanPresets.addItem(f"{i+1}.")
 
         if index is not None and list_widget is not None:
             list_widget.setCurrentRow(index)
@@ -142,7 +153,7 @@ class MultiScanner(QWidget):
         """Removes selected scan preset from the list"""
         self.remove_from_list(self.ui.listScanPresets, self.scan_preset_list)
 
-    def add_to_list(self, selected_items, target_list):
+    def add_to_list(self, selected_items: list['QListWidgetItem'], target_list: list[str]):
         """Generic function to add item to a specified list"""
         if not selected_items:
             return
@@ -150,7 +161,7 @@ class MultiScanner(QWidget):
             target_list.append(selection.text())
         self.refresh_multiscan_lists()
 
-    def remove_from_list(self, list_widget, target_list):
+    def remove_from_list(self, list_widget: 'QListWidget', target_list: list[str]):
         """Generic function to remove selection from specified list"""
         selected_items = list_widget.selectedItems()
         if not selected_items:
@@ -192,20 +203,25 @@ class MultiScanner(QWidget):
         """Move scan element preset later in the list"""
         self.move_ordering(list_widget=self.ui.listScanPresets, target_list=self.scan_preset_list, later=True)
 
-    def move_ordering(self, list_widget, target_list, sooner=False, later=False):
+    def move_ordering(self, list_widget: 'QListWidget', target_list: list[str],
+                      sooner: bool = False, later: bool = False):
         """Generic function to move the selected action to an earlier or later position in the same list"""
         selected_items = list_widget.selectedItems()
         if not selected_items:
             return
+
+        i = None
         for selection in selected_items:
             i = list_widget.row(selection)
-        if sooner and 0 < i < len(target_list):
-            target_list[i], target_list[i - 1] = target_list[i - 1], target_list[i]
-            i = i - 1
-        if later and 0 <= i < len(target_list) - 1:
-            target_list[i], target_list[i + 1] = target_list[i + 1], target_list[i]
-            i = i + 1
-        self.refresh_multiscan_lists(list_widget=list_widget, index=i)
+
+        if i is not None:
+            if sooner and 0 < i < len(target_list):
+                target_list[i], target_list[i - 1] = target_list[i - 1], target_list[i]
+                i = i - 1
+            if later and 0 <= i < len(target_list) - 1:
+                target_list[i], target_list[i + 1] = target_list[i + 1], target_list[i]
+                i = i + 1
+            self.refresh_multiscan_lists(list_widget=list_widget, index=i)
 
     def copy_list_element_to_scan(self):
         """Copies the full element preset list into the scan preset list"""
@@ -225,32 +241,35 @@ class MultiScanner(QWidget):
         """Copies the selected row in the scan list to all available slots in the scan list"""
         self.copy_row_to_list(list_widget=self.ui.listScanPresets, target_list=self.scan_preset_list)
 
-    def copy_row_to_list(self, list_widget, target_list):
+    def copy_row_to_list(self, list_widget: 'QListWidget', target_list: list[str]):
         """Logic of copying a row element to the rest of the list.  Would be easy except that I also want to add the
         feature of allowing to copy a blank line to clear the list, and copy a single line to fill that list to the
         same length as the other list.  TODO there are two for loops here and I think they could be written better..."""
         selected_items = list_widget.selectedItems()
         if not selected_items:
             return
+
+        i = None
         for selection in selected_items:
             i = list_widget.row(selection)
 
-        if i >= len(target_list):
-            replacement = ''
-        else:
-            replacement = target_list[i]
-
-        for j in range(max(len(self.element_preset_list), len(self.scan_preset_list))):
-            if j >= len(target_list):
-                target_list.append(replacement)
+        if i is not None:
+            if i >= len(target_list):
+                replacement = ''
             else:
-                target_list[j] = replacement
+                replacement = target_list[i]
 
-        for j in list(reversed(range(max(len(self.element_preset_list), len(self.scan_preset_list))))):
-            if target_list[j] == '':
-                del target_list[j]
+            for j in range(max(len(self.element_preset_list), len(self.scan_preset_list))):
+                if j >= len(target_list):
+                    target_list.append(replacement)
+                else:
+                    target_list[j] = replacement
 
-        self.refresh_multiscan_lists(list_widget=list_widget, index=i)
+            for j in list(reversed(range(max(len(self.element_preset_list), len(self.scan_preset_list))))):
+                if target_list[j] == '':
+                    del target_list[j]
+
+            self.refresh_multiscan_lists(list_widget=list_widget, index=i)
 
     def save_multiscan_configuration(self):
         """Saves the current multiscan configuration to a yaml file specified by the user"""
@@ -263,23 +282,24 @@ class MultiScanner(QWidget):
             if len(self.scan_preset_list) > 0:
                 settings['Scan Presets'] = self.scan_preset_list
 
-            os.makedirs(self.config_folder, exist_ok=True)
+            self.config_folder.mkdir(parents=True, exist_ok=True)
+            filename = Path(text)
 
-            with open(f"{self.config_folder}/{text}.yaml", 'w') as file:
+            with open(self.config_folder / filename.with_suffix('.yaml'), 'w') as file:
                 yaml.dump(settings, file, default_flow_style=False)
 
     def load_multiscan_configuration(self):
         """Prompts the user to specify a yaml file from which to load a multiscan configuration"""
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", self.config_folder, "YAML Files (*yaml)",
-                                                   options=options)
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", str(self.config_folder),
+                                                   "YAML Files (*yaml)", options=options)
         if file_name:
-            self.load_settings_from_file(file_name)
+            self.load_settings_from_file(Path(file_name))
             self.toggle_split_preset_mode()
             self.refresh_multiscan_lists()
 
-    def load_settings_from_file(self, file_name):
+    def load_settings_from_file(self, file_name: Union[Path, str]):
         """Loads multiscan configuration from the given file name"""
         with open(file_name, 'r') as file:
             settings = yaml.safe_load(file)
@@ -332,7 +352,7 @@ class MultiScanner(QWidget):
             self.ui.buttonStopMultiscan.setEnabled(True)
 
     @staticmethod
-    def display_message(message):
+    def display_message(message: str):
         """Displays an error message associated with starting a multiscan with improper preset lists"""
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Information)
@@ -343,7 +363,7 @@ class MultiScanner(QWidget):
         msg.exec_()
 
     @pyqtSlot(int, list, list)
-    def push_next_preset_scan(self, current_position, element_presets, scan_presets):
+    def push_next_preset_scan(self, current_position: int, element_presets: list[str], scan_presets: list[str]):
         """When signal is received, gives the main gui window the specified preset commands and starts the next scan"""
         info = f"Multi-Scan #{current_position + 1}: {element_presets[current_position]}"
         if not scan_presets:
@@ -417,13 +437,15 @@ class Worker(QObject):
     finished = pyqtSignal()
     submit_next = pyqtSignal(int, list, list)
 
-    def __init__(self, main_window, start_number, element_presets, scan_presets=None):
+    def __init__(self, main_window: 'GEECSScannerWindow', start_number: int,
+                 element_presets: list[str], scan_presets: list[str] = None):
         super().__init__()
         self._running = False
         self.main_window = main_window  # Required to check current scan status
         self.element_presets = element_presets
         self.scan_presets = scan_presets
         self.current_position = start_number
+        self.is_waiting = False
 
     def start_work(self):
         """Begin loop to check status of GEECS Scanner every second"""
@@ -431,6 +453,7 @@ class Worker(QObject):
         while self._running:
             if self.check_condition():
                 self.send_command()
+                self.is_waiting = True
             time.sleep(1)
         play_finish_jingle()
         self.finished.emit()
@@ -439,11 +462,15 @@ class Worker(QObject):
         """Sets a flag for the thread to exit the multiscan loop"""
         self._running = False
 
-    def check_condition(self):
+    def check_condition(self) -> bool:
         """
         :return:  True if the main window can accept a new scan request, False otherwise
         """
-        return self.main_window.is_ready_for_scan()
+        if self.main_window.is_ready_for_scan():
+            return not self.is_waiting
+        else:
+            self.is_waiting = False
+            return False
 
     def send_command(self):
         """Emits signal to start next scan, sending the two preset lists and current index in the multiscan"""
@@ -453,7 +480,7 @@ class Worker(QObject):
             self.submit_next.emit(self.current_position, self.element_presets, self.scan_presets)
             self.current_position += 1
 
-    def get_status(self):
+    def get_status(self) -> str:
         """
         :return: Position of current multiscan position and the length of the full multiscan script
         """
