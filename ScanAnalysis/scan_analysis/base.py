@@ -14,6 +14,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
+
 # %% classes
 class ScanAnalysis:
     """
@@ -118,7 +119,6 @@ class ScanAnalysis:
         Generate a list of shot number labels with a maximum of `max_labels`.
 
         Args:
-            total_shots (int): Total number of shots.
             max_labels (int): Maximum number of labels to display.
 
         Returns:

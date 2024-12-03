@@ -5,6 +5,10 @@ General camera image analyzer.
 Child to ScanAnalysis (./scan_analysis/base.py)
 """
 # %% imports
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Tuple, Optional
+    from geecs_python_api.controls.api_defs import ScanTag
 from pathlib import Path
 import logging
 import yaml
@@ -19,19 +23,20 @@ from geecs_python_api.controls.data_acquisition.utils import get_full_config_pat
 from image_analysis.utils import read_imaq_png_image
 from image_analysis.tools.general import image_signal_thresholding, find_beam_properties
 
+
 # %% classes
 class CameraImageAnalysis(ScanAnalysis):
 
-    def __init__(self, scan_directory, device_name, use_gui=True, experiment_dir='Undulator',
+    def __init__(self, scan_tag: ScanTag, device_name, use_gui=True,
                  flag_logging=True, flag_save_images=True):
         """
         Initialize the CameraImageAnalysis class.
 
         Args:
-            scan_directory (str or Path): Path to the scan directory containing data.
+            scan_tag (ScanTag): Path to the scan directory containing data.
             device_name (str): Name of the device to construct the subdirectory path.
         """
-        super().__init__(scan_directory, use_gui=use_gui)  # Pass use_gui to the parent class
+        super().__init__(scan_tag, use_gui=use_gui)  # Pass use_gui to the parent class
 
         # define flags
         self.flag_logging = flag_logging
@@ -39,11 +44,10 @@ class CameraImageAnalysis(ScanAnalysis):
 
         # organize analysis parameters
         self.device_name = device_name
-        self.experiment_dir = experiment_dir
 
         # organize various paths
-        self.path_dict = {'data_img': Path(scan_directory) / f"{device_name}",
-                          'save': scan_directory.parent.parent / 'analysis' / scan_directory.name / f"{device_name}" / "CameraImageAnalysis",
+        self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
+                          'save': self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / f"{device_name}" / "CameraImageAnalysis",
                           'cam_configs': get_full_config_path(self.experiment_dir, 'aux_configs', 'camera_analysis_settings.yaml')
                           }
 
@@ -59,7 +63,6 @@ class CameraImageAnalysis(ScanAnalysis):
         if not self.path_dict['data_img'].exists() or not any(self.path_dict['data_img'].iterdir()):
             if self.flag_logging:
                 logging.warning(f"Warning: Data directory '{self.path_dict['data_img']}' does not exist or is empty. Skipping analysis.")
-            self.path_dict['data_img']
 
     def load_camera_analysis_config(self):
 
@@ -138,6 +141,9 @@ class CameraImageAnalysis(ScanAnalysis):
 
         Args:
             avg_images (list of np.ndarray): List of averaged images.
+            :param plot_scale:
+            :param ref_coords:
+            :param binned_data:
         """
         if len(binned_data) == 0:
             if self.flag_logging:
@@ -264,7 +270,7 @@ class CameraImageAnalysis(ScanAnalysis):
             # load all images for this bin
             images = self.load_images_for_bin(bin_val)
             if len(images) == 0:
-                if self.logging_flag:
+                if self.flag_logging:
                     logging.warning(f"No images found for bin {bin_val}.")
                 continue
 
