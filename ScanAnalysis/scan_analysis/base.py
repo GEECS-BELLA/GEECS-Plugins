@@ -43,6 +43,10 @@ class ScanAnalysis:
         self.noscan = False
         self.use_gui = use_gui
 
+        self.bins = None
+        self.auxiliary_data = None
+        self.binned_param_values = None
+
         try:
             # Extract the scan parameter
             self.scan_parameter = self.extract_scan_parameter_from_ini()
@@ -54,7 +58,7 @@ class ScanAnalysis:
                 logging.warning("No parameter varied during the scan, setting noscan flag.")
                 self.noscan = True
 
-            self.bins, self.auxiliary_data, self.binned_param_values = self.load_auxiliary_data()
+            self.load_auxiliary_data()
 
             if self.auxiliary_data is None:
                 logging.warning("Scan parameter not found in auxiliary data. Possible aborted scan. Skipping analysis.")
@@ -84,28 +88,19 @@ class ScanAnalysis:
     def load_auxiliary_data(self):
         """
         Load auxiliary binning data from the ScanData file and retrieve the binning structure.
-
-        Returns:
-            tuple: A tuple containing the bin numbers (np.ndarray) and the auxiliary data (pd.DataFrame).
         """
 
         try:
-            auxiliary_data = pd.read_csv(self.auxiliary_file_path, delimiter='\t')
-            bins = auxiliary_data['Bin #'].values
+            self.auxiliary_data = pd.read_csv(self.auxiliary_file_path, delimiter='\t')
+            self.bins = self.auxiliary_data['Bin #'].values
 
             if not self.noscan:
                 # Find the scan parameter column and calculate the binned values
                 scan_param_column = self.find_scan_param_column()[0]
-                binned_param_values = auxiliary_data.groupby('Bin #')[scan_param_column].mean().values
-
-                return bins, auxiliary_data, binned_param_values
-
-            else:
-                return bins, auxiliary_data, None
+                self.binned_param_values = self.auxiliary_data.groupby('Bin #')[scan_param_column].mean().values
 
         except (KeyError, FileNotFoundError) as e:
             logging.warning(f"{e}. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping")
-            return None, None, None
 
     def close_or_show_plot(self):
         """Decide whether to display or close plots based on the use_gui setting."""
