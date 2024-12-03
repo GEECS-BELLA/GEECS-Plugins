@@ -4,6 +4,7 @@ import logging
 import pandas as pd
 from pathlib import Path
 import os
+import re
 
 import numpy as np
 
@@ -510,6 +511,7 @@ class ScanDataManager:
                 os.rename(file_path, new_file_path)
             else:
                 logging.warning(f"File {new_file_path} already exists. Skipping.")
+
 class ScanManager:
     """
     Manages the execution of scans, including configuration, device control,
@@ -611,7 +613,6 @@ class ScanManager:
         valid_states = {
             # 'on': 'External rising edges',
             'on': 'Internal',
-            
             'off': 'Single shot external rising edges'
         }
         if state in valid_states:
