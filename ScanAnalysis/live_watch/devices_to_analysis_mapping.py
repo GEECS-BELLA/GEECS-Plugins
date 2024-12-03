@@ -27,10 +27,14 @@ def check_for_analysis_match(scan_folder: Union[Path, str]) -> List[str]:
     """
     scan_folder = Path(scan_folder)
     saved_devices = get_available_directories(scan_folder)
-    valid_analyzers = []
-    for analyzer in undulator_scan_analyzers:
-        if evaluate_condition(undulator_scan_analyzers[analyzer], saved_devices):
-            valid_analyzers.append(analyzer)
+    valid_analyzers = [analyzer_name
+                       for analyzer_name, analyzer_item in undulator_scan_analyzers.items()
+                       if evaluate_condition(analyzer_item, saved_devices)]
+
+    # valid_analyzers = []
+    # for analyzer in undulator_scan_analyzers:
+    #     if evaluate_condition(undulator_scan_analyzers[analyzer], saved_devices):
+    #         valid_analyzers.append(analyzer)
     return valid_analyzers
 
 
@@ -44,14 +48,14 @@ def evaluate_condition(condition: Union[dict[str, list], set, str], saved_device
     """
     if 'AND' in condition:
         and_conditions = condition['AND']
-        return all(
-            evaluate_condition(cond, saved_devices) if isinstance(cond, dict) else cond in saved_devices
-            for cond in and_conditions)
+        return all(evaluate_condition(cond, saved_devices)
+                   if isinstance(cond, dict) else cond in saved_devices
+                   for cond in and_conditions)
     elif 'OR' in condition:
         or_conditions = condition['OR']
-        return any(
-            evaluate_condition(cond, saved_devices) if isinstance(cond, dict) else cond in saved_devices
-            for cond in or_conditions)
+        return any(evaluate_condition(cond, saved_devices)
+                   if isinstance(cond, dict) else cond in saved_devices
+                   for cond in or_conditions)
     else:
         return all(dir in saved_devices for dir in condition)
 
