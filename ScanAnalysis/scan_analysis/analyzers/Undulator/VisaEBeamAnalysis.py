@@ -5,19 +5,20 @@ Visa YAG screen image analyzer.
 Child to CameraImageAnalysis (./scan_analysis/analyzers/Undulator/CameraImageAnalysis.py)
 """
 # %% imports
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union, Tuple
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
 import numpy as np
 import cv2
 from scan_analysis.analyzers.Undulator.CameraImageAnalysis import CameraImageAnalysis
-
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 # %% classes
 class VisaEBeamAnalysis(CameraImageAnalysis):
 
-    def __init__(self, scan_tag: 'ScanTag', device_name: Optional[str], use_gui: bool = True,
-                 flag_logging: bool = True, flag_save_images: bool = True):
+    def __init__(self, scan_tag: 'ScanTag',
+                 device_name: Optional[str] = None, use_gui: bool = True,
+                 flag_logging: bool = True, flag_save_images: bool = True) -> None:
         """
         Initialize the VisaEBeamAnalysis class.
 
@@ -28,15 +29,44 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
             flag_logging (bool): Flag that sets if error and warning messages are displayed
             flag_save_images (bool): Flag that sets if images are saved to disk
         """
-        if device_name is None:
-            # TODO determine which VISA screen is saved by scan_directory contents
-            raise NotImplementedError
 
-        super().__init__(scan_tag, device_name, use_gui=use_gui,
+        # set device name explicitly or using a priori knowledge
+        self.device_name = device_name or self.device_autofinder(scan_tag)
+
+        # enact parent init
+        super().__init__(scan_tag, self.device_name, use_gui=use_gui,
                          flag_logging=flag_logging, flag_save_images=flag_save_images)
 
-        # reset save path to this analysis folder
+        # redefine save path for this specific analysis
         self.path_dict['save'] = self.path_dict['save'].parent / "VisaEBeamAnalysis"
+
+    def device_autofinder(self, scan_tag: 'ScanTag') -> str:
+        """
+        Automatically find a compatible device directory.
+    
+        Args:
+            scan_tag: ScanTag NamedTuple.
+    
+        Returns:
+            str: Name of the compatible device directory.
+    
+        Raises:
+            Exception: If multiple compatible devices are found or no devices are found.
+        """
+        scan_directory = ScanData.build_scan_folder_path(tag=scan_tag)
+
+        devices = [item.name
+                   for item in scan_directory.iterdir()
+                   if item.is_dir() and item.name.startswith('UC_VisaEBeam')]
+
+        if len(devices) == 1:
+            return devices[0]
+
+        elif len(devices) > 1:
+            raise Exception("Multiple compatible device directories detected. Please define explicitly.")
+
+        elif len(devices) == 0:
+            raise Exception("No compatible device directory detected. Something ain't right here.")
 
     def apply_cross_mask(self, image: np.ndarray) -> np.ndarray:
         settings = self.camera_analysis_settings
@@ -56,8 +86,10 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
 
         return processed_image
 
-    def create_image_array(self, binned_data: dict[dict], ref_coords: Optional[tuple] = None,
-                           plot_scale: Optional[float] = None, use_diode_ref: bool = True):
+    def create_image_array(self, binned_data: dict[dict],
+                           ref_coords: Optional[tuple] = None,
+                           plot_scale: Optional[float] = None,
+                           use_diode_ref: bool = True) -> None:
         """
         Wrapper class for CameraImageAnalysis.create_image_array. Pass blue diode coordinates.
 
@@ -89,16 +121,22 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         return super().image_processing(processed_image)
 
     @staticmethod
-    def create_cross_mask(image, cross_center, angle, cross_height=54, cross_width=54, thickness=10):
+    def create_cross_mask(image: np.ndarray,
+                          cross_center: Tuple[int, int],
+                          angle: Union[int, float],
+                          cross_height: int = 54,
+                          cross_width: int = 54,
+                          thickness: int = 10) -> np.ndarray:
         """
         Creates a mask with a cross centered at `cross_center` with the cross being zeros and the rest ones.
 
         Args:
-        - image (np.array): The image on which to base the mask size.
-        - cross_center (tuple): The (x, y) center coordinates of the cross.
-        - cross_height (int): The height of the cross extending vertically from the center.
-        - cross_width (int): The width of the cross extending horizontally from the center.
-        - thickness (int): The thickness of the lines of the cross.
+        image: The image on which to base the mask size.
+        cross_center: The (x, y) center coordinates of the cross.
+        angle: Rotation angle of the cross in degrees.
+        cross_height: The height of the cross extending vertically from the center.
+        cross_width: The width of the cross extending horizontally from the center.
+        thickness: The thickness of the lines of the cross.
 
         Returns:
         - np.array: The mask with the cross.
@@ -115,9 +153,8 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
                                       flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=1)
         return rotated_mask
 
-
 # %% executable
-def testing_routine():
+def testing_routine() -> None:
 
     from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
 
@@ -126,7 +163,7 @@ def testing_routine():
             'month': 'Nov',
             'day': '26',
             'num': 19}
-    device_name = "UC_VisaEBeam1"
+    device_name = None
 
     # initialize data interface and analysis class
     data_interface = DataInterface()
@@ -137,12 +174,26 @@ def testing_routine():
      analysis_data_path) = data_interface.create_data_path(scan['num'])
 
     scan_directory = raw_data_path / f"Scan{scan['num']:03d}"
-    analysis_class = VisaEBeamAnalysis(scan_directory, device_name)
+    analysis_class = VisaEBeamAnalysis(scan_directory, device_name=device_name)
 
     analysis_class.run_analysis()
 
     return
 
+def new_routine() -> None:
+
+    from geecs_python_api.controls.api_defs import ScanTag
+
+    scan_tag = ScanTag(year=2024, month=11, day=26,
+                       number=19, experiment='Undulator')
+
+    # device_name = "UC_VisaEBeam1"
+    device_name = None
+    analysis_class = VisaEBeamAnalysis(scan_tag, device_name=device_name)
+
+    analysis_class.run_analysis()
+
+    return
 
 if __name__ == "__main__":
-    testing_routine()
+    new_routine()
