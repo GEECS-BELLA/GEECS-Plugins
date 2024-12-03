@@ -12,10 +12,12 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 from scipy.ndimage import median_filter, gaussian_filter
+import imageio as io
 
 from scan_analysis.base import ScanAnalysis
 from geecs_python_api.controls.data_acquisition.utils import get_full_config_path
 from image_analysis.utils import read_imaq_png_image
+from image_analysis.tools.general import image_signal_thresholding, find_beam_properties
 
 # %% classes
 class CameraImageAnalysis(ScanAnalysis):
@@ -208,15 +210,15 @@ class CameraImageAnalysis(ScanAnalysis):
         """
         images = []
         shots_in_bin = self.auxiliary_data[self.auxiliary_data['Bin #'] == bin_number]['Shotnumber'].values
-        expected_image_size = None
+        # expected_image_size = None
 
         for shot_num in shots_in_bin:
             image_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
             if image_file:
                 image = read_imaq_png_image(image_file)
                 images.append(image)
-                if expected_image_size is None:
-                    expected_image_size = image.shape  # Determine image size from the first valid image
+                # if expected_image_size is None:
+                    # expected_image_size = image.shape  # Determine image size from the first valid image
             else:
                 if self.flag_logging:
                     logging.warning(f"Missing data for shot {shot_num}, adding zero array.")
@@ -329,7 +331,7 @@ class CameraImageAnalysis(ScanAnalysis):
         # Optionally cast back to a 16-bit integer if needed
         return processed_image.astype(np.uint16) if image.dtype == np.uint16 else processed_image
 
-    def image_processing(self, image, analysis_settings=None, save_directory=None):
+    def image_processing(self, image, analysis_settings=None):
 
         if analysis_settings is None:
             analysis_settings = self.camera_analysis_settings
@@ -346,16 +348,127 @@ class CameraImageAnalysis(ScanAnalysis):
 
         return cropped_image, processed_image
 
-    def perform_bulk_image_analysis(self, binned_data,
-                                    flag_save=None, analysis_settings=None):
+    # def perform_bulk_image_analysis(self, binned_data,
+    #                                 flag_save=None, analysis_settings=None):
 
-        # set default
-        if flag_save is None:
-            flag_save = self.flag_save_images
-        if analysis_settings is None:
-            analysis_settings = self.camera_analysis_settings
+    #     # set default
+    #     if flag_save is None:
+    #         flag_save = self.flag_save_images
+    #     if analysis_settings is None:
+    #         analysis_settings = self.camera_analysis_settings
 
-        # iterate parameter bins
+    #     # iterate parameter bins
+    #     for bin_key, bin_item in binned_data.items():
+
+    #         # perform basic image processing
+    #         (cropped_image,
+    #          processed_image) = self.image_processing(bin_item['image'],
+    #                                                   analysis_settings=analysis_settings)
+
+    #         # overwrite stored image
+    #         binned_data[bin_key]['image'] = processed_image
+
+    #         # save figures
+    #         if flag_save:
+    #             self.save_geecs_scaled_image(cropped_image, save_dir=self.path_dict['save'],
+    #                                          save_name=f"{self.device_name}_{bin_key}_cropped.png")
+    #             self.save_geecs_scaled_image(processed_image, save_dir=self.path_dict['save'],
+    #                                          save_name=f'{self.device_name}_{bin_key}_processed.png')
+    #             self.save_normalized_image(processed_image, save_dir=self.path_dict['save'],
+    #                                        save_name=f'{self.device_name}_{bin_key}_processed_visual.png')
+
+    #     return binned_data
+
+    @staticmethod
+    def create_gif(image_arrays, output_file, titles=None, duration=100):
+
+        # make default list of titles
+        if titles is None:
+            titles = [f"Shot {num + 1}" for num in range(len(image_arrays))]
+
+        # define font parameters
+        # font = cv2.FONT_HERSHEY_COMPLEX_SMALL
+        font = cv2.FONT_HERSHEY_TRIPLEX
+        font_scale = 1
+        thickness = 2
+        color = (255, 255, 255)
+
+        images = []
+        for img, title in zip(image_arrays, titles):
+
+            # make a copy of the array
+            img_copy = img.copy()
+
+            # get image dimensions
+            height, width = img_copy.shape[:2]
+
+            # get title size
+            (text_width, text_height), _ = cv2.getTextSize(title, font, font_scale, thickness)
+
+            # calculate text position for center alignment
+            x = (width - text_width) // 2
+            y = 50 # distance from top
+
+            # add text to image
+            cv2.putText(img_copy, title,
+                        (x, y), font, font_scale, color, thickness)
+
+            # convert BGR to RGB if necessary
+            if len(img_copy.shape) == 3 and img_copy.shape[2] == 3:
+                img_copy = cv2.cvtColor(img_copy, cv2.COLOR_BGR2RGB)
+
+            images.append(img_copy)
+
+        # create gif
+        io.mimsave(output_file, images, duration=duration, loop=0)
+
+    def run_noscan_analysis(self, analysis_settings=None, flag_save=None):
+        """
+        Image analysis in the case of a no scan.
+
+        """
+
+        # load images
+        data = {'shot_num': [], 'images': []}
+        for shot_num in self.auxiliary_data['Shotnumber'].values:
+            image_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
+            if image_file:
+                data['shot_num'].append(shot_num)
+                data['images'].append(read_imaq_png_image(image_file))
+            else:
+                if self.flag_logging:
+                    logging.warning(f"Missing data for shot {shot_num}.")
+
+        # perform image analysis
+        for i in range(len(data['images'])):
+            _, data['images'][i] = self.image_processing(data['images'][i],
+                                                         analysis_settings=analysis_settings)
+
+        # get average image
+        avg_image = self.average_images(data['images'])
+        if flag_save:
+            self.save_geecs_scaled_image(avg_image, save_dir=self.path_dict['save'],
+                                         save_name=f'{self.device_name}_average_processed.png')
+            self.save_normalized_image(avg_image, save_dir=self.path_dict['save'],
+                                       save_name=f'{self.device_name}_average_processed_visual.png')
+
+        # make gif
+        if flag_save:
+            filepath = self.path_dict['save'] / 'noscan.gif'
+            self.create_gif(data['images'], filepath,
+                            titles=[f"Shot {num}" for num in data['shot_num']])
+
+    def run_scan_analysis(self, analysis_settings=None, flag_save=None):
+        """
+        Image analysis in the case of a scanned variable.
+
+        """
+        # bin data
+        binned_data = self.bin_images(flag_save=flag_save)
+
+        # # perform bulk image analysis
+        # binned_data = self.perform_bulk_image_analysis(binned_data,
+        #                                                flag_save=flag_save)
         for bin_key, bin_item in binned_data.items():
 
             # perform basic image processing
@@ -366,7 +479,7 @@ class CameraImageAnalysis(ScanAnalysis):
             # overwrite stored image
             binned_data[bin_key]['image'] = processed_image
 
-            # save figures
+            # save figuresc
             if flag_save:
                 self.save_geecs_scaled_image(cropped_image, save_dir=self.path_dict['save'],
                                              save_name=f"{self.device_name}_{bin_key}_cropped.png")
@@ -375,42 +488,34 @@ class CameraImageAnalysis(ScanAnalysis):
                 self.save_normalized_image(processed_image, save_dir=self.path_dict['save'],
                                            save_name=f'{self.device_name}_{bin_key}_processed_visual.png')
 
-        return binned_data
+        # Once all bins are processed, create an array of the averaged images
+        if len(binned_data) > 1 and flag_save:
+            plot_scale = analysis_settings.get('Plot Scale', None)
+            self.create_image_array(binned_data, plot_scale = plot_scale)
 
     def run_analysis(self, analysis_settings=None, flag_save=None):
-        """
-        Main function to run the image analysis.
-
-        """
-        if flag_save is None:
-            flag_save = self.flag_save_images
-        if analysis_settings is None:
-            analysis_settings = self.camera_analysis_settings
 
         # initialize analysis
         if self.initialize_analysis():
             return
 
+        # initialize various analysis parameters
+        if flag_save is None:
+            flag_save = self.flag_save_images
+        if analysis_settings is None:
+            analysis_settings = self.camera_analysis_settings
+
         # if saving, make sure save location exists
         if flag_save and not self.path_dict['save'].exists():
             self.path_dict['save'].mkdir(parents=True)
 
-        # attempt analysis
+        # delegate analysis type
         try:
+            if self.noscan:
+                self.run_noscan_analysis(analysis_settings=analysis_settings, flag_save=flag_save)
+            else:
+                self.run_scan_analysis(analysis_settings=analysis_settings, flag_save=flag_save)
 
-            # bin data
-            binned_data = self.bin_images(flag_save=flag_save)
-
-            # perform bulk image analysis
-            binned_data = self.perform_bulk_image_analysis(binned_data,
-                                                           flag_save=flag_save)
-
-            # Once all bins are processed, create an array of the averaged images
-            if len(binned_data) > 1 and flag_save:
-                plot_scale = analysis_settings.get('Plot Scale', None)
-                self.create_image_array(binned_data, plot_scale = plot_scale)
-
-        # throw warning if analysis fails
         except Exception as e:
             if self.flag_logging:
                 logging.warning(f"Warning: Image analysis failed due to: {e}")
@@ -424,10 +529,10 @@ def testing_routine():
     # define scan information
     scan = {'year': '2024',
             'month': 'Nov',
-            'day': '19',
-            'num': 15}
-    # device_name = "UC_VisaEBeam1"
-    device_name = "UC_UndulatorRad2"
+            'day': '26',
+            'num': 13}
+    device_name = "UC_ALineEBeam3"
+    # device_name = "UC_UndulatorRad2"
 
     # initialize data interface and analysis class
     data_interface = DataInterface()
