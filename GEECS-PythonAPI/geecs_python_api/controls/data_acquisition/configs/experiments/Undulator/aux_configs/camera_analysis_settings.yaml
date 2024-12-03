@@ -26,10 +26,10 @@ UC_ALineEbeam1:
 
 UC_ALineEBeam2:
   Background Level: 18
-  Left ROI: 100
-  Right ROI: 850
-  Top ROI: 300
-  Bottom ROI: 1100
+  Left ROI: 0
+  Top ROI: 0
+  Size_X: 1288
+  Size_Y: 963
   Filter: Median
   Filter Size: 3
   Threshold: 10

@@ -438,7 +438,7 @@
     <string>Open</string>
    </property>
   </widget>
-  <widget class="QPushButton" name="buttonWindowCancel">
+  <widget class="QPushButton" name="buttonWindowClose">
    <property name="geometry">
     <rect>
      <x>250</x>
@@ -453,7 +453,7 @@
     </font>
    </property>
    <property name="text">
-    <string>Cancel</string>
+    <string>Close</string>
    </property>
   </widget>
   <widget class="QLabel" name="label_4">
