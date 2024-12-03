@@ -2,6 +2,7 @@
 Class containing common functionality and requirements available for all scan analyzers
 """
 # %% imports
+from __future__ import annotations
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Tuple, Optional
