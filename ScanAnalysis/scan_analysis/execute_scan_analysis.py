@@ -24,15 +24,18 @@ ANALYSIS_DICT = {
 }
 
 
-def analyze_scan(tag: ScanTag, analyzer_list: List[str]):
+def analyze_scan(tag: ScanTag, analyzer_list: List[str], debug_mode: bool = False):
     for analyzer_name in analyzer_list:
         if analyzer_name not in ANALYSIS_DICT:
             print(f"Error:  '{analyzer_name}' not defined in analysis_dict within execute_scan_analysis.py")
         else:
-            analyzer_info = ANALYSIS_DICT.get(analyzer_name)
-            analyzer_class = analyzer_info.analyzer
-            analyzer = analyzer_class(scan_tag=tag, device_name=analyzer_info.device_name, use_gui=True)
-            analyzer.run_analysis(config_options=analyzer_info.config_file)
+            if not debug_mode:
+                analyzer_info = ANALYSIS_DICT.get(analyzer_name)
+                analyzer_class = analyzer_info.analyzer
+                analyzer = analyzer_class(scan_tag=tag, device_name=analyzer_info.device_name, use_gui=True)
+                analyzer.run_analysis(config_options=analyzer_info.config_file)
+            else:
+                print(tag, ":", analyzer_name)
 
 
 if __name__ == '__main__':
