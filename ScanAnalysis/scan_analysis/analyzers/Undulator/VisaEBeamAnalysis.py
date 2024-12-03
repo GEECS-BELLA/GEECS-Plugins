@@ -5,35 +5,91 @@ Visa YAG screen image analyzer.
 Child to CameraImageAnalysis (./scan_analysis/analyzers/Undulator/CameraImageAnalysis.py)
 """
 # %% imports
+from typing import TYPE_CHECKING, Optional
+if TYPE_CHECKING:
+    from geecs_python_api.controls.api_defs import ScanTag
 import numpy as np
 import cv2
-
 from scan_analysis.analyzers.Undulator.CameraImageAnalysis import CameraImageAnalysis
 
-# %% classes
 
+# %% classes
 class VisaEBeamAnalysis(CameraImageAnalysis):
 
-    def __init__(self, scan_directory, device_name=None, use_gui=True, experiment_dir = 'Undulator',
-                 flag_logging=True, flag_save_images=True):
+    def __init__(self, scan_tag: 'ScanTag', device_name: Optional[str], use_gui: bool = True,
+                 flag_logging: bool = True, flag_save_images: bool = True):
         """
-        Initialize the CameraImageAnalysis class.
+        Initialize the VisaEBeamAnalysis class.
 
         Args:
-            scan_directory (str or Path): Path to the scan directory containing data.
-            device_name (str): Name of the device to construct the subdirectory path.
+            scan_tag (ScanTag): Path to the scan directory containing data.
+            device_name (str): Name of the Visa camera.  If not given, automatically detects which one
+            use_gui (bool): Flag that sets if matplotlib is tried to use for plotting
+            flag_logging (bool): Flag that sets if error and warning messages are displayed
+            flag_save_images (bool): Flag that sets if images are saved to disk
         """
         if device_name is None:
-            # TODO determine which VSIA screen is saved by scan_directory contents
-            pass
-        super().__init__(scan_directory, device_name, use_gui=use_gui, experiment_dir=experiment_dir,
+            # TODO determine which VISA screen is saved by scan_directory contents
+            raise NotImplementedError
+
+        super().__init__(scan_tag, device_name, use_gui=use_gui,
                          flag_logging=flag_logging, flag_save_images=flag_save_images)
 
         # reset save path to this analysis folder
         self.path_dict['save'] = self.path_dict['save'].parent / "VisaEBeamAnalysis"
 
-    def create_cross_mask(self, image, cross_center, angle, cross_height=54,
-                          cross_width=54, thickness=10):
+    def apply_cross_mask(self, image: np.ndarray) -> np.ndarray:
+        settings = self.camera_analysis_settings
+
+        # create crosshair masks
+        mask1 = self.create_cross_mask(image,
+                                       [settings['Cross1'][0],
+                                        settings['Cross1'][1]],
+                                       settings['Rotate'])
+        mask2 = self.create_cross_mask(image,
+                                       [settings['Cross2'][0],
+                                        settings['Cross2'][1]],
+                                       settings['Rotate'])
+
+        # apply cross mask
+        processed_image = image * mask1 * mask2
+
+        return processed_image
+
+    def create_image_array(self, binned_data: dict[dict], ref_coords: Optional[tuple] = None,
+                           plot_scale: Optional[float] = None, use_diode_ref: bool = True):
+        """
+        Wrapper class for CameraImageAnalysis.create_image_array. Pass blue diode coordinates.
+
+        Args:
+            binned_data (dict[dict]): List of averaged images.
+            ref_coords (tuple): The x and y data to be plotted as a reference, as element 0 and 1, respectively
+            plot_scale (float): A float value for the maximum color
+            use_diode_ref (bool): Flag to set if the ref_coords should be the blue diode references
+        """
+        settings = self.camera_analysis_settings
+
+        # get global plot scale
+        if plot_scale is None:
+            plot_scale = settings.get('Plot Scale', None)
+
+        # set up diode reference information
+        if use_diode_ref:
+            ref_coords = (settings['Blue Centroid X'] - settings['Left ROI'],
+                          settings['Blue Centroid Y'] - settings['Top ROI'])
+
+        # call super function and pass blue diode coords
+        super().create_image_array(binned_data, ref_coords=ref_coords, plot_scale=plot_scale)
+
+    def image_processing(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        # apply cross mask
+        processed_image = self.apply_cross_mask(image)
+
+        # apply basic image processing from super()
+        return super().image_processing(processed_image)
+
+    @staticmethod
+    def create_cross_mask(image, cross_center, angle, cross_height=54, cross_width=54, thickness=10):
         """
         Creates a mask with a cross centered at `cross_center` with the cross being zeros and the rest ones.
 
@@ -54,73 +110,13 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         mask[vertical_start:vertical_end, x_center - thickness // 2:x_center + thickness // 2] = 0
         mask[y_center - thickness // 2:y_center + thickness // 2, horizontal_start:horizontal_end] = 0
 
-        M = cv2.getRotationMatrix2D(cross_center, angle, 1.0)
-        rotated_mask = cv2.warpAffine(mask, M, (image.shape[1], image.shape[0]), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=1)
+        m = cv2.getRotationMatrix2D(cross_center, angle, 1.0)
+        rotated_mask = cv2.warpAffine(mask, m, (image.shape[1], image.shape[0]),
+                                      flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=1)
         return rotated_mask
 
-    def apply_cross_mask(self, image, analysis_settings=None):
-
-        if analysis_settings is None:
-            analysis_settings = self.camera_analysis_settings
-
-        # create crosshair masks
-        mask1 = self.create_cross_mask(image,
-                                       [analysis_settings['Cross1'][0],
-                                        analysis_settings['Cross1'][1]],
-                                       analysis_settings['Rotate'])
-        mask2 = self.create_cross_mask(image,
-                                       [analysis_settings['Cross2'][0],
-                                        analysis_settings['Cross2'][1]],
-                                       analysis_settings['Rotate'])
-
-        # apply cross mask
-        processed_image = image * mask1 * mask2
-
-        return processed_image
-
-    def create_image_array(self, avg_images, diode_ref=True, plot_scale=None,
-                           analysis_settings=None):
-        """
-        Wrapper class for CameraImageAnalysis.create_image_array. Pass blue diode coordinates.
-
-        Args:
-            avg_images (list of np.ndarray): List of averaged images.
-            diode_ref (bool): Setting whether to include blue beam alignment reference
-        """
-
-        if analysis_settings is None:
-            analysis_settings = self.camera_analysis_settings
-
-        # get global plot scale
-        plot_scale = analysis_settings.get('Plot Scale', None)
-
-        # set up diode reference information
-        if diode_ref:
-            diode_coords = (analysis_settings['Blue Centroid X'] - analysis_settings['Left ROI'],
-                            analysis_settings['Blue Centroid Y'] - analysis_settings['Top ROI'])
-        else:
-            diode_coords = None
-
-        # call super function and pass blue diode coords
-        super().create_image_array(avg_images, ref_coords=diode_coords, plot_scale=plot_scale)
-
-    def image_processing(self, image, analysis_settings=None):
-
-        if analysis_settings is None:
-            analysis_settings = self.camera_analysis_settings
-
-        # apply cross mask
-        processed_image = self.apply_cross_mask(image,
-                                                analysis_settings=analysis_settings)
-
-        # apply basic image processing from super()
-        processed_image = super().image_processing(processed_image,
-                                                   analysis_settings=analysis_settings)
-
-        return processed_image
 
 # %% executable
-
 def testing_routine():
 
     from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
@@ -147,6 +143,6 @@ def testing_routine():
 
     return
 
-if __name__=="__main__":
 
+if __name__ == "__main__":
     testing_routine()
