@@ -29,7 +29,7 @@ class ScanAnalysis:
         bins (np.ndarray): Bin numbers for the data, extracted from the auxiliary file.
         auxiliary_data (pd.DataFrame): DataFrame containing auxiliary scan data.
     """
-    def __init__(self, scan_tag: ScanTag, use_gui: bool = True):
+    def __init__(self, scan_tag: 'ScanTag', use_gui: bool = True):
         """
         Initialize the ScanAnalysis class.
 
