@@ -5,6 +5,7 @@ General camera image analyzer.
 Child to ScanAnalysis (./scan_analysis/base.py)
 """
 # %% imports
+from __future__ import annotations
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Tuple, Optional
