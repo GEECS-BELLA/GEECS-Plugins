@@ -101,7 +101,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         # call super function and pass blue diode coords
         super().create_image_array(avg_images, ref_coords=diode_coords, plot_scale=plot_scale)
 
-    def image_preprocessing(self, image, analysis_settings=None):
+    def image_processing(self, image, analysis_settings=None):
 
         if analysis_settings is None:
             analysis_settings = self.camera_analysis_settings
@@ -110,28 +110,11 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         processed_image = self.apply_cross_mask(image,
                                                 analysis_settings=analysis_settings)
 
+        # apply basic image processing from super()
+        processed_image = super().image_processing(processed_image,
+                                                   analysis_settings=analysis_settings)
+
         return processed_image
-
-    def perform_bulk_image_analysis(self, binned_data,
-                                    flag_save=None, analysis_settings=None):
-
-        # set defaults
-        if flag_save is None:
-            flag_save = self.flag_save_images
-        if analysis_settings is None:
-            analysis_settings = self.camera_analysis_settings
-
-        # perform preprocessing of image
-        for bin_key, bin_item in binned_data.items():
-
-            # perform basic image processing (cross removal)
-            binned_data[bin_key]['image'] = self.image_preprocessing(bin_item['image'],
-                                                       analysis_settings=analysis_settings)
-
-        # perform basic image processing
-        binned_data = super().perform_bulk_image_analysis(binned_data)
-
-        return binned_data
 
 # %% executable
 
@@ -142,9 +125,9 @@ def testing_routine():
     # define scan information
     scan = {'year': '2024',
             'month': 'Nov',
-            'day': '19',
-            'num': 15}
-    device_name = "UC_VisaEBeam2"
+            'day': '26',
+            'num': 19}
+    device_name = "UC_VisaEBeam1"
 
     # initialize data interface and analysis class
     data_interface = DataInterface()
