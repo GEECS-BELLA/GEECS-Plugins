@@ -2,9 +2,8 @@
 Class containing common functionality and requirements available for all scan analyzers
 """
 # %% imports
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
-    from typing import Tuple, Optional
     from geecs_python_api.controls.api_defs import ScanTag
 from pathlib import Path
 import logging
@@ -132,7 +131,7 @@ class ScanAnalysis:
             step = self.total_shots // max_labels
             return np.arange(1, self.total_shots + 1, step)
 
-    def find_scan_param_column(self) -> Tuple[Optional[str], Optional[str]]:
+    def find_scan_param_column(self) -> tuple[Optional[str], Optional[str]]:
         """
         Find the column in the auxiliary data corresponding to the scan parameter.
         The method strips unnecessary characters (e.g., quotes) and handles cases where an alias is present.
