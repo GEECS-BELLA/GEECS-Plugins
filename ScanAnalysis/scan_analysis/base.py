@@ -2,12 +2,17 @@
 Class containing common functionality and requirements available for all scan analyzers
 """
 # %% imports
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Tuple, Optional
+    from geecs_python_api.controls.api_defs import ScanTag
 from pathlib import Path
 import logging
 import configparser
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 # %% classes
 class ScanAnalysis:
@@ -23,16 +28,15 @@ class ScanAnalysis:
         bins (np.ndarray): Bin numbers for the data, extracted from the auxiliary file.
         auxiliary_data (pd.DataFrame): DataFrame containing auxiliary scan data.
     """
-    def __init__(self, scan_directory, use_gui = True, experiment_dir = "Undulator"):
-
+    def __init__(self, scan_tag: ScanTag, use_gui: bool = True):
         """
         Initialize the ScanAnalysis class.
 
         Args:
-            scan_directory (str or Path): Path to the scan directory containing data.
+            scan_tag (ScanTag): NamedTuple containing the scan's experiment, date, and scan number
         """
-        self.scan_directory = Path(scan_directory)
-        self.experiment_dir = experiment_dir
+        self.scan_directory = ScanData.build_scan_folder_path(tag=scan_tag)
+        self.experiment_dir = scan_tag.experiment
         self.auxiliary_file_path = self.scan_directory / f"ScanData{self.scan_directory.name}.txt"
         self.ini_file_path = self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
         self.noscan = False
@@ -40,7 +44,7 @@ class ScanAnalysis:
 
         try:
             # Extract the scan parameter
-            self.scan_parameter = self.extract_scan_parameter_from_ini(self.ini_file_path)
+            self.scan_parameter = self.extract_scan_parameter_from_ini()
 
             logging.info(f"Scan parameter is: {self.scan_parameter}.")
             s_param = self.scan_parameter.lower()
@@ -58,24 +62,21 @@ class ScanAnalysis:
             self.total_shots = len(self.auxiliary_data)
 
         except FileNotFoundError as e:
-            logging.warining(f"Warning: {e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
+            logging.warning(f"Warning: {e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
             return
 
-    def analyze_scan(self):  #TODO add Scantag as argument (maybe config for options??)
+    def run_analysis(self, config_options: Optional[str] = None):
         raise NotImplementedError
 
-    def extract_scan_parameter_from_ini(self, ini_file_path):
+    def extract_scan_parameter_from_ini(self) -> str:
         """
         Extract the scan parameter from the .ini file.
-
-        Args:
-            ini_file_path (Path): Path to the .ini file.
 
         Returns:
             str: The scan parameter with colons replaced by spaces.
         """
         config = configparser.ConfigParser()
-        config.read(ini_file_path)
+        config.read(self.ini_file_path)
         cleaned_scan_parameter = config['Scan Info']['Scan Parameter'].strip().replace(':', ' ').replace('"', '')
         return cleaned_scan_parameter
 
@@ -93,7 +94,7 @@ class ScanAnalysis:
 
             if not self.noscan:
                 # Find the scan parameter column and calculate the binned values
-                scan_param_column = self.find_scan_param_column(auxiliary_data)[0]
+                scan_param_column = self.find_scan_param_column()[0]
                 binned_param_values = auxiliary_data.groupby('Bin #')[scan_param_column].mean().values
 
                 return bins, auxiliary_data, binned_param_values
@@ -112,7 +113,7 @@ class ScanAnalysis:
         else:
             plt.close('all')  # Ensure plots close when not using the GUI
 
-    def generate_limited_shotnumber_labels(self, total_shots, max_labels=20):
+    def generate_limited_shotnumber_labels(self, max_labels: int = 20) -> np.ndarray:
         """
         Generate a list of shot number labels with a maximum of `max_labels`.
 
@@ -123,15 +124,15 @@ class ScanAnalysis:
         Returns:
             np.ndarray: Array of shot numbers, spaced out if necessary.
         """
-        if total_shots <= max_labels:
+        if self.total_shots <= max_labels:
             # If the number of shots is less than or equal to max_labels, return the full range
-            return np.arange(1, total_shots + 1)
+            return np.arange(1, self.total_shots + 1)
         else:
             # Otherwise, return a spaced-out array with at most max_labels
-            step = total_shots // max_labels
-            return np.arange(1, total_shots + 1, step)
+            step = self.total_shots // max_labels
+            return np.arange(1, self.total_shots + 1, step)
 
-    def find_scan_param_column(self, auxiliary_data):
+    def find_scan_param_column(self) -> Tuple[Optional[str], Optional[str]]:
         """
         Find the column in the auxiliary data corresponding to the scan parameter.
         The method strips unnecessary characters (e.g., quotes) and handles cases where an alias is present.
@@ -144,13 +145,15 @@ class ScanAnalysis:
 
         if not self.noscan:
             # Search for the first column that contains the cleaned scan parameter string
-            for column in auxiliary_data.columns:
+            for column in self.auxiliary_data.columns:
                 # Match the part of the column before 'Alias:'
                 if self.scan_parameter in column.split(' Alias:')[0]:
                     # Return the column and the alias if present
                     return column, column.split('Alias:')[-1].strip() if 'Alias:' in column else column
 
             logging.warning(f"Warning: Could not find column containing scan parameter: {self.scan_parameter}")
+            return None, None
+        else:
             return None, None
 
 # %% executable
