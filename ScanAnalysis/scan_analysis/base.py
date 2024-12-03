@@ -28,12 +28,13 @@ class ScanAnalysis:
         bins (np.ndarray): Bin numbers for the data, extracted from the auxiliary file.
         auxiliary_data (pd.DataFrame): DataFrame containing auxiliary scan data.
     """
-    def __init__(self, scan_tag: 'ScanTag', use_gui: bool = True):
+    def __init__(self, scan_tag: 'ScanTag', device_name: Optional[str] = None, use_gui: bool = True):
         """
         Initialize the ScanAnalysis class.
 
         Args:
             scan_tag (ScanTag): NamedTuple containing the scan's experiment, date, and scan number
+            device_name (Optional[str]): An optional string to specify which device the analyzer should analyze
             use_gui (bool): Flag to ultimately try plt.show() or not.  # TODO make a more clearer name?
         """
         self.scan_directory = ScanData.build_scan_folder_path(tag=scan_tag)
@@ -41,6 +42,9 @@ class ScanAnalysis:
         self.auxiliary_file_path = self.scan_directory / f"ScanData{self.scan_directory.name}.txt"
         self.ini_file_path = self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
         self.noscan = False
+
+        self.device_name = device_name
+
         self.use_gui = use_gui
 
         self.bins = None

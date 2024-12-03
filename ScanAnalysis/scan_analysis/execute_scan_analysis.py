@@ -1,12 +1,9 @@
 """
-Module containing the mapping of specific analyzers to their respective classes.  Gives an analyze command to the
+Module containing the mapping of specific analyzers to their respective classes.  Gives an analysis command to the
 specified analyzer with the scan folder location
 """
-
-# TODO Add in type hinting for the analyzers
-
 from typing import List, NamedTuple, Type, Optional
-from .base import ScanAnalysis
+from scan_analysis.base import ScanAnalysis
 from geecs_python_api.controls.api_defs import ScanTag
 
 from scan_analysis.analyzers.Undulator.CameraImageAnalysis import CameraImageAnalysis
@@ -21,7 +18,7 @@ class AnalyzerSetup(NamedTuple):
 
 
 ANALYSIS_DICT = {
-    'MagSpec': AnalyzerSetup(analyzer=MagSpecStitcherAnalysis),
+    'MagSpec': AnalyzerSetup(analyzer=MagSpecStitcherAnalysis, device_name='U_BCaveMagSpec'),
     'VISAEBeam': AnalyzerSetup(analyzer=VisaEBeamAnalysis),
     'Aline3': AnalyzerSetup(analyzer=CameraImageAnalysis, device_name='UC_ALineEBeam3')
 }
@@ -32,14 +29,17 @@ def analyze_scan(tag: ScanTag, analyzer_list: List[str]):
         if analyzer_name not in ANALYSIS_DICT:
             print(f"Error:  '{analyzer_name}' not defined in analysis_dict within execute_scan_analysis.py")
         else:
-            analyzer_class = ANALYSIS_DICT.get(analyzer_name).analyzer
-            analyzer = analyzer_class()
+            analyzer_info = ANALYSIS_DICT.get(analyzer_name)
+            analyzer_class = analyzer_info.analyzer
+            analyzer = analyzer_class(scan_tag=tag, device_name=analyzer_info.device_name, use_gui=True)
+            analyzer.run_analysis(config_options=analyzer_info.config_file)
 
 
 if __name__ == '__main__':
-    print("test")
     # Given scan tag and string for analysis:
+    test_tag = ScanTag(year=2024, month=11, day=5, number=5, experiment='Undulator')
+    test_analyzer = 'MagSpec'
 
-    # Convert string to analysis class
-
-    # Call analysis with scan tag
+    # Convert string to analysis class and call analysis with scan tag
+    analyze_scan(test_tag, [test_analyzer])
+    print("Done")

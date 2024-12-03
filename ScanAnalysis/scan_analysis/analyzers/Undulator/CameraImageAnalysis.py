@@ -38,14 +38,14 @@ class CameraImageAnalysis(ScanAnalysis):
             flag_logging (bool): Flag that sets if error and warning messages are displayed
             flag_save_images (bool): Flag that sets if images are saved to disk
         """
-        super().__init__(scan_tag, use_gui=use_gui)  # Pass use_gui to the parent class
+        if device_name is None:
+            raise ValueError(f"CameraImageAnalysis requires a device_name to be specified.")
+
+        super().__init__(scan_tag, device_name=device_name, use_gui=use_gui)  # Pass use_gui to the parent class
 
         # define flags
         self.flag_logging = flag_logging
         self.flag_save_images = flag_save_images
-
-        # organize analysis parameters
-        self.device_name = device_name
 
         # organize various paths
         self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
