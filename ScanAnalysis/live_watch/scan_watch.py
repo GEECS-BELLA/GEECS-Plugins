@@ -44,12 +44,12 @@ logger = logging.getLogger("scan_analyzer")
 class AnalysisFolderEventHandler(FileSystemEventHandler):
     s_filename_regex = re.compile(r"s(?P<scan_number>\d+).txt")  # TODO fix duplicate definition in ScanWatch
 
-    def __init__(self, scan_watch_queue, experiment_name):
+    def __init__(self, scan_watch_queue, experiment_name) -> None:
         super().__init__()
         self.queue: Queue = scan_watch_queue
         self.experiment = experiment_name
 
-    def on_created(self, event: Union[DirCreatedEvent, FileCreatedEvent]):
+    def on_created(self, event: Union[DirCreatedEvent, FileCreatedEvent]) -> None:
         # ignore new directories
         if event.is_directory:
             return
@@ -67,10 +67,9 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
                                     scan_number, experiment_name=self.experiment)
         self.queue.put(tag)
 
-
 class ScanWatch:
     def __init__(self, experiment_name: str, year, month, day,
-                 ignore_list=None, overwrite_previous=False):
+                 ignore_list=None, overwrite_previous=False) -> None:
         """
         Parameters
         ----------
@@ -79,7 +78,9 @@ class ScanWatch:
         scan_analyzer : Optional[ScanAnalyzer]
             use an existing ScanAnalyzer instance, or (default) create a new one.
         """
-        self.tag = ScanData.get_scan_tag(year, month, day, number=0, experiment_name=experiment_name)
+        self.tag = ScanData.get_scan_tag(year, month, day,
+                                         number=0,
+                                         experiment_name=experiment_name)
         self.watch_folder = ScanData.build_scan_folder_path(tag=self.tag).parents[1] / "analysis"
 
         self.analysis_queue = Queue()
@@ -92,12 +93,14 @@ class ScanWatch:
             self._read_processed_list()
 
         self.observer = PollingObserver()
-        self.observer.schedule(AnalysisFolderEventHandler(self.analysis_queue, experiment_name), str(self.watch_folder))
+        self.observer.schedule(AnalysisFolderEventHandler(self.analysis_queue,
+                                                          experiment_name),
+                               str(self.watch_folder))
 
         # Initial check of scan folder
         self.initial_search_of_watch_folder()
 
-    def _check_watch_folder_exists(self, watch_folder_not_exist: str = 'raise'):
+    def _check_watch_folder_exists(self, watch_folder_not_exist: str = 'raise') -> None:
         """
         Check if the watch folder exists, and take action if it doesn't.
         
@@ -131,7 +134,7 @@ class ScanWatch:
             else:
                 raise ValueError(f"Unknown value for watch_folder_not_exist: {watch_folder_not_exist}")
 
-    def start(self, watch_folder_not_exist: str = 'raise'):
+    def start(self, watch_folder_not_exist: str = 'raise') -> None:
         """
         Parameters
         ----------
@@ -151,11 +154,11 @@ class ScanWatch:
         self.observer.start()
         logger.info(f"Started watching folder {self.watch_folder} for sXX.txt files.")
 
-    def stop(self):
+    def stop(self) -> None:
         self.observer.stop()
         self.observer.join()
 
-    def process_queue(self):
+    def process_queue(self) -> None:
         if self.analysis_queue.empty():
             return
 
