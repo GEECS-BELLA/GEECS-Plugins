@@ -805,10 +805,6 @@ class ScanManager:
 
             # Step 7: Process and rename data files
             self.scan_data_manager.process_and_rename()
-            
-
-        # # Perform post-scan analysis
-        # self.run_post_analysis()
 
         # Step 8: Stop the console logging
         self.console_logger.stop_logging()
@@ -1249,36 +1245,6 @@ class ScanManager:
 
         logging.info("All devices restored to their initial states.")
 
-    # def run_post_analysis(self):
-    #     for device_name, analysis_config in self.device_manager.device_analysis.items():
-    #         post_analysis_class_name = analysis_config.get('post_analysis_class')
-    #         if post_analysis_class_name:
-    #             try:
-    #                 # Dynamically load and run the analysis class
-    #                 module_and_class = ANALYSIS_CLASS_MAPPING.get(post_analysis_class_name)
-    #                 if module_and_class:
-    #                     module_name, class_name = module_and_class.rsplit('.', 1)
-    #                     logging.info(f'module name {module_name}')
-    #                     module = importlib.import_module(module_name)
-    #                     analysis_class = getattr(module, class_name)
-    #                     logging.info(f'analysis_class {analysis_class}')
-    #                     full_scan_path = self.data_interface.build_device_save_paths('device_name')
-    #                     paths = self.data_interface.build_device_save_paths(device_name)
-    #                     full_scan_path = paths[1].parent
-    #                     analysis_instance = analysis_class(scan_directory=full_scan_path,
-    #                                                        # data_subdirectory=device_name)
-    #                                                        device_name=device_name)
-    #                                                        #########
-    #                                                        #########
-    #                                                        # hardcoded above for testing
-    #                                                        #########
-    #                                                        #########
-    #                     logging.info(f"Running post-analysis for {device_name} using {post_analysis_class_name}.")
-    #                     analysis_instance.run_analysis()
-    #                 else:
-    #                     logging.error(f"Post-analysis class '{post_analysis_class_name}' not found in mapping.")
-    #             except Exception as e:
-    #                 logging.error(f"Error during post-analysis for {device_name}: {e}")
 
 
 if __name__ == '__main__':
