@@ -14,7 +14,7 @@ def analyze_scan(tag: 'ScanTag', analyzer_list: list['AnalyzerInfo'], debug_mode
         print(tag, ":", analyzer_info.analyzer_class.__name__, device)
         if not debug_mode:
             analyzer_class = analyzer_info.analyzer_class
-            analyzer = analyzer_class(scan_tag=tag, device_name=analyzer_info.device_name, use_gui=True)
+            analyzer = analyzer_class(scan_tag=tag, device_name=analyzer_info.device_name, skip_plt_show=True)
             index_of_files = analyzer.run_analysis(config_options=analyzer_info.config_file)
 
             if index_of_files:  # TODO And if a Google doc procedure is defined for the given experiment

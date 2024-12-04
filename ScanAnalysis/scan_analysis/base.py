@@ -48,14 +48,14 @@ class ScanAnalysis:
         bins (np.ndarray): Bin numbers for the data, extracted from the auxiliary file.
         auxiliary_data (pd.DataFrame): DataFrame containing auxiliary scan data.
     """
-    def __init__(self, scan_tag: 'ScanTag', device_name: Optional[str] = None, use_gui: bool = True):
+    def __init__(self, scan_tag: 'ScanTag', device_name: Optional[str] = None, skip_plt_show: bool = True):
         """
         Initialize the ScanAnalysis class.
 
         Args:
             scan_tag (ScanTag): NamedTuple containing the scan's experiment, date, and scan number
             device_name (Optional[str]): An optional string to specify which device the analyzer should analyze
-            use_gui (bool): Flag to ultimately try plt.show() or not.  # TODO make a more clearer name?
+            skip_plt_show (bool): Flag to ultimately try plt.show() or not.
         """
         self.scan_directory = ScanData.build_scan_folder_path(tag=scan_tag)
         self.experiment_dir = scan_tag.experiment
@@ -65,7 +65,7 @@ class ScanAnalysis:
 
         self.device_name = device_name
 
-        self.use_gui = use_gui
+        self.skip_plt_show = skip_plt_show
 
         self.bins = None
         self.auxiliary_data = None
@@ -133,8 +133,8 @@ class ScanAnalysis:
             logging.warning(f"{e}. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping")
 
     def close_or_show_plot(self):
-        """Decide whether to display or close plots based on the use_gui setting."""
-        if not self.use_gui:
+        """Decide whether to display or close plots based on the skip_plt_show setting."""
+        if not self.skip_plt_show:
             plt.show()  # Display for interactive use
         else:
             plt.close('all')  # Ensure plots close when not using the GUI

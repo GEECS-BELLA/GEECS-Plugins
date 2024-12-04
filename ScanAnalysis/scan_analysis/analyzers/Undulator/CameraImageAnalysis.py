@@ -26,7 +26,7 @@ from image_analysis.utils import read_imaq_png_image
 # %% classes
 class CameraImageAnalysis(ScanAnalysis):
 
-    def __init__(self, scan_tag: 'ScanTag', device_name: str, use_gui: bool = True,
+    def __init__(self, scan_tag: 'ScanTag', device_name: str, skip_plt_show: bool = True,
                  flag_logging: bool = True, flag_save_images: bool = True):
         """
         Initialize the CameraImageAnalysis class.
@@ -34,14 +34,14 @@ class CameraImageAnalysis(ScanAnalysis):
         Args:
             scan_tag (ScanTag): Path to the scan directory containing data.
             device_name (str): Name of the device to construct the subdirectory path.
-            use_gui (bool): Flag that sets if matplotlib is tried to use for plotting
+            skip_plt_show (bool): Flag that sets if matplotlib is tried to use for plotting
             flag_logging (bool): Flag that sets if error and warning messages are displayed
             flag_save_images (bool): Flag that sets if images are saved to disk
         """
         if device_name is None:
             raise ValueError(f"CameraImageAnalysis requires a device_name to be specified.")
 
-        super().__init__(scan_tag, device_name=device_name, use_gui=use_gui)  # Pass use_gui to the parent class
+        super().__init__(scan_tag, device_name=device_name, skip_plt_show=skip_plt_show)
 
         # define flags
         self.flag_logging = flag_logging

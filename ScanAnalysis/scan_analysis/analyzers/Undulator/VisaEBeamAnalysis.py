@@ -18,7 +18,7 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 class VisaEBeamAnalysis(CameraImageAnalysis):
 
     def __init__(self, scan_tag: 'ScanTag',
-                 device_name: Optional[str] = None, use_gui: bool = True,
+                 device_name: Optional[str] = None, skip_plt_show: bool = True,
                  flag_logging: bool = True, flag_save_images: bool = True) -> None:
         """
         Initialize the VisaEBeamAnalysis class.
@@ -26,7 +26,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         Args:
             scan_tag (ScanTag): Path to the scan directory containing data.
             device_name (str): Name of the Visa camera.  If not given, automatically detects which one
-            use_gui (bool): Flag that sets if matplotlib is tried to use for plotting
+            skip_plt_show (bool): Flag that sets if matplotlib is tried to use for plotting
             flag_logging (bool): Flag that sets if error and warning messages are displayed
             flag_save_images (bool): Flag that sets if images are saved to disk
         """
@@ -35,7 +35,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         self.device_name = device_name or self.device_autofinder(scan_tag)
 
         # enact parent init
-        super().__init__(scan_tag, self.device_name, use_gui=use_gui,
+        super().__init__(scan_tag, self.device_name, skip_plt_show=skip_plt_show,
                          flag_logging=flag_logging, flag_save_images=flag_save_images)
 
         # redefine save path for this specific analysis
