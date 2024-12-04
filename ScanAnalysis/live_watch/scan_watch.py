@@ -13,7 +13,7 @@ from queue import Queue
 
 from geecs_python_api.analysis.scans.scan_data import ScanData
 from scan_analysis.execute_scan_analysis import analyze_scan
-from devices_to_analysis_mapping import check_for_analysis_match
+from scan_analysis.mapping.scan_evaluator import check_for_analysis_match
 
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
@@ -203,7 +203,7 @@ class ScanWatch:
         """ If there is a match for an analysis routine, perform the respective analysis(es) """
         logger.info(
             f"Starting analysis on scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}")
-        valid_analyzers = check_for_analysis_match(scan_folder)
+        valid_analyzers = check_for_analysis_match(scan_folder=scan_folder, experiment_name=tag.experiment)
 
         try:
             analyze_scan(tag, valid_analyzers, debug_mode=False)

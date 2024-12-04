@@ -1,40 +1,41 @@
-"""
-Here we map analysis classes to combinations of cameras
-"""
+from typing import Optional, Union
 from pathlib import Path
-from typing import Union, List
+from scan_analysis.mapping.map_Undulator import undulator_analyzers
+from scan_analysis.base import AnalyzerInfo
 
-# AND blocks are evaluated true if all the devices exist in a given scan folder
-# OR blocks are evaluated true if at least one of the devices exist
-# AND/OR dict blocks can be written as recursive elements.  See Rad2Spec as an example
-undulator_scan_analyzers = {
-    'MagSpec': {'AND': ['U_BCaveICT', 'U_BCaveMagSpec']},
-    'VISAEBeam': {'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
-                         'UC_VisaEBeam5', 'UC_VisaEBeam6', 'UC_VisaEBeam7', 'UC_VisaEBeam8']},
-    #'Rad2Spec': {'AND': ['U_BCaveICT', 'UC_UndulatorRad2',
-    #                     {'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
-    #                             'UC_VisaEBeam5', 'UC_VisaEBeam6', 'UC_VisaEBeam7', 'UC_VisaEBeam8']}]},
-    'Aline3': {'UC_ALineEBeam3'}
+experiment_to_analyzer_list = {
+    'Undulator': undulator_analyzers,
 }
 
 
-def check_for_analysis_match(scan_folder: Union[Path, str]) -> List[str]:
+def check_for_analysis_match(scan_folder: Union[Path, str], experiment_name: Optional[str] = None,
+                             analyzer_list: Optional[list[AnalyzerInfo]] = None) -> list[AnalyzerInfo]:
     """
     Checks list of potential analyzers against what is actually saved for a given scan
 
     :param scan_folder: scan data folder
+    :param experiment_name: experiment name, to match with a list of analyzers with experiment_to_analyzer_list
+    :param analyzer_list: list of analyzers, as defined in
     :return: List of all analyses that can be performed
     """
+
+    if analyzer_list is None:
+        if experiment_name is None:
+            raise ValueError("Need to provide list of analyzers or give an experiment name to map to.")
+        if experiment_name not in experiment_to_analyzer_list:
+            raise ValueError(f"'{experiment_name}' not implemented with analyzer list.")
+        analyzer_list = experiment_to_analyzer_list[experiment_name]
+
     scan_folder = Path(scan_folder)
     saved_devices = get_available_directories(scan_folder)
     valid_analyzers = []
-    for analyzer in undulator_scan_analyzers:
-        if evaluate_condition(undulator_scan_analyzers[analyzer], saved_devices):
-            valid_analyzers.append(analyzer)
+    for analyzer_info in analyzer_list:
+        if evaluate_condition(analyzer_info.requirements, saved_devices):
+            valid_analyzers.append(analyzer_info)
     return valid_analyzers
 
 
-def evaluate_condition(condition: Union[dict[str, list], set, str], saved_devices: List[str]) -> bool:
+def evaluate_condition(condition: Union[dict[str, list], set, str], saved_devices: list[str]) -> bool:
     """
     Recursive function to evaluate the conditions defined in `undulator_scan_analyzers` for the given list of devices
 
@@ -53,10 +54,10 @@ def evaluate_condition(condition: Union[dict[str, list], set, str], saved_device
             evaluate_condition(cond, saved_devices) if isinstance(cond, dict) else cond in saved_devices
             for cond in or_conditions)
     else:
-        return all(dir in saved_devices for dir in condition)
+        return all(directory in saved_devices for directory in condition)
 
 
-def get_available_directories(root: Path) -> List[str]:
+def get_available_directories(root: Path) -> list[str]:
     """
     :param root:  Path of scan folder
     :return: All folder names in root path, which correspond to saved devices for that scan
@@ -69,22 +70,28 @@ def get_available_directories(root: Path) -> List[str]:
 
 
 if __name__ == '__main__':
+    exp = 'Undulator'
+
     print("Scan 21 should just be the VISA, Rad2")
     folder = "Z:\\data\\Undulator\\Y2024\\11-Nov\\24_1105\\scans\\Scan021"
-    results = check_for_analysis_match(folder)
-    print(results)
+    results = check_for_analysis_match(folder, exp)
+    for a in results:
+        print(a.analyzer_class.__name__, a.device_name)
 
     print("Scan 7 should just be the Mag Spec")
     folder = "Z:\\data\\Undulator\\Y2024\\11-Nov\\24_1105\\scans\\Scan007"
-    results = check_for_analysis_match(folder)
-    print(results)
+    results = check_for_analysis_match(folder, exp)
+    for a in results:
+        print(a.analyzer_class.__name__, a.device_name)
 
     print("Scan 12 should just be the ALine3")
     folder = "Z:\\data\\Undulator\\Y2024\\11-Nov\\24_1105\\scans\\Scan012"
-    results = check_for_analysis_match(folder)
-    print(results)
+    results = check_for_analysis_match(folder, exp)
+    for a in results:
+        print(a.analyzer_class.__name__, a.device_name)
 
     print("Previously using Master Control, nearly all would be flagged every time")
     folder = "Z:\\data\\Undulator\\Y2024\\06-Jun\\24_0606\\scans\\Scan003"
-    results = check_for_analysis_match(folder)
-    print(results)
+    results = check_for_analysis_match(folder, exp)
+    for a in results:
+        print(a.analyzer_class.__name__, a.device_name)

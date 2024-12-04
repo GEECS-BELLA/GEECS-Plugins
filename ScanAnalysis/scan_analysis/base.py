@@ -1,8 +1,21 @@
 """
-Class containing common functionality and requirements available for all scan analyzers
+Classes containing common functionality and requirements available for all scan analyzers.  ScanAnalysis is the parent
+class for all implementing analyzers and the main requirements are to satisfy the initialization and `run_analysis()`.
+
+------------------------------------------------------------------------------------------------------------------------
+
+For the "requirements" block of AnalyzerInfo to be compatible with `scan_evaluator.py`, follow these guidelines and see
+`map_Undulator` as an example.
+
+# Either a dictionary element of 'AND' or 'OR' followed by a list of devices.
+# Alternatively, just a set/list of devices will suffice.
+
+# AND blocks are evaluated true if all the devices exist in a given scan folder
+# OR blocks are evaluated true if at least one of the devices exist
+# AND/OR dict blocks can be written as recursive elements.
 """
 # %% imports
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
 from pathlib import Path
@@ -15,6 +28,13 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 
 
 # %% classes
+class AnalyzerInfo(NamedTuple):
+    analyzer_class: Type['ScanAnalysis']
+    requirements: Union[dict[str, list], set, str]
+    device_name: Optional[str] = None
+    config_file: Optional[str] = None
+
+
 class ScanAnalysis:
     """
     Base class for performing analysis on scan data. Handles loading auxiliary data and extracting
