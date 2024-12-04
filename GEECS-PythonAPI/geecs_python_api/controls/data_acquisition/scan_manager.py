@@ -58,7 +58,6 @@ class ScanDataManager:
     
     DEPENDENT_SUFFIXES = ["-interp", "-interpSpec", "-interpDiv"]
     
-
     def __init__(self, device_manager, scan_data):
         """
         Initialize the ScanDataManager with references to the ScanData and DeviceManager.
@@ -73,8 +72,9 @@ class ScanDataManager:
         self.data_txt_path = None
         self.data_h5_path = None
         self.sFile_txt_path = None
-        self.parsed_scan_string = None
-        self.scan_number_int = None
+        self.scan_number_int = self.scan_data.get_tag().number
+        self.parsed_scan_string = f"Scan{self.scan_number_int:03}"
+        
     
     def create_and_set_data_paths(self):
         """
@@ -372,10 +372,9 @@ class ScanDataManager:
         timestamp extraction method is used based on the device type.
 
         Args:
-            scan_number (int, optional): Specific scan number to process. If None, uses `next_scan_folder`.
+            scan_number (int, optional): Specific scan number to process. If None, uses scan number from self.scan_number_int.
         """
-        # scan_number_str = f'Scan{scan_number:03d}' if scan_number is not None else self.next_scan_folder
-        # base = self.local_scan_dir_base
+        
         directory_path = self.scan_data.get_folder()
 
         logging.info(f"Processing scan folder: {directory_path}")
@@ -386,8 +385,12 @@ class ScanDataManager:
         ]
         
         # Load scan data
-        scan_num = self.scan_number_int
-        # sPath = Path(self.local_analysis_dir_base / f's{scan_num}.txt')
+        if self.scan_number_int is not None:
+            scan_num = self.scan_number_int
+        else:
+            scan_num = scan_number
+            
+        scan_folder_string = f"Scan{scan_num:03}"
         sPath = self.scan_data.get_analysis_folder().parent / f's{scan_num}.txt'
         
         logging.info(f"Loading scan data from: {sPath}")
@@ -404,7 +407,7 @@ class ScanDataManager:
         
         # Process each device directory concurrently using threads
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(self.process_device_files, device_dir, df, self.parsed_scan_string) for device_dir in device_directories]
+            futures = [executor.submit(self.process_device_files, device_dir, df, scan_folder_string) for device_dir in device_directories]
             for future in concurrent.futures.as_completed(futures):
                 try:
                     future.result()
@@ -426,7 +429,8 @@ class ScanDataManager:
 
         # Collect and match files with timestamps
         device_files = list(device_dir.glob("*"))
-        matched_rows = self.process_and_match_files(device_files, df, device_name, device_type)
+        device_files_sorted = sorted(device_files, key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
+        matched_rows = self.process_and_match_files(device_files_sorted, df, device_name, device_type)
 
         # Rename master and dependent files
         self.rename_files(matched_rows, scan_number, device_name)
@@ -485,17 +489,19 @@ class ScanDataManager:
             if dependent_dir.exists() and dependent_dir.is_dir():
                 logging.info(f"Processing dependent directory: {dependent_dir}")
                 dependent_files = list(dependent_dir.glob("*"))
-                self.rename_files_in_dependent_directory(dependent_files, matched_rows, scan_number, suffix)
+                dependent_files_sorted = sorted(dependent_files, key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
+                
+                self.rename_files_in_dependent_directory(dependent_files_sorted, matched_rows, scan_number, device_name, suffix)
 
-    def rename_files_in_dependent_directory(self, dependent_files, matched_rows, scan_number, suffix):
+    def rename_files_in_dependent_directory(self, dependent_files, matched_rows, scan_number, device_name, suffix):
         """
         Rename dependent files based on matched rows from the master directory.
         """
+        
         for i, (master_file, row_index) in enumerate(matched_rows):
             if i < len(dependent_files):
                 dependent_file = dependent_files[i]
-                master_new_name = re.sub(r'_\d+$', '', master_file.stem)  # Remove trailing number
-                new_name = f"{scan_number}_{master_new_name}{suffix}_{str(row_index + 1).zfill(3)}{dependent_file.suffix}"
+                new_name = f"{scan_number}_{device_name}{suffix}_{str(row_index + 1).zfill(3)}{dependent_file.suffix}"
                 new_path = dependent_file.parent / new_name
                 dependent_file.rename(new_path)
                 logging.info(f"Renamed {dependent_file} to {new_path}")
