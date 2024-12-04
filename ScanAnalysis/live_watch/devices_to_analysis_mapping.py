@@ -11,9 +11,9 @@ undulator_scan_analyzers = {
     'MagSpec': {'AND': ['U_BCaveICT', 'U_BCaveMagSpec']},
     'VISAEBeam': {'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
                          'UC_VisaEBeam5', 'UC_VisaEBeam6', 'UC_VisaEBeam7', 'UC_VisaEBeam8']},
-    'Rad2Spec': {'AND': ['U_BCaveICT', 'UC_UndulatorRad2',
-                         {'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
-                                 'UC_VisaEBeam5', 'UC_VisaEBeam6', 'UC_VisaEBeam7', 'UC_VisaEBeam8']}]},
+    #'Rad2Spec': {'AND': ['U_BCaveICT', 'UC_UndulatorRad2',
+    #                     {'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
+    #                             'UC_VisaEBeam5', 'UC_VisaEBeam6', 'UC_VisaEBeam7', 'UC_VisaEBeam8']}]},
     'Aline3': {'UC_ALineEBeam3'}
 }
 
