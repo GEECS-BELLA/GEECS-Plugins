@@ -206,7 +206,7 @@ class ScanWatch:
         valid_analyzers = check_for_analysis_match(scan_folder)
 
         try:
-            analyze_scan(tag, valid_analyzers, debug_mode=True)
+            analyze_scan(tag, valid_analyzers, debug_mode=False)
         except Exception as err:
             logger.error(f"Error in analyze_scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}): {err}")
 
@@ -273,7 +273,7 @@ if __name__ == '__main__':
     exp = 'Undulator'
     test_year = 2024
     test_month = 11
-    test_day = 5
+    test_day = 26
 
     scan_watch = ScanWatch(experiment_name=exp, year=test_year, month=test_month, day=test_day)
     print("Starting...")
