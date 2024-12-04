@@ -397,9 +397,13 @@ class ScanDataManager:
         except FileNotFoundError:
             logging.error(f"Scan data file {sPath} not found.")
             return
-
+        
+        
+        logical_cpus = os.cpu_count()
+        max_workers = logical_cpus * 2  # Adjust multiplier based on your workload
+        
         # Process each device directory concurrently using threads
-        with concurrent.futures.ThreadPoolExecutor() as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(self.process_device_files, device_dir, df, self.parsed_scan_string) for device_dir in device_directories]
             for future in concurrent.futures.as_completed(futures):
                 try:
@@ -497,7 +501,7 @@ class ScanDataManager:
                 logging.info(f"Renamed {dependent_file} to {new_path}")
             else:
                 logging.warning(f"Not enough files in dependent directory to match {master_file}")
-
+    
     def rename_files(self, matched_rows, scan_number, device_name):
         """
         Rename master files based on scan number, device name, and matched row index.
@@ -506,11 +510,10 @@ class ScanDataManager:
             row_number = str(row_index + 1).zfill(3)
             new_file_name = f"{scan_number}_{device_name}_{row_number}{file_path.suffix}"
             new_file_path = file_path.parent / new_file_name
-            if not new_file_path.exists():
+        
+            if not new_file_path.exists():  # Check if the target file already exists
                 logging.info(f"Renaming {file_path} to {new_file_path}")
-                os.rename(file_path, new_file_path)
-            else:
-                logging.warning(f"File {new_file_path} already exists. Skipping.")
+                file_path.rename(new_file_path)  # Use Path.rename instead of os.rename
 
 class ScanManager:
     """
