@@ -361,17 +361,17 @@ class ScanDataManager:
         log_df = log_df.infer_objects(copy=False)
         logging.info(f"Filled remaining NaN and empty values with {fill_value}.")
         return log_df
-
-    def process_and_rename(self, scan_number=None):
+    
+    def process_and_rename(self, scan_number: Optional[int] = None) -> None:
         """
         Process the device directories and rename files based on timestamps and scan data.
         The device type is dynamically determined from the directory name, and the appropriate
         timestamp extraction method is used based on the device type.
 
         Args:
-            scan_number (int, optional): Specific scan number to process. If None, uses scan number from self.scan_number_int.
+            scan_number (Optional[int]): Specific scan number to process. If None, uses 
+                the scan number from `self.scan_number_int`.
         """
-        
         directory_path = self.scan_data.get_folder()
 
         logging.info(f"Processing scan folder: {directory_path}")
@@ -380,16 +380,16 @@ class ScanDataManager:
         device_directories = [
             d for d in directory_path.iterdir() if d.is_dir() and not any(d.name.endswith(suffix) for suffix in self.DEPENDENT_SUFFIXES)
         ]
-        
+
         # Load scan data
-        if self.scan_number_int is not None:
-            scan_num = self.scan_number_int
-        else:
-            scan_num = scan_number
-            
+        scan_num = self.scan_number_int if self.scan_number_int is not None else scan_number
+        if scan_num is None:
+            logging.error("Scan number is not provided.")
+            return
+
         scan_folder_string = f"Scan{scan_num:03}"
         sPath = self.scan_data.get_analysis_folder().parent / f's{scan_num}.txt'
-        
+
         logging.info(f"Loading scan data from: {sPath}")
 
         try:
@@ -397,11 +397,9 @@ class ScanDataManager:
         except FileNotFoundError:
             logging.error(f"Scan data file {sPath} not found.")
             return
-        
-        
-        logical_cpus = os.cpu_count()
-        max_workers = logical_cpus * 2  # Adjust multiplier based on your workload
-        
+
+        max_workers = os.cpu_count() * 2  # Adjust multiplier based on your workload
+
         # Process each device directory concurrently using threads
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(self.process_device_files, device_dir, df, scan_folder_string) for device_dir in device_directories]
@@ -411,9 +409,14 @@ class ScanDataManager:
                 except Exception as e:
                     logging.error(f"Error during file processing: {e}")
 
-    def process_device_files(self, device_dir, df, scan_number):
+    def process_device_files(self, device_dir: Path, df: pd.DataFrame, scan_number: str) -> None:
         """
         Generic method to process device files and rename them based on timestamps.
+
+        Args:
+            device_dir (Path): Path to the device directory.
+            df (pd.DataFrame): DataFrame containing scan data.
+            scan_number (str): Scan number in string format (e.g., 'Scan001').
         """
         device_name = device_dir.name
         logging.info(f"Processing device directory: {device_name}")
@@ -425,17 +428,27 @@ class ScanDataManager:
             return
 
         # Collect and match files with timestamps
-        device_files = list(device_dir.glob("*"))
-        device_files_sorted = sorted(device_files, key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
-        matched_rows = self.process_and_match_files(device_files_sorted, df, device_name, device_type)
+        device_files = sorted(device_dir.glob("*"), key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
+        matched_rows = self.process_and_match_files(device_files, df, device_name, device_type)
 
         # Rename master and dependent files
         self.rename_files(matched_rows, scan_number, device_name)
         self.process_dependent_directories(device_name, device_dir, matched_rows, scan_number)
 
-    def process_and_match_files(self, device_files, df, device_name, device_type):
+    def process_and_match_files(
+        self, device_files: List[Path], df: pd.DataFrame, device_name: str, device_type: str
+    ) -> List[Tuple[Path, int]]:
         """
         Match device files with timestamps from the DataFrame.
+
+        Args:
+            device_files (List[Path]): List of device files to process.
+            df (pd.DataFrame): DataFrame containing scan data.
+            device_name (str): Name of the device.
+            device_type (str): Type of the device.
+
+        Returns:
+            List[Tuple[Path, int]]: List of matched files and their corresponding row indices.
         """
         matched_rows = []
         device_timestamp_column = f'{device_name} timestamp'
@@ -443,7 +456,7 @@ class ScanDataManager:
         if device_timestamp_column not in df.columns:
             logging.warning(f"No matching timestamp column for {device_name} in scan data.")
             return matched_rows
-        
+
         tolerance = 1
         rounded_df_timestamps = df[device_timestamp_column].round(tolerance)
         for device_file in device_files:
@@ -461,15 +474,22 @@ class ScanDataManager:
 
         return matched_rows
 
-    def extract_timestamp_from_file(self, device_file, device_type):
+    def extract_timestamp_from_file(self, device_file: Path, device_type: str) -> float:
         """
         Extract timestamp from a device file based on its type.
+
+        Args:
+            device_file (Path): Path to the device file.
+            device_type (str): Type of the device.
+
+        Returns:
+            float: Extracted timestamp.
         """
         device_map = {
             "Point Grey Camera": get_imaq_timestamp_from_png,
             "MagSpecCamera": get_imaq_timestamp_from_png,
             "PicoscopeV2": get_picoscopeV2_timestamp,
-            "MagSpecStitcher": get_magspecstitcher_timestamp
+            "MagSpecStitcher": get_magspecstitcher_timestamp,
         }
 
         if device_type in device_map:
@@ -477,24 +497,38 @@ class ScanDataManager:
         else:
             raise ValueError(f"Unsupported device type: {device_type}")
 
-    def process_dependent_directories(self, device_name, device_dir, matched_rows, scan_number):
+    def process_dependent_directories(
+        self, device_name: str, device_dir: Path, matched_rows: List[Tuple[Path, int]], scan_number: str
+    ) -> None:
         """
         Process and rename files in dependent directories.
+
+        Args:
+            device_name (str): Name of the device.
+            device_dir (Path): Path to the master device directory.
+            matched_rows (List[Tuple[Path, int]]): List of matched master files and their indices.
+            scan_number (str): Scan number in string format (e.g., 'Scan001').
         """
         for suffix in self.DEPENDENT_SUFFIXES:
             dependent_dir = device_dir.parent / f"{device_name}{suffix}"
             if dependent_dir.exists() and dependent_dir.is_dir():
                 logging.info(f"Processing dependent directory: {dependent_dir}")
-                dependent_files = list(dependent_dir.glob("*"))
-                dependent_files_sorted = sorted(dependent_files, key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
-                
-                self.rename_files_in_dependent_directory(dependent_files_sorted, matched_rows, scan_number, device_name, suffix)
+                dependent_files = sorted(dependent_dir.glob("*"), key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
+                self.rename_files_in_dependent_directory(dependent_files, matched_rows, scan_number, device_name, suffix)
 
-    def rename_files_in_dependent_directory(self, dependent_files, matched_rows, scan_number, device_name, suffix):
+    def rename_files_in_dependent_directory(
+        self, dependent_files: List[Path], matched_rows: List[Tuple[Path, int]], scan_number: str, device_name: str, suffix: str
+    ) -> None:
         """
         Rename dependent files based on matched rows from the master directory.
+
+        Args:
+            dependent_files (List[Path]): List of dependent files.
+            matched_rows (List[Tuple[Path, int]]): List of matched master files and their indices.
+            scan_number (str): Scan number in string format (e.g., 'Scan001').
+            device_name (str): Name of the device.
+            suffix (str): Suffix for the dependent directory.
         """
-        
         for i, (master_file, row_index) in enumerate(matched_rows):
             if i < len(dependent_files):
                 dependent_file = dependent_files[i]
@@ -504,19 +538,24 @@ class ScanDataManager:
                 logging.info(f"Renamed {dependent_file} to {new_path}")
             else:
                 logging.warning(f"Not enough files in dependent directory to match {master_file}")
-    
-    def rename_files(self, matched_rows, scan_number, device_name):
+
+    def rename_files(self, matched_rows: List[Tuple[Path, int]], scan_number: str, device_name: str) -> None:
         """
         Rename master files based on scan number, device name, and matched row index.
+
+        Args:
+            matched_rows (List[Tuple[Path, int]]): List of matched files and their indices.
+            scan_number (str): Scan number in string format (e.g., 'Scan001').
+            device_name (str): Name of the device.
         """
         for file_path, row_index in matched_rows:
             row_number = str(row_index + 1).zfill(3)
             new_file_name = f"{scan_number}_{device_name}_{row_number}{file_path.suffix}"
             new_file_path = file_path.parent / new_file_name
-        
+
             if not new_file_path.exists():  # Check if the target file already exists
                 logging.info(f"Renaming {file_path} to {new_file_path}")
-                file_path.rename(new_file_path)  # Use Path.rename instead of os.rename
+                file_path.rename(new_file_path)
 
 class ScanManager:
     """
