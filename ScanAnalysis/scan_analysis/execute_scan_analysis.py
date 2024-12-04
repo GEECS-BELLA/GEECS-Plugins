@@ -34,7 +34,11 @@ def analyze_scan(tag: ScanTag, analyzer_list: List[str], debug_mode: bool = Fals
                 analyzer_info = ANALYSIS_DICT.get(analyzer_name)
                 analyzer_class = analyzer_info.analyzer
                 analyzer = analyzer_class(scan_tag=tag, device_name=analyzer_info.device_name, use_gui=True)
-                analyzer.run_analysis(config_options=analyzer_info.config_file)
+                index_of_files = analyzer.run_analysis(config_options=analyzer_info.config_file)
+
+                if index_of_files:  # TODO And if a Google doc procedure is defined for the given experiment
+                    # TODO Append the images to the appropriate location in the daily experiment log on Google
+                    pass
 
 
 if __name__ == '__main__':
