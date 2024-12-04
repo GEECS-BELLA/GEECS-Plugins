@@ -13,6 +13,7 @@ import cv2
 from scan_analysis.analyzers.Undulator.CameraImageAnalysis import CameraImageAnalysis
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
+
 # %% classes
 class VisaEBeamAnalysis(CameraImageAnalysis):
 
@@ -40,7 +41,8 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         # redefine save path for this specific analysis
         self.path_dict['save'] = self.path_dict['save'].parent / "VisaEBeamAnalysis"
 
-    def device_autofinder(self, scan_tag: 'ScanTag') -> str:
+    @staticmethod
+    def device_autofinder(scan_tag: 'ScanTag') -> str:
         """
         Automatically find a compatible device directory.
     
@@ -72,13 +74,9 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         settings = self.camera_analysis_settings
 
         # create crosshair masks
-        mask1 = self.create_cross_mask(image,
-                                       [settings['Cross1'][0],
-                                        settings['Cross1'][1]],
+        mask1 = self.create_cross_mask(image, (settings['Cross1'][0], settings['Cross1'][1]),
                                        settings['Rotate'])
-        mask2 = self.create_cross_mask(image,
-                                       [settings['Cross2'][0],
-                                        settings['Cross2'][1]],
+        mask2 = self.create_cross_mask(image, (settings['Cross2'][0], settings['Cross2'][1]),
                                        settings['Rotate'])
 
         # apply cross mask
@@ -153,6 +151,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
                                       flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=1)
         return rotated_mask
 
+
 # %% executable
 def testing_routine() -> None:
 
@@ -180,6 +179,7 @@ def testing_routine() -> None:
 
     return
 
+
 def new_routine() -> None:
 
     from geecs_python_api.controls.api_defs import ScanTag
@@ -194,6 +194,7 @@ def new_routine() -> None:
     analysis_class.run_analysis()
 
     return
+
 
 if __name__ == "__main__":
     new_routine()
