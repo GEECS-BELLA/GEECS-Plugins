@@ -1,30 +1,27 @@
+# Standard library imports
+import os
+import re
 import time
 import threading
 import logging
-import pandas as pd
+import importlib
 from pathlib import Path
-import os
-import re
-
-import numpy as np
-
-from geecs_python_api.controls.data_acquisition import DeviceManager, ActionManager, DataLogger
-
-from geecs_python_api.controls.data_acquisition.utils import ConsoleLogger
-
-from geecs_python_api.controls.interface import load_config
-from geecs_python_api.controls.interface import GeecsDatabase
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from geecs_python_api.analysis.scans.scan_data import ScanData
-
-from nptdms import TdmsWriter, ChannelObject
-
+from typing import Optional, List, Tuple, Any
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_magspecstitcher_timestamp
+# Third-party library imports
+import pandas as pd
+import numpy as np
+from nptdms import TdmsWriter, ChannelObject
 
-import importlib
+# Internal project imports
+from geecs_python_api.controls.data_acquisition import DeviceManager, ActionManager, DataLogger
+from geecs_python_api.controls.data_acquisition.utils import ConsoleLogger
+from geecs_python_api.controls.interface import load_config, GeecsDatabase
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.analysis.scans.scan_data import ScanData
+from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_magspecstitcher_timestamp
 
 config = load_config()
 
