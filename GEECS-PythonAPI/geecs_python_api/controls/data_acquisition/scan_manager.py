@@ -611,8 +611,8 @@ class ScanManager:
         """
 
         valid_states = {
-            # 'on': 'External rising edges',
-            'on': 'Internal',
+            'on': 'External rising edges',
+            # 'on': 'Internal',
             'off': 'Single shot external rising edges'
         }
         if state in valid_states:
