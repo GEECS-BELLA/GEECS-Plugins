@@ -118,13 +118,23 @@ def get_magspecstitcher_timestamp(fname):
     return timestamp_seconds
 
 def get_picoscopeV2_timestamp(file_path):
-    # Load the TDMS file
-    tdms_file = TdmsFile.read(file_path)
-    
-    # Access the file properties
-    timestamp = tdms_file.properties.get('timestamp', None)
-    
-    return timestamp
+    """
+    Retrieve the 'timestamp' property from a TDMS file efficiently.
+
+    Args:
+        file_path (str or Path): Path to the TDMS file.
+
+    Returns:
+        The timestamp if it exists, or None otherwise.
+    """
+    try:
+        # Open the TDMS file in lazy mode (if supported by the library)
+        with TdmsFile.open(file_path) as tdms_file:
+            return tdms_file.properties.get('timestamp')
+    except Exception as e:
+        # Handle file reading errors
+        print(f"Error reading timestamp from {file_path}: {e}")
+        return None
 
 
 def extract_shot_number(filename):
