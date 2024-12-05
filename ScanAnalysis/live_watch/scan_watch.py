@@ -205,10 +205,7 @@ class ScanWatch:
             f"Starting analysis on scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}")
         valid_analyzers = check_for_analysis_match(scan_folder=scan_folder, experiment_name=tag.experiment)
 
-        try:
-            analyze_scan(tag, valid_analyzers, debug_mode=False)
-        except Exception as err:
-            logger.error(f"Error in analyze_scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}): {err}")
+        analyze_scan(tag, valid_analyzers, debug_mode=False)
 
         self._write_processed_list()
 
@@ -275,7 +272,7 @@ if __name__ == '__main__':
     test_month = 11
     test_day = 26
 
-    scan_watch = ScanWatch(experiment_name=exp, year=test_year, month=test_month, day=test_day)
+    scan_watch = ScanWatch(experiment_name=exp, year=test_year, month=test_month, day=test_day, overwrite_previous=True)
     print("Starting...")
     scan_watch.start(watch_folder_not_exist='wait')
 
