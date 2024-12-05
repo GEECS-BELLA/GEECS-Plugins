@@ -190,32 +190,8 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
             logging.info(f"Plot saved to {save_path}")
 
 
-# %% executable
-def testing_routine():
-
-    from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
-
-    # define scan information
-    scan = {'year': '2024',
-            'month': 'Nov',
-            'day': '21',
-            'num': 3}
-    # device_name = "UC_VisaEBeam1"
-    device_name = "U_BCaveMagSpec"
-
-    # initialize data interface and analysis class
-    data_interface = DataInterface()
-    data_interface.year = scan['year']
-    data_interface.month = scan['month']
-    data_interface.day = scan['day']
-    (raw_data_path,
-     analysis_data_path) = data_interface.create_data_path(scan['num'])
-
-    scan_directory = raw_data_path / f"Scan{scan['num']:03d}"
-    analysis_class = MagSpecStitcherAnalysis(scan_directory, device_name)
-
-    analysis_class.run_analysis()
-
-
 if __name__ == "__main__":
-    testing_routine()
+    from geecs_python_api.controls.api_defs import ScanTag
+    tag = ScanTag(year=2024, month=12, day=5, number=5, experiment='Undulator')
+    analyzer = MagSpecStitcherAnalysis(scan_tag=tag, device_name="U_BCaveMagSpec", skip_plt_show=True)
+    analyzer.run_analysis()
