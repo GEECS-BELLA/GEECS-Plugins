@@ -194,8 +194,21 @@ class ScanDataManager:
 
         # Save as .txt file (TSV format)
         df.to_csv(self.data_txt_path, sep='\t', index=False)
-        df.to_csv(self.sFile_txt_path, sep='\t', index=False)
+        # df.to_csv(self.sFile_txt_path, sep='\t', index=False)
         logging.info(f"Data saved to {self.data_txt_path}")
+        
+    def _make_sFile(self, df):
+        """
+        Save the scan data to sfile.txt.
+
+        Args:
+            df (pandas.DataFrame): DataFrame containing the scan data to be saved.
+        """
+
+        # Save as .txt file (TSV format)
+        # df.to_csv(self.data_txt_path, sep='\t', index=False)
+        df.to_csv(self.sFile_txt_path, sep='\t', index=False)
+        logging.info(f"Data saved to {self.sFile_txt_path}")
 
     def dataframe_to_tdms(self, df):
         """
@@ -392,14 +405,18 @@ class ScanDataManager:
             return
 
         scan_folder_string = f"Scan{scan_num:03}"
-        sPath = self.scan_data.get_analysis_folder().parent / f's{scan_num}.txt'
+        
+        
+        # sPath = self.scan_data.get_analysis_folder().parent / f's{scan_num}.txt'
+        
+        sDataPath = self.scan_data.get_folder().parent / f'ScanData{scan_folder_string}.txt'
 
-        logging.info(f"Loading scan data from: {sPath}")
+        logging.info(f"Loading scan data from: {sDataPath}")
 
         try:
-            df = pd.read_csv(sPath, sep='\t')
+            df = pd.read_csv(sDataPath, sep='\t')
         except FileNotFoundError:
-            logging.error(f"Scan data file {sPath} not found.")
+            logging.error(f"Scan data file {sDataPath} not found.")
             return
 
         max_workers = os.cpu_count() * 2  # Adjust multiplier based on your workload
@@ -804,11 +821,15 @@ class ScanManager:
             self.action_manager.execute_action('closeout_action')
 
         if self.save_data:
+            # Step 6: Process results, save to disk, and log data
+            log_df = self.scan_data_manager._process_results(self.results)
+            
             # Step 7: Process and rename data files
             self.scan_data_manager.process_and_rename()
             
-            # Step 6: Process results, save to disk, and log data
-            log_df = self.scan_data_manager._process_results(self.results)
+            # Step 8: create sfile in analysis folder
+            self.scan_data_manager._make_sFile(log_df)
+            
 
         # Step 8: Stop the console logging
         self.console_logger.stop_logging()
