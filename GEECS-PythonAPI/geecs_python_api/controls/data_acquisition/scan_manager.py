@@ -69,8 +69,12 @@ class ScanDataManager:
         self.data_txt_path = None
         self.data_h5_path = None
         self.sFile_txt_path = None
-        self.scan_number_int = self.scan_data.get_tag().number
-        self.parsed_scan_string = f"Scan{self.scan_number_int:03}"
+        
+        # self.scan_number_int = self.scan_data.get_tag().number
+        # self.parsed_scan_string = f"Scan{self.scan_number_int:03}"
+        
+        self.scan_number_int = None
+        self.parsed_scan_string = None
         
     
     def create_and_set_data_paths(self):
