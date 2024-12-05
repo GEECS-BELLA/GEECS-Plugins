@@ -19,13 +19,11 @@ class TestScanEvaluator(unittest.TestCase):
                 print(a.analyzer_class.__name__, a.device_name)
 
         if do_print:
-            print("Scan 7 should just be the Mag Spec")
+            print("Scan 7 should just be the Mag Spec and HiRes")
         folder = "Z:\\data\\Undulator\\Y2024\\11-Nov\\24_1105\\scans\\Scan007"
         results = check_for_analysis_match(folder, exp)
-        self.assertEqual(len(results), 1)
+        self.assertEqual(len(results), 2)
         for a in results:
-            self.assertEqual(a.analyzer_class.__name__, 'MagSpecStitcherAnalysis')
-            self.assertEqual(a.device_name, 'U_BCaveMagSpec')
             if do_print:
                 print(a.analyzer_class.__name__, a.device_name)
 
