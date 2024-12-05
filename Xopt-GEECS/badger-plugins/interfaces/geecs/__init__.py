@@ -152,7 +152,7 @@ class Interface(interface.Interface):
         # first valid entry for the variables has been updated in the state.        
         for var in variables:
             device_name, _ = var.split(':')
-            timeout = 2.5
+            timeout = 10
             t0 = time.monotonic()
             t1 = t0
             
