@@ -146,9 +146,6 @@ class ScanElementEditor(QDialog):
         self.ui.buttonAddVariable.clicked.connect(self.add_variable)
         self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
 
-        # Update the device's post analysis class information when the line edit is changed
-        self.ui.linePostAnalysis.editingFinished.connect(self.update_device_post_analysis_class)
-
         # Update the device flags when either of the checkboxes are clicked
         self.ui.checkboxSynchronous.clicked.connect(self.update_device_checkboxes)
         self.ui.checkboxSaveNonscalar.clicked.connect(self.update_device_checkboxes)
@@ -327,7 +324,6 @@ class ScanElementEditor(QDialog):
         self.ui.buttonAddVariable.setEnabled(enable_variables)
         self.ui.buttonRemoveVariable.setEnabled(enable_variables)
         self.ui.lineVariableName.setEnabled(enable_variables)
-        self.ui.linePostAnalysis.setEnabled(enable_variables)
 
         if device is None:
             return
@@ -336,11 +332,6 @@ class ScanElementEditor(QDialog):
             self.ui.listVariables.addItem(variable)
         self.ui.checkboxSynchronous.setChecked(device['synchronous'])
         self.ui.checkboxSaveNonscalar.setChecked(device['save_nonscalar_data'])
-
-        if "post_analysis_class" in device:
-            self.ui.linePostAnalysis.setText(device["post_analysis_class"])
-        else:
-            self.ui.linePostAnalysis.setText("")
 
     def add_variable(self):
         """Adds variable to the element's device variable list, based on the variable line edit"""
@@ -373,16 +364,6 @@ class ScanElementEditor(QDialog):
         if device is not None:
             device['synchronous'] = self.ui.checkboxSynchronous.isChecked()
             device['save_nonscalar_data'] = self.ui.checkboxSaveNonscalar.isChecked()
-            self.update_variable_list()
-
-    def update_device_post_analysis_class(self):
-        """Updates the post analysis class for the device"""
-        device = self.get_selected_device()
-        text = self.ui.linePostAnalysis.text().strip()
-        if device is not None:
-            device['post_analysis_class'] = text
-            if text == "":
-                del device['post_analysis_class']
             self.update_variable_list()
 
     def show_action_list(self):
@@ -588,7 +569,7 @@ class ScanElementEditor(QDialog):
         action_list, i, index = current_selection
         if action_list is not None and 0 < i < len(action_list):
             action_list[i], action_list[i - 1] = action_list[i - 1], action_list[i]
-            index = index - 1
+            index -= 1
         self.update_action_list(index=index)
 
     def move_action_later(self):
@@ -599,7 +580,7 @@ class ScanElementEditor(QDialog):
         action_list, i, index = current_selection
         if action_list is not None and 0 <= i < len(action_list) - 1:
             action_list[i], action_list[i + 1] = action_list[i + 1], action_list[i]
-            index = index + 1
+            index += 1
         self.update_action_list(index=index)
 
     def set_as_setup(self):
