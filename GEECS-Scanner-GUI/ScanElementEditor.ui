@@ -19,7 +19,7 @@
      <x>20</x>
      <y>110</y>
      <width>171</width>
-     <height>141</height>
+     <height>131</height>
     </rect>
    </property>
   </widget>
@@ -36,7 +36,7 @@
   <widget class="QCheckBox" name="checkboxSaveNonscalar">
    <property name="geometry">
     <rect>
-     <x>200</x>
+     <x>210</x>
      <y>250</y>
      <width>151</width>
      <height>20</height>
@@ -49,8 +49,8 @@
   <widget class="QCheckBox" name="checkboxSynchronous">
    <property name="geometry">
     <rect>
-     <x>200</x>
-     <y>280</y>
+     <x>30</x>
+     <y>250</y>
      <width>131</width>
      <height>20</height>
     </rect>
@@ -161,7 +161,7 @@
    <property name="geometry">
     <rect>
      <x>60</x>
-     <y>310</y>
+     <y>280</y>
      <width>41</width>
      <height>21</height>
     </rect>
@@ -174,7 +174,7 @@
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>330</y>
+     <y>300</y>
      <width>121</width>
      <height>22</height>
     </rect>
@@ -184,7 +184,7 @@
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>354</y>
+     <y>324</y>
      <width>61</width>
      <height>25</height>
     </rect>
@@ -197,7 +197,7 @@
    <property name="geometry">
     <rect>
      <x>80</x>
-     <y>354</y>
+     <y>324</y>
      <width>61</width>
      <height>25</height>
     </rect>
@@ -210,7 +210,7 @@
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>380</y>
+     <y>350</y>
      <width>121</width>
      <height>131</height>
     </rect>
@@ -220,7 +220,7 @@
    <property name="geometry">
     <rect>
      <x>180</x>
-     <y>340</y>
+     <y>300</y>
      <width>191</width>
      <height>21</height>
     </rect>
@@ -233,7 +233,7 @@
    <property name="geometry">
     <rect>
      <x>180</x>
-     <y>360</y>
+     <y>320</y>
      <width>191</width>
      <height>22</height>
     </rect>
@@ -242,8 +242,8 @@
   <widget class="QPushButton" name="buttonMoveSooner">
    <property name="geometry">
     <rect>
-     <x>150</x>
-     <y>400</y>
+     <x>145</x>
+     <y>370</y>
      <width>21</width>
      <height>28</height>
     </rect>
@@ -255,8 +255,8 @@
   <widget class="QPushButton" name="buttonMoveLater">
    <property name="geometry">
     <rect>
-     <x>150</x>
-     <y>440</y>
+     <x>145</x>
+     <y>410</y>
      <width>21</width>
      <height>28</height>
     </rect>
@@ -269,7 +269,7 @@
    <property name="geometry">
     <rect>
      <x>150</x>
-     <y>490</y>
+     <y>450</y>
      <width>101</width>
      <height>20</height>
     </rect>
@@ -285,7 +285,7 @@
    <property name="geometry">
     <rect>
      <x>260</x>
-     <y>490</y>
+     <y>450</y>
      <width>121</width>
      <height>20</height>
     </rect>
@@ -298,7 +298,7 @@
    <property name="geometry">
     <rect>
      <x>180</x>
-     <y>410</y>
+     <y>370</y>
      <width>191</width>
      <height>22</height>
     </rect>
@@ -308,7 +308,7 @@
    <property name="geometry">
     <rect>
      <x>180</x>
-     <y>460</y>
+     <y>420</y>
      <width>191</width>
      <height>22</height>
     </rect>
@@ -318,7 +318,7 @@
    <property name="geometry">
     <rect>
      <x>180</x>
-     <y>390</y>
+     <y>350</y>
      <width>191</width>
      <height>21</height>
     </rect>
@@ -331,7 +331,7 @@
    <property name="geometry">
     <rect>
      <x>180</x>
-     <y>440</y>
+     <y>400</y>
      <width>191</width>
      <height>21</height>
     </rect>
@@ -367,7 +367,7 @@
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>300</y>
+     <y>270</y>
      <width>371</width>
      <height>16</height>
     </rect>
@@ -456,27 +456,43 @@
     <string>Close</string>
    </property>
   </widget>
-  <widget class="QLabel" name="label_4">
+  <widget class="QPushButton" name="buttonEnableActions">
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>260</y>
-     <width>121</width>
-     <height>16</height>
+     <y>484</y>
+     <width>141</width>
+     <height>28</height>
     </rect>
    </property>
    <property name="text">
-    <string>Post-Analysis Class:</string>
+    <string>Enable Action Testing:</string>
    </property>
   </widget>
-  <widget class="QLineEdit" name="linePostAnalysis">
+  <widget class="QPushButton" name="buttonPerformSetupActions">
    <property name="geometry">
     <rect>
-     <x>20</x>
-     <y>280</y>
-     <width>171</width>
-     <height>22</height>
+     <x>170</x>
+     <y>484</y>
+     <width>93</width>
+     <height>28</height>
     </rect>
+   </property>
+   <property name="text">
+    <string>Perform Setup</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonPerformPostscanActions">
+   <property name="geometry">
+    <rect>
+     <x>262</x>
+     <y>484</y>
+     <width>111</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Perform Postscan</string>
    </property>
   </widget>
  </widget>
