@@ -409,7 +409,7 @@ class ScanDataManager:
         
         # sPath = self.scan_data.get_analysis_folder().parent / f's{scan_num}.txt'
         
-        sDataPath = self.scan_data.get_folder().parent / f'ScanData{scan_folder_string}.txt'
+        sDataPath = self.scan_data.get_folder() / f'ScanData{scan_folder_string}.txt'
 
         logging.info(f"Loading scan data from: {sDataPath}")
 
