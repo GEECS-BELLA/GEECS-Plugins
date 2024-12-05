@@ -56,12 +56,12 @@ class CameraImageAnalysis(ScanAnalysis):
                           }
 
         # if self.camera_analysis_config_path.exists():
+        self.camera_analysis_configs = None
+        self.camera_analysis_settings = None
         if self.path_dict['cam_configs'].exists():
             self.camera_analysis_configs = self.load_camera_analysis_config()
-            self.camera_analysis_settings = self.camera_analysis_configs[self.device_name]
-        else:
-            self.camera_analysis_configs = None
-            self.camera_analysis_settings = None
+            if self.device_name in self.camera_analysis_configs:
+                self.camera_analysis_settings = self.camera_analysis_configs[self.device_name]
 
         # Check if data directory exists and is not empty
         if not self.path_dict['data_img'].exists() or not any(self.path_dict['data_img'].iterdir()):
