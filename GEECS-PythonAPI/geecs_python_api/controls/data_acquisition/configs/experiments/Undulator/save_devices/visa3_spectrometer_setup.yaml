@@ -1,6 +1,5 @@
 Devices:
   UC_UndulatorRad2:
-    post_analysis_class: CameraImageAnalysis
     save_nonscalar_data: true
     scan_setup:
       Analysis:
@@ -11,7 +10,7 @@ Devices:
     - MeanCounts
     - timestamp
   UC_VisaEBeam3:
-    post_analysis_class: VisaEBeamAnalysis
+    post_analysis_class: CameraImageAnalysis
     save_nonscalar_data: true
     synchronous: true
     variable_list:
@@ -35,5 +34,13 @@ setup_action:
     variable: DigitalOutput.Channel 5
   - action: set
     device: U_Velmex
-    value: 2930
+    value: 2918
     variable: Position
+  - action: set
+    device: U_UndulatorSpecStage
+    value: 18.7
+    variable: Position.Ch1
+  - action: set
+    device: U_UndulatorSpecStage
+    value: 19.1
+    variable: Position.Ch2
