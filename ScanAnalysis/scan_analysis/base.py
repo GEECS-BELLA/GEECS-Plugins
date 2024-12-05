@@ -57,6 +57,7 @@ class ScanAnalysis:
             device_name (Optional[str]): An optional string to specify which device the analyzer should analyze
             skip_plt_show (bool): Flag to ultimately try plt.show() or not.
         """
+        self.tag = scan_tag
         self.scan_directory = ScanData.build_scan_folder_path(tag=scan_tag)
         self.experiment_dir = scan_tag.experiment
         self.auxiliary_file_path = self.scan_directory / f"ScanData{self.scan_directory.name}.txt"
@@ -68,7 +69,7 @@ class ScanAnalysis:
         self.skip_plt_show = skip_plt_show
 
         self.bins = None
-        self.auxiliary_data = None
+        self.auxiliary_data: Optional[pd.DataFrame] = None
         self.binned_param_values = None
 
         try:
