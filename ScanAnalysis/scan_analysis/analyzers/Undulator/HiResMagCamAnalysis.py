@@ -19,7 +19,7 @@ import logging
 
 
 class HiResMagCamAnalysis(CameraImageAnalysis):
-    def __init__(self, scan_tag: 'ScanTag', skip_plt_show: bool = True):
+    def __init__(self, scan_tag: 'ScanTag', device_name=None, skip_plt_show: bool = True):
         super().__init__(scan_tag=scan_tag, device_name='UC_HiResMagCam', skip_plt_show=skip_plt_show)
 
     def run_noscan_analysis(self):
