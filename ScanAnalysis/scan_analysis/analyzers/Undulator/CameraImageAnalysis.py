@@ -111,6 +111,16 @@ class CameraImageAnalysis(ScanAnalysis):
 
         return camera_analysis_configs
 
+    def save_fig(self, save_path: Path,
+                 bbox_inches: str = 'tight', pad_inches: float = 0.) -> None:
+
+        # ensure save directory exists
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # save image
+        plt.savefig(save_path, bbox_inches=bbox_inches, pad_inches=pad_inches)
+
+
     def save_geecs_scaled_image(self, image: np.ndarray, save_dir: Union[str, Path],
                                 save_name: str, bit_depth: int = 16):
         """
@@ -318,6 +328,9 @@ class CameraImageAnalysis(ScanAnalysis):
                 if self.flag_logging:
                     logging.info(f"Averaged images for bin {bin_val} but not saved.")
 
+        # check for empty bins and remove
+        binned_data = {key: value for key, value in binned_data.items() if value}
+
         return binned_data  # TODO figure out type hinting for this.  Tried dict[dict] but Pycharm wasn't happy
 
     def crop_image(self, image: np.ndarray) -> np.ndarray:
@@ -458,9 +471,6 @@ class CameraImageAnalysis(ScanAnalysis):
         # bin data
         binned_data = self.bin_images(flag_save=self.flag_save_images)
 
-        # # perform bulk image analysis
-        # binned_data = self.perform_bulk_image_analysis(binned_data,
-        #                                                flag_save=flag_save)
         for bin_key, bin_item in binned_data.items():
 
             # perform basic image processing
