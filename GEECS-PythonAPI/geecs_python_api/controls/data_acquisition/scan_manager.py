@@ -449,7 +449,9 @@ class ScanDataManager:
             return
 
         # Collect and match files with timestamps
-        device_files = sorted(device_dir.glob("*"), key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
+        # device_files = sorted(device_dir.glob("*"), key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
+        device_files = sorted(device_dir.glob("*"), key=lambda x: int(x.stem.split('_')[-1]) 
+)
         matched_rows = self.process_and_match_files(device_files, df, device_name, device_type)
 
         # Rename master and dependent files
