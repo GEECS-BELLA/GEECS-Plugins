@@ -27,6 +27,7 @@ __author__ = 'Tobias Ostermayr'
 import pickle
 from PIL import Image
 import os.path
+import os
 import glob
 from googleapiclient import errors
 from googleapiclient.discovery import build
@@ -224,6 +225,51 @@ def cropAndScaleImage(imagepath,margin_left,margin_top,
 					# img=img.resize((int(width*scalefactor), int(height*scalefactor)), 
                     # Image.ANTIALIAS)
     img.save(imagepath,"PNG",quality = 94)
+
+
+def scale_image(image_path, target_width_in_inches = 4.75, dpi=100):
+    """
+    Scale an image to a target width in inches while maintaining the aspect ratio.
+    Save the scaled image with '_scaled' added to the filename.
+
+    Args:
+        image_path (str): Path to the input image.
+        target_width_in_inches (float): Desired width in inches.
+        dpi (int, optional): Resolution in dots per inch. Default is 96 DPI.
+
+    Returns:
+        str: Path to the scaled image.
+    """
+    try:
+        # Calculate the target width in pixels
+        target_width_pixels = int(target_width_in_inches * dpi)
+        
+        # Open the image
+        with Image.open(image_path) as img:
+            # Calculate the new height to maintain aspect ratio
+            aspect_ratio = img.height / img.width
+            target_height_pixels = int(target_width_pixels * aspect_ratio)
+            
+            # Resize the image
+            scaled_img = img.resize(
+                (target_width_pixels, target_height_pixels),
+                Image.Resampling.LANCZOS  # Use LANCZOS for high-quality resizing
+            )
+            
+            # Save the scaled image
+            base, ext = os.path.splitext(image_path)
+            scaled_image_path = f"{base}_scaled{ext}"
+            scaled_img.save(scaled_image_path)
+            print(f"Scaled image saved to: {scaled_image_path}")
+            return scaled_image_path
+    except FileNotFoundError:
+        print(f"Error: File not found at {image_path}. Please provide a valid path.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+# Example usage
+# scaled_image_path = scale_image("path/to/your/image.jpg", 5.25)
+
         
 # ==================FUNCTIONS USING GOOGLE API========================
 
@@ -564,9 +610,12 @@ def uploadImage(localimagepath,destinationID):
     API_VERSION='v3'
     driveservice = establishService(API_SERVICE_NAME,API_VERSION)      
     #Create an execution request object.
+    
+    scaled_image_path = scale_image(localimagepath)
+    
     file_metadata = {'name': date + " " + time 
                     + 'tmp.png', 'parents': [destinationID],}
-    media = MediaFileUpload(localimagepath,
+    media = MediaFileUpload(scaled_image_path,
                           mimetype='image/png'
                           )
     try:
@@ -703,3 +752,79 @@ def lastRowOfSpreadsheet(fileID, sheetString, firstcol,lastcol, servicevar):
         # The API encountered a problem 
         # before the script started executing.
         print(e.content)
+        
+def insertImageToTableCell(documentID, scanNumber, row, column, imageID, servicevar):
+    """
+    Inserts an image into a specified table cell in a Google Doc.
+
+    Args:
+        documentID (str): The Google Doc ID where the table is located.
+        scanNumber (int): The scan number to locate the specific heading in the document.
+        row (int): The row index of the target table cell (0-based).
+        column (int): The column index of the target table cell (0-based).
+        imageID (str): The Google Drive ID of the image to insert.
+        servicevar (object): Pre-established Google API service object; if None, a new service will be created.
+
+    Returns:
+        dict: Result of the script execution, if successful.
+
+    Raises:
+        Exception: If there is an error during API execution or script execution.
+    """
+    API_SERVICE_NAME = 'script'
+    API_VERSION = 'v1'
+
+    # Check if a service object is provided; if not, establish a new service
+    if servicevar is None:
+        # Establish a new service if none is provided
+        service = establishService(API_SERVICE_NAME, API_VERSION)
+    else:
+        # Use the provided service object
+        service = servicevar
+
+    # Create an execution request for the Apps Script
+    request = {
+        "function": 'insertImageToTableCell',
+        "parameters": [documentID, scanNumber, row, column, imageID],
+        "devMode": True
+    }
+
+    try:
+        # Make the API request to execute the Apps Script function
+        response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
+        if 'error' in response:
+            # Handle script execution errors
+            error = response['error']['details'][0]
+            print(f"Script error message: {error['errorMessage']}")
+        else:
+            # Return the result of the script execution
+            return response['response']['result']
+
+    except errors.HttpError as e:
+        # Handle API-level errors
+        print(e.content)
+
+
+def insertImageToExperimentLog(documentID, scanNumber, row, column, image_path):
+    """
+    Uploads an image to Google Drive and inserts it into a specific table cell in a Google Doc.
+
+    Args:
+        documentID (str): The Google Doc ID where the table is located.
+        scanNumber (int): The scan number to locate the specific heading in the document.
+        row (int): The row index of the target table cell (0-based).
+        column (int): The column index of the target table cell (0-based).
+        image_path (str): The local file path to the image to be uploaded and inserted.
+
+    Returns:
+        None
+    """
+    # Upload the image to Google Drive and retrieve the image ID
+    # note, the id is for a folder in the BELLA HTU structure,
+    # but it's really just a temporary location for the image before 
+    # moving into the relevant experiment log. No real need to specify
+    # other directories for other experiments
+    image_id = uploadImage(image_path, '1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2')
+
+    # Insert the uploaded image into the specified table cell
+    insertImageToTableCell(documentID, scanNumber, row, column, image_id, None)
