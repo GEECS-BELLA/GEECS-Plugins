@@ -68,7 +68,10 @@ def visa_config_generator(visa_key, diagnostic_type):
     diagnostic_settings = {
         'energy': {
             'description': f"collecting data on {visa_key}EBeam and U_FELEnergyMeter",
-            'position': device_info['energy_meter_position'],
+            'velmex_position': device_info['energy_meter_position'],
+            'zaber_long_position': device_info['zaber_1'],
+            'zaber_tran_position': device_info['zaber_2'],
+            
             'extra_device': {
                 'U_FELEnergyMeter': {
                     'variable_list': ["Python Results.ChA", "timestamp"],
@@ -80,7 +83,10 @@ def visa_config_generator(visa_key, diagnostic_type):
         },
         'spectrometer': {
             'description': f"collecting data on {visa_key}EBeam and UC_UndulatorRad2",
-            'position': device_info['spectrometer_position'],
+            'velmex_position': device_info['spectrometer_position'],
+            'zaber_long_position': device_info['zaber_1'],
+            'zaber_tran_position': device_info['zaber_2'],
+            
             'extra_device': {
                 'UC_UndulatorRad2': {
                     'variable_list': ["MeanCounts", "timestamp"],
@@ -103,7 +109,10 @@ def visa_config_generator(visa_key, diagnostic_type):
     setup_steps = [
         {'action': 'execute', 'action_name': 'remove_visa_plungers'},
         {'device': device_info['device'], 'variable': device_info['variable'], 'action': 'set', 'value': 'on'},
-        {'device': 'U_Velmex', 'variable': 'Position', 'action': 'set', 'value': config['position']}
+        {'device': 'U_Velmex', 'variable': 'Position', 'action': 'set', 'value': config['velmex_position']},
+        {'device': 'U_UndulatorSpecStage', 'variable': 'Position.Ch1', 'action': 'set', 'value': config['zaber_long_position']},
+        {'device': 'U_UndulatorSpecStage', 'variable': 'Position.Ch2', 'action': 'set', 'value': config['zaber_tran_position']}
+
     ]
 
     # Constructing the output YAML structure

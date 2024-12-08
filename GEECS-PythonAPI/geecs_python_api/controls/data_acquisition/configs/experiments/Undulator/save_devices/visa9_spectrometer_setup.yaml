@@ -9,7 +9,7 @@ Devices:
     variable_list:
     - MeanCounts
     - timestamp
-  UC_VisaEBeam7:
+  UC_VisaEBeam9:
     post_analysis_class: CameraImageAnalysis
     save_nonscalar_data: true
     synchronous: true
@@ -23,24 +23,24 @@ Devices:
     - Python Results.ChB
     - timestamp
 scan_info:
-  description: collecting data on visa7EBeam and UC_UndulatorRad2
+  description: collecting data on visa9EBeam and UC_UndulatorRad2
 setup_action:
   steps:
   - action: execute
     action_name: remove_visa_plungers
   - action: set
-    device: U_VisaPlungers
+    device: U_PLC
     value: 'on'
-    variable: DigitalOutput.Channel 1
+    variable: DO.Ch19
   - action: set
     device: U_Velmex
-    value: 931
+    value: 25
     variable: Position
   - action: set
     device: U_UndulatorSpecStage
-    value: 19.0
+    value: 22.3
     variable: Position.Ch1
   - action: set
     device: U_UndulatorSpecStage
-    value: 22.4
+    value: 17.7
     variable: Position.Ch2
