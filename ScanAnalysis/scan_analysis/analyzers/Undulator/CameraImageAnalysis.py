@@ -186,6 +186,9 @@ class CameraImageAnalysis(ScanAnalysis):
             binned_data (dict[dict]): List of averaged images. TODO for faster speed consider making a numpy array
             ref_coords (tuple): The x and y data to be plotted as a reference, as element 0 and 1, respectively
             plot_scale (float): A float value for the maximum color
+                           
+        Return:
+            path to the saved image
         """
         if len(binned_data) == 0:
             if self.flag_logging:
@@ -237,6 +240,8 @@ class CameraImageAnalysis(ScanAnalysis):
         if self.flag_logging:
             logging.info(f"Saved final image grid as {save_name}.")
         self.close_or_show_plot()
+        
+        return Path(self.path_dict['save']) / save_name
 
     def load_images_for_bin(self, bin_number: int) -> list[np.ndarray]:
         """
@@ -456,13 +461,18 @@ class CameraImageAnalysis(ScanAnalysis):
                                          save_name=f'{self.device_name}_average_processed.png')
             self.save_normalized_image(avg_image, save_dir=self.path_dict['save'],
                                        save_name=f'{self.device_name}_average_processed_visual.png')
+                                       
+            display_content_path = Path(self.path_dict['save']) / f'{self.device_name}_average_processed_visual.png'
+            self.append_display_content(display_content_path)
 
         # make gif
         if self.flag_save_images:
             filepath = self.path_dict['save'] / 'noscan.gif'
             self.create_gif(data['images'], filepath,
                             titles=[f"Shot {num}" for num in data['shot_num']])
-
+                            
+            self.append_display_content(filepath)
+                        
     def run_scan_analysis(self):
         """
         Image analysis in the case of a scanned variable.
@@ -492,7 +502,9 @@ class CameraImageAnalysis(ScanAnalysis):
         # Once all bins are processed, create an array of the averaged images
         if len(binned_data) > 1 and self.flag_save_images:
             plot_scale = self.camera_analysis_settings.get('Plot Scale', None)
-            self.create_image_array(binned_data, plot_scale=plot_scale)  # TODO more to do with binned_data type hints
+            display_content_path  = self.create_image_array(binned_data, plot_scale=plot_scale)  # TODO more to do with binned_data type hints
+            
+            self.append_display_content(display_content_path)
 
 
 # %% executable
