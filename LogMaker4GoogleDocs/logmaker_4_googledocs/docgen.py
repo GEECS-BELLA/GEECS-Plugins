@@ -28,6 +28,7 @@ import pickle
 from PIL import Image
 import os.path
 import os
+from pathlib import Path
 import glob
 from googleapiclient import errors
 from googleapiclient.discovery import build
@@ -42,9 +43,29 @@ import httplib2
 
 # DON'T TOUCH
 SCOPES = ['https://www.googleapis.com/auth/documents','https://www.googleapis.com/auth/drive','https://www.googleapis.com/auth/spreadsheets']
+# scriptconfig = configparser.ConfigParser()
+# scriptconfig.read('config.ini')
+
+# Create the ConfigParser object
 scriptconfig = configparser.ConfigParser()
-scriptconfig.read('config.ini')
+
+# Get the directory of the current script (docgen.py)
+script_dir = Path(__file__).parent
+
+# Construct the path to config.ini
+config_path = script_dir / 'config.ini'
+
+# Load the configuration file
+scriptconfig.read(config_path)
+
+# Debugging: Verify the loaded sections
+if not scriptconfig.sections():
+    print(f"Failed to load config file from: {config_path}")
+else:
+    print(f"Successfully loaded config file: {config_path}")
+
 SCRIPT_ID = scriptconfig['DEFAULT']['script']
+
 
 
 # DATE & TIME

@@ -1,9 +1,10 @@
 [tool.poetry]
-name = "LogMaker 4 GoogleDocs"
+name = "LogMaker4GoogleDocs"
 version = "0.1.0"
 description = ""
 authors = ["Sam Barber <sbarber@lbl.gov>"]
-readme = "README.md"
+readme = "readme.md"
+packages = [{include = "logmaker_4_googledocs"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9"
