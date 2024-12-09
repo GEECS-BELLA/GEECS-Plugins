@@ -90,6 +90,8 @@ class CameraImageAnalysis(ScanAnalysis):
                 self.run_noscan_analysis()
             else:
                 self.run_scan_analysis()
+            
+            return self.display_contents
 
         except Exception as e:
             if self.flag_logging:
@@ -438,7 +440,6 @@ class CameraImageAnalysis(ScanAnalysis):
         Image analysis in the case of a no scan.
 
         """
-
         # load images
         data = {'shot_num': [], 'images': []}
         for shot_num in self.auxiliary_data['Shotnumber'].values:
@@ -464,7 +465,7 @@ class CameraImageAnalysis(ScanAnalysis):
             display_content_path = Path(self.path_dict['save']) / f'{self.device_name}_average_processed_visual.png'
             print(f'display content path: {display_content_path}')                           
 
-            self.append_display_content(content_path = str(display_content_path))
+            self.display_contents.append(str(display_content_path))
 
         # make gif
         if self.flag_save_images:
@@ -472,7 +473,8 @@ class CameraImageAnalysis(ScanAnalysis):
             self.create_gif(data['images'], filepath,
                             titles=[f"Shot {num}" for num in data['shot_num']])
                             
-            self.append_display_content(content_path = str(filepath))
+            self.display_contents.append(str(filepath))
+        
                         
     def run_scan_analysis(self):
         """
@@ -505,9 +507,9 @@ class CameraImageAnalysis(ScanAnalysis):
             plot_scale = self.camera_analysis_settings.get('Plot Scale', None)
             display_content_path  = self.create_image_array(binned_data, plot_scale=plot_scale)  # TODO more to do with binned_data type hints
             
-            self.append_display_content(str(display_content_path))
-
-
+            #self.append_display_content(str(display_content_path))
+            self.display_contents.append(str(display_content_path))
+            
 # %% executable
 def testing_routine():
     from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
