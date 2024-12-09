@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from scan_analysis.base import AnalyzerInfo
     from geecs_python_api.controls.api_defs import ScanTag
+    from logmaker_4_googledocs import docgen
 import logging
 
 
