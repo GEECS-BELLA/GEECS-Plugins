@@ -15,7 +15,7 @@ For the "requirements" block of AnalyzerInfo to be compatible with `scan_evaluat
 # AND/OR dict blocks can be written as recursive elements.
 """
 # %% imports
-from typing import TYPE_CHECKING, List, Dict, Optional, Union, Type, NamedTuple
+from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
 from pathlib import Path
@@ -25,7 +25,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from geecs_python_api.analysis.scans.scan_data import ScanData
-import yaml
 
 
 # %% classes
@@ -72,9 +71,6 @@ class ScanAnalysis:
         self.bins = None
         self.auxiliary_data: Optional[pd.DataFrame] = None
         self.binned_param_values = None
-        
-        scan_path = self.scan_directory.parent / 'analysis' / self.scan_directory.name
-        self.scan_path: Path = Path(scan_path)
 
         try:
             # Extract the scan parameter
@@ -98,66 +94,6 @@ class ScanAnalysis:
         except FileNotFoundError as e:
             logging.warning(f"{e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
             return
-
-    @staticmethod
-    def _load_display_content(yaml_path: Path) -> List[Dict[str, str]]:
-        """
-        Load existing display content from the YAML file.
-        Args:
-            yaml_path (Path): Path to the YAML file.
-        Returns:
-            List[Dict[str, str]]: Existing display content or an empty list if the file doesn't exist.
-        """
-        if yaml_path.exists():
-            with yaml_path.open("r") as yaml_file:
-                existing_content = yaml.safe_load(yaml_file) or []
-                if not isinstance(existing_content, list):
-                    existing_content = []
-                return existing_content
-        return []
-
-    @staticmethod
-    def _write_display_content(yaml_path: Path, content: List[Dict[str, str]]) -> None:
-        """
-        Write the updated display content to the YAML file.
-        Args:
-            yaml_path (Path): Path to the YAML file.
-            content (List[Dict[str, str]]): List of content dictionaries to write.
-        """
-        with yaml_path.open("w") as yaml_file:
-            yaml.dump(content, yaml_file)
-
-    def append_display_content(
-        self, 
-        content_path: str, 
-        content_type: str = "file", 
-        description: str = ""
-    ) -> None:
-        """
-        Append a display content dictionary to the centralized YAML file.
-        Args:
-            content_path (str): Path to the content to append.
-            content_type (str): Type of the content (e.g., "image", "data").
-            description (str): Description of the content.
-        """
-        yaml_path: Path = self.scan_path / "display_content.yaml"
-
-        # Load the current display content from the file
-        current_content: List[Dict[str, str]] = self._load_display_content(yaml_path)
-
-        # Create the new content dictionary
-        new_content: Dict[str, str] = {
-            "path": content_path, 
-            "type": content_type, 
-            "description": description
-        }
-
-        # Append the new content if it doesn't already exist
-        if new_content not in current_content:
-            current_content.append(new_content)
-
-        # Write the updated content back to the file
-        self._write_display_content(yaml_path, current_content)
 
     def run_analysis(self, config_options: Optional[Union[Path, str]] = None) -> Optional[list[Union[Path, str]]]:
         """
@@ -245,8 +181,7 @@ class ScanAnalysis:
             return None, None
         else:
             return None, None
-    
-    
+
 
 # %% executable
 def testing_routine():
