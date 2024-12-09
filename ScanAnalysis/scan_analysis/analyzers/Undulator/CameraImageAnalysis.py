@@ -461,9 +461,10 @@ class CameraImageAnalysis(ScanAnalysis):
                                          save_name=f'{self.device_name}_average_processed.png')
             self.save_normalized_image(avg_image, save_dir=self.path_dict['save'],
                                        save_name=f'{self.device_name}_average_processed_visual.png')
-                                       
             display_content_path = Path(self.path_dict['save']) / f'{self.device_name}_average_processed_visual.png'
-            self.append_display_content(display_content_path)
+            print(f'display content path: {display_content_path}')                           
+
+            self.append_display_content(content_path = str(display_content_path))
 
         # make gif
         if self.flag_save_images:
@@ -471,7 +472,7 @@ class CameraImageAnalysis(ScanAnalysis):
             self.create_gif(data['images'], filepath,
                             titles=[f"Shot {num}" for num in data['shot_num']])
                             
-            self.append_display_content(filepath)
+            self.append_display_content(content_path = str(filepath))
                         
     def run_scan_analysis(self):
         """
@@ -504,7 +505,7 @@ class CameraImageAnalysis(ScanAnalysis):
             plot_scale = self.camera_analysis_settings.get('Plot Scale', None)
             display_content_path  = self.create_image_array(binned_data, plot_scale=plot_scale)  # TODO more to do with binned_data type hints
             
-            self.append_display_content(display_content_path)
+            self.append_display_content(str(display_content_path))
 
 
 # %% executable
