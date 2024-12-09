@@ -299,51 +299,55 @@ def scale_image(image_path, target_width_in_inches = 4.75, dpi=100):
 # (if None specified)
 # Or use a common service established through the function 
 # servicevar = establishService(apiservice,apiversion)
-def establishService(apiservice,apiversion):
+def establishService(apiservice, apiversion):
     """
-    Handles connection with google api and authorization.
+    Handles connection with Google API and authorization.
 
     Args: 
-        apiservice (str): name of the google api
-        apiversion (str): version number of api
-    
+        apiservice (str): Name of the Google API (e.g., 'docs', 'drive').
+        apiversion (str): Version number of the API (e.g., 'v1').
+
     Returns:
-    Service object (JSON?!) that can be called by other functions.
+        service (googleapiclient.discovery.Resource): Google API service object.
     """
     print('**Establish Server Connection with Google Cloud**')
-    creds = None
-    # The file token.pickle stores the user's access and refresh tokens. 
-    # It is created automatically when the authorization flow completes 
-    # for the first time.
 
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
-    # If no (valid) credentials available, let the user log in.
+    creds = None
+
+    # Define the path to token.pickle and credentials.json
+    base_path = Path(__file__).parent
+    token_path = base_path / 'token.pickle'
+    credentials_path = base_path / 'credentials.json'
+
+    # Check for token.pickle to load stored credentials
+    if token_path.exists():
+        with token_path.open('rb') as token_file:
+            creds = pickle.load(token_file)
+
+    # If no (valid) credentials are available, log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
+            if not credentials_path.exists():
+                raise FileNotFoundError(f"Credentials file not found at: {credentials_path}")
+            
+            # Load credentials.json and initiate login
+            flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
             creds = flow.run_local_server(port=0)
+
         # Save the credentials for the next run
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
+        with token_path.open('wb') as token_file:
+            pickle.dump(creds, token_file)
 
-    #service = build('script', 'v1', credentials=creds)
-
-    # Call the Apps Script API
+    # Build the service object
     try:
-        service = build(apiservice,apiversion, credentials=creds)
+        service = build(apiservice, apiversion, credentials=creds)
         print('...Service created successfully')
-        print(service)
-    except Exception as e: print("...Error in opening the service: ", e)
-    #except errors.HttpError as e:
-    #    print('failed to establish a service')
-    #    print(e.content)
-    
-    return(service)
+        return service
+    except Exception as e:
+        print(f"...Error in opening the service: {e}")
+        raise
 
 # Create daily log and return ID// if exits already, just return ID
 def createExperimentLog(logtempID,tempfolderID,logfolderID, 
@@ -826,7 +830,7 @@ def insertImageToTableCell(documentID, scanNumber, row, column, imageID, service
         print(e.content)
 
 
-def insertImageToExperimentLog(documentID, scanNumber, row, column, image_path):
+def insertImageToExperimentLog(scanNumber, row, column, image_path, documentID = None, experiment = 'Undulator'):
     """
     Uploads an image to Google Drive and inserts it into a specific table cell in a Google Doc.
 
@@ -845,6 +849,32 @@ def insertImageToExperimentLog(documentID, scanNumber, row, column, image_path):
     # but it's really just a temporary location for the image before 
     # moving into the relevant experiment log. No real need to specify
     # other directories for other experiments
+    
+    experiment_mapping = {'Undulator':'HTUparameters.ini'}
+    
+    config_file = experiment_mapping.get(experiment, None)
+    if config_file:
+        # Create the ConfigParser object
+        experiment_config = configparser.ConfigParser()
+
+        # Get the directory of the current script (docgen.py)
+        experiment_config_dir = Path(__file__).parent
+
+        # Construct the path to config.ini
+        config_path = experiment_config_dir / config_file
+
+        # Load the configuration file
+        experiment_config.read(config_path)
+
+        # Debugging: Verify the loaded sections
+        if not experiment_config.sections():
+            print(f"Failed to load config file from: {config_path}")
+        else:
+            print(f"Successfully loaded config file: {config_path}")
+            
+        documentID = experiment_config['DEFAULT']['logid']  
+    
+    
     image_id = uploadImage(image_path, '1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2')
 
     # Insert the uploaded image into the specified table cell
