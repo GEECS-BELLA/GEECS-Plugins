@@ -49,7 +49,7 @@ class ScanAnalysis:
         bins (np.ndarray): Bin numbers for the data, extracted from the auxiliary file.
         auxiliary_data (pd.DataFrame): DataFrame containing auxiliary scan data.
     """
-    def __init__(self, scan_tag: 'ScanTag', device_name: Optional[str] = None, skip_plt_show: bool = True):
+    def __init__(self, scan_tag: 'ScanTag', device_name: Optional[str] = None, skip_plt_show: bool = True, clear_display_contents_file: bool = True):
         """
         Initialize the ScanAnalysis class.
 
@@ -57,6 +57,7 @@ class ScanAnalysis:
             scan_tag (ScanTag): NamedTuple containing the scan's experiment, date, and scan number
             device_name (Optional[str]): An optional string to specify which device the analyzer should analyze
             skip_plt_show (bool): Flag to ultimately try plt.show() or not.
+            clear_display_contents_file (bool): Flag to clear all previous results in the analysis/ScanXXX folder
         """
         self.tag = scan_tag
         self.scan_directory = ScanData.build_scan_folder_path(tag=scan_tag)
@@ -73,8 +74,12 @@ class ScanAnalysis:
         self.auxiliary_data: Optional[pd.DataFrame] = None
         self.binned_param_values = None
         
-        scan_path = self.scan_directory.parent / 'analysis' / self.scan_directory.name
+        scan_path = self.scan_directory.parent.parent / 'analysis' / self.scan_directory.name
         self.scan_path: Path = Path(scan_path)
+        logging.info(f'analysis path is : {scan_path}')
+        if clear_display_contents_file:
+            self.remove_yaml_files(self.scan_path)
+
 
         try:
             # Extract the scan parameter
@@ -102,19 +107,29 @@ class ScanAnalysis:
     @staticmethod
     def _load_display_content(yaml_path: Path) -> List[Dict[str, str]]:
         """
-        Load existing display content from the YAML file.
+        Load existing display content from the YAML file. If the file does not exist, create an empty file.
+
         Args:
             yaml_path (Path): Path to the YAML file.
         Returns:
             List[Dict[str, str]]: Existing display content or an empty list if the file doesn't exist.
         """
-        if yaml_path.exists():
-            with yaml_path.open("r") as yaml_file:
-                existing_content = yaml.safe_load(yaml_file) or []
-                if not isinstance(existing_content, list):
-                    existing_content = []
-                return existing_content
-        return []
+        print(f"Attempting to load display content from: {yaml_path}")
+
+        if not yaml_path.exists():
+            print(f"File does not exist. Creating an empty YAML file at: {yaml_path}")
+            yaml_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure parent directories exist
+            with yaml_path.open("w") as yaml_file:
+                yaml.dump([], yaml_file)  # Write an empty list to the file
+
+        print(f"File exists or has been created: {yaml_path}")
+
+        with yaml_path.open("r") as yaml_file:
+            existing_content = yaml.safe_load(yaml_file) or []
+            if not isinstance(existing_content, list):
+                existing_content = []
+            return existing_content
+
 
     @staticmethod
     def _write_display_content(yaml_path: Path, content: List[Dict[str, str]]) -> None:
@@ -124,9 +139,26 @@ class ScanAnalysis:
             yaml_path (Path): Path to the YAML file.
             content (List[Dict[str, str]]): List of content dictionaries to write.
         """
+        print(f"Attempting to write display content {content} to: {yaml_path}")
         with yaml_path.open("w") as yaml_file:
             yaml.dump(content, yaml_file)
+    
+    def remove_yaml_files(self, directory_path: Path) -> None:
+        """
+        Remove all .yaml files in the specified directory.
 
+        Args:
+            directory_path (Path): Path object representing the directory.
+        """
+        if not directory_path.is_dir():
+            raise ValueError(f"The provided path {directory_path} is not a valid directory.")
+
+        for file_path in directory_path.glob("*.yaml"):  # Match only .yaml files
+            if file_path.is_file():
+                file_path.unlink()  # Remove the file
+                print(f"Deleted: {file_path}")
+        print(f"All .yaml files in {directory_path} have been removed.")
+    
     def append_display_content(
         self, 
         content_path: str, 
@@ -141,23 +173,40 @@ class ScanAnalysis:
             description (str): Description of the content.
         """
         yaml_path: Path = self.scan_path / "display_content.yaml"
+        logging.info(f"Appending display content to {yaml_path}")
 
         # Load the current display content from the file
-        current_content: List[Dict[str, str]] = self._load_display_content(yaml_path)
+        if yaml_path.exists():
+            with yaml_path.open("r") as yaml_file:
+                current_content = yaml.safe_load(yaml_file) or {}
+        else:
+            current_content = {}
+
+        # Ensure the top-level key exists
+        if "display_content" not in current_content:
+            current_content["display_content"] = {}
+
+        # Autogenerate a unique entry key
+        entry_count = len(current_content["display_content"]) + 1
+        entry_key = f"entry {entry_count}"
 
         # Create the new content dictionary
-        new_content: Dict[str, str] = {
+        new_entry = {
             "path": content_path, 
             "type": content_type, 
             "description": description
         }
 
-        # Append the new content if it doesn't already exist
-        if new_content not in current_content:
-            current_content.append(new_content)
+        logging.info(f"New entry to append under key '{entry_key}': {new_entry}")
+
+        # Append the new entry under the autogenerated key
+        current_content["display_content"][entry_key] = new_entry
 
         # Write the updated content back to the file
-        self._write_display_content(yaml_path, current_content)
+        with yaml_path.open("w") as yaml_file:
+            yaml.dump(current_content, yaml_file)
+        logging.info(f"Updated content written to {yaml_path}")
+
 
     def run_analysis(self, config_options: Optional[Union[Path, str]] = None) -> Optional[list[Union[Path, str]]]:
         """
