@@ -66,7 +66,7 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
             # Skip binning if noscan
             if self.noscan:
                 logging.info("No scan performed, skipping binning and binned plots.")
-                return  # Skip the rest of the analysis
+                return  self.display_contents # Skip the rest of the analysis
 
             # Bin the data and plot binned data
             binned_matrix = self.bin_data(charge_density_matrix)
