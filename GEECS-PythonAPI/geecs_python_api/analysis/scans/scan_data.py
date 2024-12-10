@@ -235,13 +235,15 @@ class ScanData:
         self.__client_folder = client_folder
     
     @staticmethod
-    def get_scan_tag(year, month, day, number, experiment_name: Optional[str]=None):
+    def get_scan_tag(year, month, day, number, experiment_name: Optional[str]=None) -> 'ScanTag':
         year = int(year)
         if 0 <= year <= 99:
             year = year + 2000
         month = month_to_int(month)
 
-        return ScanTag(year, month, int(day), int(number), experiment=experiment_name)
+        experiment = experiment_name or CONFIG.experiment
+
+        return ScanTag(year, month, int(day), int(number), experiment=experiment)
     
     @staticmethod
     def build_scan_folder_path(tag: NamedTuple,
