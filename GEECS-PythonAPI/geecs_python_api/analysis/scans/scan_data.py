@@ -237,7 +237,7 @@ class ScanData:
     @staticmethod
     def get_scan_tag(year, month, day, number, experiment_name: Optional[str]=None):
         year = int(year)
-        if 10 <= year <= 99:
+        if 0 <= year <= 99:
             year = year + 2000
         month = month_to_int(month)
 
