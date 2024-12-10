@@ -28,6 +28,7 @@ import pickle
 from PIL import Image
 import os.path
 import os
+import mimetypes
 from pathlib import Path
 import glob
 from googleapiclient import errors
@@ -617,54 +618,61 @@ def findAndReplaceImage(documentID,imageID, pattern,servicevar):
         # before the script started executing.
         print(e.content)
 
-# Upload an Image and return URL
-def uploadImage(localimagepath,destinationID):
+
+def uploadImage(localimagepath, destinationID):
     """
-    Uploads a local png image to google drive
+    Uploads a local image (PNG or GIF) to Google Drive.
 
     Args:
-        localimagepath (str): path to png image to upload
-        destinationID (str): ID of the google folder to upload to
-    
+        localimagepath (str): Path to the image (PNG/GIF) to upload.
+        destinationID (str): ID of the Google Drive folder to upload to.
+
     Returns:
-        Uploads image to the specified folder named tmp and tagged
-        with a timestamp.
-        Function returns the google ID of the uploaded image.
+        str: Google ID of the uploaded file.
     """
-    API_SERVICE_NAME='drive'
-    API_VERSION='v3'
-    driveservice = establishService(API_SERVICE_NAME,API_VERSION)      
-    #Create an execution request object.
+    API_SERVICE_NAME = 'drive'
+    API_VERSION = 'v3'
+    driveservice = establishService(API_SERVICE_NAME, API_VERSION)
     
-    scaled_image_path = scale_image(localimagepath)
+    # Detect file extension and determine MIME type
+    file_path = Path(localimagepath)
+    mime_type, _ = mimetypes.guess_type(localimagepath)
     
-    file_metadata = {'name': date + " " + time 
-                    + 'tmp.png', 'parents': [destinationID],}
-    media = MediaFileUpload(scaled_image_path,
-                          mimetype='image/png'
-                          )
+    if not mime_type:
+        raise ValueError(f"Unable to determine MIME type for file: {localimagepath}")
+    
+    if mime_type not in ['image/png', 'image/gif']:
+        raise ValueError("Only PNG and GIF file types are supported.")
+
+    # Scale the image only for PNG files
+    scaled_image_path = localimagepath
+    if mime_type == 'image/png':
+        scaled_image_path = scale_image(localimagepath)
+
+    # Generate metadata for the upload
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    file_metadata = {
+        'name': f"{timestamp}_tmp.{file_path.suffix.lstrip('.')}",
+        'parents': [destinationID]
+    }
+    
+    media = MediaFileUpload(scaled_image_path, mimetype=mime_type)
+    
     try:
-        file = driveservice.files().create(body=file_metadata,
-                                    media_body=media, supportsAllDrives=True).execute()
+        file = driveservice.files().create(
+            body=file_metadata, media_body=media, supportsAllDrives=True
+        ).execute()
         if 'error' in file:
-        # The API executed, but the script returned an error.
-    
-        # Extract the first (and only) set of error details. 
-        # The values of this object are the script's 
-        # 'errorMessage' and 'errorType', and
-        # an list of stack trace elements.
             error = file['error']['details'][0]
-            print("Script error message: {0}".format(error['errorMessage']))
-        else: 
+            print(f"Script error message: {error['errorMessage']}")
+            return None
+        else:
             imageID = file['id']
-            #print(imageID)
-            
+            return imageID
+
     except errors.HttpError as e:
-        # The API encountered a problem
-        # before the script started executing.
-        #print("here")
         print(e.content)
-    return imageID
+        return None
 
 # Check if a google docs contains a search phrase 
 def checkFileContains(fileID,search,servicevar):
