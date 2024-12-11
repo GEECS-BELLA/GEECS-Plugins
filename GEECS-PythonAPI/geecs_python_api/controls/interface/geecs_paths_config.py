@@ -93,6 +93,11 @@ class GeecsPathsConfig:
         self.base_path = base_path.resolve()
         self.experiment = experiment
 
+    def is_default_server_address(self) -> bool:
+        """ Returns True if the base directory is equivalent to the default server address """
+        default_path = self.get_default_server_address(self.experiment).resolve()
+        return self.base_path == default_path
+
     @staticmethod
     def get_default_server_address(experiment_name: str) -> Optional['Path']:
         """ Returns the corresponding base path on the server for the given experiment, defaults to None if unknown """
