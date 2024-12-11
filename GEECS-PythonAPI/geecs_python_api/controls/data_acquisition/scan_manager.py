@@ -456,8 +456,8 @@ class ScanDataManager:
 
         # Collect and match files with timestamps
         # device_files = sorted(device_dir.glob("*"), key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
-        device_files = sorted(device_dir.glob("*"), key=lambda x: int(x.stem.split('_')[-1]) 
-)
+        device_files = sorted(device_dir.glob("*"), key=lambda x: int(x.stem.split('_')[-1]))
+        logging.info(f"sorted device files to rename: {device_files}")
         matched_rows = self.process_and_match_files(device_files, df, device_name, device_type)
 
         # Rename master and dependent files
@@ -488,10 +488,12 @@ class ScanDataManager:
 
         tolerance = 1
         rounded_df_timestamps = df[device_timestamp_column].round(tolerance)
+        logging.info(f'rounded timestamps extracted from sFile: {rounded_df_timestamps}')
         for device_file in device_files:
             try:
                 file_timestamp = self.extract_timestamp_from_file(device_file, device_type)
                 file_timestamp_rounded = round(file_timestamp, tolerance)
+                logging.info(f'rounded timestamp extracted for {device_file}: {file_timestamp_rounded}')
                 match = rounded_df_timestamps[rounded_df_timestamps == file_timestamp_rounded]
                 if not match.empty:
                     matched_rows.append((device_file, match.index[0]))
