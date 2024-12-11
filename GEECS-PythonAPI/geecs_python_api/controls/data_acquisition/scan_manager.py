@@ -55,7 +55,7 @@ class ScanDataManager:
     
     DEPENDENT_SUFFIXES = ["-interp", "-interpSpec", "-interpDiv"]
     
-    def __init__(self, device_manager, scan_data):
+    def __init__(self, device_manager: 'DeviceManager', scan_data: Optional['ScanData'] = None):
         """
         Initialize the ScanDataManager with references to the ScanData and DeviceManager.
 
@@ -389,6 +389,11 @@ class ScanDataManager:
             scan_number (Optional[int]): Specific scan number to process. If None, uses 
                 the scan number from `self.scan_number_int`.
         """
+
+        if self.scan_data is None:
+            logging.error("Called 'process_and_rename()' before 'scan_data' is set.")
+            return
+
         directory_path = self.scan_data.get_folder()
 
         logging.info(f"Processing scan folder: {directory_path}")
@@ -398,7 +403,7 @@ class ScanDataManager:
             d for d in directory_path.iterdir() if d.is_dir() and not any(d.name.endswith(suffix) for suffix in self.DEPENDENT_SUFFIXES)
         ]
 
-        # Load scan data
+        # Load scan data  # TODO what happens if scan_number is given but scan_data is None?
         scan_num = self.scan_number_int if self.scan_number_int is not None else scan_number
         if scan_num is None:
             logging.error("Scan number is not provided.")
@@ -598,12 +603,11 @@ class ScanManager:
             shot_control_device (str, optional): GEECS Device that controls the shot timing
         """
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
-        self.scan_data = scan_data or ScanData()
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
         self.MC_ip = MC_ip
         
         # Initialize ScanDataManager with device_manager and scan_data
-        self.scan_data_manager = ScanDataManager(self.device_manager, self.scan_data)
+        self.scan_data_manager = ScanDataManager(self.device_manager, scan_data)
 
         self.data_logger = DataLogger(experiment_dir, self.device_manager)  # Initialize DataLogger
         self.save_data = True
