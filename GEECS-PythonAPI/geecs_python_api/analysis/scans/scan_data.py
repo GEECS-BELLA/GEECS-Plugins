@@ -145,10 +145,7 @@ class ScanData:
         return ScanTag(year, month, int(day), int(number), experiment=experiment)
     
     @staticmethod
-    def build_scan_folder_path(tag: NamedTuple,
-                               base_directory: Optional[Union[Path, str]] = None,
-                               client_base_directory: Optional[Union[Path, str]] = None,
-                               experiment: Optional[str] = None) -> Tuple[Path, Path]:
+    def get_scan_folder_path(tag: 'ScanTag', base_directory: Optional[Union[Path, str]] = None) -> Path:
         """
         Build scan folder paths for local and client directories.
         """
@@ -166,8 +163,8 @@ class ScanData:
         return build_path(base_directory), build_path(client_base_directory)
     
     @staticmethod
-    def build_device_shot_path(tag: ScanTag, device_name: str, shot_number: int, file_extension: str = 'png',
-                               base_directory: Optional[Union[Path, str]] = None, experiment: Optional[str] = None) -> Path:
+    def get_device_shot_path(tag: ScanTag, device_name: str, shot_number: int, file_extension: str = 'png',
+                             base_directory: Optional[Union[Path, str]] = None) -> Path:
         """
         Builds the full path to a device's shot file based on the scan tag, device name, and shot number.
 
