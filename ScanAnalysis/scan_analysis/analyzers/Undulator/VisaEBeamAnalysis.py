@@ -55,7 +55,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         Raises:
             Exception: If multiple compatible devices are found or no devices are found.
         """
-        scan_directory = ScanData.build_scan_folder_path(tag=scan_tag)
+        scan_directory = ScanData.get_scan_folder_path(tag=scan_tag)
 
         devices = [item.name
                    for item in scan_directory.iterdir()

@@ -58,7 +58,7 @@ class ScanAnalysis:
             skip_plt_show (bool): Flag to ultimately try plt.show() or not.
         """
         self.tag = scan_tag
-        self.scan_directory = ScanData.build_scan_folder_path(tag=scan_tag)
+        self.scan_directory = ScanData.get_scan_folder_path(tag=scan_tag)
         self.experiment_dir = scan_tag.experiment
         self.auxiliary_file_path = self.scan_directory / f"ScanData{self.scan_directory.name}.txt"
         self.ini_file_path = self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
