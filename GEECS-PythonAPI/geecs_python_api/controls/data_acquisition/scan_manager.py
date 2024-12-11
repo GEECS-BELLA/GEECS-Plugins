@@ -19,6 +19,7 @@ from nptdms import TdmsWriter, ChannelObject
 from geecs_python_api.controls.data_acquisition import DeviceManager, ActionManager, DataLogger
 from geecs_python_api.controls.data_acquisition.utils import ConsoleLogger
 from geecs_python_api.controls.interface import load_config, GeecsDatabase
+from geecs_python_api.controls.interface.geecs_paths_config import GeecsPathsConfig
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.analysis.scans.scan_data import ScanData
 from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_magspecstitcher_timestamp
@@ -75,8 +76,7 @@ class ScanDataManager:
         
         self.scan_number_int = None
         self.parsed_scan_string = None
-        
-    
+
     def create_and_set_data_paths(self):
         """
         Create data paths for devices that need non-scalar saving, and initialize the TDMS writers.
@@ -84,18 +84,19 @@ class ScanDataManager:
         This method sets up the necessary directories and paths for saving device data,
         then initializes the TDMS writers for logging scalar and non-scalar data.
         """
-                
+        paths_config = GeecsPathsConfig()
+        if not paths_config.is_default_server_address():
+            raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
+
         self.scan_data = ScanData.build_next_scan_data()
-        
+
         for device_name in self.device_manager.non_scalar_saving_devices:
-            data_path_client_side =  self.scan_data.get_client_folder() / device_name
-            data_path_local_side = self.scan_data.get_folder() / device_name
-            
-            data_path_local_side.mkdir(parents=True, exist_ok=True)
+            data_path = self.scan_data.get_folder() / device_name
+            data_path.mkdir(parents=True, exist_ok=True)
             
             device = self.device_manager.devices.get(device_name)
             if device:
-                save_path = str(data_path_client_side).replace('/', "\\")
+                save_path = str(data_path).replace('/', "\\")
                 logging.info(f"Setting save data path for {device_name} to {save_path}")
                 device.set("localsavingpath", save_path, sync=False)
                 time.sleep(.1)
