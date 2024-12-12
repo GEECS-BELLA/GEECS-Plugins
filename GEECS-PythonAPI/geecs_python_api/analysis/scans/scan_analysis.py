@@ -303,7 +303,7 @@ if __name__ == '__main__':
     _metric = 'median'
     # _metric = 'mean'
 
-    _folder = ScanData.build_scan_folder_path(_base_tag, htu.base_path)
+    _folder = ScanData.get_scan_folder_path(_base_tag, htu.base_path)
     # _scan_data = ScanData(_folder, ignore_experiment_name=htu.is_offline)
     _scan_data = ScanData(_folder)
     _scan_images = ScanImages(_scan_data, _camera)

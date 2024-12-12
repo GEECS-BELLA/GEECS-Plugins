@@ -48,7 +48,7 @@ def extract_s_file_number(filename: str) -> Optional[int]:
 
 
 class AnalysisFolderEventHandler(FileSystemEventHandler):
-    def __init__(self, scan_watch_queue: 'Queue', base_tag: 'ScanTag'):
+    def __init__(self, scan_watch_queue: Queue, base_tag: ScanTag):
         super().__init__()
         self.queue: Queue = scan_watch_queue
         self.base_tag = base_tag
@@ -199,7 +199,7 @@ class ScanWatch:
             self.analysis_queue.put(tag)
         logger.info(f"Found {self.analysis_queue.qsize()} untouched scans.")
 
-    def _evaluate_folder(self, tag: 'ScanTag', scan_folder: Path):
+    def _evaluate_folder(self, tag: ScanTag, scan_folder: Path):
         """ If there is a match for an analysis routine, perform the respective analysis(es) """
         logger.info(
             f"Starting analysis on scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}")
