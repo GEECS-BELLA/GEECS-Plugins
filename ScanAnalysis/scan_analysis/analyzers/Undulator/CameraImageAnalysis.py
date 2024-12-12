@@ -5,6 +5,7 @@ General camera image analyzer.
 Child to ScanAnalysis (./scan_analysis/base.py)
 """
 # %% imports
+from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional
 
 if TYPE_CHECKING:
@@ -26,7 +27,7 @@ from image_analysis.utils import read_imaq_png_image
 # %% classes
 class CameraImageAnalysis(ScanAnalysis):
 
-    def __init__(self, scan_tag: 'ScanTag', device_name: str, skip_plt_show: bool = True,
+    def __init__(self, scan_tag: ScanTag, device_name: str, skip_plt_show: bool = True,
                  flag_logging: bool = True, flag_save_images: bool = True):
         """
         Initialize the CameraImageAnalysis class.
@@ -494,32 +495,11 @@ class CameraImageAnalysis(ScanAnalysis):
             plot_scale = self.camera_analysis_settings.get('Plot Scale', None)
             self.create_image_array(binned_data, plot_scale=plot_scale)  # TODO more to do with binned_data type hints
 
-
-# %% executable
-def testing_routine():
-    from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
-
-    # define scan information
-    scan = {'year': '2024',
-            'month': 'Nov',
-            'day': '26',
-            'num': 13}
-    device_name = "UC_ALineEBeam3"
-    # device_name = "UC_UndulatorRad2"
-
-    # initialize data interface and analysis class
-    data_interface = DataInterface()
-    data_interface.year = scan['year']
-    data_interface.month = scan['month']
-    data_interface.day = scan['day']
-    (raw_data_path,
-     analysis_data_path) = data_interface.create_data_path(scan['num'])
-
-    scan_directory = raw_data_path / f"Scan{scan['num']:03d}"
-    analysis_class = CameraImageAnalysis(scan_directory, device_name)
-
-    analysis_class.run_analysis()
-
+        # save binned data to class variable
+        self.binned_data = binned_data
 
 if __name__ == "__main__":
-    testing_routine()
+    from geecs_python_api.analysis.scans.scan_data import ScanData
+    tag = ScanData.get_scan_tag(year=2024, month=11, day=26, number=13, experiment_name='Undulator')
+    analyzer = CameraImageAnalysis(scan_tag=tag, device_name="UC_ALineEBeam3", skip_plt_show=True)
+    analyzer.run_analysis()

@@ -15,6 +15,8 @@ For the "requirements" block of AnalyzerInfo to be compatible with `scan_evaluat
 # AND/OR dict blocks can be written as recursive elements.
 """
 # %% imports
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
@@ -28,7 +30,7 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 
 # %% classes
 class AnalyzerInfo(NamedTuple):
-    analyzer_class: Type['ScanAnalysis']
+    analyzer_class: Type[ScanAnalysis]
     requirements: Union[dict[str, list], set, str]
     device_name: Optional[str] = None
     config_file: Optional[str] = None
@@ -47,7 +49,7 @@ class ScanAnalysis:
         bins (np.ndarray): Bin numbers for the data, extracted from the auxiliary file.
         auxiliary_data (pd.DataFrame): DataFrame containing auxiliary scan data.
     """
-    def __init__(self, scan_tag: 'ScanTag', device_name: Optional[str] = None, skip_plt_show: bool = True):
+    def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True):
         """
         Initialize the ScanAnalysis class.
 
