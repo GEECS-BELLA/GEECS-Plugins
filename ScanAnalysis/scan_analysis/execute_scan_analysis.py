@@ -2,6 +2,8 @@
 Module containing the mapping of specific analyzers to their respective classes.  Gives an analysis command to the
 specified analyzer with the scan folder location
 """
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from scan_analysis.base import AnalyzerInfo
@@ -9,7 +11,7 @@ if TYPE_CHECKING:
 import logging
 
 
-def analyze_scan(tag: 'ScanTag', analyzer_list: list['AnalyzerInfo'], debug_mode: bool = False):
+def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], debug_mode: bool = False):
     for analyzer_info in analyzer_list:
         device = analyzer_info.device_name if analyzer_info.device_name else ''
         print(tag, ":", analyzer_info.analyzer_class.__name__, device)

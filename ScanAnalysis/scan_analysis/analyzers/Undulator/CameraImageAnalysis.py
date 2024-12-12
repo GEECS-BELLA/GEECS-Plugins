@@ -5,6 +5,7 @@ General camera image analyzer.
 Child to ScanAnalysis (./scan_analysis/base.py)
 """
 # %% imports
+from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional
 
 if TYPE_CHECKING:
@@ -26,7 +27,7 @@ from image_analysis.utils import read_imaq_png_image
 # %% classes
 class CameraImageAnalysis(ScanAnalysis):
 
-    def __init__(self, scan_tag: 'ScanTag', device_name: str, skip_plt_show: bool = True,
+    def __init__(self, scan_tag: ScanTag, device_name: str, skip_plt_show: bool = True,
                  flag_logging: bool = True, flag_save_images: bool = True):
         """
         Initialize the CameraImageAnalysis class.

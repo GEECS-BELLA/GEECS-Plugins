@@ -130,7 +130,7 @@ class ScanData:
 
     @staticmethod
     def get_scan_tag(year: Union[int, str], month: Union[int, str], day: Union[int, str], number: Union[int, str],
-                     experiment_name: Optional[str] = None) -> 'ScanTag':
+                     experiment_name: Optional[str] = None) -> ScanTag:
         """
         Returns a ScanTag tuple given the appropriate information, formatted correctly.  Ideally one should only build
         ScanTag objects using this function
@@ -152,7 +152,7 @@ class ScanData:
         return ScanTag(year, month, int(day), int(number), experiment=experiment)
     
     @staticmethod
-    def get_scan_folder_path(tag: 'ScanTag', base_directory: Optional[Union[Path, str]] = None) -> Path:
+    def get_scan_folder_path(tag: ScanTag, base_directory: Optional[Union[Path, str]] = None) -> Path:
         """
         Build scan folder paths for local and client directories.
         """
@@ -239,7 +239,7 @@ class ScanData:
     @staticmethod
     def get_latest_scan_data(experiment: Optional[str] = None, year: Optional[int] = None,
                              month: Optional[int] = None, day: Optional[int] = None,
-                             base_directory: Union[str, Path, None] = None) -> 'ScanData':
+                             base_directory: Union[str, Path, None] = None) -> ScanData:
         """
         Retrieves the ScanData object for the latest scan on the given day or today if no date is provided.
 
@@ -267,7 +267,7 @@ class ScanData:
     @staticmethod
     def get_next_scan_tag(experiment: Optional[str] = None, year: Optional[int] = None,
                           month: Optional[int] = None, day: Optional[int] = None,
-                          base_directory: Union[str, Path, None] = None) -> 'ScanTag':
+                          base_directory: Union[str, Path, None] = None) -> ScanTag:
         """
         Determines the next available scan tag for the given day or today if no date is provided.
 
@@ -301,7 +301,7 @@ class ScanData:
     @staticmethod
     def get_next_scan_folder(experiment: Optional[str] = None, year: Optional[int] = None,
                              month: Optional[int] = None, day: Optional[int] = None,
-                             base_directory: Union[str, Path, None] = None) -> 'Path':
+                             base_directory: Union[str, Path, None] = None) -> Path:
         """
         Builds the folder path for the next scan on the given day or today if no date is provided.
 
@@ -327,7 +327,7 @@ class ScanData:
     @staticmethod
     def build_next_scan_data(experiment: Optional[str] = None, year: Optional[int] = None,
                              month: Optional[int] = None, day: Optional[int] = None,
-                             base_directory: Union[str, Path, None] = None) -> 'ScanData':
+                             base_directory: Union[str, Path, None] = None) -> ScanData:
         """
         Creates the ScanData object for the next scan and builds its folder.
 

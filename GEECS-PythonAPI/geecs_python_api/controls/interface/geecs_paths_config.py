@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 from configparser import ConfigParser
 from typing import Optional, Union
 
-EXPERIMENT_TO_SERVER_DICT: dict[str, 'Path'] = {
+EXPERIMENT_TO_SERVER_DICT: dict[str, Path] = {
     'Undulator': Path('Z:/data'),
 }
 
@@ -30,7 +32,7 @@ class GeecsPathsConfig:
     def __init__(self,
                  config_path: Path = Path('~/.config/geecs_python_api/config.ini').expanduser(),
                  default_experiment: Optional[str] = None,
-                 set_base_path: Optional[Union['Path', str]] = None):
+                 set_base_path: Optional[Union[Path, str]] = None):
         """
         Loads paths and experiment settings from a configuration file.  Will first try the given base path from the
         initialization argument.  Then will try the default server address in the above dictionary.  Lastly, if still
@@ -99,12 +101,12 @@ class GeecsPathsConfig:
         return self.base_path == default_path
 
     @staticmethod
-    def get_default_server_address(experiment_name: str) -> Optional['Path']:
+    def get_default_server_address(experiment_name: str) -> Optional[Path]:
         """ Returns the corresponding base path on the server for the given experiment, defaults to None if unknown """
         return EXPERIMENT_TO_SERVER_DICT.get(experiment_name, None)
 
     @staticmethod
-    def _validate_and_set_base_path(input_path) -> Optional['Path']:
+    def _validate_and_set_base_path(input_path) -> Optional[Path]:
         """ If the given path is a path and exists, return it.  Otherwise, return None """
         if input_path is not None and input_path.exists():
             return input_path

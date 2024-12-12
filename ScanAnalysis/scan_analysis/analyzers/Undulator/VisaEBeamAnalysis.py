@@ -5,7 +5,9 @@ Visa YAG screen image analyzer.
 Child to CameraImageAnalysis (./scan_analysis/analyzers/Undulator/CameraImageAnalysis.py)
 """
 # %% imports
-from typing import TYPE_CHECKING, Optional, Union, Tuple
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional, Union
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
 import numpy as np
@@ -17,7 +19,7 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 # %% classes
 class VisaEBeamAnalysis(CameraImageAnalysis):
 
-    def __init__(self, scan_tag: 'ScanTag',
+    def __init__(self, scan_tag: ScanTag,
                  device_name: Optional[str] = None, skip_plt_show: bool = True,
                  flag_logging: bool = True, flag_save_images: bool = True) -> None:
         """
@@ -42,7 +44,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         self.path_dict['save'] = self.path_dict['save'].parent / "VisaEBeamAnalysis"
 
     @staticmethod
-    def device_autofinder(scan_tag: 'ScanTag') -> str:
+    def device_autofinder(scan_tag: ScanTag) -> str:
         """
         Automatically find a compatible device directory.
     
@@ -120,7 +122,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
 
     @staticmethod
     def create_cross_mask(image: np.ndarray,
-                          cross_center: Tuple[int, int],
+                          cross_center: tuple[int, int],
                           angle: Union[int, float],
                           cross_height: int = 54,
                           cross_width: int = 54,
