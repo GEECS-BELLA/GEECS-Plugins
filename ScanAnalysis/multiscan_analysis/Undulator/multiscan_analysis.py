@@ -9,7 +9,10 @@ Kyle Jensen, kjensen@lbl.gov
 # =============================================================================
 # %% imports
 from __future__ import annotations
-from typing import Union
+from typing import Union, TYPE_CHECKING
+if TYPE_CHECKING:
+    from geecs_python_api.controls.api_defs import ScanTag
+
 import os
 import glob
 import cv2
@@ -17,7 +20,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from geecs_python_api.controls.api_defs import ScanTag
+from geecs_python_api.analysis.scans.scan_data import ScanData
 from scan_analysis.analyzers.Undulator.VisaEBeamAnalysis import VisaEBeamAnalysis
 from image_analysis.utils import read_imaq_image
 
@@ -230,7 +233,8 @@ def run_multiscan_visa():
     scans = [20, 21, 22]
 
     # generate list of scan tags
-    scan_tags = [ScanTag(year=year, month=month, day=day, number=num, experiment=experiment)
+    scan_tags = [ScanData.get_scan_tag(year=year, month=month, day=day,
+                                       number=num, experiment_name=experiment)
                  for num in scans]
 
     # initialize analyzer
