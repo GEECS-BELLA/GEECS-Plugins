@@ -10,11 +10,12 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from geecs_python_api.controls.data_acquisition.scan_analysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.CameraImageAnalysis import CameraImageAnalysis
 from image_analysis.tools.general import find_beam_properties, image_signal_thresholding
 
-from ScanAnalysis.calibrations.Undulator.calibration_data.experimental_config import get_experimental_config_distance
-from ScanAnalysis.calibrations.Undulator.utils import get_calibration_location
+from calibrations.Undulator.calibration_data.experimental_config import get_experimental_config_distance
+from calibrations.Undulator.utils import get_calibration_location
+
 # =============================================================================
 # %% classes
 

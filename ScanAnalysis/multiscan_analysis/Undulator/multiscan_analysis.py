@@ -16,7 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
-from geecs_python_api.controls.data_acquisition.scan_analysis import VisaEBeamAnalysis
+from scan_analysis.analyzers.Undulator.VisaEBeamAnalysis import VisaEBeamAnalysis
 from image_analysis.utils import read_imaq_image
 
 # =============================================================================
