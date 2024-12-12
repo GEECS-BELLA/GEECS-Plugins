@@ -6,7 +6,13 @@ Created on Fri Nov  1 11:46:43 2024
 """
 # =============================================================================
 # %% imports
-from geecs_python_api.controls.data_acquisition.scan_analysis import CameraImageAnalysis
+from __future__ import annotations
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from geecs_python_api.controls.api_defs import ScanTag
+
+from geecs_python_api.analysis.scans.scan_data import ScanData
+from scan_analysis.analyzers.Undulator.VisaEBeamAnalysis import VisaEBeamAnalysis
 from image_analysis.utils import read_imaq_image
 from image_analysis.tools.general import image_signal_thresholding, find_beam_properties
 
@@ -14,9 +20,9 @@ import matplotlib.pyplot as plt
 # =============================================================================
 # %% classes
 
-class VisaBlueDiodeCalibration(CameraImageAnalysis):
+class VisaBlueDiodeCalibration(VisaEBeamAnalysis):
 
-    def __init__(self, scan_directory, device_name, use_gui=True, experiment_dir = 'Undulator'):
+    def __init__(self, scan_tag: ScanTag):
         """
         Initialize the CameraImageAnalysis class.
 
@@ -24,7 +30,7 @@ class VisaBlueDiodeCalibration(CameraImageAnalysis):
             scan_directory (str or Path): Path to the scan directory containing data.
             device_name (str): Name of the device to construct the subdirectory path.
         """
-        super().__init__(scan_directory, device_name, use_gui=use_gui)
+        super().__init__(scan_tag)
 
     @staticmethod
     def plot_calibration_result(image, centroidx, centroidy):
@@ -87,30 +93,16 @@ class VisaBlueDiodeCalibration(CameraImageAnalysis):
 
 def testing_VisaEBeamAnalysis():
 
-    # imports
-    from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
-
-    # define scan information
-    scan_dict = {'year': '2024',
-                 'month': 'Oct',
-                 'day': '31',
-                 'num': 33}
-    device_name = "UC_VisaEBeam8"
-
-    # initialize and configure data interface
-    data_interface = DataInterface()
-    data_interface.year = scan_dict['year']
-    data_interface.month = scan_dict['month']
-    data_interface.day = scan_dict['day']
-    (raw_data_path,
-     analysis_data_path) = data_interface.create_data_path(scan_dict['num'])
+    # get scan tag
+    scan_tag = ScanData.get_scan_tag(year=2024, month=10, day=31, number=33,
+                                     experiment_name='Undulator')
 
     # initialize analysis class
-    scan_directory = raw_data_path / f"Scan{scan_dict['num']:03d}"
-    analysis_class = VisaBlueDiodeCalibration(scan_directory, device_name)
+    analysis_class = VisaBlueDiodeCalibration(scan_tag)
 
     output = analysis_class.run_analysis()
 
+    print(f"Device: {analysis_class.device_name}")
     print(f"Centroid X = {output['centroidx']}")
     print(f"Centroid Y = {output['centroidy']}")
 
