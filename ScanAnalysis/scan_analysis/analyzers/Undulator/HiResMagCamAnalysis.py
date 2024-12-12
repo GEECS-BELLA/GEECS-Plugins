@@ -152,6 +152,7 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
 
 
 if __name__ == "__main__":
-    tag = ScanTag(year=2024, month=11, day=26, number=5, experiment='Undulator')
+    from geecs_python_api.analysis.scans.scan_data import ScanData
+    tag = ScanData.get_scan_tag(year=2024, month=11, day=26, number=5, experiment_name='Undulator')
     analyzer = HiResMagCamAnalysis(scan_tag=tag, skip_plt_show=True)
     analyzer.run_analysis()

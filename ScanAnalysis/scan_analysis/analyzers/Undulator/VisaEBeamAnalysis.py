@@ -154,49 +154,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         return rotated_mask
 
 
-# %% executable
-def testing_routine() -> None:
-
-    from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
-
-    # define scan information
-    scan = {'year': '2024',
-            'month': 'Nov',
-            'day': '26',
-            'num': 19}
-    device_name = None
-
-    # initialize data interface and analysis class
-    data_interface = DataInterface()
-    data_interface.year = scan['year']
-    data_interface.month = scan['month']
-    data_interface.day = scan['day']
-    (raw_data_path,
-     analysis_data_path) = data_interface.create_data_path(scan['num'])
-
-    scan_directory = raw_data_path / f"Scan{scan['num']:03d}"
-    analysis_class = VisaEBeamAnalysis(scan_directory, device_name=device_name)
-
-    analysis_class.run_analysis()
-
-    return
-
-
-def new_routine() -> None:
-
-    from geecs_python_api.controls.api_defs import ScanTag
-
-    scan_tag = ScanTag(year=2024, month=11, day=26,
-                       number=19, experiment='Undulator')
-
-    # device_name = "UC_VisaEBeam1"
-    device_name = None
-    analysis_class = VisaEBeamAnalysis(scan_tag, device_name=device_name)
-
-    analysis_class.run_analysis()
-
-    return
-
-
 if __name__ == "__main__":
-    new_routine()
+    tag = ScanData.get_scan_tag(year=2024, month=11, day=26, number=19, experiment_name='Undulator')
+    analyzer = VisaEBeamAnalysis(scan_tag=tag, device_name=None, skip_plt_show=True)
+    analyzer.run_analysis()
