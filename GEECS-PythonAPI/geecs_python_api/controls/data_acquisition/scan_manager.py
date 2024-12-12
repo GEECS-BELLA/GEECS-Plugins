@@ -19,6 +19,7 @@ from nptdms import TdmsWriter, ChannelObject
 from geecs_python_api.controls.data_acquisition import DeviceManager, ActionManager, DataLogger
 from geecs_python_api.controls.data_acquisition.utils import ConsoleLogger
 from geecs_python_api.controls.interface import load_config, GeecsDatabase
+from geecs_python_api.controls.interface.geecs_paths_config import GeecsPathsConfig
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.analysis.scans.scan_data import ScanData
 from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_magspecstitcher_timestamp
@@ -55,7 +56,7 @@ class ScanDataManager:
     
     DEPENDENT_SUFFIXES = ["-interp", "-interpSpec", "-interpDiv"]
     
-    def __init__(self, device_manager, scan_data):
+    def __init__(self, device_manager: 'DeviceManager', scan_data: Optional['ScanData'] = None):
         """
         Initialize the ScanDataManager with references to the ScanData and DeviceManager.
 
@@ -75,8 +76,7 @@ class ScanDataManager:
         
         self.scan_number_int = None
         self.parsed_scan_string = None
-        
-    
+
     def create_and_set_data_paths(self):
         """
         Create data paths for devices that need non-scalar saving, and initialize the TDMS writers.
@@ -84,18 +84,19 @@ class ScanDataManager:
         This method sets up the necessary directories and paths for saving device data,
         then initializes the TDMS writers for logging scalar and non-scalar data.
         """
-                
+        paths_config = GeecsPathsConfig()
+        if not paths_config.is_default_server_address():
+            raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
+
         self.scan_data = ScanData.build_next_scan_data()
-        
+
         for device_name in self.device_manager.non_scalar_saving_devices:
-            data_path_client_side =  self.scan_data.get_client_folder() / device_name
-            data_path_local_side = self.scan_data.get_folder() / device_name
-            
-            data_path_local_side.mkdir(parents=True, exist_ok=True)
+            data_path = self.scan_data.get_folder() / device_name
+            data_path.mkdir(parents=True, exist_ok=True)
             
             device = self.device_manager.devices.get(device_name)
             if device:
-                save_path = str(data_path_client_side).replace('/', "\\")
+                save_path = str(data_path).replace('/', "\\")
                 logging.info(f"Setting save data path for {device_name} to {save_path}")
                 device.set("localsavingpath", save_path, sync=False)
                 time.sleep(.1)
@@ -389,6 +390,11 @@ class ScanDataManager:
             scan_number (Optional[int]): Specific scan number to process. If None, uses 
                 the scan number from `self.scan_number_int`.
         """
+
+        if self.scan_data is None:
+            logging.error("Called 'process_and_rename()' before 'scan_data' is set.")
+            return
+
         directory_path = self.scan_data.get_folder()
 
         logging.info(f"Processing scan folder: {directory_path}")
@@ -398,7 +404,7 @@ class ScanDataManager:
             d for d in directory_path.iterdir() if d.is_dir() and not any(d.name.endswith(suffix) for suffix in self.DEPENDENT_SUFFIXES)
         ]
 
-        # Load scan data
+        # Load scan data  # TODO what happens if scan_number is given but scan_data is None?
         scan_num = self.scan_number_int if self.scan_number_int is not None else scan_number
         if scan_num is None:
             logging.error("Scan number is not provided.")
@@ -450,8 +456,8 @@ class ScanDataManager:
 
         # Collect and match files with timestamps
         # device_files = sorted(device_dir.glob("*"), key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
-        device_files = sorted(device_dir.glob("*"), key=lambda x: int(x.stem.split('_')[-1]) 
-)
+        device_files = sorted(device_dir.glob("*"), key=lambda x: int(x.stem.split('_')[-1]))
+        logging.info(f"sorted device files to rename: {device_files}")
         matched_rows = self.process_and_match_files(device_files, df, device_name, device_type)
 
         # Rename master and dependent files
@@ -482,10 +488,12 @@ class ScanDataManager:
 
         tolerance = 1
         rounded_df_timestamps = df[device_timestamp_column].round(tolerance)
+        logging.info(f'rounded timestamps extracted from sFile: {rounded_df_timestamps}')
         for device_file in device_files:
             try:
                 file_timestamp = self.extract_timestamp_from_file(device_file, device_type)
                 file_timestamp_rounded = round(file_timestamp, tolerance)
+                logging.info(f'rounded timestamp extracted for {device_file}: {file_timestamp_rounded}')
                 match = rounded_df_timestamps[rounded_df_timestamps == file_timestamp_rounded]
                 if not match.empty:
                     matched_rows.append((device_file, match.index[0]))
@@ -598,12 +606,11 @@ class ScanManager:
             shot_control_device (str, optional): GEECS Device that controls the shot timing
         """
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
-        self.scan_data = scan_data or ScanData()
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
         self.MC_ip = MC_ip
         
         # Initialize ScanDataManager with device_manager and scan_data
-        self.scan_data_manager = ScanDataManager(self.device_manager, self.scan_data)
+        self.scan_data_manager = ScanDataManager(self.device_manager, scan_data)
 
         self.data_logger = DataLogger(experiment_dir, self.device_manager)  # Initialize DataLogger
         self.save_data = True

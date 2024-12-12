@@ -18,7 +18,7 @@ class ScanAnalysisTestCase(unittest.TestCase):
         experiment_name = 'Undulator'
         scan_tag = ScanData.get_scan_tag(23, '8', 9, 4)
 
-        scan_folder = ScanData.build_scan_folder_path(scan_tag, experiment=experiment_name)
+        scan_folder = ScanData.get_scan_folder_path(scan_tag)
         scan_data = ScanData(scan_folder)
 
         files = scan_data.get_folders_and_files()
@@ -27,17 +27,17 @@ class ScanAnalysisTestCase(unittest.TestCase):
         print(files['files'])
         print(scan_data.get_folder())
         print(scan_data.get_analysis_folder())
-        print(ScanData.build_device_shot_path(scan_tag, 'UC_Device', 5))
+        print(ScanData.get_device_shot_path(scan_tag, 'UC_Device', 5))
 
         scan_tag = ScanData.get_scan_tag('2024', 'nov', 19, 18)
-        scan_data = ScanData(tag=scan_tag, experiment=experiment_name)
+        scan_data = ScanData(tag=scan_tag)
         files = scan_data.get_folders_and_files()
 
         print(files['devices'])
         print(files['files'])
         print(scan_data.get_folder())
         print(scan_data.get_analysis_folder())
-        print(ScanData.build_device_shot_path(scan_tag, files['devices'][0], 5))
+        print(ScanData.get_device_shot_path(scan_tag, files['devices'][0], 5))
 
         next_folder = ScanData.get_next_scan_folder(experiment=experiment_name)
         print(next_folder)

@@ -18,3 +18,4 @@ Xopt-GEECS/testing nb.ipynb
 LogMaker 4 GoogleDocs/source/HTUcurrentvalues.ini
 LogMaker 4 GoogleDocs/source/HTUparameters.ini
 *.spyproject
+GEECS-PythonAPI/htu_scripts/test_scripts/credentials.json
