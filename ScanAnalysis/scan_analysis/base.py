@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
 from pathlib import Path
 import logging
-import configparser
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -58,7 +57,8 @@ class ScanAnalysis:
             skip_plt_show (bool): Flag to ultimately try plt.show() or not.
         """
         self.tag = scan_tag
-        self.scan_directory = ScanData.get_scan_folder_path(tag=scan_tag)
+        self.scan_data = ScanData(tag=self.tag, load_scalars=True, read_mode=True)
+        self.scan_directory = self.scan_data.get_folder()  # ScanData.get_scan_folder_path(tag=scan_tag)
         self.experiment_dir = scan_tag.experiment
         self.auxiliary_file_path = self.scan_directory / f"ScanData{self.scan_directory.name}.txt"
         self.ini_file_path = self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
@@ -111,18 +111,15 @@ class ScanAnalysis:
         Returns:
             str: The scan parameter with colons replaced by spaces.
         """
-        config = configparser.ConfigParser()
-        config.read(self.ini_file_path)
-        cleaned_scan_parameter = config['Scan Info']['Scan Parameter'].strip().replace(':', ' ').replace('"', '')
+
+        ini_contents = self.scan_data.load_scan_info()
+        cleaned_scan_parameter = ini_contents['Scan Parameter'].strip().replace(':', ' ').replace('"', '')
         return cleaned_scan_parameter
 
     def load_auxiliary_data(self):
-        """
-        Load auxiliary binning data from the ScanData file and retrieve the binning structure.
-        """
-
+        """ Uses the data frame in the ScanData instance to find the bins and the binned parameter values """
         try:
-            self.auxiliary_data = pd.read_csv(self.auxiliary_file_path, delimiter='\t')
+            self.auxiliary_data = self.scan_data.data_frame
             self.bins = self.auxiliary_data['Bin #'].values
 
             if not self.noscan:
