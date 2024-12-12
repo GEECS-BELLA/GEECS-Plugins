@@ -8,6 +8,8 @@ Kyle Jensen, kjensen@lbl.gov
 """
 # =============================================================================
 # %% imports
+from __future__ import annotations
+from typing import Union
 import os
 import glob
 import cv2
@@ -15,8 +17,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
-from geecs_python_api.controls.data_acquisition.scan_analysis import VisaEBeamAnalysis
+from geecs_python_api.controls.api_defs import ScanTag
+from scan_analysis.analyzers.Undulator.VisaEBeamAnalysis import VisaEBeamAnalysis
 from image_analysis.utils import read_imaq_image
 
 # =============================================================================
@@ -28,9 +30,8 @@ class MultiScanAnalysis():
     Not sure how to generalize at this point.
     """
 
-    def __init__(self, input_scans):
+    def __init__(self, scan_tags: ScanTag) -> None:
         """
-
 
         Parameters
         ----------
@@ -42,125 +43,63 @@ class MultiScanAnalysis():
         None.
 
         """
+        # compile scan information
+        self.scans = self.compile_scan_info(scan_tags)
 
-        # initialize data interface object
-        self.data_interface = DataInterface()
+    def compile_scan_info(self, scan_tags: ScanTag) -> dict[int: dict[str: ScanTag]]:
 
-        # parse scan information based in input_scans dict
-        self.scans = self.parse_scans(input_scans)
+        # initialize storage dict
+        scans = {item.number: {} for item in scan_tags}
 
-    def parse_scans(self, input_scans):
-        """
-        Parse input scans and organize.
-        """
+        # iterate through scans, compiling useful information
+        for scan_tag in scan_tags:
+            scans[scan_tag.number]['tag'] = scan_tag
 
-        # parse input
-        scan_numbers = list(input_scans['scan_num'])
-        scan_years = ([input_scans['year']] * len(scan_numbers)
-                      if isinstance(input_scans['year'], str)
-                      else list(input_scans['year']))
-        scan_months = ([input_scans['month']] * len(scan_numbers)
-                      if isinstance(input_scans['month'], str)
-                      else list(input_scans['month']))
-        scan_days = ([input_scans['day']] * len(scan_numbers)
-                      if isinstance(input_scans['day'], str)
-                      else list(input_scans['day']))
-
-        # check compatibility of scan dates
-        if (len(scan_years) != len(scan_numbers)
-            or len(scan_months) != len(scan_numbers)
-            or len(scan_days) != len(scan_numbers)):
-            raise Exception("Error: Incompatible dates specifications.")
-
-        # organize isolated scan dicts
-        scan_dict = {}
-        for ind, scan in enumerate(scan_numbers):
-            scan_dict[scan] = {'day': scan_days[ind],
-                               'month': scan_months[ind],
-                               'year': scan_years[ind],
-                               'num': scan}
-
-            (scan_dict[scan]['path_scan'],
-             scan_dict[scan]['path_analysis'],
-             scan_dict[scan]['path_sfile']) = self.get_scan_paths(scan_dict[scan])
-
-        return scan_dict
-
-    def get_scan_paths(self, scan_info):
-
-        self.data_interface.year = scan_info['year']
-        self.data_interface.month = scan_info['month']
-        self.data_interface.day = scan_info['day']
-
-        raw_data_path, analysis_path = self.data_interface.create_data_path(scan_info['num'])
-        scan_directory = raw_data_path / f"Scan{scan_info['num']:03d}"
-        analysis_directory = analysis_path / f"Scan{scan_info['num']:03d}"
-        sfile_path = analysis_path / f"s{scan_info['num']}.txt"
-
-        return scan_directory, analysis_directory, sfile_path
+        return scans
 
     @staticmethod
-    def load_sfile(filepath):
+    def load_sfile(filepath) -> pd.DataFrame:
         dataframe = pd.read_table(filepath, header=0)
         return dataframe
 
 class MultiScanAnalysis_Visa(MultiScanAnalysis):
 
-    def __init__(self, input_scans):
-        super().__init__(input_scans)
+    def __init__(self, scan_tags: ScanTag) -> None:
+        super().__init__(scan_tags)
 
-    def parse_scans(self, input_scans):
-        """
-        Parse input scans and organize.
-        """
+    @staticmethod
+    def get_diode_coords(analysis_settings: dict) -> tuple:
 
-        # use super parse function
-        scan_dict = super().parse_scans(input_scans)
+        coords = (analysis_settings['Blue Centroid X'] - analysis_settings['Left ROI'],
+                  analysis_settings['Blue Centroid Y'] - analysis_settings['Top ROI'])
 
-        # identify scan specific device
-        template = "UC_VisaEBeam*"
-        for key, item in scan_dict.items():
+        return coords
 
-            # get list of paths satisfying template
-            template_dir = os.path.join(item['path_scan'], template)
-            path_list = list(glob.glob(template_dir))
-
-            # iterate through path list for item of interest
-            for val in os.listdir(item['path_scan']):
-                test_path = os.path.join(item['path_scan'], val)
-
-                # if path is a directory and satisfies template
-                # then record to scan dict and break loop
-                if (os.path.isdir(test_path) and test_path in path_list):
-                    scan_dict[key]['device'] = val
-                    break
-
-        return scan_dict
-
-    def scan_analysis(self, scan):
+    def scan_analysis(self, scan: dict[str: ScanTag]) -> dict[str: Union[ScanTag, tuple, dict[str: np.ndarray]]]:
 
         # initialize VisaEBeamAnalysis
-        analyzer = VisaEBeamAnalysis(scan['path_scan'], scan['device'])
-        self.scan_parameter = analyzer.scan_parameter
+        analyzer = VisaEBeamAnalysis(scan['tag'])
+
         analysis_settings = analyzer.camera_analysis_settings
+        self.scan_parameter = analyzer.scan_parameter
+
+        scan['device'] = analyzer.device_name
+        scan['save_path'] = analyzer.path_dict['save']
 
         # get blue diode coordinates
-        scan['diode_coords'] = (analysis_settings['Blue Centroid X'] - analysis_settings['Left ROI'],
-                                analysis_settings['Blue Centroid Y'] - analysis_settings['Top ROI'])
+        scan['diode_coords'] = self.get_diode_coords(analysis_settings)
 
         # perform visa e beam analysis
-        binned_data = analyzer.bin_images(flag_save=False)
-        binned_data = analyzer.perform_bulk_image_analysis(binned_data,
-                                                           flag_save=False)
+        analyzer.run_analysis()
 
         # record in scan dict
         scan['binned_data'] = {key: {'value': item['value'],
                                      'image': item['image']}
-                               for key, item in binned_data.items()}
+                               for key, item in analyzer.binned_data.items()}
 
         return scan
 
-    def load_analysis_results(self, scan):
+    def load_analysis_results(self, scan: dict[str: ScanTag]) -> dict[str: Union[ScanTag, str, tuple, dict[str: np.ndarray]]]:
         """
         Load existing analysis images rather than perform full analysis.
 
@@ -168,27 +107,33 @@ class MultiScanAnalysis_Visa(MultiScanAnalysis):
         """
 
         # initialize VisaEBeamAnalysis
-        analyzer = VisaEBeamAnalysis(scan['path_scan'], scan['device'])
-        self.scan_parameter = analyzer.scan_parameter
+        # assumes scan parameter is the same for each scan
+        analyzer = VisaEBeamAnalysis(scan['tag'])
+
         analysis_settings = analyzer.camera_analysis_settings
+        self.scan_parameter = analyzer.scan_parameter
+
+        scan['device'] = analyzer.device_name
+        scan['save_path'] = analyzer.path_dict['save']
 
         # get blue diode coordinates
-        scan['diode_coords'] = (analysis_settings['Blue Centroid X'] - analysis_settings['Left ROI'],
-                                analysis_settings['Blue Centroid Y'] - analysis_settings['Top ROI'])
+        scan['diode_coords'] = self.get_diode_coords(analysis_settings)
 
         # get bin numbers and values (assumes correlated bin number and value!!)
         bin_num = np.unique(analyzer.bins)
         bin_vals = analyzer.binned_param_values
 
         # load already processed images
-        # img = cv2.imread('Z:/data/Undulator/Y2024/11-Nov/24_1105/scans/Scan033/UC_VisaEBeam1_1_processed.png', cv2.IMREAD_UNCHANGED)
         scan['binned_data'] = {val: {'value': bin_vals[ind],
-                                     'image': cv2.imread(analyzer.scan_directory / f"{scan['device']}_{val}_processed.png", cv2.IMREAD_UNCHANGED)}
+                                     'image': cv2.imread(analyzer.path_dict['save']
+                                                         / f"{scan['device']}_{val}_processed.png",
+                                                         cv2.IMREAD_UNCHANGED)}
                                for ind, val in enumerate(bin_num)}
 
         return scan
 
-    def compile_image_matrix(self, scans, ref_coords=True, save_figure=True):
+    def compile_image_matrix(self, scans: dict[int: dict[str: Union[ScanTag, str, tuple, dict[str: np.ndarray]]]],
+                             ref_coords: bool =True, save_figure: bool =True) -> None:
         """
         Arrange averaged images from multiple scans in matrixed grid.
 
@@ -199,7 +144,7 @@ class MultiScanAnalysis_Visa(MultiScanAnalysis):
         # set save path
         first_scan = np.min(list(scans.keys()))
         if save_figure:
-            save_path = scans[first_scan]['path_analysis'] / f"multiscan_scan_matrix.png"
+            save_path = scans[first_scan]['save_path'] / "multiscan_scan_matrix.png"
 
         # get grid size
         grid_row = len(scans.keys())
@@ -259,7 +204,7 @@ class MultiScanAnalysis_Visa(MultiScanAnalysis):
 
         return
 
-    def run_routine(self, run_analysis=False):
+    def run_routine(self, run_analysis: bool = False) -> None:
 
         # run analysis for each scan
         for key, item in self.scans.items():
@@ -274,21 +219,22 @@ class MultiScanAnalysis_Visa(MultiScanAnalysis):
         return
 
 # =============================================================================
-# %% functions
-
-# =============================================================================
 # %% routines
 
 def run_multiscan_visa():
 
-    # initialize data set info
-    scans = {'year': '2024',
-             'month': 'Nov',
-             'day': '05',
-             'scan_num': [33, 34, 35, 36]}
+    experiment = 'Undulator'
+    year = 2024
+    month = 12
+    day = 5
+    scans = [20, 21, 22]
+
+    # generate list of scan tags
+    scan_tags = [ScanTag(year=year, month=month, day=day, number=num, experiment=experiment)
+                 for num in scans]
 
     # initialize analyzer
-    analyzer = MultiScanAnalysis_Visa(scans)
+    analyzer = MultiScanAnalysis_Visa(scan_tags)
 
     # run routine
     analyzer.run_routine(run_analysis=False)

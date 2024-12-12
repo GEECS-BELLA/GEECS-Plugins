@@ -494,6 +494,8 @@ class CameraImageAnalysis(ScanAnalysis):
             plot_scale = self.camera_analysis_settings.get('Plot Scale', None)
             self.create_image_array(binned_data, plot_scale=plot_scale)  # TODO more to do with binned_data type hints
 
+        # save binned data to class variable
+        self.binned_data = binned_data
 
 # %% executable
 def testing_routine():
