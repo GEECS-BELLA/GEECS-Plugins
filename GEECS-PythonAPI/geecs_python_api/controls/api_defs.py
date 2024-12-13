@@ -29,6 +29,7 @@ class ScanTag(NamedTuple):
     month: int
     day: int
     number: int
+    experiment: Optional[str] = None
 
 
 def month_to_int(month: Union[str, int]) -> int:

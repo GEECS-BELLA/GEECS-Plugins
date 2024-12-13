@@ -13,7 +13,7 @@ import sys
 from scipy import ndimage
 import matplotlib.pyplot as plt
 from pathlib import Path
-from ImageAnalysis.image_analysis.utils import read_imaq_png_image
+from image_analysis.utils import read_imaq_png_image
 
 
 def find_two_peaks(input_image):

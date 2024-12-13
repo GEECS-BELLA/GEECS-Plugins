@@ -1,15 +1,41 @@
 """
-Class containing common functionality and requirements available for all scan analyzers
+Classes containing common functionality and requirements available for all scan analyzers.  ScanAnalysis is the parent
+class for all implementing analyzers and the main requirements are to satisfy the initialization and `run_analysis()`.
+
+------------------------------------------------------------------------------------------------------------------------
+
+For the "requirements" block of AnalyzerInfo to be compatible with `scan_evaluator.py`, follow these guidelines and see
+`map_Undulator` as an example.
+
+# Either a dictionary element of 'AND' or 'OR' followed by a list of devices.
+# Alternatively, just a set/list of devices will suffice.
+
+# AND blocks are evaluated true if all the devices exist in a given scan folder
+# OR blocks are evaluated true if at least one of the devices exist
+# AND/OR dict blocks can be written as recursive elements.
 """
 # %% imports
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple
+if TYPE_CHECKING:
+    from geecs_python_api.controls.api_defs import ScanTag
 from pathlib import Path
 import logging
-import configparser
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from geecs_python_api.analysis.scans.scan_data import ScanData
+
 
 # %% classes
+class AnalyzerInfo(NamedTuple):
+    analyzer_class: Type[ScanAnalysis]
+    requirements: Union[dict[str, list], set, str]
+    device_name: Optional[str] = None
+    config_file: Optional[str] = None
+
+
 class ScanAnalysis:
     """
     Base class for performing analysis on scan data. Handles loading auxiliary data and extracting
@@ -23,24 +49,34 @@ class ScanAnalysis:
         bins (np.ndarray): Bin numbers for the data, extracted from the auxiliary file.
         auxiliary_data (pd.DataFrame): DataFrame containing auxiliary scan data.
     """
-    def __init__(self, scan_directory, use_gui = True, experiment_dir = "Undulator"):
-
+    def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True):
         """
         Initialize the ScanAnalysis class.
 
         Args:
-            scan_directory (str or Path): Path to the scan directory containing data.
+            scan_tag (ScanTag): NamedTuple containing the scan's experiment, date, and scan number
+            device_name (Optional[str]): An optional string to specify which device the analyzer should analyze
+            skip_plt_show (bool): Flag to ultimately try plt.show() or not.
         """
-        self.scan_directory = Path(scan_directory)
-        self.experiment_dir = experiment_dir
+        self.tag = scan_tag
+        self.scan_data = ScanData(tag=self.tag, load_scalars=True, read_mode=True)
+        self.scan_directory = self.scan_data.get_folder()  # ScanData.get_scan_folder_path(tag=scan_tag)
+        self.experiment_dir = scan_tag.experiment
         self.auxiliary_file_path = self.scan_directory / f"ScanData{self.scan_directory.name}.txt"
         self.ini_file_path = self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
         self.noscan = False
-        self.use_gui = use_gui
+
+        self.device_name = device_name
+
+        self.skip_plt_show = skip_plt_show
+
+        self.bins = None
+        self.auxiliary_data: Optional[pd.DataFrame] = None
+        self.binned_param_values = None
 
         try:
             # Extract the scan parameter
-            self.scan_parameter = self.extract_scan_parameter_from_ini(self.ini_file_path)
+            self.scan_parameter = self.extract_scan_parameter_from_ini()
 
             logging.info(f"Scan parameter is: {self.scan_parameter}.")
             s_param = self.scan_parameter.lower()
@@ -49,7 +85,7 @@ class ScanAnalysis:
                 logging.warning("No parameter varied during the scan, setting noscan flag.")
                 self.noscan = True
 
-            self.bins, self.auxiliary_data, self.binned_param_values = self.load_auxiliary_data()
+            self.load_auxiliary_data()
 
             if self.auxiliary_data is None:
                 logging.warning("Scan parameter not found in auxiliary data. Possible aborted scan. Skipping analysis.")
@@ -58,77 +94,70 @@ class ScanAnalysis:
             self.total_shots = len(self.auxiliary_data)
 
         except FileNotFoundError as e:
-            logging.warining(f"Warning: {e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
+            logging.warning(f"{e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
             return
 
-    def extract_scan_parameter_from_ini(self, ini_file_path):
+    def run_analysis(self, config_options: Optional[Union[Path, str]] = None) -> Optional[list[Union[Path, str]]]:
+        """
+        Analysis routine called by execute_scan_analysis for a given analyzer.  Needs to be implemented for each class
+
+        :param config_options: Optional input to specify a filepath for configuration settings
+        :return: Optional return for a list of key images/files generated by the analysis for use with experiment log
+        """
+        raise NotImplementedError
+
+    def extract_scan_parameter_from_ini(self) -> str:
         """
         Extract the scan parameter from the .ini file.
-
-        Args:
-            ini_file_path (Path): Path to the .ini file.
 
         Returns:
             str: The scan parameter with colons replaced by spaces.
         """
-        config = configparser.ConfigParser()
-        config.read(ini_file_path)
-        cleaned_scan_parameter = config['Scan Info']['Scan Parameter'].strip().replace(':', ' ').replace('"', '')
+
+        ini_contents = self.scan_data.load_scan_info()
+        cleaned_scan_parameter = ini_contents['Scan Parameter'].strip().replace(':', ' ').replace('"', '')
         return cleaned_scan_parameter
 
     def load_auxiliary_data(self):
-        """
-        Load auxiliary binning data from the ScanData file and retrieve the binning structure.
-
-        Returns:
-            tuple: A tuple containing the bin numbers (np.ndarray) and the auxiliary data (pd.DataFrame).
-        """
-
+        """ Uses the data frame in the ScanData instance to find the bins and the binned parameter values """
         try:
-            auxiliary_data = pd.read_csv(self.auxiliary_file_path, delimiter='\t')
-            bins = auxiliary_data['Bin #'].values
+            self.auxiliary_data = self.scan_data.data_frame
+            self.bins = self.auxiliary_data['Bin #'].values
 
             if not self.noscan:
                 # Find the scan parameter column and calculate the binned values
-                scan_param_column = self.find_scan_param_column(auxiliary_data)[0]
-                binned_param_values = auxiliary_data.groupby('Bin #')[scan_param_column].mean().values
-
-                return bins, auxiliary_data, binned_param_values
-
-            else:
-                return bins, auxiliary_data, None
+                scan_param_column = self.find_scan_param_column()[0]
+                self.binned_param_values = self.auxiliary_data.groupby('Bin #')[scan_param_column].mean().values
 
         except (KeyError, FileNotFoundError) as e:
-            logging.warning(f"Warning: {e}. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping analysis")
-            return None, None, None
+            logging.warning(f"{e}. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping")
 
     def close_or_show_plot(self):
-        """Decide whether to display or close plots based on the use_gui setting."""
-        if not self.use_gui:
+        """Decide whether to display or close plots based on the skip_plt_show setting."""
+        if not self.skip_plt_show:
             plt.show()  # Display for interactive use
         else:
             plt.close('all')  # Ensure plots close when not using the GUI
 
-    def generate_limited_shotnumber_labels(self, total_shots, max_labels=20):
+    def generate_limited_shotnumber_labels(self, max_labels: int = 20) -> np.ndarray:
         """
         Generate a list of shot number labels with a maximum of `max_labels`.
 
         Args:
-            total_shots (int): Total number of shots.
             max_labels (int): Maximum number of labels to display.
 
         Returns:
             np.ndarray: Array of shot numbers, spaced out if necessary.
         """
-        if total_shots <= max_labels:
+        if self.total_shots <= max_labels:
             # If the number of shots is less than or equal to max_labels, return the full range
-            return np.arange(1, total_shots + 1)
+            return np.arange(1, self.total_shots + 1)
         else:
             # Otherwise, return a spaced-out array with at most max_labels
-            step = total_shots // max_labels
-            return np.arange(1, total_shots + 1, step)
+            step = self.total_shots // max_labels
+            return np.arange(1, self.total_shots + 1, step)
 
-    def find_scan_param_column(self, auxiliary_data):
+    def find_scan_param_column(self) -> tuple[Optional[str], Optional[str]]:
         """
         Find the column in the auxiliary data corresponding to the scan parameter.
         The method strips unnecessary characters (e.g., quotes) and handles cases where an alias is present.
@@ -141,7 +170,7 @@ class ScanAnalysis:
 
         if not self.noscan:
             # Search for the first column that contains the cleaned scan parameter string
-            for column in auxiliary_data.columns:
+            for column in self.auxiliary_data.columns:
                 # Match the part of the column before 'Alias:'
                 if self.scan_parameter in column.split(' Alias:')[0]:
                     # Return the column and the alias if present
@@ -149,10 +178,14 @@ class ScanAnalysis:
 
             logging.warning(f"Warning: Could not find column containing scan parameter: {self.scan_parameter}")
             return None, None
+        else:
+            return None, None
+
 
 # %% executable
 def testing_routine():
     pass
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     testing_routine()
