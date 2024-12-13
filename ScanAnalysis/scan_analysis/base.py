@@ -78,7 +78,7 @@ class ScanAnalysis:
         #
         # self.scan_path: Path = Path(scan_path)
         self.scan_path: Path = self.scan_data.get_analysis_folder()
-        logging.info(f'analysis path is : {scan_path}')
+        logging.info(f'analysis path is : {self.scan_path}')
         self.display_contents = []
 
         try:
