@@ -585,7 +585,7 @@ class GEECSScannerWindow(QMainWindow):
         except ValueError:
             self.ui.lineNumShots.setText("N/A")
 
-    def build_shot_array(self) -> List[int]:
+    def build_shot_array(self) -> list[int]:
         """Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot."""
         if (self.scan_stop - self.scan_start) / self.scan_step_size * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
             return []
@@ -616,7 +616,7 @@ class GEECSScannerWindow(QMainWindow):
         for preset in self.load_preset_list():
             self.ui.listScanPresets.addItem(preset)
 
-    def load_preset_list(self) -> List[str]:
+    def load_preset_list(self) -> list[str]:
         """
         :return: List containing the names of all presets in the designated folder
         """

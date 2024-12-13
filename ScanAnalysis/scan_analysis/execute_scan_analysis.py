@@ -2,6 +2,8 @@
 Module containing the mapping of specific analyzers to their respective classes.  Gives an analysis command to the
 specified analyzer with the scan folder location
 """
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from scan_analysis.base import AnalyzerInfo
@@ -13,7 +15,9 @@ import yaml
 import itertools
 from logmaker_4_googledocs import docgen
 
-def analyze_scan(tag: 'ScanTag', analyzer_list: list['AnalyzerInfo'], debug_mode: bool = False):
+
+def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], debug_mode: bool = False):
+
     all_dispay_files = []
     for analyzer_info in analyzer_list:
         device = analyzer_info.device_name if analyzer_info.device_name else ''

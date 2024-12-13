@@ -1,5 +1,0 @@
-DeviceName	Variable	Min	Max	Use_Current_Pos	Delta
-HEX-PL1-1	ypos	17	19	True	1
-HEX-PL1-1	zpos	-.4	1	True	.2
-HEX-PL1-1	vangle	-.4	1	True	.2
-HEX-PL1-1	wangle	-.4	1	True	.2

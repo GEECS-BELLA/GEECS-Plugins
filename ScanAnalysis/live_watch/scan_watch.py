@@ -48,7 +48,7 @@ def extract_s_file_number(filename: str) -> Optional[int]:
 
 
 class AnalysisFolderEventHandler(FileSystemEventHandler):
-    def __init__(self, scan_watch_queue: 'Queue', base_tag: 'ScanTag'):
+    def __init__(self, scan_watch_queue: Queue, base_tag: ScanTag):
         super().__init__()
         self.queue: Queue = scan_watch_queue
         self.base_tag = base_tag
@@ -95,7 +95,7 @@ class ScanWatch:
 
         """
         self.tag = ScanData.get_scan_tag(year, month, day, number=0, experiment_name=experiment_name)
-        self.watch_folder = ScanData.build_scan_folder_path(tag=self.tag).parents[1] / "analysis"
+        self.watch_folder = ScanData.get_scan_folder_path(tag=self.tag).parents[1] / "analysis"
 
         self.analysis_queue = Queue()
 
@@ -179,7 +179,7 @@ class ScanWatch:
 
         tag: ScanTag = self.analysis_queue.get()
         self.processed_list.append(tag.number)
-        scan_folder = ScanData.build_scan_folder_path(tag=tag)
+        scan_folder = ScanData.get_scan_folder_path(tag=tag)
         self._evaluate_folder(tag, scan_folder)
 
     def initial_search_of_watch_folder(self):
@@ -199,7 +199,7 @@ class ScanWatch:
             self.analysis_queue.put(tag)
         logger.info(f"Found {self.analysis_queue.qsize()} untouched scans.")
 
-    def _evaluate_folder(self, tag: 'ScanTag', scan_folder: Path):
+    def _evaluate_folder(self, tag: ScanTag, scan_folder: Path):
         """ If there is a match for an analysis routine, perform the respective analysis(es) """
         logger.info(
             f"Starting analysis on scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}")

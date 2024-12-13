@@ -15,22 +15,22 @@ For the "requirements" block of AnalyzerInfo to be compatible with `scan_evaluat
 # AND/OR dict blocks can be written as recursive elements.
 """
 # %% imports
-from typing import TYPE_CHECKING, List, Dict, Optional, Union, Type, NamedTuple
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
 from pathlib import Path
 import logging
-import configparser
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from geecs_python_api.analysis.scans.scan_data import ScanData
-import yaml
 
 
 # %% classes
 class AnalyzerInfo(NamedTuple):
-    analyzer_class: Type['ScanAnalysis']
+    analyzer_class: Type[ScanAnalysis]
     requirements: Union[dict[str, list], set, str]
     device_name: Optional[str] = None
     config_file: Optional[str] = None
@@ -49,7 +49,8 @@ class ScanAnalysis:
         bins (np.ndarray): Bin numbers for the data, extracted from the auxiliary file.
         auxiliary_data (pd.DataFrame): DataFrame containing auxiliary scan data.
     """
-    def __init__(self, scan_tag: 'ScanTag', device_name: Optional[str] = None, skip_plt_show: bool = True):
+
+    def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True):
         """
         Initialize the ScanAnalysis class.
 
@@ -59,7 +60,8 @@ class ScanAnalysis:
             skip_plt_show (bool): Flag to ultimately try plt.show() or not.
         """
         self.tag = scan_tag
-        self.scan_directory = ScanData.build_scan_folder_path(tag=scan_tag)
+        self.scan_data = ScanData(tag=self.tag, load_scalars=True, read_mode=True)
+        self.scan_directory = self.scan_data.get_folder()  # ScanData.get_scan_folder_path(tag=scan_tag)
         self.experiment_dir = scan_tag.experiment
         self.auxiliary_file_path = self.scan_directory / f"ScanData{self.scan_directory.name}.txt"
         self.ini_file_path = self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
@@ -72,11 +74,11 @@ class ScanAnalysis:
         self.bins = None
         self.auxiliary_data: Optional[pd.DataFrame] = None
         self.binned_param_values = None
-        
-        scan_path = self.scan_directory.parent.parent / 'analysis' / self.scan_directory.name
-        self.scan_path: Path = Path(scan_path)
+        # scan_path = self.scan_directory.parent.parent / 'analysis' / self.scan_directory.name
+        #
+        # self.scan_path: Path = Path(scan_path)
+        self.scan_path: Path = self.scan_data.get_analysis_folder()
         logging.info(f'analysis path is : {scan_path}')
-        
         self.display_contents = []
 
         try:
@@ -101,7 +103,6 @@ class ScanAnalysis:
         except FileNotFoundError as e:
             logging.warning(f"{e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
             return
-            
 
 
     def run_analysis(self, config_options: Optional[Union[Path, str]] = None) -> Optional[list[Union[Path, str]]]:
@@ -120,18 +121,15 @@ class ScanAnalysis:
         Returns:
             str: The scan parameter with colons replaced by spaces.
         """
-        config = configparser.ConfigParser()
-        config.read(self.ini_file_path)
-        cleaned_scan_parameter = config['Scan Info']['Scan Parameter'].strip().replace(':', ' ').replace('"', '')
+
+        ini_contents = self.scan_data.load_scan_info()
+        cleaned_scan_parameter = ini_contents['Scan Parameter'].strip().replace(':', ' ').replace('"', '')
         return cleaned_scan_parameter
 
     def load_auxiliary_data(self):
-        """
-        Load auxiliary binning data from the ScanData file and retrieve the binning structure.
-        """
-
+        """ Uses the data frame in the ScanData instance to find the bins and the binned parameter values """
         try:
-            self.auxiliary_data = pd.read_csv(self.auxiliary_file_path, delimiter='\t')
+            self.auxiliary_data = self.scan_data.data_frame
             self.bins = self.auxiliary_data['Bin #'].values
 
             if not self.noscan:
@@ -190,8 +188,7 @@ class ScanAnalysis:
             return None, None
         else:
             return None, None
-    
-    
+
 
 # %% executable
 def testing_routine():

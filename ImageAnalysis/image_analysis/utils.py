@@ -49,7 +49,6 @@ def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
     else:
         return imread(file_path)
 
-
 def make_text_chunk_dict(text_chunks):
     """
     converts a list of tEXt chunks extracted from png header into a dict
@@ -116,16 +115,28 @@ def get_magspecstitcher_timestamp(fname):
     timestamp_seconds = (int(high_value,2)*2**32 + int(low_value,2)) / 1e9
     
     return timestamp_seconds
-
+        
 def get_picoscopeV2_timestamp(file_path):
-    # Load the TDMS file
-    tdms_file = TdmsFile.read(file_path)
-    
-    # Access the file properties
-    timestamp = tdms_file.properties.get('timestamp', None)
-    
-    return timestamp
+    """
+    Retrieve the 'timestamp' property from a TDMS file efficiently.
 
+    Args:
+        file_path (str or Path): Path to the TDMS file.
+
+    Returns:
+        The timestamp if it exists, or None otherwise.
+    """
+    try:
+        # Open the TDMS file and retrieve properties
+        with TdmsFile.open(file_path) as tdms_file:
+            return tdms_file.properties.get('timestamp')
+    except FileNotFoundError:
+        print(f"File not found: {file_path}")
+        return None
+    except OSError as e:
+        # Catch other I/O-related errors (e.g., permissions, corrupt file)
+        print(f"Error accessing file '{file_path}': {e}")
+        return None
 
 def extract_shot_number(filename):
     """

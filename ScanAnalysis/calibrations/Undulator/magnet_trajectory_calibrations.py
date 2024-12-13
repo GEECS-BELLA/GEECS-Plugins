@@ -10,27 +10,29 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from geecs_python_api.controls.data_acquisition.scan_analysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.CameraImageAnalysis import CameraImageAnalysis
 from image_analysis.tools.general import find_beam_properties, image_signal_thresholding
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
-from ScanAnalysis.calibrations.Undulator.calibration_data.experimental_config import get_experimental_config_distance
-from ScanAnalysis.calibrations.Undulator.utils import get_calibration_location
+from calibrations.Undulator.calibration_data.experimental_config import get_experimental_config_distance
+from calibrations.Undulator.utils import get_calibration_location
+
 # =============================================================================
 # %% classes
 
+
 class MagnetTrajectoryCalibration(CameraImageAnalysis):
 
-    def __init__(self, scan_directory, device_name,
-                 use_gui=True, experiment_dir='Undulator',
-                 flag_logging=False, flag_save_images=False):
+    def __init__(self, scan_tag, device_name,
+                 use_gui=True, flag_logging=False, flag_save_images=False):
         """
         Initialize the CameraImageAnalysis class.
 
         Args:
-            scan_directory (str or Path): Path to the scan directory containing data.
+            scan_tag (ScanTag): Path to the scan directory containing data.
             device_name (str): Name of the device to construct the subdirectory path.
         """
-        super().__init__(scan_directory, device_name, use_gui=use_gui,
+        super().__init__(scan_tag, device_name, skip_plt_show=use_gui,
                          flag_logging=flag_logging, flag_save_images=flag_save_images)
 
         self.path_dict['calibration_data'] = get_calibration_location() / 'calibration_data'
@@ -150,17 +152,15 @@ class MagnetTrajectoryCalibration(CameraImageAnalysis):
 
     def run_analysis(self, analysis_settings=None, flag_save=True):
 
+        super().run_analysis()
+
         if flag_save is None:
             flag_save = self.flag_save_images
         if analysis_settings is None:
             analysis_settings = self.camera_analysis_settings
 
-        # get binned data
-        binned_data = self.bin_images(flag_save=flag_save)
-
         # perform bulk image analysis
-        binned_data = self.perform_bulk_image_analysis(binned_data,
-                                                       flag_save=flag_save)
+        binned_data = self.binned_data
 
         # get centroid for each binned image
         binned_data = self.get_binned_centroids(binned_data)
@@ -178,31 +178,14 @@ class MagnetTrajectoryCalibration(CameraImageAnalysis):
 # =============================================================================
 # %% executable
 
-def routine():
 
-    from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
-
-    # define scan information
+if __name__ == "__main__":
     scan = {'year': '2024',
             'month': 'Nov',
             'day': '14',
             'num': 35}
     device_name = "UC_ALineEBeam3"
-
-    # initialize data interface and analysis class
-    data_interface = DataInterface()
-    data_interface.year = scan['year']
-    data_interface.month = scan['month']
-    data_interface.day = scan['day']
-    (raw_data_path,
-     analysis_data_path) = data_interface.create_data_path(scan['num'])
-
-    scan_directory = raw_data_path / f"Scan{scan['num']:03d}"
-    analysis_class = MagnetTrajectoryCalibration(scan_directory, device_name)
-
+    scan_tag = ScanData.get_scan_tag(year=scan['year'], month=scan['month'], day=scan['day'],
+                                     number=scan['num'], experiment_name='Undulator')
+    analysis_class = MagnetTrajectoryCalibration(scan_tag, device_name)
     analysis_class.run_analysis()
-
-    return
-
-if __name__=="__main__":
-    routine()

@@ -5,7 +5,9 @@ Visa YAG screen image analyzer.
 Child to CameraImageAnalysis (./scan_analysis/analyzers/Undulator/CameraImageAnalysis.py)
 """
 # %% imports
-from typing import TYPE_CHECKING, Optional, Union, Tuple
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional, Union
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
 import numpy as np
@@ -17,7 +19,7 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 # %% classes
 class VisaEBeamAnalysis(CameraImageAnalysis):
 
-    def __init__(self, scan_tag: 'ScanTag',
+    def __init__(self, scan_tag: ScanTag,
                  device_name: Optional[str] = None, skip_plt_show: bool = True,
                  flag_logging: bool = True, flag_save_images: bool = True) -> None:
         """
@@ -42,7 +44,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         self.path_dict['save'] = self.path_dict['save'].parent / "VisaEBeamAnalysis"
 
     @staticmethod
-    def device_autofinder(scan_tag: 'ScanTag') -> str:
+    def device_autofinder(scan_tag: ScanTag) -> str:
         """
         Automatically find a compatible device directory.
     
@@ -55,7 +57,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         Raises:
             Exception: If multiple compatible devices are found or no devices are found.
         """
-        scan_directory = ScanData.build_scan_folder_path(tag=scan_tag)
+        scan_directory = ScanData.get_scan_folder_path(tag=scan_tag)
 
         devices = [item.name
                    for item in scan_directory.iterdir()
@@ -122,7 +124,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
 
     @staticmethod
     def create_cross_mask(image: np.ndarray,
-                          cross_center: Tuple[int, int],
+                          cross_center: tuple[int, int],
                           angle: Union[int, float],
                           cross_height: int = 54,
                           cross_width: int = 54,
@@ -154,49 +156,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
         return rotated_mask
 
 
-# %% executable
-def testing_routine() -> None:
-
-    from geecs_python_api.controls.data_acquisition.data_acquisition import DataInterface
-
-    # define scan information
-    scan = {'year': '2024',
-            'month': 'Nov',
-            'day': '26',
-            'num': 19}
-    device_name = None
-
-    # initialize data interface and analysis class
-    data_interface = DataInterface()
-    data_interface.year = scan['year']
-    data_interface.month = scan['month']
-    data_interface.day = scan['day']
-    (raw_data_path,
-     analysis_data_path) = data_interface.create_data_path(scan['num'])
-
-    scan_directory = raw_data_path / f"Scan{scan['num']:03d}"
-    analysis_class = VisaEBeamAnalysis(scan_directory, device_name=device_name)
-
-    analysis_class.run_analysis()
-
-    return
-
-
-def new_routine() -> None:
-
-    from geecs_python_api.controls.api_defs import ScanTag
-
-    scan_tag = ScanTag(year=2024, month=11, day=26,
-                       number=19, experiment='Undulator')
-
-    # device_name = "UC_VisaEBeam1"
-    device_name = None
-    analysis_class = VisaEBeamAnalysis(scan_tag, device_name=device_name)
-
-    analysis_class.run_analysis()
-
-    return
-
-
 if __name__ == "__main__":
-    new_routine()
+    tag = ScanData.get_scan_tag(year=2024, month=11, day=26, number=19, experiment_name='Undulator')
+    analyzer = VisaEBeamAnalysis(scan_tag=tag, device_name=None, skip_plt_show=True)
+    analyzer.run_analysis()

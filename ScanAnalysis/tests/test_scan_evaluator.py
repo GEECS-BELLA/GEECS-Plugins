@@ -42,10 +42,10 @@ class TestScanEvaluator(unittest.TestCase):
             print("Previously using Master Control, nearly all would be flagged every time")
         folder = "Z:\\data\\Undulator\\Y2024\\06-Jun\\24_0606\\scans\\Scan003"
         results = check_for_analysis_match(folder, exp)
-        self.assertEqual(len(results), len(undulator_analyzers))
         for a in results:
             if do_print:
                 print(a.analyzer_class.__name__, a.device_name)
+        self.assertEqual(len(results), len(undulator_analyzers)-2)  # 2 less because no aline2 and tc_phosphor
 
 
 if __name__ == "__main__":

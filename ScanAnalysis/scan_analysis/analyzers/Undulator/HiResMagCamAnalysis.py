@@ -8,6 +8,7 @@ ImageAnalysis for a binned image. (rather than rely on the scalar calculations f
 
 -Chris
 """
+from __future__ import annotations
 
 from pathlib import Path
 from scan_analysis.analyzers.Undulator.CameraImageAnalysis import CameraImageAnalysis
@@ -19,7 +20,7 @@ import logging
 
 
 class HiResMagCamAnalysis(CameraImageAnalysis):
-    def __init__(self, scan_tag: 'ScanTag', device_name=None, skip_plt_show: bool = True):
+    def __init__(self, scan_tag: ScanTag, device_name=None, skip_plt_show: bool = True):
         super().__init__(scan_tag=scan_tag, device_name='UC_HiResMagCam', skip_plt_show=skip_plt_show)
 
     def run_noscan_analysis(self):
@@ -151,6 +152,7 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
 
 
 if __name__ == "__main__":
-    tag = ScanTag(year=2024, month=11, day=26, number=5, experiment='Undulator')
+    from geecs_python_api.analysis.scans.scan_data import ScanData
+    tag = ScanData.get_scan_tag(year=2024, month=11, day=26, number=5, experiment_name='Undulator')
     analyzer = HiResMagCamAnalysis(scan_tag=tag, skip_plt_show=True)
     analyzer.run_analysis()
