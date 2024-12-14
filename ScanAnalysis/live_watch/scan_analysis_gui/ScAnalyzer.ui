@@ -109,7 +109,7 @@
      <string>Day</string>
     </property>
    </widget>
-   <widget class="QTextBrowser" name="outputLog">
+   <widget class="QTextBrowser" name="logDisplay">
     <property name="geometry">
      <rect>
       <x>240</x>
