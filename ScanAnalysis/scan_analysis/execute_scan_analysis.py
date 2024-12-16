@@ -41,7 +41,7 @@ def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], debug_mode: bo
         print(f'flatten file list: {flattened_file_paths}')
         insert_display_content_to_doc(tag, flattened_file_paths)
 
-def insert_display_content_to_doc(scan_tag, path_list, experiment='Undulator'):
+def insert_display_content_to_doc(scan_tag, path_list):
     """
     Inserts display content from a list of paths into a Google Doc for a given scan.
 
@@ -73,8 +73,8 @@ def insert_display_content_to_doc(scan_tag, path_list, experiment='Undulator'):
                 scanNumber=scan_tag.number,
                 row=row,
                 column=col,
-                image_path=image_path,  # Pass as string
-                experiment=experiment
+                image_path=image_path,  # Pass as string for use with google scripts
+                experiment=scan_tag.experiment
             )
 
         print(f"Successfully inserted display content for scan {scan_tag.number}.")
