@@ -756,7 +756,8 @@ class GEECSScannerWindow(QMainWindow):
             QApplication.processEvents()
 
             save_device_list = {}
-            list_of_steps = []
+            list_of_setup_steps = []
+            list_of_closeout_steps = []
             for i in range(self.ui.selectedDevices.count()):
                 filename = self.ui.selectedDevices.item(i).text()
                 fullpath = RELATIVE_PATH / "experiments" / self.experiment / "save_devices" / (filename + ".yaml")
@@ -767,7 +768,12 @@ class GEECSScannerWindow(QMainWindow):
 
                         if 'setup_action' in data:
                             setup_action = data['setup_action']
-                            list_of_steps.extend(setup_action['steps'])
+                            list_of_setup_steps.extend(setup_action['steps'])
+
+                        if 'closeout_action' in data:
+                            setup_action = data['closeout_action']
+                            list_of_closeout_steps.extend(setup_action['steps'])
+
                     except yaml.YAMLError as exc:
                         print(f"Error reading YAML file: {exc}")
 
@@ -797,9 +803,13 @@ class GEECSScannerWindow(QMainWindow):
                 'Devices': save_device_list,
                 'scan_info': scan_information,
             }
-            if list_of_steps:
-                steps = {'steps': list_of_steps}
-                run_config['setup_action'] = steps
+
+            if list_of_setup_steps:
+                setup_action_steps = {'steps': list_of_setup_steps}
+                run_config['setup_action'] = setup_action_steps
+            if list_of_closeout_steps:
+                closeout_action_steps = {'steps': list_of_closeout_steps}
+                run_config['closeout_action'] = closeout_action_steps
 
             self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
             self.ui.startScanButton.setText("Start Scan")
