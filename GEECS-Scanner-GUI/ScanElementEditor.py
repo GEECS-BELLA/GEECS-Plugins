@@ -702,6 +702,6 @@ class ScanElementEditor(QDialog):
         if 'setup_action' in full_dictionary:
             self.actions_dict['setup'] = full_dictionary['setup_action']['steps']
         if 'closeout_action' in full_dictionary:
-            self.actions_dict['closeout'] = full_dictionary['setup_action']['steps']
+            self.actions_dict['closeout'] = full_dictionary['closeout_action']['steps']
 
         self.ui.lineElementName.setText(config_filename.stem)
