@@ -194,7 +194,7 @@
     <property name="geometry">
      <rect>
       <x>280</x>
-      <y>440</y>
+      <y>430</y>
       <width>171</width>
       <height>23</height>
      </rect>
@@ -207,7 +207,7 @@
     <property name="geometry">
      <rect>
       <x>250</x>
-      <y>390</y>
+      <y>380</y>
       <width>121</width>
       <height>41</height>
      </rect>
@@ -404,7 +404,7 @@
     <property name="geometry">
      <rect>
       <x>380</x>
-      <y>390</y>
+      <y>380</y>
       <width>71</width>
       <height>41</height>
      </rect>
@@ -427,7 +427,7 @@
     <property name="geometry">
      <rect>
       <x>250</x>
-      <y>440</y>
+      <y>430</y>
       <width>21</width>
       <height>21</height>
      </rect>
@@ -580,19 +580,6 @@
     </property>
     <property name="text">
      <string>Multi-Scan</string>
-    </property>
-   </widget>
-   <widget class="QCheckBox" name="checkboxReturnToInitial">
-    <property name="geometry">
-     <rect>
-      <x>230</x>
-      <y>360</y>
-      <width>151</width>
-      <height>20</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Return to Initial Value</string>
     </property>
    </widget>
    <widget class="QPushButton" name="buttonOpenTimingSetup">
