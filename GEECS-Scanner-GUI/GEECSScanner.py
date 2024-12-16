@@ -98,9 +98,10 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
         self.ui.buttonRefreshLists.clicked.connect(self.refresh_element_list)
 
-        # Buttons to launch the side guis for the action library and scan variables
+        # Buttons to launch the side guis for the action library, timing device, and scan variables
         self.ui.buttonActionLibrary.setEnabled(False)
         self.ui.buttonScanVariables.setEnabled(False)
+        self.ui.buttonOpenTimingSetup.setEnabled(False)
 
         # Radio buttons that select if the next scan is to be a noscan or 1dscan
         self.ui.noscanRadioButton.setChecked(True)
