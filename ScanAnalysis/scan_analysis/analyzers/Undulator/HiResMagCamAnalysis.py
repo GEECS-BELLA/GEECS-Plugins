@@ -65,6 +65,8 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
         if self.flag_logging:
             logging.info(f"Image saved at {save_path}")
 
+        self.display_contents.append(str(save_path))
+
         def print_stats(array):
             return f'Ave: {np.average(array):.2f} +/- {np.std(array):.2f}'
 
@@ -75,6 +77,8 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
             file.write("Peak Energy [MeV]: " + print_stats(peak_energy[valid]) + "\n")
             file.write("Camera Charge [pC]: " + print_stats(charge[valid]) + "\n")
             file.write("Energy FWHM [%]: " + print_stats(fwhm_percent[valid]) + "\n")
+
+        # TODO return txt file path once txt-to-gdoc functionality is added
 
     def run_scan_analysis(self):
         """
@@ -149,6 +153,8 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
         self.close_or_show_plot()
         if self.flag_logging:
             logging.info(f"Image saved at {save_path}")
+
+        self.display_contents.append(str(save_path))
 
 
 if __name__ == "__main__":
