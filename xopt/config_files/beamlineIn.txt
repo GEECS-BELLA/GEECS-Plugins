@@ -1,2 +1,0 @@
-DeviceName	Variable	Min	Max	Use_Current_Pos Delta
-UC_Amp2_IR_input	exposure	.00008	.5	False	NA

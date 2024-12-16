@@ -6,8 +6,9 @@ allows for a user to load and save the information displayed into this GUI to/fr
 
 -Chris
 """
+from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Union, Dict, List, Any, Tuple
+from typing import TYPE_CHECKING, Optional, Union, Any
 
 if TYPE_CHECKING:
     from PyQt5.QtWidgets import QLineEdit
@@ -20,7 +21,7 @@ from ScanElementEditor_ui import Ui_Dialog
 from action_control import ActionControl
 
 
-def get_default_device_dictionary() -> Dict[str, bool | List[Any]]:
+def get_default_device_dictionary() -> dict[str, bool | list[Any]]:
     """
     :return: Default dictionary for devices when they are added to the element's list of devices
     """
@@ -31,7 +32,7 @@ def get_default_device_dictionary() -> Dict[str, bool | List[Any]]:
     }
 
 
-def get_new_action(action) -> Union[None, Dict[str, str]]:
+def get_new_action(action) -> Union[None, dict[str, str]]:
     """
     Translates a given action keyword to a default dictionary that is populated into the action list.
 
@@ -227,7 +228,7 @@ class ScanElementEditor(QDialog):
             return True
         return super().eventFilter(source, event)
 
-    def show_device_list(self, location: 'QLineEdit'):
+    def show_device_list(self, location: QLineEdit):
         """
         Shows the list of available experimental devices as a hint completer
 
@@ -243,7 +244,7 @@ class ScanElementEditor(QDialog):
             location.setFocus()
             completer.complete()
 
-    def show_variable_list(self, location: 'QLineEdit', source: str = 'device'):
+    def show_variable_list(self, location: QLineEdit, source: str = 'device'):
         """
         Shows the list of variables for the currently selected device
 
@@ -545,7 +546,7 @@ class ScanElementEditor(QDialog):
         action_list, i, index = current_selection
         self.update_action_list(index=index)
 
-    def get_action_list_and_index(self) -> Optional[Tuple[Optional[list], Optional[int], int]]:
+    def get_action_list_and_index(self) -> Optional[tuple[Optional[list], Optional[int], int]]:
         """Finds the location of the currently-selected action in the visible list on the GUI.  This is tricky since
         the GUI has two different lists separated by a dummy list element.
 

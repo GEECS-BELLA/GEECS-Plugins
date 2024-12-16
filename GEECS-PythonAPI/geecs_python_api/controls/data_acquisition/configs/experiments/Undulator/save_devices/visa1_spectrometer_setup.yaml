@@ -22,8 +22,6 @@ Devices:
     - Python Results.ChA
     - Python Results.ChB
     - timestamp
-scan_info:
-  description: collecting data on visa1EBeam and UC_UndulatorRad2
 setup_action:
   steps:
   - action: execute
@@ -44,3 +42,11 @@ setup_action:
     device: U_UndulatorSpecStage
     value: 25.4
     variable: Position.Ch2
+  - action: set
+    device: U_PLC
+    value: 'off'
+    variable: DO.Ch18
+  - action: set
+    device: U_PLC
+    value: 'off'
+    variable: DO.Ch8

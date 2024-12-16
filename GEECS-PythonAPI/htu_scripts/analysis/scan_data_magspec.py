@@ -59,12 +59,12 @@ class ScanDataMagspec(ScanData):
         else:
             base_path = experiment_base_path
 
-        super().__init__(folder=folder, tag=tag, experiment=exp_name, load_scalars=load_scalars, base_path=base_path)
+        super().__init__(folder=folder, tag=tag, experiment=exp_name, load_scalars=load_scalars, base_directory=base_path)
 
     @staticmethod
     def build_folder_path(tag: ScanTag, base_directory: Union[Path, str] = r'Z:\data', experiment: str = 'Undulator') \
             -> Path:
-        return ScanData.build_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
+        return ScanData.get_scan_folder_path(tag=tag, base_directory=base_directory, experiment=experiment)
 
     def load_mag_spec_data(self) -> dict[str, Any]:
         magspec_dict = {'full': {}, 'hres': {}}
