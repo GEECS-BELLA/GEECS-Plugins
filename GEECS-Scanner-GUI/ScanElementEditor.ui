@@ -509,6 +509,36 @@
    </property>
   </widget>
  </widget>
+ <tabstops>
+  <tabstop>lineElementName</tabstop>
+  <tabstop>lineDeviceName</tabstop>
+  <tabstop>buttonAddDevice</tabstop>
+  <tabstop>checkboxSynchronous</tabstop>
+  <tabstop>checkboxSaveNonscalar</tabstop>
+  <tabstop>lineVariableName</tabstop>
+  <tabstop>buttonAddVariable</tabstop>
+  <tabstop>listDevices</tabstop>
+  <tabstop>buttonRemoveDevice</tabstop>
+  <tabstop>listVariables</tabstop>
+  <tabstop>buttonRemoveVariable</tabstop>
+  <tabstop>lineActionName</tabstop>
+  <tabstop>buttonAddAction</tabstop>
+  <tabstop>listActions</tabstop>
+  <tabstop>buttonRemoveAction</tabstop>
+  <tabstop>buttonMoveSooner</tabstop>
+  <tabstop>buttonMoveLater</tabstop>
+  <tabstop>lineActionOption1</tabstop>
+  <tabstop>lineActionOption2</tabstop>
+  <tabstop>lineActionOption3</tabstop>
+  <tabstop>radioIsSetup</tabstop>
+  <tabstop>radioIsPost</tabstop>
+  <tabstop>buttonEnableActions</tabstop>
+  <tabstop>buttonPerformSetupActions</tabstop>
+  <tabstop>buttonPerformPostscanActions</tabstop>
+  <tabstop>buttonWindowSave</tabstop>
+  <tabstop>buttonWindowLoad</tabstop>
+  <tabstop>buttonWindowClose</tabstop>
+ </tabstops>
  <resources/>
  <connections/>
 </ui>
