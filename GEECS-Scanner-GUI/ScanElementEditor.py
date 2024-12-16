@@ -451,18 +451,18 @@ class ScanElementEditor(QDialog):
             else:
                 action = action_list[i]
 
-        if action is None:
-            self.action_mode = None
-            self.ui.labelActionOption1.setText("")
-            self.ui.labelActionOption2.setText("")
-            self.ui.labelActionOption3.setText("")
-            self.ui.lineActionOption1.setText("")
-            self.ui.lineActionOption2.setText("")
-            self.ui.lineActionOption3.setText("")
-            self.ui.lineActionOption1.setEnabled(False)
-            self.ui.lineActionOption2.setEnabled(False)
-            self.ui.lineActionOption3.setEnabled(False)
-        else:
+        self.action_mode = None
+        self.ui.labelActionOption1.setText("")
+        self.ui.labelActionOption2.setText("")
+        self.ui.labelActionOption3.setText("")
+        self.ui.lineActionOption1.setText("")
+        self.ui.lineActionOption2.setText("")
+        self.ui.lineActionOption3.setText("")
+        self.ui.lineActionOption1.setEnabled(False)
+        self.ui.lineActionOption2.setEnabled(False)
+        self.ui.lineActionOption3.setEnabled(False)
+
+        if action is not None:
             if i == absolute_index:
                 self.ui.radioIsSetup.setChecked(True)
             else:
