@@ -858,8 +858,10 @@ def insertImageToExperimentLog(scanNumber, row, column, image_path, documentID =
     # moving into the relevant experiment log. No real need to specify
     # other directories for other experiments
     
-    experiment_mapping = {'Undulator':'HTUparameters.ini'}
     
+    #TODO: add mapping for other experiments
+    experiment_mapping = { 'Undulator':'HTUparameters.ini', 
+                            'Thomson': 'HTTparaeters.ini'}    
     config_file = experiment_mapping.get(experiment, None)
     if config_file:
         # Create the ConfigParser object
@@ -882,7 +884,9 @@ def insertImageToExperimentLog(scanNumber, row, column, image_path, documentID =
             
         documentID = experiment_config['DEFAULT']['logid']  
     
-    
+    ### note, the ID below is the path to directory in the bellaOps HTU experiment logs.
+    ### it's only for temporary storage so no need for multiple directories to be defined
+    ### As separated google script will be setup to purge the directory on a scheduled basis
     image_id = uploadImage(image_path, '1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2')
 
     # Insert the uploaded image into the specified table cell
