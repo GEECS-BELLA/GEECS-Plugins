@@ -20,7 +20,7 @@ from ScanElementEditor import ScanElementEditor
 from MultiScanner import MultiScanner
 # from LogStream import EmittingStream, MultiStream
 
-CURRENT_VERSION = 'v0.2'  # Try to keep this up-to-date, increase the version # with significant changes :)
+CURRENT_VERSION = 'v0.3'  # Try to keep this up-to-date, increase the version # with significant changes :)
 
 MAXIMUM_SCAN_SIZE = 1e6
 RELATIVE_PATH = Path("../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/")
