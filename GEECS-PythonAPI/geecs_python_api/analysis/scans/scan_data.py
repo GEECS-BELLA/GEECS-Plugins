@@ -130,7 +130,7 @@ class ScanData:
 
     @staticmethod
     def get_scan_tag(year: Union[int, str], month: Union[int, str], day: Union[int, str], number: Union[int, str],
-                     experiment_name: Optional[str] = None) -> ScanTag:
+                     experiment: Optional[str] = None, experiment_name: Optional[str] = None) -> ScanTag:
         """
         Returns a ScanTag tuple given the appropriate information, formatted correctly.  Ideally one should only build
         ScanTag objects using this function
@@ -139,7 +139,8 @@ class ScanData:
         :param month: Target scan month
         :param day: Target scan day
         :param number: Target scan number
-        :param experiment_name: Target scan's experiment name
+        :param experiment: Target scan's experiment name
+        :param experiment_name: Target scan's experiment name (deprecated)
         :return: ScanTag Tuple with properly formatted information to describe the target scan
         """
         year = int(year)
@@ -147,9 +148,11 @@ class ScanData:
             year += 2000
         month = month_to_int(month)
 
-        experiment = experiment_name or CONFIG.experiment
+        exp = experiment or experiment_name or CONFIG.experiment
+        if experiment_name is not None:
+            print("WARNING: Recommended to use 'experiment' instead of 'experiment_name' for 'get_scan_tag'...")
 
-        return ScanTag(year, month, int(day), int(number), experiment=experiment)
+        return ScanTag(year, month, int(day), int(number), experiment=exp)
     
     @staticmethod
     def get_scan_folder_path(tag: ScanTag, base_directory: Optional[Union[Path, str]] = None) -> Path:

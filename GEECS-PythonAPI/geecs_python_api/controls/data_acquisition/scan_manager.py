@@ -1155,6 +1155,7 @@ class ScanManager:
 
         # Wait for acquisition time (or until scanning is externally stopped)
         current_time = 0
+        start_time = time.time()
         interval_time = 0.1
         self.pause_time = 0
         while current_time < wait_time:
@@ -1175,7 +1176,17 @@ class ScanManager:
 
 
             time.sleep(interval_time)
-            current_time += interval_time
+            current_time = time.time() - start_time
+
+            # TODO a few things here:
+            # TODO 1. make `save_on_shot` a settable flag from the GUI so this is an optional process
+            # TODO 2. ensure that we are only appending data rather than overwriting the file every shot.
+            #  This could be done by storing the previously-written dataframe and subtracting the new one off of it
+            save_on_shot = False
+            if save_on_shot:
+                if current_time % 1 < interval_time:
+                    log_df = self.scan_data_manager.convert_to_dataframe(self.results)
+                    self.scan_data_manager.dataframe_to_tdms(log_df)
 
         # Turn trigger off after waiting
         self.trigger_off()
