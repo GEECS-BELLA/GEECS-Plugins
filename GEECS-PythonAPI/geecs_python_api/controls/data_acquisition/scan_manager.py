@@ -1155,6 +1155,7 @@ class ScanManager:
 
         # Wait for acquisition time (or until scanning is externally stopped)
         current_time = 0
+        start_time = time.time()
         interval_time = 0.1
         self.pause_time = 0
         while current_time < wait_time:
@@ -1175,7 +1176,11 @@ class ScanManager:
 
 
             time.sleep(interval_time)
-            current_time += interval_time
+            current_time = time.time() - start_time
+
+            if current_time % 1 < interval_time:
+                log_df = self.scan_data_manager._process_results(self.results)
+                self.scan_data_manager.dataframe_to_tdms(log_df)
 
         # Turn trigger off after waiting
         self.trigger_off()
