@@ -121,12 +121,17 @@ class GeecsDevice:
                     if self.dev_tcp is None:
                         try:
                             self.dev_tcp = TcpSubscriber(owner=self)
-                            ###try to connect a TCP subscriber to see if device is on and accessible
-                            is_device_on = self.dev_tcp.connect()
                         except Exception:
                             api_error.error('Failed to connect a TCP subscriber', 'GeecsDevice class, method "__init__"')
+                        
                 else:
                     api_error.warning(f'Device "{self.__dev_name}" not found', 'GeecsDevice class, method "__init__"')
+                
+                if self.dev_tcp:
+                    ###try to connect a TCP subscriber to see if device is on and accessible
+                    is_device_on = self.dev_tcp.connect()
+                else: 
+                    is_device_on = False
                 
                 if not is_device_on:
                     api_error.error(f'Failed establish test connection, {self.__dev_name} likely not on', 'GeecsDevice class, method "init_resources"')
