@@ -54,7 +54,7 @@ class ScanDataManager:
     This class is designed to be used primarily (or even exclusively) with the ScanMananger
     """
     
-    DEPENDENT_SUFFIXES = ["-interp", "-interpSpec", "-interpDiv"]
+    DEPENDENT_SUFFIXES = ["-interp", "-interpSpec", "-interpDiv", "-Spatial", "-Temporal"]
     
     def __init__(self, device_manager: 'DeviceManager', scan_data: Optional['ScanData'] = None):
         """
@@ -520,7 +520,8 @@ class ScanDataManager:
             "Point Grey Camera": get_imaq_timestamp_from_png,
             "MagSpecCamera": get_imaq_timestamp_from_png,
             "PicoscopeV2": get_picoscopeV2_timestamp,
-            "MagSpecStitcher": get_magspecstitcher_timestamp,
+            "MagSpecStitcher": get_custom_imaq_timestamp,
+            "FROG": get_custom_imaq_timestamp,
         }
 
         if device_type in device_map:
