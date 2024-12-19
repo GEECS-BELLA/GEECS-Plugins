@@ -28,7 +28,7 @@ if not logging.getLogger().hasHandlers():
 try:
     CONFIG = GeecsPathsConfig()
 except ValueError:
-    print("'CONFIG' not set for ScanData")
+    logging.error("'CONFIG' not set for ScanData")
     CONFIG = None
 
 class ScanData:
@@ -153,7 +153,7 @@ class ScanData:
 
         exp = experiment or experiment_name or CONFIG.experiment
         if experiment_name is not None:
-            print("WARNING: Recommended to use 'experiment' instead of 'experiment_name' for 'get_scan_tag'...")
+            logger.warning("Recommended to use 'experiment' instead of 'experiment_name' for 'get_scan_tag'...")
 
         return ScanTag(year, month, int(day), int(number), experiment=exp)
     

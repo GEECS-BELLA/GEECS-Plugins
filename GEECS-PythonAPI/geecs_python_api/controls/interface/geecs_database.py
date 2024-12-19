@@ -9,6 +9,8 @@ from geecs_python_api.controls.interface.geecs_errors import api_error
 import tkinter as tk
 from tkinter import filedialog
 
+# TODO change print statements to logging (Previously attempted, but failed at being able to set verbosity...)
+
 def find_user_data_directory_relative(start_path='.'):
     current_path = os.path.abspath(start_path)
     original_path = current_path  # Save the original starting path
@@ -104,7 +106,7 @@ class GeecsDatabase:
     @staticmethod
     def collect_exp_info(exp_name: str = 'Undulator')\
             -> dict[str, Union[ExpDict, dict[str, Path], Path, int]]:
-        print(GeecsDatabase.name, "current name")
+
         if GeecsDatabase.name is None:
             raise AttributeError("Geecs Database not set properly")
 

@@ -102,7 +102,7 @@ class SoundPlayer:
                 # Mark the task as done
                 self.sound_queue.task_done()
             except Exception as e:
-                print(f"Error processing sound: {e}")
+                logging.error(f"Error processing sound: {e}")
 
     def _play_sound(self, frequency, duration):
         """
