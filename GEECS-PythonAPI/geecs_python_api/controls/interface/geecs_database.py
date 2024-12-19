@@ -69,7 +69,6 @@ def find_database():
 
         except Exception:
             pass
-    print('database name ',db_name)
     return db_name, db_ip, db_user, db_pwd
 
 
