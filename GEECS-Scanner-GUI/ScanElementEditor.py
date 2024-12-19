@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from PyQt5.QtWidgets import QLineEdit
 
 import yaml
+import logging
 from pathlib import Path
 from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton, QFileDialog
 from PyQt5.QtCore import Qt, QEvent
@@ -650,10 +651,10 @@ class ScanElementEditor(QDialog):
         """Save the current dictionaries as a new element in the experimental folder with the correct formatting"""
         filename = self.ui.lineElementName.text().strip()
         if filename == "":
-            print("Need an element name")
+            logging.warning("Need an element name")
         else:
             file = self.config_folder / (filename + ".yaml")
-            print(f"Saving config to {file}")
+            logging.info(f"Saving config to {file}")
             setup_action = {'steps': self.actions_dict['setup']}
             closeout_action = {'steps': self.actions_dict['closeout']}
             full_dictionary = {
@@ -665,7 +666,7 @@ class ScanElementEditor(QDialog):
                 del full_dictionary['setup_action']
             if not closeout_action['steps']:
                 del full_dictionary['closeout_action']
-            print(full_dictionary)
+            logging.debug(full_dictionary)
             with open(file, 'w') as f:
                 yaml.dump(full_dictionary, f, default_flow_style=False)
 
