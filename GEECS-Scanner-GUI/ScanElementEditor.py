@@ -126,7 +126,7 @@ class ScanElementEditor(QDialog):
         self.ui.setupUi(self)
 
         # Dictionary containing all the devices and variables in the experiment
-        self.database_dict = database_dict
+        self.database_dict = database_dict or {}
 
         # Backend dictionaries for the element devices and actions.  Each action dictionary is an ordered list
         self.devices_dict = {}
