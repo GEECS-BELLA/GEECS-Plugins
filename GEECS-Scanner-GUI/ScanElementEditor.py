@@ -14,10 +14,12 @@ if TYPE_CHECKING:
     from PyQt5.QtWidgets import QLineEdit
 
 import yaml
+import logging
 from pathlib import Path
 from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton, QFileDialog
 from PyQt5.QtCore import Qt, QEvent
 from ScanElementEditor_ui import Ui_Dialog
+from action_control import ActionControl
 
 
 def get_default_device_dictionary() -> dict[str, bool | list[Any]]:
@@ -125,7 +127,7 @@ class ScanElementEditor(QDialog):
         self.ui.setupUi(self)
 
         # Dictionary containing all the devices and variables in the experiment
-        self.database_dict = database_dict
+        self.database_dict = database_dict or {}
 
         # Backend dictionaries for the element devices and actions.  Each action dictionary is an ordered list
         self.devices_dict = {}
@@ -146,9 +148,6 @@ class ScanElementEditor(QDialog):
         self.ui.lineVariableName.installEventFilter(self)
         self.ui.buttonAddVariable.clicked.connect(self.add_variable)
         self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
-
-        # Update the device's post analysis class information when the line edit is changed
-        self.ui.linePostAnalysis.editingFinished.connect(self.update_device_post_analysis_class)
 
         # Update the device flags when either of the checkboxes are clicked
         self.ui.checkboxSynchronous.clicked.connect(self.update_device_checkboxes)
@@ -185,6 +184,13 @@ class ScanElementEditor(QDialog):
         self.config_folder = Path(config_folder)
         if load_config is not None:
             self.load_settings_from_file(config_folder / load_config)
+
+        self.action_control: Optional[ActionControl] = None
+        self.ui.buttonPerformSetupActions.setEnabled(False)
+        self.ui.buttonPerformPostscanActions.setEnabled(False)
+        self.ui.buttonEnableActions.clicked.connect(self.initialize_action_control)
+        self.ui.buttonPerformSetupActions.clicked.connect(self.perform_setup_actions)
+        self.ui.buttonPerformPostscanActions.clicked.connect(self.perform_postscan_actions)
 
         # Buttons at the bottom to save, open, and close
         self.ui.buttonWindowSave.clicked.connect(self.save_element)
@@ -328,7 +334,6 @@ class ScanElementEditor(QDialog):
         self.ui.buttonAddVariable.setEnabled(enable_variables)
         self.ui.buttonRemoveVariable.setEnabled(enable_variables)
         self.ui.lineVariableName.setEnabled(enable_variables)
-        self.ui.linePostAnalysis.setEnabled(enable_variables)
 
         if device is None:
             return
@@ -337,11 +342,6 @@ class ScanElementEditor(QDialog):
             self.ui.listVariables.addItem(variable)
         self.ui.checkboxSynchronous.setChecked(device['synchronous'])
         self.ui.checkboxSaveNonscalar.setChecked(device['save_nonscalar_data'])
-
-        if "post_analysis_class" in device:
-            self.ui.linePostAnalysis.setText(device["post_analysis_class"])
-        else:
-            self.ui.linePostAnalysis.setText("")
 
     def add_variable(self):
         """Adds variable to the element's device variable list, based on the variable line edit"""
@@ -374,16 +374,6 @@ class ScanElementEditor(QDialog):
         if device is not None:
             device['synchronous'] = self.ui.checkboxSynchronous.isChecked()
             device['save_nonscalar_data'] = self.ui.checkboxSaveNonscalar.isChecked()
-            self.update_variable_list()
-
-    def update_device_post_analysis_class(self):
-        """Updates the post analysis class for the device"""
-        device = self.get_selected_device()
-        text = self.ui.linePostAnalysis.text().strip()
-        if device is not None:
-            device['post_analysis_class'] = text
-            if text == "":
-                del device['post_analysis_class']
             self.update_variable_list()
 
     def show_action_list(self):
@@ -462,18 +452,18 @@ class ScanElementEditor(QDialog):
             else:
                 action = action_list[i]
 
-        if action is None:
-            self.action_mode = None
-            self.ui.labelActionOption1.setText("")
-            self.ui.labelActionOption2.setText("")
-            self.ui.labelActionOption3.setText("")
-            self.ui.lineActionOption1.setText("")
-            self.ui.lineActionOption2.setText("")
-            self.ui.lineActionOption3.setText("")
-            self.ui.lineActionOption1.setEnabled(False)
-            self.ui.lineActionOption2.setEnabled(False)
-            self.ui.lineActionOption3.setEnabled(False)
-        else:
+        self.action_mode = None
+        self.ui.labelActionOption1.setText("")
+        self.ui.labelActionOption2.setText("")
+        self.ui.labelActionOption3.setText("")
+        self.ui.lineActionOption1.setText("")
+        self.ui.lineActionOption2.setText("")
+        self.ui.lineActionOption3.setText("")
+        self.ui.lineActionOption1.setEnabled(False)
+        self.ui.lineActionOption2.setEnabled(False)
+        self.ui.lineActionOption3.setEnabled(False)
+
+        if action is not None:
             if i == absolute_index:
                 self.ui.radioIsSetup.setChecked(True)
             else:
@@ -589,7 +579,7 @@ class ScanElementEditor(QDialog):
         action_list, i, index = current_selection
         if action_list is not None and 0 < i < len(action_list):
             action_list[i], action_list[i - 1] = action_list[i - 1], action_list[i]
-            index = index - 1
+            index -= 1
         self.update_action_list(index=index)
 
     def move_action_later(self):
@@ -600,7 +590,7 @@ class ScanElementEditor(QDialog):
         action_list, i, index = current_selection
         if action_list is not None and 0 <= i < len(action_list) - 1:
             action_list[i], action_list[i + 1] = action_list[i + 1], action_list[i]
-            index = index + 1
+            index += 1
         self.update_action_list(index=index)
 
     def set_as_setup(self):
@@ -644,14 +634,27 @@ class ScanElementEditor(QDialog):
 
         self.update_action_list(index=new_position)
 
+    def initialize_action_control(self):
+        exp_name = self.config_folder.parent.name
+        self.action_control = ActionControl(experiment_name=exp_name)
+        self.ui.buttonEnableActions.setEnabled(False)
+        self.ui.buttonPerformSetupActions.setEnabled(True)
+        self.ui.buttonPerformPostscanActions.setEnabled(True)
+
+    def perform_setup_actions(self):
+        self.action_control.perform_action({'steps': self.actions_dict['setup']})
+
+    def perform_postscan_actions(self):
+        self.action_control.perform_action({'steps': self.actions_dict['closeout']})
+
     def save_element(self):
         """Save the current dictionaries as a new element in the experimental folder with the correct formatting"""
         filename = self.ui.lineElementName.text().strip()
         if filename == "":
-            print("Need an element name")
+            logging.warning("Need an element name")
         else:
             file = self.config_folder / (filename + ".yaml")
-            print(f"Saving config to {file}")
+            logging.info(f"Saving config to {file}")
             setup_action = {'steps': self.actions_dict['setup']}
             closeout_action = {'steps': self.actions_dict['closeout']}
             full_dictionary = {
@@ -663,7 +666,7 @@ class ScanElementEditor(QDialog):
                 del full_dictionary['setup_action']
             if not closeout_action['steps']:
                 del full_dictionary['closeout_action']
-            print(full_dictionary)
+            logging.debug(full_dictionary)
             with open(file, 'w') as f:
                 yaml.dump(full_dictionary, f, default_flow_style=False)
 
@@ -700,6 +703,6 @@ class ScanElementEditor(QDialog):
         if 'setup_action' in full_dictionary:
             self.actions_dict['setup'] = full_dictionary['setup_action']['steps']
         if 'closeout_action' in full_dictionary:
-            self.actions_dict['closeout'] = full_dictionary['setup_action']['steps']
+            self.actions_dict['closeout'] = full_dictionary['closeout_action']['steps']
 
         self.ui.lineElementName.setText(config_filename.stem)

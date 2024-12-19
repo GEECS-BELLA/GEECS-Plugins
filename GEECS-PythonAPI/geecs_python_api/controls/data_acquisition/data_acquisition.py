@@ -102,7 +102,7 @@ class SoundPlayer:
                 # Mark the task as done
                 self.sound_queue.task_done()
             except Exception as e:
-                print(f"Error processing sound: {e}")
+                logging.error(f"Error processing sound: {e}")
 
     def _play_sound(self, frequency, duration):
         """
@@ -1027,7 +1027,9 @@ class DataLogger():
                     
                 # Update with async observable values
                 self.update_async_observables(self.device_manager.async_observables, log_entries, elapsed_time)
-                
+
+                # TODO move the on-shot tdms writer functionality from scan manager to here
+
                 # Trigger the beep in the background
                 self.sound_player.play_beep()  # Play the beep sound
                 self.shot_index += 1

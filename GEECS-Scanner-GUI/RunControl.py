@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 from geecs_python_api.controls.data_acquisition.scan_manager import ScanManager
 
@@ -15,7 +16,7 @@ class RunControl:
         """
         # TODO check if this is still necessary, given GEECSScanner is skipping initialization already if expt is None
         if experiment_name == "" or shot_control == "":
-            print("Specify experiment name and shot control device")
+            logging.warning("Specify experiment name and shot control device")
             self.scan_manager = None
         else:
             self.scan_manager = ScanManager(experiment_dir=experiment_name, shot_control_device=shot_control,
