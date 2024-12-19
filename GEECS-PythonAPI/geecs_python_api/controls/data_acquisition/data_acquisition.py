@@ -1025,7 +1025,9 @@ class DataLogger():
                     
                 # Update with async observable values
                 self.update_async_observables(self.device_manager.async_observables, log_entries, elapsed_time)
-                
+
+                # TODO move the on-shot tdms writer functionality from scan manager to here
+
                 # Trigger the beep in the background
                 self.sound_player.play_beep()  # Play the beep sound
                 self.shot_index += 1
