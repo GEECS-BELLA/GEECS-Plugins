@@ -54,7 +54,7 @@ class ScanDataManager:
     This class is designed to be used primarily (or even exclusively) with the ScanMananger
     """
     
-    DEPENDENT_SUFFIXES = ["-interp", "-interpSpec", "-interpDiv", "-Spatial", "-Temporal"]
+    DEPENDENT_SUFFIXES = ["-interp", "-interpSpec", "-interpDiv", "-Spatial"]
     
     def __init__(self, device_manager: 'DeviceManager', scan_data: Optional['ScanData'] = None):
         """
