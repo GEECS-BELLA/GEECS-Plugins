@@ -905,5 +905,7 @@ if __name__ == '__main__':
 
     perfect_application = GEECSScannerWindow()
     perfect_application.show()
+    perfect_application.raise_()
+    perfect_application.activateWindow()
 
     sys.exit(app.exec_())
