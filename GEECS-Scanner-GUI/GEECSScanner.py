@@ -877,7 +877,8 @@ class GEECSScannerWindow(QMainWindow):
         if self.element_editor:
             self.element_editor.close()
 
-        self.stop_scan()
+        if self.RunControl is not None:
+            self.stop_scan()
 
         for thread in threading.enumerate():
             print(thread.name)
