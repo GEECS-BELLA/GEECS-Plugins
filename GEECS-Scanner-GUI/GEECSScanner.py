@@ -179,6 +179,9 @@ class GEECSScannerWindow(QMainWindow):
         except AttributeError:
             print("ERROR: presumably because the entered experiment is not in the GEECS database")
             self.RunControl = None
+        except KeyError:
+            print("ERROR: presumably because no GEECS Database is connected to located devices")
+            self.RunControl = None
 
     def load_config_settings(self):
         """
@@ -199,6 +202,8 @@ class GEECSScannerWindow(QMainWindow):
                 self.repetition_rate = float(config['Experiment']['rep_rate_hz'])
             except KeyError:
                 self.prompt_config_reset("Could not find 'rep_rate_hz' in config")
+            except ValueError:
+                self.prompt_config_reset("`rep_rate_hz` needs to be an int or float")
 
             try:
                 self.shot_control_device = config['Experiment']['shot_control']
@@ -245,7 +250,7 @@ class GEECSScannerWindow(QMainWindow):
             }
             default_content['Experiment'] = {
                 'expt': 'none',
-                'rep_rate_hz': 'none',
+                'rep_rate_hz': '1',
                 'shot_control': 'none'
             }
             with open(CONFIG_PATH, 'w') as config_file:

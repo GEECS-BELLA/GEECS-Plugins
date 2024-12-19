@@ -25,8 +25,11 @@ logger = logging.getLogger(__name__)
 if not logging.getLogger().hasHandlers():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-CONFIG = GeecsPathsConfig()
-
+try:
+    CONFIG = GeecsPathsConfig()
+except ValueError:
+    print("'CONFIG' not set for ScanData")
+    CONFIG = None
 
 class ScanData:
     """ Represents a GEECS experiment scan """

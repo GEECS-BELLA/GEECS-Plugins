@@ -34,8 +34,12 @@ else:
         "Configuration file not found or default experiment not defined. While use Undulator as experiment. Could be a problem for you.")
     default_experiment = 'Undulator'
 
-GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
-device_dict = GeecsDevice.exp_info['devices']
+try:
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
+    device_dict = GeecsDevice.exp_info['devices']
+except AttributeError:
+    logging.warning("Could not retrieve dictionary of GEECS Devices")
+    device_dict = None
 
 ANALYSIS_CLASS_MAPPING = {
     'MagSpecStitcherAnalysis': 'scan_analysis.analyzers.Undulator.MagSpecStitcherAnalysis.MagSpecStitcherAnalysis',
