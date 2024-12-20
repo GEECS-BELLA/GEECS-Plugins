@@ -1,6 +1,6 @@
 import logging
 from typing import Optional
-from geecs_python_api.controls.data_acquisition.scan_manager import ScanManager
+from geecs_python_api.controls.data_acquisition.scan_manager import ScanManager, get_database_dict
 
 
 class RunControl:
@@ -30,7 +30,7 @@ class RunControl:
         if self.scan_manager is None:
             return None
         else:
-            return self.scan_manager.get_database_dict()
+            return get_database_dict()
 
     def submit_run(self, config_dictionary: dict, scan_config: dict):
         """Submits a scan request to Scan Manager after reinitializing it
