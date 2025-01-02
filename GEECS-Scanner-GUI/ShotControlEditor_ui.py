@@ -91,6 +91,19 @@ class Ui_Dialog(object):
 
         self.retranslateUi(Dialog)
         QtCore.QMetaObject.connectSlotsByName(Dialog)
+        Dialog.setTabOrder(self.lineConfigurationSelect, self.buttonNewConfiguration)
+        Dialog.setTabOrder(self.buttonNewConfiguration, self.buttonCopyConfiguration)
+        Dialog.setTabOrder(self.buttonCopyConfiguration, self.buttonDeleteConfiguration)
+        Dialog.setTabOrder(self.buttonDeleteConfiguration, self.lineDeviceName)
+        Dialog.setTabOrder(self.lineDeviceName, self.lineVariableName)
+        Dialog.setTabOrder(self.lineVariableName, self.buttonAddVariable)
+        Dialog.setTabOrder(self.buttonAddVariable, self.buttonRemoveVariable)
+        Dialog.setTabOrder(self.buttonRemoveVariable, self.listShotControlVariables)
+        Dialog.setTabOrder(self.listShotControlVariables, self.lineOffState)
+        Dialog.setTabOrder(self.lineOffState, self.lineScanState)
+        Dialog.setTabOrder(self.lineScanState, self.lineStandbyState)
+        Dialog.setTabOrder(self.lineStandbyState, self.buttonSaveConfiguration)
+        Dialog.setTabOrder(self.buttonSaveConfiguration, self.buttonCloseWindow)
 
     def retranslateUi(self, Dialog):
         _translate = QtCore.QCoreApplication.translate
