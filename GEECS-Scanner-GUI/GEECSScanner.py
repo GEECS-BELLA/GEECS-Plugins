@@ -12,6 +12,7 @@ import traceback
 import importlib
 import yaml
 import configparser
+import logging
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter, QMessageBox
 from PyQt5.QtCore import Qt, QEvent, QTimer
@@ -20,7 +21,7 @@ from ScanElementEditor import ScanElementEditor
 from MultiScanner import MultiScanner
 # from LogStream import EmittingStream, MultiStream
 
-CURRENT_VERSION = 'v0.2'  # Try to keep this up-to-date, increase the version # with significant changes :)
+CURRENT_VERSION = 'v0.3'  # Try to keep this up-to-date, increase the version # with significant changes :)
 
 MAXIMUM_SCAN_SIZE = 1e6
 RELATIVE_PATH = Path("../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/")
@@ -98,9 +99,10 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
         self.ui.buttonRefreshLists.clicked.connect(self.refresh_element_list)
 
-        # Buttons to launch the side guis for the action library and scan variables
+        # Buttons to launch the side guis for the action library, timing device, and scan variables
         self.ui.buttonActionLibrary.setEnabled(False)
         self.ui.buttonScanVariables.setEnabled(False)
+        self.ui.buttonOpenTimingSetup.setEnabled(False)
 
         # Radio buttons that select if the next scan is to be a noscan or 1dscan
         self.ui.noscanRadioButton.setChecked(True)
@@ -161,13 +163,13 @@ class GEECSScannerWindow(QMainWindow):
         is changed.  To do so, the experiment name in the config file is updated because geecs-python-api is heavily
         dependent on this for loading the correct database.
         """
-        print("Reinitialization of Run Control")
+        logging.info("Reinitialization of Run Control")
         try:
             # The experiment name in the config is very embedded in geecs-python-api, so we have to rewrite it here...
             config = configparser.ConfigParser()
             config.read(CONFIG_PATH)
             if config['Experiment']['expt'] != self.experiment:
-                print("Experiment name changed, rewriting config file")
+                logging.info("Experiment name changed, rewriting config file")
                 config.set('Experiment', 'expt', self.experiment)
                 with open(CONFIG_PATH, 'w') as file:
                     config.write(file)
@@ -176,7 +178,10 @@ class GEECSScannerWindow(QMainWindow):
             self.RunControl = run_control_class(experiment_name=self.experiment, shot_control=self.shot_control_device,
                                                 master_control_ip=self.master_control_ip)
         except AttributeError:
-            print("ERROR: presumably because the entered experiment is not in the GEECS database")
+            logging.error("AttributeError at RunControl: presumably because the entered experiment is not in the GEECS database")
+            self.RunControl = None
+        except KeyError:
+            logging.error("KeyError at RunControl: presumably because no GEECS Database is connected to located devices")
             self.RunControl = None
 
     def load_config_settings(self):
@@ -198,6 +203,8 @@ class GEECSScannerWindow(QMainWindow):
                 self.repetition_rate = float(config['Experiment']['rep_rate_hz'])
             except KeyError:
                 self.prompt_config_reset("Could not find 'rep_rate_hz' in config")
+            except ValueError:
+                self.prompt_config_reset("`rep_rate_hz` needs to be an int or float")
 
             try:
                 self.shot_control_device = config['Experiment']['shot_control']
@@ -206,7 +213,7 @@ class GEECSScannerWindow(QMainWindow):
             try:
                 self.master_control_ip = config['Experiment']['MC_ip']
             except KeyError:
-                print("Not including MC_ip, no ECS dumps.")
+                logging.warning("Not including MC_ip, no ECS dumps.")
                 pass
 
         except TypeError:
@@ -227,7 +234,7 @@ class GEECSScannerWindow(QMainWindow):
             self.reset_config_file()
             self.load_config_settings()
         else:
-            print("Shutting Down")
+            logging.info("Shutting Down")
             sys.exit()
 
     def reset_config_file(self):
@@ -244,12 +251,12 @@ class GEECSScannerWindow(QMainWindow):
             }
             default_content['Experiment'] = {
                 'expt': 'none',
-                'rep_rate_hz': 'none',
+                'rep_rate_hz': '1',
                 'shot_control': 'none'
             }
             with open(CONFIG_PATH, 'w') as config_file:
                 default_content.write(config_file)
-            print(f"Wrote new config file to {CONFIG_PATH}")
+            logging.info(f"Wrote new config file to {CONFIG_PATH}")
 
         config = configparser.ConfigParser()
         config.read(CONFIG_PATH)
@@ -263,7 +270,7 @@ class GEECSScannerWindow(QMainWindow):
         config = self.prompt_config_update(config, 'Experiment', 'shot_control',
                                            'Enter shot control device: (ex: U_DG645_ShotControl)')
 
-        print(f"Writing config file to {CONFIG_PATH}")
+        logging.info(f"Writing config file to {CONFIG_PATH}")
         with open(CONFIG_PATH, 'w') as file:
             config.write(file)
         self.load_config_settings()
@@ -437,7 +444,7 @@ class GEECSScannerWindow(QMainWindow):
         """Refreshes the list of available and selected elements, but does not clear them.  Instead, all previously
         selected elements remain in the selected list, new files are added to the available list, and deleted files are
         removed from either list."""
-        print("Refreshing element list...")
+        logging.info("Refreshing element list...")
         try:
             experiment_preset_folder = RELATIVE_PATH / "experiments" / self.experiment / "save_devices"
 
@@ -454,13 +461,13 @@ class GEECSScannerWindow(QMainWindow):
                     else:
                         self.ui.foundDevices.addItem(f.stem)
         except OSError:
-            print("OSError occurred!")
+            logging.error("OSError occurred!")
             self.clear_lists()
 
-        print("Refreshing scan variable list...")
+        logging.info("Refreshing scan variable list...")
         self.populate_scan_devices()
 
-        print(" ...Done!")
+        logging.info(" ...Done!")
 
     def update_scan_edit_state(self):
         """Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
@@ -511,7 +518,7 @@ class GEECSScannerWindow(QMainWindow):
                 self.scan_composite_list = list(composite_vars.keys())
 
         except Exception as e:
-            print(f"Error loading file: {e}")
+            logging.error(f"Error loading file: {e}")
 
         completer = QCompleter(self.scan_variable_list + self.scan_composite_list, self.ui.lineScanVariable)
         self.ui.lineScanVariable.setCompleter(completer)
@@ -533,7 +540,7 @@ class GEECSScannerWindow(QMainWindow):
                     return name
 
         except Exception as e:
-            print(f"Error loading scan_devices.yaml file: {e}")
+            logging.error(f"Error loading scan_devices.yaml file: {e}")
 
     def show_scan_device_list(self):
         """Displays the list of scan devices when the user interacts with the scan variable selection text box"""
@@ -628,7 +635,7 @@ class GEECSScannerWindow(QMainWindow):
                     preset_list.append(f.stem)
 
         except OSError:
-            print("Could not locate pre-existing scan presets.")
+            logging.error("Could not locate pre-existing scan presets.")
         return preset_list
 
     def save_current_preset(self):
@@ -722,13 +729,13 @@ class GEECSScannerWindow(QMainWindow):
             preset_filename = PRESET_LOCATIONS / self.experiment / (preset.text() + ".yaml")
             try:
                 preset_filename.unlink()
-                print(f"{preset_filename} has been deleted :(")
+                logging.info(f"{preset_filename} has been deleted :(")
             except FileNotFoundError:
-                print(f"{preset_filename} not found.")
+                logging.error(f"{preset_filename} not found.")
             except PermissionError:
-                print(f"Permission denied: {preset_filename}")
+                logging.error(f"Permission denied: {preset_filename}")
             except Exception as e:
-                print(f"Error occurred: {e}")
+                logging.error(f"Error occurred: {e}")
 
         self.ui.listScanPresets.clear()
         self.populate_preset_list()
@@ -737,7 +744,7 @@ class GEECSScannerWindow(QMainWindow):
         """Checks the full GUI for any blatant errors.  To be used before submitting a scan to be run"""
         # TODO Need to add more logic in here.  IE, at least 1 shot, at least 1 save device, etc etc
         if not self.repetition_rate > 0:
-            print("Error: Need nonzero repetition rate")
+            logging.error("Need nonzero repetition rate")
             return True
         return False
 
@@ -756,7 +763,8 @@ class GEECSScannerWindow(QMainWindow):
             QApplication.processEvents()
 
             save_device_list = {}
-            list_of_steps = []
+            list_of_setup_steps = []
+            list_of_closeout_steps = []
             for i in range(self.ui.selectedDevices.count()):
                 filename = self.ui.selectedDevices.item(i).text()
                 fullpath = RELATIVE_PATH / "experiments" / self.experiment / "save_devices" / (filename + ".yaml")
@@ -767,9 +775,14 @@ class GEECSScannerWindow(QMainWindow):
 
                         if 'setup_action' in data:
                             setup_action = data['setup_action']
-                            list_of_steps.extend(setup_action['steps'])
+                            list_of_setup_steps.extend(setup_action['steps'])
+
+                        if 'closeout_action' in data:
+                            setup_action = data['closeout_action']
+                            list_of_closeout_steps.extend(setup_action['steps'])
+
                     except yaml.YAMLError as exc:
-                        print(f"Error reading YAML file: {exc}")
+                        logging.error(f"Error reading YAML file: {exc}")
 
             scan_information = {
                 'experiment': self.experiment,
@@ -797,9 +810,13 @@ class GEECSScannerWindow(QMainWindow):
                 'Devices': save_device_list,
                 'scan_info': scan_information,
             }
-            if list_of_steps:
-                steps = {'steps': list_of_steps}
-                run_config['setup_action'] = steps
+
+            if list_of_setup_steps:
+                setup_action_steps = {'steps': list_of_setup_steps}
+                run_config['setup_action'] = setup_action_steps
+            if list_of_closeout_steps:
+                closeout_action_steps = {'steps': list_of_closeout_steps}
+                run_config['closeout_action'] = closeout_action_steps
 
             self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
             self.ui.startScanButton.setText("Start Scan")
@@ -861,10 +878,13 @@ class GEECSScannerWindow(QMainWindow):
         if self.element_editor:
             self.element_editor.close()
 
-        self.stop_scan()
+        if self.RunControl is not None:
+            self.stop_scan()
 
+        # TODO find out where the logging.basicConfig is configured... (this doesnt print)
+        logging.debug("List of active threads upon closing:")
         for thread in threading.enumerate():
-            print(thread.name)
+            logging.debug(thread.name)
 
 
 def exception_hook(exctype, value, tb):
@@ -888,5 +908,7 @@ if __name__ == '__main__':
 
     perfect_application = GEECSScannerWindow()
     perfect_application.show()
+    perfect_application.raise_()
+    perfect_application.activateWindow()
 
     sys.exit(app.exec_())
