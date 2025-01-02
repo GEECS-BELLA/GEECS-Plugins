@@ -49,6 +49,7 @@ class ScanAnalysis:
         bins (np.ndarray): Bin numbers for the data, extracted from the auxiliary file.
         auxiliary_data (pd.DataFrame): DataFrame containing auxiliary scan data.
     """
+
     def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True):
         """
         Initialize the ScanAnalysis class.
@@ -73,6 +74,12 @@ class ScanAnalysis:
         self.bins = None
         self.auxiliary_data: Optional[pd.DataFrame] = None
         self.binned_param_values = None
+        # scan_path = self.scan_directory.parent.parent / 'analysis' / self.scan_directory.name
+        #
+        # self.scan_path: Path = Path(scan_path)
+        self.scan_path: Path = self.scan_data.get_analysis_folder()
+        logging.info(f'analysis path is : {self.scan_path}')
+        self.display_contents = []
 
         try:
             # Extract the scan parameter
@@ -96,6 +103,7 @@ class ScanAnalysis:
         except FileNotFoundError as e:
             logging.warning(f"{e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
             return
+
 
     def run_analysis(self, config_options: Optional[Union[Path, str]] = None) -> Optional[list[Union[Path, str]]]:
         """

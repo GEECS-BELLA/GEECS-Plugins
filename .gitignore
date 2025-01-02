@@ -19,3 +19,4 @@ LogMaker 4 GoogleDocs/source/HTUcurrentvalues.ini
 LogMaker 4 GoogleDocs/source/HTUparameters.ini
 *.spyproject
 GEECS-PythonAPI/htu_scripts/test_scripts/credentials.json
+LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in

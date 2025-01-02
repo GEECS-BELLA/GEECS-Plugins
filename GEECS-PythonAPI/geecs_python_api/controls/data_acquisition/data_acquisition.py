@@ -861,7 +861,10 @@ class DataLogger():
 
         # Register the logging function for event-driven observables
         self._register_event_logging(event_driven_observables, log_update)
-
+        
+        logging.info('waiting for all devices to go to standby mode. Note, device standby status not checked, just waiting 4 seconds for all devices to timeout')
+        time.sleep(4)
+        
         logging.info("Logging has started for all event-driven devices.")
 
         # # Start a thread to monitor device warnings
@@ -887,7 +890,6 @@ class DataLogger():
         err = ErrorAPI()
         net_msg = mh.NetworkMessage(tag=device.get_name(), stamp=stamp, msg=message, err=err)
         parsed_data = device.handle_subscription(net_msg)
-
         current_timestamp = parsed_data[2].get('timestamp')
         if current_timestamp is None:
             logging.warning(f"No timestamp found for {device.get_name()}. Using system time instead.")

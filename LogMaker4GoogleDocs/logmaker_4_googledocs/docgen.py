@@ -28,6 +28,8 @@ import pickle
 from PIL import Image
 import os.path
 import os
+import mimetypes
+from pathlib import Path
 import glob
 from googleapiclient import errors
 from googleapiclient.discovery import build
@@ -42,9 +44,29 @@ import httplib2
 
 # DON'T TOUCH
 SCOPES = ['https://www.googleapis.com/auth/documents','https://www.googleapis.com/auth/drive','https://www.googleapis.com/auth/spreadsheets']
+# scriptconfig = configparser.ConfigParser()
+# scriptconfig.read('config.ini')
+
+# Create the ConfigParser object
 scriptconfig = configparser.ConfigParser()
-scriptconfig.read('config.ini')
+
+# Get the directory of the current script (docgen.py)
+script_dir = Path(__file__).parent
+
+# Construct the path to config.ini
+config_path = script_dir / 'config.ini'
+
+# Load the configuration file
+scriptconfig.read(config_path)
+
+# Debugging: Verify the loaded sections
+if not scriptconfig.sections():
+    print(f"Failed to load config file from: {config_path}")
+else:
+    print(f"Successfully loaded config file: {config_path}")
+
 SCRIPT_ID = scriptconfig['DEFAULT']['script']
+
 
 
 # DATE & TIME
@@ -278,51 +300,55 @@ def scale_image(image_path, target_width_in_inches = 4.75, dpi=100):
 # (if None specified)
 # Or use a common service established through the function 
 # servicevar = establishService(apiservice,apiversion)
-def establishService(apiservice,apiversion):
+def establishService(apiservice, apiversion):
     """
-    Handles connection with google api and authorization.
+    Handles connection with Google API and authorization.
 
     Args: 
-        apiservice (str): name of the google api
-        apiversion (str): version number of api
-    
+        apiservice (str): Name of the Google API (e.g., 'docs', 'drive').
+        apiversion (str): Version number of the API (e.g., 'v1').
+
     Returns:
-    Service object (JSON?!) that can be called by other functions.
+        service (googleapiclient.discovery.Resource): Google API service object.
     """
     print('**Establish Server Connection with Google Cloud**')
-    creds = None
-    # The file token.pickle stores the user's access and refresh tokens. 
-    # It is created automatically when the authorization flow completes 
-    # for the first time.
 
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
-    # If no (valid) credentials available, let the user log in.
+    creds = None
+
+    # Define the path to token.pickle and credentials.json
+    base_path = Path(__file__).parent
+    token_path = base_path / 'token.pickle'
+    credentials_path = base_path / 'credentials.json'
+
+    # Check for token.pickle to load stored credentials
+    if token_path.exists():
+        with token_path.open('rb') as token_file:
+            creds = pickle.load(token_file)
+
+    # If no (valid) credentials are available, log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
+            if not credentials_path.exists():
+                raise FileNotFoundError(f"Credentials file not found at: {credentials_path}")
+            
+            # Load credentials.json and initiate login
+            flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
             creds = flow.run_local_server(port=0)
+
         # Save the credentials for the next run
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
+        with token_path.open('wb') as token_file:
+            pickle.dump(creds, token_file)
 
-    #service = build('script', 'v1', credentials=creds)
-
-    # Call the Apps Script API
+    # Build the service object
     try:
-        service = build(apiservice,apiversion, credentials=creds)
+        service = build(apiservice, apiversion, credentials=creds)
         print('...Service created successfully')
-        print(service)
-    except Exception as e: print("...Error in opening the service: ", e)
-    #except errors.HttpError as e:
-    #    print('failed to establish a service')
-    #    print(e.content)
-    
-    return(service)
+        return service
+    except Exception as e:
+        print(f"...Error in opening the service: {e}")
+        raise
 
 # Create daily log and return ID// if exits already, just return ID
 def createExperimentLog(logtempID,tempfolderID,logfolderID, 
@@ -592,54 +618,61 @@ def findAndReplaceImage(documentID,imageID, pattern,servicevar):
         # before the script started executing.
         print(e.content)
 
-# Upload an Image and return URL
-def uploadImage(localimagepath,destinationID):
+
+def uploadImage(localimagepath, destinationID):
     """
-    Uploads a local png image to google drive
+    Uploads a local image (PNG or GIF) to Google Drive.
 
     Args:
-        localimagepath (str): path to png image to upload
-        destinationID (str): ID of the google folder to upload to
-    
+        localimagepath (str): Path to the image (PNG/GIF) to upload.
+        destinationID (str): ID of the Google Drive folder to upload to.
+
     Returns:
-        Uploads image to the specified folder named tmp and tagged
-        with a timestamp.
-        Function returns the google ID of the uploaded image.
+        str: Google ID of the uploaded file.
     """
-    API_SERVICE_NAME='drive'
-    API_VERSION='v3'
-    driveservice = establishService(API_SERVICE_NAME,API_VERSION)      
-    #Create an execution request object.
+    API_SERVICE_NAME = 'drive'
+    API_VERSION = 'v3'
+    driveservice = establishService(API_SERVICE_NAME, API_VERSION)
     
-    scaled_image_path = scale_image(localimagepath)
+    # Detect file extension and determine MIME type
+    file_path = Path(localimagepath)
+    mime_type, _ = mimetypes.guess_type(localimagepath)
     
-    file_metadata = {'name': date + " " + time 
-                    + 'tmp.png', 'parents': [destinationID],}
-    media = MediaFileUpload(scaled_image_path,
-                          mimetype='image/png'
-                          )
+    if not mime_type:
+        raise ValueError(f"Unable to determine MIME type for file: {localimagepath}")
+    
+    if mime_type not in ['image/png', 'image/gif']:
+        raise ValueError("Only PNG and GIF file types are supported.")
+
+    # Scale the image only for PNG files
+    scaled_image_path = localimagepath
+    if mime_type == 'image/png':
+        scaled_image_path = scale_image(localimagepath)
+
+    # Generate metadata for the upload
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    file_metadata = {
+        'name': f"{timestamp}_tmp.{file_path.suffix.lstrip('.')}",
+        'parents': [destinationID]
+    }
+    
+    media = MediaFileUpload(scaled_image_path, mimetype=mime_type)
+    
     try:
-        file = driveservice.files().create(body=file_metadata,
-                                    media_body=media, supportsAllDrives=True).execute()
+        file = driveservice.files().create(
+            body=file_metadata, media_body=media, supportsAllDrives=True
+        ).execute()
         if 'error' in file:
-        # The API executed, but the script returned an error.
-    
-        # Extract the first (and only) set of error details. 
-        # The values of this object are the script's 
-        # 'errorMessage' and 'errorType', and
-        # an list of stack trace elements.
             error = file['error']['details'][0]
-            print("Script error message: {0}".format(error['errorMessage']))
-        else: 
+            print(f"Script error message: {error['errorMessage']}")
+            return None
+        else:
             imageID = file['id']
-            #print(imageID)
-            
+            return imageID
+
     except errors.HttpError as e:
-        # The API encountered a problem
-        # before the script started executing.
-        #print("here")
         print(e.content)
-    return imageID
+        return None
 
 # Check if a google docs contains a search phrase 
 def checkFileContains(fileID,search,servicevar):
@@ -805,7 +838,7 @@ def insertImageToTableCell(documentID, scanNumber, row, column, imageID, service
         print(e.content)
 
 
-def insertImageToExperimentLog(documentID, scanNumber, row, column, image_path):
+def insertImageToExperimentLog(scanNumber, row, column, image_path, documentID = None, experiment = 'Undulator'):
     """
     Uploads an image to Google Drive and inserts it into a specific table cell in a Google Doc.
 
@@ -824,6 +857,36 @@ def insertImageToExperimentLog(documentID, scanNumber, row, column, image_path):
     # but it's really just a temporary location for the image before 
     # moving into the relevant experiment log. No real need to specify
     # other directories for other experiments
+    
+    
+    #TODO: add mapping for other experiments
+    experiment_mapping = { 'Undulator':'HTUparameters.ini', 
+                            'Thomson': 'HTTparaeters.ini'}    
+    config_file = experiment_mapping.get(experiment, None)
+    if config_file:
+        # Create the ConfigParser object
+        experiment_config = configparser.ConfigParser()
+
+        # Get the directory of the current script (docgen.py)
+        experiment_config_dir = Path(__file__).parent
+
+        # Construct the path to config.ini
+        config_path = experiment_config_dir / config_file
+
+        # Load the configuration file
+        experiment_config.read(config_path)
+
+        # Debugging: Verify the loaded sections
+        if not experiment_config.sections():
+            print(f"Failed to load config file from: {config_path}")
+        else:
+            print(f"Successfully loaded config file: {config_path}")
+            
+        documentID = experiment_config['DEFAULT']['logid']  
+    
+    ### note, the ID below is the path to directory in the bellaOps HTU experiment logs.
+    ### it's only for temporary storage so no need for multiple directories to be defined
+    ### As separated google script will be setup to purge the directory on a scheduled basis
     image_id = uploadImage(image_path, '1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2')
 
     # Insert the uploaded image into the specified table cell

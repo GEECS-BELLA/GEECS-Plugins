@@ -13,6 +13,8 @@ packages = [{include = "scan_analysis"},
 python = ">=3.9 <3.11"
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }
 geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
+LogMaker4GoogleDocs = {path = "../LogMaker4GoogleDocs", develop = true}
+
 pyyaml = "^6.0.2"
 matplotlib = "^3.9.2"
 pandas = "^2.2.3"

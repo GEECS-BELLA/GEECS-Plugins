@@ -22,7 +22,7 @@ from geecs_python_api.controls.interface import load_config, GeecsDatabase
 from geecs_python_api.controls.interface.geecs_paths_config import GeecsPathsConfig
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.analysis.scans.scan_data import ScanData
-from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_magspecstitcher_timestamp
+from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_custom_imaq_timestamp
 
 
 # TODO rewrote the static code section to be more flexible, but it could use a new home or move to GEECS Python API
@@ -77,7 +77,7 @@ class ScanDataManager:
     This class is designed to be used primarily (or even exclusively) with the ScanMananger
     """
     
-    DEPENDENT_SUFFIXES = ["-interp", "-interpSpec", "-interpDiv"]
+    DEPENDENT_SUFFIXES = ["-interp", "-interpSpec", "-interpDiv", "-Spatial"]
     
     def __init__(self, device_manager: 'DeviceManager', scan_data: Optional['ScanData'] = None):
         """
@@ -436,7 +436,6 @@ class ScanDataManager:
 
         scan_folder_string = f"Scan{scan_num:03}"
         
-        
         # sPath = self.scan_data.get_analysis_folder().parent / f's{scan_num}.txt'
         
         sDataPath = self.scan_data.get_folder() / f'ScanData{scan_folder_string}.txt'
@@ -477,6 +476,11 @@ class ScanDataManager:
         if not device_type:
             logging.warning(f"Device type for {device_name} not found. Skipping.")
             return
+            
+        # Handle special case for FROG device type
+        if device_type == "FROG":
+            device_dir = device_dir.with_name(f"{device_dir.name}-Temporal")
+            logging.info(f"Adjusted path for FROG device: {device_dir}")
 
         # Collect and match files with timestamps
         # device_files = sorted(device_dir.glob("*"), key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
@@ -544,7 +548,8 @@ class ScanDataManager:
             "Point Grey Camera": get_imaq_timestamp_from_png,
             "MagSpecCamera": get_imaq_timestamp_from_png,
             "PicoscopeV2": get_picoscopeV2_timestamp,
-            "MagSpecStitcher": get_magspecstitcher_timestamp,
+            "MagSpecStitcher": get_custom_imaq_timestamp,
+            "FROG": get_custom_imaq_timestamp,
         }
 
         if device_type in device_map:
