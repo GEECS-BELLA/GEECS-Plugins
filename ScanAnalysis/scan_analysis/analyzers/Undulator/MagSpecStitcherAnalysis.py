@@ -31,7 +31,7 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
             logging.warning(f"Data directory '{self.data_subdirectory}' does not exist or is empty.")
             self.data_subdirectory = None
 
-        self.save_path = (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / f"{device_name}")
+        self.save_path = (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / f"{device_name}")        
 
     def run_analysis(self, config_options: Optional[str] = None):
         """
@@ -58,27 +58,32 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
 
             shot_num_labels = self.generate_limited_shotnumber_labels(max_labels=20)
             # Plot unbinned data
-            self.plot_waterfall_with_labels(linear_energy_axis, interpolated_charge_density_matrix,
+            save_path = self.plot_waterfall_with_labels(linear_energy_axis, interpolated_charge_density_matrix,
                                             f'{str(self.scan_directory)}', 'Shotnumber',
                                             # vertical_values=np.arange(1, len(interpolated_charge_density_matrix) + 1),
                                             vertical_values=shot_num_labels, save_dir=self.save_path,
                                             save_name='charge_density_vs_shotnumber.png')
+            self.display_contents.append(str(save_path))
 
             # Skip binning if noscan
             if self.noscan:
                 logging.info("No scan performed, skipping binning and binned plots.")
-                return  # Skip the rest of the analysis
+                return  self.display_contents # Skip the rest of the analysis
 
             # Bin the data and plot binned data
             binned_matrix = self.bin_data(charge_density_matrix)
             linear_energy_axis_binned, interpolated_binned_matrix = self.interpolate_data(energy_values, binned_matrix)
 
             # Plot the binned waterfall plot using the average scan parameter values for the vertical axis
-            self.plot_waterfall_with_labels(linear_energy_axis_binned, interpolated_binned_matrix,
+            save_path = self.plot_waterfall_with_labels(linear_energy_axis_binned, interpolated_binned_matrix,
                                             f'{str(self.scan_directory)}', self.find_scan_param_column()[1],
                                             vertical_values=self.binned_param_values, save_dir=self.save_path,
                                             save_name='charge_density_vs_scan_parameter.png')
+            
+            self.display_contents.append(str(save_path))
 
+            return self.display_contents
+            
         except Exception as e:
             logging.warning(f"Warning: Analysis failed due to: {e}")
             return
@@ -183,13 +188,15 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
         plt.yticks(y_ticks, labels=[f"{v:.2f}" for v in vertical_values])
         plt.ylabel(ylabel)
         plt.title(title)
-
+                
         # If save_dir and save_name are provided, save the plot
         if save_dir and save_name:
             save_path = Path(save_dir) / save_name
             save_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
             plt.savefig(save_path, bbox_inches='tight')
             logging.info(f"Plot saved to {save_path}")
+            
+        return save_path
 
 
 if __name__ == "__main__":

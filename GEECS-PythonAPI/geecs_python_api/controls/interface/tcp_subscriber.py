@@ -47,10 +47,12 @@ class TcpSubscriber:
             self.host = self.owner.dev_ip
             self.port = self.owner.dev_port
             self.connected = True
-
-        except Exception:
-            api_error.error(f'Failed to connect TCP client ({self.owner.get_name()})',
-                            'TcpSubscriber class, method "connect"')
+        
+        except (TimeoutError, InterruptedError) as e:
+            api_error.error(
+                f'Error while connecting TCP client ({self.owner.get_name()}): {e}',
+                'TcpSubscriber class, method "connect"'
+            )
             self.sock = None
             self.host = ''
             self.port = -1

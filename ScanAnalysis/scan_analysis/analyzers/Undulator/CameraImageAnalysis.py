@@ -6,7 +6,7 @@ Child to ScanAnalysis (./scan_analysis/base.py)
 """
 # %% imports
 from __future__ import annotations
-from typing import TYPE_CHECKING, Union, Optional
+from typing import TYPE_CHECKING, Union, Optional, List
 
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
@@ -16,6 +16,7 @@ import yaml
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 from scipy.ndimage import median_filter, gaussian_filter
 import imageio as io
 
@@ -91,6 +92,8 @@ class CameraImageAnalysis(ScanAnalysis):
                 self.run_noscan_analysis()
             else:
                 self.run_scan_analysis()
+            
+            return self.display_contents
 
         except Exception as e:
             if self.flag_logging:
@@ -157,17 +160,30 @@ class CameraImageAnalysis(ScanAnalysis):
         if self.flag_logging:
             logging.info(f"Image saved at {save_path}")
 
-    def save_normalized_image(self, image: np.ndarray, save_dir: Union[str, Path], save_name: str):
-        """Display and optionally save a 16-bit image with specified min/max values for visualization."""
+    def save_normalized_image(self, image: np.ndarray, save_dir: Union[str, Path], save_name: str, label: Optional[str] = None):
+        """
+        Display and optionally save a 16-bit image with specified min/max values for visualization.
+        Optionally, add a label to the image before saving.
 
+        Args:
+            image (np.ndarray): The image to save.
+            save_dir (Union[str, Path]): The directory where the image will be saved.
+            save_name (str): The name of the saved image file.
+            label (Optional[str]): A label to add to the image. Defaults to None.
+        """
         max_val = np.max(image)
 
         # Display the image
         plt.clf()
 
-        plt.imshow(image, cmap='gray', vmin=0, vmax=max_val)
+        plt.imshow(image, cmap='plasma', vmin=0, vmax=max_val)
         plt.colorbar()  # Adds a color scale bar
         plt.axis('off')  # Hide axis for a cleaner look
+        
+        # Add a label if provided
+        if label:
+            plt.title(label, fontsize=12, pad=10)  # Add the label at the top of the plot
+
 
         # Save the image if a path is provided
         if save_dir and save_name:
@@ -386,15 +402,32 @@ class CameraImageAnalysis(ScanAnalysis):
         return cropped_image, processed_image
 
     @staticmethod
-    def create_gif(image_arrays: list[np.ndarray], output_file: str,
-                   titles: Optional[list[str]] = None, duration: float = 100):
+    def create_gif(image_arrays: List[np.ndarray], output_file: str,
+                   titles: Optional[List[str]] = None, duration: float = 100, dpi: int = 72):
+        """
+        Create a GIF from a list of images with titles, scaled to a fixed width,
+        and using the 'plasma' colormap.
 
-        # make default list of titles
+        Args:
+            image_arrays (List[np.ndarray]): List of images to include in the GIF.
+            output_file (str): Path to save the resulting GIF.
+            titles (Optional[List[str]]): List of titles for each image.
+            duration (float): Duration for each frame in the GIF in milliseconds.
+            dpi (int): The DPI for the images (default is 72 DPI).
+        """
+        # Desired width in pixels based on DPI
+        target_width_inches = 5  # Width in inches
+        target_width_pixels = int(target_width_inches * dpi)
+
+        # Create default titles if not provided
         if titles is None:
             titles = [f"Shot {num + 1}" for num in range(len(image_arrays))]
 
-        # define font parameters
-        # font = cv2.FONT_HERSHEY_COMPLEX_SMALL
+        # Initialize the colormap and normalization
+        cmap = plt.get_cmap('plasma')
+        norm = Normalize(vmin=np.min(image_arrays), vmax=np.max(image_arrays))
+
+        # Font parameters for adding titles
         font = cv2.FONT_HERSHEY_TRIPLEX
         font_scale = 1
         thickness = 2
@@ -402,31 +435,30 @@ class CameraImageAnalysis(ScanAnalysis):
 
         images = []
         for img, title in zip(image_arrays, titles):
+            # Normalize the image and apply the colormap
+            normalized_img = norm(img)
+            colored_img = (cmap(normalized_img)[:, :, :3] * 255).astype(np.uint8)
 
-            # make a copy of the array
-            img_copy = img.copy()
+            # Resize the image while maintaining the aspect ratio
+            height, width, _ = colored_img.shape
+            scale_factor = target_width_pixels / width
+            target_height_pixels = int(height * scale_factor)
+            resized_image = cv2.resize(colored_img, (target_width_pixels, target_height_pixels), interpolation=cv2.INTER_AREA)
 
-            # get image dimensions
-            height, width = img_copy.shape[:2]
-
-            # get title size
+            # Add title text
             (text_width, text_height), _ = cv2.getTextSize(title, font, font_scale, thickness)
+            title_position = (max((target_width_pixels - text_width) // 2, 0), max(50, text_height + 10))
 
-            # calculate text position for center alignment
-            x = (width - text_width) // 2
-            y = 50  # distance from top
+            # Add space for the title
+            title_bar_height = 60
+            title_image = np.zeros((title_bar_height + resized_image.shape[0], target_width_pixels, 3), dtype=np.uint8)
+            title_image[title_bar_height:, :, :] = resized_image
 
-            # add text to image
-            cv2.putText(img_copy, title,
-                        (x, y), font, font_scale, color, thickness)
+            cv2.putText(title_image, title, title_position, font, font_scale, color, thickness)
 
-            # convert BGR to RGB if necessary
-            if len(img_copy.shape) == 3 and img_copy.shape[2] == 3:
-                img_copy = cv2.cvtColor(img_copy, cv2.COLOR_BGR2RGB)
+            images.append(title_image)
 
-            images.append(img_copy)
-
-        # create gif
+        # Create GIF
         io.mimsave(output_file, images, duration=duration, loop=0)
 
     def run_noscan_analysis(self):
@@ -434,7 +466,6 @@ class CameraImageAnalysis(ScanAnalysis):
         Image analysis in the case of a no scan.
 
         """
-
         # load images
         data = {'shot_num': [], 'images': []}
         for shot_num in self.auxiliary_data['Shotnumber'].values:
@@ -455,14 +486,21 @@ class CameraImageAnalysis(ScanAnalysis):
         if self.flag_save_images:
             self.save_geecs_scaled_image(avg_image, save_dir=self.path_dict['save'],
                                          save_name=f'{self.device_name}_average_processed.png')
+                                         
+            save_name = f'{self.device_name}_average_processed_visual.png'
             self.save_normalized_image(avg_image, save_dir=self.path_dict['save'],
-                                       save_name=f'{self.device_name}_average_processed_visual.png')
+                                       save_name = save_name, label = save_name)
+            display_content_path = Path(self.path_dict['save']) / save_name
+
+            self.display_contents.append(str(display_content_path))
 
         # make gif
         if self.flag_save_images:
             filepath = self.path_dict['save'] / 'noscan.gif'
             self.create_gif(data['images'], filepath,
                             titles=[f"Shot {num}" for num in data['shot_num']])
+                            
+            self.display_contents.append(str(filepath))
 
     def run_scan_analysis(self):
         """
@@ -493,6 +531,9 @@ class CameraImageAnalysis(ScanAnalysis):
         # Once all bins are processed, create an array of the averaged images
         if len(binned_data) > 1 and self.flag_save_images:
             plot_scale = self.camera_analysis_settings.get('Plot Scale', None)
+            display_content_path  = self.create_image_array(binned_data, plot_scale=plot_scale)  # TODO more to do with binned_data type hints
+            
+            self.display_contents.append(str(display_content_path))
             self.create_image_array(binned_data, plot_scale=plot_scale)  # TODO more to do with binned_data type hints
 
         # save binned data to class variable
