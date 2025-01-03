@@ -113,7 +113,8 @@ class ShotControlEditor(QDialog):
 
     def configuration_selected(self):
         entered_name = self.ui.lineConfigurationSelect.text()
-        if entered_name in self._get_list_of_configurations():
+        is_valid = bool(entered_name in self._get_list_of_configurations())
+        if is_valid:
             self.configuration_name = entered_name
             config_file = self.config_folder_path / (self.configuration_name + ".yaml")
             with open(config_file, 'r') as file:
@@ -126,8 +127,16 @@ class ShotControlEditor(QDialog):
         self.variable_dictionary = settings.get('variables', {})
 
         self.ui.lineDeviceName.setText(self.device_name)
+        self.ui.lineVariableName.setText('')
         self._update_variable_list()
         self.show_states_info()
+
+        self.ui.lineDeviceName.setEnabled(is_valid)
+        self.ui.lineVariableName.setEnabled(is_valid)
+        self.ui.buttonAddVariable.setEnabled(is_valid)
+        self.ui.buttonRemoveVariable.setEnabled(is_valid)
+        self.ui.buttonCopyConfiguration.setEnabled(is_valid)
+        self.ui.buttonDeleteConfiguration.setEnabled(is_valid)
 
     def create_new_configuration(self):
         text, ok = QInputDialog.getText(self, 'New Configuration', 'Enter nickname:')
