@@ -264,7 +264,21 @@ class ShotControlEditor(QDialog):
     def save_configuration(self):
         configuration_name = self.ui.lineConfigurationSelect.text()
         if configuration_name is None or configuration_name.strip() == '':
+            print("Error: no configuration specified")
             return
+        if self.device_name == '':
+            print("Error: cannot save with empty device name")
+            return
+        if len(self.variable_dictionary) == 0:
+            print("Error: cannot save with no variables")
+            return
+        for variable_name in self.variable_dictionary.keys():
+            keys_to_check = ['OFF', 'SCAN', 'STANDBY']
+            variable = self.variable_dictionary[variable_name]
+            if not all(key in variable and variable[key] is not None and variable[key] != '' for key in keys_to_check):
+                print("Error: missing information for variables")
+                return
+            
         self._write_configuration_file(configuration_name=configuration_name)
 
     def close_window(self):
