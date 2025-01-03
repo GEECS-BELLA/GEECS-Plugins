@@ -14,9 +14,9 @@ import yaml
 from typing import Optional, Union
 from pathlib import Path
 from ShotControlEditor_ui import Ui_Dialog
-from PyQt5.QtWidgets import QDialog, QCompleter, QInputDialog, QPushButton
+from PyQt5.QtWidgets import QDialog, QCompleter, QInputDialog, QPushButton, QMessageBox
 from PyQt5.QtCore import pyqtSignal, QEvent, Qt
-
+# TODO change print statements to loggers
 
 class ShotControlEditor(QDialog):
     selected_configuration = pyqtSignal(str)
@@ -53,7 +53,7 @@ class ShotControlEditor(QDialog):
 
         self.ui.buttonNewConfiguration.clicked.connect(self.create_new_configuration)
         # TODO self.ui.buttonCopyConfiguration.clicked.connect(self.copy_current_configuration)
-        # TODO self.ui.buttonDeleteConfiguration.clicked.connect(self.delete_current_configuration)
+        self.ui.buttonDeleteConfiguration.clicked.connect(self.delete_current_configuration)
 
         # Line edit to specify the device name
         self.ui.lineDeviceName.installEventFilter(self)
@@ -129,6 +129,24 @@ class ShotControlEditor(QDialog):
 
             self.ui.lineConfigurationSelect.setText(text)
             self.configuration_selected()
+
+    def delete_current_configuration(self):
+        configuration_name = self.ui.lineConfigurationSelect.text()
+        if configuration_name in self._get_list_of_configurations():
+            reply = QMessageBox.question(self, 'Confirm Delete', f'Delete configuration "{configuration_name}"?',
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                config_file = self.config_folder_path / (configuration_name + ".yaml")
+                if config_file.exists() and config_file.is_file():
+                    try:
+                        config_file.unlink()
+                        print(f"'{configuration_name}' deleted")
+                        self.ui.lineConfigurationSelect.setText('')
+                        self.configuration_selected()
+                    except Exception as e:
+                        print(f"Error occurred while deleting '{configuration_name}': {e}")
+                else:
+                    print(f"Error occurred: '{configuration_name}' not located")
 
     def close_window(self):
         """Upon exiting the window, set the main window's timing configuration to the currently displayed config"""
