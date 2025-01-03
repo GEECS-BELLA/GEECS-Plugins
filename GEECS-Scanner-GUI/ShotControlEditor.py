@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import QDialog, QCompleter, QInputDialog, QPushButton, QMes
 from PyQt5.QtCore import pyqtSignal, QEvent, Qt
 # TODO change print statements to loggers
 
+
 class ShotControlEditor(QDialog):
     selected_configuration = pyqtSignal(str)
 
@@ -94,6 +95,8 @@ class ShotControlEditor(QDialog):
             return True
         return super().eventFilter(source, event)
 
+    # # # # Methods for selecting, creating, and deleting available timing system configurations # # # # #
+
     def _get_list_of_configurations(self) -> list[str]:
         return [f.stem for f in self.config_folder_path.iterdir() if f.suffix == ".yaml"]
 
@@ -147,6 +150,12 @@ class ShotControlEditor(QDialog):
                         print(f"Error occurred while deleting '{configuration_name}': {e}")
                 else:
                     print(f"Error occurred: '{configuration_name}' not located")
+
+    # # # # Methods for setting device and variable names, and adding/removing to the variable list # # # #
+
+    # # # # Methods for interacting with the state values and updating the configuration dictionary # # # #
+
+    # # # # Methods for saving current configuration and closing the window # # # #
 
     def close_window(self):
         """Upon exiting the window, set the main window's timing configuration to the currently displayed config"""
