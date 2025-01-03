@@ -27,6 +27,10 @@ if not logging.getLogger().hasHandlers():
 
 
 class ShotControlEditor(QDialog):
+    """
+    Dialog to edit contents of timing configuration .yaml files.  Emits a signal upon close with the name of the current
+    configuration file to be used.  Allows basic file operations and can use a given database for device/variable hints.
+    """
     selected_configuration = pyqtSignal(str)
 
     def __init__(self, config_folder_path: Union[str, Path], current_config: Optional[str] = None,
@@ -60,7 +64,7 @@ class ShotControlEditor(QDialog):
         self.ui.lineConfigurationSelect.setText(self.configuration_name)
 
         self.ui.buttonNewConfiguration.clicked.connect(self.create_new_configuration)
-        self.ui.buttonCopyConfiguration.clicked.connect(self.copy_current_configuration)
+        self.ui.buttonCopyConfiguration.clicked.connect(self.copy_current_configuration)  # TODO change to "Save As"?
         self.ui.buttonDeleteConfiguration.clicked.connect(self.delete_current_configuration)
 
         # Line edit to specify the device name
@@ -119,6 +123,7 @@ class ShotControlEditor(QDialog):
         completer.complete()
 
     def configuration_selected(self):
+        """ Updates the GUI and backend data to reflect the change in selected configuration """
         entered_name = self.ui.lineConfigurationSelect.text()
         is_valid = bool(entered_name in self._get_list_of_configurations())
         if is_valid:
@@ -128,6 +133,7 @@ class ShotControlEditor(QDialog):
                 settings = yaml.safe_load(file)
         else:
             self.ui.lineConfigurationSelect.setText('')
+            self.configuration_name = ''
             settings = {}
 
         self.device_name = settings.get('device', '')
@@ -146,16 +152,25 @@ class ShotControlEditor(QDialog):
         self.ui.buttonDeleteConfiguration.setEnabled(is_valid)
 
     def create_new_configuration(self):
+        """ Creates a new configuration .yaml file with a user-specified name """
         text, ok = QInputDialog.getText(self, 'New Configuration', 'Enter nickname:')
         if ok and text:
             self._write_configuration_file(configuration_name=text, use_empty=True)
 
     def copy_current_configuration(self):
-        text, ok = QInputDialog.getText(self, 'Copy Configuration', f"Enter nickname for new copy of '{self.configuration_name}'")
+        """ Copies the current configuration to a new .yaml file with a user-specified name """
+        text, ok = QInputDialog.getText(self, 'Copy Configuration',
+                                        f"Enter nickname for new copy of '{self.configuration_name}'")
         if ok and text:
             self._write_configuration_file(configuration_name=text)
 
     def _write_configuration_file(self, configuration_name: str, use_empty: bool = False):
+        """
+        Writes a .yaml file of the given name, with either an empty dict or the current information in the gui
+
+        :param configuration_name: name of the .yaml file
+        :param use_empty: Defaults to False.  If True, will use an empty dict when writing the config file contents
+        """
         if use_empty:
             contents = {}
         else:
@@ -172,6 +187,7 @@ class ShotControlEditor(QDialog):
         logger.info(f"Timing configuration '{configuration_name}' saved")
 
     def delete_current_configuration(self):
+        """ Deletes the .yaml file associated with the current selection """
         configuration_name = self.ui.lineConfigurationSelect.text()
         if configuration_name in self._get_list_of_configurations():
             reply = QMessageBox.question(self, 'Confirm Delete', f'Delete configuration "{configuration_name}"?',
@@ -192,6 +208,7 @@ class ShotControlEditor(QDialog):
     # # # # Methods for setting device and variable names, and adding/removing to the variable list # # # #
 
     def show_device_list(self):
+        """ Displays list of devices from database dictionary """
         if self.ui.lineDeviceName.isEnabled():
             self.ui.lineDeviceName.selectAll()
             completer = QCompleter(sorted(self.database_dict.keys()), self)
@@ -203,9 +220,11 @@ class ShotControlEditor(QDialog):
             completer.complete()
 
     def update_device_name(self):
+        """ Updates the class variable with the current text of the device name line edit """
         self.device_name = self.ui.lineDeviceName.text()
 
     def show_variable_list(self):
+        """ Displays the list of variables associated with the current device """
         if self.ui.lineVariableName.isEnabled() and self.device_name in self.database_dict.keys():
             self.ui.lineVariableName.selectAll()
             completer = QCompleter(sorted(self.database_dict[self.device_name].keys()), self)
@@ -217,11 +236,13 @@ class ShotControlEditor(QDialog):
             completer.complete()
 
     def _update_variable_list(self):
+        """ Updates the GUI list widget that displays the variables using the class variable containing the dict """
         self.ui.listShotControlVariables.clear()
         for var in self.variable_dictionary.keys():
             self.ui.listShotControlVariables.addItem(var)
 
     def add_variable(self):
+        """ Adds the entered variable into the list of variables, giving the new variable blank states """
         new_variable = self.ui.lineVariableName.text()
         if new_variable is None or new_variable.strip() == '':
             return
@@ -233,6 +254,7 @@ class ShotControlEditor(QDialog):
             self.ui.lineVariableName.setText('')
 
     def remove_variable(self):
+        """ Removes variable from the list of variables """
         selected_variable = self.ui.listShotControlVariables.selectedItems()
         if not selected_variable:
             return
@@ -245,6 +267,7 @@ class ShotControlEditor(QDialog):
     # # # # Methods for interacting with the state values and updating the configuration dictionary # # # #
 
     def show_states_info(self):
+        """ Updates the GUI to either disable the line edits for the 3 states or displays their current values """
         selected_variable = self.ui.listShotControlVariables.selectedItems()
         has_selection = bool(selected_variable)
         self.ui.lineOffState.setEnabled(has_selection)
@@ -263,6 +286,7 @@ class ShotControlEditor(QDialog):
             self.ui.lineStandbyState.setText('')
 
     def update_variable_dictionary(self):
+        """ Updates the variable dictionary to reflect new changes in the GUI """
         selected_variable = self.ui.listShotControlVariables.selectedItems()
         if not selected_variable:
             return
@@ -275,6 +299,7 @@ class ShotControlEditor(QDialog):
     # # # # Methods for saving current configuration and closing the window # # # #
 
     def save_configuration(self):
+        """ If all information is included, save the current information to the current configuration file """
         configuration_name = self.ui.lineConfigurationSelect.text()
         if configuration_name is None or configuration_name.strip() == '':
             logging.error("Could not save timing configuration: no configuration specified")
@@ -295,11 +320,11 @@ class ShotControlEditor(QDialog):
         self._write_configuration_file(configuration_name=configuration_name)
 
     def close_window(self):
-        """Upon exiting the window, set the main window's timing configuration to the currently displayed config"""
+        """ Upon exiting the window, set the main window's timing configuration to the currently displayed config """
         self.selected_configuration.emit(self.configuration_name)
         self.close()
 
     def closeEvent(self, event):
-        """Upon exiting the window, set the main window's timing configuration to the currently displayed config"""
+        """ Upon exiting the window, set the main window's timing configuration to the currently displayed config """
         self.selected_configuration.emit(self.configuration_name)
         event.accept()
