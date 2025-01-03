@@ -53,7 +53,7 @@ class ShotControlEditor(QDialog):
         self.ui.lineConfigurationSelect.setText(self.configuration_name)
 
         self.ui.buttonNewConfiguration.clicked.connect(self.create_new_configuration)
-        # TODO self.ui.buttonCopyConfiguration.clicked.connect(self.copy_current_configuration)
+        self.ui.buttonCopyConfiguration.clicked.connect(self.copy_current_configuration)
         self.ui.buttonDeleteConfiguration.clicked.connect(self.delete_current_configuration)
 
         # Line edit to specify the device name
@@ -142,6 +142,11 @@ class ShotControlEditor(QDialog):
         text, ok = QInputDialog.getText(self, 'New Configuration', 'Enter nickname:')
         if ok and text:
             self._write_configuration_file(configuration_name=text, use_empty=True)
+
+    def copy_current_configuration(self):
+        text, ok = QInputDialog.getText(self, 'Copy Configuration', f"Enter nickname for new copy of '{self.configuration_name}'")
+        if ok and text:
+            self._write_configuration_file(configuration_name=text)
 
     def _write_configuration_file(self, configuration_name: str, use_empty: bool = False):
         if use_empty:
@@ -278,7 +283,7 @@ class ShotControlEditor(QDialog):
             if not all(key in variable and variable[key] is not None and variable[key] != '' for key in keys_to_check):
                 print("Error: missing information for variables")
                 return
-            
+
         self._write_configuration_file(configuration_name=configuration_name)
 
     def close_window(self):
