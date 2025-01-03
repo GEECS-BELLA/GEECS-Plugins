@@ -47,7 +47,7 @@ class ShotControlEditor(QDialog):
         # Top half of the GUI for selecting the configuration and some file operations
         self.ui.lineConfigurationSelect.setReadOnly(True)
         self.ui.lineConfigurationSelect.installEventFilter(self)
-        self.ui.lineConfigurationSelect.editingFinished.connect(self.configuration_selected)
+        self.ui.lineConfigurationSelect.textChanged.connect(self.configuration_selected)
 
         self.configuration_name = current_config or ''
         self.ui.lineConfigurationSelect.setText(self.configuration_name)
@@ -64,7 +64,7 @@ class ShotControlEditor(QDialog):
         self.ui.lineVariableName.installEventFilter(self)
         self.ui.buttonAddVariable.clicked.connect(self.add_variable)
         self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
-        self.ui.listShotControlVariables.itemSelectionChanged.connect(self.update_states_info)
+        self.ui.listShotControlVariables.itemSelectionChanged.connect(self.show_states_info)
 
         # Line edits to enter in values for the given variable in the three scan states
         self.ui.lineOffState.editingFinished.connect(self.update_variable_dictionary)
@@ -76,7 +76,7 @@ class ShotControlEditor(QDialog):
         self.ui.buttonCloseWindow.clicked.connect(self.close_window)
 
         # If a valid current_config was given, load that information
-        # TODO
+        self.configuration_selected()
 
     def eventFilter(self, source, event):
         """Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
@@ -115,10 +115,19 @@ class ShotControlEditor(QDialog):
         entered_name = self.ui.lineConfigurationSelect.text()
         if entered_name in self._get_list_of_configurations():
             self.configuration_name = entered_name
+            config_file = self.config_folder_path / (self.configuration_name + ".yaml")
+            with open(config_file, 'r') as file:
+                settings = yaml.safe_load(file)
         else:
             self.ui.lineConfigurationSelect.setText('')
+            settings = {}
 
-        # TODO change the rest of the GUI to reflect this
+        self.device_name = settings.get('device', '')
+        self.variable_dictionary = settings.get('variables', {})
+
+        self.ui.lineDeviceName.setText(self.device_name)
+        self._update_variable_list()
+        self.show_states_info()
 
     def create_new_configuration(self):
         text, ok = QInputDialog.getText(self, 'New Configuration', 'Enter nickname:')
@@ -213,7 +222,7 @@ class ShotControlEditor(QDialog):
 
     # # # # Methods for interacting with the state values and updating the configuration dictionary # # # #
 
-    def update_states_info(self):
+    def show_states_info(self):
         selected_variable = self.ui.listShotControlVariables.selectedItems()
         has_selection = bool(selected_variable)
         self.ui.lineOffState.setEnabled(has_selection)
