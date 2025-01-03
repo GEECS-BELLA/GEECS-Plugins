@@ -62,8 +62,8 @@ class ShotControlEditor(QDialog):
 
         # GUI elements to add, and remove a given variable from the list of variables for that device
         self.ui.lineVariableName.installEventFilter(self)
-        # TODO self.ui.buttonAddVariable.clicked.connect(self.add_variable)
-        # TODO self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
+        self.ui.buttonAddVariable.clicked.connect(self.add_variable)
+        self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
         # TODO self.ui.listShotControlVariables.itemSelectionChanged.connect(self.update_states_info)
 
         # Line edits to enter in the values for the given variable in the three scan states
@@ -177,6 +177,32 @@ class ShotControlEditor(QDialog):
             self.ui.lineVariableName.setCompleter(completer)
             self.ui.lineVariableName.setFocus()
             completer.complete()
+
+    def _update_variable_list(self):
+        self.ui.listShotControlVariables.clear()
+        for var in self.variable_dictionary.keys():
+            self.ui.listShotControlVariables.addItem(var)
+
+    def add_variable(self):
+        new_variable = self.ui.lineVariableName.text()
+        if new_variable is None or new_variable.strip() == '':
+            return
+        if new_variable not in self.variable_dictionary.keys():
+            new_states = {'OFF': '', 'SCAN': '', 'STANDBY': ''}
+            self.variable_dictionary[new_variable] = new_states
+
+            self._update_variable_list()
+            self.ui.lineVariableName.setText('')
+
+    def remove_variable(self):
+        selected_variable = self.ui.listShotControlVariables.selectedItems()
+        if not selected_variable:
+            return
+        for selection in selected_variable:
+            text = selection.text()
+            if text in self.variable_dictionary.keys():
+                del self.variable_dictionary[text]
+        self._update_variable_list()
 
     # # # # Methods for interacting with the state values and updating the configuration dictionary # # # #
 
