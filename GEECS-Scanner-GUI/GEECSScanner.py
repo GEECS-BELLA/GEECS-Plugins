@@ -3,7 +3,10 @@ Script to contain the logic for the GEECSScanner GUI.  Can be launched by runnin
 
 -Chris
 """
-from typing import List
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional
+if TYPE_CHECKING:
+    from RunControl import RunControl
 
 import sys
 from pathlib import Path
@@ -53,7 +56,7 @@ class GEECSScannerWindow(QMainWindow):
         self.load_config_settings()
 
         # Initializes run control if possible, this serves as the interface to scan_manager and data_acquisition
-        self.RunControl = None
+        self.RunControl: Optional[RunControl] = None
         self.reinitialize_run_control()
 
         # Default values for the line edits
@@ -177,13 +180,17 @@ class GEECSScannerWindow(QMainWindow):
                     config.write(file)
 
             run_control_class = getattr(importlib.import_module('RunControl'), 'RunControl')
-            self.RunControl = run_control_class(experiment_name=self.experiment, shot_control=self.shot_control_device,
+            self.RunControl = run_control_class(experiment_name=self.experiment,
+                                                shot_control_configuration=None,
                                                 master_control_ip=self.master_control_ip)
         except AttributeError:
             logging.error("AttributeError at RunControl: presumably because the entered experiment is not in the GEECS database")
             self.RunControl = None
         except KeyError:
             logging.error("KeyError at RunControl: presumably because no GEECS Database is connected to located devices")
+            self.RunControl = None
+        except ValueError:
+            logging.error("ValueError at RunControl: presumably because no experiment name or shot control given")
             self.RunControl = None
 
     def load_config_settings(self):

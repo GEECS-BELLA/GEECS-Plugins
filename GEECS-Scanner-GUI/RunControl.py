@@ -19,9 +19,11 @@ class RunControl:
         :param shot_control_configuration: Path to the configuration file with shot control information
         """
         # TODO check if this is still necessary, given GEECSScanner is skipping initialization already if expt is None
+        if experiment_name == "":# or shot_control_configuration is None:
             logging.warning("Specify experiment name and shot control configuration")
             raise ValueError
         else:
+            shot_control_configuration = Path("./shot_control_configurations/Undulator/HTU-Normal.yaml")
             with open(shot_control_configuration, 'r') as file:
                 settings = yaml.safe_load(file)
             self.scan_manager = ScanManager(experiment_dir=experiment_name,
