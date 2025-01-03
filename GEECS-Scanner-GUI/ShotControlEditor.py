@@ -58,7 +58,7 @@ class ShotControlEditor(QDialog):
 
         # Line edit to specify the device name
         self.ui.lineDeviceName.installEventFilter(self)
-        # TODO self.ui.lineDeviceName.editingFinished.connect(self.update_device_name)
+        self.ui.lineDeviceName.textChanged.connect(self.update_device_name)
 
         # GUI elements to add, and remove a given variable from the list of variables for that device
         self.ui.lineVariableName.installEventFilter(self)
@@ -89,7 +89,7 @@ class ShotControlEditor(QDialog):
             self.show_device_list()
             self.dummyButton.setDefault(True)
             return True
-        if event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableName:
+        if source == self.ui.lineVariableName and event.type() == QEvent.MouseButtonPress:
             self.show_variable_list()
             self.ui.buttonAddVariable.setDefault(True)
             return True
@@ -152,6 +152,31 @@ class ShotControlEditor(QDialog):
                     print(f"Error occurred: '{configuration_name}' not located")
 
     # # # # Methods for setting device and variable names, and adding/removing to the variable list # # # #
+
+    def show_device_list(self):
+        if self.ui.lineDeviceName.isEnabled():
+            self.ui.lineDeviceName.selectAll()
+            completer = QCompleter(sorted(self.database_dict.keys()), self)
+            completer.setCompletionMode(QCompleter.PopupCompletion)
+            completer.setCaseSensitivity(Qt.CaseSensitive)
+
+            self.ui.lineDeviceName.setCompleter(completer)
+            self.ui.lineDeviceName.setFocus()
+            completer.complete()
+
+    def update_device_name(self):
+        self.device_name = self.ui.lineDeviceName.text()
+
+    def show_variable_list(self):
+        if self.ui.lineVariableName.isEnabled() and self.device_name in self.database_dict.keys():
+            self.ui.lineVariableName.selectAll()
+            completer = QCompleter(sorted(self.database_dict[self.device_name].keys()), self)
+            completer.setCompletionMode(QCompleter.PopupCompletion)
+            completer.setCaseSensitivity(Qt.CaseSensitive)
+
+            self.ui.lineVariableName.setCompleter(completer)
+            self.ui.lineVariableName.setFocus()
+            completer.complete()
 
     # # # # Methods for interacting with the state values and updating the configuration dictionary # # # #
 
