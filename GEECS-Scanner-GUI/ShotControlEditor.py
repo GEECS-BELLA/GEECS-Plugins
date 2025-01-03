@@ -127,6 +127,9 @@ class ShotControlEditor(QDialog):
             with open(config_file, 'w') as file:
                 yaml.dump(contents, file, default_flow_style=False)
 
+            self.ui.lineConfigurationSelect.setText(text)
+            self.configuration_selected()
+
     def close_window(self):
         """Upon exiting the window, set the main window's timing configuration to the currently displayed config"""
         self.selected_configuration.emit(self.configuration_name)
