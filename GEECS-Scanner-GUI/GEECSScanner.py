@@ -19,6 +19,7 @@ from PyQt5.QtCore import Qt, QEvent, QTimer
 from GEECSScanner_ui import Ui_MainWindow
 from ScanElementEditor import ScanElementEditor
 from MultiScanner import MultiScanner
+from ShotControlEditor import ShotControlEditor
 # from LogStream import EmittingStream, MultiStream
 
 CURRENT_VERSION = 'v0.3'  # Try to keep this up-to-date, increase the version # with significant changes :)
@@ -27,6 +28,7 @@ MAXIMUM_SCAN_SIZE = 1e6
 RELATIVE_PATH = Path("../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/")
 PRESET_LOCATIONS = Path("./scan_presets/")
 MULTISCAN_CONFIGS = Path("./multiscan_presets/")
+SHOT_CONTROL_CONFIGS = Path("./shot_control_configurations/")
 CONFIG_PATH = Path('~/.config/geecs_python_api/config.ini').expanduser()
 
 
@@ -102,7 +104,7 @@ class GEECSScannerWindow(QMainWindow):
         # Buttons to launch the side guis for the action library, timing device, and scan variables
         self.ui.buttonActionLibrary.setEnabled(False)
         self.ui.buttonScanVariables.setEnabled(False)
-        self.ui.buttonOpenTimingSetup.setEnabled(False)
+        self.ui.buttonOpenTimingSetup.clicked.connect(self.open_timing_setup)
 
         # Radio buttons that select if the next scan is to be a noscan or 1dscan
         self.ui.noscanRadioButton.setChecked(True)
@@ -439,6 +441,17 @@ class GEECSScannerWindow(QMainWindow):
         """Cleans up the multiscanner window and resets the enable-ability for buttons on the main window"""
         self.is_in_multiscan = False
         self.multiscanner_window = None
+
+    def open_timing_setup(self):
+        if self.RunControl is not None:
+            database_dict = self.RunControl.get_database_dict()
+        else:
+            database_dict = None
+        config_folder = SHOT_CONTROL_CONFIGS / self.experiment
+        self.element_editor = ShotControlEditor(config_folder_path=config_folder,
+                                                current_config=self.ui.lineTimingDevice.text(),
+                                                database_dict=database_dict)
+        self.element_editor.exec_()
 
     def refresh_element_list(self):
         """Refreshes the list of available and selected elements, but does not clear them.  Instead, all previously
