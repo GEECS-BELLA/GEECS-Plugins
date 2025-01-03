@@ -11,12 +11,19 @@ ON (Standby): State when the system is not actively recording data, but devices 
 from __future__ import annotations
 
 import yaml
+import logging
 from typing import Optional, Union
 from pathlib import Path
 from ShotControlEditor_ui import Ui_Dialog
 from PyQt5.QtWidgets import QDialog, QCompleter, QInputDialog, QPushButton, QMessageBox
 from PyQt5.QtCore import pyqtSignal, QEvent, Qt
-# TODO change print statements to loggers
+
+# Create a module-level logger
+logger = logging.getLogger(__name__)
+
+# Set up default logging only if no handlers are present
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 
 class ShotControlEditor(QDialog):
@@ -162,6 +169,7 @@ class ShotControlEditor(QDialog):
 
         self.ui.lineConfigurationSelect.setText(configuration_name)
         self.configuration_selected()
+        logger.info(f"Timing configuration '{configuration_name}' saved")
 
     def delete_current_configuration(self):
         configuration_name = self.ui.lineConfigurationSelect.text()
@@ -173,13 +181,13 @@ class ShotControlEditor(QDialog):
                 if config_file.exists() and config_file.is_file():
                     try:
                         config_file.unlink()
-                        print(f"'{configuration_name}' deleted")
+                        logger.info(f"Timing configuration '{configuration_name}' deleted")
                         self.ui.lineConfigurationSelect.setText('')
                         self.configuration_selected()
                     except Exception as e:
-                        print(f"Error occurred while deleting '{configuration_name}': {e}")
+                        logger.error(f"Could not delete timing configuration '{configuration_name}': {e}")
                 else:
-                    print(f"Error occurred: '{configuration_name}' not located")
+                    logger.error(f"Timing configuration '{configuration_name}' not located")
 
     # # # # Methods for setting device and variable names, and adding/removing to the variable list # # # #
 
@@ -269,19 +277,19 @@ class ShotControlEditor(QDialog):
     def save_configuration(self):
         configuration_name = self.ui.lineConfigurationSelect.text()
         if configuration_name is None or configuration_name.strip() == '':
-            print("Error: no configuration specified")
+            logging.error("Could not save timing configuration: no configuration specified")
             return
         if self.device_name == '':
-            print("Error: cannot save with empty device name")
+            logging.error("Could not save timing configuration: cannot save with empty device name")
             return
         if len(self.variable_dictionary) == 0:
-            print("Error: cannot save with no variables")
+            logging.error("Could not save timing configuration: cannot save with no variables")
             return
         for variable_name in self.variable_dictionary.keys():
             keys_to_check = ['OFF', 'SCAN', 'STANDBY']
             variable = self.variable_dictionary[variable_name]
             if not all(key in variable and variable[key] is not None and variable[key] != '' for key in keys_to_check):
-                print("Error: missing information for variables")
+                logging.error("Could not save timing configuration: missing information for variables")
                 return
 
         self._write_configuration_file(configuration_name=configuration_name)
