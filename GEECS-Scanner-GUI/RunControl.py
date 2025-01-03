@@ -1,4 +1,6 @@
 import logging
+import yaml
+from pathlib import Path
 from typing import Optional
 from geecs_python_api.controls.data_acquisition.scan_manager import ScanManager, get_database_dict
 
@@ -7,19 +9,23 @@ class RunControl:
     """
     Interface class between the GEECS Scanner GUI and the Scan Manager that controls the scan execution
     """
-    def __init__(self, experiment_name: str = "", shot_control: str = "", master_control_ip: Optional[str] = None):
+    def __init__(self, experiment_name: str = "",
+                 shot_control_configuration: Optional[Path] = None,
+                 master_control_ip: Optional[str] = None):
         """
         Initializes ScanManager instance using the given experiment information.
 
         :param experiment_name: Experiment name as in the GEECS Database and Scan Manager file structure
-        :param shot_control: Shot Control device for the experiment
+        :param shot_control_configuration: Path to the configuration file with shot control information
         """
         # TODO check if this is still necessary, given GEECSScanner is skipping initialization already if expt is None
-        if experiment_name == "" or shot_control == "":
-            logging.warning("Specify experiment name and shot control device")
-            self.scan_manager = None
+            logging.warning("Specify experiment name and shot control configuration")
+            raise ValueError
         else:
-            self.scan_manager = ScanManager(experiment_dir=experiment_name, shot_control_device=shot_control,
+            with open(shot_control_configuration, 'r') as file:
+                settings = yaml.safe_load(file)
+            self.scan_manager = ScanManager(experiment_dir=experiment_name,
+                                            shot_control_information=settings,
                                             MC_ip=master_control_ip)
 
         self.is_in_setup = False
