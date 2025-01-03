@@ -625,12 +625,12 @@ class ScanManager:
     to the device_manager to initialize the desired saving configuration.
     """
     
-    def __init__(self, experiment_dir=None, device_manager=None, shot_control_device="", MC_ip = None, scan_data=None):
+    def __init__(self, experiment_dir: str, shot_control_information: dict, device_manager=None, MC_ip = None, scan_data=None):
         """
         Initialize the ScanManager and its components.
 
         Args:
-            experiment_dir (str, optional): Directory where experiment data is stored.
+            experiment_dir (str): Directory where experiment data is stored.
             device_manager (DeviceManager, optional): DeviceManager instance for managing devices.
             shot_control_device (str, optional): GEECS Device that controls the shot timing
         """
@@ -645,7 +645,8 @@ class ScanManager:
         self.data_logger = DataLogger(experiment_dir, self.device_manager)  # Initialize DataLogger
         self.save_data = True
 
-        self.shot_control = GeecsDevice(shot_control_device)
+        self.shot_control = GeecsDevice(shot_control_information['device'])
+        self.shot_control_variables = shot_control_information['variables']
         self.results = {}  # Store results for later processing
 
         self.stop_scanning_thread_event = threading.Event()  # Event to signal the logging thread to stop
@@ -702,34 +703,32 @@ class ScanManager:
         self.console_logger.stop_logging()
         self.console_logger.setup_logging()
 
-    def _set_trigger(self, state: str, amplitude: float):
+    def _set_trigger(self, state: str):
         """
-        Set the trigger state and amplitude.  # TODO make a "laser OFF" mode that has 'on': 'Internal'
+        Set the trigger state and update variables accordingly.  Can be specified using Timing Setup in the GUI
 
         Args:
-            state (str): Either 'on' or 'off' to control the trigger.
-            amplitude (float): The amplitude value to set for the trigger.
+            state (str): Either 'OFF', 'SCAN', or 'STANDBY'.   Used for when trigger is off, or during/outside a scan
         """
 
-        valid_states = {
-            'on': 'External rising edges',
-            # 'on': 'Internal',
-            'off': 'Single shot external rising edges'
-        }
+        valid_states = ['OFF', 'SCAN', 'STANDBY']
+
         if state in valid_states:
-            self.shot_control.set('Trigger.Source', valid_states[state])
-            self.shot_control.set('Amplitude.Ch AB', amplitude)
-            logging.info(f"Trigger turned {state} with amplitude {amplitude}.")
+            for variable in self.shot_control_variables.keys():
+                variable_settings = self.shot_control_variables[variable]
+                self.shot_control.set(variable, variable_settings[state])
+                logging.info(f"Setting {variable} to {variable_settings[state]}")
+            logging.info(f"Trigger turned to state {state}.")
         else:
             logging.error(f"Invalid trigger state: {state}")
 
     def trigger_off(self):
         """Turns off the trigger and sets the amplitude to 0.5."""
-        self._set_trigger('off', 0.5)
+        self._set_trigger('OFF')
 
     def trigger_on(self):
         """Turns on the trigger and sets the amplitude to 4.0."""
-        self._set_trigger('on', 4.0)
+        self._set_trigger('SCAN')
 
     def is_scanning_active(self):
         """
@@ -846,7 +845,7 @@ class ScanManager:
             self.restore_initial_state(self.initial_state)
 
         # Step 4: Turn the trigger back on
-        self._set_trigger('on', 0.5)
+        self._set_trigger('STANDBY')
 
         if self.device_manager.scan_closeout_action is not None:
             logging.info("Attempting to execute closeout actions.")
