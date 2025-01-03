@@ -64,12 +64,12 @@ class ShotControlEditor(QDialog):
         self.ui.lineVariableName.installEventFilter(self)
         self.ui.buttonAddVariable.clicked.connect(self.add_variable)
         self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
-        # TODO self.ui.listShotControlVariables.itemSelectionChanged.connect(self.update_states_info)
+        self.ui.listShotControlVariables.itemSelectionChanged.connect(self.update_states_info)
 
         # Line edits to enter in the values for the given variable in the three scan states
-        # TODO self.ui.lineOffState.editingFinished.connect(self.update_variable_dictionary)
-        # TODO self.ui.lineScanState.editingFinished.connect(self.update_variable_dictionary)
-        # TODO self.ui.lineStandbyState.editingFinished.connect(self.update_variable_dictionary)
+        self.ui.lineOffState.editingFinished.connect(self.update_variable_dictionary)
+        self.ui.lineScanState.editingFinished.connect(self.update_variable_dictionary)
+        self.ui.lineStandbyState.editingFinished.connect(self.update_variable_dictionary)
 
         # Buttons to save and close the dialog
         # TODO self.ui.buttonSaveConfiguration.clicked.connect(self.save_configuration)
@@ -205,6 +205,34 @@ class ShotControlEditor(QDialog):
         self._update_variable_list()
 
     # # # # Methods for interacting with the state values and updating the configuration dictionary # # # #
+
+    def update_states_info(self):
+        selected_variable = self.ui.listShotControlVariables.selectedItems()
+        has_selection = bool(selected_variable)
+        self.ui.lineOffState.setEnabled(has_selection)
+        self.ui.lineScanState.setEnabled(has_selection)
+        self.ui.lineStandbyState.setEnabled(has_selection)
+
+        if has_selection:
+            for selection in selected_variable:
+                variable = self.variable_dictionary[selection.text()]
+                self.ui.lineOffState.setText(variable['OFF'])
+                self.ui.lineScanState.setText(variable['SCAN'])
+                self.ui.lineStandbyState.setText(variable['STANDBY'])
+        else:
+            self.ui.lineOffState.setText('')
+            self.ui.lineScanState.setText('')
+            self.ui.lineStandbyState.setText('')
+
+    def update_variable_dictionary(self):
+        selected_variable = self.ui.listShotControlVariables.selectedItems()
+        if not selected_variable:
+            return
+        for selection in selected_variable:
+            variable = self.variable_dictionary[selection.text()]
+            variable['OFF'] = self.ui.lineOffState.text()
+            variable['SCAN'] = self.ui.lineScanState.text()
+            variable['STANDBY'] = self.ui.lineStandbyState.text()
 
     # # # # Methods for saving current configuration and closing the window # # # #
 
