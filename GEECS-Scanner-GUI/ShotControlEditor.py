@@ -66,13 +66,13 @@ class ShotControlEditor(QDialog):
         self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
         self.ui.listShotControlVariables.itemSelectionChanged.connect(self.update_states_info)
 
-        # Line edits to enter in the values for the given variable in the three scan states
+        # Line edits to enter in values for the given variable in the three scan states
         self.ui.lineOffState.editingFinished.connect(self.update_variable_dictionary)
         self.ui.lineScanState.editingFinished.connect(self.update_variable_dictionary)
         self.ui.lineStandbyState.editingFinished.connect(self.update_variable_dictionary)
 
         # Buttons to save and close the dialog
-        # TODO self.ui.buttonSaveConfiguration.clicked.connect(self.save_configuration)
+        self.ui.buttonSaveConfiguration.clicked.connect(self.save_configuration)
         self.ui.buttonCloseWindow.clicked.connect(self.close_window)
 
         # If a valid current_config was given, load that information
@@ -123,15 +123,22 @@ class ShotControlEditor(QDialog):
     def create_new_configuration(self):
         text, ok = QInputDialog.getText(self, 'New Configuration', 'Enter nickname:')
         if ok and text:
-            config_file = self.config_folder_path / (text + ".yaml")
-            config_file.parent.mkdir(parents=True, exist_ok=True)
+            self._write_configuration_file(configuration_name=text, use_empty=True)
 
+    def _write_configuration_file(self, configuration_name: str, use_empty: bool = False):
+        if use_empty:
             contents = {}
-            with open(config_file, 'w') as file:
-                yaml.dump(contents, file, default_flow_style=False)
+        else:
+            contents = {'device': self.device_name, 'variables': self.variable_dictionary}
 
-            self.ui.lineConfigurationSelect.setText(text)
-            self.configuration_selected()
+        config_file = self.config_folder_path / (configuration_name + ".yaml")
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(config_file, 'w') as file:
+            yaml.dump(contents, file, default_flow_style=False)
+
+        self.ui.lineConfigurationSelect.setText(configuration_name)
+        self.configuration_selected()
 
     def delete_current_configuration(self):
         configuration_name = self.ui.lineConfigurationSelect.text()
@@ -235,6 +242,12 @@ class ShotControlEditor(QDialog):
             variable['STANDBY'] = self.ui.lineStandbyState.text()
 
     # # # # Methods for saving current configuration and closing the window # # # #
+
+    def save_configuration(self):
+        configuration_name = self.ui.lineConfigurationSelect.text()
+        if configuration_name is None or configuration_name.strip() == '':
+            return
+        self._write_configuration_file(configuration_name=configuration_name)
 
     def close_window(self):
         """Upon exiting the window, set the main window's timing configuration to the currently displayed config"""
