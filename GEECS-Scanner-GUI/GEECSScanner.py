@@ -51,7 +51,7 @@ class GEECSScannerWindow(QMainWindow):
         # Load experiment, repetition rate, and shot control device from the .config file
         self.experiment = ""
         self.repetition_rate = 0
-        self.shot_control_device = ""
+        self.timing_configuration_name = ""
         self.master_control_ip = None
         self.load_config_settings()
 
@@ -69,8 +69,11 @@ class GEECSScannerWindow(QMainWindow):
         # Line edits for the repetition rate and timing device
         self.ui.repititionRateDisplay.setText(str(self.repetition_rate))
         self.ui.repititionRateDisplay.editingFinished.connect(self.update_repetition_rate)
-        self.ui.lineTimingDevice.setText(self.shot_control_device)
-        self.ui.lineTimingDevice.editingFinished.connect(self.update_shot_control_device)
+
+        self.ui.lineTimingDevice.setReadOnly(True)
+        self.ui.lineTimingDevice.setText(self.timing_configuration_name)
+        self.ui.lineTimingDevice.installEventFilter(self)
+        self.ui.lineTimingDevice.textChanged.connect(self.update_shot_control_device)
 
         # Button to launch dialog for changing the config file contents
         self.ui.buttonUpdateConfig.clicked.connect(self.reset_config_file)
@@ -151,6 +154,7 @@ class GEECSScannerWindow(QMainWindow):
 
         self.element_editor = None
         self.multiscanner_window = None
+        self.timing_editor = None
 
     def eventFilter(self, source, event):
         # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
@@ -159,6 +163,9 @@ class GEECSScannerWindow(QMainWindow):
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineScanVariable:
             self.show_scan_device_list()
+            return True
+        if event.type() == QEvent.MouseButtonPress and source == self.ui.lineTimingDevice and self.ui.lineTimingDevice.isEnabled():
+            self.show_timing_configuration_list()
             return True
         return super().eventFilter(source, event)
 
@@ -216,7 +223,7 @@ class GEECSScannerWindow(QMainWindow):
                 self.prompt_config_reset("`rep_rate_hz` needs to be an int or float")
 
             try:
-                self.shot_control_device = config['Experiment']['shot_control']
+                self.timing_configuration_name = config['Experiment']['shot_control']
             except KeyError:
                 self.prompt_config_reset("Could not find 'shot_control' in config")
             try:
@@ -359,10 +366,22 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.repititionRateDisplay.setText("N/A")
             self.repetition_rate = 0
 
+    def show_timing_configuration_list(self):
+        config_folder_path = SHOT_CONTROL_CONFIGS / self.experiment
+        if config_folder_path.exists():
+            files = [f.stem for f in config_folder_path.iterdir() if f.suffix == ".yaml"]
+            completer = QCompleter(files, self)
+            completer.setCompletionMode(QCompleter.PopupCompletion)
+            completer.setCaseSensitivity(Qt.CaseInsensitive)
+
+            self.ui.lineTimingDevice.setCompleter(completer)
+            self.ui.lineTimingDevice.setFocus()
+            completer.complete()
+
     def update_shot_control_device(self):
         """Updates the shot control device when it is changed in the text box, then reinitializes Run Control
         """
-        self.shot_control_device = self.ui.lineTimingDevice.text()
+        self.timing_configuration_name = self.ui.lineTimingDevice.text()
         self.reinitialize_run_control()
 
     def populate_found_list(self):
@@ -455,10 +474,17 @@ class GEECSScannerWindow(QMainWindow):
         else:
             database_dict = None
         config_folder = SHOT_CONTROL_CONFIGS / self.experiment
-        self.element_editor = ShotControlEditor(config_folder_path=config_folder,
-                                                current_config=self.ui.lineTimingDevice.text(),
-                                                database_dict=database_dict)
-        self.element_editor.exec_()
+        self.timing_editor = ShotControlEditor(config_folder_path=config_folder,
+                                               current_config=self.ui.lineTimingDevice.text(),
+                                               database_dict=database_dict)
+        self.timing_editor.selected_configuration.connect(self.handle_returned_timing_configuration)
+        self.timing_editor.exec_()
+
+    def handle_returned_timing_configuration(self, specified_configuration):
+        force_update = bool(self.timing_configuration_name == specified_configuration)
+        self.ui.lineTimingDevice.setText(specified_configuration)
+        if force_update:
+            self.update_shot_control_device()
 
     def refresh_element_list(self):
         """Refreshes the list of available and selected elements, but does not clear them.  Instead, all previously
