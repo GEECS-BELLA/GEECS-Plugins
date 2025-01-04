@@ -469,6 +469,7 @@ class GEECSScannerWindow(QMainWindow):
         self.multiscanner_window = None
 
     def open_timing_setup(self):
+        """ Opens the timing setup window, using the current contents of the line edit to populate the dialog gui """
         if self.RunControl is not None:
             database_dict = self.RunControl.get_database_dict()
         else:
@@ -481,6 +482,7 @@ class GEECSScannerWindow(QMainWindow):
         self.timing_editor.exec_()
 
     def handle_returned_timing_configuration(self, specified_configuration):
+        """Handler for the return string of the timing setup dialog, sets the new configuration and reload RunControl"""
         force_update = bool(self.timing_configuration_name == specified_configuration)
         self.ui.lineTimingDevice.setText(specified_configuration)
         if force_update:
