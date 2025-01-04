@@ -321,7 +321,6 @@ class ShotControlEditor(QDialog):
 
     def close_window(self):
         """ Upon exiting the window, set the main window's timing configuration to the currently displayed config """
-        self.selected_configuration.emit(self.configuration_name)
         self.close()
 
     def closeEvent(self, event):
