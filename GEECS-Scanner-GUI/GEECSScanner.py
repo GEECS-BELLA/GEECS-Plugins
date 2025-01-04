@@ -197,9 +197,13 @@ class GEECSScannerWindow(QMainWindow):
                 with open(CONFIG_PATH, 'w') as file:
                     config.write(file)
 
+            shot_control_path = SHOT_CONTROL_CONFIGS / self.experiment / (self.timing_configuration_name + ".yaml")
+            if not shot_control_path.exists():
+                shot_control_path = None
+
             run_control_class = getattr(importlib.import_module('RunControl'), 'RunControl')
             self.RunControl = run_control_class(experiment_name=self.experiment,
-                                                shot_control_configuration=None,
+                                                shot_control_configuration=shot_control_path,
                                                 master_control_ip=self.master_control_ip)
         except AttributeError:
             logging.error("AttributeError at RunControl: presumably because the entered experiment is not in the GEECS database")
