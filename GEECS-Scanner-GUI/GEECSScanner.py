@@ -177,12 +177,23 @@ class GEECSScannerWindow(QMainWindow):
         """
         logging.info("Reinitialization of Run Control")
         try:
-            # The experiment name in the config is very embedded in geecs-python-api, so we have to rewrite it here...
+            # Before initializing, rewrite config file if experiment name or timing configuration name has changed
             config = configparser.ConfigParser()
             config.read(CONFIG_PATH)
+
+            do_write = False
             if config['Experiment']['expt'] != self.experiment:
                 logging.info("Experiment name changed, rewriting config file")
                 config.set('Experiment', 'expt', self.experiment)
+                do_write = True
+
+            if ((not config.has_option('Experiment', 'timing_configuration')) or
+                    config['Experiment']['timing_configuration'] != self.timing_configuration_name):
+                logging.info("Timing configuration changed, rewriting config file")
+                config.set('Experiment', 'timing_configuration', self.timing_configuration_name)
+                do_write = True
+
+            if do_write:
                 with open(CONFIG_PATH, 'w') as file:
                     config.write(file)
 
@@ -223,9 +234,10 @@ class GEECSScannerWindow(QMainWindow):
                 self.prompt_config_reset("`rep_rate_hz` needs to be an int or float")
 
             try:
-                self.timing_configuration_name = config['Experiment']['shot_control']
+                self.timing_configuration_name = config['Experiment']['timing_configuration']
             except KeyError:
-                self.prompt_config_reset("Could not find 'shot_control' in config")
+                logging.warning("No prior 'timing_configuration' set in config file")
+                pass
             try:
                 self.master_control_ip = config['Experiment']['MC_ip']
             except KeyError:
@@ -268,7 +280,6 @@ class GEECSScannerWindow(QMainWindow):
             default_content['Experiment'] = {
                 'expt': 'none',
                 'rep_rate_hz': '1',
-                'shot_control': 'none'
             }
             with open(CONFIG_PATH, 'w') as config_file:
                 default_content.write(config_file)
@@ -283,8 +294,6 @@ class GEECSScannerWindow(QMainWindow):
                                            'Enter Experiment Name: (ex: Undulator)')
         config = self.prompt_config_update(config, 'Experiment', 'rep_rate_hz',
                                            'Enter repetition rate in Hz: (ex: 1)')
-        config = self.prompt_config_update(config, 'Experiment', 'shot_control',
-                                           'Enter shot control device: (ex: U_DG645_ShotControl)')
 
         logging.info(f"Writing config file to {CONFIG_PATH}")
         with open(CONFIG_PATH, 'w') as file:
