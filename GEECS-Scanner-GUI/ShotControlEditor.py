@@ -54,6 +54,8 @@ class ShotControlEditor(QDialog):
 
         # Folder containing all the shot control configurations for the selected experiment
         self.config_folder_path = Path(config_folder_path)
+        if not self.config_folder_path.exists():
+            self.config_folder_path.mkdir(parents=True, exist_ok=True)
 
         # Top half of the GUI for selecting the configuration and some file operations
         self.ui.lineConfigurationSelect.setReadOnly(True)
