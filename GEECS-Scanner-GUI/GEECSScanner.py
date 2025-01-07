@@ -25,6 +25,8 @@ from MultiScanner import MultiScanner
 from ShotControlEditor import ShotControlEditor
 # from LogStream import EmittingStream, MultiStream
 
+from geecs_python_api.controls.data_acquisition import DatabaseDictLookup
+
 CURRENT_VERSION = 'v0.3'  # Try to keep this up-to-date, increase the version # with significant changes :)
 
 MAXIMUM_SCAN_SIZE = 1e6
@@ -57,6 +59,7 @@ class GEECSScannerWindow(QMainWindow):
 
         # Initializes run control if possible, this serves as the interface to scan_manager and data_acquisition
         self.RunControl: Optional[RunControl] = None
+        self.database_lookup = DatabaseDictLookup()
         self.reinitialize_run_control()
 
         # Default values for the line edits
@@ -357,6 +360,13 @@ class GEECSScannerWindow(QMainWindow):
             self.populate_scan_devices()
             self.populate_preset_list()
 
+    def find_database_dict(self) -> dict:
+        if self.RunControl is not None:
+            return self.RunControl.get_database_dict()
+        else:
+            self.database_lookup.reload(experiment_name=self.experiment)
+            return self.database_lookup.get_database()
+
     def clear_lists(self):
         """
         Clear all the lists in the GUI.  Used when a fresh start is needed, such as new experiment name or using preset
@@ -440,10 +450,8 @@ class GEECSScannerWindow(QMainWindow):
         """Opens the ScanElementEditor GUI with a blank template.  If Run Control is initialized then the database
         dictionary is passed for device/variable hints.  Afterwards, refresh the lists of the available and selected
         elements."""
-        if self.RunControl is not None:
-            database_dict = self.RunControl.get_database_dict()
-        else:
-            database_dict = None
+        database_dict = self.find_database_dict()
+
         config_folder = RELATIVE_PATH / "experiments" / self.experiment / "save_devices"
         self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder,
                                                 load_config=self.load_element_name)
@@ -483,10 +491,8 @@ class GEECSScannerWindow(QMainWindow):
 
     def open_timing_setup(self):
         """ Opens the timing setup window, using the current contents of the line edit to populate the dialog gui """
-        if self.RunControl is not None:
-            database_dict = self.RunControl.get_database_dict()
-        else:
-            database_dict = None
+        database_dict = self.find_database_dict()
+
         config_folder = SHOT_CONTROL_CONFIGS / self.experiment
         self.timing_editor = ShotControlEditor(config_folder_path=config_folder,
                                                current_config=self.ui.lineTimingDevice.text(),
