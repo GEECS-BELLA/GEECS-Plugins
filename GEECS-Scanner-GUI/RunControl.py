@@ -32,10 +32,10 @@ class RunControl:
         self.is_in_setup = False
         self.is_in_stopping = False
 
-    def get_database_dict(self) -> dict | None:  # TODO make an option to retrieve database even if RunControl not init
+    def get_database_dict(self) -> dict:
         """Returns the dictionary of the entire database, which is stored in Scan Manager"""
         if self.scan_manager is None:
-            return None
+            return {}
         else:
             return get_database_dict()
 

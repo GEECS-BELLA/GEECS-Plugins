@@ -361,11 +361,20 @@ class GEECSScannerWindow(QMainWindow):
             self.populate_preset_list()
 
     def find_database_dict(self) -> dict:
+        """
+        First will retrieve database through RunControl if initialized, otherwise will use the experiment name
+
+        :return: Database dictionary representing all devices and associated variables for the given experiment
+        """
         if self.RunControl is not None:
             return self.RunControl.get_database_dict()
         else:
-            self.database_lookup.reload(experiment_name=self.experiment)
-            return self.database_lookup.get_database()
+            try:
+                self.database_lookup.reload(experiment_name=self.experiment)
+                return self.database_lookup.get_database()
+            except Exception as e:  # TODO could pursue a less broad exception catching here...
+                logging.warning("Error occurred when retrieving database dictionary: {e}")
+                return {}
 
     def clear_lists(self):
         """
