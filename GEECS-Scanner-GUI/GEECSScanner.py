@@ -929,6 +929,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.buttonUpdateConfig.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
+            self.ui.buttonOpenTimingSetup.setEnabled(self.ui.startScanButton.isEnabled())
 
     def is_ready_for_scan(self):
         """
