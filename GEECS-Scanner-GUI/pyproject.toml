@@ -4,6 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["Christopher Doss <CEDoss@lbl.gov>"]
 readme = "README.md"
+packages = [{include = "geecs_scanner"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.11"
