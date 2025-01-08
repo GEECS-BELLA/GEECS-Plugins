@@ -7,4 +7,4 @@ variables:
   Trigger.Source:
     'OFF': Single shot external rising edges
     SCAN: Internal
-    STANDBY: Internal
+    STANDBY: External rising edges
