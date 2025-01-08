@@ -19,9 +19,9 @@ import logging
 from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter, QMessageBox
 from PyQt5.QtCore import Qt, QEvent, QTimer
 from .gui.GEECSScanner_ui import Ui_MainWindow
-from ScanElementEditor import ScanElementEditor
-from MultiScanner import MultiScanner
-from ShotControlEditor import ShotControlEditor
+from .ScanElementEditor import ScanElementEditor
+from .MultiScanner import MultiScanner
+from .ShotControlEditor import ShotControlEditor
 # from LogStream import EmittingStream, MultiStream
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup

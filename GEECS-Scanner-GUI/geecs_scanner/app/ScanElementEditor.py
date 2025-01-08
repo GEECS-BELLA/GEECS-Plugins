@@ -19,7 +19,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton, QFileDialog
 from PyQt5.QtCore import Qt, QEvent
 from .gui.ScanElementEditor_ui import Ui_Dialog
-from action_control import ActionControl
+from .action_control import ActionControl
 
 
 def get_default_device_dictionary() -> dict[str, bool | list[Any]]:
