@@ -11,7 +11,6 @@ if TYPE_CHECKING:
 import sys
 from pathlib import Path
 import threading
-import traceback
 import importlib
 import yaml
 import configparser
@@ -962,30 +961,3 @@ class GEECSScannerWindow(QMainWindow):
         logging.debug("List of active threads upon closing:")
         for thread in threading.enumerate():
             logging.debug(thread.name)
-
-
-def exception_hook(exctype, value, tb):
-    """
-    Global wrapper to print out tracebacks of python errors during the execution of a PyQT window.
-
-    :param exctype: Exception Type
-    :param value: Value of the exception
-    :param tb: Traceback
-    """
-    print("An error occurred:")
-    traceback.print_exception(exctype, value, tb)
-    sys.__excepthook__(exctype, value, tb)
-    sys.exit(1)
-
-
-if __name__ == '__main__':
-    """Launches the GEECS Scanner GUI"""
-    sys.excepthook = exception_hook
-    app = QApplication(sys.argv)
-
-    perfect_application = GEECSScannerWindow()
-    perfect_application.show()
-    perfect_application.raise_()
-    perfect_application.activateWindow()
-
-    sys.exit(app.exec_())
