@@ -178,31 +178,34 @@ class GEECSScannerWindow(QMainWindow):
         dependent on this for loading the correct database.
         """
         logging.info("Reinitialization of Run Control")
+
+        # Before initializing, rewrite config file if experiment name or timing configuration name has changed
+        config = configparser.ConfigParser()
+        config.read(CONFIG_PATH)
+
+        do_write = False
+        if config['Experiment']['expt'] != self.experiment:
+            logging.info("Experiment name changed, rewriting config file")
+            config.set('Experiment', 'expt', self.experiment)
+            do_write = True
+
+        if ((not config.has_option('Experiment', 'timing_configuration')) or
+                config['Experiment']['timing_configuration'] != self.timing_configuration_name):
+            logging.info("Timing configuration changed, rewriting config file")
+            config.set('Experiment', 'timing_configuration', self.timing_configuration_name)
+            do_write = True
+
+        if do_write:
+            with open(CONFIG_PATH, 'w') as file:
+                config.write(file)
+
+        shot_control_path = BASE_PATH / self.experiment / SHOT_CONTROL_FOLDER / (self.timing_configuration_name + ".yaml")
+        if not shot_control_path.exists():
+            shot_control_path = None
+
         try:
-            # Before initializing, rewrite config file if experiment name or timing configuration name has changed
-            config = configparser.ConfigParser()
-            config.read(CONFIG_PATH)
-
-            do_write = False
-            if config['Experiment']['expt'] != self.experiment:
-                logging.info("Experiment name changed, rewriting config file")
-                config.set('Experiment', 'expt', self.experiment)
-                do_write = True
-
-            if ((not config.has_option('Experiment', 'timing_configuration')) or
-                    config['Experiment']['timing_configuration'] != self.timing_configuration_name):
-                logging.info("Timing configuration changed, rewriting config file")
-                config.set('Experiment', 'timing_configuration', self.timing_configuration_name)
-                do_write = True
-
-            if do_write:
-                with open(CONFIG_PATH, 'w') as file:
-                    config.write(file)
-
-            shot_control_path = BASE_PATH / self.experiment / SHOT_CONTROL_FOLDER / (self.timing_configuration_name + ".yaml")
-            if not shot_control_path.exists():
-                shot_control_path = None
-
+            module_path = Path(__file__).parent / 'RunControl.py'
+            sys.path.insert(0, str(module_path.parent))
             run_control_class = getattr(importlib.import_module('RunControl'), 'RunControl')
             self.RunControl = run_control_class(experiment_name=self.experiment,
                                                 shot_control_configuration=shot_control_path,
@@ -216,6 +219,8 @@ class GEECSScannerWindow(QMainWindow):
         except ValueError:
             logging.error("ValueError at RunControl: presumably because no experiment name or shot control given")
             self.RunControl = None
+
+        sys.path.pop(0)
 
     def load_config_settings(self):
         """
