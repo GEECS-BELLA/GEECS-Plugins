@@ -14,7 +14,7 @@ class DatabaseDictLookup:
     def get_database(self):
         return self.database_dict
 
-    def reload(self, experiment_name):
+    def reload(self, experiment_name=None):
         if self.experiment_name == experiment_name and self.load_config_flag:
             return
         self.load_config_flag = True  # Flag ensures config file is read at least once if no experiment name given
