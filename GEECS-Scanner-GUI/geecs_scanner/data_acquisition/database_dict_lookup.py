@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 from geecs_python_api.controls.interface import load_config, GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
@@ -8,13 +9,13 @@ class DatabaseDictLookup:
      name has changed.  """
     def __init__(self):
         self.experiment_name = None
-        self.database_dict = None
         self.load_config_flag = False
+        self.database_dict: dict = {}
 
-    def get_database(self):
+    def get_database(self) -> dict:
         return self.database_dict
 
-    def reload(self, experiment_name=None):
+    def reload(self, experiment_name: Optional[str] = None):
         if self.experiment_name == experiment_name and self.load_config_flag:
             return
         self.load_config_flag = True  # Flag ensures config file is read at least once if no experiment name given
@@ -34,4 +35,4 @@ class DatabaseDictLookup:
             self.database_dict = GeecsDevice.exp_info['devices']
         except AttributeError:
             logging.warning("Could not retrieve dictionary of GEECS Devices")
-            self.database_dict = None
+            self.database_dict = {}
