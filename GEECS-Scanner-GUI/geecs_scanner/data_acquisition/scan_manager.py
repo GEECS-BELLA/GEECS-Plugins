@@ -1,27 +1,26 @@
 # Standard library imports
 import os
-import re
 import time
 import threading
 import logging
 import importlib
 from pathlib import Path
-from typing import Optional, List, Tuple, Any
+from typing import Optional, List, Tuple
 import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Third-party library imports
 import pandas as pd
-import numpy as np
 from nptdms import TdmsWriter, ChannelObject
 
 # Internal project imports
-from geecs_python_api.controls.data_acquisition import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup
-from geecs_python_api.controls.data_acquisition.utils import ConsoleLogger
+from geecs_scanner.data_acquisition import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup
+from geecs_scanner.data_acquisition.utils import ConsoleLogger
+
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.interface.geecs_paths_config import GeecsPathsConfig
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.analysis.scans.scan_data import ScanData
+
 from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_custom_imaq_timestamp
 
 

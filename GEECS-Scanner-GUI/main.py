@@ -1,7 +1,7 @@
 import sys
 from PyQt5.QtWidgets import QApplication
-from src.utils import exception_hook
-from src.app.GEECSScanner import GEECSScannerWindow
+from geecs_scanner.utils import exception_hook
+from geecs_scanner.app.GEECSScanner import GEECSScannerWindow
 
 
 if __name__ == '__main__':

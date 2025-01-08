@@ -3,7 +3,7 @@ Contains a simpler version of a full "RunControl" that is only capable of perfor
 
 -Chris
 """
-from geecs_python_api.controls.data_acquisition.data_acquisition import ActionManager
+from geecs_scanner.data_acquisition.data_acquisition import ActionManager
 
 
 class ActionControl:

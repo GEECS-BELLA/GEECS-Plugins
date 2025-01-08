@@ -24,7 +24,7 @@ from MultiScanner import MultiScanner
 from ShotControlEditor import ShotControlEditor
 # from LogStream import EmittingStream, MultiStream
 
-from geecs_python_api.controls.data_acquisition import DatabaseDictLookup
+from geecs_scanner.data_acquisition import DatabaseDictLookup
 
 CURRENT_VERSION = 'v0.4'  # Try to keep this up-to-date, increase the version # with significant changes :)
 

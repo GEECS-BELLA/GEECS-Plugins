@@ -18,7 +18,7 @@ import logging
 from pathlib import Path
 from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton, QFileDialog
 from PyQt5.QtCore import Qt, QEvent
-from ScanElementEditor_ui import Ui_Dialog
+from .gui.ScanElementEditor_ui import Ui_Dialog
 from action_control import ActionControl
 
 

@@ -14,7 +14,7 @@ import yaml
 import logging
 from typing import Optional, Union
 from pathlib import Path
-from ShotControlEditor_ui import Ui_Dialog
+from .gui.ShotControlEditor_ui import Ui_Dialog
 from PyQt5.QtWidgets import QDialog, QCompleter, QInputDialog, QPushButton, QMessageBox
 from PyQt5.QtCore import pyqtSignal, QEvent, Qt
 
