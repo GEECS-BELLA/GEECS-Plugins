@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 import yaml
 import time
+import logging
 from pathlib import Path
 from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog, QMessageBox
 from PyQt5.QtCore import QTimer, QObject, QThread, pyqtSignal, pyqtSlot
@@ -377,7 +378,7 @@ class MultiScanner(QWidget):
         self.main_window.ui.textEditScanInfo.setText(info)
         self.main_window.initialize_scan()
 
-        print("Initialized")
+        logging.info("Next Scan Initialized")
 
     def stop_multiscan(self):
         """Stop the ongoing multiscan and any current scan on the main window, as well as clean up the worker"""
