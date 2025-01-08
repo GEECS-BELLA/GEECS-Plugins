@@ -16,13 +16,10 @@ def get_full_config_path(experiment: str, config_type:str, config_file: str) -> 
     Returns:
         Path: Full path to the configuration file.
     """
-    
-    # Get the path of the current file (where this function is defined)
-    current_dir = Path(__file__).parent
 
     # Set the base directory to be the 'configs' directory relative to the current directory
-    base_dir = current_dir / 'configs' / 'experiments'
-    
+    base_dir = Path(__file__).parents[2] / "scanner_configs" / "experiments"
+
     # Ensure base_dir exists
     if not base_dir.exists():
         raise FileNotFoundError(f"The base config directory {base_dir} does not exist.")

@@ -29,11 +29,11 @@ from geecs_scanner.data_acquisition import DatabaseDictLookup
 CURRENT_VERSION = 'v0.4'  # Try to keep this up-to-date, increase the version # with significant changes :)
 
 MAXIMUM_SCAN_SIZE = 1e6
-RELATIVE_PATH = Path("../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/")
-PRESET_LOCATIONS = Path("./scan_presets/")
-MULTISCAN_CONFIGS = Path("./multiscan_presets/")
-SHOT_CONTROL_CONFIGS = Path("./shot_control_configurations/")
 CONFIG_PATH = Path('~/.config/geecs_python_api/config.ini').expanduser()
+BASE_PATH = Path(__file__).parents[2] / "scanner_configs" / "experiments"
+PRESET_FOLDER = "scan_presets"
+MULTISCAN_FOLDER = "multiscan_presets"
+SHOT_CONTROL_FOLDER = "shot_control_configurations"
 
 
 class GEECSScannerWindow(QMainWindow):
@@ -199,7 +199,7 @@ class GEECSScannerWindow(QMainWindow):
                 with open(CONFIG_PATH, 'w') as file:
                     config.write(file)
 
-            shot_control_path = SHOT_CONTROL_CONFIGS / self.experiment / (self.timing_configuration_name + ".yaml")
+            shot_control_path = BASE_PATH / self.experiment / SHOT_CONTROL_FOLDER / (self.timing_configuration_name + ".yaml")
             if not shot_control_path.exists():
                 shot_control_path = None
 
@@ -331,7 +331,7 @@ class GEECSScannerWindow(QMainWindow):
         """
         Displays the found experiments in the ./experiments/ subfolder for selecting experiment
         """
-        folders = [f.stem for f in (RELATIVE_PATH / 'experiments').iterdir() if f.is_dir()]
+        folders = [f.stem for f in BASE_PATH.iterdir() if f.is_dir()]
         completer = QCompleter(folders, self)
         completer.setCompletionMode(QCompleter.PopupCompletion)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -347,7 +347,7 @@ class GEECSScannerWindow(QMainWindow):
         selected_experiment = self.ui.experimentDisplay.text()
         if not (selected_experiment in self.experiment):
             self.clear_lists()
-            new_folder_path = RELATIVE_PATH / 'experiments' / selected_experiment
+            new_folder_path = BASE_PATH / selected_experiment
             if new_folder_path.is_dir():
                 self.experiment = selected_experiment
                 self.ui.experimentDisplay.setText(self.experiment)
@@ -398,7 +398,7 @@ class GEECSScannerWindow(QMainWindow):
             self.repetition_rate = 0
 
     def show_timing_configuration_list(self):
-        config_folder_path = SHOT_CONTROL_CONFIGS / self.experiment
+        config_folder_path = BASE_PATH / self.experiment / SHOT_CONTROL_FOLDER
         if config_folder_path.exists():
             files = [f.stem for f in config_folder_path.iterdir() if f.suffix == ".yaml"]
             completer = QCompleter(files, self)
@@ -419,7 +419,7 @@ class GEECSScannerWindow(QMainWindow):
         """Gets all files in the save_devices folder under chosen experiment and adds it to the available elements list
         """
         try:
-            experiment_preset_folder = RELATIVE_PATH / "experiments" / self.experiment / "save_devices"
+            experiment_preset_folder = BASE_PATH / self.experiment / "save_devices"
             for f in experiment_preset_folder.iterdir():
                 if f.is_file():
                     self.ui.foundDevices.addItem(f.stem)
@@ -460,7 +460,7 @@ class GEECSScannerWindow(QMainWindow):
         elements."""
         database_dict = self.find_database_dict()
 
-        config_folder = RELATIVE_PATH / "experiments" / self.experiment / "save_devices"
+        config_folder = BASE_PATH / self.experiment / "save_devices"
         self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder,
                                                 load_config=self.load_element_name)
         self.element_editor.exec_()
@@ -486,7 +486,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def open_multiscanner(self):
         """Opens the multiscanner window, and in the process sets a flag that disables starting scans on the main gui"""
-        self.multiscanner_window = MultiScanner(self, MULTISCAN_CONFIGS / self.experiment)
+        self.multiscanner_window = MultiScanner(self, BASE_PATH / self.experiment / MULTISCAN_FOLDER)
         self.multiscanner_window.show()
 
         self.is_in_multiscan = True
@@ -501,7 +501,7 @@ class GEECSScannerWindow(QMainWindow):
         """ Opens the timing setup window, using the current contents of the line edit to populate the dialog gui """
         database_dict = self.find_database_dict()
 
-        config_folder = SHOT_CONTROL_CONFIGS / self.experiment
+        config_folder = BASE_PATH / self.experiment / SHOT_CONTROL_FOLDER
         self.timing_editor = ShotControlEditor(config_folder_path=config_folder,
                                                current_config=self.ui.lineTimingDevice.text(),
                                                database_dict=database_dict)
@@ -521,7 +521,7 @@ class GEECSScannerWindow(QMainWindow):
         removed from either list."""
         logging.info("Refreshing element list...")
         try:
-            experiment_preset_folder = RELATIVE_PATH / "experiments" / self.experiment / "save_devices"
+            experiment_preset_folder = BASE_PATH / self.experiment / "save_devices"
 
             selected_elements_list = {self.ui.selectedDevices.item(i).text()
                                       for i in range(self.ui.selectedDevices.count())}
@@ -580,13 +580,13 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_variable_list = []
         self.scan_composite_list = []
         try:
-            experiment_folder = RELATIVE_PATH / "experiments" / self.experiment / "scan_devices"
+            experiment_folder = BASE_PATH / self.experiment / "scan_devices"
             with open(experiment_folder / "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 devices = data['single_scan_devices']
                 self.scan_variable_list = list(devices.keys())
 
-            composite_variables_location = RELATIVE_PATH / "experiments" / self.experiment / "aux_configs"
+            composite_variables_location = BASE_PATH / self.experiment / "aux_configs"
             with open(composite_variables_location / "composite_variables.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 composite_vars = data['composite_variables']
@@ -606,7 +606,7 @@ class GEECSScannerWindow(QMainWindow):
         :param name: Selected scan variable to be converted to GEECS variable and/or composite variable
         """
         try:
-            experiment_folder = RELATIVE_PATH / "experiments" / self.experiment / "scan_devices"
+            experiment_folder = BASE_PATH / self.experiment / "scan_devices"
             with open(experiment_folder / "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 if name in data['single_scan_devices']:
@@ -704,7 +704,7 @@ class GEECSScannerWindow(QMainWindow):
         """
         preset_list = []
         try:
-            experiment_folder = PRESET_LOCATIONS / self.experiment
+            experiment_folder = BASE_PATH / self.experiment / PRESET_FOLDER
             for f in experiment_folder.iterdir():
                 if f.is_file():
                     preset_list.append(f.stem)
@@ -735,7 +735,7 @@ class GEECSScannerWindow(QMainWindow):
                 settings['Step Size'] = self.scan_step_size
                 settings['Shot per Step'] = self.scan_shot_per_step
 
-            preset_file = PRESET_LOCATIONS / self.experiment / (text + ".yaml")
+            preset_file = BASE_PATH / self.experiment / PRESET_FOLDER / (text + ".yaml")
             preset_file.parent.mkdir(parents=True, exist_ok=True)
 
             with open(preset_file, 'w') as file:
@@ -760,7 +760,7 @@ class GEECSScannerWindow(QMainWindow):
         :param load_save_elements: Defaults to True, flag to load the save elements from a preset file
         :param load_scan_params: Defaults to True, flag to load the scan parameters from a preset file
         """
-        preset_filename = PRESET_LOCATIONS / self.experiment / (preset_name + ".yaml")
+        preset_filename = BASE_PATH / self.experiment / PRESET_FOLDER / (preset_name + ".yaml")
         with open(preset_filename, 'r') as file:
             settings = yaml.safe_load(file)
 
@@ -801,7 +801,7 @@ class GEECSScannerWindow(QMainWindow):
         """Deletes the preset that is currently selected in the list.  Afterwards, refreshes the preset list"""
         selected_element = self.ui.listScanPresets.selectedItems()
         for preset in selected_element:
-            preset_filename = PRESET_LOCATIONS / self.experiment / (preset.text() + ".yaml")
+            preset_filename = BASE_PATH / self.experiment / PRESET_FOLDER / (preset.text() + ".yaml")
             try:
                 preset_filename.unlink()
                 logging.info(f"{preset_filename} has been deleted :(")
@@ -842,7 +842,7 @@ class GEECSScannerWindow(QMainWindow):
             list_of_closeout_steps = []
             for i in range(self.ui.selectedDevices.count()):
                 filename = self.ui.selectedDevices.item(i).text()
-                fullpath = RELATIVE_PATH / "experiments" / self.experiment / "save_devices" / (filename + ".yaml")
+                fullpath = BASE_PATH / self.experiment / "save_devices" / (filename + ".yaml")
                 with open(fullpath, 'r') as file:
                     try:
                         data = yaml.safe_load(file)
