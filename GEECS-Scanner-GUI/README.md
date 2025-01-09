@@ -139,7 +139,18 @@ TODO, right now files are separated by GUI window and each python file contains 
 Current improvements on the wishlist:
 
 * Cleaning up and expanding THIS README.md file
+* Standardize logging practices
+* Fix/enable the log output window on the main GUI window
+* Chance composite variables to be a subclass of a regular GEECS Device, rather than treating as a special case
 * GUI for viewing/editing the 1D scan variables and composite variables
 * GUI for viewing/editing the actions defined in `actions.yaml`, as well as executing actions without running a scan
 * Checkbox to toggle if scan variables return to original position after the scan or not
 * Long-term goal, implement an "optimization" scan with Xopt
+
+## Known Bugs
+
+* A composite variable cannot consist of multiple variables of a single device
+* If launching the GUI for the first time and no pre-defined user config .ini file, will need to restart the GUI for it to enable scanning.  Ideally, it should work after you specify the experiment.
+* Starting a scan with no save elements just freezes forever
+* Stopping a scan immediately after clicking the start button does strange things, but stopping in the middle of a scan is fine
+* The progress bar is often not too accurate, it is mostly a guess of how far along the scan is.  This is because there is no way to enforce exactly when a scan starts relative to the trigger signals, so the number of shots per step can vary.
