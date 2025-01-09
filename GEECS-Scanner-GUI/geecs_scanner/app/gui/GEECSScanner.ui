@@ -597,9 +597,68 @@
    </widget>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
+  <widget class="QMenuBar" name="menuBar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>643</width>
+     <height>26</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuOptions">
+    <property name="title">
+     <string>Options</string>
+    </property>
+    <addaction name="toggle_On_Shot_TDMS_Writing"/>
+   </widget>
+   <widget class="QMenu" name="menuOpen">
+    <property name="title">
+     <string>Open</string>
+    </property>
+    <addaction name="action_open_Experiment_Config_Folder"/>
+    <addaction name="action_open_User_Config_File"/>
+    <addaction name="action_open_Daily_Scan_Folder"/>
+    <addaction name="separator"/>
+    <addaction name="action_open_Github_Page"/>
+   </widget>
+   <addaction name="menuOpen"/>
+   <addaction name="menuOptions"/>
+  </widget>
   <action name="actionLog">
    <property name="text">
     <string>Log</string>
+   </property>
+  </action>
+  <action name="action_open_Experiment_Config_Folder">
+   <property name="text">
+    <string>Experiment Config Folder</string>
+   </property>
+  </action>
+  <action name="action_open_User_Config_File">
+   <property name="text">
+    <string>User Config File</string>
+   </property>
+  </action>
+  <action name="action_open_Daily_Scan_Folder">
+   <property name="text">
+    <string>Daily Scan Folder</string>
+   </property>
+  </action>
+  <action name="toggle_On_Shot_TDMS_Writing">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>On-Shot TDMS Writing</string>
+   </property>
+  </action>
+  <action name="action_open_Github_Page">
+   <property name="text">
+    <string>Github Page</string>
    </property>
   </action>
  </widget>
