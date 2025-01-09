@@ -154,6 +154,11 @@ class GEECSScannerWindow(QMainWindow):
         self.timer.start(200)
         self.update_indicator()
 
+        # Menu Bar: Options
+        self.ui.toggle_On_Shot_TDMS_Writing.toggled.connect(self.toggle_on_shot_tdms_writing)
+        self.on_shot_tdms: bool = self.ui.toggle_On_Shot_TDMS_Writing.isChecked()
+
+        # Initial state of side-gui's
         self.element_editor = None
         self.multiscanner_window = None
         self.timing_editor = None
@@ -819,6 +824,10 @@ class GEECSScannerWindow(QMainWindow):
 
         self.ui.listScanPresets.clear()
         self.populate_preset_list()
+
+    def toggle_on_shot_tdms_writing(self):
+        """ Toggles flag for if tdms files should be saved every shot """
+        self.on_shot_tdms = self.ui.toggle_On_Shot_TDMS_Writing.isChecked()
 
     def check_for_errors(self) -> bool:
         """Checks the full GUI for any blatant errors.  To be used before submitting a scan to be run"""
