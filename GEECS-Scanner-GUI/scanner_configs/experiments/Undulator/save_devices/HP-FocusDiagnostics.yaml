@@ -1,0 +1,15 @@
+Devices:
+  UC_GhostFocus:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - timestamp
+    - centroidx
+    - centroidy
+  UC_GhostUpstream:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - timestamp
+    - centroidx
+    - centroidy
