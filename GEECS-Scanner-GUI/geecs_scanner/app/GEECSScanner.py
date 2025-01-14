@@ -174,10 +174,10 @@ class GEECSScannerWindow(QMainWindow):
 
     def eventFilter(self, source, event):
         # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
-        if event.type() == QEvent.MouseButtonPress and source == self.ui.experimentDisplay:
+        if event.type() == QEvent.MouseButtonPress and source == self.ui.experimentDisplay and self.ui.experimentDisplay.isEnabled():
             self.show_experiment_list()
             return True
-        if event.type() == QEvent.MouseButtonPress and source == self.ui.lineScanVariable:
+        if event.type() == QEvent.MouseButtonPress and source == self.ui.lineScanVariable and self.ui.lineScanVariable.isEnabled():
             self.show_scan_device_list()
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineTimingDevice and self.ui.lineTimingDevice.isEnabled():
