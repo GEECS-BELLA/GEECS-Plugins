@@ -17,7 +17,8 @@ import configparser
 import logging
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter, QMessageBox
-from PyQt5.QtCore import Qt, QEvent, QTimer
+from PyQt5.QtCore import Qt, QEvent, QTimer, QUrl
+from PyQt5.QtGui import QDesktopServices
 from .gui.GEECSScanner_ui import Ui_MainWindow
 from .ScanElementEditor import ScanElementEditor
 from .MultiScanner import MultiScanner
@@ -159,6 +160,8 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.action_open_Daily_Scan_Folder.triggered.connect(self.open_daily_scan_folder)
         self.ui.action_open_Experiment_Config_Folder.triggered.connect(self.open_experiment_config_folder)
         self.ui.action_open_User_Config_File.triggered.connect(self.open_user_config_file)
+
+        self.ui.action_open_Github_Page.triggered.connect(self.open_github_page)
 
         # Menu Bar: Options
         self.ui.toggle_On_Shot_TDMS_Writing.toggled.connect(self.toggle_on_shot_tdms_writing)
@@ -975,6 +978,12 @@ class GEECSScannerWindow(QMainWindow):
     @staticmethod
     def open_user_config_file():
         of.open_folder(CONFIG_PATH.parent)
+
+    def open_github_page(self):
+        url_string = "https://github.com/GEECS-BELLA/GEECS-Plugins/tree/master/GEECS-Scanner-GUI"
+        url = QUrl(url_string)
+        if not QDesktopServices.openUrl(url):
+            QMessageBox.warning(self, "Open URL", f"Failed to open URL: {url_string}")
 
     def closeEvent(self, event):
         """Upon the GUI closing, also attempts to close child windows and stop any currently-running scans"""
