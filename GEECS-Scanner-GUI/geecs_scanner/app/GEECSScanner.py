@@ -22,6 +22,7 @@ from .gui.GEECSScanner_ui import Ui_MainWindow
 from .ScanElementEditor import ScanElementEditor
 from .MultiScanner import MultiScanner
 from .ShotControlEditor import ShotControlEditor
+from . import module_open_folder as of
 # from LogStream import EmittingStream, MultiStream
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
@@ -153,6 +154,11 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.scanStatusIndicator.setText("")
         self.timer.start(200)
         self.update_indicator()
+
+        # Menu Bar: Open
+        self.ui.action_open_Daily_Scan_Folder.triggered.connect(self.open_daily_scan_folder)
+        self.ui.action_open_Experiment_Config_Folder.triggered.connect(self.open_experiment_config_folder)
+        self.ui.action_open_User_Config_File.triggered.connect(self.open_user_config_file)
 
         # Menu Bar: Options
         self.ui.toggle_On_Shot_TDMS_Writing.toggled.connect(self.toggle_on_shot_tdms_writing)
@@ -959,6 +965,16 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.stopScanButton.setEnabled(False)
         QApplication.processEvents()
         self.RunControl.stop_scan()
+
+    def open_daily_scan_folder(self):
+        of.open_daily_data_folder(experiment=self.experiment)
+
+    def open_experiment_config_folder(self):
+        of.open_folder(BASE_PATH / self.experiment)
+
+    @staticmethod
+    def open_user_config_file():
+        of.open_folder(CONFIG_PATH.parent)
 
     def closeEvent(self, event):
         """Upon the GUI closing, also attempts to close child windows and stop any currently-running scans"""
