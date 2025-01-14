@@ -89,7 +89,7 @@ class GEECSScannerWindow(QMainWindow):
         # Line edit for the experiment display
         self.ui.experimentDisplay.setText(self.experiment)
         self.ui.experimentDisplay.installEventFilter(self)
-        self.ui.experimentDisplay.editingFinished.connect(self.experiment_selected)
+        self.ui.experimentDisplay.textChanged.connect(self.experiment_selected)
 
         # Populates the list of available save elements
         self.populate_found_list()
