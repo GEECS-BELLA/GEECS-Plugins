@@ -20,22 +20,27 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter,
 from PyQt5.QtCore import Qt, QEvent, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices
 from .gui.GEECSScanner_ui import Ui_MainWindow
-from .ScanElementEditor import ScanElementEditor
-from .MultiScanner import MultiScanner
-from .ShotControlEditor import ShotControlEditor
 from . import module_open_folder as of
+from . import ScanElementEditor, MultiScanner, ShotControlEditor
+from . import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
 # from LogStream import EmittingStream, MultiStream
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
 CURRENT_VERSION = 'v0.4'  # Try to keep this up-to-date, increase the version # with significant changes :)
 
-MAXIMUM_SCAN_SIZE = 1e6
+MAXIMUM_SCAN_SIZE = 1e6  # A simple check to not start a scan if it exceeds this number of shots.
+
+# Important paths and folder names
 CONFIG_PATH = Path('~/.config/geecs_python_api/config.ini').expanduser()
 BASE_PATH = Path(__file__).parents[2] / "scanner_configs" / "experiments"
 PRESET_FOLDER = "scan_presets"
 MULTISCAN_FOLDER = "multiscan_presets"
 SHOT_CONTROL_FOLDER = "shot_control_configurations"
+
+# Lists of options to appear in the menu bar
+BOOLEAN_OPTIONS = ["On-Shot TDMS"]
+STRING_OPTIONS = ["Master Control IP"]
 
 
 class GEECSScannerWindow(QMainWindow):
@@ -164,8 +169,16 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.action_open_Github_Page.triggered.connect(self.open_github_page)
 
         # Menu Bar: Options
-        self.ui.toggle_On_Shot_TDMS_Writing.toggled.connect(self.toggle_on_shot_tdms_writing)
-        self.on_shot_tdms: bool = self.ui.toggle_On_Shot_TDMS_Writing.isChecked()
+        self.all_options: list[MenuBarOption] = []
+        for opt in BOOLEAN_OPTIONS:
+            menu_opt = MenuBarOptionBool(self, opt)
+            self.ui.menuOptions.addAction(menu_opt)
+            self.all_options.append(menu_opt)
+        self.ui.menuOptions.addSeparator()
+        for opt in STRING_OPTIONS:
+            menu_opt = MenuBarOptionStr(self, opt)
+            self.ui.menuOptions.addAction(menu_opt)
+            self.all_options.append(menu_opt)
 
         # Initial state of side-gui's
         self.element_editor = None
@@ -833,10 +846,6 @@ class GEECSScannerWindow(QMainWindow):
 
         self.ui.listScanPresets.clear()
         self.populate_preset_list()
-
-    def toggle_on_shot_tdms_writing(self):
-        """ Toggles flag for if tdms files should be saved every shot """
-        self.on_shot_tdms = self.ui.toggle_On_Shot_TDMS_Writing.isChecked()
 
     def check_for_errors(self) -> bool:
         """Checks the full GUI for any blatant errors.  To be used before submitting a scan to be run"""
