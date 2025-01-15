@@ -413,7 +413,7 @@ class MultiScanner(QWidget):
             if not self.worker:
                 self.is_stopping = False
 
-        start_button_logic = not self.worker and not self.is_stopping
+        start_button_logic = not self.worker and not self.is_stopping and self.main_window.RunControl is not None
         self.ui.buttonStartMultiscan.setEnabled(start_button_logic)
         stop_button_logic = (self.worker is not None) and not self.is_stopping
         self.ui.buttonStopMultiscan.setEnabled(stop_button_logic)

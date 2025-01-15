@@ -631,7 +631,7 @@ class DeviceManager:
 
         logging.info("DeviceManager instance has been reinitialized.")
 
-    def get_values(self, variables):
+    def get_values(self, variables):  # TODO this crashes if `variables` contains 2+ variables of the same device
         """
         Retrieve the current values of the specified variables from the devices.
 
@@ -648,7 +648,7 @@ class DeviceManager:
             if device_name not in results:
                 results[device_name] = {}
                 var_list = [v.split(':')[1] for v in variables if v.startswith(device_name)]
-                state = self.devices[device_name].state
+                state = self.devices[device_name].state  # TODO state only has 1 of the variables in it
                 for device_var in var_list:
                     results[device_name][device_var] = state[device_var]
                 results[device_name]['fresh'] = state['fresh']

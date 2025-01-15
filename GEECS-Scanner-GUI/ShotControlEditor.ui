@@ -292,6 +292,22 @@
    </property>
   </widget>
  </widget>
+ <tabstops>
+  <tabstop>lineConfigurationSelect</tabstop>
+  <tabstop>buttonNewConfiguration</tabstop>
+  <tabstop>buttonCopyConfiguration</tabstop>
+  <tabstop>buttonDeleteConfiguration</tabstop>
+  <tabstop>lineDeviceName</tabstop>
+  <tabstop>lineVariableName</tabstop>
+  <tabstop>buttonAddVariable</tabstop>
+  <tabstop>buttonRemoveVariable</tabstop>
+  <tabstop>listShotControlVariables</tabstop>
+  <tabstop>lineOffState</tabstop>
+  <tabstop>lineScanState</tabstop>
+  <tabstop>lineStandbyState</tabstop>
+  <tabstop>buttonSaveConfiguration</tabstop>
+  <tabstop>buttonCloseWindow</tabstop>
+ </tabstops>
  <resources/>
  <connections/>
 </ui>

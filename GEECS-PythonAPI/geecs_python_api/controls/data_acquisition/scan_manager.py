@@ -16,36 +16,20 @@ import numpy as np
 from nptdms import TdmsWriter, ChannelObject
 
 # Internal project imports
-from geecs_python_api.controls.data_acquisition import DeviceManager, ActionManager, DataLogger
+from geecs_python_api.controls.data_acquisition import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup
 from geecs_python_api.controls.data_acquisition.utils import ConsoleLogger
-from geecs_python_api.controls.interface import load_config, GeecsDatabase
+from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.interface.geecs_paths_config import GeecsPathsConfig
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.analysis.scans.scan_data import ScanData
 from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_custom_imaq_timestamp
 
-config = load_config()
 
-if config and 'Experiment' in config and 'expt' in config['Experiment']:
-    default_experiment = config['Experiment']['expt']
-    logging.info(f"default experiment is: {default_experiment}")
-else:
-    logging.warning(
-        "Configuration file not found or default experiment not defined. While use Undulator as experiment. Could be a problem for you.")
-    default_experiment = 'Undulator'
+database_dict = DatabaseDictLookup()
 
-try:
-    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(default_experiment)
-    device_dict = GeecsDevice.exp_info['devices']
-except AttributeError:
-    logging.warning("Could not retrieve dictionary of GEECS Devices")
-    device_dict = None
 
-ANALYSIS_CLASS_MAPPING = {
-    'MagSpecStitcherAnalysis': 'scan_analysis.analyzers.Undulator.MagSpecStitcherAnalysis.MagSpecStitcherAnalysis',
-    'CameraImageAnalysis': 'scan_analysis.analyzers.Undulator.CameraImageAnalysis.CameraImageAnalysis',
-    'VisaEBeamAnalysis': 'scan_analysis.analyzers.Undulator.VisaEBeamAnalysis.VisaEBeamAnalysis'
-}
+def get_database_dict():
+    return database_dict.get_database()
 
 
 class ScanDataManager:
@@ -306,6 +290,7 @@ class ScanDataManager:
                 device_name, variable = header.split(':')
                 new_header = f"{device_name} {variable}"
                 # Check if alias exists
+                device_dict = database_dict.get_database()
                 alias = device_dict.get(device_name, {}).get(variable, {}).get('alias')
                 if alias:
                     new_header = f"{new_header} Alias:{alias}"
@@ -605,15 +590,16 @@ class ScanManager:
     to the device_manager to initialize the desired saving configuration.
     """
     
-    def __init__(self, experiment_dir=None, device_manager=None, shot_control_device="", MC_ip = None, scan_data=None):
+    def __init__(self, experiment_dir: str, shot_control_information: dict, device_manager=None, MC_ip = None, scan_data=None):
         """
         Initialize the ScanManager and its components.
 
         Args:
-            experiment_dir (str, optional): Directory where experiment data is stored.
+            experiment_dir (str): Directory where experiment data is stored.
             device_manager (DeviceManager, optional): DeviceManager instance for managing devices.
             shot_control_device (str, optional): GEECS Device that controls the shot timing
         """
+        database_dict.reload(experiment_name=experiment_dir)
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
         self.MC_ip = MC_ip
@@ -624,7 +610,8 @@ class ScanManager:
         self.data_logger = DataLogger(experiment_dir, self.device_manager)  # Initialize DataLogger
         self.save_data = True
 
-        self.shot_control = GeecsDevice(shot_control_device)
+        self.shot_control = GeecsDevice(shot_control_information['device'])
+        self.shot_control_variables = shot_control_information['variables']
         self.results = {}  # Store results for later processing
 
         self.stop_scanning_thread_event = threading.Event()  # Event to signal the logging thread to stop
@@ -665,10 +652,6 @@ class ScanManager:
             self.pause_scan_event.set()
             logging.info("Scanning resumed.")
 
-    def get_database_dict(self):
-        """TODO This should probably be a class variable"""
-        return device_dict
-
     def reinitialize(self, config_path=None, config_dictionary=None):
         """
         Reinitialize the ScanManager with new configurations and reset the logging system.
@@ -685,34 +668,32 @@ class ScanManager:
         self.console_logger.stop_logging()
         self.console_logger.setup_logging()
 
-    def _set_trigger(self, state: str, amplitude: float):
+    def _set_trigger(self, state: str):
         """
-        Set the trigger state and amplitude.  # TODO make a "laser OFF" mode that has 'on': 'Internal'
+        Set the trigger state and update variables accordingly.  Can be specified using Timing Setup in the GUI
 
         Args:
-            state (str): Either 'on' or 'off' to control the trigger.
-            amplitude (float): The amplitude value to set for the trigger.
+            state (str): Either 'OFF', 'SCAN', or 'STANDBY'.   Used for when trigger is off, or during/outside a scan
         """
 
-        valid_states = {
-            'on': 'External rising edges',
-            # 'on': 'Internal',
-            'off': 'Single shot external rising edges'
-        }
+        valid_states = ['OFF', 'SCAN', 'STANDBY']
+
         if state in valid_states:
-            self.shot_control.set('Trigger.Source', valid_states[state])
-            self.shot_control.set('Amplitude.Ch AB', amplitude)
-            logging.info(f"Trigger turned {state} with amplitude {amplitude}.")
+            for variable in self.shot_control_variables.keys():
+                variable_settings = self.shot_control_variables[variable]
+                self.shot_control.set(variable, variable_settings[state])
+                logging.info(f"Setting {variable} to {variable_settings[state]}")
+            logging.info(f"Trigger turned to state {state}.")
         else:
             logging.error(f"Invalid trigger state: {state}")
 
     def trigger_off(self):
         """Turns off the trigger and sets the amplitude to 0.5."""
-        self._set_trigger('off', 0.5)
+        self._set_trigger('OFF')
 
     def trigger_on(self):
         """Turns on the trigger and sets the amplitude to 4.0."""
-        self._set_trigger('on', 4.0)
+        self._set_trigger('SCAN')
 
     def is_scanning_active(self):
         """
@@ -829,7 +810,7 @@ class ScanManager:
             self.restore_initial_state(self.initial_state)
 
         # Step 4: Turn the trigger back on
-        self._set_trigger('on', 0.5)
+        self._set_trigger('STANDBY')
 
         if self.device_manager.scan_closeout_action is not None:
             logging.info("Attempting to execute closeout actions.")

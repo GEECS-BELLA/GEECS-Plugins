@@ -3,7 +3,10 @@ Script to contain the logic for the GEECSScanner GUI.  Can be launched by runnin
 
 -Chris
 """
-from typing import List
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional
+if TYPE_CHECKING:
+    from RunControl import RunControl
 
 import sys
 from pathlib import Path
@@ -19,14 +22,18 @@ from PyQt5.QtCore import Qt, QEvent, QTimer
 from GEECSScanner_ui import Ui_MainWindow
 from ScanElementEditor import ScanElementEditor
 from MultiScanner import MultiScanner
+from ShotControlEditor import ShotControlEditor
 # from LogStream import EmittingStream, MultiStream
 
-CURRENT_VERSION = 'v0.3'  # Try to keep this up-to-date, increase the version # with significant changes :)
+from geecs_python_api.controls.data_acquisition import DatabaseDictLookup
+
+CURRENT_VERSION = 'v0.4'  # Try to keep this up-to-date, increase the version # with significant changes :)
 
 MAXIMUM_SCAN_SIZE = 1e6
 RELATIVE_PATH = Path("../GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/configs/")
 PRESET_LOCATIONS = Path("./scan_presets/")
 MULTISCAN_CONFIGS = Path("./multiscan_presets/")
+SHOT_CONTROL_CONFIGS = Path("./shot_control_configurations/")
 CONFIG_PATH = Path('~/.config/geecs_python_api/config.ini').expanduser()
 
 
@@ -46,12 +53,13 @@ class GEECSScannerWindow(QMainWindow):
         # Load experiment, repetition rate, and shot control device from the .config file
         self.experiment = ""
         self.repetition_rate = 0
-        self.shot_control_device = ""
+        self.timing_configuration_name = ""
         self.master_control_ip = None
         self.load_config_settings()
 
         # Initializes run control if possible, this serves as the interface to scan_manager and data_acquisition
-        self.RunControl = None
+        self.RunControl: Optional[RunControl] = None
+        self.database_lookup = DatabaseDictLookup()
         self.reinitialize_run_control()
 
         # Default values for the line edits
@@ -64,8 +72,11 @@ class GEECSScannerWindow(QMainWindow):
         # Line edits for the repetition rate and timing device
         self.ui.repititionRateDisplay.setText(str(self.repetition_rate))
         self.ui.repititionRateDisplay.editingFinished.connect(self.update_repetition_rate)
-        self.ui.lineTimingDevice.setText(self.shot_control_device)
-        self.ui.lineTimingDevice.editingFinished.connect(self.update_shot_control_device)
+
+        self.ui.lineTimingDevice.setReadOnly(True)
+        self.ui.lineTimingDevice.setText(self.timing_configuration_name)
+        self.ui.lineTimingDevice.installEventFilter(self)
+        self.ui.lineTimingDevice.textChanged.connect(self.update_shot_control_device)
 
         # Button to launch dialog for changing the config file contents
         self.ui.buttonUpdateConfig.clicked.connect(self.reset_config_file)
@@ -102,7 +113,7 @@ class GEECSScannerWindow(QMainWindow):
         # Buttons to launch the side guis for the action library, timing device, and scan variables
         self.ui.buttonActionLibrary.setEnabled(False)
         self.ui.buttonScanVariables.setEnabled(False)
-        self.ui.buttonOpenTimingSetup.setEnabled(False)
+        self.ui.buttonOpenTimingSetup.clicked.connect(self.open_timing_setup)
 
         # Radio buttons that select if the next scan is to be a noscan or 1dscan
         self.ui.noscanRadioButton.setChecked(True)
@@ -146,6 +157,7 @@ class GEECSScannerWindow(QMainWindow):
 
         self.element_editor = None
         self.multiscanner_window = None
+        self.timing_editor = None
 
     def eventFilter(self, source, event):
         # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
@@ -154,6 +166,9 @@ class GEECSScannerWindow(QMainWindow):
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineScanVariable:
             self.show_scan_device_list()
+            return True
+        if event.type() == QEvent.MouseButtonPress and source == self.ui.lineTimingDevice and self.ui.lineTimingDevice.isEnabled():
+            self.show_timing_configuration_list()
             return True
         return super().eventFilter(source, event)
 
@@ -165,23 +180,42 @@ class GEECSScannerWindow(QMainWindow):
         """
         logging.info("Reinitialization of Run Control")
         try:
-            # The experiment name in the config is very embedded in geecs-python-api, so we have to rewrite it here...
+            # Before initializing, rewrite config file if experiment name or timing configuration name has changed
             config = configparser.ConfigParser()
             config.read(CONFIG_PATH)
+
+            do_write = False
             if config['Experiment']['expt'] != self.experiment:
                 logging.info("Experiment name changed, rewriting config file")
                 config.set('Experiment', 'expt', self.experiment)
+                do_write = True
+
+            if ((not config.has_option('Experiment', 'timing_configuration')) or
+                    config['Experiment']['timing_configuration'] != self.timing_configuration_name):
+                logging.info("Timing configuration changed, rewriting config file")
+                config.set('Experiment', 'timing_configuration', self.timing_configuration_name)
+                do_write = True
+
+            if do_write:
                 with open(CONFIG_PATH, 'w') as file:
                     config.write(file)
 
+            shot_control_path = SHOT_CONTROL_CONFIGS / self.experiment / (self.timing_configuration_name + ".yaml")
+            if not shot_control_path.exists():
+                shot_control_path = None
+
             run_control_class = getattr(importlib.import_module('RunControl'), 'RunControl')
-            self.RunControl = run_control_class(experiment_name=self.experiment, shot_control=self.shot_control_device,
+            self.RunControl = run_control_class(experiment_name=self.experiment,
+                                                shot_control_configuration=shot_control_path,
                                                 master_control_ip=self.master_control_ip)
         except AttributeError:
             logging.error("AttributeError at RunControl: presumably because the entered experiment is not in the GEECS database")
             self.RunControl = None
         except KeyError:
             logging.error("KeyError at RunControl: presumably because no GEECS Database is connected to located devices")
+            self.RunControl = None
+        except ValueError:
+            logging.error("ValueError at RunControl: presumably because no experiment name or shot control given")
             self.RunControl = None
 
     def load_config_settings(self):
@@ -207,9 +241,10 @@ class GEECSScannerWindow(QMainWindow):
                 self.prompt_config_reset("`rep_rate_hz` needs to be an int or float")
 
             try:
-                self.shot_control_device = config['Experiment']['shot_control']
+                self.timing_configuration_name = config['Experiment']['timing_configuration']
             except KeyError:
-                self.prompt_config_reset("Could not find 'shot_control' in config")
+                logging.warning("No prior 'timing_configuration' set in config file")
+                pass
             try:
                 self.master_control_ip = config['Experiment']['MC_ip']
             except KeyError:
@@ -252,7 +287,6 @@ class GEECSScannerWindow(QMainWindow):
             default_content['Experiment'] = {
                 'expt': 'none',
                 'rep_rate_hz': '1',
-                'shot_control': 'none'
             }
             with open(CONFIG_PATH, 'w') as config_file:
                 default_content.write(config_file)
@@ -267,8 +301,6 @@ class GEECSScannerWindow(QMainWindow):
                                            'Enter Experiment Name: (ex: Undulator)')
         config = self.prompt_config_update(config, 'Experiment', 'rep_rate_hz',
                                            'Enter repetition rate in Hz: (ex: 1)')
-        config = self.prompt_config_update(config, 'Experiment', 'shot_control',
-                                           'Enter shot control device: (ex: U_DG645_ShotControl)')
 
         logging.info(f"Writing config file to {CONFIG_PATH}")
         with open(CONFIG_PATH, 'w') as file:
@@ -328,6 +360,22 @@ class GEECSScannerWindow(QMainWindow):
             self.populate_scan_devices()
             self.populate_preset_list()
 
+    def find_database_dict(self) -> dict:
+        """
+        First will retrieve database through RunControl if initialized, otherwise will use the experiment name
+
+        :return: Database dictionary representing all devices and associated variables for the given experiment
+        """
+        if self.RunControl is not None:
+            return self.RunControl.get_database_dict()
+        else:
+            try:
+                self.database_lookup.reload(experiment_name=self.experiment)
+                return self.database_lookup.get_database()
+            except Exception as e:  # TODO could pursue a less broad exception catching here...
+                logging.warning("Error occurred when retrieving database dictionary: {e}")
+                return {}
+
     def clear_lists(self):
         """
         Clear all the lists in the GUI.  Used when a fresh start is needed, such as new experiment name or using preset
@@ -350,10 +398,22 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.repititionRateDisplay.setText("N/A")
             self.repetition_rate = 0
 
+    def show_timing_configuration_list(self):
+        config_folder_path = SHOT_CONTROL_CONFIGS / self.experiment
+        if config_folder_path.exists():
+            files = [f.stem for f in config_folder_path.iterdir() if f.suffix == ".yaml"]
+            completer = QCompleter(files, self)
+            completer.setCompletionMode(QCompleter.PopupCompletion)
+            completer.setCaseSensitivity(Qt.CaseInsensitive)
+
+            self.ui.lineTimingDevice.setCompleter(completer)
+            self.ui.lineTimingDevice.setFocus()
+            completer.complete()
+
     def update_shot_control_device(self):
         """Updates the shot control device when it is changed in the text box, then reinitializes Run Control
         """
-        self.shot_control_device = self.ui.lineTimingDevice.text()
+        self.timing_configuration_name = self.ui.lineTimingDevice.text()
         self.reinitialize_run_control()
 
     def populate_found_list(self):
@@ -399,10 +459,8 @@ class GEECSScannerWindow(QMainWindow):
         """Opens the ScanElementEditor GUI with a blank template.  If Run Control is initialized then the database
         dictionary is passed for device/variable hints.  Afterwards, refresh the lists of the available and selected
         elements."""
-        if self.RunControl is not None:
-            database_dict = self.RunControl.get_database_dict()
-        else:
-            database_dict = None
+        database_dict = self.find_database_dict()
+
         config_folder = RELATIVE_PATH / "experiments" / self.experiment / "save_devices"
         self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder,
                                                 load_config=self.load_element_name)
@@ -439,6 +497,24 @@ class GEECSScannerWindow(QMainWindow):
         """Cleans up the multiscanner window and resets the enable-ability for buttons on the main window"""
         self.is_in_multiscan = False
         self.multiscanner_window = None
+
+    def open_timing_setup(self):
+        """ Opens the timing setup window, using the current contents of the line edit to populate the dialog gui """
+        database_dict = self.find_database_dict()
+
+        config_folder = SHOT_CONTROL_CONFIGS / self.experiment
+        self.timing_editor = ShotControlEditor(config_folder_path=config_folder,
+                                               current_config=self.ui.lineTimingDevice.text(),
+                                               database_dict=database_dict)
+        self.timing_editor.selected_configuration.connect(self.handle_returned_timing_configuration)
+        self.timing_editor.exec_()
+
+    def handle_returned_timing_configuration(self, specified_configuration):
+        """Handler for the return string of the timing setup dialog, sets the new configuration and reload RunControl"""
+        force_update = bool(self.timing_configuration_name == specified_configuration)
+        self.ui.lineTimingDevice.setText(specified_configuration)
+        if force_update:
+            self.update_shot_control_device()
 
     def refresh_element_list(self):
         """Refreshes the list of available and selected elements, but does not clear them.  Instead, all previously
@@ -853,6 +929,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.buttonUpdateConfig.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
+            self.ui.buttonOpenTimingSetup.setEnabled(self.ui.startScanButton.isEnabled())
 
     def is_ready_for_scan(self):
         """

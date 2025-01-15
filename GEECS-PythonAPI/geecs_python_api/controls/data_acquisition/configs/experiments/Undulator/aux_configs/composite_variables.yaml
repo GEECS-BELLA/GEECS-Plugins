@@ -46,4 +46,24 @@ composite_variables:
         relation: "np.sqrt(100 ** 2 * composite_var / 560968.636)"
       - device: U_ChicaneOuter
         variable: Current
-        relation: "-np.sqrt(100 ** 2 * composite_var / 560968.636)"    
+        relation: "-np.sqrt(100 ** 2 * composite_var / 560968.636)"
+
+  Laser_angle_offset_x:
+    components:
+      - device: U_ESP302_02
+        variable: Position.Axis 2
+        relation: "composite_var * 1.5"
+      - device: U_ESP302_01
+        variable: Position.Axis 3
+        relation: "composite_var * -1.5"
+    relative: True
+
+  ERROR_Laser_angle_offset_y:
+    components:
+      - device: U_ESP302_02
+        variable: Position.Axis 3
+        relation: "composite_var * 1.0"
+      - device: U_ESP302_02
+        variable: Position.Axis 1
+        relation: "composite_var * -1.5"
+    relative: True
