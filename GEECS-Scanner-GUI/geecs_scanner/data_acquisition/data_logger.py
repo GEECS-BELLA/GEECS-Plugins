@@ -52,6 +52,8 @@ class DataLogger:
 
         self.lock = threading.Lock()
 
+        self.repetition_rate = 1.0  # Gets updated upon scan manager's reinitialization
+
     def start_logging(self):
         """
         Start logging data for all devices. Event-driven observables trigger logs, and asynchronous
@@ -111,6 +113,9 @@ class DataLogger:
         # self.warning_thread.start()
 
         return log_entries
+
+    def update_repetition_rate(self, new_repetition_rate):
+        self.repetition_rate = new_repetition_rate
 
     def _extract_timestamp(self, message, device):
 
@@ -194,7 +199,8 @@ class DataLogger:
         """
 
         t0 = initial_timestamps[device.get_name()]
-        return round(current_timestamp - t0)
+        elapsed_time = current_timestamp - t0
+        return round(elapsed_time * self.repetition_rate)/self.repetition_rate
 
     def _check_duplicate_timestamp(self, device, last_timestamps, current_timestamp):
         """

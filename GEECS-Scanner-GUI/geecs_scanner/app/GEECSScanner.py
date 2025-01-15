@@ -913,7 +913,7 @@ class GEECSScannerWindow(QMainWindow):
             else:
                 scan_config = None
 
-            option_dict = {}
+            option_dict = {"rep_rate_hz": self.repetition_rate}
             for opt in self.all_options:
                 option_dict[opt.get_name()] = opt.get_value()
 

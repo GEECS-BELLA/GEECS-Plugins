@@ -108,6 +108,7 @@ class ScanManager:
         self.options_dict = config_dictionary['options']
         self.data_logger.reinitialize_sound_player()
         self.data_logger.last_log_time_sync = {}
+        self.data_logger.update_repetition_rate(self.options_dict['rep_rate_hz'])
         self.console_logger.stop_logging()
         self.console_logger.setup_logging()
 
