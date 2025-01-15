@@ -27,7 +27,7 @@ from . import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
-CURRENT_VERSION = 'v0.4'  # Try to keep this up-to-date, increase the version # with significant changes :)
+CURRENT_VERSION = 'v0.5'  # Try to keep this up-to-date, increase the version # with significant changes :)
 
 MAXIMUM_SCAN_SIZE = 1e6  # A simple check to not start a scan if it exceeds this number of shots.
 
