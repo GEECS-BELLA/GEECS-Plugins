@@ -610,7 +610,6 @@
     <property name="title">
      <string>Options</string>
     </property>
-    <addaction name="toggle_On_Shot_TDMS_Writing"/>
    </widget>
    <widget class="QMenu" name="menuOpen">
     <property name="title">
@@ -643,17 +642,6 @@
   <action name="action_open_Daily_Scan_Folder">
    <property name="text">
     <string>Daily Scan Folder</string>
-   </property>
-  </action>
-  <action name="toggle_On_Shot_TDMS_Writing">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="checked">
-    <bool>false</bool>
-   </property>
-   <property name="text">
-    <string>On-Shot TDMS Writing</string>
    </property>
   </action>
   <action name="action_open_Github_Page">
