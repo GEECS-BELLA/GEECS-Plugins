@@ -913,9 +913,14 @@ class GEECSScannerWindow(QMainWindow):
             else:
                 scan_config = None
 
+            option_dict = {}
+            for opt in self.all_options:
+                option_dict[opt.get_name()] = opt.get_value()
+
             run_config = {
                 'Devices': save_device_list,
                 'scan_info': scan_information,
+                'options': option_dict,
             }
 
             if list_of_setup_steps:

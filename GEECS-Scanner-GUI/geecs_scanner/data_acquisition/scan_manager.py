@@ -80,6 +80,8 @@ class ScanManager:
         
         self.enable_live_ECS_dump(client_ip = self.MC_ip)
 
+        self.options_dict = {}  # Later initialized in 'reinitialize', but TODO should do it here instead
+
     def pause_scan(self):
         """Pause the scanning process by clearing the pause event."""
         if self.pause_scan_event.is_set():
@@ -103,6 +105,7 @@ class ScanManager:
 
         self.initial_state = None
         self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
+        self.options_dict = config_dictionary['options']
         self.data_logger.reinitialize_sound_player()
         self.data_logger.last_log_time_sync = {}
         self.console_logger.stop_logging()
@@ -608,11 +611,8 @@ class ScanManager:
             time.sleep(interval_time)
             current_time = time.time() - start_time
 
-            # TODO a few things here:
-            # TODO 1. make `save_on_shot` a settable flag from the GUI so this is an optional process
-            # TODO 2. ensure that we are only appending data rather than overwriting the file every shot.
-            #  This could be done by storing the previously-written dataframe and subtracting the new one off of it
-            save_on_shot = False
+            # TODO move this to DataLogger's `_log_device_data` function instead...
+            save_on_shot = self.options_dict['On-Shot TDMS']
             if save_on_shot:
                 if current_time % 1 < interval_time:
                     log_df = self.scan_data_manager.convert_to_dataframe(self.results)
