@@ -316,6 +316,27 @@ class ScanManager:
         time.sleep(2)  # Ensure asynchronous commands have time to finish
         logging.info("scanning has stopped for all devices.")
 
+    def save_hiatus(self):
+        hiatus_period = float(self.options_dict["Save Hiatus Period (s)"])
+        for device_name in self.device_manager.non_scalar_saving_devices:
+            device = self.device_manager.devices.get(device_name)
+            if device:
+                logging.info(f"Setting save to off for {device_name}")
+                device.set('save', 'off', sync=False)
+            else:
+                logging.warning(f"Device {device_name} not found in DeviceManager.")
+
+        logging.info(f"All devices with Save OFF for {hiatus_period} s")
+        time.sleep(hiatus_period)
+
+        for device_name in self.device_manager.non_scalar_saving_devices:
+            device = self.device_manager.devices.get(device_name)
+            if device:
+                logging.info(f"Setting save to on for {device_name}")
+                device.set('save', 'on', sync=False)
+            else:
+                logging.warning(f"Device {device_name} not found in DeviceManager.")
+
     def pre_logging_setup(self, scan_config):
         """
         Precompute all scan steps (including composite and normal variables),
@@ -617,6 +638,16 @@ class ScanManager:
                 if current_time % 1 < interval_time:
                     log_df = self.scan_data_manager.convert_to_dataframe(self.results)
                     self.scan_data_manager.dataframe_to_tdms(log_df)
+
+            try:
+                hiatus = float(self.options_dict["Save Hiatus Period (s)"])
+            except ValueError:
+                hiatus = ""
+
+            if hiatus:
+                if self.data_logger.shot_save_event.is_set():
+                    self.save_hiatus()
+                    self.data_logger.shot_save_event.clear()
 
         # Turn trigger off after waiting
         self.trigger_off()
