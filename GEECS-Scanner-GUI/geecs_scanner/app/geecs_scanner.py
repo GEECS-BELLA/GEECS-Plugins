@@ -23,19 +23,13 @@ from .gui.GEECSScanner_ui import Ui_MainWindow
 from .lib import module_open_folder as of
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
 from . import ScanElementEditor, MultiScanner, ShotControlEditor
+from ..utils import ApplicationPaths as AppPaths
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
 CURRENT_VERSION = 'v0.5'  # Try to keep this up-to-date, increase the version # with significant changes :)
 
 MAXIMUM_SCAN_SIZE = 1e6  # A simple check to not start a scan if it exceeds this number of shots.
-
-# Important paths and folder names
-CONFIG_PATH = Path('~/.config/geecs_python_api/config.ini').expanduser()
-BASE_PATH = Path(__file__).parents[2] / "scanner_configs" / "experiments"
-PRESET_FOLDER = "scan_presets"
-MULTISCAN_FOLDER = "multiscan_presets"
-SHOT_CONTROL_FOLDER = "shot_control_configurations"
 
 # Lists of options to appear in the menu bar
 BOOLEAN_OPTIONS = ["On-Shot TDMS"]
@@ -65,6 +59,7 @@ class GEECSScannerWindow(QMainWindow):
         # Initializes run control if possible, this serves as the interface to scan_manager and data_acquisition
         self.RunControl: Optional[RunControl] = None
         self.database_lookup = DatabaseDictLookup()
+        self.app_paths: Optional[AppPaths] = None
         self.reinitialize_run_control()
 
         # Default values for the line edits
@@ -205,9 +200,11 @@ class GEECSScannerWindow(QMainWindow):
         """
         logging.info("Reinitialization of Run Control")
 
+        self.app_paths = AppPaths(experiment=self.experiment)
+
         # Before initializing, rewrite config file if experiment name or timing configuration name has changed
         config = configparser.ConfigParser()
-        config.read(CONFIG_PATH)
+        config.read(AppPaths.config_file())
 
         do_write = False
         if config['Experiment']['expt'] != self.experiment:
@@ -222,10 +219,10 @@ class GEECSScannerWindow(QMainWindow):
             do_write = True
 
         if do_write:
-            with open(CONFIG_PATH, 'w') as file:
+            with open(AppPaths.config_file(), 'w') as file:
                 config.write(file)
 
-        shot_control_path = BASE_PATH / self.experiment / SHOT_CONTROL_FOLDER / (self.timing_configuration_name + ".yaml")
+        shot_control_path = self.app_paths.shot_control() / (self.timing_configuration_name + ".yaml")
         if not shot_control_path.exists():
             shot_control_path = None
 
@@ -308,22 +305,11 @@ class GEECSScannerWindow(QMainWindow):
         like to update the four crucial elements of this config file.  Afterwards, the new dictionary is written as the
         current config file and run control is reinitialized.
         """
-        if not CONFIG_PATH.exists():
-            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            default_content = configparser.ConfigParser()
-            default_content['Paths'] = {
-                'geecs_data': 'C:\\GEECS\\user data\\'
-            }
-            default_content['Experiment'] = {
-                'expt': 'none',
-                'rep_rate_hz': '1',
-            }
-            with open(CONFIG_PATH, 'w') as config_file:
-                default_content.write(config_file)
-            logging.info(f"Wrote new config file to {CONFIG_PATH}")
+        if AppPaths.create_config_if_missing():
+            logging.info(f"Wrote new config file to {AppPaths.config_file()}")
 
         config = configparser.ConfigParser()
-        config.read(CONFIG_PATH)
+        config.read(AppPaths.config_file())
 
         config = self.prompt_config_update(config, 'Paths', 'geecs_data',
                                            'Enter GEECS data path: (ex: C:\\GEECS\\user data\\)')
@@ -332,8 +318,8 @@ class GEECSScannerWindow(QMainWindow):
         config = self.prompt_config_update(config, 'Experiment', 'rep_rate_hz',
                                            'Enter repetition rate in Hz: (ex: 1)')
 
-        logging.info(f"Writing config file to {CONFIG_PATH}")
-        with open(CONFIG_PATH, 'w') as file:
+        logging.info(f"Writing config file to {AppPaths.config_file()}")
+        with open(AppPaths.config_file(), 'w') as file:
             config.write(file)
         self.load_config_settings()
         self.reinitialize_run_control()
@@ -362,7 +348,7 @@ class GEECSScannerWindow(QMainWindow):
         """
         Displays the found experiments in the ./experiments/ subfolder for selecting experiment
         """
-        folders = [f.stem for f in BASE_PATH.iterdir() if f.is_dir()]
+        folders = [f.stem for f in self.app_paths.base_path().iterdir() if f.is_dir()]
         completer = QCompleter(folders, self)
         completer.setCompletionMode(QCompleter.PopupCompletion)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -378,13 +364,14 @@ class GEECSScannerWindow(QMainWindow):
         selected_experiment = self.ui.experimentDisplay.text()
         if not (selected_experiment in self.experiment):
             self.clear_lists()
-            new_folder_path = BASE_PATH / selected_experiment
-            if new_folder_path.is_dir():
-                self.experiment = selected_experiment
-                self.ui.experimentDisplay.setText(self.experiment)
-                self.reinitialize_run_control()
-                self.populate_found_list()
 
+            self.experiment = selected_experiment
+            self.ui.experimentDisplay.setText(self.experiment)
+            self.timing_configuration_name = ""
+            self.ui.lineTimingDevice.setText(self.timing_configuration_name)
+            self.reinitialize_run_control()
+
+            self.populate_found_list()
             self.ui.lineScanVariable.setText("")
             self.scan_variable = ""
             self.populate_scan_devices()
@@ -429,7 +416,7 @@ class GEECSScannerWindow(QMainWindow):
             self.repetition_rate = 0
 
     def show_timing_configuration_list(self):
-        config_folder_path = BASE_PATH / self.experiment / SHOT_CONTROL_FOLDER
+        config_folder_path = self.app_paths.shot_control()
         if config_folder_path.exists():
             files = [f.stem for f in config_folder_path.iterdir() if f.suffix == ".yaml"]
             completer = QCompleter(files, self)
@@ -450,7 +437,7 @@ class GEECSScannerWindow(QMainWindow):
         """Gets all files in the save_devices folder under chosen experiment and adds it to the available elements list
         """
         try:
-            experiment_preset_folder = BASE_PATH / self.experiment / "save_devices"
+            experiment_preset_folder = self.app_paths.save_devices()
             for f in experiment_preset_folder.iterdir():
                 if f.is_file():
                     self.ui.foundDevices.addItem(f.stem)
@@ -491,7 +478,7 @@ class GEECSScannerWindow(QMainWindow):
         elements."""
         database_dict = self.find_database_dict()
 
-        config_folder = BASE_PATH / self.experiment / "save_devices"
+        config_folder = self.app_paths.save_devices()
         self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder,
                                                 load_config=self.load_element_name)
         self.element_editor.exec_()
@@ -517,7 +504,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def open_multiscanner(self):
         """Opens the multiscanner window, and in the process sets a flag that disables starting scans on the main gui"""
-        self.multiscanner_window = MultiScanner(self, BASE_PATH / self.experiment / MULTISCAN_FOLDER)
+        self.multiscanner_window = MultiScanner(self, self.app_paths.multiscan_presets())
         self.multiscanner_window.show()
 
         self.is_in_multiscan = True
@@ -532,8 +519,7 @@ class GEECSScannerWindow(QMainWindow):
         """ Opens the timing setup window, using the current contents of the line edit to populate the dialog gui """
         database_dict = self.find_database_dict()
 
-        config_folder = BASE_PATH / self.experiment / SHOT_CONTROL_FOLDER
-        self.timing_editor = ShotControlEditor(config_folder_path=config_folder,
+        self.timing_editor = ShotControlEditor(config_folder_path=self.app_paths.shot_control(),
                                                current_config=self.ui.lineTimingDevice.text(),
                                                database_dict=database_dict)
         self.timing_editor.selected_configuration.connect(self.handle_returned_timing_configuration)
@@ -552,15 +538,13 @@ class GEECSScannerWindow(QMainWindow):
         removed from either list."""
         logging.info("Refreshing element list...")
         try:
-            experiment_preset_folder = BASE_PATH / self.experiment / "save_devices"
-
             selected_elements_list = {self.ui.selectedDevices.item(i).text()
                                       for i in range(self.ui.selectedDevices.count())}
 
             self.ui.foundDevices.clear()
             self.ui.selectedDevices.clear()
 
-            for f in experiment_preset_folder.iterdir():
+            for f in self.app_paths.save_devices().iterdir():
                 if f.is_file():
                     if f.stem in selected_elements_list:
                         self.ui.selectedDevices.addItem(f.stem)
@@ -611,13 +595,13 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_variable_list = []
         self.scan_composite_list = []
         try:
-            experiment_folder = BASE_PATH / self.experiment / "scan_devices"
-            with open(experiment_folder / "scan_devices.yaml", 'r') as file:
+            with open(self.app_paths.scan_devices() / "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 devices = data['single_scan_devices']
                 self.scan_variable_list = list(devices.keys())
 
-            composite_variables_location = BASE_PATH / self.experiment / "aux_configs"
+            # TODO move composite variables to scan devices folder
+            composite_variables_location = AppPaths.BASE_PATH / self.experiment / "aux_configs"
             with open(composite_variables_location / "composite_variables.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 composite_vars = data['composite_variables']
@@ -637,8 +621,7 @@ class GEECSScannerWindow(QMainWindow):
         :param name: Selected scan variable to be converted to GEECS variable and/or composite variable
         """
         try:
-            experiment_folder = BASE_PATH / self.experiment / "scan_devices"
-            with open(experiment_folder / "scan_devices.yaml", 'r') as file:
+            with open(self.app_paths.scan_devices() / "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 if name in data['single_scan_devices']:
                     return data['single_scan_devices'][name]
@@ -735,8 +718,7 @@ class GEECSScannerWindow(QMainWindow):
         """
         preset_list = []
         try:
-            experiment_folder = BASE_PATH / self.experiment / PRESET_FOLDER
-            for f in experiment_folder.iterdir():
+            for f in self.app_paths.presets().iterdir():
                 if f.is_file():
                     preset_list.append(f.stem)
 
@@ -766,7 +748,7 @@ class GEECSScannerWindow(QMainWindow):
                 settings['Step Size'] = self.scan_step_size
                 settings['Shot per Step'] = self.scan_shot_per_step
 
-            preset_file = BASE_PATH / self.experiment / PRESET_FOLDER / (text + ".yaml")
+            preset_file = self.app_paths.presets() / (text + ".yaml")
             preset_file.parent.mkdir(parents=True, exist_ok=True)
 
             with open(preset_file, 'w') as file:
@@ -791,7 +773,7 @@ class GEECSScannerWindow(QMainWindow):
         :param load_save_elements: Defaults to True, flag to load the save elements from a preset file
         :param load_scan_params: Defaults to True, flag to load the scan parameters from a preset file
         """
-        preset_filename = BASE_PATH / self.experiment / PRESET_FOLDER / (preset_name + ".yaml")
+        preset_filename = self.app_paths.presets() / (preset_name + ".yaml")
         with open(preset_filename, 'r') as file:
             settings = yaml.safe_load(file)
 
@@ -832,7 +814,7 @@ class GEECSScannerWindow(QMainWindow):
         """Deletes the preset that is currently selected in the list.  Afterwards, refreshes the preset list"""
         selected_element = self.ui.listScanPresets.selectedItems()
         for preset in selected_element:
-            preset_filename = BASE_PATH / self.experiment / PRESET_FOLDER / (preset.text() + ".yaml")
+            preset_filename = self.app_paths.presets() / (preset.text() + ".yaml")
             try:
                 preset_filename.unlink()
                 logging.info(f"{preset_filename} has been deleted :(")
@@ -873,8 +855,7 @@ class GEECSScannerWindow(QMainWindow):
             list_of_closeout_steps = []
             for i in range(self.ui.selectedDevices.count()):
                 filename = self.ui.selectedDevices.item(i).text()
-                fullpath = BASE_PATH / self.experiment / "save_devices" / (filename + ".yaml")
-                with open(fullpath, 'r') as file:
+                with open(self.app_paths.save_devices() / (filename + ".yaml"), 'r') as file:
                     try:
                         data = yaml.safe_load(file)
                         save_device_list.update(data['Devices'])
@@ -986,11 +967,11 @@ class GEECSScannerWindow(QMainWindow):
         of.open_daily_data_folder(experiment=self.experiment)
 
     def open_experiment_config_folder(self):
-        of.open_folder(BASE_PATH / self.experiment)
+        of.open_folder(self.app_paths.experiment())
 
     @staticmethod
     def open_user_config_file():
-        of.open_folder(CONFIG_PATH.parent)
+        of.open_folder(AppPaths.config_file().parent)
 
     def open_github_page(self):
         url_string = "https://github.com/GEECS-BELLA/GEECS-Plugins/tree/master/GEECS-Scanner-GUI"

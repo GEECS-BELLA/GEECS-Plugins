@@ -15,15 +15,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Union
 if TYPE_CHECKING:
-    from .GEECSScanner import GEECSScannerWindow
+    from .. import GEECSScannerWindow
 
 import configparser
-from pathlib import Path
+from ...utils import ApplicationPaths as AppPaths
 from PyQt5.QtWidgets import QAction, QInputDialog
 from PyQt5.QtCore import QCoreApplication
 
-# TODO this should live somewhere else, more than GEECS Scanner needs this now...
-CONFIG_PATH = Path('~/.config/geecs_python_api/config.ini').expanduser()
+
 CONFIG_SECTION = 'Options'
 
 
@@ -42,14 +41,14 @@ class MenuBarOption(QAction):
 
     def update_default(self):
         config = configparser.ConfigParser()
-        config.read(CONFIG_PATH)
+        config.read(AppPaths.config_file())
 
         if not config.has_section(CONFIG_SECTION):
             config.add_section(CONFIG_SECTION)
 
         config.set(CONFIG_SECTION, self.get_name(), str(self.get_value()))
 
-        with open(CONFIG_PATH, 'w') as file:
+        with open(AppPaths.config_file(), 'w') as file:
             config.write(file)
 
     def get_name(self) -> str:
@@ -68,7 +67,7 @@ class MenuBarOptionBool(MenuBarOption):
 
     def load_default(self):
         config = configparser.ConfigParser()
-        config.read(CONFIG_PATH)
+        config.read(AppPaths.config_file())
         if config.has_section(CONFIG_SECTION) and config.has_option(CONFIG_SECTION, self.get_name()):
             self.value = config.getboolean(CONFIG_SECTION, self.get_name())
 
@@ -84,7 +83,7 @@ class MenuBarOptionStr(MenuBarOption):
 
     def load_default(self):
         config = configparser.ConfigParser()
-        config.read(CONFIG_PATH)
+        config.read(AppPaths.config_file())
         if config.has_section(CONFIG_SECTION) and config.has_option(CONFIG_SECTION, self.get_name()):
             self.value = config[CONFIG_SECTION][self.get_name()]
 
