@@ -6,7 +6,7 @@ Script to contain the logic for the GEECSScanner GUI.  Can be launched by runnin
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
-    from RunControl import RunControl
+    from run_control import RunControl
 
 import sys
 from pathlib import Path
@@ -20,10 +20,9 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter,
 from PyQt5.QtCore import Qt, QEvent, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices
 from .gui.GEECSScanner_ui import Ui_MainWindow
-from . import module_open_folder as of
+from .lib import module_open_folder as of
+from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
 from . import ScanElementEditor, MultiScanner, ShotControlEditor
-from . import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
-# from LogStream import EmittingStream, MultiStream
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
@@ -231,9 +230,9 @@ class GEECSScannerWindow(QMainWindow):
             shot_control_path = None
 
         try:
-            module_path = Path(__file__).parent / 'RunControl.py'
+            module_path = Path(__file__).parent / 'run_control.py'
             sys.path.insert(0, str(module_path.parent))
-            run_control_class = getattr(importlib.import_module('RunControl'), 'RunControl')
+            run_control_class = getattr(importlib.import_module('run_control'), 'RunControl')
             self.RunControl = run_control_class(experiment_name=self.experiment,
                                                 shot_control_configuration=shot_control_path,
                                                 master_control_ip=self.master_control_ip)  # TODO instead, pass mc_ip and launch on scan start

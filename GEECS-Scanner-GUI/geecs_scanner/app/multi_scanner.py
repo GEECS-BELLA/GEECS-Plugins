@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Union, Optional
 if TYPE_CHECKING:
-    from GEECSScanner import GEECSScannerWindow
+    from . import GEECSScannerWindow
     from PyQt5.QtWidgets import QListWidget, QListWidgetItem
 
 import yaml
@@ -18,7 +18,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog, QMessageBox
 from PyQt5.QtCore import QTimer, QObject, QThread, pyqtSignal, pyqtSlot
 from .gui.MultiScanner_ui import Ui_Form
-from .multiscan_sound_player import play_finish_jingle
+from .lib.multiscan_sound_player import play_finish_jingle
 
 
 class MultiScanner(QWidget):
