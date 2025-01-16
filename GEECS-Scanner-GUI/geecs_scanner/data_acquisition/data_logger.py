@@ -53,6 +53,8 @@ class DataLogger:
         self.lock = threading.Lock()
 
         self.repetition_rate = 1.0  # Gets updated upon scan manager's reinitialization
+        
+        self.shot_save_event = threading.Event()
 
     def start_logging(self):
         """
@@ -274,6 +276,9 @@ class DataLogger:
                 self.update_async_observables(self.device_manager.async_observables, log_entries, elapsed_time)
 
                 # TODO move the on-shot tdms writer functionality from scan manager to here
+
+                # Set a flag to tell scan manager that a shot occured
+                self.shot_save_event.set()
 
                 # Trigger the beep in the background
                 self.sound_player.play_beep()  # Play the beep sound

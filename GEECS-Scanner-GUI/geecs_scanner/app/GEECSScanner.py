@@ -40,7 +40,7 @@ SHOT_CONTROL_FOLDER = "shot_control_configurations"
 
 # Lists of options to appear in the menu bar
 BOOLEAN_OPTIONS = ["On-Shot TDMS"]
-STRING_OPTIONS = ["Master Control IP"]
+STRING_OPTIONS = ["Master Control IP", "Save Hiatus Period (s)"]
 
 
 class GEECSScannerWindow(QMainWindow):

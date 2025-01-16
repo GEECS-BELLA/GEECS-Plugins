@@ -309,9 +309,6 @@ class ShotControlEditor(QDialog):
         if self.device_name == '':
             logging.error("Could not save timing configuration: cannot save with empty device name")
             return
-        if len(self.variable_dictionary) == 0:
-            logging.error("Could not save timing configuration: cannot save with no variables")
-            return
         for variable_name in self.variable_dictionary.keys():
             keys_to_check = ['OFF', 'SCAN', 'STANDBY']
             variable = self.variable_dictionary[variable_name]

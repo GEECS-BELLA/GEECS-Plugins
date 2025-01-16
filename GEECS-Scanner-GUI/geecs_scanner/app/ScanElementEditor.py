@@ -654,6 +654,7 @@ class ScanElementEditor(QDialog):
             logging.warning("Need an element name")
         else:
             file = self.config_folder / (filename + ".yaml")
+            file.parent.mkdir(parents=True, exist_ok=True)
             logging.info(f"Saving config to {file}")
             setup_action = {'steps': self.actions_dict['setup']}
             closeout_action = {'steps': self.actions_dict['closeout']}
