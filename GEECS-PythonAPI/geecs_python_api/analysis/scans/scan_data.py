@@ -28,7 +28,6 @@ if not logging.getLogger().hasHandlers():
 
 def reload_paths_config():
     """ Used by GEECS Scanner to fix scan_data_manager in case experiment name has changed """
-    start = time.time()
     try:
         ScanData.paths_config = GeecsPathsConfig()
     except ValueError:
