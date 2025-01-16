@@ -198,8 +198,14 @@ class GEECSScannerWindow(QMainWindow):
         is changed.  To do so, the experiment name in the config file is updated because geecs-python-api is heavily
         dependent on this for loading the correct database.
         """
-        logging.info("Reinitialization of Run Control")
 
+        if self.experiment is None or self.experiment == "":
+            logging.warning("No experiment selected")
+            self.RunControl = None
+            self.app_paths = None
+            return
+
+        logging.info("Reinitialization of Run Control")
         self.app_paths = AppPaths(experiment=self.experiment)
 
         # Before initializing, rewrite config file if experiment name or timing configuration name has changed
@@ -348,7 +354,7 @@ class GEECSScannerWindow(QMainWindow):
         """
         Displays the found experiments in the ./experiments/ subfolder for selecting experiment
         """
-        folders = [f.stem for f in self.app_paths.base_path().iterdir() if f.is_dir()]
+        folders = [f.stem for f in AppPaths.BASE_PATH.iterdir() if f.is_dir()]
         completer = QCompleter(folders, self)
         completer.setCompletionMode(QCompleter.PopupCompletion)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -416,6 +422,10 @@ class GEECSScannerWindow(QMainWindow):
             self.repetition_rate = 0
 
     def show_timing_configuration_list(self):
+        if self.app_paths is None:
+            logging.error("No defined paths for timing configurations")
+            return
+
         config_folder_path = self.app_paths.shot_control()
         if config_folder_path.exists():
             files = [f.stem for f in config_folder_path.iterdir() if f.suffix == ".yaml"]
@@ -442,6 +452,9 @@ class GEECSScannerWindow(QMainWindow):
                 if f.is_file():
                     self.ui.foundDevices.addItem(f.stem)
         except OSError:
+            self.clear_lists()
+        except AttributeError:
+            logging.error("No defined path for save devices")
             self.clear_lists()
 
     def add_files(self):
@@ -478,7 +491,7 @@ class GEECSScannerWindow(QMainWindow):
         elements."""
         database_dict = self.find_database_dict()
 
-        config_folder = self.app_paths.save_devices()
+        config_folder = None if self.app_paths is None else self.app_paths.save_devices()
         self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder,
                                                 load_config=self.load_element_name)
         self.element_editor.exec_()
@@ -504,7 +517,8 @@ class GEECSScannerWindow(QMainWindow):
 
     def open_multiscanner(self):
         """Opens the multiscanner window, and in the process sets a flag that disables starting scans on the main gui"""
-        self.multiscanner_window = MultiScanner(self, self.app_paths.multiscan_presets())
+        preset_folder = None if self.app_paths is None else self.app_paths.multiscan_presets()
+        self.multiscanner_window = MultiScanner(self, preset_folder)
         self.multiscanner_window.show()
 
         self.is_in_multiscan = True
@@ -518,8 +532,9 @@ class GEECSScannerWindow(QMainWindow):
     def open_timing_setup(self):
         """ Opens the timing setup window, using the current contents of the line edit to populate the dialog gui """
         database_dict = self.find_database_dict()
+        config_folder_path = None if self.app_paths is None else self.app_paths.shot_control()
 
-        self.timing_editor = ShotControlEditor(config_folder_path=self.app_paths.shot_control(),
+        self.timing_editor = ShotControlEditor(config_folder_path=config_folder_path,
                                                current_config=self.ui.lineTimingDevice.text(),
                                                database_dict=database_dict)
         self.timing_editor.selected_configuration.connect(self.handle_returned_timing_configuration)
@@ -552,6 +567,9 @@ class GEECSScannerWindow(QMainWindow):
                         self.ui.foundDevices.addItem(f.stem)
         except OSError:
             logging.error("OSError occurred!")
+            self.clear_lists()
+        except AttributeError:
+            logging.error("No defined path for save devices")
             self.clear_lists()
 
         logging.info("Refreshing scan variable list...")
@@ -594,6 +612,11 @@ class GEECSScannerWindow(QMainWindow):
         """Generates a list of found scan devices from the scan_devices.yaml file"""
         self.scan_variable_list = []
         self.scan_composite_list = []
+
+        if self.app_paths is None:
+            logging.error("No defined paths for scan devices")
+            return
+
         try:
             with open(self.app_paths.scan_devices() / "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
@@ -724,11 +747,17 @@ class GEECSScannerWindow(QMainWindow):
 
         except OSError:
             logging.error("Could not locate pre-existing scan presets.")
+        except AttributeError:
+            logging.error("No defined path for scan presets")
         return preset_list
 
     def save_current_preset(self):
         """Takes the current scan configuration and prompts the user if they would like to save it as a preset.  If so,
         the user give a filename to save under and the information is compiled into a yaml that "apply_preset" uses"""
+        if self.app_paths is None:
+            logging.error("No defined paths for scan presets")
+            return
+
         text, ok = QInputDialog.getText(self, 'Save Configuration', 'Enter filename:')
         if ok and text:
             save_device_list = []

@@ -181,7 +181,7 @@ class ScanElementEditor(QDialog):
         self.ui.radioIsSetup.clicked.connect(self.set_as_setup)
 
         # If a .yaml file is given, load the dictionary into the backend dictionaries to start with
-        self.config_folder = Path(config_folder)
+        self.config_folder = None if config_folder is None else Path(config_folder)
         if load_config is not None:
             self.load_settings_from_file(config_folder / load_config)
 
@@ -635,6 +635,10 @@ class ScanElementEditor(QDialog):
         self.update_action_list(index=new_position)
 
     def initialize_action_control(self):
+        if self.config_folder is None:
+            logging.error("No defined path for save devices")
+            return
+
         exp_name = self.config_folder.parent.name
         self.action_control = ActionControl(experiment_name=exp_name)
         self.ui.buttonEnableActions.setEnabled(False)
@@ -649,6 +653,10 @@ class ScanElementEditor(QDialog):
 
     def save_element(self):
         """Save the current dictionaries as a new element in the experimental folder with the correct formatting"""
+        if self.config_folder is None:
+            logging.error("No defined path for save devices")
+            return
+
         filename = self.ui.lineElementName.text().strip()
         if filename == "":
             logging.warning("Need an element name")
@@ -677,6 +685,10 @@ class ScanElementEditor(QDialog):
 
     def open_element(self):
         """Prompts the user to select a .yaml file from which to load element dictionary information"""
+        if self.config_folder is None:
+            logging.error("No defined path for save devices")
+            return
+
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
         file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", str(self.config_folder),

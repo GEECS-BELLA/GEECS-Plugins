@@ -67,7 +67,10 @@ class MultiScanner(QWidget):
         self.ui.buttonCopyRowScan.clicked.connect(self.copy_row_to_list_scan)
 
         # Buttons to save and load multiscan configurations
-        self.config_folder = Path(multiscan_configurations_location)
+        if multiscan_configurations_location is None:
+            self.config_folder = None
+        else:
+            self.config_folder = Path(multiscan_configurations_location)
         self.ui.buttonSaveMultiscan.clicked.connect(self.save_multiscan_configuration)
         self.ui.buttonLoadMultiscan.clicked.connect(self.load_multiscan_configuration)
 
@@ -275,6 +278,10 @@ class MultiScanner(QWidget):
 
     def save_multiscan_configuration(self):
         """Saves the current multiscan configuration to a yaml file specified by the user"""
+        if self.config_folder is None:
+            logging.error("No defined path for multiscan presets")
+            return
+
         text, ok = QInputDialog.getText(self, 'Save Configuration', 'Enter filename:')
         if ok and text:
             settings = {
@@ -292,6 +299,10 @@ class MultiScanner(QWidget):
 
     def load_multiscan_configuration(self):
         """Prompts the user to specify a yaml file from which to load a multiscan configuration"""
+        if self.config_folder is None:
+            logging.error("No defined path for multiscan presets")
+            return
+
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
         file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", str(self.config_folder),

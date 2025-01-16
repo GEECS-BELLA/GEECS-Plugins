@@ -53,9 +53,10 @@ class ShotControlEditor(QDialog):
         self.database_dict = database_dict or {}
 
         # Folder containing all the shot control configurations for the selected experiment
-        self.config_folder_path = Path(config_folder_path)
-        if not self.config_folder_path.exists():
-            self.config_folder_path.mkdir(parents=True, exist_ok=True)
+        if config_folder_path is None:
+            self.config_folder_path = None
+        else:
+            self.config_folder_path = Path(config_folder_path)
 
         # Top half of the GUI for selecting the configuration and some file operations
         self.ui.lineConfigurationSelect.setReadOnly(True)
@@ -111,6 +112,9 @@ class ShotControlEditor(QDialog):
     # # # # Methods for selecting, creating, and deleting available timing system configurations # # # # #
 
     def _get_list_of_configurations(self) -> list[str]:
+        if self.config_folder_path is None:
+            logger.error("No defined path for timing configurations")
+            return []
         return [f.stem for f in self.config_folder_path.iterdir() if f.suffix == ".yaml"]
 
     def show_configuration_list(self):
@@ -173,6 +177,10 @@ class ShotControlEditor(QDialog):
         :param configuration_name: name of the .yaml file
         :param use_empty: Defaults to False.  If True, will use an empty dict when writing the config file contents
         """
+        if self.config_folder_path is None:
+            logger.error("No defined path for timing configuration")
+            return
+
         if use_empty:
             contents = {}
         else:
