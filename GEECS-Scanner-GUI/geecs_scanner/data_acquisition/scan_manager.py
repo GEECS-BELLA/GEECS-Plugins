@@ -100,17 +100,20 @@ class ScanManager:
             self.pause_scan_event.set()
             logging.info("Scanning resumed.")
 
-    def reinitialize(self, config_path=None, config_dictionary=None):
+    def reinitialize(self, config_path=None, config_dictionary=None, scan_data=None):
         """
         Reinitialize the ScanManager with new configurations and reset the logging system.
 
         Args:
             config_path (str, optional): Path to the configuration file.
             config_dictionary (dict, optional): Dictionary containing configuration settings.
+            scan_data (ScanData, optional):  If given, scan_data_manager will use an alternative scan folder
         """
 
         self.initial_state = None
         self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
+        self.scan_data_manager = ScanDataManager(self.device_manager, scan_data, database_dict)
+
         self.options_dict = config_dictionary['options']
         self.data_logger.reinitialize_sound_player()
         self.data_logger.last_log_time_sync = {}

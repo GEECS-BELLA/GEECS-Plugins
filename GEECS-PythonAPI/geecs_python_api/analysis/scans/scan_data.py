@@ -25,14 +25,22 @@ logger = logging.getLogger(__name__)
 if not logging.getLogger().hasHandlers():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-try:
-    CONFIG = GeecsPathsConfig()
-except ValueError:
-    logging.error("'CONFIG' not set for ScanData")
-    CONFIG = None
+
+def reload_paths_config():
+    """ Used by GEECS Scanner to fix scan_data_manager in case experiment name has changed """
+    start = time.time()
+    try:
+        ScanData.paths_config = GeecsPathsConfig()
+    except ValueError:
+        logger.error("'CONFIG' not set for ScanData")
+        ScanData.paths_config = None
+
 
 class ScanData:
     """ Represents a GEECS experiment scan """
+
+    paths_config = None  # TODO the "reload" function is called statically at the bottom of this file, seems kinda bad
+
 
     def __init__(self, folder: Optional[SysPath] = None,
                  tag: Optional[ScanTag] = None,
@@ -71,7 +79,7 @@ class ScanData:
         # Handle folder initialization
         if folder is None and tag is not None:
             if base_directory is None or not Path(base_directory).exists():
-                base_directory = CONFIG.base_path
+                base_directory = ScanData.paths_config.base_path
             if not Path(base_directory).exists():
                 raise NotADirectoryError(f"Error setting base directory: '{base_directory}'")
             folder = self.get_scan_folder_path(tag, base_directory=base_directory)
@@ -151,7 +159,7 @@ class ScanData:
             year += 2000
         month = month_to_int(month)
 
-        exp = experiment or experiment_name or CONFIG.experiment
+        exp = experiment or experiment_name or ScanData.paths_config.experiment
         if experiment_name is not None:
             logger.warning("Recommended to use 'experiment' instead of 'experiment_name' for 'get_scan_tag'...")
 
@@ -162,7 +170,7 @@ class ScanData:
         """
         Build scan folder paths for local and client directories.
         """
-        base = base_directory or CONFIG.base_path
+        base = base_directory or ScanData.paths_config.base_path
 
         folder = Path(base) / tag.experiment
         folder = folder / f'Y{tag.year}' / f'{tag.month:02d}-{cal.month_name[tag.month][:3]}'
@@ -454,3 +462,5 @@ class ScanData:
             setpoints = measured.avg_x
 
         return indexes, setpoints, parameter_avgs_match_setpoints
+
+reload_paths_config()

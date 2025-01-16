@@ -108,7 +108,12 @@ class GeecsDatabase:
             -> dict[str, Union[ExpDict, dict[str, Path], Path, int]]:
 
         if GeecsDatabase.name is None:
-            raise AttributeError("Geecs Database not set properly")
+            try:
+                GeecsDatabase.name, GeecsDatabase.ipv4, GeecsDatabase.username, GeecsDatabase.password = find_database()
+            except FileNotFoundError:
+                print("No GEECS User data defined, skipping database initialization")
+                GeecsDatabase.name, GeecsDatabase.ipv4, GeecsDatabase.username, GeecsDatabase.password = None
+                raise AttributeError("Geecs Database not set properly")
 
         db = GeecsDatabase._get_db()
         db_cursor = db.cursor(dictionary=True)
