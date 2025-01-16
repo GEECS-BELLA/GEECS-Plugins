@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 # Standard library imports
+from typing import Optional
 import time
 import threading
 import logging
@@ -50,8 +53,14 @@ class ScanManager:
         self.data_logger = DataLogger(experiment_dir, self.device_manager)  # Initialize DataLogger
         self.save_data = True
 
-        self.shot_control = GeecsDevice(shot_control_information['device'])
-        self.shot_control_variables = shot_control_information['variables']
+        self.shot_control: Optional[GeecsDevice] = None
+        self.shot_control_variables = None
+        shot_control_device = shot_control_information.get('device', None)
+        if shot_control_device:
+            self.shot_control = GeecsDevice(shot_control_information['device'])
+            self.shot_control_variables = shot_control_information['variables']
+            self.enable_live_ECS_dump(client_ip=self.MC_ip)
+
         self.results = {}  # Store results for later processing
 
         self.stop_scanning_thread_event = threading.Event()  # Event to signal the logging thread to stop
@@ -70,15 +79,12 @@ class ScanManager:
         self.scan_step_start_time = 0
         self.scan_step_end_time = 0
 
-
         self.initial_state = None
         self.scan_steps = []  # To store the precomputed scan steps
 
         self.pause_scan_event = threading.Event()  # Event to handle scan pausing
         self.pause_scan_event.set()  # Set to 'running' by default
         self.pause_time = 0
-        
-        self.enable_live_ECS_dump(client_ip = self.MC_ip)
 
         self.options_dict = {}  # Later initialized in 'reinitialize', but TODO should do it here instead
 
@@ -119,6 +125,9 @@ class ScanManager:
         Args:
             state (str): Either 'OFF', 'SCAN', or 'STANDBY'.   Used for when trigger is off, or during/outside a scan
         """
+        if self.shot_control is None or self.shot_control_variables is None:
+            logging.info(f"No shot control device, skipping 'set state {state}'")
+            return
 
         valid_states = ['OFF', 'SCAN', 'STANDBY']
 
@@ -378,13 +387,17 @@ class ScanManager:
             self.action_manager.execute_action('setup_action')
         
         logging.info(f'attempting to generate ECS live dump using {self.MC_ip}')
-        if self.MC_ip is not None:
+        if self.MC_ip is not None and self.shot_control is not None:
             logging.info(f'attempting to generate ECS live dump using {self.MC_ip}')            
             self.generate_live_ECS_dump(self.MC_ip)
 
         logging.info("Pre-logging setup completed.")
   
     def enable_live_ECS_dump(self, client_ip: str = '192.168.0.1'):
+        if self.shot_control is None:
+            logging.error("Cannot enable live ECS dump without shot control device")
+            return
+
         steps = [
             "enable remote scan ECS dumps",
         ]
@@ -397,6 +410,10 @@ class ScanManager:
                 break
     
     def generate_live_ECS_dump(self, client_ip: str = '192.168.0.1'):
+        if self.shot_control is None:
+            logging.error("Cannot enable live ECS dump without shot control device")
+            return
+
         steps = [
             "Main: Check scans path>>None",
             "Save Live Expt Devices Configuration>>ScanStart"
@@ -555,7 +572,8 @@ class ScanManager:
 
         self.trigger_off()
 
-        logging.info(f"shot control state: {self.shot_control.state}")
+        if self.shot_control is not None:
+            logging.info(f"shot control state: {self.shot_control.state}")
 
         if not self.device_manager.is_statistic_noscan(component_vars):
             for device_var, set_val in component_vars.items():
@@ -606,7 +624,8 @@ class ScanManager:
             self.data_logger.idle_time = self.scan_step_start_time - self.scan_step_end_time + self.pause_time
             logging.info(f'idle time between scan steps: {self.data_logger.idle_time}')
 
-        logging.info(f"shot control state: {self.shot_control.state}")
+        if self.shot_control is not None:
+            logging.info(f"shot control state: {self.shot_control.state}")
 
         # Wait for acquisition time (or until scanning is externally stopped)
         current_time = 0
@@ -656,7 +675,8 @@ class ScanManager:
         self.scan_step_end_time = time.time()
         self.data_logger.data_recording = False
 
-        logging.info(f"shot control state: {self.shot_control.state}")
+        if self.shot_control is not None:
+            logging.info(f"shot control state: {self.shot_control.state}")
 
     def estimate_acquisition_time(self, scan_config):
 
