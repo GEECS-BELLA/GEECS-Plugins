@@ -1,7 +1,6 @@
 from scan_analysis.base import AnalyzerInfo as Info
 
-from scan_analysis.analyzers.Undulator import (MagSpecStitcherAnalysis, CameraImageAnalysis,
-                                               VisaEBeamAnalysis, Rad2SpecAnalysis, HiResMagCamAnalysis)
+from scan_analysis.analyzers.Undulator import *
 
 undulator_analyzers = [
     Info(analyzer_class=MagSpecStitcherAnalysis,
