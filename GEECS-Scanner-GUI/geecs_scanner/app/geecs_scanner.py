@@ -15,6 +15,7 @@ import importlib
 import yaml
 import configparser
 import logging
+from importlib.metadata import version
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter, QMessageBox
 from PyQt5.QtCore import Qt, QEvent, QTimer, QUrl
@@ -27,7 +28,7 @@ from ..utils import ApplicationPaths as AppPaths
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
-CURRENT_VERSION = 'v0.5'  # Try to keep this up-to-date, increase the version # with significant changes :)
+CURRENT_VERSION = "v" + version("geecs-scanner-gui")  # Pulled from `pyproject.toml` for GEECS-Scanner-GUI sub-repo
 
 MAXIMUM_SCAN_SIZE = 1e6  # A simple check to not start a scan if it exceeds this number of shots.
 
