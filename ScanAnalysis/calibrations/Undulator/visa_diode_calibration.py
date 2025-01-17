@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
 
 from geecs_python_api.analysis.scans.scan_data import ScanData
-from scan_analysis.analyzers.Undulator.VisaEBeamAnalysis import VisaEBeamAnalysis
+from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
 from image_analysis.utils import read_imaq_image
 from image_analysis.tools.general import image_signal_thresholding, find_beam_properties
 

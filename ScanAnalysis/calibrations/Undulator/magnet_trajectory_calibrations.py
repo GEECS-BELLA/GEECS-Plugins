@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from scan_analysis.analyzers.Undulator.CameraImageAnalysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
 from image_analysis.tools.general import find_beam_properties, image_signal_thresholding
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
