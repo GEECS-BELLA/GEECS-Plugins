@@ -328,6 +328,8 @@ class GEECSScannerWindow(QMainWindow):
         with open(AppPaths.config_file(), 'w') as file:
             config.write(file)
         self.load_config_settings()
+        self.ui.experimentDisplay.setText(self.experiment)
+        self.experiment_selected()
         self.reinitialize_run_control()
 
     def prompt_config_update(self, config: configparser.ConfigParser,
@@ -363,12 +365,12 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.experimentDisplay.setFocus()
         completer.complete()
 
-    def experiment_selected(self):
+    def experiment_selected(self, force_update=False):
         """
         Upon selecting the experiment, reset the list of save devices and scan devices and reinitialize Run Control
         """
         selected_experiment = self.ui.experimentDisplay.text()
-        if not (selected_experiment in self.experiment):
+        if not (selected_experiment in self.experiment) or force_update:
             self.clear_lists()
 
             self.experiment = selected_experiment
