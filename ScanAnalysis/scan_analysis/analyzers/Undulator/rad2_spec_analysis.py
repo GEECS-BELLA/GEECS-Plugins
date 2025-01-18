@@ -6,7 +6,7 @@ Chris
 from __future__ import annotations
 
 from typing import Optional
-from scan_analysis.analyzers.Undulator.CameraImageAnalysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
 from geecs_python_api.controls.api_defs import ScanTag
 
 

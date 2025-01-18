@@ -11,7 +11,7 @@ ImageAnalysis for a binned image. (rather than rely on the scalar calculations f
 from __future__ import annotations
 
 from pathlib import Path
-from scan_analysis.analyzers.Undulator.CameraImageAnalysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
 from geecs_python_api.controls.api_defs import ScanTag
 from image_analysis import labview_adapters
 import matplotlib.pyplot as plt
