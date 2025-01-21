@@ -1,4 +1,3 @@
-from .sound_player import SoundPlayer
 from .action_manager import ActionManager
 from .device_manager import DeviceManager
 from .data_logger import DataLogger

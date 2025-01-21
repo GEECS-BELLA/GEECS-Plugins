@@ -3,7 +3,8 @@ import threading
 from datetime import datetime
 import logging
 
-from . import DeviceManager, SoundPlayer
+from . import DeviceManager
+from geecs_scanner.app.lib import SoundPlayer
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
