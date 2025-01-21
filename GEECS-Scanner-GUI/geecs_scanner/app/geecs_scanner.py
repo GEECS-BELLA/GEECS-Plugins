@@ -333,8 +333,8 @@ class GEECSScannerWindow(QMainWindow):
             config.write(file)
         self.load_config_settings()
         self.ui.experimentDisplay.setText(self.experiment)
-        self.experiment_selected()
-        self.reinitialize_run_control()
+        self.experiment_selected(force_update=True)
+        # self.reinitialize_run_control()
 
     def prompt_config_update(self, config: configparser.ConfigParser,
                              section: str, option: str, information: str) -> configparser.ConfigParser:
