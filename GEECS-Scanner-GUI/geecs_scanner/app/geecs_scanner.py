@@ -1000,10 +1000,21 @@ class GEECSScannerWindow(QMainWindow):
         self.RunControl.stop_scan()
 
     def open_daily_scan_folder(self):
-        of.open_daily_data_folder(experiment=self.experiment)
+        """ Opens file explorer at the location of server's data save folder for the day """
+        if self.app_paths is not None:
+            try:
+                of.open_daily_data_folder(experiment=self.experiment)
+            except AttributeError:
+                logging.error(f"Server location not defined for '{self.experiment}', see 'geecs_paths_config.py'")
 
     def open_experiment_config_folder(self):
-        of.open_folder(self.app_paths.experiment())
+        """
+        Opens file explorer at the location of the experiment config files, or the list of experiments if none selected
+        """
+        if self.app_paths is not None:
+            of.open_folder(self.app_paths.experiment())
+        else:
+            of.open_folder(AppPaths.base_path())
 
     @staticmethod
     def open_user_config_file():
