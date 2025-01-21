@@ -8,10 +8,12 @@ from geecs_python_api.analysis.scans.scan_data import ScanData, reload_paths_con
 
 
 def open_folder(path_to_folder: Path):
+    """ Opens Windows file explorer to the specified location """
     subprocess.Popen(f'explorer "{path_to_folder}"')
 
 
 def open_daily_data_folder(experiment: str):
+    """ Uses ScanData to find the server's save data location for today, and opens in Windows file explorer """
     latest = ScanData.get_next_scan_folder(experiment=experiment).parent
     latest.mkdir(parents=True, exist_ok=True)
     open_folder(path_to_folder=latest)

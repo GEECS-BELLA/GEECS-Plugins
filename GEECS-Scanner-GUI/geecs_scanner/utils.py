@@ -76,26 +76,34 @@ class ApplicationPaths:
 
     @staticmethod
     def config_file() -> Path:
+        """ :return: folder of user .ini config file """
         return ApplicationPaths.CONFIG_PATH
 
     @staticmethod
     def base_path() -> Path:
+        """ :return: root folder for all experiment config files """
         return ApplicationPaths.BASE_PATH
 
     def experiment(self) -> Path:
+        """ :return: root folder for all config files in given experiment """
         return self.exp_path
 
     def save_devices(self) -> Path:
+        """ :return: folder for the save device yaml's """
         return self.exp_save_devices
 
     def scan_devices(self) -> Path:
+        """ :return: folder for the scan device yaml's """
         return self.exp_scan_devices
 
     def presets(self) -> Path:
+        """ :return: folder for the scan preset yaml's """
         return self.exp_presets
 
     def multiscan_presets(self) -> Path:
+        """ :return: folder for the multiscan preset yaml's """
         return self.exp_multiscan
 
     def shot_control(self) -> Path:
+        """ :return: folder for the timing configuration yaml's """
         return self.exp_shot_control

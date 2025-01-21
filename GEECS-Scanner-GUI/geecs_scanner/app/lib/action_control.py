@@ -8,6 +8,11 @@ from geecs_scanner.data_acquisition import ActionManager
 
 class ActionControl:
     def __init__(self, experiment_name: str):
+        """
+        Opens a direct link to the Action Manager within `data_acquisition`
+
+        :param experiment_name: Name of the experiment, used to find the right config files and connect to devices
+        """
         self.action_manager = ActionManager(experiment_dir=experiment_name)
 
     def perform_action(self, action_list: dict):

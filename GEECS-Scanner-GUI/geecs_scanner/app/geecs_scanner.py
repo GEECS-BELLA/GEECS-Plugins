@@ -429,6 +429,7 @@ class GEECSScannerWindow(QMainWindow):
             self.repetition_rate = 0
 
     def show_timing_configuration_list(self):
+        """ Shows list of available timing device configurations """
         if self.app_paths is None:
             logging.error("No defined paths for timing configurations")
             return
@@ -445,8 +446,7 @@ class GEECSScannerWindow(QMainWindow):
             completer.complete()
 
     def update_shot_control_device(self):
-        """Updates the shot control device when it is changed in the text box, then reinitializes Run Control
-        """
+        """ Updates the shot control device when it is changed in the text box, then reinitializes Run Control """
         self.timing_configuration_name = self.ui.lineTimingDevice.text()
         self.reinitialize_run_control()
 
@@ -1018,9 +1018,11 @@ class GEECSScannerWindow(QMainWindow):
 
     @staticmethod
     def open_user_config_file():
+        """ Opens file explorer at the location of the user's config .ini file """
         of.open_folder(AppPaths.config_file().parent)
 
     def open_github_page(self):
+        """ In the default browser, opens the GitHub url for the GEECS-Scanner-GUI sub-repo under the master branch """
         url_string = "https://github.com/GEECS-BELLA/GEECS-Plugins/tree/master/GEECS-Scanner-GUI"
         url = QUrl(url_string)
         if not QDesktopServices.openUrl(url):
