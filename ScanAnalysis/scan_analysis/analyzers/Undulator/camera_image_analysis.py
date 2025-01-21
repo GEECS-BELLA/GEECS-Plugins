@@ -358,11 +358,14 @@ class CameraImageAnalysis(ScanAnalysis):
 
         """
         settings = self.camera_analysis_settings
+        if settings is None:
+            return image
 
-        cropped_image = image[settings['Top ROI']:settings['Top ROI'] + settings['Size_Y'],
-                              settings['Left ROI']:settings['Left ROI'] + settings['Size_X']]
+        else:
+            cropped_image = image[settings['Top ROI']:settings['Top ROI'] + settings['Size_Y'],
+                                  settings['Left ROI']:settings['Left ROI'] + settings['Size_X']]
 
-        return cropped_image
+            return cropped_image
 
     def filter_image(self, image: np.ndarray) -> np.ndarray:
         """
@@ -395,7 +398,7 @@ class CameraImageAnalysis(ScanAnalysis):
         processed_image = cropped_image.copy()
 
         # filter image, save image
-        if self.camera_analysis_settings.get('Median Filter Size', None):
+        if self.camera_analysis_settings and self.camera_analysis_settings.get('Median Filter Size', None):
             processed_image = self.filter_image(processed_image)
 
         return cropped_image, processed_image
