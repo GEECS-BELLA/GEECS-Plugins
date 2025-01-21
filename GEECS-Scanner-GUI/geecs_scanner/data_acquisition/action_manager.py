@@ -112,6 +112,19 @@ class ActionManager:
                 elif action_type == 'get':
                     self._get_device(device, variable, expected_value)
 
+    def clear_action(self, action_name: str):
+        """
+        Clears the given action_name from memory
+
+        Args:
+            action_name (str): The name of the action to execute.
+        """
+        if action_name not in self.actions:
+            logging.error(f"Action '{action_name}' is not defined in the available actions.")
+            return
+
+        del self.actions[action_name]
+
     def _set_device(self, device, variable, value, sync = True):
         """
         Set a device variable to a specified value.
