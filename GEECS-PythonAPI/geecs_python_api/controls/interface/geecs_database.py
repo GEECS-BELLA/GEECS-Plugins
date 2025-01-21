@@ -112,7 +112,7 @@ class GeecsDatabase:
                 GeecsDatabase.name, GeecsDatabase.ipv4, GeecsDatabase.username, GeecsDatabase.password = find_database()
             except FileNotFoundError:
                 print("No GEECS User data defined, skipping database initialization")
-                GeecsDatabase.name, GeecsDatabase.ipv4, GeecsDatabase.username, GeecsDatabase.password = None
+                GeecsDatabase.name = GeecsDatabase.ipv4 = GeecsDatabase.username = GeecsDatabase.password = None
                 raise AttributeError("Geecs Database not set properly")
 
         db = GeecsDatabase._get_db()
