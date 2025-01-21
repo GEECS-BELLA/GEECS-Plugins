@@ -16,3 +16,7 @@ def open_daily_data_folder(experiment: str):
     latest.mkdir(parents=True, exist_ok=True)
     open_folder(path_to_folder=latest)
 
+
+def reload_scan_data_paths():
+    """ Calls ScanData's function to reset static variables pointing to experiment-specific folders """
+    reload_paths_config()
