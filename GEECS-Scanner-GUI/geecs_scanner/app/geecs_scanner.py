@@ -382,6 +382,7 @@ class GEECSScannerWindow(QMainWindow):
             self.timing_configuration_name = ""
             self.ui.lineTimingDevice.setText(self.timing_configuration_name)
             self.reinitialize_run_control()
+            of.reload_scan_data_paths()
 
             self.populate_found_list()
             self.ui.lineScanVariable.setText("")
