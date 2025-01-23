@@ -100,7 +100,7 @@ def parse_variable_text(text) -> Union[int, float, str]:
             return text
 
 
-class ScanElementEditor(QDialog):
+class SaveElementEditor(QDialog):
     """
     GUI for viewing/editing scan save elements.  To be opened from the GEECSScanner GUI.  The code here is organized by
     having master dictionaries on the backend with all the information, then the GUI adds/subtracts/changes this

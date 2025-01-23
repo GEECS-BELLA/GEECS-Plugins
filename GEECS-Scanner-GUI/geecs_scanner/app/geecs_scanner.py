@@ -24,7 +24,7 @@ from PyQt5.QtGui import QDesktopServices
 from .gui.GEECSScanner_ui import Ui_MainWindow
 from .lib import module_open_folder as of
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
-from . import ScanElementEditor, MultiScanner, ShotControlEditor
+from . import SaveElementEditor, MultiScanner, ShotControlEditor
 from ..utils import ApplicationPaths as AppPaths
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
@@ -506,7 +506,7 @@ class GEECSScannerWindow(QMainWindow):
         database_dict = self.find_database_dict()
 
         config_folder = None if self.app_paths is None else self.app_paths.save_devices()
-        self.element_editor = ScanElementEditor(main_window=self, database_dict=database_dict,
+        self.element_editor = SaveElementEditor(main_window=self, database_dict=database_dict,
                                                 config_folder=config_folder, load_config=self.load_element_name)
         self.element_editor.exec_()
         self.refresh_element_list()
