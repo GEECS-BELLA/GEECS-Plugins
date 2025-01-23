@@ -21,10 +21,10 @@ class Environment(geecs_Environment):
         'MCD-1BL-ESP302M2M4:position.axis 1': [0.98,1.02],
         'MCD-1BL-ESP302M2M4:position.axis 2': [-1.4,-1.18],
         'MCD-1BL-ESP302M2M4:position.axis 3': [-0.78,-0.74],
-        'HEX-PL1-2:ypos': [-0.8,1.1],
-        'HEX-PL1-2:zpos': [-1.6,-1.4]
+        'HEX-PL1-2:ypos': [-0.5,1.1],
+        'HEX-PL1-2:zpos': [-1.6,-0.2]
     }
     observables = ['CAM-PL1-1-SideView:meancounts',
-                   'CAM-HPD-CCD:maxcounts']
+                   'CAM-HPD-CCD:maxcounts','CAM-HPD-M3Near:MeanCounts']
     some_parameter: str = 'test'
 
