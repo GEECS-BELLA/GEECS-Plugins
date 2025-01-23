@@ -627,11 +627,10 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_variable_list = []
         self.scan_composite_list = []
 
-        if self.app_paths is None:
-            logging.error("No defined paths for scan devices")
-            return
-
         try:
+            if self.app_paths is None:
+                raise FileNotFoundError("No defined paths for scan devices")
+
             with open(self.app_paths.scan_devices() / "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 devices = data['single_scan_devices']
@@ -642,7 +641,7 @@ class GEECSScannerWindow(QMainWindow):
                 composite_vars = data['composite_variables']
                 self.scan_composite_list = list(composite_vars.keys())
 
-        except Exception as e:
+        except FileNotFoundError as e:
             logging.error(f"Error loading file: {e}")
 
         completer = QCompleter(self.scan_variable_list + self.scan_composite_list, self.ui.lineScanVariable)
