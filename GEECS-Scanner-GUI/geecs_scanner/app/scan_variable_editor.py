@@ -54,21 +54,47 @@ class ScanVariableEditor(QDialog):
 
         # Functionality to Scan Variables section
         self.ui.lineVariableNickname.installEventFilter(self)
+        self.ui.lineVariableDevice.installEventFilter(self)
+        self.ui.lineVariableVariable.installEventFilter(self)
 
         # Functionality to Composite Variables section
         self.ui.lineCompositeNickname.installEventFilter(self)
+        self.ui.lineCompositeDevice.installEventFilter(self)
+        self.ui.lineCompositeVariable.installEventFilter(self)
 
         # Apply the stylesheet of the main window
         self.setStyleSheet(main_window.styleSheet())
 
     def eventFilter(self, source, event):
         """ Custom event for the text boxes so that the completion suggestions are shown when mouse is clicked """
+        # Nickname completer prompts
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableNickname:
             self.display_completer_list(location=self.ui.lineVariableNickname, completer_list=self.scan_variable_list)
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineCompositeNickname:
             self.display_completer_list(location=self.ui.lineCompositeNickname, completer_list=self.scan_composite_list)
             return True
+
+        # Device name completer prompts
+        if event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableDevice:
+            self.display_completer_list(location=self.ui.lineVariableDevice,
+                                        completer_list=sorted(self.database_dict.keys()))
+            return True
+        if event.type() == QEvent.MouseButtonPress and source == self.ui.lineCompositeDevice:
+            self.display_completer_list(location=self.ui.lineCompositeDevice,
+                                        completer_list=sorted(self.database_dict.keys()))
+            return True
+
+        # Variable name completer prompts
+        if event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableVariable:
+            self.display_completer_variable_list(list_location=self.ui.lineVariableVariable,
+                                                 device_location=self.ui.lineVariableDevice)
+            return True
+        if event.type() == QEvent.MouseButtonPress and source == self.ui.lineCompositeVariable:
+            self.display_completer_variable_list(list_location=self.ui.lineCompositeVariable,
+                                                 device_location=self.ui.lineCompositeDevice)
+            return True
+
         return super().eventFilter(source, event)
 
     def update_variable_information_from_files(self):
@@ -105,3 +131,14 @@ class ScanVariableEditor(QDialog):
         location.setCompleter(completer)
         location.setFocus()
         completer.complete()
+
+    def display_completer_variable_list(self, list_location: QLineEdit, device_location: QLineEdit):
+        """ Displays list of variables at one location using the device name at another location
+
+        :param list_location: GUI element at which to show the completer list
+        :param device_location: GUI element where the device name is given
+        """
+        device_name = device_location.text().strip()
+        if device_name in self.database_dict:
+            variable_list = sorted(self.database_dict[device_name].keys())
+            self.display_completer_list(location=list_location, completer_list=variable_list)
