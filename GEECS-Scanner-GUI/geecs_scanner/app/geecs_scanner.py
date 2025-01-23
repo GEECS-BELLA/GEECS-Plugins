@@ -24,7 +24,7 @@ from PyQt5.QtGui import QDesktopServices
 from .gui.GEECSScanner_ui import Ui_MainWindow
 from .lib import module_open_folder as of
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
-from . import SaveElementEditor, MultiScanner, ShotControlEditor
+from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor
 from ..utils import ApplicationPaths as AppPaths
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
@@ -114,7 +114,7 @@ class GEECSScannerWindow(QMainWindow):
 
         # Buttons to launch the side guis for the action library, timing device, and scan variables
         self.ui.buttonActionLibrary.setEnabled(False)
-        self.ui.buttonScanVariables.setEnabled(False)
+        self.ui.buttonScanVariables.clicked.connect(self.open_scan_variable_editor)
         self.ui.buttonOpenTimingSetup.clicked.connect(self.open_timing_setup)
 
         # Radio buttons that select if the next scan is to be a noscan or 1dscan
@@ -183,6 +183,7 @@ class GEECSScannerWindow(QMainWindow):
         self.element_editor = None
         self.multiscanner_window = None
         self.timing_editor = None
+        self.variable_editor = None
 
         # Set current GUI mode
         self.toggle_light_dark()
@@ -542,6 +543,15 @@ class GEECSScannerWindow(QMainWindow):
         """Cleans up the multiscanner window and resets the enable-ability for buttons on the main window"""
         self.is_in_multiscan = False
         self.multiscanner_window = None
+
+    def open_scan_variable_editor(self):
+        database_dict = self.find_database_dict()
+        config_folder_path = None if self.app_paths is None else self.app_paths.scan_devices()
+
+        self.variable_editor = ScanVariableEditor(main_window=self, database_dict=database_dict,
+                                                  config_folder=config_folder_path)
+        self.variable_editor.exec_()
+        self.populate_scan_devices()
 
     def open_timing_setup(self):
         """ Opens the timing setup window, using the current contents of the line edit to populate the dialog gui """
