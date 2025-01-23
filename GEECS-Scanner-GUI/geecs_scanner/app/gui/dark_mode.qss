@@ -1,0 +1,22 @@
+QWidget {
+    background-color: #2e2e2e;
+    color: white;
+}
+
+QPushButton {
+    background-color: #444444;
+    color: white;
+}
+QPushButton:disabled {
+    background-color: #666666;
+    color: #999999;
+}
+
+QLineEdit:enabled {
+    background-color: #2e2e2e;
+    color: white;
+}
+QLineEdit:disabled {
+    background-color: #222222;
+    color: #999999;
+}
