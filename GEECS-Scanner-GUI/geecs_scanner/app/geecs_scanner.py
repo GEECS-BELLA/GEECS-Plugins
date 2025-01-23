@@ -637,9 +637,7 @@ class GEECSScannerWindow(QMainWindow):
                 devices = data['single_scan_devices']
                 self.scan_variable_list = list(devices.keys())
 
-            # TODO move composite variables to scan devices folder
-            composite_variables_location = AppPaths.BASE_PATH / self.experiment / "aux_configs"
-            with open(composite_variables_location / "composite_variables.yaml", 'r') as file:
+            with open(self.app_paths.scan_devices() / "composite_variables.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 composite_vars = data['composite_variables']
                 self.scan_composite_list = list(composite_vars.keys())
