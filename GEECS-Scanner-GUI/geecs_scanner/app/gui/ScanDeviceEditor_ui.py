@@ -66,6 +66,7 @@ class Ui_Dialog(object):
         self.lineVariableVariable.setObjectName("lineVariableVariable")
         self.lineCompositeNickname = QtWidgets.QLineEdit(Dialog)
         self.lineCompositeNickname.setGeometry(QtCore.QRect(80, 140, 271, 22))
+        self.lineCompositeNickname.setReadOnly(True)
         self.lineCompositeNickname.setObjectName("lineCompositeNickname")
         self.label_6 = QtWidgets.QLabel(Dialog)
         self.label_6.setGeometry(QtCore.QRect(10, 140, 61, 21))

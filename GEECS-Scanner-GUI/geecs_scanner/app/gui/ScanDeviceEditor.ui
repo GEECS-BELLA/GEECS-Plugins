@@ -211,6 +211,9 @@
      <height>22</height>
     </rect>
    </property>
+   <property name="readOnly">
+    <bool>true</bool>
+   </property>
   </widget>
   <widget class="QLabel" name="label_6">
    <property name="geometry">
