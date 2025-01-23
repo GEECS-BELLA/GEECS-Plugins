@@ -194,7 +194,7 @@
     <property name="geometry">
      <rect>
       <x>280</x>
-      <y>430</y>
+      <y>420</y>
       <width>171</width>
       <height>23</height>
      </rect>
@@ -207,7 +207,7 @@
     <property name="geometry">
      <rect>
       <x>250</x>
-      <y>380</y>
+      <y>370</y>
       <width>121</width>
       <height>41</height>
      </rect>
@@ -404,7 +404,7 @@
     <property name="geometry">
      <rect>
       <x>380</x>
-      <y>380</y>
+      <y>370</y>
       <width>71</width>
       <height>41</height>
      </rect>
@@ -427,7 +427,7 @@
     <property name="geometry">
      <rect>
       <x>250</x>
-      <y>430</y>
+      <y>420</y>
       <width>21</width>
       <height>21</height>
      </rect>
@@ -595,6 +595,32 @@
      <string>Timing Setup</string>
     </property>
    </widget>
+   <widget class="QLabel" name="labelScanNumber">
+    <property name="geometry">
+     <rect>
+      <x>310</x>
+      <y>450</y>
+      <width>81</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Current Scan:</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="lineLastScan">
+    <property name="geometry">
+     <rect>
+      <x>400</x>
+      <y>450</y>
+      <width>61</width>
+      <height>22</height>
+     </rect>
+    </property>
+    <property name="readOnly">
+     <bool>true</bool>
+    </property>
+   </widget>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
   <widget class="QMenuBar" name="menuBar">
@@ -621,8 +647,15 @@
     <addaction name="separator"/>
     <addaction name="action_open_Github_Page"/>
    </widget>
+   <widget class="QMenu" name="menuPreferences">
+    <property name="title">
+     <string>Preferences</string>
+    </property>
+    <addaction name="actionDarkMode"/>
+   </widget>
    <addaction name="menuOpen"/>
    <addaction name="menuOptions"/>
+   <addaction name="menuPreferences"/>
   </widget>
   <action name="actionLog">
    <property name="text">
@@ -647,6 +680,14 @@
   <action name="action_open_Github_Page">
    <property name="text">
     <string>Github Page</string>
+   </property>
+  </action>
+  <action name="actionDarkMode">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Dark Mode</string>
    </property>
   </action>
  </widget>
