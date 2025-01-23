@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Optional, Union, Any
 
 if TYPE_CHECKING:
     from PyQt5.QtWidgets import QLineEdit
+    from . import GEECSScannerWindow
 
 import yaml
 import logging
@@ -107,11 +108,12 @@ class ScanElementEditor(QDialog):
     GUI changes to reflect what the user is currently looking at.
     """
 
-    def __init__(self, database_dict: Optional[dict] = None,
+    def __init__(self, main_window: GEECSScannerWindow, database_dict: Optional[dict] = None,
                  config_folder: Path = Path('.'), load_config: Optional[Path] = None):
         """
         Initializes the GUI
 
+        :param main_window: the main gui window, used only to set the visual stylesheet
         :param database_dict: dictionary that contains all devices and variables in the selected experiment
         :param config_folder: folder that contains other element config files for this experiment
         :param load_config: optional; filename to populate the initial state of the GUI's backend dictionary
@@ -201,6 +203,7 @@ class ScanElementEditor(QDialog):
         self.update_device_list()
         self.update_action_list()
         self.update_action_display()
+        self.setStyleSheet(main_window.styleSheet())
 
     def eventFilter(self, source, event):
         """Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked

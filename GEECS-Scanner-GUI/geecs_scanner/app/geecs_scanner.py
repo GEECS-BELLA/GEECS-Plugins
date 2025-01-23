@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from run_control import RunControl
+    from PyQt5.QtWidgets import QWidget
 
 import sys
 from pathlib import Path
@@ -175,10 +176,16 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.menuOptions.addAction(menu_opt)
             self.all_options.append(menu_opt)
 
+        # Menu Bar: Preferences
+        self.ui.actionDarkMode.toggled.connect(self.toggle_light_dark)
+
         # Initial state of side-gui's
         self.element_editor = None
         self.multiscanner_window = None
         self.timing_editor = None
+
+        # Set current GUI mode
+        self.toggle_light_dark()
 
     def eventFilter(self, source, event):
         # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
@@ -499,8 +506,8 @@ class GEECSScannerWindow(QMainWindow):
         database_dict = self.find_database_dict()
 
         config_folder = None if self.app_paths is None else self.app_paths.save_devices()
-        self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder,
-                                                load_config=self.load_element_name)
+        self.element_editor = ScanElementEditor(main_window=self, database_dict=database_dict,
+                                                config_folder=config_folder, load_config=self.load_element_name)
         self.element_editor.exec_()
         self.refresh_element_list()
 
@@ -541,7 +548,7 @@ class GEECSScannerWindow(QMainWindow):
         database_dict = self.find_database_dict()
         config_folder_path = None if self.app_paths is None else self.app_paths.shot_control()
 
-        self.timing_editor = ShotControlEditor(config_folder_path=config_folder_path,
+        self.timing_editor = ShotControlEditor(main_window=self, config_folder_path=config_folder_path,
                                                current_config=self.ui.lineTimingDevice.text(),
                                                database_dict=database_dict)
         self.timing_editor.selected_configuration.connect(self.handle_returned_timing_configuration)
@@ -982,6 +989,24 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.buttonUpdateConfig.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
             self.ui.buttonOpenTimingSetup.setEnabled(self.ui.startScanButton.isEnabled())
+
+    def toggle_light_dark(self):
+        mode = 'dark' if self.ui.actionDarkMode.isChecked() else 'light'
+        base_path = Path(__file__).parent / "gui"
+
+        # List of Widgets that also need updating (only widgets that can be active at the same time as the main window)
+        gui_list: list[Optional[QWidget]] = [self, self.multiscanner_window]
+        for widget in gui_list:
+            if widget is not None:
+                if mode == 'light':
+                    widget.setStyleSheet(self._read_stylesheet(base_path / "light_mode.qss"))
+                elif mode == 'dark':
+                    widget.setStyleSheet(self._read_stylesheet(base_path / "dark_mode.qss"))
+
+    @staticmethod
+    def _read_stylesheet(filename):
+        with open(filename, "r") as file:
+            return file.read()
 
     def is_ready_for_scan(self):
         """

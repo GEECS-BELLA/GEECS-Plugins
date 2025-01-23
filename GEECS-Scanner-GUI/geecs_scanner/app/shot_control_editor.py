@@ -9,10 +9,12 @@ ON (Standby): State when the system is not actively recording data, but devices 
 -Chris
 """
 from __future__ import annotations
+from typing import Optional, Union, TYPE_CHECKING
+if TYPE_CHECKING:
+    from . import GEECSScannerWindow
 
 import yaml
 import logging
-from typing import Optional, Union
 from pathlib import Path
 from .gui.ShotControlEditor_ui import Ui_Dialog
 from PyQt5.QtWidgets import QDialog, QCompleter, QInputDialog, QPushButton, QMessageBox
@@ -33,8 +35,8 @@ class ShotControlEditor(QDialog):
     """
     selected_configuration = pyqtSignal(str)
 
-    def __init__(self, config_folder_path: Union[str, Path], current_config: Optional[str] = None,
-                 database_dict: Optional[dict] = None):
+    def __init__(self, main_window: GEECSScannerWindow, config_folder_path: Union[str, Path],
+                 current_config: Optional[str] = None, database_dict: Optional[dict] = None):
 
         super().__init__()
 
@@ -91,6 +93,9 @@ class ShotControlEditor(QDialog):
 
         # If a valid current_config was given, load that information
         self.configuration_selected()
+
+        # Set stylesheet to that of the main window
+        self.setStyleSheet(main_window.styleSheet())
 
     def eventFilter(self, source, event):
         """Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
