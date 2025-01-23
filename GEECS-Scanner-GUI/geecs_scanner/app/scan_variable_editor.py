@@ -57,6 +57,8 @@ class ScanVariableEditor(QDialog):
         self.ui.lineVariableDevice.installEventFilter(self)
         self.ui.lineVariableVariable.installEventFilter(self)
 
+        self.ui.lineVariableNickname.textChanged.connect(self.check_variable_nickname)
+
         # Functionality to Composite Variables section
         self.ui.lineCompositeNickname.installEventFilter(self)
         self.ui.lineCompositeDevice.installEventFilter(self)
@@ -142,3 +144,11 @@ class ScanVariableEditor(QDialog):
         if device_name in self.database_dict:
             variable_list = sorted(self.database_dict[device_name].keys())
             self.display_completer_list(location=list_location, completer_list=variable_list)
+
+    def check_variable_nickname(self):
+        """ When nickname is entered, check if it exists in the variable list and load device and variable info """
+        nickname = self.ui.lineVariableNickname.text().strip()
+        if nickname in self.scan_variable_list:
+            device_variable = self.scan_variable_data['single_scan_devices'][nickname].split(":")
+            self.ui.lineVariableDevice.setText(device_variable[0])
+            self.ui.lineVariableVariable.setText(device_variable[1])
