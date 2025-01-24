@@ -1,0 +1,6 @@
+Devices:
+  CAM-2BL-ShotShutter2:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - timestamp

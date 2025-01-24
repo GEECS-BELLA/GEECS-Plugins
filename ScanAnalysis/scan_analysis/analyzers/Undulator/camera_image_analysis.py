@@ -21,7 +21,6 @@ from scipy.ndimage import median_filter, gaussian_filter
 import imageio as io
 
 from scan_analysis.base import ScanAnalysis
-from geecs_python_api.controls.data_acquisition.utils import get_full_config_path
 from image_analysis.utils import read_imaq_png_image
 
 
@@ -48,13 +47,13 @@ class CameraImageAnalysis(ScanAnalysis):
         # define flags
         self.flag_logging = flag_logging
         self.flag_save_images = flag_save_images
+        config_folder = Path(__file__).parents[2] / self.experiment_dir
 
         # organize various paths
         self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
                           'save': (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name
                                    / f"{device_name}" / "CameraImageAnalysis"),
-                          'cam_configs': get_full_config_path(self.experiment_dir, 'aux_configs',
-                                                              'camera_analysis_settings.yaml')
+                          'cam_configs': config_folder / 'camera_analysis_settings.yaml'
                           }
 
         # if self.camera_analysis_config_path.exists():

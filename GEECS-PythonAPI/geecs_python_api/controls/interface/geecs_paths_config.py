@@ -7,6 +7,7 @@ from typing import Optional, Union
 
 EXPERIMENT_TO_SERVER_DICT: dict[str, Path] = {
     'Undulator': Path('Z:/data'),
+    'DataLogging': Path('N:/data/PWlaserData')
 }
 
 # Create a module-level logger
