@@ -21,10 +21,9 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter,
 from PyQt5.QtCore import Qt, QEvent, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices
 from .gui.GEECSScanner_ui import Ui_MainWindow
-from .lib import module_open_folder as of
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
 from . import ScanElementEditor, MultiScanner, ShotControlEditor
-from ..utils import ApplicationPaths as AppPaths
+from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
