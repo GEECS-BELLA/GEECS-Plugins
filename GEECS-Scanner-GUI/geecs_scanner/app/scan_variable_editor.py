@@ -11,6 +11,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import QDialog, QCompleter, QMessageBox
 from PyQt5.QtCore import Qt, QEvent
 
+from . import ScanVariableOrder
 from .gui.ScanDeviceEditor_ui import Ui_Dialog
 
 
@@ -67,8 +68,15 @@ class ScanVariableEditor(QDialog):
         self.ui.lineCompositeDevice.installEventFilter(self)
         self.ui.lineCompositeVariable.installEventFilter(self)
 
+        # Buttons to launch the ordering dialog window and to close out of this dialog window
+        self.ui.buttonOpenOrdering.clicked.connect(self.open_list_order_dialog)
+        self.ui.buttonClose.clicked.connect(self.close)
+
         # Apply the stylesheet of the main window
         self.setStyleSheet(main_window.styleSheet())
+
+        # Initial state of child dialog window
+        self.variable_order = None
 
     def eventFilter(self, source, event):
         """ Custom event for the text boxes so that the completion suggestions are shown when mouse is clicked """
@@ -201,3 +209,13 @@ class ScanVariableEditor(QDialog):
             self.ui.lineVariableVariable.setText("")
 
             self.update_variable_information_from_files()
+
+    # Button to launch the 'Scan Element Ordering' dialog window
+
+    def open_list_order_dialog(self):
+        """ Launches the dialog window to change the ordering of the scan variables in the list """
+        self.variable_order = ScanVariableOrder(stylesheet=self.styleSheet(),
+                                                scan_variable_list=self.scan_variable_list,
+                                                composite_variable_list=self.scan_composite_list)
+        self.variable_order.exec_()
+        # TODO update the lists using the new ordering
