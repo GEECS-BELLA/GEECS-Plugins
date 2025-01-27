@@ -18,7 +18,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog, QMessageBox
 from PyQt5.QtCore import QTimer, QObject, QThread, pyqtSignal, pyqtSlot
 from .gui.MultiScanner_ui import Ui_Form
-from .lib import multiscan_finish_jingle
+from ..utils import multiscan_finish_jingle
 
 
 class MultiScanner(QWidget):

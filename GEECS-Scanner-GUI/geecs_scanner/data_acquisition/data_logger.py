@@ -4,7 +4,7 @@ from datetime import datetime
 import logging
 
 from . import DeviceManager
-from geecs_scanner.app.lib import SoundPlayer
+from geecs_scanner.utils import SoundPlayer
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
