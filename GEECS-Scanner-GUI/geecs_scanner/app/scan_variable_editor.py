@@ -8,7 +8,7 @@ import yaml
 import logging
 from pathlib import Path
 
-from PyQt5.QtWidgets import QDialog, QCompleter
+from PyQt5.QtWidgets import QDialog, QCompleter, QMessageBox
 from PyQt5.QtCore import Qt, QEvent
 
 from .gui.ScanDeviceEditor_ui import Ui_Dialog
@@ -58,6 +58,9 @@ class ScanVariableEditor(QDialog):
         self.ui.lineVariableVariable.installEventFilter(self)
 
         self.ui.lineVariableNickname.textChanged.connect(self.check_variable_nickname)
+
+        self.ui.buttonVariableSave.clicked.connect(self.save_scan_variable)
+        self.ui.buttonVariableDelete.clicked.connect(self.delete_scan_variable)
 
         # Functionality to Composite Variables section
         self.ui.lineCompositeNickname.installEventFilter(self)
@@ -152,3 +155,49 @@ class ScanVariableEditor(QDialog):
             device_variable = self.scan_variable_data['single_scan_devices'][nickname].split(":")
             self.ui.lineVariableDevice.setText(device_variable[0])
             self.ui.lineVariableVariable.setText(device_variable[1])
+
+    @staticmethod
+    def _write_updated_file(filename: Path, dictionary: dict):
+        """ Write the given dictionary to the given yaml file, used for either the 1d or composite scan variables
+
+        :param filename: yaml filename
+        :param dictionary: complete dictionary to be written
+        """
+        with open(filename, 'w') as f:
+            yaml.dump(dictionary, f, default_flow_style=False)
+
+    def save_scan_variable(self):
+        """ Updates or appends the currently-displayed scan variable to the config .yaml file """
+        nickname = self.ui.lineVariableNickname.text().strip()
+        device = self.ui.lineVariableDevice.text().strip()
+        variable = self.ui.lineVariableVariable.text().strip()
+
+        if nickname == "" or device == "" or variable == "":
+            logging.warning("Incomplete scan variable information, cannot save to file")
+            return
+
+        self.scan_variable_data['single_scan_devices'][nickname] = f"{device}:{variable}"
+        self._write_updated_file(filename=self.file_variables, dictionary=self.scan_variable_data)
+        logging.info(f"Wrote variable '{nickname}' to '{self.file_variables}'")
+
+        self.update_variable_information_from_files()
+
+    def delete_scan_variable(self):
+        """ Deletes the currently-displayed scan variable from the config .yaml file and clears the line edits """
+        nickname = self.ui.lineVariableNickname.text().strip()
+        if nickname not in self.scan_variable_data['single_scan_devices']:
+            logging.warning(f"Variable {nickname} not in dict, cannot delete")
+            return
+
+        reply = QMessageBox.question(self, "Delete Scan Variable", f"Delete Scan Variable '{nickname}' from list?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            del self.scan_variable_data['single_scan_devices'][nickname]
+            self._write_updated_file(filename=self.file_variables, dictionary=self.scan_variable_data)
+            logging.info(f"Removed variable '{nickname}' from '{self.file_variables}'")
+
+            self.ui.lineVariableNickname.setText("")
+            self.ui.lineVariableDevice.setText("")
+            self.ui.lineVariableVariable.setText("")
+
+            self.update_variable_information_from_files()
