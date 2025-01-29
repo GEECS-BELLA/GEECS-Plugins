@@ -87,11 +87,11 @@ class ScanDevice(GeecsDevice):
         elif isinstance(name_or_dict, dict):
             if len(name_or_dict) != 1:
                 raise ValueError("Composite device dictionary must contain exactly one top-level key.")
-
-            # Dummy name for composite initialization
-            super().__init__('virtual_composite_device', virtual=True)
-
+            
             self.name, composite_info = next(iter(name_or_dict.items()))
+            
+            super().__init__(self.name, virtual=True)
+
             self.is_composite = True
             self.components = composite_info['components']
             self.mode = composite_info['mode']
