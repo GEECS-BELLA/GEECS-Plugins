@@ -31,7 +31,7 @@ class ScanDevice(GeecsDevice):
     A class to represent a device or composite variable for scanning.
     
     Composite variables can be of two types:
-    - 'Set' type: Controls multiple devices using a relation, optionally using relative or fixed modes.
+    - 'Set' type: Controls multiple devices using a relation, optionally using relative or absolute modes.
     - 'Get' type: Calculates a value using a relation based on readings from multiple devices.
     
     """
@@ -45,14 +45,14 @@ class ScanDevice(GeecsDevice):
             
             name_or_dict (Union[str, Dict[str, Any]]): A device name (string) or a dictionary defining 
                 a composite variable. For composite variables:
-                - Set Type (relative or fixed mode):
+                - Set Type (relative or absolute mode):
                   {
                       "composite_name": {
                           "components": [
                               {"device": "DeviceName1", "variable": "VariableName1", "relation": "composite_var * 1"},
                               {"device": "DeviceName2", "variable": "VariableName2", "relation": "composite_var * -1"}
                           ],
-                          "mode": "relative"  # or "fixed"
+                          "mode": "relative"  # or "absolute"
                       }
                   }
         
@@ -166,8 +166,26 @@ class ScanDevice(GeecsDevice):
 
     
     def set(self, variable: str, value: Any, **kwargs) -> None:
-        """Set a variable for the composite or standard device."""
-        if self.is_composite and self.mode in ["relative", "fixed"] and variable == "composite_var":
+        """
+        Set a variable for the composite or standard device.
+
+        For composite devices:
+        - In 'relative' mode, the value is applied as an adjustment to the reference position.
+        - In 'absolute' mode, the value is directly mapped to sub-device variables based on their relations.
+
+        Updates the internal state:
+        - `"composite_var"` is updated to the set value.
+
+        Args:
+            variable (str): The variable to set. For composite devices, this must be `"composite_var"`.
+            value (Any): The value to set.
+            **kwargs: Additional arguments passed to the `set` method of sub-devices.
+        """
+
+        if self.is_composite and self.mode in ["relative", "absolute"] and variable == "composite_var":
+            # Store last set value of composite_var
+            self.state["composite_var"] = value  
+
             for comp in self.components:
                 sub_device = self.sub_devices[comp['device']]['instance']
                 device_var = comp['variable']
@@ -175,6 +193,7 @@ class ScanDevice(GeecsDevice):
                 sub_device.set(device_var, sub_value, **kwargs)
         else:
             super().set(variable, value, **kwargs)
+            
             
     def _calculate_sub_value(self, comp: Dict[str, Any], value: Any) -> Any:
         """
@@ -193,14 +212,14 @@ class ScanDevice(GeecsDevice):
         )
         return reference_value + eval(comp['relation'], {'composite_var': value})
     
-    
-    def get(self, variable: str, use_state: bool = True, **kwargs) -> Any:    
-        
+    def get(self, variable: str, use_state: bool = True, **kwargs) -> Dict[str, Any]:
         """
         Get a variable for the composite or standard device.
 
-        For composite devices in "get_only" mode:
-        - Reads the values of all sub-device variables and evaluates the composite relation.
+        Standardized behavior:
+        - Returns a dictionary where:
+          - `"composite_var"` holds the last set value (for set-types) or the evaluated value (for get-types).
+          - Individual component values are always included using `"DeviceName:VariableName"` format.
 
         Args:
             variable (str): The variable to get. For composite devices, this must be `"composite_var"`.
@@ -208,31 +227,65 @@ class ScanDevice(GeecsDevice):
             **kwargs: Additional arguments passed to the `get` method of sub-devices.
 
         Returns:
-            Any: The value of the variable or the evaluated composite value.
+            Dict[str, Any]: A dictionary containing:
+                - `"composite_var"`: The last set value (for `set` mode) or evaluated value (for `get_only` mode).
+                - Individual component values using `"DeviceName:VariableName"` keys.
 
         Raises:
-            GetNotAllowedError: If trying to get a variable on a `set` type composite device.
             ValueError: If a sub-device value cannot be retrieved.
         """
-        
-        if self.is_composite and self.mode in ["relative", "fixed"]:
-            raise GetNotAllowedError(
-                f"Cannot get variable '{variable}' from a 'set' type composite device '{self.name}'."
-            )
-        
+
+        result = {}
+
+        # Handle GET-ONLY composites (evaluate relation and update state)
         if self.is_composite and self.mode == "get_only" and variable == "composite_var":
             values = {}
+            var_mapping = {}  # Mapping for var_name -> actual values
             for comp in self.components:
                 sub_device = self.sub_devices[comp['device']]['instance']
                 device_var = comp['variable']
-                values[comp['var_name']] = (
+                key = f"{comp['device']}:{device_var}"  # Standardized key
+                var_mapping[comp['var_name']] = key  # Map var_name to actual device-variable key
+                values[key] = (
                     sub_device.state.get(device_var)
                     if use_state
                     else sub_device.get(device_var, **kwargs)
                 )
-            return eval(self.relation, values)
-        else:
-            return super().get(variable, **kwargs)
+
+            # Map var_names in self.relation to the actual values dictionary
+            relation_mapped = self.relation
+            for var_name, mapped_key in var_mapping.items():
+                relation_mapped = relation_mapped.replace(var_name, f"values['{mapped_key}']")
+
+            # Compute the composite variable value (RESTRICTED EVAL SCOPE)
+            composite_value = eval(relation_mapped, {}, {"values": values})
+
+            # Store result in internal state
+            self.state["composite_var"] = composite_value
+
+            # Construct return dictionary
+            result["composite_var"] = composite_value
+            result.update(values)
+            return result
+
+        # Handle SET-TYPE composites (return individual component values)
+        elif self.is_composite and self.mode in ["relative", "absolute"] and variable == "composite_var":
+            for comp in self.components:
+                sub_device = self.sub_devices[comp['device']]['instance']
+                device_var = comp['variable']
+                key = f"{comp['device']}:{device_var}"
+                result[key] = (
+                    sub_device.state.get(device_var)
+                    if use_state
+                    else sub_device.get(device_var, **kwargs)
+                )
+
+            # Retrieve last set value of composite_var (or set to "NA" if never set)
+            result["composite_var"] = self.state.get("composite_var", "NA")
+            return result
+
+        # Standard device get method
+        return {variable: super().get(variable, **kwargs)}
 
     def close(self) -> None:
 
