@@ -6,13 +6,14 @@ Kyle Jensen (kjensen11, kjensen@lbl.gov)
 """
 # =============================================================================
 # %% imports
+from typing import Optional
 import sys
 import time
 import traceback
 from datetime import date
 
 from PyQt5.QtWidgets import QMainWindow, QApplication
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 from ScAnalyzer_ui import Ui_MainWindow
 # =============================================================================
@@ -37,62 +38,100 @@ class ScAnalyzerWindow(QMainWindow):
         # set up gui log to display output
         self.ui.logDisplay.setReadOnly(True)
 
+        # set initial button status
+        self.ui.buttonStart.setEnabled(True)
+        self.ui.buttonStop.setEnabled(False)
+
         # set the default values for line edits
         self.set_default_inputs()
 
         # initialize worker information
-        self.worker = None
+        self.worker: Optional[Worker] = None
+        self.worker_thread: Optional[QThread] = None
 
         # connect buttons to functions
         self.ui.buttonStart.clicked.connect(self.start_analysis)
+        self.ui.buttonStop.clicked.connect(self.end_analysis)
 
     def start_analysis(self) -> None:
+        # thread worker status check
+        if self.worker_thread and self.worker_thread.isRunning():
+            self.ui.logDisplay.append("Analysis is already running!")
+            return
 
-        # check for existing worker thread
-        if self.worker is not None:
-            self.stop_worker()
-
-        # create new worker for this analysis
-        self.worker = Worker(self.run_analysis)
-
-        # connect signals
-        self.worker.progress.connect(self.log_progress)
-        self.worker.error.connect(self.handle_error)
-        self.worker.finished.connect(self.end_analysis)
-
-        # disable start button
+        # disable start button while analysis is running
         self.ui.buttonStart.setEnabled(False)
+        self.ui.buttonStop.setEnabled(True)
 
-        # start analysis
-        self.worker.start()
+        # initialize worker and thread
+        self.initialize_worker()
 
-    def run_analysis(self) -> None:
+    def run_analysis(self, progress_callback, is_running) -> None:
+        try:
+            date_str = f"{self.ui.inputMonth.text()}-{self.ui.inputDay.text()}-{self.ui.inputYear.text()}"
+            progress_callback.emit(f"Starting fake analysis for {date_str}...")
 
-        date_str = f"{self.ui.inputMonth.text()}-{self.ui.inputDay.text()}-{self.ui.inputYear.text()}"
+            for i in range(100):
+                if not is_running():
+                    progress_callback.emit("Analysis stopped by user.")
+                    return
+                progress_callback.emit(f"Analyzing fake scan {i}...")
+                time.sleep(0.5)
+            progress_callback.emit('Analysis complete.')
 
-        self.log(f"Starting fake analysis for {date_str}...", level='info')
-        time.sleep(0.5)
-        self.log('Analyzing fake scan 1...', level='info')
-        time.sleep(0.5)
-        self.log('Analyzing fake scan 2...', level='info')
-        time.sleep(0.5)
-        self.log('Analyzing fake scan 3...', level='info')
-        time.sleep(0.5)
-        self.log('Done', level='info')
+        except Exception as e:
+            progress_callback.emit(f"Analysis failed: {str(e)}")
 
     def end_analysis(self):
-        self.ui.logDisplay.append("Analysis completed.")
+        print("End analysis called")
         self.ui.buttonStart.setEnabled(True)
+        self.ui.buttonStop.setEnabled(False)
 
-    def stop_worker(self):
-        if self.worker is not None:
-            self.worker.stop()
-            self.worker.wait() # wait for thread to finish
+        if self.worker:
+            print("Stopping worker")
+            self.cleanup_worker()
+        if self.worker_thread:
+            self.cleanup_thread()
+
+    def initialize_worker(self):
+        
+        # initialize worker object, worker thread
+        self.worker = Worker(self.run_analysis)
+        self.worker_thread = QThread()
+
+        # move worker to thread
+        self.worker.moveToThread(self.worker_thread)
+
+        # connect signals
+        self.worker_thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.end_analysis)
+        self.worker.progress.connect(self.update_progress)
+        self.worker.error.connect(self.handle_error)
+
+        # start thread
+        self.worker_thread.start()
+
+    def cleanup_thread(self):
+        if self.worker_thread:
+            self.worker_thread.quit()
+            self.worker_thread.wait()
+            self.worker_thread = None
 
     def cleanup_worker(self):
-        if self.worker is not None:
+        if self.worker:
+            self.worker.stop()
             self.worker.deleteLater()
             self.worker = None
+        self.cleanup_thread()
+
+    def update_progress(self, progress_string):
+        self.ui.logDisplay.append(progress_string)
+        self.ui.logDisplay.verticalScrollBar().setValue(
+            self.ui.logDisplay.verticalScrollBar().maximum()
+            )
+
+    def handle_error(self, error_message):
+        self.ui.logDisplay.append(f"Error: {error_message}")
 
     def set_default_inputs(self) -> None:
 
@@ -102,32 +141,48 @@ class ScAnalyzerWindow(QMainWindow):
         self.ui.inputMonth.setText(str(today.month))
         self.ui.inputDay.setText(str(today.day))
 
-    def log_progress(self, message: str) -> None:
-        self.ui.logDisplay.append(message)
+    def closeEvent(self, event):
+        # properly close thread if window is closed
+        # triggers automatically
+        self.update_progress('closeEvent: triggered')
+        if self.worker_thread and self.worker_thread.isRunning():
+            self.update_progress('closeEvent: closing thread')
+            self.worker_thread.quit()
+            self.worker_thread.wait()
+        event.accept()
 
-    def handle_error(self, error_message):
-        self.ui.logDisplay.append(f"ERROR: {error_message}")
-
-class Worker(QThread):
-    progress = pyqtSignal(str) # signal to emit strings
+class Worker(QObject):
+    finished = pyqtSignal()
+    progress = pyqtSignal(str)
     error = pyqtSignal(str)
-    finished = pyqtSignal(str)
 
-    def __init__(self, analysis_func, *args, **kwargs):
+    def __init__(self, analysis_func):
         super().__init__()
-
-        # store analysis functions and its arguments
         self.analysis_func = analysis_func
-        self.args = args
-        self.kwargs = kwargs
+        self._is_running = True
 
+    def stop(self):
+        print("Worker.stop() called.")
+        self._is_running = False
+
+    def is_running(self):
+        return self._is_running
+
+    @pyqtSlot()
     def run(self):
         try:
-            # call the analysis function with stored arguments
-            self.analysis_func(*self.args, **self.kwargs)
+            self._is_running = True
+            while self._is_running:
+                self.analysis_func(self.progress, lambda: self._is_running)
+                break # exit after one iteration
+            if not self._is_running:
+                self.progress.emit('Worker stopped by user.')
+        except Exception as e:
+            self.error.emit(f"Error: {str(e)}")
+        finally:
+            self.finished.emit()
 
-        except:
-            pass
+
 
 # =============================================================================
 # %% routine
@@ -150,10 +205,8 @@ def exception_hook(exctype, value, tb):
 # %% execute
 if __name__ == "__main__":
 
-    """Launches the ScAnalyzer GUI"""
     sys.excepthook = exception_hook
     app = QApplication(sys.argv)
-
     window = ScAnalyzerWindow()
     window.show()
 
