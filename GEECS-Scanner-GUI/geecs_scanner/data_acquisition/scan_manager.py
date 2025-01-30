@@ -120,7 +120,7 @@ class ScanManager:
 
         self.data_logger.reinitialize_sound_player()
         self.data_logger.last_log_time_sync = {}
-        self.data_logger.update_repetition_rate(self.options_dict['rep_rate_hz'])
+        self.data_logger.update_repetition_rate(self.options_dict.get('rep_rate_hz', 1))
         self.console_logger.stop_logging()
         self.console_logger.setup_logging()
 
@@ -659,14 +659,14 @@ class ScanManager:
             current_time = time.time() - start_time
 
             # TODO move this to DataLogger's `_log_device_data` function instead...
-            save_on_shot = self.options_dict['On-Shot TDMS']
+            save_on_shot = self.options_dict.get('On-Shot TDMS', False)
             if save_on_shot:
                 if current_time % 1 < interval_time:
                     log_df = self.scan_data_manager.convert_to_dataframe(self.results)
                     self.scan_data_manager.dataframe_to_tdms(log_df)
 
             try:
-                hiatus = float(self.options_dict["Save Hiatus Period (s)"])
+                hiatus = float(self.options_dict.get("Save Hiatus Period (s)", ""))
             except ValueError:
                 hiatus = ""
 
