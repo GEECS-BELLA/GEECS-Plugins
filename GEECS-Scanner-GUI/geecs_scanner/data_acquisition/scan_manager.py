@@ -33,8 +33,8 @@ class ScanManager:
     to the device_manager to initialize the desired saving configuration.
     """
     
-    def __init__(self, experiment_dir: str, shot_control_information: dict, options_dict: Optional[dict]=None,
-                 device_manager=None, MC_ip = None, scan_data=None):
+    def __init__(self, experiment_dir: str, shot_control_information: dict,
+                 options_dict: Optional[dict] = None, device_manager=None, scan_data=None):
         """
         Initialize the ScanManager and its components.
 
@@ -46,7 +46,8 @@ class ScanManager:
         database_dict.reload(experiment_name=experiment_dir)
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
-        self.MC_ip = MC_ip
+
+        self.MC_ip = ""
         
         # Initialize ScanDataManager with device_manager and scan_data
         self.scan_data_manager = ScanDataManager(self.device_manager, scan_data, database_dict)
@@ -60,7 +61,6 @@ class ScanManager:
         if shot_control_device:
             self.shot_control = GeecsDevice(shot_control_information['device'])
             self.shot_control_variables = shot_control_information['variables']
-            self.enable_live_ECS_dump(client_ip=self.MC_ip)
 
         self.results = {}  # Store results for later processing
 
@@ -117,6 +117,11 @@ class ScanManager:
 
         if config_dictionary is not None and 'options' in config_dictionary:
             self.options_dict = config_dictionary['options']
+
+        new_mc_ip = self.options_dict.get("Master Control IP", "")
+        if self.shot_control and new_mc_ip and self.MC_ip != new_mc_ip:
+            self.MC_ip = new_mc_ip
+            self.enable_live_ECS_dump(client_ip=self.MC_ip)
 
         self.data_logger.reinitialize_sound_player()
         self.data_logger.last_log_time_sync = {}
