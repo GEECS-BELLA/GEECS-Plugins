@@ -332,8 +332,7 @@ class ScanManager:
         time.sleep(2)  # Ensure asynchronous commands have time to finish
         logging.info("scanning has stopped for all devices.")
 
-    def save_hiatus(self):
-        hiatus_period = float(self.options_dict["Save Hiatus Period (s)"])
+    def save_hiatus(self, hiatus_period: float):
         for device_name in self.device_manager.non_scalar_saving_devices:
             device = self.device_manager.devices.get(device_name)
             if device:
@@ -672,7 +671,7 @@ class ScanManager:
 
             if hiatus:
                 if self.data_logger.shot_save_event.is_set():
-                    self.save_hiatus()
+                    self.save_hiatus(hiatus)
                     self.data_logger.shot_save_event.clear()
 
         # Turn trigger off after waiting
