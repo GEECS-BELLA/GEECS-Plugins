@@ -87,7 +87,7 @@ class ScanManager:
         self.pause_scan_event.set()  # Set to 'running' by default
         self.pause_time = 0
 
-        self.options_dict = {} if options_dict is None else options_dict
+        self.options_dict: dict = {} if options_dict is None else options_dict
 
     def pause_scan(self):
         """Pause the scanning process by clearing the pause event."""
@@ -115,7 +115,9 @@ class ScanManager:
         self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
         self.scan_data_manager = ScanDataManager(self.device_manager, scan_data, database_dict)
 
-        self.options_dict = config_dictionary['options']
+        if config_dictionary is not None and 'options' in config_dictionary:
+            self.options_dict = config_dictionary['options']
+
         self.data_logger.reinitialize_sound_player()
         self.data_logger.last_log_time_sync = {}
         self.data_logger.update_repetition_rate(self.options_dict['rep_rate_hz'])
