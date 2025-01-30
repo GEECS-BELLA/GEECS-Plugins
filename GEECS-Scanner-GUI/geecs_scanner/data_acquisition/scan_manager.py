@@ -33,7 +33,8 @@ class ScanManager:
     to the device_manager to initialize the desired saving configuration.
     """
     
-    def __init__(self, experiment_dir: str, shot_control_information: dict, device_manager=None, MC_ip = None, scan_data=None):
+    def __init__(self, experiment_dir: str, shot_control_information: dict, options_dict: Optional[dict]=None,
+                 device_manager=None, MC_ip = None, scan_data=None):
         """
         Initialize the ScanManager and its components.
 
@@ -86,7 +87,7 @@ class ScanManager:
         self.pause_scan_event.set()  # Set to 'running' by default
         self.pause_time = 0
 
-        self.options_dict = {}  # Later initialized in 'reinitialize', but TODO should do it here instead
+        self.options_dict = {} if options_dict is None else options_dict
 
     def pause_scan(self):
         """Pause the scanning process by clearing the pause event."""
