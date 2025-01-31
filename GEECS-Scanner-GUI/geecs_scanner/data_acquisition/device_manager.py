@@ -232,29 +232,6 @@ class DeviceManager:
         """
         return self.composite_variables is not None and variable_name in self.composite_variables
 
-    # def get_composite_components(self, composite_var, value):
-    #     """
-    #     Get the device-variable mappings for a composite variable based on its value.
-    #
-    #     Args:
-    #         composite_var (str): The name of the composite variable.
-    #         value (float): The current value of the composite variable.
-    #
-    #     Returns:
-    #         dict: A mapping of 'device:variable' -> evaluated value.
-    #     """
-    #     components = self.composite_variables[composite_var]['components']
-    #     variables = {}
-    #
-    #     # Iterate over each component and evaluate its relation
-    #     for comp in components:
-    #         relation = comp['relation'].replace("composite_var", str(value))  # Replace the placeholder
-    #         logging.info(f"Evaluating relation: {relation}")
-    #         evaluated_value = eval(relation)  # Evaluate the relationship to get the actual value
-    #         variables[f"{comp['device']}:{comp['variable']}"] = evaluated_value
-    #
-    #     return variables
-
     def initialize_subscribers(self, variables, clear_devices=True):
         """
         Initialize subscribers for the specified variables, creating or resetting device subscriptions.
@@ -299,7 +276,8 @@ class DeviceManager:
         """
         if self.is_composite_variable(device_name):
             var_dict = {device_name: self.composite_variables[device_name]}
-            device = ScanDevice(var_dict)
+            var_dict = self.composite_variables[device_name]
+            device = ScanDevice(device_name, var_dict)
 
         else:
             device = ScanDevice(device_name)
@@ -308,7 +286,6 @@ class DeviceManager:
             device.subscribe_var_values(var_list)
 
         self.devices[device_name] = device
-
 
     def reset(self):
         """
@@ -355,53 +332,6 @@ class DeviceManager:
             self.load_from_dictionary(config_dictionary)
 
         logging.info("DeviceManager instance has been reinitialized.")
-
-    def get_values(self, variables):  # TODO this crashes if `variables` contains 2+ variables of the same device
-        """
-        Retrieve the current values of the specified variables from the devices.
-
-        Args:
-            variables (list): A list of variables to retrieve values for.
-
-        Returns:
-            dict: A dictionary of device names and their corresponding variable values, as
-                    well as the user defined shot number and it's 'fresh' status
-        """
-        results = {}
-        for var in variables:
-            device_name, _ = var.split(':')
-            if device_name not in results:
-                results[device_name] = {}
-                var_list = [v.split(':')[1] for v in variables if v.startswith(device_name)]
-                state = self.devices[device_name].state  # TODO state only has 1 of the variables in it
-                for device_var in var_list:
-                    results[device_name][device_var] = state[device_var]
-                results[device_name]['fresh'] = state['fresh']
-                results[device_name]['shot number'] = state['shot number']
-                self.devices[device_name].state['fresh'] = False
-
-        return self.parse_tcp_states(results)
-
-    def parse_tcp_states(self, get_values_result):
-        """
-        Parse the TCP states received from devices and organize them in a structured format.
-
-        Args:
-            get_values_result (dict): A dictionary of device states.
-
-        Returns:
-            dict: A parsed dictionary of device variable states.
-        """
-
-        parsed_dict = {}
-        shared_keys = ['fresh', 'shot number']
-        for device_name, nested_dict in get_values_result.items():
-            common_data = {k: v for k, v in nested_dict.items() if k in shared_keys}
-            for variable_name, value in nested_dict.items():
-                if variable_name not in shared_keys:
-                    new_key = f'{device_name}:{variable_name}'
-                    parsed_dict[new_key] = {'value': value, **common_data}
-        return parsed_dict
 
     def preprocess_observables(self, observables):
         """
@@ -484,12 +414,6 @@ class DeviceManager:
             logging.info(f"Trying to add composite device variable {device_var} to self.devices.")
             self.add_scan_device(device_name)  # Add or append the normal variable
 
-
-            # component_vars = self.get_composite_components(device_var, scan_config['start'])
-            # for component_var in component_vars:
-            #     dev_name, var = component_var.split(':', 1)
-            #     logging.info(f"Trying to add {dev_name}:{var} to self.devices.")
-            #     self.add_scan_device(dev_name, [var])  # Add or append the component vars
         else:
             # Normal variables
             logging.info(f"{device_var} is a normal variable.")
