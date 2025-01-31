@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from configparser import ConfigParser
 from typing import Optional, Union
+from geecs_python_api.controls.interface import ConfigurationError
 
 EXPERIMENT_TO_SERVER_DICT: dict[str, Path] = {
     'Undulator': Path('Z:/data'),
@@ -91,7 +92,7 @@ class GeecsPathsConfig:
                 logger.warning(f"Config file {config_path} not found. Using default paths.")
 
         if experiment is None or base_path is None:
-            raise ValueError(f"Could not set experiment name and base path. Check config file {config_path}")
+            raise ConfigurationError(f"Could not set experiment name and base path. Check config file {config_path}")
 
         self.base_path = base_path.resolve()
         self.experiment = experiment

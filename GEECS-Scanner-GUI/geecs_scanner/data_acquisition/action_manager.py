@@ -46,27 +46,24 @@ class ActionManager:
         self.actions = actions['actions']
         return actions['actions']
 
-    def add_action(self, action):
+    def add_action(self, action_name: str, action_steps: dict[str, list]):
 
         """
-        Add a new action to the default actions list. NOTE, action is note saved
+        Add a new action to the default actions list. NOTE, action is not saved
 
         Args:
-            action (dict): A dictionary containing the action name and steps.
+            action_name (str): Name of the action sequence
+            action_steps (dict): A dictionary containing 'steps':list.
 
         Raises:
-            ValueError: If the action dictionary does not contain exactly one action name.
+            ValueError: If the action steps dictionary does not contain only 'steps'.
         """
-
-        # Parse out the action name and steps
-        if len(action) != 1:
-            raise ValueError("Action must contain exactly one action name")
-
-        action_name = list(action.keys())[0]
-        steps = action[action_name]['steps']
+        # Check that the steps are formatted correctly
+        if 'steps' not in action_steps or len(action_steps) != 1:
+            raise ValueError("Action Steps not formatted correctly")
 
         # Add the action to the actions dictionary
-        self.actions[action_name] = {'steps': steps}
+        self.actions[action_name] = action_steps
 
     def execute_action(self, action_name):
 

@@ -54,7 +54,6 @@ class GEECSScannerWindow(QMainWindow):
         self.experiment = ""
         self.repetition_rate = 0
         self.timing_configuration_name = ""
-        self.master_control_ip = None
         self.load_config_settings()
 
         # Initializes run control if possible, this serves as the interface to scan_manager and data_acquisition
@@ -245,8 +244,8 @@ class GEECSScannerWindow(QMainWindow):
             sys.path.insert(0, str(module_path.parent))
             run_control_class = getattr(importlib.import_module('run_control'), 'RunControl')
             self.RunControl = run_control_class(experiment_name=self.experiment,
-                                                shot_control_configuration=shot_control_path,
-                                                master_control_ip=self.master_control_ip)  # TODO instead, pass mc_ip and launch on scan start
+                                                shot_control_configuration=shot_control_path)
+
         except AttributeError:
             logging.error("AttributeError at RunControl: presumably because the entered experiment is not in the GEECS database")
             self.RunControl = None
@@ -290,7 +289,8 @@ class GEECSScannerWindow(QMainWindow):
                 logging.warning("No prior 'timing_configuration' set in config file")
                 pass
             try:
-                self.master_control_ip = config['Options']['master control ip']
+                ip_address = config['Options']['master control ip']
+                logging.info(f"Will attempt to use IP '{ip_address}' for ECS dumps.")
             except KeyError:
                 logging.warning("Not including master control ip, no ECS dumps.")
                 pass

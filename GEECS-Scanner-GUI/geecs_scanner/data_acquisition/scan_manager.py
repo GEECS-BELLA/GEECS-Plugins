@@ -33,7 +33,8 @@ class ScanManager:
     to the device_manager to initialize the desired saving configuration.
     """
     
-    def __init__(self, experiment_dir: str, shot_control_information: dict, device_manager=None, MC_ip = None, scan_data=None):
+    def __init__(self, experiment_dir: str, shot_control_information: dict,
+                 options_dict: Optional[dict] = None, device_manager=None, scan_data=None):
         """
         Initialize the ScanManager and its components.
 
@@ -45,7 +46,8 @@ class ScanManager:
         database_dict.reload(experiment_name=experiment_dir)
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
-        self.MC_ip = MC_ip
+
+        self.MC_ip = ""
         
         # Initialize ScanDataManager with device_manager and scan_data
         self.scan_data_manager = ScanDataManager(self.device_manager, scan_data, database_dict)
@@ -59,7 +61,6 @@ class ScanManager:
         if shot_control_device:
             self.shot_control = GeecsDevice(shot_control_information['device'])
             self.shot_control_variables = shot_control_information['variables']
-            self.enable_live_ECS_dump(client_ip=self.MC_ip)
 
         self.results = {}  # Store results for later processing
 
@@ -86,7 +87,7 @@ class ScanManager:
         self.pause_scan_event.set()  # Set to 'running' by default
         self.pause_time = 0
 
-        self.options_dict = {}  # Later initialized in 'reinitialize', but TODO should do it here instead
+        self.options_dict: dict = {} if options_dict is None else options_dict
 
     def pause_scan(self):
         """Pause the scanning process by clearing the pause event."""
@@ -114,10 +115,17 @@ class ScanManager:
         self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
         self.scan_data_manager = ScanDataManager(self.device_manager, scan_data, database_dict)
 
-        self.options_dict = config_dictionary['options']
+        if config_dictionary is not None and 'options' in config_dictionary:
+            self.options_dict = config_dictionary['options']
+
+        new_mc_ip = self.options_dict.get("Master Control IP", "")
+        if self.shot_control and new_mc_ip and self.MC_ip != new_mc_ip:
+            self.MC_ip = new_mc_ip
+            self.enable_live_ECS_dump(client_ip=self.MC_ip)
+
         self.data_logger.reinitialize_sound_player()
         self.data_logger.last_log_time_sync = {}
-        self.data_logger.update_repetition_rate(self.options_dict['rep_rate_hz'])
+        self.data_logger.update_repetition_rate(self.options_dict.get('rep_rate_hz', 1))
         self.console_logger.stop_logging()
         self.console_logger.setup_logging()
 
@@ -272,7 +280,8 @@ class ScanManager:
             logging.info("Attempting to execute closeout actions.")
             logging.info(f"Action list {self.device_manager.scan_closeout_action}")
 
-            self.action_manager.add_action({'closeout_action': self.device_manager.scan_closeout_action})
+            self.action_manager.add_action(action_name='closeout_action',
+                                           action_steps=self.device_manager.scan_closeout_action)
             self.action_manager.execute_action('closeout_action')
 
         if self.save_data:
@@ -329,8 +338,7 @@ class ScanManager:
         time.sleep(2)  # Ensure asynchronous commands have time to finish
         logging.info("scanning has stopped for all devices.")
 
-    def save_hiatus(self):
-        hiatus_period = float(self.options_dict["Save Hiatus Period (s)"])
+    def save_hiatus(self, hiatus_period: float):
         for device_name in self.device_manager.non_scalar_saving_devices:
             device = self.device_manager.devices.get(device_name)
             if device:
@@ -386,7 +394,8 @@ class ScanManager:
             logging.info("Attempting to execute pre-scan actions.")
             logging.info(f"Action list {self.device_manager.scan_setup_action}")
 
-            self.action_manager.add_action({'setup_action': self.device_manager.scan_setup_action})
+            self.action_manager.add_action(action_name='setup_action',
+                                           action_steps=self.device_manager.scan_setup_action)
             self.action_manager.execute_action('setup_action')
         
         logging.info(f'attempting to generate ECS live dump using {self.MC_ip}')
@@ -656,20 +665,20 @@ class ScanManager:
             current_time = time.time() - start_time
 
             # TODO move this to DataLogger's `_log_device_data` function instead...
-            save_on_shot = self.options_dict['On-Shot TDMS']
+            save_on_shot = self.options_dict.get('On-Shot TDMS', False)
             if save_on_shot:
                 if current_time % 1 < interval_time:
                     log_df = self.scan_data_manager.convert_to_dataframe(self.results)
                     self.scan_data_manager.dataframe_to_tdms(log_df)
 
             try:
-                hiatus = float(self.options_dict["Save Hiatus Period (s)"])
+                hiatus = float(self.options_dict.get("Save Hiatus Period (s)", ""))
             except ValueError:
                 hiatus = ""
 
             if hiatus:
                 if self.data_logger.shot_save_event.is_set():
-                    self.save_hiatus()
+                    self.save_hiatus(hiatus)
                     self.data_logger.shot_save_event.clear()
 
         # Turn trigger off after waiting

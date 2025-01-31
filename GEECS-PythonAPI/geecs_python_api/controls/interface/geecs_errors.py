@@ -1,6 +1,14 @@
 from typing import Optional
 
 
+class ConfigurationError(Exception):
+    """ Exception raised for errors in the configuration file. """
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
 class ErrorAPI(Exception):
 
     def __init__(self, message='', source='', warning=False):

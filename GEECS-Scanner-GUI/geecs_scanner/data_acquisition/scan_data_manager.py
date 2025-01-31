@@ -16,7 +16,7 @@ from nptdms import TdmsWriter, ChannelObject
 from . import DeviceManager, DatabaseDictLookup
 
 from geecs_python_api.controls.interface import GeecsDatabase
-from geecs_python_api.analysis.scans.scan_data import ScanData, reload_paths_config
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_custom_imaq_timestamp
 
@@ -67,7 +67,7 @@ class ScanDataManager:
         This method sets up the necessary directories and paths for saving device data,
         then initializes the TDMS writers for logging scalar and non-scalar data.
         """
-        reload_paths_config()
+        ScanData.reload_paths_config()
         if not ScanData.paths_config.is_default_server_address():
             raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
 
