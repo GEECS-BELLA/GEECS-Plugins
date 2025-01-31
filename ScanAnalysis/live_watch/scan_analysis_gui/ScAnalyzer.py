@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import QMainWindow, QApplication
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 from ScAnalyzer_ui import Ui_MainWindow
+from live_watch.scan_watch import ScanWatch
 # =============================================================================
 # %% global variables
 
@@ -66,7 +67,31 @@ class ScAnalyzerWindow(QMainWindow):
         # initialize worker and thread
         self.initialize_worker()
 
-    def run_analysis(self, progress_callback, is_running) -> None:
+    def run_analysis(self, progress_callback, is_running,
+                     wait_time: float = 0.5) -> None:
+        try:
+            # initialize scan watcher
+            scan_watcher = ScanWatch('Undulator',
+                                     int(self.ui.inputYear.text()),
+                                     int(self.ui.inputMonth.text()),
+                                     int(self.ui.inputDay.text()))
+
+            # start analysis
+            progress_callback.emit("Start ScanWatch.")
+            scan_watcher.start(watch_folder_not_exist='wait')
+
+            # let watcher idle while periodically checking for queue items
+            while is_running():
+                scan_watcher.process_queue()
+                time.sleep(wait_time)
+
+            # terminate analysis
+            progress_callback.emit("Terminating analysis.")
+
+        except Exception as e:
+            progress_callback.emit(f"Analysis failed: {str(e)}")
+
+    def run_analysis_dummy(self, progress_callback, is_running) -> None:
         try:
             date_str = f"{self.ui.inputMonth.text()}-{self.ui.inputDay.text()}-{self.ui.inputYear.text()}"
             progress_callback.emit(f"Starting fake analysis for {date_str}...")
@@ -82,16 +107,23 @@ class ScAnalyzerWindow(QMainWindow):
         except Exception as e:
             progress_callback.emit(f"Analysis failed: {str(e)}")
 
-    def end_analysis(self):
-        print("End analysis called")
-        self.ui.buttonStart.setEnabled(True)
-        self.ui.buttonStop.setEnabled(False)
 
+
+    def end_analysis(self):
+
+        self.write_to_log_display("Terminating analysis.")
+
+        # clean up worker thread
         if self.worker:
-            print("Stopping worker")
+            self.write_to_log_display("Cleaning up worker.")
             self.cleanup_worker()
         if self.worker_thread:
+            self.write_to_log_display("Cleaning up worker thread.")
             self.cleanup_thread()
+
+        # check if buttons are enabled/disabled
+        self.ui.buttonStart.setEnabled(True) if not self.ui.buttonStart.isEnabled() else None
+        self.ui.buttonStop.setEnabled(False) if self.ui.buttonStop.isEnabled() else None
 
     def initialize_worker(self):
         
@@ -158,9 +190,9 @@ class ScAnalyzerWindow(QMainWindow):
         # end analysis
         self.end_analysis()
 
-        # enable/disable gui buttons
-        self.ui.buttonStart.setEnabled(True)
-        self.ui.buttonStop.setEnabled(False)
+        # check if buttons are enabled/disabled
+        self.ui.buttonStart.setEnabled(True) if not self.ui.buttonStart.isEnabled() else None
+        self.ui.buttonStop.setEnabled(False) if self.ui.buttonStop.isEnabled() else None
 
     def write_to_log_display(self, text: str) -> None:
         '''
@@ -182,9 +214,9 @@ class ScAnalyzerWindow(QMainWindow):
         Save termination in the event of GUI window closure.
         Triggers automatically and terminates any existing worker threads.
         '''
-        self.update_progress('closeEvent: triggered')
+        self.write_to_log_display('closeEvent: triggered')
         if self.worker_thread and self.worker_thread.isRunning():
-            self.update_progress('closeEvent: closing thread')
+            self.write_to_log_display('closeEvent: closing thread')
             self.worker_thread.quit()
             self.worker_thread.wait()
         event.accept()
@@ -211,6 +243,7 @@ class Worker(QObject):
         try:
             self._is_running = True
             while self._is_running:
+                breakpoint()
                 self.analysis_func(self.progress, lambda: self._is_running)
                 break # exit after one iteration
             if not self._is_running:
