@@ -392,10 +392,10 @@ class ScanManager:
 
             self.action_manager.add_action({'setup_action': self.device_manager.scan_setup_action})
             self.action_manager.execute_action('setup_action')
-        
+
         logging.info(f'attempting to generate ECS live dump using {self.MC_ip}')
         if self.MC_ip is not None and self.shot_control is not None:
-            logging.info(f'attempting to generate ECS live dump using {self.MC_ip}')            
+            logging.info(f'attempting to generate ECS live dump using {self.MC_ip}')
             self.generate_live_ECS_dump(self.MC_ip)
 
         logging.info("Pre-logging setup completed.")
@@ -432,27 +432,6 @@ class ScanManager:
             if not success:
                 logging.warning(f"Failed to generate an ECS live dump")
                 break
-    
-    def _add_scan_devices_to_async_observables(self, scan_config):
-        """
-        Add the devices and variables involved in the scan to async_observables. This ensures their values
-        are logged in the scan files
-
-        Args:
-            scan_config (dict): The scan configuration that includes the devices and variables.
-        """
-
-        device_var = scan_config['device_var']
-        if self.device_manager.is_composite_variable(device_var):
-            component_vars = self.device_manager.get_composite_components(device_var, scan_config['start'])
-            for device_var in component_vars:
-                if device_var not in self.device_manager.async_observables:
-                    self.device_manager.async_observables.append(device_var)
-        else:
-            if device_var not in self.device_manager.async_observables:
-                self.device_manager.async_observables.append(device_var)
-
-        logging.info(f"Updated async_observables: {self.device_manager.async_observables}")
 
     def _generate_scan_steps(self, scan_config):
         """
@@ -476,18 +455,6 @@ class ScanManager:
                 'wait_time': scan_config.get('wait_time', 1),
                 'is_composite': False
             })
-        # elif self.device_manager.is_composite_variable(device_var):
-        #     self.data_logger.virtual_variable_name = device_var
-        #     current_value = scan_config['start']
-        #     while current_value <= scan_config['end']:
-        #         component_vars = self.device_manager.get_composite_components(device_var, current_value)
-        #         steps.append({
-        #             'variables': component_vars,
-        #             'wait_time': scan_config.get('wait_time', 1),
-        #             'is_composite': True
-        #         })
-        #         self.virtual_variable_list.append(current_value)
-        #         current_value += scan_config['step']
 
         else:
             current_value = scan_config['start']
@@ -499,40 +466,7 @@ class ScanManager:
                 })
                 current_value += scan_config['step']
 
-        # relative_flag = False
-        # # Check if it's a composite variable and if it has a relative flag in the YAML
-        # if self.device_manager.is_composite_variable(device_var):
-        #     composite_variable_info = self.device_manager.composite_variables.get(device_var, {})
-        #     relative_flag = composite_variable_info.get('relative', False)
-        #     # self._apply_relative_adjustment(steps)
-
-        # # set relative flag for normal variables
-        # elif scan_config.get('relative', False):
-        #     relative_flag = True
-        #
-        # if relative_flag and not self.device_manager.is_statistic_noscan(device_var):
-        #     self._apply_relative_adjustment(steps)
-
         return steps
-
-    # def _apply_relative_adjustment(self, scan_steps):
-    #
-    #     """
-    #     Adjust the scan steps based on the initial state of the devices if relative scanning is enabled.
-    #     This enables an easy way to start from a current state scan around it.
-    #
-    #     Args:
-    #         scan_steps (list): List of scan steps to be adjusted.
-    #     """
-    #
-    #     for step in scan_steps:
-    #         for device_var, value in step['variables'].items():
-    #             # Add the initial state value to the step value for each device
-    #             if device_var in self.initial_state:
-    #                 initial_value = self.initial_state[device_var]['value']
-    #                 step['variables'][device_var] += initial_value
-    #             else:
-    #                 logging.warning(f"Initial state for {device_var} not found, skipping relative adjustment.")
 
     def scan_execution_loop(self):
 
@@ -740,48 +674,41 @@ class ScanManager:
             dict: A dictionary mapping each device variable to its initial state.
         """
 
-        scan_variables = []
-
         if scan_config:
             device_var = scan_config['device_var']
-            scan_variables.append(device_var)
-            # Handle composite variables by retrieving each component's state
-            # if self.device_manager.is_composite_variable(device_var):
-            #     component_vars = self.device_manager.get_composite_components(device_var, scan_config['start'])
-            #     scan_variables.extend(component_vars.keys())
-            # else:
-            #     scan_variables.append(device_var)
 
-        logging.info(f"Scan variables for initial state: {scan_variables}")
-        # Use the existing method to get the current state of all variables
-        initial_state = self.device_manager.get_values(scan_variables)
+            if self.device_manager.is_composite_variable(device_var):
+                initial_state = {f'{device_var}:composite_var':self.device_manager.devices[device_var].state.get('composite_var')}
+            else:
+                device_name, var_name = device_var.split(':')
+                initial_state = {device_var:self.device_manager.devices[device_name].state.get(var_name)}
 
         logging.info(f"Initial scan variable state: {initial_state}")
         return initial_state
 
     def restore_initial_state(self, initial_state):
-
         """
         Restore the devices to their initial states after the scan has completed.
-        NOTE: this could be used more generally to restore any kind of state
+        NOTE: This could be used more generally to restore any kind of state.
 
         Args:
-            initial_state (dict): A dictionary containing the initial states of the devices.
+            initial_state (dict): A dictionary containing the initial states of the devices,
+                                  where keys are in the format "device_name:variable_name",
+                                  and values are the states to be restored.
         """
+        for device_var, value in initial_state.items():
+            # Split the key to get the device name and variable name
+            device_name, variable_name = device_var.split(':', 1)
 
-        for device_var, value_dict in initial_state.items():
-            device_name, var_name = device_var.split(':')
-            device = self.device_manager.devices.get(device_name)
-
-            if device:
-                initial_value = value_dict['value']
-                device.set(var_name, initial_value)
-                logging.info(f"Restored {device_name}:{var_name} to initial value {initial_value}")
+            if device_name in self.device_manager.devices:
+                device = self.device_manager.devices[device_name]
+                try:
+                    device.set(variable_name, value)
+                    logging.info(f"Restored {device_name}:{variable_name} to {value}.")
+                except Exception as e:
+                    logging.error(f"Failed to restore {device_name}:{variable_name} to {value}: {e}")
             else:
-                logging.warning(f"Device {device_name} not found when trying to restore state.")
-
-        logging.info("All devices restored to their initial states.")
-
+                logging.warning(f"Device {device_name} not found. Skipping restoration for {device_var}.")
 
 
 if __name__ == '__main__':
