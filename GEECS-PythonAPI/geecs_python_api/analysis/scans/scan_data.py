@@ -14,7 +14,7 @@ from typing import Optional, Union, NamedTuple
 from configparser import ConfigParser, NoSectionError
 from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
 from geecs_python_api.controls.interface.geecs_paths_config import GeecsPathsConfig
-from geecs_python_api.controls.interface.geecs_errors import api_error
+from geecs_python_api.controls.interface.geecs_errors import ConfigurationError, api_error
 from geecs_python_api.controls.api_defs import SysPath, ScanTag, month_to_int
 from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
 
@@ -84,8 +84,8 @@ class ScanData:
         """ Used by GEECS Scanner to fix scan_data_manager in case experiment name has changed """
         try:
             cls.paths_config = GeecsPathsConfig()
-        except ValueError:
-            logger.error("'CONFIG' not set for ScanData")
+        except ConfigurationError as e:
+            logger.error(f"Configuration Error in ScanData: {e}")
             cls.paths_config = None
 
     def _initialize_folders(self, folder: Path, read_mode: bool):
