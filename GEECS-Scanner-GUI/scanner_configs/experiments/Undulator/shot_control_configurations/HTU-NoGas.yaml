@@ -1,0 +1,6 @@
+device: U_DG645_ShotControl
+variables:
+  Trigger.Source:
+    'OFF': Single shot external rising edges
+    SCAN: External rising edges
+    STANDBY: External rising edges

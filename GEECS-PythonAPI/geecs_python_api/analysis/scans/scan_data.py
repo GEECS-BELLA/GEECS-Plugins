@@ -14,7 +14,7 @@ from typing import Optional, Union, NamedTuple
 from configparser import ConfigParser, NoSectionError
 from geecs_python_api.tools.interfaces.tdms import read_geecs_tdms
 from geecs_python_api.controls.interface.geecs_paths_config import GeecsPathsConfig
-from geecs_python_api.controls.interface.geecs_errors import api_error
+from geecs_python_api.controls.interface.geecs_errors import ConfigurationError, api_error
 from geecs_python_api.controls.api_defs import SysPath, ScanTag, month_to_int
 from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
 
@@ -25,11 +25,11 @@ logger = logging.getLogger(__name__)
 if not logging.getLogger().hasHandlers():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-CONFIG = GeecsPathsConfig()
-
 
 class ScanData:
     """ Represents a GEECS experiment scan """
+
+    paths_config = None
 
     def __init__(self, folder: Optional[SysPath] = None,
                  tag: Optional[ScanTag] = None,
@@ -54,7 +54,7 @@ class ScanData:
         read_mode: bool
             Flag that determines if ScanData should create the directory if it does not exist
         """
-                 
+
         self.scan_info: dict[str, str] = {}
 
         self.__folder: Optional[Path] = None
@@ -68,7 +68,7 @@ class ScanData:
         # Handle folder initialization
         if folder is None and tag is not None:
             if base_directory is None or not Path(base_directory).exists():
-                base_directory = CONFIG.base_path
+                base_directory = ScanData.paths_config.base_path
             if not Path(base_directory).exists():
                 raise NotADirectoryError(f"Error setting base directory: '{base_directory}'")
             folder = self.get_scan_folder_path(tag, base_directory=base_directory)
@@ -78,6 +78,21 @@ class ScanData:
         # Load scalar data if requested
         if load_scalars:
             self.load_scalar_data()
+
+    @classmethod
+    def reload_paths_config(cls, config_path: Optional[Path] = None,
+                            default_experiment: Optional[str] = None,
+                            set_base_path: Optional[Union[Path, str]] = None):
+        """ Used by GEECS Scanner to fix scan_data_manager in case experiment name has changed """
+        try:
+            if config_path is None:  # Then don't explicitly pass config_path so that it uses the default location
+                cls.paths_config = GeecsPathsConfig(default_experiment=default_experiment, set_base_path=set_base_path)
+            else:
+                cls.paths_config = GeecsPathsConfig(config_path=config_path,
+                                                    default_experiment=default_experiment, set_base_path=set_base_path)
+        except ConfigurationError as e:
+            logger.error(f"Configuration Error in ScanData: {e}")
+            cls.paths_config = None
 
     def _initialize_folders(self, folder: Path, read_mode: bool):
         """
@@ -114,23 +129,23 @@ class ScanData:
 
         # Validate folder naming conventions
         if (not re.match(r"Y\d{4}", year_folder_name)) or \
-           (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
-           (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
-           (not scans_literal == 'scans') or \
-           (not re.match(r"Scan\d{3,}", scan_folder_name)):
+                (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
+                (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
+                (not scans_literal == 'scans') or \
+                (not re.match(r"Scan\d{3,}", scan_folder_name)):
             raise ValueError(f"Folder path {folder} does not appear to follow the expected naming convention.")
 
         # Infer the ScanTag and tag date from the folder name
         self.__tag_date = dtime.strptime(date_folder_name, "%y_%m%d").date()
         self.__tag = self.get_scan_tag(self.__tag_date.year, self.__tag_date.month, self.__tag_date.day,
-                                       int(scan_folder_name[4:]), experiment_name=exp_name)
+                                       int(scan_folder_name[4:]), experiment=exp_name)
 
         # Assign folder attributes
         self.__folder = folder
 
     @staticmethod
     def get_scan_tag(year: Union[int, str], month: Union[int, str], day: Union[int, str], number: Union[int, str],
-                     experiment_name: Optional[str] = None) -> ScanTag:
+                     experiment: Optional[str] = None, experiment_name: Optional[str] = None) -> ScanTag:
         """
         Returns a ScanTag tuple given the appropriate information, formatted correctly.  Ideally one should only build
         ScanTag objects using this function
@@ -139,7 +154,8 @@ class ScanData:
         :param month: Target scan month
         :param day: Target scan day
         :param number: Target scan number
-        :param experiment_name: Target scan's experiment name
+        :param experiment: Target scan's experiment name
+        :param experiment_name: Target scan's experiment name (deprecated)
         :return: ScanTag Tuple with properly formatted information to describe the target scan
         """
         year = int(year)
@@ -147,16 +163,18 @@ class ScanData:
             year += 2000
         month = month_to_int(month)
 
-        experiment = experiment_name or CONFIG.experiment
+        exp = experiment or experiment_name or ScanData.paths_config.experiment
+        if experiment_name is not None:
+            logger.warning("Recommended to use 'experiment' instead of 'experiment_name' for 'get_scan_tag'...")
 
-        return ScanTag(year, month, int(day), int(number), experiment=experiment)
-    
+        return ScanTag(year, month, int(day), int(number), experiment=exp)
+
     @staticmethod
     def get_scan_folder_path(tag: ScanTag, base_directory: Optional[Union[Path, str]] = None) -> Path:
         """
         Build scan folder paths for local and client directories.
         """
-        base = base_directory or CONFIG.base_path
+        base = base_directory or ScanData.paths_config.base_path
 
         folder = Path(base) / tag.experiment
         folder = folder / f'Y{tag.year}' / f'{tag.month:02d}-{cal.month_name[tag.month][:3]}'
@@ -164,7 +182,7 @@ class ScanData:
         folder = folder / 'scans' / f'Scan{tag.number:03d}'
 
         return folder
-    
+
     @staticmethod
     def get_device_shot_path(tag: ScanTag, device_name: str, shot_number: int, file_extension: str = 'png',
                              base_directory: Optional[Union[Path, str]] = None) -> Path:
@@ -225,7 +243,7 @@ class ScanData:
 
         i = 1
         while True:
-            tag = ScanData.get_scan_tag(year, month, day, i, experiment_name=experiment)
+            tag = ScanData.get_scan_tag(year, month, day, i, experiment=experiment)
             try:
                 ScanData(tag=tag, load_scalars=False, read_mode=True, base_directory=base_directory)
             except ValueError:
@@ -234,7 +252,7 @@ class ScanData:
 
         if i == 1:
             return None  # No scans exist for the given day
-        return ScanData.get_scan_tag(year, month, day, i - 1, experiment_name=experiment)
+        return ScanData.get_scan_tag(year, month, day, i - 1, experiment=experiment)
 
     @staticmethod
     def get_latest_scan_data(experiment: Optional[str] = None, year: Optional[int] = None,
@@ -293,10 +311,10 @@ class ScanData:
             year = year or today.year
             month = month or today.month
             day = day or today.day
-            return ScanData.get_scan_tag(year, month, day, 1, experiment_name=experiment)
+            return ScanData.get_scan_tag(year, month, day, 1, experiment=experiment)
 
         return ScanData.get_scan_tag(latest_tag.year, latest_tag.month, latest_tag.day,
-                                     latest_tag.number + 1, experiment_name=experiment)
+                                     latest_tag.number + 1, experiment=experiment)
 
     @staticmethod
     def get_next_scan_folder(experiment: Optional[str] = None, year: Optional[int] = None,
@@ -352,7 +370,7 @@ class ScanData:
 
     def get_folder(self) -> Optional[Path]:
         return self.__folder
-        
+
     def get_tag(self) -> Optional[ScanTag]:
         return self.__tag
 
@@ -432,7 +450,8 @@ class ScanData:
         num_shots_per_step: int = int(self.scan_info['Shots per step'])
         expected = Expected(start=parameter_start, end=parameter_end, steps=num_steps, shots=num_shots_per_step,
                             setpoints=np.linspace(parameter_start, parameter_end, num_steps),
-                            indexes=[np.arange(p * num_shots_per_step, (p+1) * num_shots_per_step) for p in range(num_steps)])
+                            indexes=[np.arange(p * num_shots_per_step, (p + 1) * num_shots_per_step) for p in
+                                     range(num_steps)])
 
         parameter_avgs_match_setpoints = all([inds.size == expected.shots for inds in measured.indexes])
         parameter_avgs_match_setpoints = parameter_avgs_match_setpoints and (len(measured.indexes) == expected.steps)
@@ -448,3 +467,6 @@ class ScanData:
             setpoints = measured.avg_x
 
         return indexes, setpoints, parameter_avgs_match_setpoints
+
+
+ScanData.reload_paths_config()
