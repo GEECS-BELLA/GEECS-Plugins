@@ -341,7 +341,6 @@ class Worker(QObject):
         try:
             self._is_running = True
             while self._is_running:
-                breakpoint()
                 self.analysis_func(self.progress, lambda: self._is_running)
                 break  # exit after one iteration
             if not self._is_running:
