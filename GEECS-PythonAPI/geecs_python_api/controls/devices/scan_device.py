@@ -136,6 +136,9 @@ class ScanDevice(GeecsDevice):
             success = sub_device.subscribe_var_values(variables)
             if not success:
                 raise ValueError(f"Failed to subscribe to variables {variables} on device '{device_name}'.")
+        
+        self.state["composite_var"] = 0  
+        
     
     def set_reference(self) -> None:
         
@@ -191,6 +194,12 @@ class ScanDevice(GeecsDevice):
                 device_var = comp['variable']
                 sub_value = self._calculate_sub_value(comp, value)
                 sub_device.set(device_var, sub_value, **kwargs)
+                
+            # right now, to be consistent with geecs device we are returning a value which is just the set value
+            # In the future, a more clever/informative value could be returned that maybe takes into account
+            # tolerances
+            return value
+            
         else:
             super().set(variable, value, **kwargs)
             
