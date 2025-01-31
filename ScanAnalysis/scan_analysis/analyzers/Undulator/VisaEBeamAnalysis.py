@@ -111,7 +111,9 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
                           settings['Blue Centroid Y'] - settings['Top ROI'])
 
         # call super function and pass blue diode coords
-        super().create_image_array(binned_data, ref_coords=ref_coords, plot_scale=plot_scale)
+        save_path = super().create_image_array(binned_data, ref_coords=ref_coords, plot_scale=plot_scale)
+        
+        return save_path
 
     def image_processing(self, image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         # apply cross mask

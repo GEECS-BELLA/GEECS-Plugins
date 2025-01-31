@@ -1,0 +1,17 @@
+Devices:
+  U_GhostLowPowerWFS:
+    save_nonscalar_data: false
+    synchronous: false
+    variable_list:
+    - timestamp
+    - BeamCentroidX
+    - BeamCentroidY
+    - RadiusOfCurvature
+  U_GhostWFS:
+    save_nonscalar_data: false
+    synchronous: false
+    variable_list:
+    - timestamp
+    - BeamCentroidX
+    - BeamCentroidY
+    - RadiusOfCurvature
