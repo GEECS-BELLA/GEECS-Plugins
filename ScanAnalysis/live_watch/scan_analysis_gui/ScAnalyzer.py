@@ -50,8 +50,8 @@ class ScAnalyzerWindow(QMainWindow):
         self.worker_thread: Optional[QThread] = None
 
         # connect buttons to functions
-        self.ui.buttonStart.clicked.connect(self.start_analysis)
-        self.ui.buttonStop.clicked.connect(self.end_analysis)
+        self.ui.buttonStart.clicked.connect(self.event_start_button_clicked)
+        self.ui.buttonStop.clicked.connect(self.event_stop_button_clicked)
 
     def start_analysis(self) -> None:
         # thread worker status check
@@ -125,25 +125,63 @@ class ScAnalyzerWindow(QMainWindow):
         self.cleanup_thread()
 
     def update_progress(self, progress_string):
-        self.ui.logDisplay.append(progress_string)
-        self.ui.logDisplay.verticalScrollBar().setValue(
-            self.ui.logDisplay.verticalScrollBar().maximum()
-            )
+        self.write_to_log_display(progress_string)
 
     def handle_error(self, error_message):
-        self.ui.logDisplay.append(f"Error: {error_message}")
+        self.write_to_log_display(f"Error: {error_message}")
 
     def set_default_inputs(self) -> None:
-
+        '''
+        Assign default values to text fields.
+        '''
         # set default scan date
         today = date.today()
         self.ui.inputYear.setText(str(today.year))
         self.ui.inputMonth.setText(str(today.month))
         self.ui.inputDay.setText(str(today.day))
 
-    def closeEvent(self, event):
-        # properly close thread if window is closed
-        # triggers automatically
+    def event_start_button_clicked(self) -> None:
+        '''
+        Actions performed when Start button is clicked.
+        '''
+        # enable/disable gui buttons
+        self.ui.buttonStart.setEnabled(False)
+        self.ui.buttonStop.setEnabled(True)
+
+        # start analysis
+        self.start_analysis()
+
+    def event_stop_button_clicked(self) -> None:
+        '''
+        Actions performed when Stop button is clicked.
+        '''
+        # end analysis
+        self.end_analysis()
+
+        # enable/disable gui buttons
+        self.ui.buttonStart.setEnabled(True)
+        self.ui.buttonStop.setEnabled(False)
+
+    def write_to_log_display(self, text: str) -> None:
+        '''
+        Pass text to display window on GUI.
+
+        Note: It was noted that the GUI may slow down if lots of text is logged.
+        It might be good to terminate old text (only store so much on gui window).
+        All text could be logged in an external text file for reference or debugging.
+        '''
+        # write to log display
+        self.ui.logDisplay.append(text)
+
+        # auto-scroll display to newest text
+        self.ui.logDisplay.verticalScrollBar().setValue(
+            self.ui.logDisplay.verticalScrollBar().maximum())
+
+    def closeEvent(self, event) -> None:
+        '''
+        Save termination in the event of GUI window closure.
+        Triggers automatically and terminates any existing worker threads.
+        '''
         self.update_progress('closeEvent: triggered')
         if self.worker_thread and self.worker_thread.isRunning():
             self.update_progress('closeEvent: closing thread')
@@ -181,8 +219,6 @@ class Worker(QObject):
             self.error.emit(f"Error: {str(e)}")
         finally:
             self.finished.emit()
-
-
 
 # =============================================================================
 # %% routine
