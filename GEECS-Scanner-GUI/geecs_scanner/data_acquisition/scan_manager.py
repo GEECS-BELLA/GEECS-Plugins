@@ -280,7 +280,8 @@ class ScanManager:
             logging.info("Attempting to execute closeout actions.")
             logging.info(f"Action list {self.device_manager.scan_closeout_action}")
 
-            self.action_manager.add_action({'closeout_action': self.device_manager.scan_closeout_action})
+            self.action_manager.add_action(action_name='closeout_action',
+                                           action_steps=self.device_manager.scan_closeout_action)
             self.action_manager.execute_action('closeout_action')
 
         if self.save_data:
@@ -393,7 +394,8 @@ class ScanManager:
             logging.info("Attempting to execute pre-scan actions.")
             logging.info(f"Action list {self.device_manager.scan_setup_action}")
 
-            self.action_manager.add_action({'setup_action': self.device_manager.scan_setup_action})
+            self.action_manager.add_action(action_name='setup_action',
+                                           action_steps=self.device_manager.scan_setup_action)
             self.action_manager.execute_action('setup_action')
         
         logging.info(f'attempting to generate ECS live dump using {self.MC_ip}')
