@@ -76,16 +76,16 @@ class ScAnalyzerWindow(QMainWindow):
         # initialize worker and thread
         self.initialize_worker()
 
-    def run_analysis(self, progress_callback: pyqtSignal, is_running: bool,
+    def run_analysis(self, progress_callback: ProgressCallback, is_running: RunningCheck,
                      wait_time: float = 0.5) -> None:
         '''
         Run Scan Analysis by initializing and running ScanWatcher.
         Passed to Worker and run on worker thread.
 
         :param progress_callback: Signal to communicate from worker thread.
-        :type progress_callback: pyqtSignal
-        :param is_running: Boolean flag to indicate whether the worker thread is or should be running.
-        :type is_running: bool
+        :type progress_callback: Callable[[str], None]
+        :param is_running: Function that returns a boolean to indicate whether the worker thread is or should be running.
+        :type is_running: Callable[[], bool]
         :param wait_time: Sleep time between queue checks, defaults to 0.5
         :type wait_time: float, optional
         :return: No return.
