@@ -6,7 +6,7 @@ except ImportError:
 class Environment(geecs_Environment):
     name = 'Bella_PW_General'
     variables = {
-        'HEX-PL1-1:ypos': [-8,2],
+        'HEX-PL1-1:ypos': [-8,8],
         'HEX-PL1-1:wangle': [-2,2],
         'HEX-PL1-1:zpos': [-5,0],
         'HEX-PL1-1:vangle': [0,1],
@@ -25,6 +25,8 @@ class Environment(geecs_Environment):
         'HEX-PL1-2:zpos': [-1.6,-0.2]
     }
     observables = ['CAM-PL1-1-SideView:meancounts',
-                   'CAM-HPD-CCD:maxcounts','CAM-HPD-M3Near:MeanCounts']
+                   'CAM-HPD-CCD:maxcounts',
+                   'CAM-HPD-M3Near:MeanCounts',
+                   'CAM-PL1-SideviewNorth:MeanCounts']
     some_parameter: str = 'test'
 
