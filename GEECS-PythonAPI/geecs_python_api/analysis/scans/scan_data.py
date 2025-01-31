@@ -54,7 +54,7 @@ class ScanData:
         read_mode: bool
             Flag that determines if ScanData should create the directory if it does not exist
         """
-                 
+
         self.scan_info: dict[str, str] = {}
 
         self.__folder: Optional[Path] = None
@@ -80,10 +80,16 @@ class ScanData:
             self.load_scalar_data()
 
     @classmethod
-    def reload_paths_config(cls):
+    def reload_paths_config(cls, config_path: Optional[Path] = None,
+                            default_experiment: Optional[str] = None,
+                            set_base_path: Optional[Union[Path, str]] = None):
         """ Used by GEECS Scanner to fix scan_data_manager in case experiment name has changed """
         try:
-            cls.paths_config = GeecsPathsConfig()
+            if config_path is None:  # Then don't explicitly pass config_path so that it uses the default location
+                cls.paths_config = GeecsPathsConfig(default_experiment=default_experiment, set_base_path=set_base_path)
+            else:
+                cls.paths_config = GeecsPathsConfig(config_path=config_path,
+                                                    default_experiment=default_experiment, set_base_path=set_base_path)
         except ConfigurationError as e:
             logger.error(f"Configuration Error in ScanData: {e}")
             cls.paths_config = None
@@ -123,10 +129,10 @@ class ScanData:
 
         # Validate folder naming conventions
         if (not re.match(r"Y\d{4}", year_folder_name)) or \
-           (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
-           (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
-           (not scans_literal == 'scans') or \
-           (not re.match(r"Scan\d{3,}", scan_folder_name)):
+                (not re.match(r"\d{2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", month_folder_name)) or \
+                (not re.match(r"\d{2}_\d{4}", date_folder_name)) or \
+                (not scans_literal == 'scans') or \
+                (not re.match(r"Scan\d{3,}", scan_folder_name)):
             raise ValueError(f"Folder path {folder} does not appear to follow the expected naming convention.")
 
         # Infer the ScanTag and tag date from the folder name
@@ -162,7 +168,7 @@ class ScanData:
             logger.warning("Recommended to use 'experiment' instead of 'experiment_name' for 'get_scan_tag'...")
 
         return ScanTag(year, month, int(day), int(number), experiment=exp)
-    
+
     @staticmethod
     def get_scan_folder_path(tag: ScanTag, base_directory: Optional[Union[Path, str]] = None) -> Path:
         """
@@ -176,7 +182,7 @@ class ScanData:
         folder = folder / 'scans' / f'Scan{tag.number:03d}'
 
         return folder
-    
+
     @staticmethod
     def get_device_shot_path(tag: ScanTag, device_name: str, shot_number: int, file_extension: str = 'png',
                              base_directory: Optional[Union[Path, str]] = None) -> Path:
@@ -364,7 +370,7 @@ class ScanData:
 
     def get_folder(self) -> Optional[Path]:
         return self.__folder
-        
+
     def get_tag(self) -> Optional[ScanTag]:
         return self.__tag
 
@@ -444,7 +450,8 @@ class ScanData:
         num_shots_per_step: int = int(self.scan_info['Shots per step'])
         expected = Expected(start=parameter_start, end=parameter_end, steps=num_steps, shots=num_shots_per_step,
                             setpoints=np.linspace(parameter_start, parameter_end, num_steps),
-                            indexes=[np.arange(p * num_shots_per_step, (p+1) * num_shots_per_step) for p in range(num_steps)])
+                            indexes=[np.arange(p * num_shots_per_step, (p + 1) * num_shots_per_step) for p in
+                                     range(num_steps)])
 
         parameter_avgs_match_setpoints = all([inds.size == expected.shots for inds in measured.indexes])
         parameter_avgs_match_setpoints = parameter_avgs_match_setpoints and (len(measured.indexes) == expected.steps)
