@@ -15,7 +15,9 @@ import pandas as pd
 from . import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup, ScanDataManager
 from .utils import ConsoleLogger
 
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+# from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.scan_device import ScanDevice
+
 
 
 database_dict = DatabaseDictLookup()
@@ -53,11 +55,11 @@ class ScanManager:
         self.data_logger = DataLogger(experiment_dir, self.device_manager)  # Initialize DataLogger
         self.save_data = True
 
-        self.shot_control: Optional[GeecsDevice] = None
+        self.shot_control: Optional[ScanDevice] = None
         self.shot_control_variables = None
         shot_control_device = shot_control_information.get('device', None)
         if shot_control_device:
-            self.shot_control = GeecsDevice(shot_control_information['device'])
+            self.shot_control = ScanDevice(shot_control_information['device'])
             self.shot_control_variables = shot_control_information['variables']
             self.enable_live_ECS_dump(client_ip=self.MC_ip)
 
@@ -114,10 +116,12 @@ class ScanManager:
         self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
         self.scan_data_manager = ScanDataManager(self.device_manager, scan_data, database_dict)
 
-        self.options_dict = config_dictionary['options']
+        # self.options_dict = config_dictionary.get('options',None)
         self.data_logger.reinitialize_sound_player()
         self.data_logger.last_log_time_sync = {}
-        self.data_logger.update_repetition_rate(self.options_dict['rep_rate_hz'])
+        # self.data_logger.update_repetition_rate(self.options_dict['rep_rate_hz'])
+        self.data_logger.update_repetition_rate(1)
+
         self.console_logger.stop_logging()
         self.console_logger.setup_logging()
 
@@ -472,18 +476,18 @@ class ScanManager:
                 'wait_time': scan_config.get('wait_time', 1),
                 'is_composite': False
             })
-        elif self.device_manager.is_composite_variable(device_var):
-            self.data_logger.virtual_variable_name = device_var
-            current_value = scan_config['start']
-            while current_value <= scan_config['end']:
-                component_vars = self.device_manager.get_composite_components(device_var, current_value)
-                steps.append({
-                    'variables': component_vars,
-                    'wait_time': scan_config.get('wait_time', 1),
-                    'is_composite': True
-                })
-                self.virtual_variable_list.append(current_value)
-                current_value += scan_config['step']
+        # elif self.device_manager.is_composite_variable(device_var):
+        #     self.data_logger.virtual_variable_name = device_var
+        #     current_value = scan_config['start']
+        #     while current_value <= scan_config['end']:
+        #         component_vars = self.device_manager.get_composite_components(device_var, current_value)
+        #         steps.append({
+        #             'variables': component_vars,
+        #             'wait_time': scan_config.get('wait_time', 1),
+        #             'is_composite': True
+        #         })
+        #         self.virtual_variable_list.append(current_value)
+        #         current_value += scan_config['step']
 
         else:
             current_value = scan_config['start']
@@ -495,40 +499,40 @@ class ScanManager:
                 })
                 current_value += scan_config['step']
 
-        relative_flag = False
-        # Check if it's a composite variable and if it has a relative flag in the YAML
-        if self.device_manager.is_composite_variable(device_var):
-            composite_variable_info = self.device_manager.composite_variables.get(device_var, {})
-            relative_flag = composite_variable_info.get('relative', False)
-            # self._apply_relative_adjustment(steps)
+        # relative_flag = False
+        # # Check if it's a composite variable and if it has a relative flag in the YAML
+        # if self.device_manager.is_composite_variable(device_var):
+        #     composite_variable_info = self.device_manager.composite_variables.get(device_var, {})
+        #     relative_flag = composite_variable_info.get('relative', False)
+        #     # self._apply_relative_adjustment(steps)
 
-        # set relative flag for normal variables
-        elif scan_config.get('relative', False):
-            relative_flag = True
-
-        if relative_flag and not self.device_manager.is_statistic_noscan(device_var):
-            self._apply_relative_adjustment(steps)
+        # # set relative flag for normal variables
+        # elif scan_config.get('relative', False):
+        #     relative_flag = True
+        #
+        # if relative_flag and not self.device_manager.is_statistic_noscan(device_var):
+        #     self._apply_relative_adjustment(steps)
 
         return steps
 
-    def _apply_relative_adjustment(self, scan_steps):
-
-        """
-        Adjust the scan steps based on the initial state of the devices if relative scanning is enabled.
-        This enables an easy way to start from a current state scan around it.
-
-        Args:
-            scan_steps (list): List of scan steps to be adjusted.
-        """
-
-        for step in scan_steps:
-            for device_var, value in step['variables'].items():
-                # Add the initial state value to the step value for each device
-                if device_var in self.initial_state:
-                    initial_value = self.initial_state[device_var]['value']
-                    step['variables'][device_var] += initial_value
-                else:
-                    logging.warning(f"Initial state for {device_var} not found, skipping relative adjustment.")
+    # def _apply_relative_adjustment(self, scan_steps):
+    #
+    #     """
+    #     Adjust the scan steps based on the initial state of the devices if relative scanning is enabled.
+    #     This enables an easy way to start from a current state scan around it.
+    #
+    #     Args:
+    #         scan_steps (list): List of scan steps to be adjusted.
+    #     """
+    #
+    #     for step in scan_steps:
+    #         for device_var, value in step['variables'].items():
+    #             # Add the initial state value to the step value for each device
+    #             if device_var in self.initial_state:
+    #                 initial_value = self.initial_state[device_var]['value']
+    #                 step['variables'][device_var] += initial_value
+    #             else:
+    #                 logging.warning(f"Initial state for {device_var} not found, skipping relative adjustment.")
 
     def scan_execution_loop(self):
 
@@ -586,7 +590,10 @@ class ScanManager:
                 if device:
                     # Retrieve the tolerance for the variable
                     # TODO Better error handling when tolerance not defined in database editor
-                    tol = float(GeecsDevice.exp_info['devices'][device_name][var_name]['tolerance'])
+                    if device.is_composite:
+                        tol=10000 # set for composite vars just returns the set value
+                    else:
+                        tol = float(ScanDevice.exp_info['devices'][device_name][var_name]['tolerance'])
 
                     # Retry logic for setting device value
                     success = False
@@ -737,13 +744,13 @@ class ScanManager:
 
         if scan_config:
             device_var = scan_config['device_var']
-
+            scan_variables.append(device_var)
             # Handle composite variables by retrieving each component's state
-            if self.device_manager.is_composite_variable(device_var):
-                component_vars = self.device_manager.get_composite_components(device_var, scan_config['start'])
-                scan_variables.extend(component_vars.keys())
-            else:
-                scan_variables.append(device_var)
+            # if self.device_manager.is_composite_variable(device_var):
+            #     component_vars = self.device_manager.get_composite_components(device_var, scan_config['start'])
+            #     scan_variables.extend(component_vars.keys())
+            # else:
+            #     scan_variables.append(device_var)
 
         logging.info(f"Scan variables for initial state: {scan_variables}")
         # Use the existing method to get the current state of all variables
