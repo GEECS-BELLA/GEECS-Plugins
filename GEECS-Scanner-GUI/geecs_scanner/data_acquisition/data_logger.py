@@ -243,6 +243,9 @@ class DataLogger:
                 # Update the log entry for this async variable
                 log_entries[elapsed_time][f"{device_name}:{var_name}"] = value
                 logging.info(f"Updated async var {device_name}:{var_name} to {value} for elapsed time {elapsed_time}.")
+                if device.is_composite:
+                    # add code here to upddate the log entries with the subcomponet values
+                    pass
 
     def _log_device_data(self, device, event_driven_observables, log_entries, elapsed_time):
 
