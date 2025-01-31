@@ -224,6 +224,29 @@ class DataLogger:
         last_timestamps[device.get_name()] = current_timestamp
         return False
 
+    # def update_async_observables(self, async_observables, log_entries, elapsed_time):
+    #     """
+    #     Update log entries with the latest values for asynchronous observables.
+    #
+    #     Args:
+    #         async_observables (list): List of asynchronous observables to update.
+    #         log_entries (dict): Dictionary to store the logged data.
+    #         elapsed_time (int): The time elapsed since the logging started.
+    #     """
+    #     for observable in async_observables:
+    #         device_name, var_name = observable.split(':')
+    #         device = self.device_manager.devices.get(device_name)
+    #
+    #         if device:
+    #             # Get the latest value from the device state
+    #             value = device.state.get(var_name, 'N/A')
+    #             # Update the log entry for this async variable
+    #             log_entries[elapsed_time][f"{device_name}:{var_name}"] = value
+    #             logging.info(f"Updated async var {device_name}:{var_name} to {value} for elapsed time {elapsed_time}.")
+    #             if device.is_composite:
+    #                 # add code here to upddate the log entries with the subcomponet values
+    #                 pass
+
     def update_async_observables(self, async_observables, log_entries, elapsed_time):
         """
         Update log entries with the latest values for asynchronous observables.
@@ -234,18 +257,48 @@ class DataLogger:
             elapsed_time (int): The time elapsed since the logging started.
         """
         for observable in async_observables:
-            device_name, var_name = observable.split(':')
+            # Check if the observable has a variable specified (e.g., 'Dev1:var1')
+            if ':' in observable:
+                device_name, var_name = observable.split(':')
+            else:
+                device_name = observable
+                var_name = None
+
             device = self.device_manager.devices.get(device_name)
 
             if device:
-                # Get the latest value from the device state
-                value = device.state.get(var_name, 'N/A')
-                # Update the log entry for this async variable
-                log_entries[elapsed_time][f"{device_name}:{var_name}"] = value
-                logging.info(f"Updated async var {device_name}:{var_name} to {value} for elapsed time {elapsed_time}.")
                 if device.is_composite:
-                    # add code here to upddate the log entries with the subcomponet values
-                    pass
+                    # Handle composite devices
+                    composite_value = device.state.get("composite_var", "N/A")
+                    log_entries[elapsed_time][f"{device_name}:composite_var"] = composite_value
+                    logging.info(
+                        f"Updated composite var {device_name}:composite_var to {composite_value} for elapsed time {elapsed_time}.")
+
+                    # Log sub-component states
+                    for comp in device.components:
+                        sub_device_name = comp['device']
+                        sub_var_name = comp['variable']
+                        sub_device = device.sub_devices[sub_device_name]['instance']
+
+                        if sub_device:
+                            sub_value = sub_device.state.get(sub_var_name, "N/A")
+                            log_entries[elapsed_time][f"{sub_device_name}:{sub_var_name}"] = sub_value
+                            logging.info(
+                                f"Updated sub-component {sub_device_name}:{sub_var_name} to {sub_value} for elapsed time {elapsed_time}.")
+                        else:
+                            logging.warning(f"Sub-device {sub_device_name} not found for {device_name}.")
+                else:
+                    # Handle regular devices
+                    if var_name is None:
+                        logging.warning(f"No variable specified for device {device_name}. Skipping.")
+                        continue
+
+                    value = device.state.get(var_name, "N/A")
+                    log_entries[elapsed_time][f"{device_name}:{var_name}"] = value
+                    logging.info(
+                        f"Updated async var {device_name}:{var_name} to {value} for elapsed time {elapsed_time}.")
+            else:
+                logging.warning(f"Device {device_name} not found in DeviceManager. Skipping {observable}.")
 
     def _log_device_data(self, device, event_driven_observables, log_entries, elapsed_time):
 
