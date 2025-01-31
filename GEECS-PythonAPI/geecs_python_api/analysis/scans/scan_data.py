@@ -26,20 +26,10 @@ if not logging.getLogger().hasHandlers():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 
-def reload_paths_config():
-    """ Used by GEECS Scanner to fix scan_data_manager in case experiment name has changed """
-    try:
-        ScanData.paths_config = GeecsPathsConfig()
-    except ValueError:
-        logger.error("'CONFIG' not set for ScanData")
-        ScanData.paths_config = None
-
-
 class ScanData:
     """ Represents a GEECS experiment scan """
 
-    paths_config = None  # TODO the "reload" function is called statically at the bottom of this file, seems kinda bad
-
+    paths_config = None
 
     def __init__(self, folder: Optional[SysPath] = None,
                  tag: Optional[ScanTag] = None,
@@ -88,6 +78,15 @@ class ScanData:
         # Load scalar data if requested
         if load_scalars:
             self.load_scalar_data()
+
+    @classmethod
+    def reload_paths_config(cls):
+        """ Used by GEECS Scanner to fix scan_data_manager in case experiment name has changed """
+        try:
+            cls.paths_config = GeecsPathsConfig()
+        except ValueError:
+            logger.error("'CONFIG' not set for ScanData")
+            cls.paths_config = None
 
     def _initialize_folders(self, folder: Path, read_mode: bool):
         """
@@ -462,4 +461,5 @@ class ScanData:
 
         return indexes, setpoints, parameter_avgs_match_setpoints
 
-reload_paths_config()
+
+ScanData.reload_paths_config()
