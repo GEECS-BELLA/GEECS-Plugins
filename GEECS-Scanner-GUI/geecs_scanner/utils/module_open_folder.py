@@ -4,7 +4,7 @@ Functions for opening file explorer on the given folders.  TODO make a Mac-compa
 
 import subprocess
 from pathlib import Path
-from geecs_python_api.analysis.scans.scan_data import ScanData, reload_paths_config
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 
 def open_folder(path_to_folder: Path):
@@ -21,4 +21,4 @@ def open_daily_data_folder(experiment: str):
 
 def reload_scan_data_paths():
     """ Calls ScanData's function to reset static variables pointing to experiment-specific folders """
-    reload_paths_config()
+    ScanData.reload_paths_config()
