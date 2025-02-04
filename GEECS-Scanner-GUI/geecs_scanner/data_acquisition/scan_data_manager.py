@@ -69,8 +69,8 @@ class ScanDataManager:
         """
 
         ScanData.reload_paths_config()
-        if not ScanData.paths_config.is_default_server_address():
-            raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
+        # if not ScanData.paths_config.is_default_server_address():
+        #     raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
 
         switch_paths = False
         
