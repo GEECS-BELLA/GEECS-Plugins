@@ -2,6 +2,9 @@ from __future__ import annotations
 from typing import Optional, Any, Dict, Union
 
 import time
+import numpy as np
+import numexpr as ne
+
 from geecs_python_api.controls.interface.geecs_database import GeecsDatabase, load_config
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
@@ -175,15 +178,46 @@ class ScanDevice(GeecsDevice):
             super().set(variable, value, **kwargs)
 
     def _calculate_sub_value(self, comp: Dict[str, Any], value: Any) -> Any:
-        """Calculate the value to set on a sub-device based on the composite relation."""
+        """
+        Calculate the value to set on a sub-device based on the composite relation.
+
+        Uses `numexpr` to safely evaluate the relation.
+
+        Args:
+            comp (Dict[str, Any]): Component information containing device, variable, and relation.
+            value (Any): The input composite variable value.
+
+        Returns:
+            Any: Computed sub-device value.
+        """
         reference_value = (
             self.reference.get(comp['device'], {}).get(comp['variable'], 0)
             if self.mode == "relative" else 0
         )
-        return reference_value + eval(comp['relation'], {'composite_var': value})
+
+        try:
+            sub_value = ne.evaluate(comp['relation'], local_dict={"composite_var": value})
+        except Exception as e:
+            raise ValueError(f"Failed to evaluate relation: {comp['relation']}. Error: {e}")
+
+        return reference_value + sub_value
 
     def get(self, variable: str, use_state: bool = True, **kwargs) -> Dict[str, Any]:
-        """Get a variable for the composite or standard device."""
+        """
+        Get a variable for the composite or standard device.
+
+        Uses `numexpr` to safely evaluate the composite relation.
+
+        Args:
+            variable (str): The variable to get. For composite devices, this must be `"composite_var"`.
+            use_state (bool): Whether to use cached state values instead of querying the devices. Defaults to `True`.
+            **kwargs: Additional arguments passed to the `get` method of sub-devices.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing:
+                - `"composite_var"`: The last set value (for `set` mode) or evaluated value (for `get_only` mode).
+                - Individual component values using `"DeviceName:VariableName"` keys.
+        """
         result = {}
 
         if self.is_composite and self.mode == "get_only" and variable == "composite_var":
@@ -196,11 +230,14 @@ class ScanDevice(GeecsDevice):
                 var_mapping[comp['var_name']] = key
                 values[key] = sub_device.state.get(device_var) if use_state else sub_device.get(device_var, **kwargs)
 
-            relation_mapped = self.relation
-            for var_name, mapped_key in var_mapping.items():
-                relation_mapped = relation_mapped.replace(var_name, f"values['{mapped_key}']")
+            # Prepare variable mapping for safe evaluation
+            relation_vars = {var_name: values[mapped_key] for var_name, mapped_key in var_mapping.items()}
 
-            composite_value = eval(relation_mapped, {}, {"values": values})
+            try:
+                composite_value = ne.evaluate(self.relation, local_dict=relation_vars)
+            except Exception as e:
+                raise ValueError(f"Failed to evaluate relation: {self.relation}. Error: {e}")
+
             self.state["composite_var"] = composite_value
             result["composite_var"] = composite_value
             result.update(values)
@@ -217,6 +254,7 @@ class ScanDevice(GeecsDevice):
             return result
 
         return {variable: super().get(variable, **kwargs)}
+    
 
     def close(self) -> None:
         """Close all sub-devices for composite devices."""
