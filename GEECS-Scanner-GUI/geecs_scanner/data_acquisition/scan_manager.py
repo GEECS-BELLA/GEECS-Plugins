@@ -518,7 +518,13 @@ class ScanManager:
 
         if not self.device_manager.is_statistic_noscan(component_vars):
             for device_var, set_val in component_vars.items():
-                device_name, var_name = device_var.split(':', 1)
+                # Check if the observable has a variable specified (e.g., 'Dev1:var1')
+                if ':' in device_var:
+                    device_name, var_name = device_var.split(':')
+                else:
+                    device_name = device_var
+                    var_name = 'composite_var'
+
                 device = self.device_manager.devices.get(device_name)
 
                 if device:
@@ -597,14 +603,16 @@ class ScanManager:
             current_time = time.time() - start_time
 
             # TODO move this to DataLogger's `_log_device_data` function instead...
-            save_on_shot = self.options_dict['On-Shot TDMS']
+            # save_on_shot = self.options_dict['On-Shot TDMS']
+            save_on_shot = True
             if save_on_shot:
                 if current_time % 1 < interval_time:
                     log_df = self.scan_data_manager.convert_to_dataframe(self.results)
                     self.scan_data_manager.dataframe_to_tdms(log_df)
 
             try:
-                hiatus = float(self.options_dict["Save Hiatus Period (s)"])
+                # hiatus = float(self.options_dict["Save Hiatus Period (s)"])
+                hiatus = float(0)
             except ValueError:
                 hiatus = ""
 
