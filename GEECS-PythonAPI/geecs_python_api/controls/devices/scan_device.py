@@ -28,24 +28,81 @@ class GetNotAllowedError(CompositeDeviceError):
     pass
 
 
+def initialize_scan_device(name: str, composite_spec_dict: Optional[Dict[str, Any]] = None,
+                           virtual: bool = False) -> ScanDevice:
+    """ Initializes either a scan or composite device depending on if a composite_spec_dict is given """
+    if composite_spec_dict is None:
+        return ScanDevice(name=name, virtual=virtual)
+    else:
+        return CompositeDevice(name=name, composite_spec_dict=composite_spec_dict)
+
+
 class ScanDevice(GeecsDevice):
     """
-    A class to represent a device or composite variable for scanning.
+    A class to represent a device for scanning.  Mostly a GEECS Device but with a few important differences:
+    - the `get` function returns a dictionary instead of just the value.  This is to be compatible with subclasses
+    - the `close` function includes a 1s wait between unsubscribing and closing.  This is to avoid a race condition
+    """
+
+    def __init__(self, name: str, virtual: bool = False):
+        """
+        Initialize a `ScanDevice`, as a regular GEECS Device
     
+        Args:
+            name (str): The name of the device.
+            virtual (bool): Whether the device is virtual. Defaults to `False`.
+
+        Raises:
+            ValueError: If the device name is invalid
+        """
+
+        # Standard Device Initialization
+        super().__init__(name, virtual)
+        self.name = name
+
+        if not virtual and not self.is_valid():
+            raise ValueError(f"Device '{name}' is not a valid GeecsDevice.")
+
+    def get(self, variable: str, use_state: bool = True, **kwargs) -> Dict[str, Any]:
+        """
+        Get a variable for the standard device.
+
+        Args:
+            variable (str): The variable to get.
+            use_state (bool): Whether to use cached state values instead of querying the devices. Defaults to `True`.
+            **kwargs: Additional arguments passed to the `get` method of sub-devices.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing the variable name and the results of a GEECS Device get
+        """
+        return {variable: super().get(variable, **kwargs)}
+
+    def close(self) -> None:
+        """Close devices after sleeping for 1s to avoid race condition."""
+        super().unsubscribe_var_values()
+        time.sleep(1)
+        super().close()
+
+    def is_composite(self) -> bool:
+        """ Returns False in a check if this is a composite scan device """
+        return False
+
+
+class CompositeDevice(ScanDevice):
+    """
     Composite variables can be of two types:
     - 'Set' type: Controls multiple devices using a relation, optionally using relative or absolute modes.
     - 'Get' type: Calculates a value using a relation based on readings from multiple devices.
     """
-
-    def __init__(self, name: str, composite_spec_dict: Optional[Dict[str, Any]] = None, virtual: bool = False):
+    def __init__(self, name: str, composite_spec_dict: Optional[Dict[str, Any]] = None):
         """
         Initialize a `ScanDevice`, either as a standard device or as a composite device.
-    
+
         Args:
             name (str): The name of the device.
             composite_spec_dict (Optional[Dict[str, Any]]): A dictionary defining a composite variable.
                 If None, the ScanDevice is treated as a standard device.
-            
+
                 - Set Type (relative or absolute mode):
                   {
                       "components": [
@@ -65,55 +122,41 @@ class ScanDevice(GeecsDevice):
                       "mode": "get_only"
                   }
 
-            virtual (bool): Whether the device is virtual. Defaults to `False`.
-
         Raises:
             ValueError: If the device name is invalid or the composite dictionary is incorrectly formatted.
             TypeError: If `composite_spec_dict` is not a dictionary.
         """
+        # Composite Device Initialization (Virtual GeecsDevice)
+        if not isinstance(composite_spec_dict, dict):
+            raise TypeError("composite_spec_dict must be a dictionary if provided.")
 
-        self.name = name
-        self.is_composite = composite_spec_dict is not None
+        # Call `super().__init__(name, virtual=True)` to correctly inherit attributes like `state`
+        super().__init__(name, virtual=True)
 
-        if not self.is_composite:
-            # Standard Device Initialization
-            super().__init__(name, virtual)
-            if not self.is_valid():
-                raise ValueError(f"Device '{name}' is not a valid GeecsDevice.")
-            self.components = []
-    
-        else:
-            # Composite Device Initialization (Virtual GeecsDevice)
-            if not isinstance(composite_spec_dict, dict):
-                raise TypeError("composite_spec_dict must be a dictionary if provided.")
+        self.components = composite_spec_dict['components']
+        self.mode = composite_spec_dict['mode']
+        self.relation = composite_spec_dict.get('relation', None)
+        self.reference = {} if self.mode == "relative" else None
+        self.sub_devices = {}
 
-            # Call `super().__init__(name, virtual=True)` to correctly inherit attributes like `state`
-            super().__init__(name, virtual=True)
+        # Initialize sub-devices and organize variables
+        for comp in self.components:
+            device_name = comp['device']
+            if device_name not in self.sub_devices:
+                self.sub_devices[device_name] = {
+                    'instance': GeecsDevice(device_name),
+                    'variables': []
+                }
+            self.sub_devices[device_name]['variables'].append(comp['variable'])
 
-            self.components = composite_spec_dict['components']
-            self.mode = composite_spec_dict['mode']
-            self.relation = composite_spec_dict.get('relation', None)
-            self.reference = {} if self.mode == "relative" else None
-            self.sub_devices = {}
+        # Subscribe to necessary variables for caching in `state`
+        self._subscribe_to_variables()
 
-            # Initialize sub-devices and organize variables
-            for comp in self.components:
-                device_name = comp['device']
-                if device_name not in self.sub_devices:
-                    self.sub_devices[device_name] = {
-                        'instance': GeecsDevice(device_name),
-                        'variables': []
-                    }
-                self.sub_devices[device_name]['variables'].append(comp['variable'])
+        self.state["composite_var"] = 0
 
-            # Subscribe to necessary variables for caching in `state`
-            self._subscribe_to_variables()
-            
-            self.state["composite_var"] = 0
-
-            if self.mode == "relative":
-                time.sleep(1)
-                self.set_reference()
+        if self.mode == "relative":
+            time.sleep(1)
+            self.set_reference()
 
     def _subscribe_to_variables(self) -> None:
         """
@@ -130,9 +173,8 @@ class ScanDevice(GeecsDevice):
             success = sub_device.subscribe_var_values(variables)
             if not success:
                 raise ValueError(f"Failed to subscribe to variables {variables} on device '{device_name}'.")
-        
-        self.state["composite_var"] = 0  
-        
+
+        self.state["composite_var"] = 0
 
     def set_reference(self) -> None:
         """
@@ -161,21 +203,21 @@ class ScanDevice(GeecsDevice):
 
     def set(self, variable: str, value: Any, **kwargs) -> None:
         """Set a variable for the composite or standard device."""
-        if self.is_composite and self.mode in ["relative", "absolute"] and variable == "composite_var":
+        if self.mode in ["relative", "absolute"] and variable == "composite_var":
             self.state["composite_var"] = value
             for comp in self.components:
                 sub_device = self.sub_devices[comp['device']]['instance']
                 device_var = comp['variable']
                 sub_value = self._calculate_sub_value(comp, value)
                 sub_device.set(device_var, sub_value, **kwargs)
-                
+
             # right now, to be consistent with geecs device we are returning a value which is just the set value
             # In the future, a more clever/informative value could be returned that maybe takes into account
             # tolerances
             return value
-            
+
         else:
-            super().set(variable, value, **kwargs)
+            raise CompositeDeviceError("Set Error:  Incorrect Mode or variable not 'composite_var'")
 
     def _calculate_sub_value(self, comp: Dict[str, Any], value: Any) -> Any:
         """
@@ -204,7 +246,7 @@ class ScanDevice(GeecsDevice):
 
     def get(self, variable: str, use_state: bool = True, **kwargs) -> Dict[str, Any]:
         """
-        Get a variable for the composite or standard device.
+        Get a variable for the composite device.
 
         Uses `numexpr` to safely evaluate the composite relation.
 
@@ -220,7 +262,7 @@ class ScanDevice(GeecsDevice):
         """
         result = {}
 
-        if self.is_composite and self.mode == "get_only" and variable == "composite_var":
+        if self.mode == "get_only" and variable == "composite_var":
             values = {}
             var_mapping = {}
             for comp in self.components:
@@ -243,7 +285,7 @@ class ScanDevice(GeecsDevice):
             result.update(values)
             return result
 
-        elif self.is_composite and self.mode in ["relative", "absolute"] and variable == "composite_var":
+        elif self.mode in ["relative", "absolute"] and variable == "composite_var":
             for comp in self.components:
                 sub_device = self.sub_devices[comp['device']]['instance']
                 device_var = comp['variable']
@@ -252,18 +294,17 @@ class ScanDevice(GeecsDevice):
 
             result["composite_var"] = self.state.get("composite_var", "NA")
             return result
-
-        return {variable: super().get(variable, **kwargs)}
-    
-
-    def close(self) -> None:
-        """Close all sub-devices for composite devices."""
-        if self.is_composite:
-            for sub_device_data in self.sub_devices.values():
-                sub_device_data['instance'].unsubscribe_var_values()
-                time.sleep(1)
-                sub_device_data['instance'].close()
         else:
-            super().unsubscribe_var_values()
-            time.sleep(1)
-            super().close()
+            raise CompositeDeviceError("Get Error:  Incorrect Mode or variable not 'composite_var'")
+
+    def close(self):
+        """Close all sub-devices for composite devices."""
+        for sub_device_data in self.sub_devices.values():
+            sub_device_data['instance'].unsubscribe_var_values()
+        time.sleep(1)
+        for sub_device_data in self.sub_devices.values():
+            sub_device_data['instance'].close()
+
+    def is_composite(self) -> bool:
+        """ Returns True in a check if this is a composite scan device """
+        return True
