@@ -31,6 +31,9 @@ undulator_analyzers = [
     Info(analyzer_class=CameraImageAnalysis,
          requirements={'UC_Phosphor1'},
          device_name='UC_Phosphor1'),
+    Info(analyzer_class=CameraImageAnalysis,
+         requirements={'UC_ModeImager'},
+         device_name='UC_ModeImager'),
     Info(analyzer_class=HiResMagCamAnalysis,
          requirements={'AND': ['UC_HiResMagCam', 'U_BCaveICT']}),
 ]
