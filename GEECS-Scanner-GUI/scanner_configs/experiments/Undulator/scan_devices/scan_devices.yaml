@@ -16,6 +16,7 @@ single_scan_devices:
   JetX (mm): U_ESP_JetXYZ:Position.Axis 1
   JetY (mm): U_ESP_JetXYZ:Position.Axis 2
   JetZ (mm): U_ESP_JetXYZ:Position.Axis 3
+  Mode Imager Stage: U_ModeImagerESP:Position.Axis 1
   S1H: U_S1H:Current
   S1V: U_S1V:Current
   S2H: U_S2H:Current
