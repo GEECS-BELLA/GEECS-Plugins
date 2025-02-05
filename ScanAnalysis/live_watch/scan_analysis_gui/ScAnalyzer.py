@@ -96,7 +96,8 @@ class ScAnalyzerWindow(QMainWindow):
             scan_watcher = ScanWatch('Undulator',
                                      int(self.ui.inputYear.text()),
                                      int(self.ui.inputMonth.text()),
-                                     int(self.ui.inputDay.text()))
+                                     int(self.ui.inputDay.text()),
+                                     overwrite_previous=True)
 
             # start analysis
             progress_callback.emit("Start ScanWatch.")
@@ -340,10 +341,11 @@ class Worker(QObject):
         """
         try:
             self._is_running = True
-            while self._is_running:
-                self.analysis_func(self.progress, lambda: self._is_running)
+            while self.is_running():
+                # self.analysis_func(self.progress, lambda: self._is_running)
+                self.analysis_func(self.progress, self.is_running)
                 break  # exit after one iteration
-            if not self._is_running:
+            if not self.is_running():
                 self.progress.emit('Worker stopped by user.')
         except Exception as e:
             self.error.emit(f"Error: {str(e)}")
