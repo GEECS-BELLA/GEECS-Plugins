@@ -17,7 +17,7 @@ from datetime import date
 from PyQt5.QtWidgets import QMainWindow, QApplication
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
-from ScAnalyzer_ui import Ui_MainWindow
+from gui.ScAnalyzer_ui import Ui_MainWindow
 from live_watch.scan_watch import ScanWatch
 # =============================================================================
 # %% global variables
