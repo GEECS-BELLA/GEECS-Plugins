@@ -7,6 +7,8 @@ Kyle Jensen (kjensen11, kjensen@lbl.gov)
 # =============================================================================
 # %% imports
 from typing import Optional, Callable
+from importlib.metadata import version
+
 import sys
 import time
 import traceback
@@ -19,7 +21,7 @@ from ScAnalyzer_ui import Ui_MainWindow
 from live_watch.scan_watch import ScanWatch
 # =============================================================================
 # %% global variables
-CURRENT_VERSION = "v0.0"
+CURRENT_VERSION = "v" + version("scananalysis")
 
 # Type aliases for readability
 ProgressCallback = Callable[[str], None]
