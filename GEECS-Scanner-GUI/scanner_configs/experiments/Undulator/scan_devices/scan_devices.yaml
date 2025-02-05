@@ -4,6 +4,7 @@ single_scan_devices:
   EMQ3 Current: U_EMQTripletBipolar:Current_Limit.Ch3
   Gaia Lamp timing: U_1HzShiftedBox:delay.Channel_C
   Gas Pressure: U_HP_Daq:AnalogOutput.Channel 1
+  Ghost Focus: U_Zaber:Position.Ch2
   Grating Separation (um): U_CompAerotech:Position.Axis1
   Hexapod Angle U: U_Hexapod:uangle
   Hexapod Angle V: U_Hexapod:vangle
