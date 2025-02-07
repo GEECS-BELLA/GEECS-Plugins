@@ -22,11 +22,12 @@ class Environment(geecs_Environment):
         'MCD-1BL-ESP302M2M4:position.axis 2': [-1.4,-1.18],
         'MCD-1BL-ESP302M2M4:position.axis 3': [-0.78,-0.74],
         'HEX-PL1-2:ypos': [-0.5,1.1],
-        'HEX-PL1-2:zpos': [-1.6,-0.2]
+        'HEX-PL1-2:zpos': [-3,3]
     }
     observables = ['CAM-PL1-1-SideView:meancounts',
                    'CAM-HPD-CCD:maxcounts',
                    'CAM-HPD-M3Near:MeanCounts',
+                   'CAM-HPD-M3Near:MaxCounts',
                    'CAM-PL1-SideviewNorth:MeanCounts']
     some_parameter: str = 'test'
 

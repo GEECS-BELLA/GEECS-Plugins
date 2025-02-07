@@ -94,7 +94,7 @@ class Interface(interface.Interface):
             retries = 0
             error_occured = False
             while retries < max_retries:
-                device_response = self.devices[device_name].set(attribute, np.round(value,3)) #edit by josh
+                device_response = self.devices[device_name].set(attribute, value) #edit by josh
                 print('device response: ',device_response)
                 time.sleep(0.21)
                 device_state = self.devices[device_name].state
