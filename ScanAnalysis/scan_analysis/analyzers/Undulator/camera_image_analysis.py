@@ -7,9 +7,9 @@ Child to ScanAnalysis (./scan_analysis/base.py)
 # %% imports
 from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional, List
-
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
+
 from pathlib import Path
 import logging
 import yaml
@@ -25,10 +25,13 @@ from image_analysis.utils import read_imaq_png_image
 
 
 # %% classes
+
 class CameraImageAnalysis(ScanAnalysis):
 
-    def __init__(self, scan_tag: ScanTag, device_name: str, skip_plt_show: bool = True,
-                 flag_logging: bool = True, flag_save_images: bool = True):
+    def __init__(self, scan_tag: ScanTag, device_name: str,
+                 skip_plt_show: bool = True,
+                 flag_logging: bool = True,
+                 flag_save_images: bool = True):
         """
         Initialize the CameraImageAnalysis class.
 
@@ -39,24 +42,25 @@ class CameraImageAnalysis(ScanAnalysis):
             flag_logging (bool): Flag that sets if error and warning messages are displayed
             flag_save_images (bool): Flag that sets if images are saved to disk
         """
-        if device_name is None:
-            raise ValueError(f"CameraImageAnalysis requires a device_name to be specified.")
+        if not device_name:
+            raise ValueError("CameraImageAnalysis requires a device_name.")
 
-        super().__init__(scan_tag, device_name=device_name, skip_plt_show=skip_plt_show)
+        super().__init__(scan_tag, device_name=device_name,
+                         skip_plt_show=skip_plt_show)
 
         # define flags
         self.flag_logging = flag_logging
         self.flag_save_images = flag_save_images
-        config_folder = Path(__file__).parents[2] / self.experiment_dir
 
         # organize various paths
+        config_folder = Path(__file__).parents[2] / 'config' / self.experiment_dir
         self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
                           'save': (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name
                                    / f"{device_name}" / "CameraImageAnalysis"),
                           'cam_configs': config_folder / 'camera_analysis_settings.yaml'
                           }
 
-        # if self.camera_analysis_config_path.exists():
+        # set up camera configs and settings
         self.camera_analysis_configs = None
         self.camera_analysis_settings = None
         if self.path_dict['cam_configs'].exists():
@@ -73,7 +77,7 @@ class CameraImageAnalysis(ScanAnalysis):
         # initialize analysis
         if self.path_dict['data_img'] is None or self.auxiliary_data is None:
             if self.flag_logging:
-                logging.info(f"Skipping analysis due to missing data or auxiliary file.")
+                logging.info("Skipping analysis due to missing data or auxiliary file.")
             return
 
         # initialize various analysis parameters
@@ -122,7 +126,6 @@ class CameraImageAnalysis(ScanAnalysis):
 
         # save image
         plt.savefig(save_path, bbox_inches=bbox_inches, pad_inches=pad_inches)
-
 
     def save_geecs_scaled_image(self, image: np.ndarray, save_dir: Union[str, Path],
                                 save_name: str, bit_depth: int = 16):
@@ -193,7 +196,7 @@ class CameraImageAnalysis(ScanAnalysis):
                 logging.info(f"Image saved at {save_path}")
 
     def create_image_array(self, binned_data: dict[dict], ref_coords: Optional[tuple] = None,
-                           plot_scale: Optional[float] = None):
+                           plot_scale: Optional[float] = None, save_path: Optional[Path] = None):
         """
         Arrange the averaged images into a sensibly sized grid and display them with scan parameter labels.
         For visualization purposes, images will be normalized to 8-bit.
@@ -248,10 +251,14 @@ class CameraImageAnalysis(ScanAnalysis):
         plt.tight_layout()
 
         # Save the final image grid for visualization
-        save_name = f'{self.device_name}_averaged_image_grid.png'
-        plt.savefig(Path(self.path_dict['save']) / save_name, bbox_inches='tight')
+        if save_path:
+            filename = save_path.name
+        else:
+            filename = f'{self.device_name}_averaged_image_grid.png'
+            save_path = Path(self.path_dict['save']) / filename
+        plt.savefig(save_path, bbox_inches='tight')
         if self.flag_logging:
-            logging.info(f"Saved final image grid as {save_name}.")
+            logging.info(f"Saved final image grid as {filename}.")
         self.close_or_show_plot()
 
     def load_images_for_bin(self, bin_number: int) -> list[np.ndarray]:
@@ -532,11 +539,14 @@ class CameraImageAnalysis(ScanAnalysis):
 
         # Once all bins are processed, create an array of the averaged images
         if len(binned_data) > 1 and self.flag_save_images:
-            plot_scale = self.camera_analysis_settings.get('Plot Scale', None)
-            display_content_path  = self.create_image_array(binned_data, plot_scale=plot_scale)  # TODO more to do with binned_data type hints
-            
-            self.display_contents.append(str(display_content_path))
-            self.create_image_array(binned_data, plot_scale=plot_scale)  # TODO more to do with binned_data type hints
+            plot_scale = (getattr(self, 'camera_analysis_settings', {}) or {}).get('Plot Scale', None)
+
+            # generate image array
+            save_path = Path(self.path_dict['save']) /  f'{self.device_name}_averaged_image_grid.png'
+            self.create_image_array(binned_data, plot_scale=plot_scale, save_path=save_path)
+
+            # append save_path to display content list
+            self.display_contents.append(str(save_path))
 
         # save binned data to class variable
         self.binned_data = binned_data
