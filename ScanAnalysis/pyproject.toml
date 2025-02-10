@@ -11,6 +11,8 @@ packages = [{include = "scan_analysis"},
 
 [tool.poetry.dependencies]
 python = ">=3.9 <3.11"
+PyQt5 = "^5.15.9"
+pyqt5-tools = "^5.15.9.3.3"
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }
 geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
 LogMaker4GoogleDocs = {path = "../LogMaker4GoogleDocs", develop = true}
@@ -19,6 +21,7 @@ pyyaml = "^6.0.2"
 matplotlib = "^3.9.2"
 pandas = "^2.2.3"
 watchdog = "^6.0.0"
+spyder-kernels = "==3.0.*"
 
 
 [build-system]
