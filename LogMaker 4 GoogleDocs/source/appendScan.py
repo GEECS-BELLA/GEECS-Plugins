@@ -128,7 +128,7 @@ if specificscan != '0':
 elif os.path.exists(localscanfolder+'/Scan001') and specificscan == '0':
     latestScanDir = docgen.latestFileInDirectory(localscanfolder,'Scan')
     print(latestScanDir)
-    search = date + '.*Scan ' + str(int(latestScanDir.split("\\Scan")[1])) + ':' 
+    search = '.*Scan ' + str(int(latestScanDir.split("\\Scan")[1])) + ':' 
     scanNo = str(int(latestScanDir.split("\\Scan")[1]))
     print(scanNo)
     print('Search updated: ' + search)
