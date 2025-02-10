@@ -5,6 +5,7 @@ import threading
 import numpy as np
 import logging
 import time
+import random
 
 # For Windows-specific imports
 if platform.system() == "Windows":
@@ -128,6 +129,7 @@ class SoundPlayer(SimpleSoundPlayer):
 
                 # Play the requested sound
                 if sound_type == 'beep':
+                    #self.play_sound(round(self.beep_frequency*(0.7*(random.random()+0.5))), self.beep_duration)
                     self.play_sound(self.beep_frequency, self.beep_duration)
                 elif sound_type == 'toot':
                     self.play_sound(self.toot_frequency, self.toot_duration)
