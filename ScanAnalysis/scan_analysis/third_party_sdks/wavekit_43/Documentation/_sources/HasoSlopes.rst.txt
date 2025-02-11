@@ -1,0 +1,6 @@
+
+
+Wavekit_Python::HasoSlopes
+==========================
+.. automodule:: wavekit_py.io_wavekit_hasoslopes
+   :members:

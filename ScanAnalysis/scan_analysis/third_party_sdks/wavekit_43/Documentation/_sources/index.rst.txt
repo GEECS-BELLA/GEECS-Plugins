@@ -1,0 +1,41 @@
+.. Wavekit Python documentation master file, created by
+   sphinx-quickstart on Wed Jan  8 10:29:44 2020.
+   You can adapt this file completely to your liking, but it should at least
+   contain the root `toctree` directive.
+   
+Wavekit Python
+==============
+
+
+Contents: 
+
+.. toctree:: 
+   :maxdepth: 2 
+
+   Camera
+   CameraSet
+   Compute
+   ComputePhaseSet
+   ComputePupil
+   ComputeSlopes
+   CorrDataManager
+   HasoConfig
+   HasoData
+   HasoEngine
+   HasoField
+   HasoSlopes
+   Image
+   Intensity
+   LoopSecurity
+   LoopSecurityActivation
+   LoopSmoothing
+   ModalCoef
+   Phase
+   Pupil
+   Server
+   SlopesPostProcessor
+   SlopesPostProcessorList
+   Structure
+   Surface
+   WavefrontCorrector
+   WavefrontCorrectorSet
