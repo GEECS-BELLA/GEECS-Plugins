@@ -1,0 +1,6 @@
+
+
+Wavekit_Python::CorrDataManager
+===============================
+.. automodule:: wavekit_py.io_wavekit_structure
+   :members:
