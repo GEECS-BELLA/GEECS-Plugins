@@ -1,0 +1,9 @@
+Devices:
+  U_HamaSpectro:
+    save_nonscalar_data: true
+    synchronous: false
+    variable_list:
+    - MeanWavelength
+    - FWHM
+    - wavelengtharray
+    - wavelength
