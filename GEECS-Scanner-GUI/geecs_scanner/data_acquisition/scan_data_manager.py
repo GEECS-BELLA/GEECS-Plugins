@@ -18,7 +18,7 @@ from . import DeviceManager, DatabaseDictLookup
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
-from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_custom_imaq_timestamp, get_haso_timestamp
+from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_custom_imaq_timestamp, get_himg_timestamp
 
 
 class ScanDataManager:
@@ -512,7 +512,7 @@ class ScanDataManager:
             "PicoscopeV2": get_picoscopeV2_timestamp,
             "MagSpecStitcher": get_custom_imaq_timestamp,
             "FROG": get_custom_imaq_timestamp,
-            "HASO4_3": get_haso_timestamp,
+            "HASO4_3": get_himg_timestamp,
         }
 
         if device_type in device_map:

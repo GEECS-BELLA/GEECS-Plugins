@@ -16,6 +16,7 @@ from nptdms import TdmsFile
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from zoneinfo import ZoneInfo  # Available in Python 3.9+
+import scan_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
 
 
 def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
@@ -184,6 +185,12 @@ def get_haso_timestamp(file_path):
     labview_seconds = delta.total_seconds() + time_zone_offset
 
     return labview_seconds
+    
+def get_himg_timestamp(image_file_path: str)-> float:
+    haso_image = wkpy.Image(image_file_path =image_file_path)
+    meta_data = haso_image.get_info_from_file(image_file_path)[1]
+    timestamp = meta_data[2]
+    return timestamp
 
 def extract_shot_number(filename):
     """
