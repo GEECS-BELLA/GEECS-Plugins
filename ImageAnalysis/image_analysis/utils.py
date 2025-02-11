@@ -13,6 +13,10 @@ import struct
 import re
 from nptdms import TdmsFile
 
+import xml.etree.ElementTree as ET
+from datetime import datetime
+from zoneinfo import ZoneInfo  # Available in Python 3.9+
+
 
 def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
     """ Read PNG file as output by NI IMAQ, which uses an uncommon format.
@@ -139,6 +143,47 @@ def get_picoscopeV2_timestamp(file_path):
         # Catch other I/O-related errors (e.g., permissions, corrupt file)
         print(f"Error accessing file '{file_path}': {e}")
         return None
+        
+
+def get_haso_timestamp(file_path):
+    """
+    Extracts the 'acquisition_date' from the XML file at file_path and converts it
+    to LabVIEW absolute time in seconds (seconds since Jan 1, 1904 in Pacific Time).
+
+    Parameters:
+        file_path (str): Path to the XML file.
+
+    Returns:
+        int: LabVIEW absolute time in seconds.
+    """
+    # Parse the XML file
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+
+    # Find the <acquisition_date> element; adjust the path if needed.
+    date_elem = root.find(".//acquisition_date")
+    if date_elem is None or date_elem.text is None:
+        raise ValueError("The XML file does not contain a valid <acquisition_date> element.")
+
+    # Extract the timestamp string (assumed to be in ISO8601 format)
+    acquisition_date_str = date_elem.text.strip()
+
+    # Parse the timestamp string. fromisoformat supports ISO8601.
+    dt = datetime.fromisoformat(acquisition_date_str)
+
+    # If the datetime is naive (no timezone), assume it is Pacific Time.
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
+
+    # Define LabVIEW's epoch (January 1, 1904) in Pacific Time.
+    lv_epoch = datetime(1904, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles"))
+
+    # Compute the time difference in seconds.
+    delta = dt - lv_epoch
+    time_zone_offset = 3600*8
+    labview_seconds = delta.total_seconds() + time_zone_offset
+
+    return labview_seconds
 
 def extract_shot_number(filename):
     """
