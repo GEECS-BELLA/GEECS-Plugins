@@ -36,4 +36,7 @@ undulator_analyzers = [
          device_name='UC_ModeImager'),
     Info(analyzer_class=HiResMagCamAnalysis,
          requirements={'AND': ['UC_HiResMagCam', 'U_BCaveICT']}),
+    Info(analyzer_class=FiberSpectrometerAnalysis,
+         requirements={'U_HamaSpectro'},
+         device_name='U_HamaSpectro'),
 ]
