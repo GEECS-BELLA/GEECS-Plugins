@@ -121,12 +121,12 @@ class HasoAnalysis(ScanAnalysis):
             self._log_info(f"Processing shot number: {shot_num}")
             # Try to locate the .himg file.
             himg_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.himg'), None)
+            has_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.has'), None)
+
             if himg_file:
                 self._log_info(f"Found .himg file for shot {shot_num}: {himg_file}")
                 df = self.get_phase_from_himg(himg_file)
             else:
-                # If no .himg file, check for a pre-existing .has file.
-                has_file = next(self.path_dict['save'].glob(f'*_{shot_num:03d}.has'), None)
                 if has_file:
                     self._log_info(f"No .himg file found for shot {shot_num}. Using existing slopes file: {has_file}")
                     df = self.compute_phase_from_slopes(has_file)
