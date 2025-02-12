@@ -36,8 +36,7 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
         # define flags
         self.flags = {'logging': flag_logging,
                       'save_image': flag_save_images,
-                      'noscan': True}
-                      # 'noscan': self.noscan}
+                      'noscan': self.noscan}
 
         # organize paths
         self.path_dict = {'data': Path(self.scan_directory) / f"{device_name}",
