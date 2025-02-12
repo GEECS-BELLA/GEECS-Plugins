@@ -119,6 +119,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.noscanRadioButton.setChecked(True)
         self.ui.noscanRadioButton.toggled.connect(self.update_scan_edit_state)
         self.ui.scanRadioButton.toggled.connect(self.update_scan_edit_state)
+        self.ui.backgroundRadioButton.toggled.connect(self.update_scan_edit_state)
         self.update_scan_edit_state()
 
         # Upon changing a scan parameter, recalculate the total number of shots
@@ -603,7 +604,7 @@ class GEECSScannerWindow(QMainWindow):
     def update_scan_edit_state(self):
         """Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
         variable scan.  Previous values are saved so the user can switch between the two scan modes easily."""
-        if self.ui.noscanRadioButton.isChecked():
+        if self.ui.noscanRadioButton.isChecked() or self.ui.backgroundRadioButton.isChecked():
             self.ui.lineScanVariable.setEnabled(False)
             self.ui.lineScanVariable.setText("")
             self.ui.lineStartValue.setEnabled(False)
@@ -739,7 +740,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def update_noscan_num_shots(self):
         """Updates the value of the number of shots in noscan mode, but only if it is a positive integer."""
-        if self.ui.noscanRadioButton.isChecked():
+        if self.ui.noscanRadioButton.isChecked() or self.ui.backgroundRadioButton.isChecked():
             try:
                 num_shots = int(self.ui.lineNumShots.text())
                 if num_shots > 0:
@@ -788,6 +789,9 @@ class GEECSScannerWindow(QMainWindow):
             settings = {'Devices': save_device_list, 'Info': self.ui.textEditScanInfo.toPlainText()}
             if self.ui.noscanRadioButton.isChecked():
                 settings['Scan Mode'] = 'No Scan'
+                settings['Num Shots'] = self.noscan_num
+            elif self.ui.backgroundRadioButton.isChecked():
+                settings['Scan Mode'] = 'Background'
                 settings['Num Shots'] = self.noscan_num
             elif self.ui.scanRadioButton.isChecked():
                 settings['Scan Mode'] = '1D Scan'
@@ -843,8 +847,11 @@ class GEECSScannerWindow(QMainWindow):
                 self.ui.selectedDevices.addItem(device)
 
         if load_scan_params:
-            if settings['Scan Mode'] in "No Scan":
-                self.ui.noscanRadioButton.setChecked(True)
+            if settings['Scan Mode'] in ["No Scan", "Background"]:
+                if settings['Scan Mode'] in "No Scan":
+                    self.ui.noscanRadioButton.setChecked(True)
+                else:
+                    self.ui.backgroundRadioButton.setChecked(True)
                 self.update_scan_edit_state()
                 self.ui.lineNumShots.setText(str(settings['Num Shots']))
                 self.update_noscan_num_shots()
@@ -934,13 +941,14 @@ class GEECSScannerWindow(QMainWindow):
                     'step': self.scan_step_size,
                     'wait_time': (self.scan_shot_per_step + 0.5)/self.repetition_rate
                 }
-            elif self.ui.noscanRadioButton.isChecked():
+            elif self.ui.noscanRadioButton.isChecked() or self.ui.backgroundRadioButton.isChecked():
                 scan_config = {
                     'device_var': 'noscan',
                     'wait_time': (self.noscan_num + 0.5)/self.repetition_rate
                 }
             else:
                 scan_config = None
+            scan_config['background'] = str(self.ui.backgroundRadioButton.isChecked())
 
             option_dict = {"rep_rate_hz": self.repetition_rate}
             for opt in self.all_options:
