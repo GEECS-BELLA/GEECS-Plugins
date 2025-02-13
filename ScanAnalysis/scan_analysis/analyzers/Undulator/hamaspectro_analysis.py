@@ -49,7 +49,7 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
         self.spectra = None
         self.spectra_binned = None
 
-    def run_analysis(self) -> None:
+    def run_analysis(self) -> list[str]:
         try:
             # load  data
             self.wavelength, self.spectra = self.load_spectrometer_data()
