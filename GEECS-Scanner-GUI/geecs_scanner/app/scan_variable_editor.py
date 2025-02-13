@@ -6,6 +6,7 @@ if TYPE_CHECKING:
 
 import yaml
 import logging
+import copy
 from pathlib import Path
 
 from PyQt5.QtWidgets import QDialog, QCompleter, QMessageBox, QInputDialog
@@ -77,6 +78,7 @@ class ScanVariableEditor(QDialog):
         self.ui.lineCompositeNickname.textChanged.connect(self.update_visible_composite_information)
 
         self.ui.buttonCompositeNew.clicked.connect(self.create_new_composite_variable)
+        self.ui.buttonCompositeCopy.clicked.connect(self.copy_composite_variable)
         self.ui.buttonCompositeDelete.clicked.connect(self.delete_composite_variable)
 
         self.ui.lineCompositeMode.setReadOnly(True)
@@ -95,6 +97,7 @@ class ScanVariableEditor(QDialog):
 
         # Buttons to launch the ordering dialog window and to close out of this dialog window
         self.ui.buttonOpenOrdering.clicked.connect(self.open_list_order_dialog)
+        self.ui.buttonOpenOrdering.setEnabled(False)  # TODO implement this eventually.  Not important at the moment
         self.ui.buttonClose.clicked.connect(self.close)
 
         # Apply the stylesheet of the main window
@@ -345,9 +348,8 @@ class ScanVariableEditor(QDialog):
 
         self.scan_composite_data['composite_variables'][variable_name]['mode'] = self.ui.lineCompositeMode.text()
 
-    def create_new_composite_variable(self):
-        """ Creates a new entry in composite_variables.yaml file with a user-specified name """
-        text, ok = QInputDialog.getText(self, 'New Composite Variable', 'Enter name:')
+    def _prompt_new_composite_variable(self, message: str, copy_variable: Optional[str] = None):
+        text, ok = QInputDialog.getText(self, 'New Composite Variable', message)
         if ok and text:
             name = str(text).strip()
 
@@ -355,15 +357,34 @@ class ScanVariableEditor(QDialog):
                 logging.warning(f"'{name}' already exists in '{self.file_composite}', cannot create")
                 return
 
-            self.scan_composite_data['composite_variables'][name] = default_composite_variable()
-            # self._write_updated_file(filename=self.file_composite, dictionary=self.scan_composite_data)
-            logging.info(f"New composite variable '{name}' in '{self.file_composite}'")
+            if copy_variable:
+                if copy_variable not in self.scan_composite_data['composite_variables']:
+                    logging.warning(f"'{copy_variable}' does not exist in '{self.file_composite}', cannot create copy")
+                    return
+                new_variable = copy.deepcopy(self.scan_composite_data['composite_variables'][copy_variable])
+            else:
+                new_variable = default_composite_variable()
+
+            self.scan_composite_data['composite_variables'][name] = new_variable
+            logging.info(f"New composite variable '{name}' created.  Not yet saved.")
 
             self.ui.lineCompositeNickname.setText(name)
             self.ui.lineCompositeDevice.setText("")
             self.ui.lineCompositeVariable.setText("")
 
             self.update_visible_composite_information()
+
+    def create_new_composite_variable(self):
+        """ Creates a new entry in composite_variables.yaml file with a user-specified name """
+        self._prompt_new_composite_variable(message="Enter name for new composite variable:")
+
+    def copy_composite_variable(self):
+        copy_variable = self.ui.lineCompositeNickname.text().strip()
+        if copy_variable not in self.scan_composite_data['composite_variables']:
+            return
+
+        self._prompt_new_composite_variable(message=f"Enter name for copy of '{copy_variable}':",
+                                           copy_variable=copy_variable)
 
     def delete_composite_variable(self):
         name = self.ui.lineCompositeNickname.text().strip()
