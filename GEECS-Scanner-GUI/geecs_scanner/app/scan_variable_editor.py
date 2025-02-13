@@ -83,6 +83,8 @@ class ScanVariableEditor(QDialog):
         self.ui.lineCompositeMode.installEventFilter(self)
         self.ui.lineCompositeMode.textChanged.connect(self.update_composite_mode)
 
+        self.ui.buttonCompositeVarAdd.clicked.connect(self.add_composite_component)
+        self.ui.buttonCompositeVarRemove.clicked.connect(self.remove_selected_component)
         self.ui.buttonCompositeSave.clicked.connect(self.save_composite_variables_file)
 
         self.ui.listCompositeComponents.itemSelectionChanged.connect(self.update_visible_relation_information)
@@ -260,6 +262,52 @@ class ScanVariableEditor(QDialog):
             mode = composite_var.get('mode', mode)
             self.ui.lineCompositeMode.setEnabled(True)
             self.ui.lineCompositeMode.setText(mode)
+
+    def get_component_index(self, device: str, variable: str) -> Optional[int]:
+        name = self.ui.lineCompositeNickname.text().strip()
+        if not name or name not in self.scan_composite_data['composite_variables']:
+            return None
+
+        component_list = self.scan_composite_data['composite_variables'][name]['components']
+        for i in range(len(component_list)):
+            component = component_list[i]
+            if component['device'] == device and component['variable'] == variable:
+                return i
+
+        return None
+
+    def add_composite_component(self):
+        name = self.ui.lineCompositeNickname.text().strip()
+        if not name or name not in self.scan_composite_data['composite_variables']:
+            return
+        device = self.ui.lineCompositeDevice.text().strip()
+        variable = self.ui.lineCompositeVariable.text().strip()
+        if not device or not variable:
+            return
+
+        if self.get_component_index(device, variable):
+            print("Already in list")
+            return
+
+        new_component = {'device': device, 'variable': variable, 'relation': ""}
+        self.scan_composite_data['composite_variables'][name]['components'].append(new_component)
+
+        self.ui.lineCompositeDevice.setText("")
+        self.ui.lineCompositeVariable.setText("")
+        self.update_visible_composite_information()
+
+    def remove_selected_component(self):
+        name = self.ui.lineCompositeNickname.text().strip()
+        if not name or name not in self.scan_composite_data['composite_variables']:
+            return
+
+        component = self.get_selected_composite_component()
+        if not component:
+            return
+
+        index = self.get_component_index(component['device'], component['variable'])
+        del self.scan_composite_data['composite_variables'][name]['components'][index]
+        self.update_visible_composite_information()
 
     def get_selected_composite_component(self) -> Optional[dict]:
         selected_variable = self.ui.listCompositeComponents.selectedItems()
