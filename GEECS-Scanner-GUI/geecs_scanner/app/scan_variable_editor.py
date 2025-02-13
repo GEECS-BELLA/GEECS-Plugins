@@ -85,7 +85,11 @@ class ScanVariableEditor(QDialog):
 
         self.ui.buttonCompositeSave.clicked.connect(self.save_composite_variables_file)
 
+        self.ui.listCompositeComponents.itemSelectionChanged.connect(self.update_visible_relation_information)
+        self.ui.lineCompositeRelation.editingFinished.connect(self.update_relation_data)
+
         self.update_visible_composite_information()
+        self.update_visible_relation_information()
 
         # Buttons to launch the ordering dialog window and to close out of this dialog window
         self.ui.buttonOpenOrdering.clicked.connect(self.open_list_order_dialog)
@@ -253,8 +257,38 @@ class ScanVariableEditor(QDialog):
             for var_dict in composite_var['components']:
                 self.ui.listCompositeComponents.addItem(f"{var_dict['device']}:{var_dict['variable']}")
             mode = 'relative' if composite_var.get('relative', False) else 'absolute'  # TODO replace once merged with Sam's PR
+            mode = composite_var.get('mode', mode)
             self.ui.lineCompositeMode.setEnabled(True)
             self.ui.lineCompositeMode.setText(mode)
+
+    def get_selected_composite_component(self) -> Optional[dict]:
+        selected_variable = self.ui.listCompositeComponents.selectedItems()
+        if not selected_variable:
+            return None
+        for selection in selected_variable:
+            device, variable = selection.text().split(":")
+            name = self.ui.lineCompositeNickname.text().strip()
+            for device_variable in self.scan_composite_data['composite_variables'][name]['components']:
+                if device_variable['device'] == device and device_variable['variable'] == variable:
+                    return device_variable
+
+    def update_visible_relation_information(self):
+        selected_variable = self.ui.listCompositeComponents.selectedItems()
+        has_selection = bool(selected_variable)
+        self.ui.lineCompositeRelation.setEnabled(has_selection)
+
+        if has_selection:
+            device_variable = self.get_selected_composite_component()
+            self.ui.lineCompositeRelation.setText(device_variable['relation'])
+        else:
+            self.ui.lineCompositeRelation.setText("")
+
+    def update_relation_data(self):
+        if not self.ui.lineCompositeRelation.isEnabled():
+            return
+
+        device_variable = self.get_selected_composite_component()
+        device_variable['relation'] = self.ui.lineCompositeRelation.text()
 
     def update_composite_mode(self):
         variable_name = self.ui.lineCompositeNickname.text().strip()
