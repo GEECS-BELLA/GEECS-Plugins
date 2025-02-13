@@ -224,29 +224,6 @@ class DataLogger:
         last_timestamps[device.get_name()] = current_timestamp
         return False
 
-    # def update_async_observables(self, async_observables, log_entries, elapsed_time):
-    #     """
-    #     Update log entries with the latest values for asynchronous observables.
-    #
-    #     Args:
-    #         async_observables (list): List of asynchronous observables to update.
-    #         log_entries (dict): Dictionary to store the logged data.
-    #         elapsed_time (int): The time elapsed since the logging started.
-    #     """
-    #     for observable in async_observables:
-    #         device_name, var_name = observable.split(':')
-    #         device = self.device_manager.devices.get(device_name)
-    #
-    #         if device:
-    #             # Get the latest value from the device state
-    #             value = device.state.get(var_name, 'N/A')
-    #             # Update the log entry for this async variable
-    #             log_entries[elapsed_time][f"{device_name}:{var_name}"] = value
-    #             logging.info(f"Updated async var {device_name}:{var_name} to {value} for elapsed time {elapsed_time}.")
-    #             if device.is_composite:
-    #                 # add code here to upddate the log entries with the subcomponet values
-    #                 pass
-
     def update_async_observables(self, async_observables, log_entries, elapsed_time):
         """
         Update log entries with the latest values for asynchronous observables.
