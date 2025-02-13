@@ -15,7 +15,6 @@ import pandas as pd
 from . import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup, ScanDataManager
 from .utils import ConsoleLogger
 
-# from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 
 
