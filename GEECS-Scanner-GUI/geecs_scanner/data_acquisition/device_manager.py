@@ -1,5 +1,6 @@
 import logging
 import yaml
+import numpy as np
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from .utils import get_full_config_path  # Import the utility function
