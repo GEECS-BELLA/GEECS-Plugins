@@ -13,7 +13,7 @@
   <property name="windowTitle">
    <string>Action Library</string>
   </property>
-  <widget class="QListWidget" name="listWidget">
+  <widget class="QListWidget" name="listActionSteps">
    <property name="geometry">
     <rect>
      <x>280</x>
@@ -23,7 +23,7 @@
     </rect>
    </property>
   </widget>
-  <widget class="QListWidget" name="listWidget_2">
+  <widget class="QListWidget" name="listAvailableActions">
    <property name="geometry">
     <rect>
      <x>20</x>
@@ -59,7 +59,7 @@
     <string>Type:</string>
    </property>
   </widget>
-  <widget class="QLineEdit" name="lineEdit">
+  <widget class="QLineEdit" name="lineActionType">
    <property name="geometry">
     <rect>
      <x>310</x>
@@ -69,7 +69,7 @@
     </rect>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton">
+  <widget class="QPushButton" name="buttonAddStep">
    <property name="geometry">
     <rect>
      <x>440</x>
@@ -82,7 +82,7 @@
     <string>Add</string>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_2">
+  <widget class="QPushButton" name="buttonRemoveStep">
    <property name="geometry">
     <rect>
      <x>520</x>
@@ -95,7 +95,7 @@
     <string>Remove</string>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_3">
+  <widget class="QPushButton" name="buttonMoveSooner">
    <property name="geometry">
     <rect>
      <x>250</x>
@@ -108,7 +108,7 @@
     <string>↑</string>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_4">
+  <widget class="QPushButton" name="buttonMoveLater">
    <property name="geometry">
     <rect>
      <x>250</x>
@@ -121,7 +121,7 @@
     <string>↓</string>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_5">
+  <widget class="QPushButton" name="buttonNewAction">
    <property name="geometry">
     <rect>
      <x>20</x>
@@ -134,7 +134,7 @@
     <string>New</string>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_6">
+  <widget class="QPushButton" name="buttonDeleteAction">
    <property name="geometry">
     <rect>
      <x>160</x>
@@ -147,7 +147,7 @@
     <string>Delete</string>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_7">
+  <widget class="QPushButton" name="buttonCopyAction">
    <property name="geometry">
     <rect>
      <x>90</x>
@@ -229,7 +229,7 @@
     </rect>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_8">
+  <widget class="QPushButton" name="buttonSaveAction">
    <property name="geometry">
     <rect>
      <x>250</x>
@@ -242,7 +242,7 @@
     <string>Save</string>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_9">
+  <widget class="QPushButton" name="buttonExecuteAction">
    <property name="geometry">
     <rect>
      <x>340</x>
@@ -255,7 +255,7 @@
     <string>Execute</string>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_10">
+  <widget class="QPushButton" name="buttonAssignAction_1">
    <property name="geometry">
     <rect>
      <x>20</x>
@@ -281,7 +281,7 @@
     <enum>Qt::Horizontal</enum>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_11">
+  <widget class="QPushButton" name="buttonRemoveAssigned_1">
    <property name="geometry">
     <rect>
      <x>90</x>
@@ -294,7 +294,7 @@
     <string>Remove</string>
    </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_12">
+  <widget class="QPushButton" name="buttonExecuteAssigned_1">
    <property name="geometry">
     <rect>
      <x>160</x>
@@ -307,7 +307,7 @@
     <string>Execute</string>
    </property>
   </widget>
-  <widget class="QLineEdit" name="lineEdit_2">
+  <widget class="QLineEdit" name="lineAssignedName_1">
    <property name="geometry">
     <rect>
      <x>230</x>
@@ -316,8 +316,11 @@
      <height>28</height>
     </rect>
    </property>
+   <property name="readOnly">
+    <bool>true</bool>
+   </property>
   </widget>
-  <widget class="QPushButton" name="pushButton_13">
+  <widget class="QPushButton" name="buttonCloseWindow">
    <property name="geometry">
     <rect>
      <x>520</x>
@@ -347,6 +350,28 @@
    </property>
   </widget>
  </widget>
+ <tabstops>
+  <tabstop>listAvailableActions</tabstop>
+  <tabstop>lineActionType</tabstop>
+  <tabstop>buttonAddStep</tabstop>
+  <tabstop>buttonRemoveStep</tabstop>
+  <tabstop>buttonNewAction</tabstop>
+  <tabstop>buttonCopyAction</tabstop>
+  <tabstop>buttonDeleteAction</tabstop>
+  <tabstop>listActionSteps</tabstop>
+  <tabstop>buttonMoveSooner</tabstop>
+  <tabstop>buttonMoveLater</tabstop>
+  <tabstop>lineActionOption1</tabstop>
+  <tabstop>lineActionOption2</tabstop>
+  <tabstop>lineActionOption3</tabstop>
+  <tabstop>buttonSaveAction</tabstop>
+  <tabstop>buttonExecuteAction</tabstop>
+  <tabstop>buttonAssignAction_1</tabstop>
+  <tabstop>buttonRemoveAssigned_1</tabstop>
+  <tabstop>buttonExecuteAssigned_1</tabstop>
+  <tabstop>lineAssignedName_1</tabstop>
+  <tabstop>buttonCloseWindow</tabstop>
+ </tabstops>
  <resources/>
  <connections/>
 </ui>
