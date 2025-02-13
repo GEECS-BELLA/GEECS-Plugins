@@ -110,7 +110,7 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
         for ind, shot_num in enumerate(shot_numbers):
             try:
                 # get file for shot number
-                file = next(self.path_dict['data'].glob(f"*_{shot_num:03d}.txt"), None)
+                file = self.scan_data.get_device_shot_path(self.tag, self.device_name, shot_num, file_extension='txt')
 
                 # read data
                 data = pd.read_csv(file, delimiter='\t', header=None)
