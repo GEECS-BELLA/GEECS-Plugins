@@ -1,7 +1,6 @@
 import logging
 import yaml
 
-# from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 
 from .utils import get_full_config_path  # Import the utility function
