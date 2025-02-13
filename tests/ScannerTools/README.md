@@ -8,8 +8,9 @@ Tests for integrating:
 1. From the directory containing this README, run `poetry install`
 
 ## Running tests
-* From the command line, run `poetry run pytest`
-* From an IDE (e.g. VSCode, PyCharm), make sure your Python interpreter is the one 
-  shown when you run `poetry env info` from the command line. Then tests can be 
-  run from the test facility of your IDE. 
-
+Tests can be run in various ways, including:
+* *From the command line*. Run `poetry run pytest`
+* *From an IDE (e.g. VSCode, PyCharm)*. Make sure the Python interpreter in your 
+  IDE is set to the one from the poetry virtual environment (type `poetry env info`
+  from the command line to get its path). Then run tests from the test facility 
+  of your IDE.
