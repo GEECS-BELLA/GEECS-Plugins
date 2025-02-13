@@ -1,7 +1,7 @@
 """
 HamaSpectro Analysis
 
-Analyzer for spectrometer data. 
+Analyzer for spectrometer data.
 Could likely be generalized to any fiber-based spectrometer.
 
 authors:
@@ -67,7 +67,7 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
 
         except Exception as e:
             raise Exception(f""""
-                            Error: FiberSpectrometerAnalysis for {self.device_name} failed. 
+                            Error: FiberSpectrometerAnalysis for {self.device_name} failed.
                             Error Message: {e}.
                             """)
 
@@ -87,7 +87,7 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
         # plot waterfall
         self.plot_waterfall_noscan(self.wavelength, self.spectra, save=self.flags['save_image'])
 
-    def load_spectrometer_data(self) -> [np.ndarray, np.ndarray]:
+    def load_spectrometer_data(self) -> tuple[np.ndarray, np.ndarray]:
         """
         Load spectrometer data from txt file.
         Currently specifically for U_HamaSpectro. Can be generalized as needed.
@@ -161,17 +161,17 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
         ax.set_title(f"{self.device_name}")
         ax.set_xlabel('Wavelength (nm)')
         ax.set_ylabel("Shot Number")
-    
+
         set_xlabels(ax)
 
         plt.tight_layout()
-    
+
         if self.flags['save_image']:
             filename = "noscan.png"
             filepath = self.path_dict['save'] / filename
             plt.savefig(filepath, bbox_inches='tight')
             logging.info(f"Saved no scan image as {filename}.")
-    
+
             if display:
                 self.display_contents.append(str(filepath))
 
@@ -188,7 +188,7 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
             ind_minima = self.find_local_minima(x_data%100)
             ax.set_xticks(ind_minima)
             ax.set_xticklabels(x_data[ind_minima].astype(int))
-    
+
         def set_ylabels(ax):
             ax.set_yticks([find_first_index(self.bins, value) for value in np.unique(self.bins)])
             ax.set_yticklabels(self.binned_param_values.round(2))
@@ -207,18 +207,18 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
         ax.set_title(f"{self.device_name}")
         ax.set_xlabel('Wavelength (nm)')
         ax.set_ylabel(f"{self.scan_parameter}")
-    
+
         set_xlabels(ax)
         set_ylabels(ax)
 
         plt.tight_layout()
-    
+
         if self.flags['save_image']:
             filename = "unbinned_scan.png"
             filepath = self.path_dict['save'] / filename
             plt.savefig(filepath, bbox_inches='tight')
             logging.info(f"Saved unbinned scan image as {filename}.")
-    
+
             if display:
                 self.display_contents.append(str(filepath))
 
