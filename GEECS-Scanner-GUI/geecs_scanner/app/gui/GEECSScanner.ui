@@ -17,9 +17,9 @@
    <widget class="QLineEdit" name="experimentDisplay">
     <property name="geometry">
      <rect>
-      <x>90</x>
+      <x>100</x>
       <y>10</y>
-      <width>113</width>
+      <width>131</width>
       <height>22</height>
      </rect>
     </property>
@@ -367,7 +367,7 @@
    <widget class="QLabel" name="label_11">
     <property name="geometry">
      <rect>
-      <x>220</x>
+      <x>250</x>
       <y>10</y>
       <width>111</width>
       <height>21</height>
@@ -478,9 +478,9 @@
    <widget class="QLabel" name="label_14">
     <property name="geometry">
      <rect>
-      <x>390</x>
+      <x>420</x>
       <y>10</y>
-      <width>91</width>
+      <width>81</width>
       <height>21</height>
      </rect>
     </property>
@@ -491,9 +491,9 @@
    <widget class="QLineEdit" name="lineTimingDevice">
     <property name="geometry">
      <rect>
-      <x>470</x>
+      <x>510</x>
       <y>10</y>
-      <width>151</width>
+      <width>111</width>
       <height>22</height>
      </rect>
     </property>
@@ -501,7 +501,7 @@
    <widget class="QLineEdit" name="repititionRateDisplay">
     <property name="geometry">
      <rect>
-      <x>330</x>
+      <x>360</x>
       <y>10</y>
       <width>41</width>
       <height>22</height>
@@ -600,22 +600,28 @@
      <rect>
       <x>310</x>
       <y>450</y>
-      <width>81</width>
+      <width>101</width>
       <height>21</height>
      </rect>
     </property>
     <property name="text">
-     <string>Current Scan:</string>
+     <string>No Scans Today:</string>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
     </property>
    </widget>
    <widget class="QLineEdit" name="lineLastScan">
     <property name="geometry">
      <rect>
-      <x>400</x>
+      <x>420</x>
       <y>450</y>
-      <width>61</width>
+      <width>31</width>
       <height>22</height>
      </rect>
+    </property>
+    <property name="text">
+     <string/>
     </property>
     <property name="readOnly">
      <bool>true</bool>
