@@ -2,7 +2,8 @@ import logging
 import yaml
 import numpy as np
 
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.scan_device import ScanDevice
+
 from .utils import get_full_config_path  # Import the utility function
 
 
@@ -231,35 +232,12 @@ class DeviceManager:
         """
         return self.composite_variables is not None and variable_name in self.composite_variables
 
-    def get_composite_components(self, composite_var, value):
-        """
-        Get the device-variable mappings for a composite variable based on its value.
-
-        Args:
-            composite_var (str): The name of the composite variable.
-            value (float): The current value of the composite variable.
-
-        Returns:
-            dict: A mapping of 'device:variable' -> evaluated value.
-        """
-        components = self.composite_variables[composite_var]['components']
-        variables = {}
-
-        # Iterate over each component and evaluate its relation
-        for comp in components:
-            relation = comp['relation'].replace("composite_var", str(value))  # Replace the placeholder
-            logging.info(f"Evaluating relation: {relation}")
-            evaluated_value = eval(relation)  # Evaluate the relationship to get the actual value
-            variables[f"{comp['device']}:{comp['variable']}"] = evaluated_value
-
-        return variables
-
     def initialize_subscribers(self, variables, clear_devices=True):
         """
         Initialize subscribers for the specified variables, creating or resetting device subscriptions.
 
         Args:
-            variables (list): A list of device variables to subscribe to.
+            variables (list): A list of device variables to subscribe to
             clear_devices (bool): If True, clear the existing device subscriptions before initializing new ones.
         """
 
@@ -293,14 +271,20 @@ class DeviceManager:
         Subscribe to a new device and its associated variables.
 
         Args:
-            device_name (str): The name of the device to subscribe to.
+            device_name (str or dict): The name of the device to subscribe to, or a dict of info for composite var
             var_list (list): A list of variables to subscribe to for the device.
         """
+        if self.is_composite_variable(device_name):
+            var_dict = {device_name: self.composite_variables[device_name]}
+            var_dict = self.composite_variables[device_name]
+            device = ScanDevice(device_name, var_dict)
 
-        device = GeecsDevice(device_name)
-        device.use_alias_in_TCP_subscription = False
-        logging.info(f'Subscribing {device_name} to variables: {var_list}')
-        device.subscribe_var_values(var_list)
+        else:
+            device = ScanDevice(device_name)
+            device.use_alias_in_TCP_subscription = False
+            logging.info(f'Subscribing {device_name} to variables: {var_list}')
+            device.subscribe_var_values(var_list)
+
         self.devices[device_name] = device
 
     def reset(self):
@@ -349,59 +333,12 @@ class DeviceManager:
 
         logging.info("DeviceManager instance has been reinitialized.")
 
-    def get_values(self, variables):  # TODO this crashes if `variables` contains 2+ variables of the same device
-        """
-        Retrieve the current values of the specified variables from the devices.
-
-        Args:
-            variables (list): A list of variables to retrieve values for.
-
-        Returns:
-            dict: A dictionary of device names and their corresponding variable values, as
-                    well as the user defined shot number and it's 'fresh' status
-        """
-        results = {}
-        for var in variables:
-            device_name, _ = var.split(':')
-            if device_name not in results:
-                results[device_name] = {}
-                var_list = [v.split(':')[1] for v in variables if v.startswith(device_name)]
-                state = self.devices[device_name].state  # TODO state only has 1 of the variables in it
-                for device_var in var_list:
-                    results[device_name][device_var] = state[device_var]
-                results[device_name]['fresh'] = state['fresh']
-                results[device_name]['shot number'] = state['shot number']
-                self.devices[device_name].state['fresh'] = False
-
-        return self.parse_tcp_states(results)
-
-    def parse_tcp_states(self, get_values_result):
-        """
-        Parse the TCP states received from devices and organize them in a structured format.
-
-        Args:
-            get_values_result (dict): A dictionary of device states.
-
-        Returns:
-            dict: A parsed dictionary of device variable states.
-        """
-
-        parsed_dict = {}
-        shared_keys = ['fresh', 'shot number']
-        for device_name, nested_dict in get_values_result.items():
-            common_data = {k: v for k, v in nested_dict.items() if k in shared_keys}
-            for variable_name, value in nested_dict.items():
-                if variable_name not in shared_keys:
-                    new_key = f'{device_name}:{variable_name}'
-                    parsed_dict[new_key] = {'value': value, **common_data}
-        return parsed_dict
-
     def preprocess_observables(self, observables):
         """
         Preprocess a list of observables by organizing them into device-variable mappings.
 
         Args:
-            observables (list): A list of device-variable observables.
+            observables (list): A list of device-variable observables, e.g. [Dev1:Var1, Dev1:var2, Dev2:var1]
 
         Returns:
             dict: A dictionary mapping device names to a list of their variables.
@@ -415,18 +352,19 @@ class DeviceManager:
             device_map[device_name].append(var_name)
         return device_map
 
-    def add_scan_device(self, device_name, variable_list):
+    def add_scan_device(self, device_name, variable_list = None):
         """
         Add a new device or append variables to an existing device for scan operations and
         recording their data.
 
         Args:
-            device_name (str): The name of the device to add or update.
+            device_name (str or dict): The name of the device to add or update, or dict for composite var
             variable_list (list): A list of variables to add for the device.
         """
 
         if device_name not in self.devices:
             logging.info(f"Adding new scan device: {device_name} with default settings.")
+            self._subscribe_device(device_name, var_list=variable_list)
 
             # Default attributes for scan-specific devices (e.g., from scan_config)
             default_device_config = {
@@ -434,18 +372,14 @@ class DeviceManager:
                 'synchronous': False
             }
 
-            # Create the GeecsDevice for the new scan variable device
-            device = GeecsDevice(device_name)
-            device.use_alias_in_TCP_subscription = False
-            device.subscribe_var_values(variable_list)
-
-            # Store the device with the default configuration in self.devices
-            self.devices[device_name] = device
             self.non_scalar_saving_devices.append(device_name) if default_device_config[
                 'save_non_scalar_data'] else None
 
             # Add scan variables to async_observables
-            self.async_observables.extend([f"{device_name}:{var}" for var in variable_list])
+            if self.is_composite_variable(device_name):
+                self.async_observables.extend([f"{device_name}"])
+            else:
+                self.async_observables.extend([f"{device_name}:{var}" for var in variable_list])
             logging.info(f"Scan device {device_name} added to async_observables.")
 
         else:
@@ -476,11 +410,10 @@ class DeviceManager:
             logging.info("Statistical noscan selected, adding no scan devices.")
         elif self.is_composite_variable(device_var):
             logging.info(f"{device_var} is a composite variable.")
-            component_vars = self.get_composite_components(device_var, scan_config['start'])
-            for component_var in component_vars:
-                dev_name, var = component_var.split(':', 1)
-                logging.info(f"Trying to add {dev_name}:{var} to self.devices.")
-                self.add_scan_device(dev_name, [var])  # Add or append the component vars
+            device_name = device_var
+            logging.info(f"Trying to add composite device variable {device_var} to self.devices.")
+            self.add_scan_device(device_name)  # Add or append the normal variable
+
         else:
             # Normal variables
             logging.info(f"{device_var} is a normal variable.")
