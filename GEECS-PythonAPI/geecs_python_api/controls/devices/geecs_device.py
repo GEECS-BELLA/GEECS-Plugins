@@ -134,7 +134,7 @@ class GeecsDevice:
                     is_device_on = False
                 
                 if not is_device_on:
-                    api_error.error(f'Failed establish test connection, {self.__dev_name} likely not on', 'GeecsDevice class, method "init_resources"')
+                    api_error.error(f'Failed establish test connection, {self.__dev_name}. Either device not on or does not exist', 'GeecsDevice class, method "init_resources"')
                     self.close()
                 else:
                     ###close out the test tcp subscriber
