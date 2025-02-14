@@ -16,8 +16,7 @@ from . import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup, Scan
 from .utils import ConsoleLogger
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
-
-
+from geecs_python_api.controls.geecs_errors import GeecsDeviceInstantiationError
 
 database_dict = DatabaseDictLookup()
 
@@ -113,7 +112,18 @@ class ScanManager:
         """
 
         self.initial_state = None
-        self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
+
+        try:
+            self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
+        except GeecsDeviceInstantiationError as e:
+            logging.error(f"Device reinitialization failed during initialization of device manager. check "
+                          f"that all devices are on and available: {e}")
+            # Optionally, notify the user via a UI pop-up or other mechanism here
+            # For example, using PyQt's QMessageBox:
+            # QMessageBox.critical(None, "Device Error", f"Device reinitialization failed:\n{e}")
+            # Then, you can abort reinitialization:
+            return False
+
         self.scan_data_manager = ScanDataManager(self.device_manager, scan_data, database_dict)
 
 
@@ -130,6 +140,8 @@ class ScanManager:
         self.data_logger.update_repetition_rate(self.options_dict.get('rep_rate_hz', 1))
         self.console_logger.stop_logging()
         self.console_logger.setup_logging()
+
+        return True
 
     def _set_trigger(self, state: str):
         """
@@ -230,6 +242,7 @@ class ScanManager:
         try:
             # Pre-logging setup: Trigger devices off, initialize data paths, etc.
             logging.info(f'scan config getting sent to pre logging is this: {scan_config}')
+
             self.pre_logging_setup(scan_config)
 
             # Estimate acquisition time if necessary
@@ -243,7 +256,6 @@ class ScanManager:
                 self.results = self.data_logger.start_logging()
             else:
                 logging.info('not doing any data saving')
-
 
             # start the acquisition loop
             self.scan_execution_loop()
@@ -381,7 +393,11 @@ class ScanManager:
 
         # Handle scan variables and ensure devices are initialized in DeviceManager
         logging.info(f'scan config in pre logging is this: {scan_config}')
-        self.device_manager.handle_scan_variables(scan_config)
+        try:
+            self.device_manager.handle_scan_variables(scan_config)
+        except GeecsDeviceInstantiationError as e:
+            logging.error(f"Device instantiation failed during handling of scan devices   {e}")
+            raise
 
         time.sleep(1.5)
 
