@@ -123,7 +123,7 @@ class ScanManager:
             self.MC_ip = new_mc_ip
             self.enable_live_ECS_dump(client_ip=self.MC_ip)
 
-        self.data_logger.reinitialize_sound_player()
+        self.data_logger.reinitialize_sound_player(options=self.options_dict)
         self.data_logger.last_log_time_sync = {}
         self.data_logger.update_repetition_rate(self.options_dict.get('rep_rate_hz', 1))
         self.console_logger.stop_logging()

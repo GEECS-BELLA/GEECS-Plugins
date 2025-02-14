@@ -684,6 +684,7 @@
      <string>Preferences</string>
     </property>
     <addaction name="actionDarkMode"/>
+    <addaction name="actionRandomizedBeeps"/>
    </widget>
    <addaction name="menuOpen"/>
    <addaction name="menuOptions"/>
@@ -720,6 +721,14 @@
    </property>
    <property name="text">
     <string>Dark Mode</string>
+   </property>
+  </action>
+  <action name="actionRandomizedBeeps">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Randomized Beeps</string>
    </property>
   </action>
  </widget>

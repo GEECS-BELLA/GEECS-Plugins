@@ -1,3 +1,6 @@
+from __future__ import annotations
+from typing import Optional
+
 import platform
 import os
 import queue
@@ -67,7 +70,8 @@ class SoundPlayer(SimpleSoundPlayer):
     A class to handle playing sounds (beep and toot) in a background thread.
     """
 
-    def __init__(self, beep_frequency=700, beep_duration=0.1, toot_frequency=1200, toot_duration=0.75, sample_rate=44100):
+    def __init__(self, beep_frequency=700, beep_duration=0.1, toot_frequency=1200, toot_duration=0.75,
+                 sample_rate=44100, options: Optional[dict] = None):
         """
         Initialize the SoundPlayer with default or user-defined frequency, duration.  Then begins thread and Queue
 
@@ -93,6 +97,8 @@ class SoundPlayer(SimpleSoundPlayer):
         self.sound_thread = threading.Thread(target=self._process_queue)
         self.sound_thread.daemon = True  # Mark thread as a daemon so it exits when the main program exits
         self.running = False  # Flag to control thread running
+
+        self.random_beeps = False if options is None else options.get('randomized_beeps', False)
 
     def start_queue(self):
         self.running = True  # Flag to control thread running
@@ -129,8 +135,10 @@ class SoundPlayer(SimpleSoundPlayer):
 
                 # Play the requested sound
                 if sound_type == 'beep':
-                    #self.play_sound(round(self.beep_frequency*(0.7*(random.random()+0.5))), self.beep_duration)
-                    self.play_sound(self.beep_frequency, self.beep_duration)
+                    if self.random_beeps:
+                        self.play_sound(round(self.beep_frequency*(0.7*(random.random()+0.5))), self.beep_duration)
+                    else:
+                        self.play_sound(self.beep_frequency, self.beep_duration)
                 elif sound_type == 'toot':
                     self.play_sound(self.toot_frequency, self.toot_duration)
                 # Mark the task as done

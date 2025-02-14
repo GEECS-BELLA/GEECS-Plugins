@@ -1008,7 +1008,10 @@ class GEECSScannerWindow(QMainWindow):
                 scan_config = None
             scan_config['background'] = str(self.ui.backgroundRadioButton.isChecked())
 
-            option_dict = {"rep_rate_hz": self.repetition_rate}
+            option_dict = {
+                "rep_rate_hz": self.repetition_rate,
+                "randomized_beeps": self.ui.actionRandomizedBeeps.isChecked()
+            }
             for opt in self.all_options:
                 option_dict[opt.get_name()] = opt.get_value()
 
