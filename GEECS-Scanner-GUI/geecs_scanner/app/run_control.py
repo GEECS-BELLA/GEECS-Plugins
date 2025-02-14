@@ -50,7 +50,7 @@ class RunControl:
             if success:
                 self.scan_manager.start_scan_thread(scan_config=scan_config)
 
-                self.is_in_setup = False
+            self.is_in_setup = False
 
     def get_progress(self) -> int:
         """
