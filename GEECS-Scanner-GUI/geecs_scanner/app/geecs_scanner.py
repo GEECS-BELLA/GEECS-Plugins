@@ -115,6 +115,7 @@ class GEECSScannerWindow(QMainWindow):
 
         self.ui.buttonDeleteElement.setIcon(QIcon(":/trashcan_icon.ico"))
         self.ui.buttonDeleteElement.setIconSize(self.ui.buttonDeleteElement.size()*0.8)
+        self.ui.buttonDeleteElement.clicked.connect(self.delete_selected_element)
 
         # Buttons to launch the side guis for the timing device setup and scan variables
         self.ui.buttonScanVariables.clicked.connect(self.open_scan_variable_editor)
@@ -499,6 +500,33 @@ class GEECSScannerWindow(QMainWindow):
         for item in selected_items:
             self.ui.selectedDevices.takeItem(self.ui.selectedDevices.row(item))
             self.ui.foundDevices.addItem(item)
+
+    def delete_selected_element(self):
+        """ Prompts the user if the selected save element should be deleted from the experiment """
+        selected_element = self.ui.foundDevices.selectedItems()
+        if not selected_element:
+            selected_element = self.ui.selectedDevices.selectedItems()
+            if not selected_element:
+                return
+
+        name = max((item.text() for item in selected_element), default="")
+        reply = QMessageBox.question(self, "Delete Save Element",
+                                     f"Delete element '{name}' and remove from experiment?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            element_filename = self.app_paths.save_devices() / (name + ".yaml")
+            try:
+                element_filename.unlink()
+                logging.info(f"{element_filename} has been deleted")
+            except FileNotFoundError:
+                logging.error(f"{element_filename} not found.")
+            except PermissionError:
+                logging.error(f"Permission denied: {element_filename}")
+            except Exception as e:
+                logging.error(f"Error occurred: {e}")
+
+            self.refresh_element_list()
 
     def clear_found_list_selection(self):
         """When the selected list is changed, clear the found list selection (without recursively clearing this list)"""
