@@ -46,10 +46,11 @@ class RunControl:
         if self.scan_manager is not None:
             self.is_in_setup = True
 
-            self.scan_manager.reinitialize(config_path=None, config_dictionary=config_dictionary)
-            self.scan_manager.start_scan_thread(scan_config=scan_config)
+            success = self.scan_manager.reinitialize(config_path=None, config_dictionary=config_dictionary)
+            if success:
+                self.scan_manager.start_scan_thread(scan_config=scan_config)
 
-            self.is_in_setup = False
+                self.is_in_setup = False
 
     def get_progress(self) -> int:
         """
