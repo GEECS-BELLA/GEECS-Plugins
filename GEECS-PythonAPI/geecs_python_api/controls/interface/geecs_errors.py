@@ -8,6 +8,12 @@ class ConfigurationError(Exception):
         self.message = message
         super().__init__(self.message)
 
+class GeecsDeviceInstantiationError(Exception):
+    """Exception raised when a GEecs device fails to instantiate."""
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
 
 class ErrorAPI(Exception):
 
