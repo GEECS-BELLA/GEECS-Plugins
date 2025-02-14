@@ -1,5 +1,6 @@
 import logging
 import yaml
+import numpy as np
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 
