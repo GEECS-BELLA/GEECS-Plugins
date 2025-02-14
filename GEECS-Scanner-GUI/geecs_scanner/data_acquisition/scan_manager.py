@@ -704,14 +704,13 @@ class ScanManager:
             dict: A dictionary mapping each device variable to its initial state.
         """
 
-        if scan_config:
-            device_var = scan_config['device_var']
+        device_var = scan_config['device_var']
 
-            if self.device_manager.is_composite_variable(device_var):
-                initial_state = {f'{device_var}:composite_var':self.device_manager.devices[device_var].state.get('composite_var')}
-            else:
-                device_name, var_name = device_var.split(':')
-                initial_state = {device_var:self.device_manager.devices[device_name].state.get(var_name)}
+        if self.device_manager.is_composite_variable(device_var):
+            initial_state = {f'{device_var}:composite_var':self.device_manager.devices[device_var].state.get('composite_var')}
+        else:
+            device_name, var_name = device_var.split(':')
+            initial_state = {device_var:self.device_manager.devices[device_name].state.get(var_name)}
 
         logging.info(f"Initial scan variable state: {initial_state}")
         return initial_state
