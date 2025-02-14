@@ -43,10 +43,10 @@ composite_variables:
     components:
       - device: U_ChicaneInner
         variable: Current
-        relation: "np.sqrt(100 ** 2 * composite_var / 560968.636)"
+        relation: "sqrt(100 ** 2 * composite_var / 560968.636)"
       - device: U_ChicaneOuter
         variable: Current
-        relation: "-np.sqrt(100 ** 2 * composite_var / 560968.636)"
+        relation: "-sqrt(100 ** 2 * composite_var / 560968.636)"
     mode: 'absolute'
 
 
