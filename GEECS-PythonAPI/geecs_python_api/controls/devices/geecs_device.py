@@ -21,7 +21,7 @@ from threading import Thread, Condition, Event, Lock
 from datetime import datetime as dtime
 import geecs_python_api.controls.interface.message_handling as mh
 from geecs_python_api.controls.interface import GeecsDatabase, UdpHandler, TcpSubscriber, EventHandler, ErrorAPI, api_error
-from geecs_python_api.controls.geecs_errors import GeecsDeviceInstantiationError
+from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
 class GeecsDevice:
     # Static
