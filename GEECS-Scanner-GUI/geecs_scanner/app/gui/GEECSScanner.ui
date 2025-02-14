@@ -80,7 +80,7 @@
     <property name="geometry">
      <rect>
       <x>300</x>
-      <y>180</y>
+      <y>150</y>
       <width>41</width>
       <height>28</height>
      </rect>
@@ -638,6 +638,19 @@
     </property>
     <property name="text">
      <string>Background</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="buttonDeleteElement">
+    <property name="geometry">
+     <rect>
+      <x>300</x>
+      <y>220</y>
+      <width>41</width>
+      <height>28</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string/>
     </property>
    </widget>
   </widget>
