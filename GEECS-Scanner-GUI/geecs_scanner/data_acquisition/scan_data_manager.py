@@ -67,16 +67,36 @@ class ScanDataManager:
         This method sets up the necessary directories and paths for saving device data,
         then initializes the TDMS writers for logging scalar and non-scalar data.
         """
+
         ScanData.reload_paths_config()
-        if not ScanData.paths_config.is_default_server_address():
-            raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
+        # if not ScanData.paths_config.is_default_server_address():
+        #     raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
 
+        switch_paths = False
+        
         self.scan_data = ScanData.build_next_scan_data()
+        
+        if not ScanData.paths_config.is_default_server_address():
+            # raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
 
+            # something changed about how paths were working, which breaks how this part works on
+            # non control room computers. Added this switch paths bit to make a solution
+
+            # Define old and new root paths
+            old_root = ScanData.paths_config.base_path
+            new_root = ScanData.paths_config.get_default_server_address('Undulator')
+
+            switch_paths = True
+            
+        data_path = self.scan_data.get_folder()
+                
         for device_name in self.device_manager.non_scalar_saving_devices:
             data_path = self.scan_data.get_folder() / device_name
             data_path.mkdir(parents=True, exist_ok=True)
-
+            
+            if switch_paths:
+                data_path = new_root / data_path.relative_to(old_root)
+            
             device = self.device_manager.devices.get(device_name)
             if device:
                 save_path = str(data_path).replace('/', "\\")
@@ -86,6 +106,7 @@ class ScanDataManager:
                 device.set('save', 'on', sync=False)
             else:
                 logging.warning(f"Device {device_name} not found in DeviceManager.")
+     
 
         analysis_save_path = self.scan_data.get_analysis_folder()
 
@@ -99,7 +120,7 @@ class ScanDataManager:
         self.sFile_txt_path = self.scan_data.get_analysis_folder().parent / f"s{self.scan_number_int}.txt"
         self.sFile_info_path = self.scan_data.get_analysis_folder().parent / f"s{self.scan_number_int}_info.txt"
 
-        self.initialize_tdms_writers(str(self.tdms_output_path))
+        self.initialize_tdms_writers(str(self.tdms_output_path))        
 
         time.sleep(1)
 
