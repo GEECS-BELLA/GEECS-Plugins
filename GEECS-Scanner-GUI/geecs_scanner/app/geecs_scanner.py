@@ -23,7 +23,7 @@ from PyQt5.QtCore import Qt, QEvent, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices
 from .gui.GEECSScanner_ui import Ui_MainWindow
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
-from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor
+from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor, ActionLibrary
 from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
@@ -81,9 +81,11 @@ class GEECSScannerWindow(QMainWindow):
         # Button to launch dialog for changing the config file contents
         self.ui.buttonUpdateConfig.clicked.connect(self.reset_config_file)
 
-        # Button to launch the multiscan window
+        # Button to launch the multiscanner and action library widgets
         self.is_in_multiscan = False
         self.ui.buttonLaunchMultiScan.clicked.connect(self.open_multiscanner)
+        self.is_in_action_library = False
+        self.ui.buttonActionLibrary.clicked.connect(self.open_action_library)
 
         # Line edit for the experiment display
         self.ui.experimentDisplay.setText(self.experiment)
@@ -110,8 +112,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
         self.ui.buttonRefreshLists.clicked.connect(self.refresh_element_list)
 
-        # Buttons to launch the side guis for the action library, timing device, and scan variables
-        self.ui.buttonActionLibrary.setEnabled(False)
+        # Buttons to launch the side guis for the timing device setup and scan variables
         self.ui.buttonScanVariables.clicked.connect(self.open_scan_variable_editor)
         self.ui.buttonOpenTimingSetup.clicked.connect(self.open_timing_setup)
 
@@ -181,6 +182,7 @@ class GEECSScannerWindow(QMainWindow):
         # Initial state of side-gui's
         self.element_editor = None
         self.multiscanner_window = None
+        self.action_library_window = None
         self.timing_editor = None
         self.variable_editor = None
 
@@ -543,6 +545,20 @@ class GEECSScannerWindow(QMainWindow):
         """Cleans up the multiscanner window and resets the enable-ability for buttons on the main window"""
         self.is_in_multiscan = False
         self.multiscanner_window = None
+
+    def open_action_library(self):
+        """Opens the multiscanner window, and in the process sets a flag that disables starting scans on the main gui"""
+        preset_folder = None if self.app_paths is None else self.app_paths.action_library()
+        self.action_library_window = ActionLibrary(self, preset_folder)
+        self.action_library_window.show()
+
+        self.is_in_action_library = True
+        self.update_indicator()
+
+    def exit_action_library(self):
+        """Cleans up the multiscanner window and resets the enable-ability for buttons on the main window"""
+        self.is_in_action_library = False
+        self.action_library_window = None
 
     def open_scan_variable_editor(self):
         database_dict = self.find_database_dict()
@@ -994,22 +1010,29 @@ class GEECSScannerWindow(QMainWindow):
             self.RunControl.clear_stop_state()
 
         if self.RunControl is not None:
+            enable_buttons = True
             if self.is_in_multiscan:
                 self.ui.scanStatusIndicator.setStyleSheet("background-color: blue;")
                 self.ui.startScanButton.setEnabled(False)
-            self.ui.experimentDisplay.setEnabled(self.ui.startScanButton.isEnabled())
-            self.ui.repititionRateDisplay.setEnabled(self.ui.startScanButton.isEnabled())
-            self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
-            self.ui.buttonUpdateConfig.setEnabled(self.ui.startScanButton.isEnabled())
+                enable_buttons = False
             self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
-            self.ui.buttonOpenTimingSetup.setEnabled(self.ui.startScanButton.isEnabled())
+
+            if self.is_in_action_library:
+                enable_buttons = False
+            self.ui.buttonActionLibrary.setEnabled(not self.is_in_action_library)
+
+            self.ui.experimentDisplay.setEnabled(enable_buttons)
+            self.ui.repititionRateDisplay.setEnabled(enable_buttons)
+            self.ui.lineTimingDevice.setEnabled(enable_buttons)
+            self.ui.buttonUpdateConfig.setEnabled(enable_buttons)
+            self.ui.buttonOpenTimingSetup.setEnabled(enable_buttons)
 
     def toggle_light_dark(self):
         mode = 'dark' if self.ui.actionDarkMode.isChecked() else 'light'
         base_path = Path(__file__).parent / "gui"
 
         # List of Widgets that also need updating (only widgets that can be active at the same time as the main window)
-        gui_list: list[Optional[QWidget]] = [self, self.multiscanner_window]
+        gui_list: list[Optional[QWidget]] = [self, self.multiscanner_window, self.action_library_window]
         for widget in gui_list:
             if widget is not None:
                 if mode == 'light':
@@ -1072,6 +1095,8 @@ class GEECSScannerWindow(QMainWindow):
         if self.multiscanner_window:
             self.multiscanner_window.stop_multiscan()
             self.multiscanner_window.close()
+        if self.action_library_window:
+            self.action_library_window.close()
         if self.element_editor:
             self.element_editor.close()
 
