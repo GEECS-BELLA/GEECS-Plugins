@@ -4,7 +4,7 @@ import numpy as np
 import threading
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
-from geecs_python_api.controls.geecs_errors import GeecsDeviceInstantiationError
+from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
 from .utils import get_full_config_path  # Import the utility function
 

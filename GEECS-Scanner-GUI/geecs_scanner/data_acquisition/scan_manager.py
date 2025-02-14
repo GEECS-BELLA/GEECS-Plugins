@@ -16,7 +16,7 @@ from . import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup, Scan
 from .utils import ConsoleLogger
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
-from geecs_python_api.controls.geecs_errors import GeecsDeviceInstantiationError
+from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
 database_dict = DatabaseDictLookup()
 
