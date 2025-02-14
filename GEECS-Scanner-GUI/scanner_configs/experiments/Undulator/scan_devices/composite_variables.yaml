@@ -7,7 +7,7 @@ composite_variables:
     - device: U_S4H
       relation: composite_var * -2
       variable: Current
-    relative: true
+    mode: relative
   ALine_e_beam_angle_offset_y:
     components:
     - device: U_S3V
@@ -16,7 +16,7 @@ composite_variables:
     - device: U_S4V
       relation: composite_var * -2
       variable: Current
-    relative: true
+    mode: relative
   ALine_e_beam_position_offset_x:
     components:
     - device: U_S3H
@@ -25,7 +25,7 @@ composite_variables:
     - device: U_S4H
       relation: composite_var * -1
       variable: Current
-    relative: true
+    mode: relative
   ALine_e_beam_position_offset_y:
     components:
     - device: U_S3V
@@ -34,7 +34,7 @@ composite_variables:
     - device: U_S4V
       relation: composite_var * -1
       variable: Current
-    relative: true
+    mode: relative
   ERROR_Laser_angle_offset_y:
     components:
     - device: U_ESP302_02
@@ -43,7 +43,7 @@ composite_variables:
     - device: U_ESP302_02
       relation: composite_var * -1.5
       variable: Position.Axis 1
-    relative: true
+    mode: relative
   Laser_angle_offset_x:
     components:
     - device: U_ESP302_02
@@ -52,7 +52,7 @@ composite_variables:
     - device: U_ESP302_01
       relation: composite_var * -1.5
       variable: Position.Axis 3
-    relative: true
+    mode: relative
   R56_at_100MeV:
     components:
     - device: U_ChicaneInner
@@ -61,3 +61,4 @@ composite_variables:
     - device: U_ChicaneOuter
       relation: -np.sqrt(100 ** 2 * composite_var / 560968.636)
       variable: Current
+    mode: absolute

@@ -261,8 +261,7 @@ class ScanVariableEditor(QDialog):
             composite_var = self.scan_composite_data['composite_variables'][name]
             for var_dict in composite_var['components']:
                 self.ui.listCompositeComponents.addItem(f"{var_dict['device']}:{var_dict['variable']}")
-            mode = 'relative' if composite_var.get('relative', False) else 'absolute'  # TODO replace once merged with Sam's PR
-            mode = composite_var.get('mode', mode)
+            mode = composite_var.get('mode', "")
             self.ui.lineCompositeMode.setEnabled(True)
             self.ui.lineCompositeMode.setText(mode)
 
