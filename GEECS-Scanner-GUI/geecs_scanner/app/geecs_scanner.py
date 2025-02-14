@@ -149,6 +149,13 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.startScanButton.clicked.connect(self.initialize_scan)
         self.ui.stopScanButton.clicked.connect(self.stop_scan)
 
+        # Variables to store the current scan number, flag to search for the latest, and a 10s timer to turn off flag
+        self.current_scan_number = 0
+        self.known_scan_number = False
+        self.scan_number_timer = QTimer(self)
+        self.scan_number_timer.timeout.connect(self.forget_scan_number)
+        self.scan_number_timer.start(10000)
+
         # Every 200 ms, check status of any ongoing scan and update the GUI accordingly
         self.ui.progressBar.setValue(0)
         self.timer = QTimer(self)
@@ -986,6 +993,33 @@ class GEECSScannerWindow(QMainWindow):
             self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
             self.ui.startScanButton.setText("Start Scan")
             self.is_starting = False
+            self.current_scan_number += 1
+
+    def forget_scan_number(self):
+        """ Every 10 seconds (defined in __init__) the current scan number is forgotten and must be recalculated """
+        self.known_scan_number = False
+
+    def _set_scan_number_info(self, label: str = "", turn_off: bool = False):
+        """
+        Updates the visible information tracking the current scan number
+
+        :param label: Message to display next to scan number
+        :param turn_off: optional flag to set text for both elements to empty
+        """
+        if turn_off or not self.experiment:
+            self.ui.labelScanNumber.setText("")
+            self.ui.lineLastScan.setText("")
+            return
+
+        if not self.known_scan_number:
+            self.current_scan_number = of.get_latest_scan_number(experiment=self.experiment)
+            self.known_scan_number = True
+        if self.current_scan_number == 0:
+            self.ui.labelScanNumber.setText("No Scans Today:")
+            self.ui.lineLastScan.setText("")
+        else:
+            self.ui.labelScanNumber.setText(label)
+            self.ui.lineLastScan.setText(str(self.current_scan_number))
 
     def update_indicator(self):
         """Checks the current status of any ongoing run and updates the GUI accordingly.  Several configurations are
@@ -995,15 +1029,18 @@ class GEECSScannerWindow(QMainWindow):
 
         # TODO Could be useful to clean up the logic here.  It has become quite a mess with all the combinations
         if self.RunControl is None:
+            self._set_scan_number_info(turn_off=True)
             self.ui.scanStatusIndicator.setStyleSheet("background-color: grey;")
             self.ui.startScanButton.setEnabled(False)
             self.ui.stopScanButton.setEnabled(False)
         elif self.RunControl.is_active():
+            self._set_scan_number_info(label="Current Scan:")
             self.ui.scanStatusIndicator.setStyleSheet("background-color: red;")
             self.ui.startScanButton.setEnabled(False)
             self.ui.stopScanButton.setEnabled(not self.RunControl.is_stopping())
             self.ui.progressBar.setValue(self.RunControl.get_progress())
         else:
+            self._set_scan_number_info(label="Previous Scan:")
             self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
             self.ui.stopScanButton.setEnabled(False)
             self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
