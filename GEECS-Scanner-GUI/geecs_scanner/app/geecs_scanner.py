@@ -20,7 +20,7 @@ from importlib.metadata import version
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter, QMessageBox
 from PyQt5.QtCore import Qt, QEvent, QTimer, QUrl
-from PyQt5.QtGui import QDesktopServices
+from PyQt5.QtGui import QDesktopServices, QIcon
 from .gui.GEECSScanner_ui import Ui_MainWindow
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
 from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor, ActionLibrary
@@ -44,6 +44,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
         self.setWindowTitle(f"GEECS Scanner - {CURRENT_VERSION}")
+        self.setWindowIcon(QIcon(":/application_icon.ico"))
 
         # Sets up the log at the bottom of the GUI to display errors.  TODO need to fix this, was crashing
         self.ui.logDisplay.setReadOnly(True)
@@ -111,6 +112,9 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.newDeviceButton.clicked.connect(self.open_element_editor_new)
         self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
         self.ui.buttonRefreshLists.clicked.connect(self.refresh_element_list)
+
+        self.ui.buttonDeleteElement.setIcon(QIcon(":/trashcan_icon.ico"))
+        self.ui.buttonDeleteElement.setIconSize(self.ui.buttonDeleteElement.size()*0.8)
 
         # Buttons to launch the side guis for the timing device setup and scan variables
         self.ui.buttonScanVariables.clicked.connect(self.open_scan_variable_editor)
