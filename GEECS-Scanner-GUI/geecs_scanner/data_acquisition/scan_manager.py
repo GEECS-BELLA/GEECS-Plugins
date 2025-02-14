@@ -46,6 +46,7 @@ class ScanManager:
         database_dict.reload(experiment_name=experiment_dir)
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
+        self.initialization_success = False
 
         self.MC_ip = ""
         
@@ -101,7 +102,7 @@ class ScanManager:
             self.pause_scan_event.set()
             logging.info("Scanning resumed.")
 
-    def reinitialize(self, config_path=None, config_dictionary=None, scan_data=None):
+    def reinitialize(self, config_path=None, config_dictionary=None, scan_data=None) -> bool:
         """
         Reinitialize the ScanManager with new configurations and reset the logging system.
 
@@ -109,9 +110,13 @@ class ScanManager:
             config_path (str, optional): Path to the configuration file.
             config_dictionary (dict, optional): Dictionary containing configuration settings.
             scan_data (ScanData, optional):  If given, scan_data_manager will use an alternative scan folder
+
+        Returns:
+            (bool) True if successful and all devices connected.  False otherwise
         """
 
         self.initial_state = None
+        self.initialization_success = False
 
         try:
             self.device_manager.reinitialize(config_path=config_path, config_dictionary=config_dictionary)
@@ -119,13 +124,10 @@ class ScanManager:
             logging.error(f"Device reinitialization failed during initialization of device manager. check "
                           f"that all devices are on and available: {e}")
             # Optionally, notify the user via a UI pop-up or other mechanism here
-            # For example, using PyQt's QMessageBox:
-            # QMessageBox.critical(None, "Device Error", f"Device reinitialization failed:\n{e}")
             # Then, you can abort reinitialization:
             return False
 
         self.scan_data_manager = ScanDataManager(self.device_manager, scan_data, database_dict)
-
 
         if config_dictionary is not None and 'options' in config_dictionary:
             self.options_dict = config_dictionary['options']
@@ -141,7 +143,8 @@ class ScanManager:
         self.console_logger.stop_logging()
         self.console_logger.setup_logging()
 
-        return True
+        self.initialization_success = True
+        return self.initialization_success
 
     def _set_trigger(self, state: str):
         """
@@ -191,6 +194,10 @@ class ScanManager:
         Args:
             scan_config (dict, optional): Configuration settings for the scan, including variables, start, end, step, and wait times.
         """
+        if not self.initialization_success:
+            logging.error("initialization unsuccessful, cannot start a new scan session")
+            return
+
         if self.is_scanning_active():
             logging.warning("scanning is already active, cannot start a new scan session.")
             return
@@ -236,6 +243,9 @@ class ScanManager:
         Returns:
             pandas.DataFrame: A DataFrame containing the results of the scan.
         """
+        if not self.initialization_success:
+            logging.error("initialization unsuccessful, cannot start a new scan session")
+            return
 
         log_df = pd.DataFrame()  # Initialize in case of early exit
 
@@ -307,7 +317,6 @@ class ScanManager:
             
             # Step 8: create sfile in analysis folder
             self.scan_data_manager._make_sFile(log_df)
-            
 
         # Step 8: Stop the console logging
         self.console_logger.stop_logging()
@@ -324,6 +333,9 @@ class ScanManager:
 
         # Step 10: Reset the device manager to clear up the current subscribers
         self.device_manager.reset()
+
+        # Step 11: Set the initialization flag back to False and require reinitialization to be called again
+        self.initialization_success = False
 
         return log_df
 
