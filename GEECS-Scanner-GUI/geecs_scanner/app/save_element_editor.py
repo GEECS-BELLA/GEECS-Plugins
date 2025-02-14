@@ -154,6 +154,7 @@ class SaveElementEditor(QDialog):
         # Update the device flags when either of the checkboxes are clicked
         self.ui.checkboxSynchronous.clicked.connect(self.update_device_checkboxes)
         self.ui.checkboxSaveNonscalar.clicked.connect(self.update_device_checkboxes)
+        self.ui.checkboxAddAllVariables.clicked.connect(self.update_device_checkboxes)
 
         # Make the action line edit only editable from the dropdown completer list of available actions
         self.ui.lineActionName.setReadOnly(True)
@@ -334,6 +335,7 @@ class SaveElementEditor(QDialog):
 
         self.ui.checkboxSynchronous.setEnabled(enable_variables)
         self.ui.checkboxSaveNonscalar.setEnabled(enable_variables)
+        self.ui.checkboxAddAllVariables.setEnabled(enable_variables)
         self.ui.buttonAddVariable.setEnabled(enable_variables)
         self.ui.buttonRemoveVariable.setEnabled(enable_variables)
         self.ui.lineVariableName.setEnabled(enable_variables)
@@ -341,10 +343,16 @@ class SaveElementEditor(QDialog):
         if device is None:
             return
 
-        for variable in device['variable_list']:
-            self.ui.listVariables.addItem(variable)
         self.ui.checkboxSynchronous.setChecked(device['synchronous'])
         self.ui.checkboxSaveNonscalar.setChecked(device['save_nonscalar_data'])
+        self.ui.checkboxAddAllVariables.setChecked(device.get('add_all_variables', False))
+
+        if not self.ui.checkboxAddAllVariables.isChecked():
+            self.ui.listVariables.setEnabled(True)
+            for variable in device['variable_list']:
+                self.ui.listVariables.addItem(variable)
+        else:
+            self.ui.listVariables.setEnabled(False)
 
     def add_variable(self):
         """Adds variable to the element's device variable list, based on the variable line edit"""
@@ -377,6 +385,7 @@ class SaveElementEditor(QDialog):
         if device is not None:
             device['synchronous'] = self.ui.checkboxSynchronous.isChecked()
             device['save_nonscalar_data'] = self.ui.checkboxSaveNonscalar.isChecked()
+            device['add_all_variables'] = self.ui.checkboxAddAllVariables.isChecked()
             self.update_variable_list()
 
     def show_action_list(self):
