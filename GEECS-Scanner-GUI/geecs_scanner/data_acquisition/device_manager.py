@@ -1,8 +1,10 @@
 import logging
 import yaml
 import numpy as np
+import threading
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
+from geecs_python_api.controls.geecs_errors import GeecsDeviceInstantiationError
 
 from .utils import get_full_config_path  # Import the utility function
 
@@ -30,6 +32,8 @@ class DeviceManager:
         self.composite_variables = {}
         self.scan_setup_action = {'steps': []}
         self.scan_closeout_action = {'steps': []}
+
+        self.fatal_error_event = threading.Event()  # Used to signal a fatal error
 
         self.is_reset = False  # Used to determine if a reset is required upon reinitialization
 
@@ -269,23 +273,30 @@ class DeviceManager:
     def _subscribe_device(self, device_name, var_list):
         """
         Subscribe to a new device and its associated variables.
+        If a Geecs device instantiation error occurs, log it and signal a fatal error event.
 
         Args:
             device_name (str or dict): The name of the device to subscribe to, or a dict of info for composite var
             var_list (list): A list of variables to subscribe to for the device.
         """
-        if self.is_composite_variable(device_name):
-            var_dict = {device_name: self.composite_variables[device_name]}
-            var_dict = self.composite_variables[device_name]
-            device = ScanDevice(device_name, var_dict)
 
-        else:
-            device = ScanDevice(device_name)
-            device.use_alias_in_TCP_subscription = False
-            logging.info(f'Subscribing {device_name} to variables: {var_list}')
-            device.subscribe_var_values(var_list)
+        try:
+            if self.is_composite_variable(device_name):
+                var_dict = self.composite_variables[device_name]
+                device = ScanDevice(device_name, var_dict)
+            else:
+                device = ScanDevice(device_name)
+                device.use_alias_in_TCP_subscription = False
+                logging.info(f'Subscribing {device_name} to variables: {var_list}')
+                device.subscribe_var_values(var_list)
 
-        self.devices[device_name] = device
+            self.devices[device_name] = device
+
+        except GeecsDeviceInstantiationError as e:
+            logging.error(f"Failed to instantiate GEecs device {device_name}: {e}")
+            # Signal a fatal error event so that the scan can abort cleanly
+            self.fatal_error_event.set()
+            raise
 
     def reset(self):
         """
