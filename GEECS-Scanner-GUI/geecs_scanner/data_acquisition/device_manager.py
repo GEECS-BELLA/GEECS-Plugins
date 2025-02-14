@@ -3,6 +3,7 @@ import yaml
 import numpy as np
 import threading
 
+
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
