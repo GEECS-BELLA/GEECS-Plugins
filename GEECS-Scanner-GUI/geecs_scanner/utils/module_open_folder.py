@@ -25,19 +25,13 @@ def get_latest_scan_number(experiment: str) -> int:
     :return: int for latest scan number, 0 if no scans that day
     """
     scan_folder = ScanData.get_daily_scan_folder(experiment=experiment)
-    if not scan_folder.exists():
-        return 0
+    pattern = re.compile(r'^Scan(\d+)$')
+
+    max_scan_folder: Path = max(filter(lambda p: pattern.match(p.name), scan_folder.iterdir()), default=None)
+    if max_scan_folder:
+        return int(pattern.match(max_scan_folder.name).group(1))
     else:
-        latest = 0
-        pattern = re.compile(r'^Scan(\d+)$')
-        for item in scan_folder.iterdir():
-            if item.is_dir():
-                match = pattern.match(item.name)
-                if match:
-                    number = int(match.group(1))
-                    if number > latest:
-                        latest = number
-        return latest
+        return 0
 
 
 def reload_scan_data_paths():
