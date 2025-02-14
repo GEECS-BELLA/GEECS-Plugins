@@ -37,20 +37,21 @@ class RunControl:
         else:
             return get_database_dict()
 
-    def submit_run(self, config_dictionary: dict, scan_config: dict):
+    def submit_run(self, config_dictionary: dict, scan_config: dict) -> bool:
         """Submits a scan request to Scan Manager after reinitializing it
 
         :param config_dictionary: Dictionary of devices to be saved and actions to take
         :param scan_config: Dictionary of parameters used in a 1d scan
         """
+        success = False
         if self.scan_manager is not None:
             self.is_in_setup = True
 
             success = self.scan_manager.reinitialize(config_path=None, config_dictionary=config_dictionary)
-            if success:
-                self.scan_manager.start_scan_thread(scan_config=scan_config)
+            self.scan_manager.start_scan_thread(scan_config=scan_config)
 
             self.is_in_setup = False
+        return success
 
     def get_progress(self) -> int:
         """
