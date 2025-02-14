@@ -1,7 +1,7 @@
 """
 Functions for opening file explorer on the given folders.  TODO make a Mac-compatible version if needed (or throw error)
 """
-
+import re
 import subprocess
 from pathlib import Path
 from geecs_python_api.analysis.scans.scan_data import ScanData
@@ -14,9 +14,30 @@ def open_folder(path_to_folder: Path):
 
 def open_daily_data_folder(experiment: str):
     """ Uses ScanData to find the server's save data location for today, and opens in Windows file explorer """
-    latest = ScanData.get_next_scan_folder(experiment=experiment).parent
+    latest = ScanData.get_daily_scan_folder(experiment=experiment)
     latest.mkdir(parents=True, exist_ok=True)
     open_folder(path_to_folder=latest)
+
+
+def get_latest_scan_number(experiment: str) -> int:
+    """ Finds the latest scan number using regular expressions rather than iterating through ScanData scan tags
+
+    :return: int for latest scan number, 0 if no scans that day
+    """
+    scan_folder = ScanData.get_daily_scan_folder(experiment=experiment)
+    if not scan_folder.exists():
+        return 0
+    else:
+        latest = 0
+        pattern = re.compile(r'^Scan(\d+)$')
+        for item in scan_folder.iterdir():
+            if item.is_dir():
+                match = pattern.match(item.name)
+                if match:
+                    number = int(match.group(1))
+                    if number > latest:
+                        latest = number
+        return latest
 
 
 def reload_scan_data_paths():
