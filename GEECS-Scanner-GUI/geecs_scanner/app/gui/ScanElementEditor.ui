@@ -508,7 +508,7 @@
     <string>Type:</string>
    </property>
   </widget>
-  <widget class="QCheckBox" name="checkBox">
+  <widget class="QCheckBox" name="checkboxAddAllVariables">
    <property name="geometry">
     <rect>
      <x>210</x>

@@ -148,9 +148,9 @@ class Ui_Dialog(object):
         self.labelActionOption1_2 = QtWidgets.QLabel(Dialog)
         self.labelActionOption1_2.setGeometry(QtCore.QRect(50, 310, 41, 21))
         self.labelActionOption1_2.setObjectName("labelActionOption1_2")
-        self.checkBox = QtWidgets.QCheckBox(Dialog)
-        self.checkBox.setGeometry(QtCore.QRect(210, 250, 151, 20))
-        self.checkBox.setObjectName("checkBox")
+        self.checkboxAddAllVariables = QtWidgets.QCheckBox(Dialog)
+        self.checkboxAddAllVariables.setGeometry(QtCore.QRect(210, 250, 151, 20))
+        self.checkboxAddAllVariables.setObjectName("checkboxAddAllVariables")
 
         self.retranslateUi(Dialog)
         QtCore.QMetaObject.connectSlotsByName(Dialog)
@@ -211,4 +211,4 @@ class Ui_Dialog(object):
         self.buttonPerformSetupActions.setText(_translate("Dialog", "Perform Setup"))
         self.buttonPerformPostscanActions.setText(_translate("Dialog", "Perform Postscan"))
         self.labelActionOption1_2.setText(_translate("Dialog", "Type:"))
-        self.checkBox.setText(_translate("Dialog", "Subscribe to All Vars"))
+        self.checkboxAddAllVariables.setText(_translate("Dialog", "Subscribe to All Vars"))
