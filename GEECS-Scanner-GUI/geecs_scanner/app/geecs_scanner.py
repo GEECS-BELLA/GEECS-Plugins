@@ -134,8 +134,9 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_variable = ""
         self.scan_variable_list = []
         self.scan_composite_list = []
+        self.scan_composite_data = {}
         self.populate_scan_devices()
-        self.ui.lineScanVariable.editingFinished.connect(self.check_scan_device)
+        self.ui.lineScanVariable.textChanged.connect(self.check_scan_device)
         self.ui.lineScanVariable.installEventFilter(self)
 
         # Buttons to save the current scan as a preset, delete selected preset, and double-clicking loads the preset
@@ -659,6 +660,7 @@ class GEECSScannerWindow(QMainWindow):
         """Generates a list of found scan devices from the scan_devices.yaml file"""
         self.scan_variable_list = []
         self.scan_composite_list = []
+        self.scan_composite_data = {}
 
         try:
             if self.app_paths is None:
@@ -670,8 +672,8 @@ class GEECSScannerWindow(QMainWindow):
                 self.scan_variable_list = list(devices.keys())
 
             with open(self.app_paths.scan_devices() / "composite_variables.yaml", 'r') as file:
-                data = yaml.safe_load(file)
-                composite_vars = data['composite_variables']
+                self.scan_composite_data = yaml.safe_load(file)
+                composite_vars = self.scan_composite_data['composite_variables']
                 self.scan_composite_list = list(composite_vars.keys())
 
         except FileNotFoundError as e:
@@ -719,8 +721,9 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.labelStopValue.setText("Stop Value: (abs)")
         elif scan_device in self.scan_composite_list:
             self.scan_variable = scan_device
-            self.ui.labelStartValue.setText("Start Value: (rel)")
-            self.ui.labelStopValue.setText("Stop Value: (rel)")
+            mode = self.scan_composite_data['composite_variables'][scan_device]['mode'][:3]
+            self.ui.labelStartValue.setText(f"Start Value: ({mode})")
+            self.ui.labelStopValue.setText(f"Stop Value: ({mode})")
         else:
             self.scan_variable = ""
             self.ui.lineScanVariable.setText("")
