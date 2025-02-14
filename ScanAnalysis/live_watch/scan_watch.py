@@ -99,7 +99,7 @@ class ScanWatch:
 
         self.analysis_queue = Queue()
 
-        self.processed_list_filename = Path(f"./processed_scans_{experiment_name}.yaml")
+        self.processed_list_filename = Path(f"{self.watch_folder}/processed_scans_{experiment_name}.yaml")
         self.processed_list = []
         if ignore_list is not None:
             self.processed_list = ignore_list
@@ -268,9 +268,9 @@ if __name__ == '__main__':
                     )"""
 
     exp = 'Undulator'
-    test_year = 2024
-    test_month = 11
-    test_day = 26
+    test_year = 2025
+    test_month = 2
+    test_day = 13
 
     scan_watch = ScanWatch(experiment_name=exp, year=test_year, month=test_month, day=test_day, overwrite_previous=True)
     print("Starting...")
