@@ -19,75 +19,14 @@ from pathlib import Path
 from PyQt5.QtWidgets import QWidget, QInputDialog, QPushButton, QMessageBox, QCompleter
 from PyQt5.QtCore import QEvent, Qt, QTimer, QObject, QThread, pyqtSignal, pyqtSlot
 from .gui.ActionLibrary_ui import Ui_Form
+from .lib.gui_utilities import (parse_variable_text, write_updated_file, display_completer_list,
+                                display_completer_variable_list)
+from .lib import ActionControl
 from ..utils import multiscan_finish_jingle
 
 
 def get_default_action() -> dict:
     return {'steps': []}
-
-
-def get_new_action(action) -> Union[None, dict[str, str]]:  # TODO combine with save element version
-    """
-    Translates a given action keyword to a default dictionary that is populated into the action list.
-
-    :param action: action keyword
-    :return: default dictionary for the associated action
-    """
-    default = None
-    if action == 'set':
-        default = {
-            'action': 'set',
-            'device': '',
-            'variable': '',
-            'value': ''
-        }
-    elif action == 'get':
-        default = {
-            'action': 'get',
-            'device': '',
-            'variable': '',
-            'expected_value': ''
-        }
-    elif action == 'wait':
-        default = {
-            'wait': ''
-        }
-    elif action == 'execute':
-        default = {
-            'action': 'execute',
-            'action_name': ''
-        }
-    elif action == 'run':
-        default = {
-            'action': 'run',
-            'file_name': '',
-            'class_name': ''
-        }
-    return default
-
-
-def parse_variable_text(text) -> Union[int, float, str]:  # TODO combine with save_element_editor.py version
-    """ Attempts to convert a string first to an int, then a float, and finally just returns the string if unsuccessful
-
-    :param text: string
-    :return: either an int, float, or string of the input, in that order
-    """
-    try:
-        return int(text)
-    except ValueError:
-        try:
-            return float(text)
-        except ValueError:
-            return text
-
-
-# List of available actions, to be used by the completer for the add action line edit
-list_of_actions = [  # TODO combine with save_element_editor.py version
-    'set',
-    'get',
-    'wait',
-    'execute',
-]
 
 
 class ActionLibrary(QWidget):
@@ -147,58 +86,21 @@ class ActionLibrary(QWidget):
         """Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
         """
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionType:
-            self.display_completer_list(location=self.ui.lineActionType,
-                                        completer_list=list_of_actions)
+            display_completer_list(self, location=self.ui.lineActionType, completer_list=ActionControl.list_of_actions)
             return True
         elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1
               and self.action_mode in ['set', 'get']):
-            self.display_completer_list(location=self.ui.lineActionOption1,
-                                        completer_list=sorted(self.database_dict.keys()))
+            display_completer_list(self, location=self.ui.lineActionOption1,
+                                   completer_list=sorted(self.database_dict.keys()))
             self.dummyButton.setDefault(True)
             return True
         elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2
               and self.action_mode in ['set', 'get']):
-            self.display_completer_variable_list(list_location=self.ui.lineActionOption2,
-                                                 device_location=self.ui.lineActionOption1)
+            display_completer_variable_list(self, self.database_dict, list_location=self.ui.lineActionOption2,
+                                            device_location=self.ui.lineActionOption1)
             self.dummyButton.setDefault(True)
             return True
         return super().eventFilter(source, event)
-
-    def display_completer_list(self, location: QLineEdit, completer_list: list[str]):  # TODO combine with scan var version
-        """ Displays a completer list at a given location
-
-        :param location: GUI element at which to show the completer list
-        :param completer_list: strings to show in the completer pop-up
-        """
-        location.selectAll()
-        completer = QCompleter(completer_list, self)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(Qt.CaseSensitive)
-
-        location.setCompleter(completer)
-        location.setFocus()
-        completer.complete()
-
-    def display_completer_variable_list(self, list_location: QLineEdit, device_location: QLineEdit):  # TODO combine with scan var version
-        """ Displays list of variables at one location using the device name at another location
-
-        :param list_location: GUI element at which to show the completer list
-        :param device_location: GUI element where the device name is given
-        """
-        device_name = device_location.text().strip()
-        if device_name in self.database_dict:
-            variable_list = sorted(self.database_dict[device_name].keys())
-            self.display_completer_list(location=list_location, completer_list=variable_list)
-
-    @staticmethod
-    def _write_updated_file(filename: Path, dictionary: dict):  # TODO this is a copy of scan variable editor...do better?
-        """ Write the given dictionary to the given yaml file, used for either the 1d or composite scan variables
-
-        :param filename: yaml filename
-        :param dictionary: complete dictionary to be written
-        """
-        with open(filename, 'w') as f:
-            yaml.dump(dictionary, f, default_flow_style=False)
 
     # # # # # # # # # # # GUI elements for using list of actions and saving/deleting actions # # # # # # # # # # #
 
@@ -272,7 +174,7 @@ class ActionLibrary(QWidget):
 
             if name in actions_data_actual['actions']:
                 del actions_data_actual['actions'][name]
-                self._write_updated_file(filename=self.actions_file, dictionary=actions_data_actual)
+                write_updated_file(filename=self.actions_file, dictionary=actions_data_actual)
                 logging.info(f"Removed action '{name}' from '{self.actions_file}'")
             else:
                 logging.info(f"Removed action '{name}' from unsaved dictionary")
@@ -283,20 +185,6 @@ class ActionLibrary(QWidget):
             self.populate_action_list()
 
     # # # # # # # # # # # GUI elements for interacting with the list of steps # # # # # # # # # # #
-
-    @staticmethod
-    def generate_action_description(action: dict[str, list]) -> str:  # TODO combine with save element version
-        """For each action in the list, generate a string that displays all the information for that action step"""
-        description = "???"
-        if action.get("wait") is not None:
-            description = f"wait {action['wait']}"
-        elif action['action'] == 'execute':
-            description = f"execute {action['action_name']}"
-        elif action['action'] == 'set':
-            description = f"{action['action']} {action['device']}:{action['variable']} {action.get('value')}"
-        elif action['action'] == 'get':
-            description = f"{action['action']} {action['device']}:{action['variable']} {action.get('expected_value')}"
-        return description
 
     def change_action_selection(self):
         self.update_action_list()
@@ -312,7 +200,7 @@ class ActionLibrary(QWidget):
             return
 
         for item in self.actions_data['actions'][name]['steps']:
-            self.ui.listActionSteps.addItem(self.generate_action_description(item))
+            self.ui.listActionSteps.addItem(ActionControl.generate_action_description(item))
 
         if index is not None and 0 <= index < self.ui.listActionSteps.count():
             self.ui.listActionSteps.setCurrentRow(index)
@@ -323,7 +211,7 @@ class ActionLibrary(QWidget):
         text = self.ui.lineActionType.text().strip()
         name = self.get_selected_name()
         if text and name:
-            self.actions_data['actions'][name]['steps'].append(get_new_action(text))
+            self.actions_data['actions'][name]['steps'].append(ActionControl.get_new_action(text))
             self.ui.lineActionType.clear()
             self.change_action_selection()
 
@@ -452,7 +340,7 @@ class ActionLibrary(QWidget):
         reply = QMessageBox.question(self, "Save Actions", f"Save all changes to {self.actions_file.name}?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
-            self._write_updated_file(filename=self.actions_file, dictionary=self.actions_data)
+            write_updated_file(filename=self.actions_file, dictionary=self.actions_data)
 
     def discard_all_changes(self):
         reply = QMessageBox.question(self, "Discard Changes", f"Discard all unsaved changes?",
