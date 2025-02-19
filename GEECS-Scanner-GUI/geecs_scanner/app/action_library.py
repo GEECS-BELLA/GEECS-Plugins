@@ -92,6 +92,11 @@ class ActionLibrary(QWidget):
             display_completer_variable_list(self, self.database_dict, list_location=self.ui.lineActionOption2,
                                             device_location=self.ui.lineActionOption1)
             return True
+        elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1
+              and self.action_mode in ['execute']):
+            display_completer_list(self, location=self.ui.lineActionOption1, 
+                                   completer_list=self.actions_data['actions'].keys())
+            return True
         return super().eventFilter(source, event)
 
     # # # # # # # # # # # GUI elements for using list of actions and saving/deleting actions # # # # # # # # # # #
