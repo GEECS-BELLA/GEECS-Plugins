@@ -17,14 +17,15 @@ def display_completer_list(window: QObject, location: QLineEdit, completer_list:
     :param location: GUI element at which to show the completer list
     :param completer_list: strings to show in the completer pop-up
     """
-    location.selectAll()
-    completer = QCompleter(completer_list, window)
-    completer.setCompletionMode(QCompleter.PopupCompletion)
-    completer.setCaseSensitivity(Qt.CaseSensitive)
+    if location.isEnabled():
+        location.selectAll()
+        completer = QCompleter(completer_list, window)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setCaseSensitivity(Qt.CaseSensitive)
 
-    location.setCompleter(completer)
-    location.setFocus()
-    completer.complete()
+        location.setCompleter(completer)
+        location.setFocus()
+        completer.complete()
 
 
 def display_completer_variable_list(window: QObject, database_dict: dict,
