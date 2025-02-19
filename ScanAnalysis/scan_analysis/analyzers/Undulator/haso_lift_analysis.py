@@ -173,9 +173,15 @@ class HasoAnalysis(ScanAnalysis):
         config_file_path = 'scan_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat'
         image_file_str = str(image_file_path)
 
-        # Create the necessary Wavekit objects.
-        image = wkpy.Image(image_file_path=image_file_str)
-        hasoengine = wkpy.HasoEngine(config_file_path=config_file_path)
+        try:
+            # Create the necessary Wavekit objects.
+            image = wkpy.Image(image_file_path=image_file_str)
+            hasoengine = wkpy.HasoEngine(config_file_path=config_file_path)
+        except Exception as e:
+            self._log_warning(
+                "Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file")
+            return None
+
         hasoengine.set_lift_enabled(True, 800)
         hasoengine.set_lift_option(True, 800)
 
