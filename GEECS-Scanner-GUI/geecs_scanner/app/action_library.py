@@ -9,15 +9,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional
 if TYPE_CHECKING:
     from . import GEECSScannerWindow
-    from PyQt5.QtWidgets import QLineEdit, QListWidget, QListWidgetItem
 
 import yaml
 import copy
-import time
 import logging
 from pathlib import Path
-from PyQt5.QtWidgets import QWidget, QInputDialog, QPushButton, QMessageBox, QCompleter
-from PyQt5.QtCore import QEvent, Qt, QTimer, QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import QWidget, QInputDialog, QMessageBox
+from PyQt5.QtCore import QEvent
 from .gui.ActionLibrary_ui import Ui_Form
 from .lib.gui_utilities import (parse_variable_text, write_updated_file, display_completer_list,
                                 display_completer_variable_list)
@@ -35,10 +33,6 @@ class ActionLibrary(QWidget):
 
         self.main_window = main_window
         self.database_dict = database_dict
-
-        self.dummyButton = QPushButton("", self)
-        self.dummyButton.setDefault(True)
-        self.dummyButton.setVisible(False)
 
         # Initializes the gui elements
         self.ui = Ui_Form()
@@ -92,13 +86,11 @@ class ActionLibrary(QWidget):
               and self.action_mode in ['set', 'get']):
             display_completer_list(self, location=self.ui.lineActionOption1,
                                    completer_list=sorted(self.database_dict.keys()))
-            self.dummyButton.setDefault(True)
             return True
         elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2
               and self.action_mode in ['set', 'get']):
             display_completer_variable_list(self, self.database_dict, list_location=self.ui.lineActionOption2,
                                             device_location=self.ui.lineActionOption1)
-            self.dummyButton.setDefault(True)
             return True
         return super().eventFilter(source, event)
 
@@ -193,7 +185,6 @@ class ActionLibrary(QWidget):
     def update_action_list(self, index: Optional[int] = None):
         """Updates the visible list of actions on the GUI according to the current state of the action dictionary"""
         self.ui.listActionSteps.clear()
-        self.dummyButton.setDefault(True)
 
         name = self.get_selected_name()
         if not name:
