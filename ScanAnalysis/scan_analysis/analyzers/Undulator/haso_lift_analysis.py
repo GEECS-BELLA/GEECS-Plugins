@@ -192,6 +192,17 @@ class HasoAnalysis(ScanAnalysis):
         _, hasoslopes = hasoengine.compute_slopes(image, learn_from_trimmer)
         hasoslopes.save_to_file(str(slopes_file_path), '', '')
         self._log_info(f"Slopes file saved: {slopes_file_path}")
+
+        base_name = slopes_file_path.stem
+        tsv_file_path = self.path_dict['save'] / f"{base_name}_intensity.tsv"
+        
+        haso_intensity = wkpy.Intensity(hasoslopes = hasoslopes)
+        intensity = haso_intensity.get_data()[0]
+        df = pd.DataFrame(intensity)
+        df.to_csv(tsv_file_path, sep="\t", index=False, header=False)
+        self._log_info(f"intensity data saved to TSV file: {tsv_file_path}")
+        
+
         return slopes_file_path
 
     def compute_phase_from_slopes(self, slopes_file_path: Path) -> pd.DataFrame:
@@ -238,6 +249,6 @@ class HasoAnalysis(ScanAnalysis):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     from geecs_python_api.analysis.scans.scan_data import ScanData
-    tag = ScanData.get_scan_tag(year=2025, month=2, day=11, number=11, experiment_name='Undulator')
+    tag = ScanData.get_scan_tag(year=2025, month=2, day=12, number=10, experiment_name='Undulator')
     analyzer = HasoAnalysis(scan_tag=tag, device_name="U_HasoLift", skip_plt_show=True)
     analyzer.run_analysis()
