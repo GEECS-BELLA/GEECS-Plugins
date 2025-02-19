@@ -99,11 +99,8 @@ class Ui_Dialog(object):
         self.buttonCompositeSave.setGeometry(QtCore.QRect(300, 240, 51, 51))
         self.buttonCompositeSave.setObjectName("buttonCompositeSave")
         self.buttonClose = QtWidgets.QPushButton(Dialog)
-        self.buttonClose.setGeometry(QtCore.QRect(220, 510, 93, 28))
+        self.buttonClose.setGeometry(QtCore.QRect(140, 510, 93, 28))
         self.buttonClose.setObjectName("buttonClose")
-        self.buttonOpenOrdering = QtWidgets.QPushButton(Dialog)
-        self.buttonOpenOrdering.setGeometry(QtCore.QRect(60, 510, 93, 28))
-        self.buttonOpenOrdering.setObjectName("buttonOpenOrdering")
         self.line_2 = QtWidgets.QFrame(Dialog)
         self.line_2.setGeometry(QtCore.QRect(10, 500, 350, 5))
         self.line_2.setFrameShape(QtWidgets.QFrame.HLine)
@@ -141,5 +138,4 @@ class Ui_Dialog(object):
         self.buttonCompositeSave.setText(_translate("Dialog", "Save\n"
 "All"))
         self.buttonClose.setText(_translate("Dialog", "Close"))
-        self.buttonOpenOrdering.setText(_translate("Dialog", "Ordering"))
         self.label_10.setText(_translate("Dialog", "Mode:"))

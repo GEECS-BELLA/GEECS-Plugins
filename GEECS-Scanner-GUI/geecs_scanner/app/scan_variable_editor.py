@@ -12,7 +12,6 @@ from pathlib import Path
 from PyQt5.QtWidgets import QDialog, QCompleter, QMessageBox, QInputDialog
 from PyQt5.QtCore import Qt, QEvent
 
-from . import ScanVariableOrder
 from .gui.ScanDeviceEditor_ui import Ui_Dialog
 
 
@@ -95,9 +94,7 @@ class ScanVariableEditor(QDialog):
         self.update_visible_composite_information()
         self.update_visible_relation_information()
 
-        # Buttons to launch the ordering dialog window and to close out of this dialog window
-        self.ui.buttonOpenOrdering.clicked.connect(self.open_list_order_dialog)
-        self.ui.buttonOpenOrdering.setEnabled(False)  # TODO implement this eventually.  Not important at the moment
+        # Button to close out of this dialog window
         self.ui.buttonClose.clicked.connect(self.close)
 
         # Apply the stylesheet of the main window
@@ -420,13 +417,3 @@ class ScanVariableEditor(QDialog):
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             self._write_updated_file(filename=self.file_composite, dictionary=self.scan_composite_data)
-
-    # Button to launch the 'Scan Element Ordering' dialog window
-
-    def open_list_order_dialog(self):
-        """ Launches the dialog window to change the ordering of the scan variables in the list """
-        self.variable_order = ScanVariableOrder(stylesheet=self.styleSheet(),
-                                                scan_variable_list=self.get_scan_variable_list(),
-                                                composite_variable_list=self.get_scan_composite_list())
-        self.variable_order.exec_()
-        # TODO update the lists using the new ordering

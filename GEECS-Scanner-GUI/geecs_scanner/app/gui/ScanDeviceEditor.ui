@@ -340,7 +340,7 @@ All</string>
   <widget class="QPushButton" name="buttonClose">
    <property name="geometry">
     <rect>
-     <x>220</x>
+     <x>140</x>
      <y>510</y>
      <width>93</width>
      <height>28</height>
@@ -348,19 +348,6 @@ All</string>
    </property>
    <property name="text">
     <string>Close</string>
-   </property>
-  </widget>
-  <widget class="QPushButton" name="buttonOpenOrdering">
-   <property name="geometry">
-    <rect>
-     <x>60</x>
-     <y>510</y>
-     <width>93</width>
-     <height>28</height>
-    </rect>
-   </property>
-   <property name="text">
-    <string>Ordering</string>
    </property>
   </widget>
   <widget class="Line" name="line_2">
