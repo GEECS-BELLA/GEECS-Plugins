@@ -32,11 +32,25 @@ class ActionLibrary(QWidget):
         self.ui.setupUi(self)
         self.setWindowTitle("Action Library")
 
+        self.actions_file = Path(action_configurations_folder) / 'actions.yaml'
+        self.actions_data = {}
+        self.load_action_list()
+
         # Functionality for close button
         self.ui.buttonCloseWindow.clicked.connect(self.close)
 
         # Set stylesheet to that of the main window
         self.setStyleSheet(main_window.styleSheet())
+
+    def load_action_list(self):
+        self.ui.listAvailableActions.clear()
+        if not self.actions_file.exists():
+            return
+
+        with open(self.actions_file) as f:
+            self.actions_data = yaml.safe_load(f)
+        for action_name in self.actions_data['actions'].keys():
+            self.ui.listAvailableActions.addItem(action_name)
 
     def closeEvent(self, event):
         self.main_window.exit_action_library()
