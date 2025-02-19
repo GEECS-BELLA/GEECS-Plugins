@@ -22,6 +22,10 @@ def open_daily_data_folder(experiment: str):
 
 
 def iterate_scan_numbers(scan_folder: Path):
+    """
+    :param scan_folder: Daily scan folder path
+    :return: a generated list of scan numbers within the folder
+    """
     pattern = re.compile(r'^Scan(\d+)$')
     if not scan_folder.exists():
         return
@@ -41,7 +45,7 @@ def get_latest_scan_number(experiment: str) -> int:
 
 def get_experiment_scanlog_url(experiment: str) -> Optional[str]:
     """
-    Maps an expeirment name to a routine used to read the current day's experiment log
+    Maps an experiment name to a routine used to read the current day's experiment log
 
     :param experiment: The experiment name
     :return: a string pointing to the
@@ -55,6 +59,9 @@ def get_experiment_scanlog_url(experiment: str) -> Optional[str]:
 
 
 def get_scanlog_undulator() -> Optional[str]:
+    """
+    :return: the Google doc id for HTU's most recent daily experimental scan log
+    """
     base_folder = Path("Z:\software\control-all-loasis\HTU\Active Version\GEECS-Plugins\LogMaker4GoogleDocs\logmaker_4_googledocs")
     if not base_folder.exists():
         return
@@ -66,10 +73,11 @@ def get_scanlog_undulator() -> Optional[str]:
     experiment_config = configparser.ConfigParser()
     experiment_config.read(config_path)
 
-    # Debugging: Verify the loaded sections
+    # Verify the loaded sections
     if not experiment_config.sections():
         return
 
+    # Build the url string
     document_id = experiment_config['DEFAULT']['logid']
     url = f"https://docs.google.com/document/d/{document_id}"
     return url
