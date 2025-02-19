@@ -176,6 +176,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.action_open_User_Config_File.triggered.connect(self.open_user_config_file)
 
         self.ui.action_open_Github_Page.triggered.connect(self.open_github_page)
+        self.ui.actionExperiment_Scanlog.triggered.connect(self.open_experiment_scanlog)
 
         # Menu Bar: Options
         self.all_options: list[MenuBarOption] = []
@@ -1161,6 +1162,20 @@ class GEECSScannerWindow(QMainWindow):
     def open_github_page(self):
         """ In the default browser, opens the GitHub url for the GEECS-Scanner-GUI sub-repo under the master branch """
         url_string = "https://github.com/GEECS-BELLA/GEECS-Plugins/tree/master/GEECS-Scanner-GUI"
+        url = QUrl(url_string)
+        if not QDesktopServices.openUrl(url):
+            QMessageBox.warning(self, "Open URL", f"Failed to open URL: {url_string}")
+
+    def open_experiment_scanlog(self):
+        """ In the default browser, opens the scanlog for the day for the current experiment.  Must be set up in
+         `module_open_folder.py` for each experiment. """
+        if self.experiment is None:
+            return
+        url_string = of.get_experiment_scanlog_url(experiment=self.experiment)
+        if not url_string:
+            QMessageBox.warning(self, "Open URL", f"Scanlog retrieval method not defined for experiment '{self.experiment}'")
+            return
+
         url = QUrl(url_string)
         if not QDesktopServices.openUrl(url):
             QMessageBox.warning(self, "Open URL", f"Failed to open URL: {url_string}")

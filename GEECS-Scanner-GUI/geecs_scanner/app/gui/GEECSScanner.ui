@@ -678,6 +678,7 @@
     <addaction name="action_open_Daily_Scan_Folder"/>
     <addaction name="separator"/>
     <addaction name="action_open_Github_Page"/>
+    <addaction name="actionExperiment_Scanlog"/>
    </widget>
    <widget class="QMenu" name="menuPreferences">
     <property name="title">
@@ -729,6 +730,11 @@
    </property>
    <property name="text">
     <string>Randomized Beeps</string>
+   </property>
+  </action>
+  <action name="actionExperiment_Scanlog">
+   <property name="text">
+    <string>Experiment Scanlog</string>
    </property>
   </action>
  </widget>
