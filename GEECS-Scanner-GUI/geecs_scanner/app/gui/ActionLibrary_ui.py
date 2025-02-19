@@ -31,6 +31,7 @@ class Ui_Form(object):
         self.label.setObjectName("label")
         self.lineActionType = QtWidgets.QLineEdit(Form)
         self.lineActionType.setGeometry(QtCore.QRect(310, 20, 113, 22))
+        self.lineActionType.setReadOnly(True)
         self.lineActionType.setObjectName("lineActionType")
         self.buttonAddStep = QtWidgets.QPushButton(Form)
         self.buttonAddStep.setGeometry(QtCore.QRect(440, 20, 71, 21))

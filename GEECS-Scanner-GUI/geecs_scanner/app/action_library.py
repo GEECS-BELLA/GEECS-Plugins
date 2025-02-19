@@ -9,21 +9,30 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional
 if TYPE_CHECKING:
     from . import GEECSScannerWindow
-    from PyQt5.QtWidgets import QListWidget, QListWidgetItem
+    from PyQt5.QtWidgets import QLineEdit, QListWidget, QListWidgetItem
 
 import yaml
 import copy
 import time
 import logging
 from pathlib import Path
-from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog, QMessageBox
-from PyQt5.QtCore import QTimer, QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog, QMessageBox, QCompleter
+from PyQt5.QtCore import QEvent, Qt, QTimer, QObject, QThread, pyqtSignal, pyqtSlot
 from .gui.ActionLibrary_ui import Ui_Form
 from ..utils import multiscan_finish_jingle
 
 
 def get_default_action() -> dict:
     return {'steps': []}
+
+
+# List of available actions, to be used by the completer for the add action line edit
+list_of_actions = [  # TODO combine with save_element_editor.py version
+    'set',
+    'get',
+    'wait',
+    'execute',
+]
 
 
 class ActionLibrary(QWidget):
@@ -45,6 +54,9 @@ class ActionLibrary(QWidget):
         self.ui.buttonCopyAction.clicked.connect(self.copy_action)
         self.ui.buttonDeleteAction.clicked.connect(self.delete_selected_action)
 
+        # Functionality to add and remove steps
+        self.ui.lineActionType.installEventFilter(self)
+
         # Functionality to Save All and Revert All buttons
         self.ui.buttonSaveAll.clicked.connect(self.save_all_changes)
         self.ui.buttonRevertAll.clicked.connect(self.discard_all_changes)
@@ -54,6 +66,52 @@ class ActionLibrary(QWidget):
 
         # Set stylesheet to that of the main window
         self.setStyleSheet(main_window.styleSheet())
+
+    def eventFilter(self, source, event):
+        """Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
+        """
+        if event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionType:
+            self.show_action_type_list()
+            return True
+        return super().eventFilter(source, event)
+
+    def display_completer_list(self, location: QLineEdit, completer_list: list[str]):  # TODO combine with scan var version
+        """ Displays a completer list at a given location
+
+        :param location: GUI element at which to show the completer list
+        :param completer_list: strings to show in the completer pop-up
+        """
+        location.selectAll()
+        completer = QCompleter(completer_list, self)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setCaseSensitivity(Qt.CaseSensitive)
+
+        location.setCompleter(completer)
+        location.setFocus()
+        completer.complete()
+
+    def display_completer_variable_list(self, list_location: QLineEdit, device_location: QLineEdit):  # TODO combine with scan var version
+        """ Displays list of variables at one location using the device name at another location
+
+        :param list_location: GUI element at which to show the completer list
+        :param device_location: GUI element where the device name is given
+        """
+        device_name = device_location.text().strip()
+        if device_name in self.database_dict:
+            variable_list = sorted(self.database_dict[device_name].keys())
+            self.display_completer_list(location=list_location, completer_list=variable_list)
+
+    @staticmethod
+    def _write_updated_file(filename: Path, dictionary: dict):  # TODO this is a copy of scan variable editor...do better?
+        """ Write the given dictionary to the given yaml file, used for either the 1d or composite scan variables
+
+        :param filename: yaml filename
+        :param dictionary: complete dictionary to be written
+        """
+        with open(filename, 'w') as f:
+            yaml.dump(dictionary, f, default_flow_style=False)
+
+    # # # # # # # # # # # GUI elements for using list of actions and saving/deleting actions # # # # # # # # # # #
 
     def load_action_data(self) -> dict:
         self.actions_data = {}
@@ -76,16 +134,6 @@ class ActionLibrary(QWidget):
             name = selection.text().strip()
             if name in self.actions_data['actions']:
                 return name
-
-    @staticmethod
-    def _write_updated_file(filename: Path, dictionary: dict):  # TODO this is a copy of scan variable editor...do better?
-        """ Write the given dictionary to the given yaml file, used for either the 1d or composite scan variables
-
-        :param filename: yaml filename
-        :param dictionary: complete dictionary to be written
-        """
-        with open(filename, 'w') as f:
-            yaml.dump(dictionary, f, default_flow_style=False)
 
     def _prompt_new_action(self, message: str, copy_base: Optional[str] = None):
         text, ok = QInputDialog.getText(self, 'New Action', message)
@@ -144,6 +192,13 @@ class ActionLibrary(QWidget):
             del self.actions_data['actions'][name]
 
             self.populate_action_list()
+
+    # # # # # # # # # # # GUI elements for interacting with the list of steps # # # # # # # # # # #
+
+    def show_action_type_list(self):
+        self.display_completer_list(self.ui.lineActionType, list_of_actions)
+
+    # # # # # # # # # # # GUI elements for Execute, Save, Revert, and Close buttons # # # # # # # # # # #
 
     def save_all_changes(self):
         reply = QMessageBox.question(self, "Save Actions", f"Save all changes to {self.actions_file.name}?",
