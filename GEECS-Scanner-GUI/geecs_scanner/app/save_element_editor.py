@@ -8,7 +8,7 @@ allows for a user to load and save the information displayed into this GUI to/fr
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Union, Any
+from typing import TYPE_CHECKING, Optional, Any
 
 if TYPE_CHECKING:
     from PyQt5.QtWidgets import QLineEdit
@@ -17,10 +17,11 @@ if TYPE_CHECKING:
 import yaml
 import logging
 from pathlib import Path
-from PyQt5.QtWidgets import QDialog, QCompleter, QPushButton, QFileDialog
-from PyQt5.QtCore import Qt, QEvent
+from PyQt5.QtWidgets import QDialog, QPushButton, QFileDialog
+from PyQt5.QtCore import QEvent
 from .gui.ScanElementEditor_ui import Ui_Dialog
 from .lib import ActionControl
+from .lib.gui_utilities import parse_variable_text, display_completer_list
 
 
 def get_default_device_dictionary() -> dict[str, bool | list[Any]]:
@@ -32,72 +33,6 @@ def get_default_device_dictionary() -> dict[str, bool | list[Any]]:
         'synchronous': True,
         'save_nonscalar_data': True
     }
-
-
-def get_new_action(action) -> Union[None, dict[str, str]]:
-    """
-    Translates a given action keyword to a default dictionary that is populated into the action list.
-
-    :param action: action keyword
-    :return: default dictionary for the associated action
-    """
-    # TODO Can probably convert this from an if-else block to a dictionary...
-    default = None
-    if action == 'set':
-        default = {
-            'action': 'set',
-            'device': '',
-            'variable': '',
-            'value': ''
-        }
-    elif action == 'get':
-        default = {
-            'action': 'get',
-            'device': '',
-            'variable': '',
-            'expected_value': ''
-        }
-    elif action == 'wait':
-        default = {
-            'wait': ''
-        }
-    elif action == 'execute':
-        default = {
-            'action': 'execute',
-            'action_name': ''
-        }
-    elif action == 'run':
-        default = {
-            'action': 'run',
-            'file_name': '',
-            'class_name': ''
-        }
-    return default
-
-
-# List of available actions, to be used by the completer for the add action line edit
-list_of_actions = [
-    'set',
-    'get',
-    'wait',
-    'execute',
-    # 'run'
-]
-
-
-def parse_variable_text(text) -> Union[int, float, str]:
-    """ Attempts to convert a string first to an int, then a float, and finally just returns the string if unsuccessful
-
-    :param text: string
-    :return: either an int, float, or string of the input, in that order
-    """
-    try:
-        return int(text)
-    except ValueError:
-        try:
-            return float(text)
-        except ValueError:
-            return text
 
 
 class SaveElementEditor(QDialog):
@@ -210,11 +145,14 @@ class SaveElementEditor(QDialog):
         """Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
         """
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionName:
-            self.show_action_list()
+            self.ui.listActions.clearSelection()
+            display_completer_list(self, location=self.ui.lineActionName,
+                                   completer_list=ActionControl.list_of_actions)
             self.ui.buttonAddAction.setDefault(True)
             return True
         elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineDeviceName:
-            self.show_device_list(self.ui.lineDeviceName)
+            display_completer_list(self, location=self.ui.lineDeviceName,
+                                   completer_list=sorted(self.database_dict.keys()))
             self.ui.buttonAddDevice.setDefault(True)
             return True
         elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableName:
@@ -223,7 +161,8 @@ class SaveElementEditor(QDialog):
             return True
         elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1
               and self.action_mode in ['set', 'get']):
-            self.show_device_list(self.ui.lineActionOption1)
+            display_completer_list(self, location=self.ui.lineActionOption1,
+                                   completer_list=sorted(self.database_dict.keys()))
             self.dummyButton.setDefault(True)
             return True
         elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2
@@ -232,22 +171,6 @@ class SaveElementEditor(QDialog):
             self.dummyButton.setDefault(True)
             return True
         return super().eventFilter(source, event)
-
-    def show_device_list(self, location: QLineEdit):
-        """
-        Shows the list of available experimental devices as a hint completer
-
-        :param location: gui element where the list should be shown
-        """
-        if location.isEnabled():
-            location.selectAll()
-            completer = QCompleter(sorted(self.database_dict.keys()), self)
-            completer.setCompletionMode(QCompleter.PopupCompletion)
-            completer.setCaseSensitivity(Qt.CaseSensitive)
-
-            location.setCompleter(completer)
-            location.setFocus()
-            completer.complete()
 
     def show_variable_list(self, location: QLineEdit, source: str = 'device'):
         """
@@ -265,14 +188,8 @@ class SaveElementEditor(QDialog):
                 device_name = None
 
             if device_name in self.database_dict:
-                location.selectAll()
-                completer = QCompleter(sorted(self.database_dict[device_name].keys()), self)
-                completer.setCompletionMode(QCompleter.PopupCompletion)
-                completer.setCaseSensitivity(Qt.CaseSensitive)
-
-                location.setCompleter(completer)
-                location.setFocus()
-                completer.complete()
+                display_completer_list(self, location=location,
+                                       completer_list=sorted(self.database_dict[device_name].keys()))
 
     def update_device_list(self):
         """Update the visible list of devices from the dictionary on the backend
@@ -388,42 +305,15 @@ class SaveElementEditor(QDialog):
             device['add_all_variables'] = self.ui.checkboxAddAllVariables.isChecked()
             self.update_variable_list()
 
-    def show_action_list(self):
-        """Shows the list of available actions at the add action line edit"""
-        self.ui.listActions.clearSelection()
-        completer = QCompleter(list_of_actions, self)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-
-        self.ui.lineActionName.setCompleter(completer)
-        self.ui.lineActionName.setFocus()
-        completer.complete()
-
-    @staticmethod
-    def generate_action_description(action: dict[str, list]) -> str:
-        """For each action in the list, generate a string that displays all the information for that action step"""
-        description = "???"
-        if action.get("wait") is not None:
-            description = f"wait {action['wait']}"
-        elif action['action'] == 'execute':
-            description = f"execute {action['action_name']}"
-        elif action['action'] == 'run':
-            description = "run"
-        elif action['action'] == 'set':
-            description = f"{action['action']} {action['device']}:{action['variable']} {action.get('value')}"
-        elif action['action'] == 'get':
-            description = f"{action['action']} {action['device']}:{action['variable']} {action.get('expected_value')}"
-        return description
-
     def update_action_list(self, index: Optional[int] = None):
         """Updates the visible list of actions on the GUI according to the current state of the action dictionary"""
         self.ui.listActions.clear()
         self.dummyButton.setDefault(True)
         for item in self.actions_dict['setup']:
-            self.ui.listActions.addItem(self.generate_action_description(item))
+            self.ui.listActions.addItem(ActionControl.generate_action_description(item))
         self.ui.listActions.addItem("---Scan---")
         for item in self.actions_dict['closeout']:
-            self.ui.listActions.addItem(self.generate_action_description(item))
+            self.ui.listActions.addItem(ActionControl.generate_action_description(item))
         if index is not None and 0 <= index < self.ui.listActions.count():
             self.ui.listActions.setCurrentRow(index)
 
@@ -433,9 +323,9 @@ class SaveElementEditor(QDialog):
         text = self.ui.lineActionName.text().strip()
         if text:
             if self.ui.radioIsSetup.isChecked():
-                self.actions_dict['setup'].append(get_new_action(text))
+                self.actions_dict['setup'].append(ActionControl.get_new_action(text))
             else:
-                self.actions_dict['closeout'].append(get_new_action(text))
+                self.actions_dict['closeout'].append(ActionControl.get_new_action(text))
         self.update_action_list()
 
     def remove_action(self):

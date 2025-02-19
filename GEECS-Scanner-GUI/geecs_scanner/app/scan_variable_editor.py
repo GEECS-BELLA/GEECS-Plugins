@@ -2,17 +2,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from . import GEECSScannerWindow
-    from PyQt5.QtWidgets import QLineEdit
 
 import yaml
 import logging
 import copy
 from pathlib import Path
 
-from PyQt5.QtWidgets import QDialog, QCompleter, QMessageBox, QInputDialog
-from PyQt5.QtCore import Qt, QEvent
+from PyQt5.QtWidgets import QDialog, QMessageBox, QInputDialog
+from PyQt5.QtCore import QEvent
 
 from .gui.ScanDeviceEditor_ui import Ui_Dialog
+from .lib.gui_utilities import write_updated_file, display_completer_list, display_completer_variable_list
 
 
 def default_composite_variable():
@@ -109,38 +109,40 @@ class ScanVariableEditor(QDialog):
         """ Custom event for the text boxes so that the completion suggestions are shown when mouse is clicked """
         # Nickname completer prompts
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableNickname:
-            self.display_completer_list(location=self.ui.lineVariableNickname,
-                                        completer_list=self.get_scan_variable_list())
+            display_completer_list(self, location=self.ui.lineVariableNickname,
+                                   completer_list=self.get_scan_variable_list())
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineCompositeNickname:
-            self.display_completer_list(location=self.ui.lineCompositeNickname,
-                                        completer_list=self.get_scan_composite_list())
+            display_completer_list(self, location=self.ui.lineCompositeNickname,
+                                   completer_list=self.get_scan_composite_list())
             return True
 
         # Device name completer prompts
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableDevice:
-            self.display_completer_list(location=self.ui.lineVariableDevice,
-                                        completer_list=sorted(self.database_dict.keys()))
+            display_completer_list(self, location=self.ui.lineVariableDevice,
+                                   completer_list=sorted(self.database_dict.keys()))
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineCompositeDevice:
-            self.display_completer_list(location=self.ui.lineCompositeDevice,
-                                        completer_list=sorted(self.database_dict.keys()))
+            display_completer_list(self, location=self.ui.lineCompositeDevice,
+                                   completer_list=sorted(self.database_dict.keys()))
             return True
 
         # Variable name completer prompts
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableVariable:
-            self.display_completer_variable_list(list_location=self.ui.lineVariableVariable,
-                                                 device_location=self.ui.lineVariableDevice)
+            display_completer_variable_list(self, database_dict=self.database_dict,
+                                            list_location=self.ui.lineVariableVariable,
+                                            device_location=self.ui.lineVariableDevice)
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineCompositeVariable:
-            self.display_completer_variable_list(list_location=self.ui.lineCompositeVariable,
-                                                 device_location=self.ui.lineCompositeDevice)
+            display_completer_variable_list(self, database_dict=self.database_dict,
+                                            list_location=self.ui.lineCompositeVariable,
+                                            device_location=self.ui.lineCompositeDevice)
             return True
 
         # Other completer prompts
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineCompositeMode and self.ui.lineCompositeMode.isEnabled():
-            self.display_completer_list(location=self.ui.lineCompositeMode,
-                                        completer_list=list_of_modes())
+            display_completer_list(self, location=self.ui.lineCompositeMode,
+                                   completer_list=list_of_modes())
             return True
 
         return super().eventFilter(source, event)
@@ -164,42 +166,6 @@ class ScanVariableEditor(QDialog):
     def get_scan_composite_list(self):
         return list(self.scan_composite_data['composite_variables'].keys())
 
-    def display_completer_list(self, location: QLineEdit, completer_list: list[str]):
-        """ Displays a completer list at a given location
-
-        :param location: GUI element at which to show the completer list
-        :param completer_list: strings to show in the completer pop-up
-        """
-        location.selectAll()
-        completer = QCompleter(completer_list, self)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(Qt.CaseSensitive)
-
-        location.setCompleter(completer)
-        location.setFocus()
-        completer.complete()
-
-    def display_completer_variable_list(self, list_location: QLineEdit, device_location: QLineEdit):
-        """ Displays list of variables at one location using the device name at another location
-
-        :param list_location: GUI element at which to show the completer list
-        :param device_location: GUI element where the device name is given
-        """
-        device_name = device_location.text().strip()
-        if device_name in self.database_dict:
-            variable_list = sorted(self.database_dict[device_name].keys())
-            self.display_completer_list(location=list_location, completer_list=variable_list)
-
-    @staticmethod
-    def _write_updated_file(filename: Path, dictionary: dict):
-        """ Write the given dictionary to the given yaml file, used for either the 1d or composite scan variables
-
-        :param filename: yaml filename
-        :param dictionary: complete dictionary to be written
-        """
-        with open(filename, 'w') as f:
-            yaml.dump(dictionary, f, default_flow_style=False)
-
     # Functionality to the Scan Variables Section
 
     def check_variable_nickname(self):
@@ -221,7 +187,7 @@ class ScanVariableEditor(QDialog):
             return
 
         self.scan_variable_data['single_scan_devices'][nickname] = f"{device}:{variable}"
-        self._write_updated_file(filename=self.file_variables, dictionary=self.scan_variable_data)
+        write_updated_file(filename=self.file_variables, dictionary=self.scan_variable_data)
         logging.info(f"Wrote variable '{nickname}' to '{self.file_variables}'")
 
         self.update_variable_information_from_files()
@@ -237,7 +203,7 @@ class ScanVariableEditor(QDialog):
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             del self.scan_variable_data['single_scan_devices'][nickname]
-            self._write_updated_file(filename=self.file_variables, dictionary=self.scan_variable_data)
+            write_updated_file(filename=self.file_variables, dictionary=self.scan_variable_data)
             logging.info(f"Removed variable '{nickname}' from '{self.file_variables}'")
 
             self.ui.lineVariableNickname.setText("")
@@ -380,7 +346,7 @@ class ScanVariableEditor(QDialog):
             return
 
         self._prompt_new_composite_variable(message=f"Enter name for copy of '{copy_variable}':",
-                                           copy_variable=copy_variable)
+                                            copy_variable=copy_variable)
 
     def delete_composite_variable(self):
         name = self.ui.lineCompositeNickname.text().strip()
@@ -397,7 +363,7 @@ class ScanVariableEditor(QDialog):
 
             if name in scan_composite_data_actual['composite_variables']:
                 del scan_composite_data_actual['composite_variables'][name]
-                self._write_updated_file(filename=self.file_composite, dictionary=scan_composite_data_actual)
+                write_updated_file(filename=self.file_composite, dictionary=scan_composite_data_actual)
                 logging.info(f"Removed composite variable '{name}' from '{self.file_composite}'")
             else:
                 logging.info(f"Removed composite variable '{name}' from unsaved dictionary")
@@ -416,4 +382,4 @@ class ScanVariableEditor(QDialog):
                                      f"Save all changes to {self.file_composite.name}?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
-            self._write_updated_file(filename=self.file_composite, dictionary=self.scan_composite_data)
+            write_updated_file(filename=self.file_composite, dictionary=self.scan_composite_data)
