@@ -19,7 +19,7 @@
      <x>280</x>
      <y>50</y>
      <width>321</width>
-     <height>191</height>
+     <height>190</height>
     </rect>
    </property>
   </widget>
@@ -229,23 +229,23 @@
     </rect>
    </property>
   </widget>
-  <widget class="QPushButton" name="buttonSaveAction">
+  <widget class="QPushButton" name="buttonSaveAll">
    <property name="geometry">
     <rect>
-     <x>250</x>
+     <x>340</x>
      <y>340</y>
      <width>81</width>
      <height>31</height>
     </rect>
    </property>
    <property name="text">
-    <string>Save</string>
+    <string>Save All</string>
    </property>
   </widget>
   <widget class="QPushButton" name="buttonExecuteAction">
    <property name="geometry">
     <rect>
-     <x>340</x>
+     <x>250</x>
      <y>340</y>
      <width>81</width>
      <height>31</height>
@@ -349,6 +349,19 @@
     <set>Qt::AlignCenter</set>
    </property>
   </widget>
+  <widget class="QPushButton" name="buttonRevertAll">
+   <property name="geometry">
+    <rect>
+     <x>430</x>
+     <y>340</y>
+     <width>81</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Revert All</string>
+   </property>
+  </widget>
  </widget>
  <tabstops>
   <tabstop>listAvailableActions</tabstop>
@@ -364,12 +377,13 @@
   <tabstop>lineActionOption1</tabstop>
   <tabstop>lineActionOption2</tabstop>
   <tabstop>lineActionOption3</tabstop>
-  <tabstop>buttonSaveAction</tabstop>
+  <tabstop>buttonSaveAll</tabstop>
   <tabstop>buttonExecuteAction</tabstop>
   <tabstop>buttonAssignAction_1</tabstop>
   <tabstop>buttonRemoveAssigned_1</tabstop>
   <tabstop>buttonExecuteAssigned_1</tabstop>
   <tabstop>lineAssignedName_1</tabstop>
+  <tabstop>buttonRevertAll</tabstop>
   <tabstop>buttonCloseWindow</tabstop>
  </tabstops>
  <resources/>

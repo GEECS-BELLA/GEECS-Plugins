@@ -39,12 +39,15 @@ class ActionLibrary(QWidget):
 
         self.actions_file = Path(action_configurations_folder) / 'actions.yaml'
         self.actions_data = self.load_action_data()
-        self.populate_action_list()
 
         # Functionality to New, Copy, and Delete Buttons
         self.ui.buttonNewAction.clicked.connect(self.create_new_action)
         self.ui.buttonCopyAction.clicked.connect(self.copy_action)
         self.ui.buttonDeleteAction.clicked.connect(self.delete_selected_action)
+
+        # Functionality to Save All and Revert All buttons
+        self.ui.buttonSaveAll.clicked.connect(self.save_all_changes)
+        self.ui.buttonRevertAll.clicked.connect(self.discard_all_changes)
 
         # Functionality for close button
         self.ui.buttonCloseWindow.clicked.connect(self.close)
@@ -54,10 +57,10 @@ class ActionLibrary(QWidget):
 
     def load_action_data(self) -> dict:
         self.actions_data = {}
-        if not self.actions_file.exists():
-            return {}
-        with open(self.actions_file) as f:
-            self.actions_data = yaml.safe_load(f)
+        if self.actions_file.exists():
+            with open(self.actions_file) as f:
+                self.actions_data = yaml.safe_load(f)
+        self.populate_action_list()
         return self.actions_data
 
     def populate_action_list(self):
@@ -123,7 +126,7 @@ class ActionLibrary(QWidget):
             logging.warning(f"No valid action to delete.")
             return
 
-        reply = QMessageBox.question(self, "Delete Action", f"Delete Action'{name}' from file?",
+        reply = QMessageBox.question(self, "Delete Action", f"Delete action '{name}' from file?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             # Read current version of file and delete only the specified element if it exists
@@ -141,6 +144,19 @@ class ActionLibrary(QWidget):
             del self.actions_data['actions'][name]
 
             self.populate_action_list()
+
+    def save_all_changes(self):
+        reply = QMessageBox.question(self, "Save Actions", f"Save all changes to {self.actions_file.name}?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self._write_updated_file(filename=self.actions_file, dictionary=self.actions_data)
+            self.load_action_data()
+
+    def discard_all_changes(self):
+        reply = QMessageBox.question(self, "Discard Changes", f"Discard all unsaved changes?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.load_action_data()
 
     def closeEvent(self, event):
         self.main_window.exit_action_library()
