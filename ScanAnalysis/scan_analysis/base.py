@@ -131,7 +131,7 @@ class ScanAnalysis:
             Note: Auxiliary data loaded from tdms file, not scan file or sfile.
         """
         try:
-            self.auxiliary_data = self.scan_data.data_frame
+            self.auxiliary_data = pd.read_csv(self.auxiliary_file_path, delimiter='\t')
             self.bins = self.auxiliary_data['Bin #'].values
 
             if not self.noscan:
