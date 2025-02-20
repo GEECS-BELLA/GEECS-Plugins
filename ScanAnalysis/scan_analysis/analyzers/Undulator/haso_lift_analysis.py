@@ -186,8 +186,8 @@ class HasoAnalysis(ScanAnalysis):
         hasoengine.set_lift_option(True, 800)
 
         # Set preferences with an arbitrary subpupil and denoising strength.
-        start_subpupil = wkpy.uint2D(16, 16)
-        denoising_strength = 1.0
+        start_subpupil = wkpy.uint2D(87, 64)
+        denoising_strength = 0.0
         hasoengine.set_preferences(start_subpupil, denoising_strength, False)
 
         base_name = image_file_path.stem
@@ -196,6 +196,11 @@ class HasoAnalysis(ScanAnalysis):
         # Compute slopes and save the slopes file.
         learn_from_trimmer = False
         _, hasoslopes = hasoengine.compute_slopes(image, learn_from_trimmer)
+        
+        hasoslopes = self.post_process_slopes(hasoslopes)
+        
+        
+       
         hasoslopes.save_to_file(str(slopes_file_path), '', '')
         self._log_info(f"Slopes file saved: {slopes_file_path}")
 
@@ -208,7 +213,6 @@ class HasoAnalysis(ScanAnalysis):
         df.to_csv(tsv_file_path, sep="\t", index=False, header=False)
         self._log_info(f"intensity data saved to TSV file: {tsv_file_path}")
         
-
         return slopes_file_path
 
     def compute_phase_from_slopes(self, slopes_file_path: Path) -> pd.DataFrame:
@@ -226,7 +230,9 @@ class HasoAnalysis(ScanAnalysis):
         tsv_file_path = self.path_dict['save'] / f"{base_name}.tsv"
 
         compute_phase_set = wkpy.ComputePhaseSet(type_phase=wkpy.E_COMPUTEPHASESET.ZONAL)
+        compute_phase_set.set_zonal_prefs(100, 500, 1e-6)
         hasodata = wkpy.HasoData(has_file_path=str(slopes_file_path))
+
         phase = wkpy.Compute.phase_zonal(compute_phase_set, hasodata)
 
         phase_values = phase.get_data()[0]
@@ -234,6 +240,19 @@ class HasoAnalysis(ScanAnalysis):
         df.to_csv(tsv_file_path, sep="\t", index=False, header=False)
         self._log_info(f"Phase data saved to TSV file: {tsv_file_path}")
         return df
+        
+    def post_process_slopes(self, hasoslopes_to_modify):
+        bkg_path = 'scan_analysis/third_party_sdks/wavekit_43/Scan002_U_HasoLift_001.has'
+        bkg_data = wkpy.HasoSlopes(has_file_path=str(bkg_path))
+        
+        hasoslopes_to_substract = bkg_data
+        post_processor = wkpy.SlopesPostProcessor()
+        bkg_subtracted = post_processor.apply_substractor(hasoslopes_to_modify, hasoslopes_to_substract)
+        
+        filtered = post_processor.apply_filter(bkg_subtracted, True, True, True, False, False, False)
+
+
+        return filtered
 
     def get_phase_from_himg(self, image_file_path: Path) -> pd.DataFrame:
         """
@@ -255,6 +274,6 @@ class HasoAnalysis(ScanAnalysis):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     from geecs_python_api.analysis.scans.scan_data import ScanData
-    tag = ScanData.get_scan_tag(year=2025, month=2, day=12, number=10, experiment_name='Undulator')
+    tag = ScanData.get_scan_tag(year=2025, month=2, day=19, number=3, experiment_name='Undulator')
     analyzer = HasoAnalysis(scan_tag=tag, device_name="U_HasoLift", skip_plt_show=True)
     analyzer.run_analysis()
