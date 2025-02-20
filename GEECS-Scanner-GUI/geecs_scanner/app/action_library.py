@@ -70,6 +70,12 @@ class ActionLibrary(QWidget):
         self.ui.buttonSaveAll.clicked.connect(self.save_all_changes)
         self.ui.buttonRevertAll.clicked.connect(self.discard_all_changes)
 
+        # Functionality to execute actions
+        self.action_control: Optional[ActionControl] = None
+        self.ui.buttonExecuteAction.setEnabled(False)
+        self.ui.checkboxEnableExecute.toggled.connect(self.toggle_execution_enable)
+        self.ui.buttonExecuteAction.clicked.connect(self.execute_action)
+
         # Functionality for close button
         self.ui.buttonCloseWindow.clicked.connect(self.close)
 
@@ -94,7 +100,7 @@ class ActionLibrary(QWidget):
             return True
         elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1
               and self.action_mode in ['execute']):
-            display_completer_list(self, location=self.ui.lineActionOption1, 
+            display_completer_list(self, location=self.ui.lineActionOption1,
                                    completer_list=self.actions_data['actions'].keys())
             return True
         return super().eventFilter(source, event)
@@ -331,6 +337,19 @@ class ActionLibrary(QWidget):
                 self.update_action_list(index=i)
 
     # # # # # # # # # # # GUI elements for Execute, Save, Revert, and Close buttons # # # # # # # # # # #
+
+    def toggle_execution_enable(self):
+        self.ui.buttonExecuteAction.setEnabled(self.ui.checkboxEnableExecute.isChecked()
+                                               and self.main_window.experiment is not None)
+        if self.action_control is None and self.ui.buttonExecuteAction.isEnabled():
+            self.action_control = ActionControl(experiment_name=self.main_window.experiment)
+
+    def execute_action(self, name: Optional[str] = None):
+        name = name or self.get_selected_name()
+        if name is None or name not in self.actions_data['actions']:
+            return
+        else:
+            self.action_control.perform_action(self.actions_data['actions'][name])
 
     def save_all_changes(self):
         reply = QMessageBox.question(self, "Save Actions", f"Save all changes to {self.actions_file.name}?",
