@@ -63,7 +63,7 @@ class ScanAnalysis:
         self.scan_data = ScanData(tag=self.tag, load_scalars=True, read_mode=True)
         self.scan_directory = self.scan_data.get_folder()  # ScanData.get_scan_folder_path(tag=scan_tag)
         self.experiment_dir = scan_tag.experiment
-        self.auxiliary_file_path = self.scan_directory / f"ScanData{self.scan_directory.name}.txt"
+        self.auxiliary_file_path = self.scan_data.get_analysis_folder().parent / f"s{self.tag.number}.txt"
         self.ini_file_path = self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
         self.noscan = False
 
