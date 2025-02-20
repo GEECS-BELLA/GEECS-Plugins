@@ -40,14 +40,23 @@ class TcpSubscriber:
 
     def connect(self) -> bool:
         """ Connects to "host/IP" on port "port". """
-
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.connect((self.owner.dev_ip, self.owner.dev_port))
             self.host = self.owner.dev_ip
             self.port = self.owner.dev_port
             self.connected = True
-        
+
+        except ConnectionRefusedError as e:
+            api_error.error(
+                f'Device not on (ConnectionRefusedError): {e}',
+                'TcpSubscriber class, method "connect"'
+            )
+            self.sock = None
+            self.host = ''
+            self.port = -1
+            self.connected = False
+
         except (TimeoutError, InterruptedError) as e:
             api_error.error(
                 f'Error while connecting TCP client ({self.owner.get_name()}): {e}',
