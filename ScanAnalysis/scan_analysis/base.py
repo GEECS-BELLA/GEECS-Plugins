@@ -63,7 +63,7 @@ class ScanAnalysis:
         self.scan_data = ScanData(tag=self.tag, load_scalars=True, read_mode=True)
         self.scan_directory = self.scan_data.get_folder()  # ScanData.get_scan_folder_path(tag=scan_tag)
         self.experiment_dir = scan_tag.experiment
-        self.auxiliary_file_path = self.scan_directory / f"ScanData{self.scan_directory.name}.txt"
+        self.auxiliary_file_path = self.scan_data.get_analysis_folder().parent / f"s{self.tag.number}.txt"
         self.ini_file_path = self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
         self.noscan = False
 
@@ -127,9 +127,11 @@ class ScanAnalysis:
         return cleaned_scan_parameter
 
     def load_auxiliary_data(self):
-        """ Uses the data frame in the ScanData instance to find the bins and the binned parameter values """
+        """ Uses the data frame in the ScanData instance to find the bins and the binned parameter values 
+            Note: Auxiliary data loaded from tdms file, not scan file or sfile.
+        """
         try:
-            self.auxiliary_data = self.scan_data.data_frame
+            self.auxiliary_data = pd.read_csv(self.auxiliary_file_path, delimiter='\t')
             self.bins = self.auxiliary_data['Bin #'].values
 
             if not self.noscan:

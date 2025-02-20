@@ -6,6 +6,7 @@ from scan_analysis.analyzers.Undulator.rad2_spec_analysis import Rad2SpecAnalysi
 from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
 from scan_analysis.analyzers.Undulator.hamaspectro_analysis import FiberSpectrometerAnalysis
+from scan_analysis.analyzers.Undulator.frog_analysis import FrogAnalysis
 
 undulator_analyzers = [
     Info(analyzer_class=MagSpecStitcherAnalysis,
@@ -44,4 +45,7 @@ undulator_analyzers = [
     Info(analyzer_class=FiberSpectrometerAnalysis,
          requirements={'U_HamaSpectro'},
          device_name='U_HamaSpectro'),
+    Info(analyzer_class=FrogAnalysis,
+         requirements={'U_FROG_Grenouille-Temporal'},
+         device_name='U_FROG_Grenouille-Temporal'),
 ]
