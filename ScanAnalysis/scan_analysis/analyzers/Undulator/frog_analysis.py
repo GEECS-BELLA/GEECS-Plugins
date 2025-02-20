@@ -241,11 +241,6 @@ class FrogAnalysis(ScanAnalysis):
                         dict_to_append: Dict[str, Union[List, NDArray[np.float64]]]) -> None:
         """
         Append new data to the auxiliary file.
-
-        Note: Currently, auxiliary_data is loaded (in ScanAnalysis) from the 
-        tdms file, not from auxiliary_file_path. So data is appended to sfile
-        but only the base scan data is ever loaded into auxiliary_data at the
-        start of an analysis. (2/20/25, please remove if this is changed)
         
         Args:
             dict_to_append: Dictionary containing column names and their values to append
