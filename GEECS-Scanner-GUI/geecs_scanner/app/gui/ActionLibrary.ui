@@ -235,7 +235,7 @@
   <widget class="QPushButton" name="buttonSaveAll">
    <property name="geometry">
     <rect>
-     <x>340</x>
+     <x>250</x>
      <y>340</y>
      <width>81</width>
      <height>31</height>
@@ -248,7 +248,7 @@
   <widget class="QPushButton" name="buttonExecuteAction">
    <property name="geometry">
     <rect>
-     <x>250</x>
+     <x>430</x>
      <y>340</y>
      <width>81</width>
      <height>31</height>
@@ -355,7 +355,7 @@
   <widget class="QPushButton" name="buttonRevertAll">
    <property name="geometry">
     <rect>
-     <x>430</x>
+     <x>340</x>
      <y>340</y>
      <width>81</width>
      <height>31</height>
@@ -363,6 +363,19 @@
    </property>
    <property name="text">
     <string>Revert All</string>
+   </property>
+  </widget>
+  <widget class="QCheckBox" name="checkboxEnableExecute">
+   <property name="geometry">
+    <rect>
+     <x>430</x>
+     <y>310</y>
+     <width>171</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Enable Action Execution</string>
    </property>
   </widget>
  </widget>
