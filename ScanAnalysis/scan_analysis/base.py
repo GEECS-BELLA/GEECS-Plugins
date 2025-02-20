@@ -127,7 +127,9 @@ class ScanAnalysis:
         return cleaned_scan_parameter
 
     def load_auxiliary_data(self):
-        """ Uses the data frame in the ScanData instance to find the bins and the binned parameter values """
+        """ Uses the data frame in the ScanData instance to find the bins and the binned parameter values 
+            Note: Auxiliary data loaded from tdms file, not scan file or sfile.
+        """
         try:
             self.auxiliary_data = self.scan_data.data_frame
             self.bins = self.auxiliary_data['Bin #'].values
