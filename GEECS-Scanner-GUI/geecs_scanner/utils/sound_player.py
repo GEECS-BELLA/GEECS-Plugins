@@ -147,6 +147,13 @@ class SoundPlayer(SimpleSoundPlayer):
                 logging.error(f"Error processing sound: {e}")
 
 
+def play_jingle(notes):
+    player = SimpleSoundPlayer()
+    for freq, duration, wait in notes:
+        player.play_sound(freq, duration)
+        time.sleep(wait)
+
+
 def multiscan_finish_jingle():
     """Play a jingle of 4 notes, used at the end of a multiscan script"""
     notes = [
@@ -155,15 +162,16 @@ def multiscan_finish_jingle():
         (1175, 0.25, 0),
         (1568, 0.5, 0)
     ]
-    player = SimpleSoundPlayer()
-    for freq, duration, wait in notes:
-        player.play_sound(freq, duration)
-        time.sleep(wait)
+    play_jingle(notes)
+
+
+def action_finish_jingle():
+    notes = [
+        (900, 0.20, 0),
+        (1300, 0.50, 0),
+    ]
+    play_jingle(notes)
 
 
 if __name__ == '__main__':
-    sound_player = SoundPlayer(beep_frequency=800, toot_frequency=2000)
-    sound_player.play_toot()
-    sound_player._process_queue()
-    time.sleep(1)
-    sound_player.stop()
+    action_finish_jingle()
