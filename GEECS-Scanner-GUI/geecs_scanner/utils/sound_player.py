@@ -173,5 +173,13 @@ def action_finish_jingle():
     play_jingle(notes)
 
 
+def action_faled_jingle():
+    notes = [
+        (1300, 0.20, 0),
+        (900, 0.50, 0),
+    ]
+    play_jingle(notes)
+
+
 if __name__ == '__main__':
     action_finish_jingle()

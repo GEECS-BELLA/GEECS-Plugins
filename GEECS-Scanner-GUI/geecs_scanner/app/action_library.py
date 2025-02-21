@@ -20,7 +20,8 @@ from .gui.ActionLibrary_ui import Ui_Form
 from .lib.gui_utilities import (parse_variable_text, write_updated_file, display_completer_list,
                                 display_completer_variable_list)
 from .lib import ActionControl
-from ..utils import action_finish_jingle
+from ..utils.sound_player import action_finish_jingle, action_faled_jingle
+from ..utils.exceptions import ActionError
 
 
 def get_default_action() -> dict:
@@ -367,9 +368,12 @@ class ActionLibrary(QWidget):
             reply = QMessageBox.question(self, "Execute Action", f"Execute action '{name}'?",
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.Yes:
-                print("executing action", name)
-                self.action_control.perform_action(self.actions_data['actions'][name])
-                action_finish_jingle()
+                try:
+                    self.action_control.perform_action(self.actions_data['actions'][name])
+                    action_finish_jingle()
+                except ActionError as e:
+                    logging.error(e.message)
+                    action_faled_jingle()
 
     def save_all_changes(self):
         reply = QMessageBox.question(self, "Save Actions", f"Save all changes to {self.actions_file.name}?",
