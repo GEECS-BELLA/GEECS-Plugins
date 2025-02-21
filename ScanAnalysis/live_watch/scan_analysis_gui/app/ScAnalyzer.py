@@ -17,8 +17,9 @@ from datetime import date
 from PyQt5.QtWidgets import QMainWindow, QApplication
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
-from gui.ScAnalyzer_ui import Ui_MainWindow
+from app.gui.ScAnalyzer_ui import Ui_MainWindow
 from live_watch.scan_watch import ScanWatch
+from live_watch.scan_analysis_gui.utils.exceptions import exception_hook
 # =============================================================================
 # %% global variables
 CURRENT_VERSION = "v" + version("scananalysis")
@@ -356,20 +357,6 @@ class Worker(QObject):
 
 # =============================================================================
 # %% routine
-
-def exception_hook(exctype, value, tb):
-    """
-    Global wrapper to print out tracebacks of python errors during the 
-    execution of a PyQT window.
-
-    :param exctype: Exception Type
-    :param value: Value of the exception
-    :param tb: Traceback
-    """
-    print("An error occurred:")
-    traceback.print_exception(exctype, value, tb)
-    sys.__excepthook__(exctype, value, tb)
-    sys.exit(1)
 
 # =============================================================================
 # %% execute
