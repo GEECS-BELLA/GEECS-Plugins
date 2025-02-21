@@ -14,7 +14,7 @@ import yaml
 import copy
 import logging
 from pathlib import Path
-from PyQt5.QtWidgets import QWidget, QInputDialog, QMessageBox
+from PyQt5.QtWidgets import QWidget, QInputDialog, QMessageBox, QLineEdit, QPushButton
 from PyQt5.QtCore import QEvent
 from .gui.ActionLibrary_ui import Ui_Form
 from .lib.gui_utilities import (parse_variable_text, write_updated_file, display_completer_list,
@@ -72,9 +72,20 @@ class ActionLibrary(QWidget):
 
         # Functionality to execute actions
         self.action_control: Optional[ActionControl] = None
+        self.enable_execute = False
         self.ui.buttonExecuteAction.setEnabled(False)
         self.ui.checkboxEnableExecute.toggled.connect(self.toggle_execution_enable)
         self.ui.buttonExecuteAction.clicked.connect(self.execute_action)
+
+        # Functionality to assign actions to the buttons at the bottom
+        self.assigned_action_list: list[AssignedAction] = []
+        self.assigned_action_file = Path(action_configurations_folder) / 'assigned_actions.yaml'
+        self.ui.buttonRemoveAssigned_1.setEnabled(False)
+        self.ui.buttonExecuteAssigned_1.setEnabled(False)
+        self.ui.lineAssignedName_1.setEnabled(False)
+
+        self.populate_assigned_action_list()
+        self.ui.buttonAssignAction_1.clicked.connect(self.add_assigned_action)
 
         # Functionality for close button
         self.ui.buttonCloseWindow.clicked.connect(self.close)
@@ -339,8 +350,12 @@ class ActionLibrary(QWidget):
     # # # # # # # # # # # GUI elements for Execute, Save, Revert, and Close buttons # # # # # # # # # # #
 
     def toggle_execution_enable(self):
-        self.ui.buttonExecuteAction.setEnabled(self.ui.checkboxEnableExecute.isChecked()
-                                               and self.main_window.experiment is not None)
+        self.enable_execute = bool(self.ui.checkboxEnableExecute.isChecked() and self.main_window.experiment)
+
+        self.ui.buttonExecuteAction.setEnabled(self.enable_execute)
+        for assigned_action in self.assigned_action_list:
+            assigned_action.buttonExecute.setEnabled(self.enable_execute)
+
         if self.action_control is None and self.ui.buttonExecuteAction.isEnabled():
             self.action_control = ActionControl(experiment_name=self.main_window.experiment)
 
@@ -349,7 +364,12 @@ class ActionLibrary(QWidget):
         if name is None or name not in self.actions_data['actions']:
             return
         else:
-            self.action_control.perform_action(self.actions_data['actions'][name])
+            reply = QMessageBox.question(self, "Execute Action", f"Execute action '{name}'?",
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                print("TEST: executing action", name)
+                # TODO instead, implement the following line:
+                # self.action_control.perform_action(self.actions_data['actions'][name])
 
     def save_all_changes(self):
         reply = QMessageBox.question(self, "Save Actions", f"Save all changes to {self.actions_file.name}?",
@@ -364,5 +384,119 @@ class ActionLibrary(QWidget):
             self.load_action_data()
 
     def closeEvent(self, event):
+        # Save changes to list of assigned actions:
+        updated_names = []
+        for action in self.assigned_action_list:
+            updated_names.append(action.get_name())
+        write_updated_file(self.assigned_action_file, {"assigned_actions": updated_names})
+
         self.main_window.exit_action_library()
         event.accept()
+
+    # # # # # # # # # # # Code to set up the assigned actions # # # # # # # # # # #
+
+    def populate_assigned_action_list(self):
+        """ Called once when the  """
+        # Read yaml file to get current list of assigned actions
+        assigned_action_dict = {}
+        if self.assigned_action_file.exists():
+            with open(self.assigned_action_file) as file:
+                assigned_action_dict = yaml.safe_load(file)
+
+        # For each action in the list, populate the list of AssignedAction class instances
+        self.assigned_action_list = []
+        for name in assigned_action_dict.get("assigned_actions", []):
+            self.assigned_action_list.append(AssignedAction(parent_gui=self, action_name=name))
+
+        self.refresh_assigned_action_gui()
+
+    def add_assigned_action(self):
+        name = self.get_selected_name()
+        if not name:
+            return
+
+        self.assigned_action_list.append(AssignedAction(parent_gui=self, action_name=name))
+        self.refresh_assigned_action_gui()
+
+    def refresh_assigned_action_gui(self):
+        y_position = self.ui.line_2.pos().y() + 40
+        updated_list: list[AssignedAction] = []
+        for action in self.assigned_action_list:
+            if action.get_name():
+                action.set_y_pos(y_position)
+                updated_list.append(action)
+                y_position += 30
+
+        self.assigned_action_list = updated_list
+
+        default_widgets = [self.ui.buttonAssignAction_1, self.ui.buttonRemoveAssigned_1,
+                           self.ui.buttonExecuteAssigned_1, self.ui.lineAssignedName_1]
+        for widget in default_widgets:
+            widget.move(widget.pos().x(), y_position)
+
+        self.resize(self.width(), y_position+46)
+
+
+class AssignedAction:
+    def __init__(self, parent_gui: ActionLibrary, action_name: str):
+        self.parent = parent_gui
+        self.action_name = action_name
+
+        self.buttonAssign = QPushButton(self.parent)
+        self.buttonAssign.setText("Assign")
+        self.buttonAssign.move(20, 420)
+        self.buttonAssign.resize(61, 28)
+
+        self.buttonRemove = QPushButton(self.parent)
+        self.buttonRemove.setText("Remove")
+        self.buttonRemove.move(90, 420)
+        self.buttonRemove.resize(61, 28)
+
+        self.buttonExecute = QPushButton(self.parent)
+        self.buttonExecute.setText("Execute")
+        self.buttonExecute.setEnabled(self.parent.enable_execute)
+        self.buttonExecute.move(160, 420)
+        self.buttonExecute.resize(61, 28)
+
+        self.lineName = QLineEdit(self.parent)
+        self.lineName.setReadOnly(True)
+        self.lineName.setText(self.action_name)
+        self.lineName.move(230, 420)
+        self.lineName.resize(371, 28)
+
+        self.widgets = [self.buttonAssign, self.buttonRemove, self.buttonExecute, self.lineName]
+        for widget in self.widgets:
+            widget.show()
+
+        self.buttonAssign.clicked.connect(self.reassign_self)
+        self.buttonRemove.clicked.connect(self.remove_self)
+        self.buttonExecute.clicked.connect(self.execute_action)
+
+    def set_y_pos(self, y_pos: int):
+        """ Aligns the assigned action elements to the specified vertical position """
+        for widget in self.widgets:
+            widget.move(widget.pos().x(), y_pos)
+
+    def reassign_self(self):
+        new_name = self.parent.get_selected_name()
+        if not new_name:
+            return
+
+        self.action_name = new_name
+        self.lineName.setText(self.action_name)
+
+    def remove_self(self):
+        self.action_name = ""
+
+        for widget in self.widgets:
+            widget.setParent(None)
+            widget.deleteLater()
+            widget = None
+
+        self.parent.refresh_assigned_action_gui()
+
+    def execute_action(self):
+        self.parent.execute_action(name=self.action_name)
+
+    def get_name(self) -> str:
+        return self.action_name
