@@ -1040,7 +1040,10 @@ class GEECSScannerWindow(QMainWindow):
                 closeout_action_steps = {'steps': list_of_closeout_steps}
                 run_config['closeout_action'] = closeout_action_steps
 
-            self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
+            success = self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
+            if not success:
+                QMessageBox.critical(self, "Device Error",
+                                     f"Device reinitialization failed.  Check log for problem device(s)")
             self.is_starting = False
             self.current_scan_number += 1
 

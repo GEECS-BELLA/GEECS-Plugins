@@ -14,7 +14,7 @@ geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
 pyyaml = "^6.0.2"
 pyinstaller = "^6.12.0"
 pillow = "^11.1.0"
-
+numexpr = "*"
 
 [build-system]
 requires = ["poetry-core"]
