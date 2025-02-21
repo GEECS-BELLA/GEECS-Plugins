@@ -5,6 +5,10 @@ Contains a simpler version of a full "RunControl" that is only capable of perfor
 """
 from typing import Union
 from geecs_scanner.data_acquisition import ActionManager
+import logging
+
+from ...utils.exceptions import ActionError
+from ...utils.sound_player import action_finish_jingle, action_faled_jingle
 
 
 class ActionControl:
@@ -86,6 +90,11 @@ class ActionControl:
         """
         name = 'test_action'
         if 'steps' in action_list and len(action_list['steps']) > 0:
-            self.action_manager.add_action(action_name=name, action_steps=action_list)
-            self.action_manager.execute_action(name)
-            self.action_manager.clear_action(name)
+            try:
+                self.action_manager.add_action(action_name=name, action_steps=action_list)
+                self.action_manager.execute_action(name)
+                self.action_manager.clear_action(name)
+                action_finish_jingle()
+            except ActionError as e:
+                logging.error(e.message)
+                action_faled_jingle()
