@@ -23,6 +23,9 @@ from .gui.ScanElementEditor_ui import Ui_Dialog
 from .lib import ActionControl
 from .lib.gui_utilities import parse_variable_text, display_completer_list
 
+from ..utils.sound_player import action_finish_jingle, action_faled_jingle
+from ..utils.exceptions import ActionError
+
 
 def get_default_device_dictionary() -> dict[str, bool | list[Any]]:
     """
@@ -548,10 +551,20 @@ class SaveElementEditor(QDialog):
         self.ui.buttonPerformPostscanActions.setEnabled(True)
 
     def perform_setup_actions(self):
-        self.action_control.perform_action({'steps': self.actions_dict['setup']})
+        try:
+            self.action_control.perform_action({'steps': self.actions_dict['setup']})
+            action_finish_jingle()
+        except ActionError as e:
+            logging.error(e.message)
+            action_faled_jingle()
 
     def perform_postscan_actions(self):
-        self.action_control.perform_action({'steps': self.actions_dict['closeout']})
+        try:
+            self.action_control.perform_action({'steps': self.actions_dict['closeout']})
+            action_finish_jingle()
+        except ActionError as e:
+            logging.error(e.message)
+            action_faled_jingle()
 
     def save_element(self):
         """Save the current dictionaries as a new element in the experimental folder with the correct formatting"""
