@@ -420,12 +420,16 @@ class ActionLibrary(QWidget):
 
     def refresh_assigned_action_gui(self):
         y_position = self.ui.line_2.pos().y() + 40
+        color_flag = True
         updated_list: list[AssignedAction] = []
         for action in self.assigned_action_list:
             if action.get_name():
                 action.set_y_pos(y_position)
+                action.set_color(color_flag)
                 updated_list.append(action)
+
                 y_position += 30
+                color_flag = not color_flag
 
         self.assigned_action_list = updated_list
 
@@ -477,6 +481,12 @@ class AssignedAction:
         """ Aligns the assigned action elements to the specified vertical position """
         for widget in self.widgets:
             widget.move(widget.pos().x(), y_pos)
+
+    def set_color(self, flag: bool):
+        if flag:
+            self.lineName.setStyleSheet("background-color: white; color: black")
+        else:
+            self.lineName.setStyleSheet("background-color: lightgray; color: black")
 
     def reassign_self(self):
         new_name = self.parent.get_selected_name()
