@@ -159,7 +159,7 @@ class ScanDevice(GeecsDevice):
                 self.reference[device_name] = {}
             self.reference[device_name][device_var] = current_value
 
-    def set(self, variable: str, value: Any, **kwargs) -> None:
+    def set(self, variable: str, value: Any, **kwargs) -> Any:
         """Set a variable for the composite or standard device."""
         if self.is_composite and self.mode in ["relative", "absolute"] and variable == "composite_var":
             self.state["composite_var"] = value
@@ -175,7 +175,7 @@ class ScanDevice(GeecsDevice):
             return value
             
         else:
-            super().set(variable, value, **kwargs)
+            return super().set(variable, value, **kwargs)
 
     def _calculate_sub_value(self, comp: Dict[str, Any], value: Any) -> Any:
         """
@@ -202,7 +202,7 @@ class ScanDevice(GeecsDevice):
 
         return reference_value + sub_value
 
-    def get(self, variable: str, use_state: bool = True, **kwargs) -> Dict[str, Any]:
+    def get(self, variable: str, use_state: bool = True, **kwargs) -> Union[Dict[str, Any], float, str]:
         """
         Get a variable for the composite or standard device.
 
@@ -253,8 +253,8 @@ class ScanDevice(GeecsDevice):
             result["composite_var"] = self.state.get("composite_var", "NA")
             return result
 
-        return {variable: super().get(variable, **kwargs)}
-    
+        # return {variable: super().get(variable, **kwargs)}
+        return super().get(variable, **kwargs)
 
     def close(self) -> None:
         """Close all sub-devices for composite devices."""

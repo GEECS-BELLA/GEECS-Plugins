@@ -21,7 +21,7 @@ from threading import Thread, Condition, Event, Lock
 from datetime import datetime as dtime
 import geecs_python_api.controls.interface.message_handling as mh
 from geecs_python_api.controls.interface import GeecsDatabase, UdpHandler, TcpSubscriber, EventHandler, ErrorAPI, api_error
-
+from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
 class GeecsDevice:
     # Static
@@ -88,7 +88,12 @@ class GeecsDevice:
         self.dev_tcp: Optional[TcpSubscriber] = None
         self.dev_udp: Optional[UdpHandler] = None
 
-        self.init_resources()
+
+        try:
+            self.init_resources()
+        except Exception as e:
+            # If the failure is critical, wrap and raise it as a GeecsDeviceInstantiationError
+            raise GeecsDeviceInstantiationError(f"Failed to initialize device {name}: {e}") from e
 
         # Data
         self.data_root_path: Path = GeecsDevice.exp_info['data_path']
@@ -121,23 +126,30 @@ class GeecsDevice:
                     if self.dev_tcp is None:
                         try:
                             self.dev_tcp = TcpSubscriber(owner=self)
-                        except Exception:
-                            api_error.error('Failed to connect a TCP subscriber', 'GeecsDevice class, method "__init__"')
-                        
+                        except Exception as e:
+                            api_error.error('Failed to connect a TCP subscriber',
+                                            'GeecsDevice class, method "__init__"')
+                            raise GeecsDeviceInstantiationError(
+                                f"TCP subscriber initialization failed for {self.__dev_name}: {e}") from e
                 else:
-                    api_error.warning(f'Device "{self.__dev_name}" not found', 'GeecsDevice class, method "__init__"')
-                
+                    api_error.error(f'Device "{self.__dev_name}" not found in database',
+                                    'GeecsDevice class, method "__init__"')
+                    raise GeecsDeviceInstantiationError(f"Device {self.__dev_name} not found in database")
+
                 if self.dev_tcp:
-                    ###try to connect a TCP subscriber to see if device is on and accessible
+                    # Try to connect a TCP subscriber to see if the device is accessible
                     is_device_on = self.dev_tcp.connect()
-                else: 
-                    is_device_on = False
-                
-                if not is_device_on:
-                    api_error.error(f'Failed establish test connection, {self.__dev_name} likely not on', 'GeecsDevice class, method "init_resources"')
-                    self.close()
                 else:
-                    ###close out the test tcp subscriber
+                    is_device_on = False
+
+                if not is_device_on:
+                    api_error.error(
+                        f'Failed to establish test TCP connection for {self.__dev_name}. Device not on or does not exist',
+                        'GeecsDevice class, method "init_resources"')
+                    self.close()
+                    raise GeecsDeviceInstantiationError(f"TCP connection test failed for {self.__dev_name}")
+                else:
+                    # Close the test TCP connection and mark device as active
                     self.dev_tcp.close()
                     self.state["Device alive on instantiation"] = True
         else:
@@ -145,7 +157,6 @@ class GeecsDevice:
                 self.close()
             except Exception:
                 pass
-
             self.dev_udp = None
             self.dev_tcp = None
 

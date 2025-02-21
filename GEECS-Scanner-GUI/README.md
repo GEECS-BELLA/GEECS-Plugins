@@ -104,7 +104,7 @@ Next, you can optionally specify actions that can be automatically executed befo
 
 Next, you specify the type of scan.  Noscan (or statistics scan) is where no variables are changed and the settings are held constant for the number of shots specified.  1D Scan varies the specifed variable from the start value to the end value with the specified step size, acquiring a set number of shots each step.  The Scan Variables do not list every scan variable in the experiment, rather only the defined list in `geecs_python_api/controls/data_acquisition/configs/.../scan_devices/scan_devices.yaml`.  This file maps a nickname (ie: EMQ1) to a GEECS Variable name (ie: U_EMQTripletBipolar:Current_Limit.Ch1).  Additionally, composite variables can be defined in `composite_variables.yaml` and will show up in this list as well.
 
-Note1:  Composite variables have a start and stop that are relative to the current values in Master Control.  Regular, single variables always are defined with an absolute start and stop values.
+Note1:  Composite variables have a start and stop that can be relative to the current values or can be modified in absolute terms. Relative adjusting is useful for composite variables that combine things like multiple steering magnets or mirrors.  Regular, single variables always are defined with an absolute start and stop values.
 
 Note2:  Eventually there will be a GUI to edit these scan variables.
 
