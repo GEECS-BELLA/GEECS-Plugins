@@ -14,3 +14,10 @@ def exception_hook(exctype, value, tb):
     traceback.print_exception(exctype, value, tb)
     sys.__excepthook__(exctype, value, tb)
     sys.exit(1)
+
+
+class ActionError(Exception):
+    """ Exception for action-related errors:  such as wrong action name or failed get command """
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
