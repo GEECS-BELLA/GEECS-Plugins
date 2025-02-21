@@ -95,6 +95,9 @@ class MultiScanner(QWidget):
         self.timer.start(500)
         self.update_progress()
 
+        # Set stylesheet to that of the main window
+        self.setStyleSheet(main_window.styleSheet())
+
     def populate_preset_list(self):
         """Search for scan presets and adds them to the list of available presets"""
         self.ui.listAvailablePresets.clear()

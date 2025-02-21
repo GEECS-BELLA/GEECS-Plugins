@@ -174,12 +174,27 @@ class ScanData:
         """
         Build scan folder paths for local and client directories.
         """
+        return ScanData.get_daily_scan_folder(tag = tag, base_directory=base_directory) / f'Scan{tag.number:03d}'
+
+    @staticmethod
+    def get_daily_scan_folder(experiment: str = None, tag: ScanTag = None,
+                              base_directory: Optional[Union[Path, str]] = None) -> Path:
+        """
+        Build path to the daily scan folder.  If no tag given but experiment name given, uses the current day
+        """
         base = base_directory or ScanData.paths_config.base_path
+
+        if tag is None and experiment is None:
+            raise ValueError("Need to give experiment name or Scan Tag to `get_daily_scan_folder`")
+
+        if tag is None:
+            today = datetime.today()
+            tag = ScanData.get_scan_tag(today.year, month=today.month, day=today.day, number=0, experiment=experiment)
 
         folder = Path(base) / tag.experiment
         folder = folder / f'Y{tag.year}' / f'{tag.month:02d}-{cal.month_name[tag.month][:3]}'
         folder /= f'{str(tag.year)[-2:]}_{tag.month:02d}{tag.day:02d}'
-        folder = folder / 'scans' / f'Scan{tag.number:03d}'
+        folder = folder / 'scans'
 
         return folder
 

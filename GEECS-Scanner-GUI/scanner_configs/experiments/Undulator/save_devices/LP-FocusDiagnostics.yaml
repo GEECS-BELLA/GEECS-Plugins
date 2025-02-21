@@ -13,6 +13,12 @@ Devices:
     - timestamp
     - centroidx
     - centroidy
+    - 2ndmomW0x
+    - 2ndmomW0y
+    - FWHMx
+    - FWHMy
+    - MaxCounts
+    - MeanCounts
   UC_ModeImager:
     save_nonscalar_data: true
     synchronous: true
@@ -20,3 +26,9 @@ Devices:
     - timestamp
     - centroidx
     - centroidy
+    - 2ndmomW0x
+    - 2ndmomW0y
+    - FWHMx
+    - FWHMy
+    - MaxCounts
+    - MeanCounts

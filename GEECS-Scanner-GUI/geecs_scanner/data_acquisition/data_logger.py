@@ -1,3 +1,6 @@
+from __future__ import annotations
+from typing import Optional
+
 import time
 import threading
 from datetime import datetime
@@ -370,13 +373,13 @@ class DataLogger:
         # Reset the stop_event for future logging sessions
         self.stop_event.clear()
 
-    def reinitialize_sound_player(self):
+    def reinitialize_sound_player(self, options: Optional[dict] = None):
         """
         Reinitialize the sound player, stopping the current one and creating a new instance.
         """
 
         self.sound_player.stop()
-        self.sound_player = SoundPlayer()
+        self.sound_player = SoundPlayer(options=options)
         self.shot_index = 0
 
     def get_current_shot(self):
