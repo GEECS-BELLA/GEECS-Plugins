@@ -21,3 +21,10 @@ class ActionError(Exception):
     def __init__(self, message):
         super().__init__(message)
         self.message = message
+
+
+class ConflictingScanElements(Exception):
+    """ Exception for when a scan is submitted but the scan elements have conflicting flags """
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message

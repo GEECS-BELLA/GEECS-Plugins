@@ -25,6 +25,7 @@ from .gui.GEECSScanner_ui import Ui_MainWindow
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
 from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor, ActionLibrary
 from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
+from ..utils.exceptions import ConflictingScanElements
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
@@ -974,7 +975,7 @@ class GEECSScannerWindow(QMainWindow):
                 with open(self.app_paths.save_devices() / (filename + ".yaml"), 'r') as file:
                     try:
                         data = yaml.safe_load(file)
-                        save_device_list.update(data['Devices'])
+                        self.combine_elements(save_device_list, data['Devices'])
 
                         if 'setup_action' in data:
                             setup_action = data['setup_action']
@@ -986,6 +987,15 @@ class GEECSScannerWindow(QMainWindow):
 
                     except yaml.YAMLError as exc:
                         logging.error(f"Error reading YAML file: {exc}")
+                        QMessageBox.warning(self, 'YAML Error', f"Could not read '{filename}.yaml'", QMessageBox.Ok)
+                        self.is_starting = False
+                        return
+
+                    except ConflictingScanElements as e:
+                        logging.error(e.message)
+                        QMessageBox.warning(self, 'Conflicting Save Elements', e.message, QMessageBox.Ok)
+                        self.is_starting = False
+                        return
 
             scan_information = {
                 'experiment': self.experiment,
@@ -1031,9 +1041,37 @@ class GEECSScannerWindow(QMainWindow):
                 run_config['closeout_action'] = closeout_action_steps
 
             self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
-            self.ui.startScanButton.setText("Start Scan")
             self.is_starting = False
             self.current_scan_number += 1
+
+    @staticmethod
+    def combine_elements(dict_element1, dict_element2):
+        """
+        Combines two dictionaries representing save elements.  Duplicate variables are not added, and conflicting
+        boolean flags throw a ConflictingScanElements error
+
+        :param dict_element1: base dictionary element
+        :param dict_element2: dictionary to check and append
+        """
+        for device, details2 in dict_element2.items():
+            if device in dict_element1:
+                details1 = dict_element1[device]
+                # Add any new variables for overlapping devices
+                if 'variable_list' in details2:
+                    if 'variable_list' in details1:
+                        existing_vars = set(details1['variable_list'])
+                        new_vars = set(details2['variable_list'])
+                        combined_vars = existing_vars.union(new_vars)
+                        details1['variable_list'] = list(combined_vars)
+                    else:
+                        details1['variable_list'] = details2['variable_list']
+
+                # If boolean flags are conflicting, throw an error
+                for flag in ['add_all_variables', 'save_nonscalar_data', 'synchronous']:
+                    if details2.get(flag, False) != details1.get(flag, False):
+                        raise ConflictingScanElements(f"Conflict involving {device}: '{flag}', please resolve.")
+            else:
+                dict_element1[device] = details2
 
     def forget_scan_number(self):
         """ Every 10 seconds (defined in __init__) the current scan number is forgotten and must be recalculated """
@@ -1087,6 +1125,11 @@ class GEECSScannerWindow(QMainWindow):
             self.RunControl.clear_stop_state()
 
         if self.RunControl is not None:
+            if self.is_starting:
+                self.ui.startScanButton.setText("Starting...")
+            else:
+                self.ui.startScanButton.setText("Start Scan")
+
             enable_buttons = True
             if self.is_in_multiscan:
                 self.ui.scanStatusIndicator.setStyleSheet("background-color: blue;")
