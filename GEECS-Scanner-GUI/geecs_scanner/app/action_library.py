@@ -15,7 +15,7 @@ import copy
 import logging
 from pathlib import Path
 from PyQt5.QtWidgets import QWidget, QInputDialog, QMessageBox, QLineEdit, QPushButton
-from PyQt5.QtCore import QEvent
+from PyQt5.QtCore import QEvent, Qt
 from .gui.ActionLibrary_ui import Ui_Form
 from .lib.gui_utilities import (parse_variable_text, write_updated_file, display_completer_list,
                                 display_completer_variable_list)
@@ -455,13 +455,14 @@ class AssignedAction:
         self.buttonExecute = QPushButton(self.parent)
         self.buttonExecute.setText("Execute")
         self.buttonExecute.setEnabled(self.parent.enable_execute)
-        self.buttonExecute.move(160, 420)
+        self.buttonExecute.move(540, 420)
         self.buttonExecute.resize(61, 28)
 
         self.lineName = QLineEdit(self.parent)
         self.lineName.setReadOnly(True)
+        self.lineName.setAlignment(Qt.AlignRight)
         self.lineName.setText(self.action_name)
-        self.lineName.move(230, 420)
+        self.lineName.move(160, 420)
         self.lineName.resize(371, 28)
 
         self.widgets = [self.buttonAssign, self.buttonRemove, self.buttonExecute, self.lineName]
