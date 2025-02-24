@@ -537,6 +537,7 @@ class ScanDataManager:
             "MagSpecStitcher": get_custom_imaq_timestamp,
             "FROG": get_custom_imaq_timestamp,
             "HASO4_3": get_himg_timestamp,
+            "Thorlabs CCS175 Spectrometer": get_picoscopeV2_timestamp,
         }
 
         if device_type in device_map:
