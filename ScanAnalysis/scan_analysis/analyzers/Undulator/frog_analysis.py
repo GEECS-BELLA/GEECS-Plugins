@@ -219,21 +219,27 @@ class FrogAnalysis(ScanAnalysis):
                     Peak value of the temporal lineout
         """
         try:
-            # integrate wrt y-axis (horizontal/temporal lineouts)
-            lineout = img.sum(axis=1)
-    
+            # integrate wrt to each axis (horizontal = temporal, vertical = spectral)
+            spectral = img.sum(axis=0)
+            temporal = img.sum(axis=1)
+
             # calculate second moment of temporal lineouts
-            second_moment = self.calculate_second_moment(lineout)
+            spectral_second_moment = self.calculate_second_moment(spectral)
+            temporal_second_moment = self.calculate_second_moment(temporal)
     
             # get peak value of lineout
-            peak_value = lineout.max()
+            spectral_peak = spectral.max()
+            temporal_peak = temporal.max()
         
-        except Exception as e:
-            second_moment, peak_value = None, None
+        except Exception:
+            spectral_second_moment, spectral_peak = None, None
+            temporal_second_moment, temporal_peak = None, None
 
         # organize outputs
-        outputs = {'second_moment': second_moment,
-                   'peak_value': peak_value}
+        outputs = {'temporal_second_moment': temporal_second_moment,
+                   'temporal_peak': temporal_peak,
+                   'spectral_second_moment': spectral_second_moment,
+                   'spectral_peak': spectral_peak}
 
         return outputs
 
