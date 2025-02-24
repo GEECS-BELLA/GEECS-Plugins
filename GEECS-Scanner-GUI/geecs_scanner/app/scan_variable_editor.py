@@ -23,6 +23,12 @@ def list_of_modes() -> list[str]:
     return ['relative', 'absolute', 'get-only']  # TODO Need to better implement the intended `get-only` features
 
 
+relation_tool_tip = ("The numerical result of this expression is what the device variable is set to.\n"
+                     "Use 'composite_var' for the composite variable.\n"
+                     "Plan on scanning a 'relative' composite variable from -1 to +1.\n"
+                     "'numpy' or 'np' not allowed, use math expressions (like 'sqrt').")
+
+
 class ScanVariableEditor(QDialog):
     """
     GUI for viewing/editing scan save elements.  To be opened from the GEECSScanner GUI.  The code here is organized by
@@ -90,6 +96,8 @@ class ScanVariableEditor(QDialog):
 
         self.ui.listCompositeComponents.itemSelectionChanged.connect(self.update_visible_relation_information)
         self.ui.lineCompositeRelation.editingFinished.connect(self.update_relation_data)
+        self.ui.toolbuttonRelationTips.setToolTip(relation_tool_tip)
+        self.ui.toolbuttonRelationTips.clicked.connect(self.show_tool_tip)
 
         self.update_visible_composite_information()
         self.update_visible_relation_information()
@@ -302,6 +310,10 @@ class ScanVariableEditor(QDialog):
 
         device_variable = self.get_selected_composite_component()
         device_variable['relation'] = self.ui.lineCompositeRelation.text()
+
+    def show_tool_tip(self):
+        QMessageBox.about(self, "Relation Tips", f"{relation_tool_tip}\n"
+                                                 "(Can also view these tips by hovering over button)")
 
     def update_composite_mode(self):
         variable_name = self.ui.lineCompositeNickname.text().strip()

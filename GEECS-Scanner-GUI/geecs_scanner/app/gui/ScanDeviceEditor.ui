@@ -276,12 +276,12 @@
     <rect>
      <x>20</x>
      <y>420</y>
-     <width>331</width>
+     <width>61</width>
      <height>21</height>
     </rect>
    </property>
    <property name="text">
-    <string>Relation: ('np' allowed. Use 'var' for composite variable)</string>
+    <string>Relation:</string>
    </property>
   </widget>
   <widget class="QPushButton" name="buttonCompositeNew">
@@ -384,6 +384,22 @@ All</string>
      <width>101</width>
      <height>21</height>
     </rect>
+   </property>
+  </widget>
+  <widget class="QToolButton" name="toolbuttonRelationTips">
+   <property name="geometry">
+    <rect>
+     <x>300</x>
+     <y>420</y>
+     <width>51</width>
+     <height>22</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Tips...</string>
+   </property>
+   <property name="popupMode">
+    <enum>QToolButton::InstantPopup</enum>
    </property>
   </widget>
  </widget>

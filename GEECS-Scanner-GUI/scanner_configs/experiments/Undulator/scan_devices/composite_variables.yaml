@@ -56,9 +56,9 @@ composite_variables:
   R56_at_100MeV:
     components:
     - device: U_ChicaneInner
-      relation: np.sqrt(100 ** 2 * composite_var / 560968.636)
+      relation: sqrt(100 ** 2 * composite_var / 560968.636)
       variable: Current
     - device: U_ChicaneOuter
-      relation: -np.sqrt(100 ** 2 * composite_var / 560968.636)
+      relation: -sqrt(100 ** 2 * composite_var / 560968.636)
       variable: Current
     mode: absolute
