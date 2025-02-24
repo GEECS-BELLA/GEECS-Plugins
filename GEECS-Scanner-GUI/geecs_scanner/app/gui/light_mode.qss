@@ -1,0 +1,22 @@
+QWidget {
+    background-color: rgb(245, 245, 245);
+    color: black;
+}
+
+QPushButton:enabled {
+    background-color: lightgray;
+    color: black;
+}
+QPushButton:disabled {
+    background-color: gray;
+    color: darkgray;
+}
+
+QLineEdit:enabled (
+    background-color: white;
+    color: black;
+}
+QLineEdit:disabled (
+    background-color: gray;
+    color: darkgray;
+}

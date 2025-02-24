@@ -173,7 +173,8 @@ class ScanDataManager:
             f"End = \"{scan_config.get('end', 0)}\"\n",
             f"Step size = \"{scan_config.get('step', 1)}\"\n",
             f"Shots per step = \"{scan_config.get('wait_time', 1)}\"\n",
-            f"ScanEndInfo = \"\""
+            f"ScanEndInfo = \"\"\n",
+            f"Background = \"{scan_config.get('background', 'False')}\""
         ]
 
         # Create the full path for the file

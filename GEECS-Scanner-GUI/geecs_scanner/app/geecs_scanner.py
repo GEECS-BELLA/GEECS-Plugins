@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from run_control import RunControl
+    from PyQt5.QtWidgets import QWidget
 
 import sys
 from pathlib import Path
@@ -19,11 +20,12 @@ from importlib.metadata import version
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter, QMessageBox
 from PyQt5.QtCore import Qt, QEvent, QTimer, QUrl
-from PyQt5.QtGui import QDesktopServices
+from PyQt5.QtGui import QDesktopServices, QIcon
 from .gui.GEECSScanner_ui import Ui_MainWindow
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
-from . import ScanElementEditor, MultiScanner, ShotControlEditor
+from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor, ActionLibrary
 from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
+from ..utils.exceptions import ConflictingScanElements
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
@@ -43,6 +45,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
         self.setWindowTitle(f"GEECS Scanner - {CURRENT_VERSION}")
+        self.setWindowIcon(QIcon(":/application_icon.ico"))
 
         # Sets up the log at the bottom of the GUI to display errors.  TODO need to fix this, was crashing
         self.ui.logDisplay.setReadOnly(True)
@@ -80,9 +83,11 @@ class GEECSScannerWindow(QMainWindow):
         # Button to launch dialog for changing the config file contents
         self.ui.buttonUpdateConfig.clicked.connect(self.reset_config_file)
 
-        # Button to launch the multiscan window
+        # Button to launch the multiscanner and action library widgets
         self.is_in_multiscan = False
         self.ui.buttonLaunchMultiScan.clicked.connect(self.open_multiscanner)
+        self.is_in_action_library = False
+        self.ui.buttonActionLibrary.clicked.connect(self.open_action_library)
 
         # Line edit for the experiment display
         self.ui.experimentDisplay.setText(self.experiment)
@@ -109,15 +114,19 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.editDeviceButton.clicked.connect(self.open_element_editor_load)
         self.ui.buttonRefreshLists.clicked.connect(self.refresh_element_list)
 
-        # Buttons to launch the side guis for the action library, timing device, and scan variables
-        self.ui.buttonActionLibrary.setEnabled(False)
-        self.ui.buttonScanVariables.setEnabled(False)
+        self.ui.buttonDeleteElement.setIcon(QIcon(":/trashcan_icon.ico"))
+        self.ui.buttonDeleteElement.setIconSize(self.ui.buttonDeleteElement.size()*0.8)
+        self.ui.buttonDeleteElement.clicked.connect(self.delete_selected_element)
+
+        # Buttons to launch the side guis for the timing device setup and scan variables
+        self.ui.buttonScanVariables.clicked.connect(self.open_scan_variable_editor)
         self.ui.buttonOpenTimingSetup.clicked.connect(self.open_timing_setup)
 
         # Radio buttons that select if the next scan is to be a noscan or 1dscan
         self.ui.noscanRadioButton.setChecked(True)
         self.ui.noscanRadioButton.toggled.connect(self.update_scan_edit_state)
         self.ui.scanRadioButton.toggled.connect(self.update_scan_edit_state)
+        self.ui.backgroundRadioButton.toggled.connect(self.update_scan_edit_state)
         self.update_scan_edit_state()
 
         # Upon changing a scan parameter, recalculate the total number of shots
@@ -131,8 +140,9 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_variable = ""
         self.scan_variable_list = []
         self.scan_composite_list = []
+        self.scan_composite_data = {}
         self.populate_scan_devices()
-        self.ui.lineScanVariable.editingFinished.connect(self.check_scan_device)
+        self.ui.lineScanVariable.textChanged.connect(self.check_scan_device)
         self.ui.lineScanVariable.installEventFilter(self)
 
         # Buttons to save the current scan as a preset, delete selected preset, and double-clicking loads the preset
@@ -145,6 +155,13 @@ class GEECSScannerWindow(QMainWindow):
         self.is_starting = False
         self.ui.startScanButton.clicked.connect(self.initialize_scan)
         self.ui.stopScanButton.clicked.connect(self.stop_scan)
+
+        # Variables to store the current scan number, flag to search for the latest, and a 10s timer to turn off flag
+        self.current_scan_number = 0
+        self.known_scan_number = False
+        self.scan_number_timer = QTimer(self)
+        self.scan_number_timer.timeout.connect(self.forget_scan_number)
+        self.scan_number_timer.start(10000)
 
         # Every 200 ms, check status of any ongoing scan and update the GUI accordingly
         self.ui.progressBar.setValue(0)
@@ -160,6 +177,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.action_open_User_Config_File.triggered.connect(self.open_user_config_file)
 
         self.ui.action_open_Github_Page.triggered.connect(self.open_github_page)
+        self.ui.actionExperiment_Scanlog.triggered.connect(self.open_experiment_scanlog)
 
         # Menu Bar: Options
         self.all_options: list[MenuBarOption] = []
@@ -173,10 +191,18 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.menuOptions.addAction(menu_opt)
             self.all_options.append(menu_opt)
 
+        # Menu Bar: Preferences
+        self.ui.actionDarkMode.toggled.connect(self.toggle_light_dark)
+
         # Initial state of side-gui's
         self.element_editor = None
         self.multiscanner_window = None
+        self.action_library_window = None
         self.timing_editor = None
+        self.variable_editor = None
+
+        # Set current GUI mode
+        self.toggle_light_dark()
 
     def eventFilter(self, source, event):
         # Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
@@ -477,6 +503,33 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.selectedDevices.takeItem(self.ui.selectedDevices.row(item))
             self.ui.foundDevices.addItem(item)
 
+    def delete_selected_element(self):
+        """ Prompts the user if the selected save element should be deleted from the experiment """
+        selected_element = self.ui.foundDevices.selectedItems()
+        if not selected_element:
+            selected_element = self.ui.selectedDevices.selectedItems()
+            if not selected_element:
+                return
+
+        name = max((item.text() for item in selected_element), default="")
+        reply = QMessageBox.question(self, "Delete Save Element",
+                                     f"Delete element '{name}' and remove from experiment?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            element_filename = self.app_paths.save_devices() / (name + ".yaml")
+            try:
+                element_filename.unlink()
+                logging.info(f"{element_filename} has been deleted")
+            except FileNotFoundError:
+                logging.error(f"{element_filename} not found.")
+            except PermissionError:
+                logging.error(f"Permission denied: {element_filename}")
+            except Exception as e:
+                logging.error(f"Error occurred: {e}")
+
+            self.refresh_element_list()
+
     def clear_found_list_selection(self):
         """When the selected list is changed, clear the found list selection (without recursively clearing this list)"""
         if not self.updating_selected_list:
@@ -498,8 +551,8 @@ class GEECSScannerWindow(QMainWindow):
         database_dict = self.find_database_dict()
 
         config_folder = None if self.app_paths is None else self.app_paths.save_devices()
-        self.element_editor = ScanElementEditor(database_dict=database_dict, config_folder=config_folder,
-                                                load_config=self.load_element_name)
+        self.element_editor = SaveElementEditor(main_window=self, database_dict=database_dict,
+                                                config_folder=config_folder, load_config=self.load_element_name)
         self.element_editor.exec_()
         self.refresh_element_list()
 
@@ -535,12 +588,36 @@ class GEECSScannerWindow(QMainWindow):
         self.is_in_multiscan = False
         self.multiscanner_window = None
 
+    def open_action_library(self):
+        """Opens the multiscanner window, and in the process sets a flag that disables starting scans on the main gui"""
+        actions_folder = None if self.app_paths is None else self.app_paths.action_library()
+        database_dict = self.find_database_dict()
+        self.action_library_window = ActionLibrary(self, database_dict, actions_folder)
+        self.action_library_window.show()
+
+        self.is_in_action_library = True
+        self.update_indicator()
+
+    def exit_action_library(self):
+        """Cleans up the multiscanner window and resets the enable-ability for buttons on the main window"""
+        self.is_in_action_library = False
+        self.action_library_window = None
+
+    def open_scan_variable_editor(self):
+        database_dict = self.find_database_dict()
+        config_folder_path = None if self.app_paths is None else self.app_paths.scan_devices()
+
+        self.variable_editor = ScanVariableEditor(main_window=self, database_dict=database_dict,
+                                                  config_folder=config_folder_path)
+        self.variable_editor.exec_()
+        self.populate_scan_devices()
+
     def open_timing_setup(self):
         """ Opens the timing setup window, using the current contents of the line edit to populate the dialog gui """
         database_dict = self.find_database_dict()
         config_folder_path = None if self.app_paths is None else self.app_paths.shot_control()
 
-        self.timing_editor = ShotControlEditor(config_folder_path=config_folder_path,
+        self.timing_editor = ShotControlEditor(main_window=self, config_folder_path=config_folder_path,
                                                current_config=self.ui.lineTimingDevice.text(),
                                                database_dict=database_dict)
         self.timing_editor.selected_configuration.connect(self.handle_returned_timing_configuration)
@@ -586,7 +663,7 @@ class GEECSScannerWindow(QMainWindow):
     def update_scan_edit_state(self):
         """Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
         variable scan.  Previous values are saved so the user can switch between the two scan modes easily."""
-        if self.ui.noscanRadioButton.isChecked():
+        if self.ui.noscanRadioButton.isChecked() or self.ui.backgroundRadioButton.isChecked():
             self.ui.lineScanVariable.setEnabled(False)
             self.ui.lineScanVariable.setText("")
             self.ui.lineStartValue.setEnabled(False)
@@ -618,25 +695,23 @@ class GEECSScannerWindow(QMainWindow):
         """Generates a list of found scan devices from the scan_devices.yaml file"""
         self.scan_variable_list = []
         self.scan_composite_list = []
-
-        if self.app_paths is None:
-            logging.error("No defined paths for scan devices")
-            return
+        self.scan_composite_data = {}
 
         try:
+            if self.app_paths is None:
+                raise FileNotFoundError("No defined paths for scan devices")
+
             with open(self.app_paths.scan_devices() / "scan_devices.yaml", 'r') as file:
                 data = yaml.safe_load(file)
                 devices = data['single_scan_devices']
                 self.scan_variable_list = list(devices.keys())
 
-            # TODO move composite variables to scan devices folder
-            composite_variables_location = AppPaths.BASE_PATH / self.experiment / "aux_configs"
-            with open(composite_variables_location / "composite_variables.yaml", 'r') as file:
-                data = yaml.safe_load(file)
-                composite_vars = data['composite_variables']
+            with open(self.app_paths.scan_devices() / "composite_variables.yaml", 'r') as file:
+                self.scan_composite_data = yaml.safe_load(file)
+                composite_vars = self.scan_composite_data['composite_variables']
                 self.scan_composite_list = list(composite_vars.keys())
 
-        except Exception as e:
+        except FileNotFoundError as e:
             logging.error(f"Error loading file: {e}")
 
         completer = QCompleter(self.scan_variable_list + self.scan_composite_list, self.ui.lineScanVariable)
@@ -681,8 +756,9 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.labelStopValue.setText("Stop Value: (abs)")
         elif scan_device in self.scan_composite_list:
             self.scan_variable = scan_device
-            self.ui.labelStartValue.setText("Start Value: (rel)")
-            self.ui.labelStopValue.setText("Stop Value: (rel)")
+            mode = self.scan_composite_data['composite_variables'][scan_device]['mode'][:3]
+            self.ui.labelStartValue.setText(f"Start Value: ({mode})")
+            self.ui.labelStopValue.setText(f"Stop Value: ({mode})")
         else:
             self.scan_variable = ""
             self.ui.lineScanVariable.setText("")
@@ -725,7 +801,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def update_noscan_num_shots(self):
         """Updates the value of the number of shots in noscan mode, but only if it is a positive integer."""
-        if self.ui.noscanRadioButton.isChecked():
+        if self.ui.noscanRadioButton.isChecked() or self.ui.backgroundRadioButton.isChecked():
             try:
                 num_shots = int(self.ui.lineNumShots.text())
                 if num_shots > 0:
@@ -774,6 +850,9 @@ class GEECSScannerWindow(QMainWindow):
             settings = {'Devices': save_device_list, 'Info': self.ui.textEditScanInfo.toPlainText()}
             if self.ui.noscanRadioButton.isChecked():
                 settings['Scan Mode'] = 'No Scan'
+                settings['Num Shots'] = self.noscan_num
+            elif self.ui.backgroundRadioButton.isChecked():
+                settings['Scan Mode'] = 'Background'
                 settings['Num Shots'] = self.noscan_num
             elif self.ui.scanRadioButton.isChecked():
                 settings['Scan Mode'] = '1D Scan'
@@ -829,8 +908,11 @@ class GEECSScannerWindow(QMainWindow):
                 self.ui.selectedDevices.addItem(device)
 
         if load_scan_params:
-            if settings['Scan Mode'] in "No Scan":
-                self.ui.noscanRadioButton.setChecked(True)
+            if settings['Scan Mode'] in ["No Scan", "Background"]:
+                if settings['Scan Mode'] in "No Scan":
+                    self.ui.noscanRadioButton.setChecked(True)
+                else:
+                    self.ui.backgroundRadioButton.setChecked(True)
                 self.update_scan_edit_state()
                 self.ui.lineNumShots.setText(str(settings['Num Shots']))
                 self.update_noscan_num_shots()
@@ -893,7 +975,7 @@ class GEECSScannerWindow(QMainWindow):
                 with open(self.app_paths.save_devices() / (filename + ".yaml"), 'r') as file:
                     try:
                         data = yaml.safe_load(file)
-                        save_device_list.update(data['Devices'])
+                        self.combine_elements(save_device_list, data['Devices'])
 
                         if 'setup_action' in data:
                             setup_action = data['setup_action']
@@ -905,6 +987,15 @@ class GEECSScannerWindow(QMainWindow):
 
                     except yaml.YAMLError as exc:
                         logging.error(f"Error reading YAML file: {exc}")
+                        QMessageBox.warning(self, 'YAML Error', f"Could not read '{filename}.yaml'", QMessageBox.Ok)
+                        self.is_starting = False
+                        return
+
+                    except ConflictingScanElements as e:
+                        logging.error(e.message)
+                        QMessageBox.warning(self, 'Conflicting Save Elements', e.message, QMessageBox.Ok)
+                        self.is_starting = False
+                        return
 
             scan_information = {
                 'experiment': self.experiment,
@@ -920,15 +1011,19 @@ class GEECSScannerWindow(QMainWindow):
                     'step': self.scan_step_size,
                     'wait_time': (self.scan_shot_per_step + 0.5)/self.repetition_rate
                 }
-            elif self.ui.noscanRadioButton.isChecked():
+            elif self.ui.noscanRadioButton.isChecked() or self.ui.backgroundRadioButton.isChecked():
                 scan_config = {
                     'device_var': 'noscan',
                     'wait_time': (self.noscan_num + 0.5)/self.repetition_rate
                 }
             else:
                 scan_config = None
+            scan_config['background'] = str(self.ui.backgroundRadioButton.isChecked())
 
-            option_dict = {"rep_rate_hz": self.repetition_rate}
+            option_dict = {
+                "rep_rate_hz": self.repetition_rate,
+                "randomized_beeps": self.ui.actionRandomizedBeeps.isChecked()
+            }
             for opt in self.all_options:
                 option_dict[opt.get_name()] = opt.get_value()
 
@@ -946,11 +1041,66 @@ class GEECSScannerWindow(QMainWindow):
                 run_config['closeout_action'] = closeout_action_steps
 
             success = self.RunControl.submit_run(config_dictionary=run_config, scan_config=scan_config)
-            self.ui.startScanButton.setText("Start Scan")
             if not success:
                 QMessageBox.critical(self, "Device Error",
                                      f"Device reinitialization failed.  Check log for problem device(s)")
             self.is_starting = False
+            self.current_scan_number += 1
+
+    @staticmethod
+    def combine_elements(dict_element1, dict_element2):
+        """
+        Combines two dictionaries representing save elements.  Duplicate variables are not added, and conflicting
+        boolean flags throw a ConflictingScanElements error
+
+        :param dict_element1: base dictionary element
+        :param dict_element2: dictionary to check and append
+        """
+        for device, details2 in dict_element2.items():
+            if device in dict_element1:
+                details1 = dict_element1[device]
+                # Add any new variables for overlapping devices
+                if 'variable_list' in details2:
+                    if 'variable_list' in details1:
+                        existing_vars = set(details1['variable_list'])
+                        new_vars = set(details2['variable_list'])
+                        combined_vars = existing_vars.union(new_vars)
+                        details1['variable_list'] = list(combined_vars)
+                    else:
+                        details1['variable_list'] = details2['variable_list']
+
+                # If boolean flags are conflicting, throw an error
+                for flag in ['add_all_variables', 'save_nonscalar_data', 'synchronous']:
+                    if details2.get(flag, False) != details1.get(flag, False):
+                        raise ConflictingScanElements(f"Conflict involving {device}: '{flag}', please resolve.")
+            else:
+                dict_element1[device] = details2
+
+    def forget_scan_number(self):
+        """ Every 10 seconds (defined in __init__) the current scan number is forgotten and must be recalculated """
+        self.known_scan_number = False
+
+    def _set_scan_number_info(self, label: str = "", turn_off: bool = False):
+        """
+        Updates the visible information tracking the current scan number
+
+        :param label: Message to display next to scan number
+        :param turn_off: optional flag to set text for both elements to empty
+        """
+        if turn_off or not self.experiment:
+            self.ui.labelScanNumber.setText("")
+            self.ui.lineLastScan.setText("")
+            return
+
+        if not self.known_scan_number:
+            self.current_scan_number = of.get_latest_scan_number(experiment=self.experiment)
+            self.known_scan_number = True
+        if self.current_scan_number == 0:
+            self.ui.labelScanNumber.setText("No Scans Today:")
+            self.ui.lineLastScan.setText("")
+        else:
+            self.ui.labelScanNumber.setText(label)
+            self.ui.lineLastScan.setText(str(self.current_scan_number))
 
     def update_indicator(self):
         """Checks the current status of any ongoing run and updates the GUI accordingly.  Several configurations are
@@ -960,30 +1110,63 @@ class GEECSScannerWindow(QMainWindow):
 
         # TODO Could be useful to clean up the logic here.  It has become quite a mess with all the combinations
         if self.RunControl is None:
+            self._set_scan_number_info(turn_off=True)
             self.ui.scanStatusIndicator.setStyleSheet("background-color: grey;")
             self.ui.startScanButton.setEnabled(False)
             self.ui.stopScanButton.setEnabled(False)
         elif self.RunControl.is_active():
+            self._set_scan_number_info(label="Current Scan:")
             self.ui.scanStatusIndicator.setStyleSheet("background-color: red;")
             self.ui.startScanButton.setEnabled(False)
             self.ui.stopScanButton.setEnabled(not self.RunControl.is_stopping())
             self.ui.progressBar.setValue(self.RunControl.get_progress())
         else:
+            self._set_scan_number_info(label="Previous Scan:")
             self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
             self.ui.stopScanButton.setEnabled(False)
             self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
             self.RunControl.clear_stop_state()
 
         if self.RunControl is not None:
+            if self.is_starting:
+                self.ui.startScanButton.setText("Starting...")
+            else:
+                self.ui.startScanButton.setText("Start Scan")
+
+            enable_buttons = True
             if self.is_in_multiscan:
                 self.ui.scanStatusIndicator.setStyleSheet("background-color: blue;")
                 self.ui.startScanButton.setEnabled(False)
-            self.ui.experimentDisplay.setEnabled(self.ui.startScanButton.isEnabled())
-            self.ui.repititionRateDisplay.setEnabled(self.ui.startScanButton.isEnabled())
-            self.ui.lineTimingDevice.setEnabled(self.ui.startScanButton.isEnabled())
-            self.ui.buttonUpdateConfig.setEnabled(self.ui.startScanButton.isEnabled())
+                enable_buttons = False
             self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
-            self.ui.buttonOpenTimingSetup.setEnabled(self.ui.startScanButton.isEnabled())
+
+            if self.is_in_action_library:
+                enable_buttons = False
+            self.ui.buttonActionLibrary.setEnabled(not self.is_in_action_library)
+
+            self.ui.experimentDisplay.setEnabled(enable_buttons)
+            self.ui.repititionRateDisplay.setEnabled(enable_buttons)
+            self.ui.lineTimingDevice.setEnabled(enable_buttons)
+            self.ui.buttonUpdateConfig.setEnabled(enable_buttons)
+            self.ui.buttonOpenTimingSetup.setEnabled(enable_buttons)
+
+    def toggle_light_dark(self):
+        mode = 'dark' if self.ui.actionDarkMode.isChecked() else 'light'
+        base_path = Path(__file__).parent / "gui"
+
+        # List of Widgets that also need updating (only widgets that can be active at the same time as the main window)
+        gui_list: list[Optional[QWidget]] = [self, self.multiscanner_window, self.action_library_window]
+        for widget in gui_list:
+            if widget is not None:
+                if mode == 'light':
+                    widget.setStyleSheet(self._read_stylesheet(base_path / "light_mode.qss"))
+                elif mode == 'dark':
+                    widget.setStyleSheet(self._read_stylesheet(base_path / "dark_mode.qss"))
+
+    @staticmethod
+    def _read_stylesheet(filename):
+        with open(filename, "r") as file:
+            return file.read()
 
     def is_ready_for_scan(self):
         """
@@ -1030,11 +1213,27 @@ class GEECSScannerWindow(QMainWindow):
         if not QDesktopServices.openUrl(url):
             QMessageBox.warning(self, "Open URL", f"Failed to open URL: {url_string}")
 
+    def open_experiment_scanlog(self):
+        """ In the default browser, opens the scanlog for the day for the current experiment.  Must be set up in
+         `module_open_folder.py` for each experiment. """
+        if self.experiment is None:
+            return
+        url_string = of.get_experiment_scanlog_url(experiment=self.experiment)
+        if not url_string:
+            QMessageBox.warning(self, "Open URL", f"Scanlog retrieval method not defined for experiment '{self.experiment}'")
+            return
+
+        url = QUrl(url_string)
+        if not QDesktopServices.openUrl(url):
+            QMessageBox.warning(self, "Open URL", f"Failed to open URL: {url_string}")
+
     def closeEvent(self, event):
         """Upon the GUI closing, also attempts to close child windows and stop any currently-running scans"""
         if self.multiscanner_window:
             self.multiscanner_window.stop_multiscan()
             self.multiscanner_window.close()
+        if self.action_library_window:
+            self.action_library_window.close()
         if self.element_editor:
             self.element_editor.close()
 
