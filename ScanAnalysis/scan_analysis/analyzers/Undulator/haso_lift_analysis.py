@@ -54,9 +54,47 @@ class HasoAnalysis(ScanAnalysis):
             'data_img': Path(self.scan_directory) / device_name,
             'save': self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / device_name / "HasoAnalysis",
         }
+        
+        config_file_path = 'scan_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat'
+        
+        self.instantiate_wavekit_resources(config_file_path = config_file_path)
 
         self._log_info(f"Initialized HasoAnalysis for device '{device_name}' with scan directory '{self.scan_directory}'")
+        
+    
+    def instantiate_wavekit_resources(self, config_file_path: Path):
+        
+        """
+        attempt to instantiate necessary wavekit resources
 
+        Args:
+            config_file_path (Path): Path to the config file.
+
+        """
+        
+        self._log_info(f"instantiating wavekit resources: HasoEngine etc.")
+        
+        try:
+            # Create the necessary Wavekit objects.
+            self.hasoengine = wkpy.HasoEngine(config_file_path=config_file_path)
+            self.hasoengine.set_lift_enabled(True, 800)
+            self.hasoengine.set_lift_option(True, 800)
+            
+            # Set preferences with an arbitrary subpupil and denoising strength.
+            start_subpupil = wkpy.uint2D(87, 64)
+            denoising_strength = 0.0
+            self.hasoengine.set_preferences(start_subpupil, denoising_strength, False)
+            
+            self.compute_phase_set = wkpy.ComputePhaseSet(type_phase=wkpy.E_COMPUTEPHASESET.ZONAL)
+            self.compute_phase_set.set_zonal_prefs(100, 500, 1e-6)
+            
+            self.post_processor = wkpy.SlopesPostProcessor()
+            
+        except Exception as e:
+            self._log_warning(
+                "Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file")
+            raise
+                
     def _log_info(self, message: str, *args, **kwargs):
         """Log an info message if logging is enabled."""
         if self.flag_logging:
@@ -170,39 +208,30 @@ class HasoAnalysis(ScanAnalysis):
             Path: The path to the created slopes file (.has).
         """
         self._log_info(f"Creating slopes file for image: {image_file_path}")
-        config_file_path = 'scan_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat'
         image_file_str = str(image_file_path)
 
         try:
             # Create the necessary Wavekit objects.
             image = wkpy.Image(image_file_path=image_file_str)
-            hasoengine = wkpy.HasoEngine(config_file_path=config_file_path)
         except Exception as e:
             self._log_warning(
                 "Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file")
             return None
 
-        hasoengine.set_lift_enabled(True, 800)
-        hasoengine.set_lift_option(True, 800)
-
-        # Set preferences with an arbitrary subpupil and denoising strength.
-        start_subpupil = wkpy.uint2D(87, 64)
-        denoising_strength = 0.0
-        hasoengine.set_preferences(start_subpupil, denoising_strength, False)
-
         base_name = image_file_path.stem
-        slopes_file_path = self.path_dict['save'] / f"{base_name}.has"
-
+        self.slopes_file_path_raw = self.path_dict['save'] / f"{base_name}_raw.has"
+        self.slopes_file_path_postprocessed = self.path_dict['save'] / f"{base_name}_postprocessed.has"
+        
         # Compute slopes and save the slopes file.
         learn_from_trimmer = False
-        _, hasoslopes = hasoengine.compute_slopes(image, learn_from_trimmer)
+        _, hasoslopes = self.hasoengine.compute_slopes(image, learn_from_trimmer)
+       
+        hasoslopes.save_to_file(str(slopes_file_path_raw), '', '')
+        self._log_info(f"Slopes file saved: {slopes_file_path_raw}")
         
         hasoslopes = self.post_process_slopes(hasoslopes)
-        
-        
-       
-        hasoslopes.save_to_file(str(slopes_file_path), '', '')
-        self._log_info(f"Slopes file saved: {slopes_file_path}")
+        hasoslopes.save_to_file(str(slopes_file_path_postprocessed), '', '')
+        self._log_info(f"Slopes file saved: {slopes_file_path_postprocessed}")
 
         base_name = slopes_file_path.stem
         tsv_file_path = self.path_dict['save'] / f"{base_name}_intensity.tsv"
@@ -213,7 +242,7 @@ class HasoAnalysis(ScanAnalysis):
         df.to_csv(tsv_file_path, sep="\t", index=False, header=False)
         self._log_info(f"intensity data saved to TSV file: {tsv_file_path}")
         
-        return slopes_file_path
+        return slopes_file_path_raw
 
     def compute_phase_from_slopes(self, slopes_file_path: Path) -> pd.DataFrame:
         """
@@ -229,11 +258,9 @@ class HasoAnalysis(ScanAnalysis):
         base_name = slopes_file_path.stem
         tsv_file_path = self.path_dict['save'] / f"{base_name}.tsv"
 
-        compute_phase_set = wkpy.ComputePhaseSet(type_phase=wkpy.E_COMPUTEPHASESET.ZONAL)
-        compute_phase_set.set_zonal_prefs(100, 500, 1e-6)
         hasodata = wkpy.HasoData(has_file_path=str(slopes_file_path))
 
-        phase = wkpy.Compute.phase_zonal(compute_phase_set, hasodata)
+        phase = wkpy.Compute.phase_zonal(self.compute_phase_set, hasodata)
 
         phase_values = phase.get_data()[0]
         df = pd.DataFrame(phase_values)
@@ -241,20 +268,22 @@ class HasoAnalysis(ScanAnalysis):
         self._log_info(f"Phase data saved to TSV file: {tsv_file_path}")
         return df
         
-    def post_process_slopes(self, hasoslopes_to_modify):
-        bkg_path = 'scan_analysis/third_party_sdks/wavekit_43/Scan002_U_HasoLift_001.has'
-        bkg_data = wkpy.HasoSlopes(has_file_path=str(bkg_path))
+    def post_process_slopes(self, hasoslopes_to_modify: HasoSlopes, background_path: Optional[Path] = None) -> HasoSlopes:
         
-        hasoslopes_to_substract = bkg_data
-        post_processor = wkpy.SlopesPostProcessor()
-        bkg_subtracted = post_processor.apply_substractor(hasoslopes_to_modify, hasoslopes_to_substract)
-        
-        filtered = post_processor.apply_filter(bkg_subtracted, True, True, True, False, False, False)
+        hasoslopes = self.reference_subtract(hasoslopes_to_modify, background_path)
+        hasoslopes = self.post_processor.apply_filter(hasoslopes, True, True, True, False, False, False)
 
-
-        return filtered
-
-    def get_phase_from_himg(self, image_file_path: Path) -> pd.DataFrame:
+        return hasoslopes
+    
+    def reference_subtract(hasoslopes_to_modify: HasoSlopes, background_path: Optional[Path] = None) -> HasoSlopes:
+        if background_path:
+            bkg_data = wkpy.HasoSlopes(has_file_path=str(background_path))
+            bkg_subtracted = self.post_processor.apply_substractor(hasoslopes_to_modify, bkg_data)
+            return bkg_subtracted
+        else:
+            return hasoslopes_to_modify
+            
+    def get_phase_from_himg(self, image_file_path: Path, use_raw_slopes: Bool = True) -> pd.DataFrame:
         """
         Process a .himg file by computing the slopes file and then the phase data.
 
@@ -265,8 +294,13 @@ class HasoAnalysis(ScanAnalysis):
             DataFrame: The computed phase data.
         """
         self._log_info(f"Starting phase analysis for image file: {image_file_path}")
-        slopes_file = self.create_slopes_file(image_file_path)
-        df = self.compute_phase_from_slopes(slopes_file)
+        self.create_slopes_file(image_file_path)
+        
+        if use_raw_slopes:
+            df = self.compute_phase_from_slopes(self.slopes_file_path_raw)
+        else:
+            df = self.compute_phase_from_slopes(self.slopes_file_path_postprocessed)
+            
         self._log_info(f"Completed phase analysis for image file: {image_file_path}")
         return df
 
