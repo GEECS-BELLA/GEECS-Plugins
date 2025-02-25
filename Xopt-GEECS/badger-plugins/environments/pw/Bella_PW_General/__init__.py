@@ -26,8 +26,8 @@ class Environment(geecs_Environment):
     }
     observables = ['CAM-PL1-1-SideView:meancounts',
                    'CAM-HPD-CCD:maxcounts',
-                   'CAM-HPD-M3Near:MeanCounts',
-                   'CAM-HPD-M3Near:MaxCounts',
+                   'CAM-HPD-M3Near:meancounts',
+                   'CAM-HPD-M3Near:maxcounts',
                    'CAM-PL1-SideviewNorth:MeanCounts']
     some_parameter: str = 'test'
 
