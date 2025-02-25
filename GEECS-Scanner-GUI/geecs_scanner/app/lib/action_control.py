@@ -9,6 +9,7 @@ import logging
 
 from ...utils.exceptions import ActionError
 from ...utils.sound_player import action_finish_jingle, action_faled_jingle
+from ...utils.action_definitions import ActionStep
 
 
 class ActionControl:
@@ -69,17 +70,18 @@ class ActionControl:
     ]
 
     @staticmethod
-    def generate_action_description(action: dict[str, list]) -> str:
+    def generate_action_description(action_step: ActionStep) -> str:
         """ For each action type, generate a string that displays all the information for that action step """
-        description = "???"
-        if action.get("wait") is not None:
-            description = f"wait {action['wait']}"
-        elif action['action'] == 'execute':
-            description = f"execute {action['action_name']}"
-        elif action['action'] == 'set':
-            description = f"{action['action']} {action['device']}:{action['variable']} {action.get('value')}"
-        elif action['action'] == 'get':
-            description = f"{action['action']} {action['device']}:{action['variable']} {action.get('expected_value')}"
+        if action_step.type == 'wait':
+            description = f"wait {action_step.time}"
+        elif action_step.type == 'execute':
+            description = f"execute {action_step.name}"
+        elif action_step.type == 'set':
+            description = f"{action_step.type} {action_step.device}:{action_step.variable} {action_step.value}"
+        elif action_step.type == 'get':
+            description = f"{action_step.type} {action_step.device}:{action_step.variable} {action_step.expected_value}"
+        else:
+            raise KeyError(f"Unknown action type '{action_step.type}'")
         return description
 
     def perform_action(self, action_list: dict[str, list]):

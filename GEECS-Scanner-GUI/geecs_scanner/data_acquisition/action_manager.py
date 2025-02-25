@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import QMessageBox, QApplication
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from .utils import get_full_config_path  # Import the utility function
 from ..utils.exceptions import ActionError
+from ..utils.action_definitions import ActionStep, get_all_action_lists
 
 
 class ActionManager:
@@ -24,7 +25,7 @@ class ActionManager:
         """
         # Dictionary to store instantiated GeecsDevices
         self.instantiated_devices = {}
-        self.actions = {}
+        self.actions: dict[str, list[ActionStep]] = {}
 
         if experiment_dir is not None:
             # Use the utility function to get the path to the actions.yaml file
@@ -47,8 +48,7 @@ class ActionManager:
         with open(actions_file, 'r') as file:
             actions = yaml.safe_load(file)
         logging.info(f"Loaded master actions from {actions_file}")
-        self.actions = actions['actions']
-        return actions['actions']
+        self.actions = get_all_action_lists(actions)
 
     def add_action(self, action_name: str, action_steps: dict[str, list]):
 
