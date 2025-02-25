@@ -26,3 +26,4 @@ GEECS-Scanner-GUI/testing.ipynb
 ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat
 ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/WFSL_HASO4_LIFT_680_8244_MC.lift
 GEECS-Scanner-GUI/log_dll_load.txt
+.poetry-lock-hash
