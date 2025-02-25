@@ -82,6 +82,8 @@ import abel  # pip install pyabel
 import abc
 from typing import Optional, Tuple, List
 from dataclasses import dataclass
+import scipy.ndimage as ndimage
+
 
 
 # =============================================================================
@@ -166,7 +168,7 @@ class PhasePreprocessor:
         Subtract a background array from the phase array.
         The background array must be broadcastable to the shape of the phase array.
         """
-        self.phase_array = self.phase_array - background
+        self.phase_array = -(self.phase_array - background)
 
     def subtract_constant(self, constant: float) -> None:
         """
@@ -182,6 +184,111 @@ class PhasePreprocessor:
 
     def get_processed_data(self) -> np.ndarray:
         return self.phase_array
+
+    # ---------------- Helper Methods ----------------
+
+    def compute_column_centroids(self, data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Compute weighted center-of-mass and column sums for each column in data.
+
+        Returns:
+            centroids: np.ndarray of weighted centroids (one per column).
+            col_sums: np.ndarray of column sums.
+        """
+        centroids = []
+        col_sums = []
+        for col in data.T:  # iterate over columns
+            total = np.sum(col)
+            if total != 0:
+                centroid = np.sum(np.arange(len(col)) * col) / total
+            else:
+                centroid = 0
+            centroids.append(centroid)
+            col_sums.append(total)
+        return np.array(centroids), np.array(col_sums)
+
+    def fit_line_to_centroids(self, centroids: np.ndarray, weights: np.ndarray) -> Tuple[float, float]:
+        """
+        Fit a weighted linear model to the centroids versus column indices.
+
+        Returns:
+            slope, intercept of the best-fit line.
+        """
+        x = np.arange(len(centroids))
+        p = np.polyfit(x, centroids, deg=1, w=weights)
+        return p[0], p[1]
+
+    def compute_rotation_angle(self, slope: float) -> float:
+        """
+        Compute the rotation angle (in radians) from the slope of the fitted line.
+        """
+        return np.arctan(slope)
+
+    # ---------------- Main Rotation Workflow ----------------
+
+    def rotate_phase_data(self, threshold_frac: float = 0.2) -> dict:
+        """
+        Rotate the phase data to correct for any tilt based on the weighted column centers.
+
+        This workflow assumes that the phase data in self.phase_array has already been
+        background-subtracted and cropped as desired.
+
+        Steps:
+          1. Compute the dynamic range (min, max) of the data.
+          2. Create a thresholded copy for centroid computation.
+          3. Compute weighted column centroids and column sums.
+          4. Fit a weighted linear model (centroid vs. column index) to obtain the slope.
+          5. Compute the rotation angle (in radians and degrees) from the slope.
+          6. Rotate the original phase data using scipy.ndimage.rotate with reshape=True.
+          7. Clip the rotated data back to the original range.
+
+        Parameters:
+            threshold_frac: Fraction of the dynamic range to use as a threshold.
+
+        Returns:
+            final_data: The rotated phase data (2D array).
+            fit_params: Dictionary with keys 'slope', 'intercept', 'angle_radians', 'angle_degrees'.
+        """
+
+        # Step 1: Determine dynamic range.
+        data_min, data_max = np.min(self.phase_array), np.max(self.phase_array)
+
+        # Step 2: Create a thresholded version for centroid computation.
+        thresh_data = threshold_data(self.phase_array, threshold_frac)
+        thresh_data = np.nan_to_num(thresh_data, nan=0.0)
+
+        # Step 3: Compute weighted column centroids and column sums.
+        centroids, col_sums = self.compute_column_centroids(thresh_data)
+        print(centroids)
+
+        # Step 4: Fit a weighted line to the centroids.
+        slope, intercept = self.fit_line_to_centroids(centroids, col_sums)
+
+        # Step 5: Compute rotation angle.
+        angle_rad = self.compute_rotation_angle(slope)
+        angle_deg = np.degrees(angle_rad)
+        fit_params = {
+            'slope': slope,
+            'intercept': intercept,
+            'angle_radians': angle_rad,
+            'angle_degrees': angle_deg
+        }
+
+        # Step 6: Rotate the original phase data.
+        # Using reshape=True so that the output shape is adjusted to contain the entire rotated image.
+        rotated_data = ndimage.rotate(self.phase_array, angle=angle_deg, reshape=True, order=1)
+
+        # Update the class attribute with the rotated data.
+        self.phase_array = rotated_data.copy()
+        self.crop(20, -20, 30, -30)
+
+        # plt.figure(figsize=(6, 6))
+        # plt.imshow(self.phase_array , cmap='jet', origin='lower')
+        # plt.title("Rotated Phase Array")
+        # plt.colorbar(label="Phase Value")
+        # plt.show()
+
+        return fit_params
 
 
 # =============================================================================
@@ -291,9 +398,20 @@ class CustomAbelInversion(InversionTechnique):
         center_row: int = self._find_vertical_center(self.phase_data)
         half_phase: np.ndarray = self._symmetrize(self.phase_data, center_row)
         n_half, n_cols = half_phase.shape
+        plt.figure(figsize=(6, 6))
+        plt.imshow(half_phase , cmap='jet', origin='lower')
+        plt.title("Rotated Phase Array")
+        plt.colorbar(label="Phase Value")
+        plt.show()
+
         inverted_half: np.ndarray = np.zeros_like(half_phase)
         for col in range(n_cols):
             inverted_half[:, col] = self._invert_line(half_phase[:, col], self.pixel_scale)
+        plt.figure(figsize=(6, 6))
+        plt.imshow(inverted_half , cmap='jet', origin='lower')
+        plt.title("Rotated Phase Array")
+        plt.colorbar(label="Phase Value")
+        plt.show()
         full_inverted: np.ndarray = self._reconstruct_full(np.flipud(inverted_half))
         density_map: np.ndarray = self._compute_density(full_inverted, self.wavelength_nm)
         center_col: int = density_map.shape[1] // 2
@@ -337,15 +455,16 @@ class DensityAnalysis:
     This class loads and pre-processes phase data and then uses a specified
     inversion technique (custom or PyAbel) to compute a plasma density map.
     """
-    def __init__(self, phase_file: str, config: PhaseAnalysisConfig) -> None:
+
+    def __init__(self, phase_file: Path, config: PhaseAnalysisConfig) -> None:
         """
         Parameters:
-          phase_file: str
+          phase_file: Path
               Path to the phase data file (TSV or image).
           config: PhaseAnalysisConfig
               Configuration parameters (pixel scale, wavelength, threshold fraction, ROI, background).
         """
-        self.phase_file: str = phase_file
+        self.phase_file: Path = phase_file
         self.config: PhaseAnalysisConfig = config
 
         loader: PhaseDataLoader = PhaseDataLoader(phase_file)
@@ -353,13 +472,26 @@ class DensityAnalysis:
 
         # Pre-process: subtract background first, then crop if specified.
         preprocessor: PhasePreprocessor = PhasePreprocessor(raw_phase)
+
+        # If background is provided, treat it as a Path.
         if config.background is not None:
-            preprocessor.subtract_background(config.background)
+            bg_loader = PhaseDataLoader(config.background)
+            bg_data = bg_loader.load_data()
+            preprocessor.subtract_background(bg_data)
+
         if config.roi is not None:
             x_min, x_max, y_min, y_max = config.roi
             preprocessor.crop(x_min, x_max, y_min, y_max)
+
+        self.fit_parameters = preprocessor.rotate_phase_data()
+
         self.phase_data: np.ndarray = preprocessor.get_processed_data()
         self.thresh_data: np.ndarray = threshold_data(self.phase_data, config.threshold_fraction)
+        plt.figure(figsize=(6, 6))
+        plt.imshow(self.thresh_data , cmap='jet', origin='lower')
+        plt.title("Rotated Phase Array")
+        plt.colorbar(label="Phase Value")
+        plt.show()
 
     def get_density(self, technique: str = 'custom', **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -374,9 +506,9 @@ class DensityAnalysis:
           (vertical_lineout, density_map)
         """
         if technique == 'custom':
-            inverter: InversionTechnique = CustomAbelInversion(self.phase_data, self.config.pixel_scale, self.config.wavelength_nm)
+            inverter: InversionTechnique = CustomAbelInversion(self.thresh_data, self.config.pixel_scale, self.config.wavelength_nm)
         elif technique == 'pyabel':
-            inverter = PyAbelInversion(self.phase_data, self.config.pixel_scale, self.config.wavelength_nm, **kwargs)
+            inverter = PyAbelInversion(self.thresh_data, self.config.pixel_scale, self.config.wavelength_nm, **kwargs)
         else:
             raise ValueError("Technique must be 'custom' or 'pyabel'.")
         return inverter.invert()
@@ -402,13 +534,14 @@ class DensityAnalysis:
 # Example Usage
 # =============================================================================
 if __name__ == '__main__':
-    phase_file_path: str = 'path/to/your/phase_data.tsv'  # or image file
+    phase_file_path: Path = Path('Scan003_U_HasoLift_001_postprocessed.tsv')  # or an image file path
+
     config: PhaseAnalysisConfig = PhaseAnalysisConfig(
-        pixel_scale=4.64,            # µm per pixel (vertical)
+        pixel_scale=4.64,            # m per pixel (vertical)
         wavelength_nm=800,           # Probe laser wavelength in nm
-        threshold_fraction=0.5,      # Threshold fraction for pre-processing
-        roi=(50, 300, 30, 250),      # Example ROI: (x_min, x_max, y_min, y_max)
-        background=None             # Replace with a background array if available
+        threshold_fraction=0.2,      # Threshold fraction for pre-processing
+        roi=(10, -10, 10, -100),      # Example ROI: (x_min, x_max, y_min, y_max)
+        background=Path('average_phase.tsv')  # Background is now a Path
     )
 
     analyzer: DensityAnalysis = DensityAnalysis(phase_file_path, config)
