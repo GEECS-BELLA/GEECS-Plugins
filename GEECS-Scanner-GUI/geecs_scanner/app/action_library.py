@@ -18,7 +18,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import QWidget, QInputDialog, QMessageBox, QLineEdit, QPushButton
 from PyQt5.QtCore import QEvent, Qt
 from .gui.ActionLibrary_ui import Ui_Form
-from .lib.gui_utilities import (parse_variable_text, write_updated_file, display_completer_list,
+from .lib.gui_utilities import (parse_variable_text, write_dict_to_yaml_file, display_completer_list,
                                 display_completer_variable_list)
 from .lib import ActionControl
 
@@ -212,7 +212,7 @@ class ActionLibrary(QWidget):
 
             if name in actions_data_actual['actions']:
                 del actions_data_actual['actions'][name]
-                write_updated_file(filename=self.actions_file, dictionary=actions_data_actual)
+                write_dict_to_yaml_file(filename=self.actions_file, dictionary=actions_data_actual)
                 logging.info(f"Removed action '{name}' from '{self.actions_file}'")
             else:
                 logging.info(f"Removed action '{name}' from unsaved dictionary")
@@ -400,7 +400,7 @@ class ActionLibrary(QWidget):
         reply = QMessageBox.question(self, "Save Actions", f"Save all changes to {self.actions_file.name}?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
-            write_updated_file(filename=self.actions_file, dictionary=self.actions_data)
+            write_dict_to_yaml_file(filename=self.actions_file, dictionary=self.actions_data)
 
     def discard_all_changes(self):
         """ Replace the current version of the instance variable dict with the contents of the actions.yaml file """
@@ -414,7 +414,7 @@ class ActionLibrary(QWidget):
         updated_names = []
         for action in self.assigned_action_list:
             updated_names.append(action.get_name())
-        write_updated_file(self.assigned_action_file, {"assigned_actions": updated_names})
+        write_dict_to_yaml_file(self.assigned_action_file, {"assigned_actions": updated_names})
 
         self.main_window.exit_action_library()
         event.accept()

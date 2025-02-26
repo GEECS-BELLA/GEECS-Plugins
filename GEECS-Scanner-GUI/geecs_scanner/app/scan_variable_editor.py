@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import QDialog, QMessageBox, QInputDialog
 from PyQt5.QtCore import QEvent
 
 from .gui.ScanDeviceEditor_ui import Ui_Dialog
-from .lib.gui_utilities import write_updated_file, display_completer_list, display_completer_variable_list
+from .lib.gui_utilities import write_dict_to_yaml_file, display_completer_list, display_completer_variable_list
 
 
 def default_composite_variable():
@@ -217,7 +217,7 @@ class ScanVariableEditor(QDialog):
             return
 
         self.scan_variable_data['single_scan_devices'][nickname] = f"{device}:{variable}"
-        write_updated_file(filename=self.file_variables, dictionary=self.scan_variable_data)
+        write_dict_to_yaml_file(filename=self.file_variables, dictionary=self.scan_variable_data)
         logging.info(f"Wrote variable '{nickname}' to '{self.file_variables}'")
 
         self.update_variable_information_from_files()
@@ -233,7 +233,7 @@ class ScanVariableEditor(QDialog):
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             del self.scan_variable_data['single_scan_devices'][nickname]
-            write_updated_file(filename=self.file_variables, dictionary=self.scan_variable_data)
+            write_dict_to_yaml_file(filename=self.file_variables, dictionary=self.scan_variable_data)
             logging.info(f"Removed variable '{nickname}' from '{self.file_variables}'")
 
             self.ui.lineVariableNickname.setText("")
@@ -415,7 +415,7 @@ class ScanVariableEditor(QDialog):
 
             if name in scan_composite_data_actual['composite_variables']:
                 del scan_composite_data_actual['composite_variables'][name]
-                write_updated_file(filename=self.file_composite, dictionary=scan_composite_data_actual)
+                write_dict_to_yaml_file(filename=self.file_composite, dictionary=scan_composite_data_actual)
                 logging.info(f"Removed composite variable '{name}' from '{self.file_composite}'")
             else:
                 logging.info(f"Removed composite variable '{name}' from unsaved dictionary")
@@ -435,4 +435,4 @@ class ScanVariableEditor(QDialog):
                                      f"Save all changes to {self.file_composite.name}?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
-            write_updated_file(filename=self.file_composite, dictionary=self.scan_composite_data)
+            write_dict_to_yaml_file(filename=self.file_composite, dictionary=self.scan_composite_data)

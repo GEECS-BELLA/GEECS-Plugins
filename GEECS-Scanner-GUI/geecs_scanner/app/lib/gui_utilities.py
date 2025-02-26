@@ -60,8 +60,8 @@ def parse_variable_text(text) -> Union[int, float, str]:
             return text
 
 
-def write_updated_file(filename: Path, dictionary: dict):
-    """ Write the given dictionary to the given yaml file, used for either the 1d or composite scan variables
+def write_dict_to_yaml_file(filename: Path, dictionary: dict):
+    """ Write the given dictionary to the given yaml file, lives here in case writing ever changes
 
     :param filename: yaml filename
     :param dictionary: complete dictionary to be written
