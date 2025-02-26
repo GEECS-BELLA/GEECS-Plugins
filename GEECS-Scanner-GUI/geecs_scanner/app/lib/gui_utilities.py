@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Union, TYPE_CHECKING
+from typing import Union, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from PyQt5.QtCore import QObject
@@ -68,3 +68,14 @@ def write_dict_to_yaml_file(filename: Path, dictionary: dict):
     """
     with open(filename, 'w') as f:
         yaml.dump(dictionary, f, default_flow_style=False)
+
+
+def read_yaml_file_to_dict(filename: Path) -> dict:
+    """ Reads a dictionary from a given yaml file
+
+    :param filename: Name of the yaml file
+    :return: full dictionary within yaml file
+    """
+    with open(filename, 'r') as file:
+        dictionary = yaml.safe_load(file)
+    return dictionary
