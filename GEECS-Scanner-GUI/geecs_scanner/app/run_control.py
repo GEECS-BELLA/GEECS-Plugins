@@ -2,7 +2,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 from geecs_scanner.data_acquisition.scan_manager import ScanManager, get_database_dict
-from .lib.gui_utilities import read_yaml_file_to_dict
+
+from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
 
 
 class RunControl:
