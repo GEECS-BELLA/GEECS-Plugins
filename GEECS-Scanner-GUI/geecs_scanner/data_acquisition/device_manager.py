@@ -8,7 +8,7 @@ from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
 from .utils import get_full_config_path  # Import the utility function
-
+from ..utils.action_definitions import ActionStep, get_action_list_from_steps
 
 class DeviceManager:
     """
@@ -31,8 +31,8 @@ class DeviceManager:
         self.async_observables = []  # Store asynchronous observables
         self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
         self.composite_variables = {}
-        self.scan_setup_action = {'steps': []}
-        self.scan_closeout_action = {'steps': []}
+        self.scan_setup_action: list[ActionStep] = []
+        self.scan_closeout_action: list[ActionStep] = []
 
         self.fatal_error_event = threading.Event()  # Used to signal a fatal error
 
@@ -108,14 +108,14 @@ class DeviceManager:
         # self.scan_closeout_action = config_dictionary.get('closeout_action', None)
 
         # Append setup action from config
-        setup_actions = config_dictionary.get('setup_action', {}).get('steps', [])
+        setup_actions = config_dictionary.get('setup_action', {})
         if setup_actions:
-            self.scan_setup_action['steps'].extend(setup_actions)
+            self.scan_setup_action.extend(get_action_list_from_steps(setup_actions))
 
         # Append closeout action from config
-        closeout_actions = config_dictionary.get('closeout_action', {}).get('steps', [])
+        closeout_actions = config_dictionary.get('closeout_action', {})
         if closeout_actions:
-            self.scan_closeout_action['steps'].extend(closeout_actions)
+            self.scan_closeout_action.extend(get_action_list_from_steps(closeout_actions))
 
         self._load_devices_from_config(config_dictionary)
 
@@ -172,6 +172,7 @@ class DeviceManager:
 
         logging.info(f"Devices loaded: {self.devices.keys()}")
 
+    # noinspection PyUnreachableCode
     def append_device_setup_closeout_actions(self, device_name, scan_setup):
         """
         Append actions to setup_action and closeout_action for the specified device based on scan_setup.
@@ -334,8 +335,8 @@ class DeviceManager:
             self.reset()
         self.is_reset = False
 
-        self.scan_setup_action['steps'] = []
-        self.scan_closeout_action['steps'] = []
+        self.scan_setup_action = []
+        self.scan_closeout_action = []
 
         # Now load the new configuration and reinitialize the instance
         if config_path is not None:
