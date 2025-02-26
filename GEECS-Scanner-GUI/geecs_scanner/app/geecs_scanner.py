@@ -13,7 +13,6 @@ import sys
 from pathlib import Path
 import threading
 import importlib
-import yaml
 import configparser
 import logging
 from importlib.metadata import version
@@ -23,7 +22,7 @@ from PyQt5.QtCore import QEvent, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices, QIcon
 from .gui.GEECSScanner_ui import Ui_MainWindow
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
-from .lib.gui_utilities import display_completer_list
+from .lib.gui_utilities import display_completer_list, read_yaml_file_to_dict, write_dict_to_yaml_file
 from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor, ActionLibrary
 from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
 from ..utils.exceptions import ConflictingScanElements
@@ -745,15 +744,13 @@ class GEECSScannerWindow(QMainWindow):
             if self.app_paths is None:
                 raise FileNotFoundError("No defined paths for scan devices")
 
-            with open(self.app_paths.scan_devices() / "scan_devices.yaml", 'r') as file:
-                data = yaml.safe_load(file)
-                devices = data['single_scan_devices']
-                self.scan_variable_list = list(devices.keys())
+            scan_device_filename = self.app_paths.scan_devices() / "scan_devices.yaml"
+            devices = read_yaml_file_to_dict(scan_device_filename)['single_scan_devices']
+            self.scan_variable_list = list(devices.keys())
 
-            with open(self.app_paths.scan_devices() / "composite_variables.yaml", 'r') as file:
-                self.scan_composite_data = yaml.safe_load(file)
-                composite_vars = self.scan_composite_data['composite_variables']
-                self.scan_composite_list = list(composite_vars.keys())
+            composite_device_filename = self.app_paths.scan_devices() / "composite_variables.yaml"
+            composite_vars = read_yaml_file_to_dict(composite_device_filename)['composite_variables']
+            self.scan_composite_list = list(composite_vars.keys())
 
         except FileNotFoundError as e:
             logging.error(f"Error loading file: {e}")
@@ -766,12 +763,12 @@ class GEECSScannerWindow(QMainWindow):
         :param name: Selected scan variable to be converted to GEECS variable and/or composite variable
         """
         try:
-            with open(self.app_paths.scan_devices() / "scan_devices.yaml", 'r') as file:
-                data = yaml.safe_load(file)
-                if name in data['single_scan_devices']:
-                    return data['single_scan_devices'][name]
-                else:
-                    return name
+            scan_variable_filenames = self.app_paths.scan_devices() / "scan_devices.yaml"
+            scan_devices = read_yaml_file_to_dict(scan_variable_filenames)['single_scan_devices']
+            if name in scan_devices:
+                return scan_devices[name]
+            else:
+                return name
 
         except Exception as e:
             logging.error(f"Error loading scan_devices.yaml file: {e}")
@@ -896,9 +893,7 @@ class GEECSScannerWindow(QMainWindow):
 
             preset_file = self.app_paths.presets() / (text + ".yaml")
             preset_file.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(preset_file, 'w') as file:
-                yaml.dump(settings, file, default_flow_style=False)
+            write_dict_to_yaml_file(preset_file, settings)
 
             self.populate_preset_list()
 
@@ -916,8 +911,7 @@ class GEECSScannerWindow(QMainWindow):
         :param load_scan_params: Defaults to True, flag to load the scan parameters from a preset file
         """
         preset_filename = self.app_paths.presets() / (preset_name + ".yaml")
-        with open(preset_filename, 'r') as file:
-            settings = yaml.safe_load(file)
+        settings = read_yaml_file_to_dict(preset_filename)
 
         self.ui.textEditScanInfo.setText(str(settings['Info']))
 
@@ -1000,31 +994,30 @@ class GEECSScannerWindow(QMainWindow):
             list_of_setup_steps = []
             list_of_closeout_steps = []
             for i in range(self.ui.selectedDevices.count()):
-                filename = self.ui.selectedDevices.item(i).text()
-                with open(self.app_paths.save_devices() / (filename + ".yaml"), 'r') as file:
-                    try:
-                        data = yaml.safe_load(file)
-                        self.combine_elements(save_device_list, data['Devices'])
+                filename = self.app_paths.save_devices() / (self.ui.selectedDevices.item(i).text() + ".yaml")
+                try:
+                    new_element = read_yaml_file_to_dict(filename)
+                    self.combine_elements(save_device_list, new_element['Devices'])
 
-                        if 'setup_action' in data:
-                            setup_action = data['setup_action']
-                            list_of_setup_steps.extend(setup_action['steps'])
+                    if 'setup_action' in new_element:
+                        setup_action = new_element['setup_action']
+                        list_of_setup_steps.extend(setup_action['steps'])
 
-                        if 'closeout_action' in data:
-                            setup_action = data['closeout_action']
-                            list_of_closeout_steps.extend(setup_action['steps'])
+                    if 'closeout_action' in new_element:
+                        setup_action = new_element['closeout_action']
+                        list_of_closeout_steps.extend(setup_action['steps'])
 
-                    except yaml.YAMLError as exc:
-                        logging.error(f"Error reading YAML file: {exc}")
-                        QMessageBox.warning(self, 'YAML Error', f"Could not read '{filename}.yaml'", QMessageBox.Ok)
-                        self.is_starting = False
-                        return
+                except FileNotFoundError:
+                    logging.error(f"FileNotFound Error: {filename}")
+                    QMessageBox.warning(self, 'Conflicting Save Elements', f"FileNotFound Error: {filename}", QMessageBox.Ok)
+                    self.is_starting = False
+                    return
 
-                    except ConflictingScanElements as e:
-                        logging.error(e.message)
-                        QMessageBox.warning(self, 'Conflicting Save Elements', e.message, QMessageBox.Ok)
-                        self.is_starting = False
-                        return
+                except ConflictingScanElements as e:
+                    logging.error(e.message)
+                    QMessageBox.warning(self, 'Conflicting Save Elements', e.message, QMessageBox.Ok)
+                    self.is_starting = False
+                    return
 
             scan_information = {
                 'experiment': self.experiment,
