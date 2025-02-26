@@ -84,14 +84,14 @@ class ActionControl:
             raise KeyError(f"Unknown action type '{action_step.type}'")
         return description
 
-    def perform_action(self, action_list: dict[str, list]):
+    def perform_action(self, action_list: list[ActionStep]):
         """
         Performs the given list of actions using the currently-connected instance of Action Manager
 
         :param action_list: dict containing steps of the action
         """
         name = 'test_action'
-        if 'steps' in action_list and len(action_list['steps']) > 0:
+        if len(action_list) > 0:
             try:
                 self.action_manager.add_action(action_name=name, action_steps=action_list)
                 self.action_manager.execute_action(name)
