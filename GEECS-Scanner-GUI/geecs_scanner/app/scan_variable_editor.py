@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from . import GEECSScannerWindow
 
-import yaml
 import logging
 import copy
 from pathlib import Path
@@ -21,7 +20,8 @@ from PyQt5.QtWidgets import QDialog, QMessageBox, QInputDialog
 from PyQt5.QtCore import QEvent
 
 from .gui.ScanDeviceEditor_ui import Ui_Dialog
-from .lib.gui_utilities import write_dict_to_yaml_file, display_completer_list, display_completer_variable_list
+from .lib.gui_utilities import (write_dict_to_yaml_file, read_yaml_file_to_dict,
+                                display_completer_list, display_completer_variable_list)
 
 
 def default_composite_variable():
@@ -177,10 +177,9 @@ class ScanVariableEditor(QDialog):
         self.scan_composite_data = {}
 
         try:
-            with open(self.file_variables, 'r') as file:
-                self.scan_variable_data = yaml.safe_load(file)
-            with open(self.file_composite, 'r') as file:
-                self.scan_composite_data = yaml.safe_load(file)
+            self.scan_variable_data = read_yaml_file_to_dict(self.file_variables)
+            self.scan_composite_data = read_yaml_file_to_dict(self.file_composite)
+
         except FileNotFoundError as e:
             logging.error(f"Error loading file: {e}")
 
@@ -410,8 +409,7 @@ class ScanVariableEditor(QDialog):
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             # Read current version of file and delete only the specified element if it exists
-            with open(self.file_composite, 'r') as file:
-                scan_composite_data_actual = yaml.safe_load(file)
+            scan_composite_data_actual = read_yaml_file_to_dict(self.file_composite)
 
             if name in scan_composite_data_actual['composite_variables']:
                 del scan_composite_data_actual['composite_variables'][name]

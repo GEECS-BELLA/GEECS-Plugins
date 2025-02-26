@@ -13,12 +13,12 @@ from typing import Optional, Union, TYPE_CHECKING
 if TYPE_CHECKING:
     from . import GEECSScannerWindow
 
-import yaml
 import logging
 from pathlib import Path
 from .gui.ShotControlEditor_ui import Ui_Dialog
 from PyQt5.QtWidgets import QDialog, QCompleter, QInputDialog, QPushButton, QMessageBox
 from PyQt5.QtCore import pyqtSignal, QEvent, Qt
+from .lib.gui_utilities import read_yaml_file_to_dict, write_dict_to_yaml_file
 
 # Create a module-level logger
 logger = logging.getLogger(__name__)
@@ -148,9 +148,7 @@ class ShotControlEditor(QDialog):
         is_valid = bool(entered_name in self._get_list_of_configurations())
         if is_valid:
             self.configuration_name = entered_name
-            config_file = self.config_folder_path / (self.configuration_name + ".yaml")
-            with open(config_file, 'r') as file:
-                settings = yaml.safe_load(file)
+            settings = read_yaml_file_to_dict(self.config_folder_path / (self.configuration_name + ".yaml"))
         else:
             self.ui.lineConfigurationSelect.setText('')
             self.configuration_name = ''
@@ -202,9 +200,7 @@ class ShotControlEditor(QDialog):
 
         config_file = self.config_folder_path / (configuration_name + ".yaml")
         config_file.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(config_file, 'w') as file:
-            yaml.dump(contents, file, default_flow_style=False)
+        write_dict_to_yaml_file(config_file, contents)
 
         self.ui.lineConfigurationSelect.setText(configuration_name)
         self.configuration_selected()

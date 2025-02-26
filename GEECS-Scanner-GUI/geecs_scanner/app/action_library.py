@@ -11,15 +11,14 @@ from typing import TYPE_CHECKING, Union, Optional
 if TYPE_CHECKING:
     from . import GEECSScannerWindow
 
-import yaml
 import copy
 import logging
 from pathlib import Path
 from PyQt5.QtWidgets import QWidget, QInputDialog, QMessageBox, QLineEdit, QPushButton
 from PyQt5.QtCore import QEvent, Qt
 from .gui.ActionLibrary_ui import Ui_Form
-from .lib.gui_utilities import (parse_variable_text, write_dict_to_yaml_file, display_completer_list,
-                                display_completer_variable_list)
+from .lib.gui_utilities import (parse_variable_text, write_dict_to_yaml_file, read_yaml_file_to_dict,
+                                display_completer_list, display_completer_variable_list)
 from .lib import ActionControl
 
 
@@ -134,8 +133,7 @@ class ActionLibrary(QWidget):
         """
         self.actions_data = {}
         if self.actions_file.exists():
-            with open(self.actions_file) as f:
-                self.actions_data = yaml.safe_load(f)
+            self.actions_data = read_yaml_file_to_dict(self.actions_file)
         self.populate_action_list()
         return self.actions_data
 
@@ -207,8 +205,7 @@ class ActionLibrary(QWidget):
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             # Read current version of file and delete only the specified element if it exists
-            with open(self.actions_file, 'r') as file:
-                actions_data_actual = yaml.safe_load(file)
+            actions_data_actual = read_yaml_file_to_dict(self.actions_file)
 
             if name in actions_data_actual['actions']:
                 del actions_data_actual['actions'][name]
@@ -425,8 +422,7 @@ class ActionLibrary(QWidget):
         """ Upon opening this GUI, read the assigned actions yaml file for the assigned actions from last time """
         assigned_action_dict = {}
         if self.assigned_action_file.exists():
-            with open(self.assigned_action_file) as file:
-                assigned_action_dict = yaml.safe_load(file)
+            assigned_action_dict = read_yaml_file_to_dict(self.assigned_action_file)
 
         # For each action in the list, populate the list of AssignedAction class instances
         self.assigned_action_list = []

@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from . import GEECSScannerWindow
     from PyQt5.QtWidgets import QListWidget, QListWidgetItem
 
-import yaml
 import time
 import logging
 from pathlib import Path
@@ -19,6 +18,7 @@ from PyQt5.QtWidgets import QWidget, QInputDialog, QFileDialog, QMessageBox
 from PyQt5.QtCore import QTimer, QObject, QThread, pyqtSignal, pyqtSlot
 from .gui.MultiScanner_ui import Ui_Form
 from ..utils import multiscan_finish_jingle
+from .lib.gui_utilities import read_yaml_file_to_dict, write_dict_to_yaml_file
 
 
 class MultiScanner(QWidget):
@@ -283,8 +283,7 @@ class MultiScanner(QWidget):
             self.config_folder.mkdir(parents=True, exist_ok=True)
             filename = Path(text)
 
-            with open(self.config_folder / filename.with_suffix('.yaml'), 'w') as file:
-                yaml.dump(settings, file, default_flow_style=False)
+            write_dict_to_yaml_file(self.config_folder / filename.with_suffix('.yaml'), settings)
 
     def load_multiscan_configuration(self):
         """Prompts the user to specify a yaml file from which to load a multiscan configuration"""
@@ -303,8 +302,7 @@ class MultiScanner(QWidget):
 
     def load_settings_from_file(self, file_name: Union[Path, str]):
         """Loads multiscan configuration from the given file name"""
-        with open(file_name, 'r') as file:
-            settings = yaml.safe_load(file)
+        settings = read_yaml_file_to_dict(file_name)
 
         if 'Element Presets' in settings:
             self.element_preset_list = settings['Element Presets']

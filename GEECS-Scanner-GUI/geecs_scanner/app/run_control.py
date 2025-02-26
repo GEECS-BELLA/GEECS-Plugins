@@ -1,8 +1,8 @@
 import logging
-import yaml
 from pathlib import Path
 from typing import Optional
 from geecs_scanner.data_acquisition.scan_manager import ScanManager, get_database_dict
+from .lib.gui_utilities import read_yaml_file_to_dict
 
 
 class RunControl:
@@ -22,8 +22,7 @@ class RunControl:
             logging.warning("Specify experiment name and shot control configuration")
             raise ValueError
         else:
-            with open(shot_control_configuration, 'r') as file:
-                settings = yaml.safe_load(file)
+            settings = read_yaml_file_to_dict(shot_control_configuration)
             self.scan_manager = ScanManager(experiment_dir=experiment_name,
                                             shot_control_information=settings)
 

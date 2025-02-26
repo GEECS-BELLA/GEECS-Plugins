@@ -14,14 +14,14 @@ if TYPE_CHECKING:
     from PyQt5.QtWidgets import QLineEdit
     from . import GEECSScannerWindow
 
-import yaml
 import logging
 from pathlib import Path
 from PyQt5.QtWidgets import QDialog, QPushButton, QFileDialog
 from PyQt5.QtCore import QEvent
 from .gui.ScanElementEditor_ui import Ui_Dialog
 from .lib import ActionControl
-from .lib.gui_utilities import parse_variable_text, display_completer_list
+from .lib.gui_utilities import (parse_variable_text, display_completer_list,
+                                read_yaml_file_to_dict, write_dict_to_yaml_file)
 
 
 def get_default_device_dictionary() -> dict[str, bool | list[Any]]:
@@ -571,8 +571,7 @@ class SaveElementEditor(QDialog):
             if not closeout_action['steps']:
                 del full_dictionary['closeout_action']
             logging.debug(full_dictionary)
-            with open(file, 'w') as f:
-                yaml.dump(full_dictionary, f, default_flow_style=False)
+            write_dict_to_yaml_file(file, full_dictionary)
 
     def close_window(self):
         """Exits the window"""
@@ -596,8 +595,7 @@ class SaveElementEditor(QDialog):
 
     def load_settings_from_file(self, config_filename: Path):
         """Given a .yaml file, loads the dictionary and parses it to the backend dictionaries for the GUI"""
-        with open(config_filename, 'r') as file:
-            full_dictionary = yaml.safe_load(file)
+        full_dictionary = read_yaml_file_to_dict(config_filename)
 
         if 'Devices' in full_dictionary:
             self.devices_dict = full_dictionary['Devices']
