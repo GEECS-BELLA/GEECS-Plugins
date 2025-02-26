@@ -20,6 +20,7 @@ from .gui.ActionLibrary_ui import Ui_Form
 from .lib.gui_utilities import (parse_variable_text, write_updated_file, display_completer_list,
                                 display_completer_variable_list)
 from .lib import ActionControl
+from ..utils.action_definitions import get_action_list_from_steps
 
 
 def get_default_action() -> dict:
@@ -366,7 +367,8 @@ class ActionLibrary(QWidget):
             reply = QMessageBox.question(self, "Execute Action", f"Execute action '{name}'?",
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.Yes:
-                self.action_control.perform_action(self.actions_data['actions'][name])
+                action_list = get_action_list_from_steps(self.actions_data['actions'][name])
+                self.action_control.perform_action(action_list)
 
     def save_all_changes(self):
         reply = QMessageBox.question(self, "Save Actions", f"Save all changes to {self.actions_file.name}?",

@@ -22,6 +22,7 @@ from PyQt5.QtCore import QEvent
 from .gui.ScanElementEditor_ui import Ui_Dialog
 from .lib import ActionControl
 from .lib.gui_utilities import parse_variable_text, display_completer_list
+from ..utils.action_definitions import get_action_list_from_steps
 
 
 def get_default_device_dictionary() -> dict[str, bool | list[Any]]:
@@ -548,10 +549,12 @@ class SaveElementEditor(QDialog):
         self.ui.buttonPerformPostscanActions.setEnabled(True)
 
     def perform_setup_actions(self):
-        self.action_control.perform_action({'steps': self.actions_dict['setup']})
+        action_list = get_action_list_from_steps({'steps': self.actions_dict['setup']})
+        self.action_control.perform_action(action_list)
 
     def perform_postscan_actions(self):
-        self.action_control.perform_action({'steps': self.actions_dict['closeout']})
+        action_list = get_action_list_from_steps({'steps': self.actions_dict['closeout']})
+        self.action_control.perform_action(action_list)
 
     def save_element(self):
         """Save the current dictionaries as a new element in the experimental folder with the correct formatting"""
