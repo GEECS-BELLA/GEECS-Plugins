@@ -18,7 +18,7 @@ from . import DeviceManager, DatabaseDictLookup
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
-from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_custom_imaq_timestamp, get_haso_timestamp
+from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_custom_imaq_timestamp, get_himg_timestamp
 
 
 class ScanDataManager:
@@ -67,16 +67,36 @@ class ScanDataManager:
         This method sets up the necessary directories and paths for saving device data,
         then initializes the TDMS writers for logging scalar and non-scalar data.
         """
+
         ScanData.reload_paths_config()
-        if not ScanData.paths_config.is_default_server_address():
-            raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
+        # if not ScanData.paths_config.is_default_server_address():
+        #     raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
 
+        switch_paths = False
+        
         self.scan_data = ScanData.build_next_scan_data()
+        
+        if not ScanData.paths_config.is_default_server_address():
+            # raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
 
+            # something changed about how paths were working, which breaks how this part works on
+            # non control room computers. Added this switch paths bit to make a solution
+
+            # Define old and new root paths
+            old_root = ScanData.paths_config.base_path
+            new_root = ScanData.paths_config.get_default_server_address('Undulator')
+
+            switch_paths = True
+            
+        data_path = self.scan_data.get_folder()
+                
         for device_name in self.device_manager.non_scalar_saving_devices:
             data_path = self.scan_data.get_folder() / device_name
             data_path.mkdir(parents=True, exist_ok=True)
-
+            
+            if switch_paths:
+                data_path = new_root / data_path.relative_to(old_root)
+            
             device = self.device_manager.devices.get(device_name)
             if device:
                 save_path = str(data_path).replace('/', "\\")
@@ -86,6 +106,7 @@ class ScanDataManager:
                 device.set('save', 'on', sync=False)
             else:
                 logging.warning(f"Device {device_name} not found in DeviceManager.")
+     
 
         analysis_save_path = self.scan_data.get_analysis_folder()
 
@@ -99,7 +120,7 @@ class ScanDataManager:
         self.sFile_txt_path = self.scan_data.get_analysis_folder().parent / f"s{self.scan_number_int}.txt"
         self.sFile_info_path = self.scan_data.get_analysis_folder().parent / f"s{self.scan_number_int}_info.txt"
 
-        self.initialize_tdms_writers(str(self.tdms_output_path))
+        self.initialize_tdms_writers(str(self.tdms_output_path))        
 
         time.sleep(1)
 
@@ -410,16 +431,19 @@ class ScanDataManager:
             return
 
         max_workers = os.cpu_count() * 2  # Adjust multiplier based on your workload
-
-        # Process each device directory concurrently using threads
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(self.process_device_files, device_dir, df, scan_folder_string) for device_dir in
-                       device_directories]
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    logging.error(f"Error during file processing: {e}")
+        
+        try:
+            # Process each device directory concurrently using threads
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(self.process_device_files, device_dir, df, scan_folder_string) for device_dir in
+                           device_directories]
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logging.error(f"Error during file processing: {e}")
+        except Exception as e:
+            logging.error(f'error during file renaming: {e}')
 
     def process_device_files(self, device_dir: Path, df: pd.DataFrame, scan_number: str) -> None:
         """
@@ -483,11 +507,11 @@ class ScanDataManager:
             try:
                 file_timestamp = self.extract_timestamp_from_file(device_file, device_type)
                 file_timestamp_rounded = round(file_timestamp, tolerance)
-                logging.info(f'rounded timestamp extracted for {device_file}: {file_timestamp_rounded}')
+                # logging.info(f'rounded timestamp extracted for {device_file}: {file_timestamp_rounded}')
                 match = rounded_df_timestamps[rounded_df_timestamps == file_timestamp_rounded]
                 if not match.empty:
                     matched_rows.append((device_file, match.index[0]))
-                    logging.info(f"Matched file {device_file} with row {match.index[0]}")
+                    # logging.info(f"Matched file {device_file} with row {match.index[0]}")
                 else:
                     logging.warning(f"No match for {device_file} with timestamp {file_timestamp_rounded}")
             except Exception as e:
@@ -512,7 +536,8 @@ class ScanDataManager:
             "PicoscopeV2": get_picoscopeV2_timestamp,
             "MagSpecStitcher": get_custom_imaq_timestamp,
             "FROG": get_custom_imaq_timestamp,
-            "HASO4_3": get_haso_timestamp,
+            "HASO4_3": get_himg_timestamp,
+            "Thorlabs CCS175 Spectrometer": get_picoscopeV2_timestamp,
         }
 
         if device_type in device_map:
@@ -561,7 +586,7 @@ class ScanDataManager:
                 new_name = f"{scan_number}_{device_name}{suffix}_{str(row_index + 1).zfill(3)}{dependent_file.suffix}"
                 new_path = dependent_file.parent / new_name
                 dependent_file.rename(new_path)
-                logging.info(f"Renamed {dependent_file} to {new_path}")
+                # logging.info(f"Renamed {dependent_file} to {new_path}")
             else:
                 logging.warning(f"Not enough files in dependent directory to match {master_file}")
 
@@ -580,5 +605,5 @@ class ScanDataManager:
             new_file_path = file_path.parent / new_file_name
 
             if not new_file_path.exists():  # Check if the target file already exists
-                logging.info(f"Renaming {file_path} to {new_file_path}")
+                # logging.info(f"Renaming {file_path} to {new_file_path}")
                 file_path.rename(new_file_path)

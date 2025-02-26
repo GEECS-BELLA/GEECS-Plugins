@@ -39,6 +39,9 @@ class DataLogger:
         self.polling_interval = .5
         self.results = {}  # Store results for later processing
 
+        self.log_entries = {}
+
+
         # Initialize the sound player
         self.sound_player = SoundPlayer()
         self.shot_index = 0
@@ -69,7 +72,7 @@ class DataLogger:
         last_timestamps = {}
         initial_timestamps = {}
         standby_mode = {}
-        log_entries = {}
+        self.log_entries = {}
 
         # Start the sound player
         self.sound_player.start_queue()
@@ -100,7 +103,7 @@ class DataLogger:
             if self._check_duplicate_timestamp(device, last_timestamps, current_timestamp):
                 return
 
-            self._log_device_data(device, event_driven_observables, log_entries, elapsed_time)
+            self._log_device_data(device, event_driven_observables, elapsed_time)
 
         # Register the logging function for event-driven observables
         self._register_event_logging(event_driven_observables, log_update)
@@ -115,7 +118,7 @@ class DataLogger:
         # self.warning_thread = threading.Thread(target=self._monitor_warnings, args=(event_driven_observables, async_observables))
         # self.warning_thread.start()
 
-        return log_entries
+        return self.log_entries
 
     def update_repetition_rate(self, new_repetition_rate):
         self.repetition_rate = new_repetition_rate
@@ -224,27 +227,59 @@ class DataLogger:
         last_timestamps[device.get_name()] = current_timestamp
         return False
 
-    def update_async_observables(self, async_observables, log_entries, elapsed_time):
+    def update_async_observables(self, async_observables, elapsed_time):
         """
         Update log entries with the latest values for asynchronous observables.
 
         Args:
             async_observables (list): List of asynchronous observables to update.
-            log_entries (dict): Dictionary to store the logged data.
             elapsed_time (int): The time elapsed since the logging started.
         """
         for observable in async_observables:
-            device_name, var_name = observable.split(':')
+            # Check if the observable has a variable specified (e.g., 'Dev1:var1')
+            if ':' in observable:
+                device_name, var_name = observable.split(':')
+            else:
+                device_name = observable
+                var_name = None
+
             device = self.device_manager.devices.get(device_name)
 
             if device:
-                # Get the latest value from the device state
-                value = device.state.get(var_name, 'N/A')
-                # Update the log entry for this async variable
-                log_entries[elapsed_time][f"{device_name}:{var_name}"] = value
-                logging.info(f"Updated async var {device_name}:{var_name} to {value} for elapsed time {elapsed_time}.")
+                if device.is_composite:
+                    # Handle composite devices
+                    composite_value = device.state.get("composite_var", "N/A")
+                    self.log_entries[elapsed_time][f"{device_name}:composite_var"] = composite_value
+                    logging.info(
+                        f"Updated composite var {device_name}:composite_var to {composite_value} for elapsed time {elapsed_time}.")
 
-    def _log_device_data(self, device, event_driven_observables, log_entries, elapsed_time):
+                    # Log sub-component states
+                    for comp in device.components:
+                        sub_device_name = comp['device']
+                        sub_var_name = comp['variable']
+                        sub_device = device.sub_devices[sub_device_name]['instance']
+
+                        if sub_device:
+                            sub_value = sub_device.state.get(sub_var_name, "N/A")
+                            self.log_entries[elapsed_time][f"{sub_device_name}:{sub_var_name}"] = sub_value
+                            logging.info(
+                                f"Updated sub-component {sub_device_name}:{sub_var_name} to {sub_value} for elapsed time {elapsed_time}.")
+                        else:
+                            logging.warning(f"Sub-device {sub_device_name} not found for {device_name}.")
+                else:
+                    # Handle regular devices
+                    if var_name is None:
+                        logging.warning(f"No variable specified for device {device_name}. Skipping.")
+                        continue
+
+                    value = device.state.get(var_name, "N/A")
+                    self.log_entries[elapsed_time][f"{device_name}:{var_name}"] = value
+                    logging.info(
+                        f"Updated async var {device_name}:{var_name} to {value} for elapsed time {elapsed_time}.")
+            else:
+                logging.warning(f"Device {device_name} not found in DeviceManager. Skipping {observable}.")
+
+    def _log_device_data(self, device, event_driven_observables, elapsed_time):
 
         """
         Log the data for a device during an event-driven observation.
@@ -252,7 +287,6 @@ class DataLogger:
         Args:
             device (GeecsDevice): The device being logged.
             event_driven_observables (list): A list of event-driven observables to monitor.
-            log_entries (dict): Dictionary where log data is stored.
             elapsed_time (int): The time elapsed since the logging started.
 
         Logs:
@@ -265,16 +299,16 @@ class DataLogger:
                 observable.split(':')[1]: device.state.get(observable.split(':')[1], '')
                 for observable in event_driven_observables if observable.startswith(device.get_name())
             }
-            if elapsed_time not in log_entries:
+            if elapsed_time not in self.log_entries:
                 logging.info(f'elapsed time in sync devices {elapsed_time}')
-                log_entries[elapsed_time] = {'Elapsed Time': elapsed_time}
+                self.log_entries[elapsed_time] = {'Elapsed Time': elapsed_time}
                 # Log configuration variables (such as 'bin') only when a new entry is created
-                log_entries[elapsed_time]['Bin #'] = self.bin_num
+                self.log_entries[elapsed_time]['Bin #'] = self.bin_num
                 if self.virtual_variable_name is not None:
-                    log_entries[elapsed_time][self.virtual_variable_name] = self.virtual_variable_value
+                    self.log_entries[elapsed_time][self.virtual_variable_name] = self.virtual_variable_value
 
                 # Update with async observable values
-                self.update_async_observables(self.device_manager.async_observables, log_entries, elapsed_time)
+                self.update_async_observables(self.device_manager.async_observables, elapsed_time)
 
                 # TODO move the on-shot tdms writer functionality from scan manager to here
 
@@ -285,7 +319,7 @@ class DataLogger:
                 self.sound_player.play_beep()  # Play the beep sound
                 self.shot_index += 1
 
-            log_entries[elapsed_time].update({
+            self.log_entries[elapsed_time].update({
                 f"{device.get_name()}:{key}": value for key, value in observables_data.items()
             })
 
