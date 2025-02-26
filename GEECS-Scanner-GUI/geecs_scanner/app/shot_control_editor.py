@@ -271,10 +271,8 @@ class ShotControlEditor(QDialog):
     def remove_variable(self):
         """ Removes variable from the list of variables """
         selected_variable = self.ui.listShotControlVariables.selectedItems()
-        if not selected_variable:
-            return
-        for selection in selected_variable:
-            text = selection.text()
+        if selected_variable:
+            text = selected_variable[0].text()
             if text in self.variable_dictionary.keys():
                 del self.variable_dictionary[text]
         self._update_variable_list()
@@ -290,11 +288,10 @@ class ShotControlEditor(QDialog):
         self.ui.lineStandbyState.setEnabled(has_selection)
 
         if has_selection:
-            for selection in selected_variable:
-                variable = self.variable_dictionary[selection.text()]
-                self.ui.lineOffState.setText(variable['OFF'])
-                self.ui.lineScanState.setText(variable['SCAN'])
-                self.ui.lineStandbyState.setText(variable['STANDBY'])
+            variable = self.variable_dictionary[selected_variable[0].text()]
+            self.ui.lineOffState.setText(variable['OFF'])
+            self.ui.lineScanState.setText(variable['SCAN'])
+            self.ui.lineStandbyState.setText(variable['STANDBY'])
         else:
             self.ui.lineOffState.setText('')
             self.ui.lineScanState.setText('')
@@ -303,10 +300,8 @@ class ShotControlEditor(QDialog):
     def update_variable_dictionary(self):
         """ Updates the variable dictionary to reflect new changes in the GUI """
         selected_variable = self.ui.listShotControlVariables.selectedItems()
-        if not selected_variable:
-            return
-        for selection in selected_variable:
-            variable = self.variable_dictionary[selection.text()]
+        if selected_variable:
+            variable = self.variable_dictionary[selected_variable[0].text()]
             variable['OFF'] = self.ui.lineOffState.text()
             variable['SCAN'] = self.ui.lineScanState.text()
             variable['STANDBY'] = self.ui.lineStandbyState.text()

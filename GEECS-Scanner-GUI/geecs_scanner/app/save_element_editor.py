@@ -213,27 +213,21 @@ class SaveElementEditor(QDialog):
     def remove_device(self):
         """Removes a device from the element device list, based on what is currently selected"""
         selected_device = self.ui.listDevices.selectedItems()
-        if not selected_device:
-            return
-        for selection in selected_device:
-            text = selection.text()
+        if selected_device:
+            text = selected_device[0].text()
             if text in self.devices_dict:
                 del self.devices_dict[text]
-        self.update_device_list()
+            self.update_device_list()
 
     def get_selected_device_name(self) -> Optional[str]:
         """Returns the name of the currently-selected device on the GUI"""
         selected_device = self.ui.listDevices.selectedItems()
-        no_selection = not selected_device
-        if no_selection:
-            return None
-
-        device_name = None
-        for selection in selected_device:
-            text = selection.text()
+        if selected_device:
+            device_name = None
+            text = selected_device[0].text()
             if text in self.devices_dict:
                 device_name = text
-        return device_name
+            return device_name
 
     def get_selected_device(self):  # TODO improve type hinting for complex dictionaries
         """Returns the device information on the currently-selected device"""
@@ -288,13 +282,11 @@ class SaveElementEditor(QDialog):
         device = self.get_selected_device()
         if device is not None:
             selected_variable = self.ui.listVariables.selectedItems()
-            if not selected_variable:
-                return
-            for selection in selected_variable:
-                text = selection.text()
+            if selected_variable:
+                text = selected_variable[0].text()
                 if text in device['variable_list']:
                     device["variable_list"].remove(text)
-            self.update_variable_list()
+                self.update_variable_list()
 
     def update_device_checkboxes(self):
         """Updates the checkboxes for the device flags"""
@@ -458,10 +450,8 @@ class SaveElementEditor(QDialog):
         located (setup or closeout), the relative index in that list, and the index in the GUI list
         """
         selected_action = self.ui.listActions.selectedItems()
-        if not selected_action:
-            return
-        for action in selected_action:
-            absolute_index = self.ui.listActions.row(action)
+        if selected_action:
+            absolute_index = self.ui.listActions.row(selected_action[0])
             setup_length = len(self.actions_dict['setup'])
             if absolute_index < setup_length:
                 action_list = self.actions_dict['setup']

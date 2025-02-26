@@ -874,12 +874,8 @@ class GEECSScannerWindow(QMainWindow):
         """Loads the yaml file selected in the preset list, clears all current information on the GUI, then
         systematically populate everything so that the GUI is equivalent to when it was saved as a preset"""
         selected_element = self.ui.listScanPresets.selectedItems()
-        preset_name = None
-        for preset in selected_element:
-            preset_name = f"{preset.text()}"
-
-        if preset_name is not None:
-            self.apply_preset_from_name(preset_name)
+        if selected_element:
+            self.apply_preset_from_name(selected_element[0].text())
 
     def apply_preset_from_name(self, preset_name: str, load_save_elements: bool = True, load_scan_params: bool = True):
         """
@@ -930,8 +926,8 @@ class GEECSScannerWindow(QMainWindow):
     def delete_selected_preset(self):
         """Deletes the preset that is currently selected in the list.  Afterwards, refreshes the preset list"""
         selected_element = self.ui.listScanPresets.selectedItems()
-        for preset in selected_element:
-            preset_filename = self.app_paths.presets() / (preset.text() + ".yaml")
+        if selected_element:
+            preset_filename = self.app_paths.presets() / (selected_element[0].text() + ".yaml")
             try:
                 preset_filename.unlink()
                 logging.info(f"{preset_filename} has been deleted :(")

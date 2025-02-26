@@ -284,10 +284,8 @@ class ScanVariableEditor(QDialog):
 
     def get_selected_composite_component(self) -> Optional[dict]:
         selected_variable = self.ui.listCompositeComponents.selectedItems()
-        if not selected_variable:
-            return None
-        for selection in selected_variable:
-            device, variable = selection.text().split(":")
+        if selected_variable:
+            device, variable = selected_variable[0].text().split(":")
             name = self.ui.lineCompositeNickname.text().strip()
             for device_variable in self.scan_composite_data['composite_variables'][name]['components']:
                 if device_variable['device'] == device and device_variable['variable'] == variable:

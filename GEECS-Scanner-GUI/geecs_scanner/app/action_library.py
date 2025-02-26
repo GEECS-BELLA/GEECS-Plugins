@@ -134,10 +134,9 @@ class ActionLibrary(QWidget):
         selected_action = self.ui.listAvailableActions.selectedItems()
         if not selected_action:
             return None
-        for selection in selected_action:
-            name = selection.text().strip()
-            if name in self.actions_data['actions']:
-                return name
+        name = selected_action[0].text().strip()
+        if name in self.actions_data['actions']:
+            return name
 
     def _prompt_new_action(self, message: str, copy_base: Optional[str] = None):
         text, ok = QInputDialog.getText(self, 'New Action', message)
