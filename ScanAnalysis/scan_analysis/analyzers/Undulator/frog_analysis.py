@@ -73,7 +73,7 @@ class FrogAnalysis(ScanAnalysis):
             if self.flag['logging']:
                 logging.warning(f"Data directory '{self.path_dict['data_img']}' does not exist or is empty.")
 
-    def run_analysis(self):
+    def run_analysis(self, config_options: Optional[Union[Path, str]] = None) -> Optional[list[Union[Path, str]]]:
         """
         Run the appropriate analysis based on scan type.
 
@@ -188,6 +188,10 @@ class FrogAnalysis(ScanAnalysis):
             try:
                 file = self.scan_data.get_device_shot_path(self.tag, self.device_name,
                                                            shot_num, file_extension='png')
+
+                # maybe can be removed if naming convention goes back to standard
+                file = Path(str(file).replace('-Temporal_', '_'))
+
                 images[ind] = read_imaq_image(file)
 
             except Exception as e:

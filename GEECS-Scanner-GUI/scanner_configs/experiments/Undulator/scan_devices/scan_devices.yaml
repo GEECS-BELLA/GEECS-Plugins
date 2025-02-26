@@ -33,4 +33,5 @@ single_scan_devices:
   VS3V: U_VS3V:Current
   VS4H: U_VS4H:Current
   VS4V: U_VS4V:Current
-
+  gas jet start time: U_DG645_ShotControl:Delay.Ch A
+  jet opening time: U_DG645_ShotControl:Delay.Ch B
