@@ -204,39 +204,32 @@ class ActionLibrary(QWidget):
 
     def update_action_list(self, index: Optional[int] = None):
         """Updates the visible list of actions on the GUI according to the current state of the action dictionary"""
+
         self.ui.listActionSteps.clear()
+        if name := self.get_selected_name():
+            for item in self.actions_data['actions'][name]['steps']:
+                self.ui.listActionSteps.addItem(ActionControl.generate_action_description(item))
 
-        name = self.get_selected_name()
-        if not name:
-            return
-
-        for item in self.actions_data['actions'][name]['steps']:
-            self.ui.listActionSteps.addItem(ActionControl.generate_action_description(item))
-
-        if index is not None and 0 <= index < self.ui.listActionSteps.count():
-            self.ui.listActionSteps.setCurrentRow(index)
+            if index is not None and 0 <= index < self.ui.listActionSteps.count():
+                self.ui.listActionSteps.setCurrentRow(index)
 
     def add_action(self):
         """Appends action to the end of either the setup or closeout action list based on the currently-selected
         radio button.  The action is specified by the action line edit."""
-        text = self.ui.lineActionType.text().strip()
-        name = self.get_selected_name()
-        if text and name:
-            self.actions_data['actions'][name]['steps'].append(ActionControl.get_new_action(text))
-            self.ui.lineActionType.clear()
-            self.change_action_selection()
+        if text := self.ui.lineActionType.text().strip():
+            if name := self.get_selected_name():
+                self.actions_data['actions'][name]['steps'].append(ActionControl.get_new_action(text))
+                self.ui.lineActionType.clear()
+                self.change_action_selection()
 
     def remove_action(self):
         """Removes the currently-selected action from the list of actions"""
-        index = self.get_selected_step_index()
-        if not index:
-            return
+        if index := self.get_selected_step_index():
+            name = self.get_selected_name()
+            if index >= 0 and name:
+                del self.actions_data['actions'][name]['steps'][index]
 
-        name = self.get_selected_name()
-        if index >= 0 and name:
-            del self.actions_data['actions'][name]['steps'][index]
-
-        self.change_action_selection()
+            self.change_action_selection()
 
     def update_action_display(self):
         """Updates the visible list of information based on the currently-selected action"""
@@ -251,73 +244,67 @@ class ActionLibrary(QWidget):
         self.ui.lineActionOption2.setEnabled(False)
         self.ui.lineActionOption3.setEnabled(False)
 
-        index = self.get_selected_step_index()
-        if not index:
-            return
-
-        name = self.get_selected_name()
-        if index >= 0 and name:
-            action = self.actions_data['actions'][name]['steps'][index]
-            if action.get("wait") is not None:
-                self.action_mode = 'wait'
-                self.ui.labelActionOption1.setText("Wait Time (s):")
-                self.ui.lineActionOption1.setEnabled(True)
-                self.ui.lineActionOption1.setText(str(action.get("wait")))
-            elif action['action'] == 'execute':
-                self.action_mode = 'execute'
-                self.ui.labelActionOption1.setText("Action Name:")
-                self.ui.lineActionOption1.setEnabled(True)
-                self.ui.lineActionOption1.setText(action.get("action_name"))
-            elif action['action'] == 'set':
-                self.action_mode = 'set'
-                self.ui.labelActionOption1.setText("GEECS Device Name:")
-                self.ui.lineActionOption1.setEnabled(True)
-                self.ui.lineActionOption1.setText(action.get("device"))
-                self.ui.labelActionOption2.setText("Variable Name:")
-                self.ui.lineActionOption2.setEnabled(True)
-                self.ui.lineActionOption2.setText(action.get("variable"))
-                self.ui.labelActionOption3.setText("Set Value:")
-                self.ui.lineActionOption3.setEnabled(True)
-                self.ui.lineActionOption3.setText(str(action.get("value")))
-            elif action['action'] == 'get':
-                self.action_mode = 'get'
-                self.ui.labelActionOption1.setText("GEECS Device Name:")
-                self.ui.lineActionOption1.setEnabled(True)
-                self.ui.lineActionOption1.setText(action.get("device"))
-                self.ui.labelActionOption2.setText("Variable Name:")
-                self.ui.lineActionOption2.setEnabled(True)
-                self.ui.lineActionOption2.setText(action.get("variable"))
-                self.ui.labelActionOption3.setText("Expected Value:")
-                self.ui.lineActionOption3.setEnabled(True)
-                self.ui.lineActionOption3.setText(str(action.get("expected_value")))
+        if index := self.get_selected_step_index():
+            name = self.get_selected_name()
+            if index >= 0 and name:
+                action = self.actions_data['actions'][name]['steps'][index]
+                if action.get("wait") is not None:
+                    self.action_mode = 'wait'
+                    self.ui.labelActionOption1.setText("Wait Time (s):")
+                    self.ui.lineActionOption1.setEnabled(True)
+                    self.ui.lineActionOption1.setText(str(action.get("wait")))
+                elif action['action'] == 'execute':
+                    self.action_mode = 'execute'
+                    self.ui.labelActionOption1.setText("Action Name:")
+                    self.ui.lineActionOption1.setEnabled(True)
+                    self.ui.lineActionOption1.setText(action.get("action_name"))
+                elif action['action'] == 'set':
+                    self.action_mode = 'set'
+                    self.ui.labelActionOption1.setText("GEECS Device Name:")
+                    self.ui.lineActionOption1.setEnabled(True)
+                    self.ui.lineActionOption1.setText(action.get("device"))
+                    self.ui.labelActionOption2.setText("Variable Name:")
+                    self.ui.lineActionOption2.setEnabled(True)
+                    self.ui.lineActionOption2.setText(action.get("variable"))
+                    self.ui.labelActionOption3.setText("Set Value:")
+                    self.ui.lineActionOption3.setEnabled(True)
+                    self.ui.lineActionOption3.setText(str(action.get("value")))
+                elif action['action'] == 'get':
+                    self.action_mode = 'get'
+                    self.ui.labelActionOption1.setText("GEECS Device Name:")
+                    self.ui.lineActionOption1.setEnabled(True)
+                    self.ui.lineActionOption1.setText(action.get("device"))
+                    self.ui.labelActionOption2.setText("Variable Name:")
+                    self.ui.lineActionOption2.setEnabled(True)
+                    self.ui.lineActionOption2.setText(action.get("variable"))
+                    self.ui.labelActionOption3.setText("Expected Value:")
+                    self.ui.lineActionOption3.setEnabled(True)
+                    self.ui.lineActionOption3.setText(str(action.get("expected_value")))
 
     def update_action_info(self):
         """Updates the backend action dictionary when one of the line edits for options is changed"""
-        index = self.get_selected_step_index()
-        if not index:
-            return
+        if index := self.get_selected_step_index():
+            name = self.get_selected_name()
+            if index >= 0 and name:
+                action = self.actions_data['actions'][name]['steps'][index]
 
-        name = self.get_selected_name()
-        if index >= 0 and name:
-            action = self.actions_data['actions'][name]['steps'][index]
+                if action.get("wait") is not None:
+                    action['wait'] = parse_variable_text(self.ui.lineActionOption1.text().strip())
+                elif action['action'] == 'execute':
+                    action['action_name'] = self.ui.lineActionOption1.text().strip()
+                elif action['action'] == 'run':
+                    action["file_name"] = self.ui.lineActionOption1.text().strip()
+                    action["class_name"] = self.ui.lineActionOption2.text().strip()
+                elif action['action'] == 'set':
+                    action["device"] = self.ui.lineActionOption1.text().strip()
+                    action["variable"] = self.ui.lineActionOption2.text().strip()
+                    action["value"] = parse_variable_text(self.ui.lineActionOption3.text().strip())
+                elif action['action'] == 'get':
+                    action["device"] = self.ui.lineActionOption1.text().strip()
+                    action["variable"] = self.ui.lineActionOption2.text().strip()
+                    action["expected_value"] = parse_variable_text(self.ui.lineActionOption3.text().strip())
 
-            if action.get("wait") is not None:
-                action['wait'] = parse_variable_text(self.ui.lineActionOption1.text().strip())
-            elif action['action'] == 'execute':
-                action['action_name'] = self.ui.lineActionOption1.text().strip()
-            elif action['action'] == 'run':
-                action["file_name"] = self.ui.lineActionOption1.text().strip()
-                action["class_name"] = self.ui.lineActionOption2.text().strip()
-            elif action['action'] == 'set':
-                action["device"] = self.ui.lineActionOption1.text().strip()
-                action["variable"] = self.ui.lineActionOption2.text().strip()
-                action["value"] = parse_variable_text(self.ui.lineActionOption3.text().strip())
-            elif action['action'] == 'get':
-                action["device"] = self.ui.lineActionOption1.text().strip()
-                action["variable"] = self.ui.lineActionOption2.text().strip()
-                action["expected_value"] = parse_variable_text(self.ui.lineActionOption3.text().strip())
-
-            self.update_action_list(index=index)
+                self.update_action_list(index=index)
 
     def get_selected_step_index(self) -> Optional[int]:
         """Finds the location of the currently-selected action in the visible list on the GUI.
@@ -333,31 +320,23 @@ class ActionLibrary(QWidget):
 
     def move_action_sooner(self):
         """Moves the selected action to an earlier position in the same list"""
-        i = self.get_selected_step_index()
-        if not i:
-            return
-
-        name = self.get_selected_name()
-        if i >= 0 and name:
-            action_list = self.actions_data['actions'][name]['steps']
-            if 0 < i < len(action_list):
-                action_list[i], action_list[i - 1] = action_list[i - 1], action_list[i]
-                i -= 1
-                self.update_action_list(index=i)
+        if i := self.get_selected_step_index():
+            if name := self.get_selected_name():
+                action_list = self.actions_data['actions'][name]['steps']
+                if 0 < i < len(action_list):
+                    action_list[i], action_list[i - 1] = action_list[i - 1], action_list[i]
+                    i -= 1
+                    self.update_action_list(index=i)
 
     def move_action_later(self):
         """Moves the selected action to a later position in the same list"""
-        i = self.get_selected_step_index()
-        if not i:
-            return
-
-        name = self.get_selected_name()
-        if i >= 0 and name:
-            action_list = self.actions_data['actions'][name]['steps']
-            if 0 <= i < len(action_list) - 1:
-                action_list[i], action_list[i + 1] = action_list[i + 1], action_list[i]
-                i += 1
-                self.update_action_list(index=i)
+        if i := self.get_selected_step_index():
+            if name := self.get_selected_name():
+                action_list = self.actions_data['actions'][name]['steps']
+                if 0 <= i < len(action_list) - 1:
+                    action_list[i], action_list[i + 1] = action_list[i + 1], action_list[i]
+                    i += 1
+                    self.update_action_list(index=i)
 
     # # # # # # # # # # # GUI elements for Execute, Save, Revert, and Close buttons # # # # # # # # # # #
 
@@ -421,12 +400,9 @@ class ActionLibrary(QWidget):
         self.refresh_assigned_action_gui()
 
     def add_assigned_action(self):
-        name = self.get_selected_name()
-        if not name:
-            return
-
-        self.assigned_action_list.append(AssignedAction(parent_gui=self, action_name=name))
-        self.refresh_assigned_action_gui()
+        if name := self.get_selected_name():
+            self.assigned_action_list.append(AssignedAction(parent_gui=self, action_name=name))
+            self.refresh_assigned_action_gui()
 
     def refresh_assigned_action_gui(self):
         y_position = self.ui.line_2.pos().y() + 40
