@@ -320,10 +320,8 @@ class ActionLibrary(QWidget):
         selected_action = self.ui.listActionSteps.selectedItems()
         if not selected_action:
             return -1
-        for action in selected_action:
-            index = self.ui.listActionSteps.row(action)
-            return index
-
+        index = self.ui.listActionSteps.row(selected_action[0])
+        return index
     def move_action_sooner(self):
         """Moves the selected action to an earlier position in the same list"""
         i = self.get_selected_step_index()
