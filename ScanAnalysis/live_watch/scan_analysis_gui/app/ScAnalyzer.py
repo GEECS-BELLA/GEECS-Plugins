@@ -107,7 +107,6 @@ class ScAnalyzerWindow(QMainWindow):
         :rtype: None
         '''
         try:
-            #!!! NEED TO PASS IGNORE LIST AND TURN OFF OVERWRITE PREVIOUS
             # initialize scan watcher
             scan_watcher = ScanWatch('Undulator',
                                      int(self.ui.inputYear.text()),
