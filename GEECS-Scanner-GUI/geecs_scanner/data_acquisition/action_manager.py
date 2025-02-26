@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 import time
 import logging
 import yaml
@@ -50,26 +54,24 @@ class ActionManager:
         logging.info(f"Loaded master actions from {actions_file}")
         self.actions = get_all_action_lists(actions)
 
-    def add_action(self, action_name: str, action_steps: dict[str, list]):
+        protected_names = ['setup_action', 'closeout_action', 'test_action']
+        for protected in protected_names:
+            if protected in self.actions.keys():
+                logging.warning(f"Protected action name '{protected}' in use in actions.yaml file!")
+
+    def add_action(self, action_name: str, action_steps: list[ActionStep]):
 
         """
         Add a new action to the default actions list. NOTE, action is not saved
 
         Args:
             action_name (str): Name of the action sequence
-            action_steps (dict): A dictionary containing 'steps':list.
+            action_steps (list): A list of ActionStep objects
 
-        Raises:
-            ValueError: If the action steps dictionary does not contain only 'steps'.
         """
-        # Check that the steps are formatted correctly
-        if 'steps' not in action_steps or len(action_steps) != 1:
-            raise ValueError("Action Steps not formatted correctly")
-
-        # Add the action to the actions dictionary
         self.actions[action_name] = action_steps
 
-    def execute_action(self, action_name):
+    def execute_action(self, action_name: str):
 
         """
         Execute a single action by its name, handling both device actions and nested actions.
@@ -86,25 +88,18 @@ class ActionManager:
             logging.error(message)
             raise ActionError(message)
 
-        action = self.actions[action_name]
-        steps = action['steps']
-
-        for step in steps:
-            if 'wait' in step:
-                self._wait(step['wait'])
-            elif 'action_name' in step:
+        for step in self.actions[action_name]:
+            if step.type == 'wait':
+                self._wait(step.time)
+            elif step.type == 'execute':
                 # Nested action: recursively execute the named action
-                nested_action_name = step['action_name']
-                logging.info(f"Executing nested action: {nested_action_name}")
-                self.execute_action(nested_action_name)
-            else:
+                logging.info(f"Executing nested action: {step.name}")
+                self.execute_action(step.name)
+
+            elif step.type in ['get', 'set']:
                 # Regular device action
-                device_name = step['device']
-                variable = step['variable']
-                action_type = step['action']
-                value = step.get('value')
-                expected_value = step.get('expected_value')
-                wait_for_execution = step.get('wait_for_execution', True)
+                device_name = step.device
+                action_type = step.type
 
                 # Instantiate device if it hasn't been done yet
                 if device_name not in self.instantiated_devices:
@@ -113,9 +108,10 @@ class ActionManager:
                 device = self.instantiated_devices[device_name]
 
                 if action_type == 'set':
-                    self._set_device(device, variable, value, sync = wait_for_execution)
+                    wait_for_execution = True  # TODO not implemented in GUI, but always good to do
+                    self._set_device(device, step.variable, step.value, sync=wait_for_execution)
                 elif action_type == 'get':
-                    self._get_device(device, variable, expected_value)
+                    self._get_device(device, step.variable, step.expected_value)
 
     def clear_action(self, action_name: str):
         """
@@ -130,7 +126,8 @@ class ActionManager:
 
         del self.actions[action_name]
 
-    def _set_device(self, device, variable, value, sync = True):
+    @staticmethod
+    def _set_device(device: GeecsDevice, variable: str, value: Any, sync: bool = True):
         """
         Set a device variable to a specified value.
 
@@ -140,10 +137,11 @@ class ActionManager:
             value (any): The value to set for the variable.
         """
 
-        result = device.set(variable, value, sync = sync)
+        result = device.set(variable, value, sync=sync)
         logging.info(f"Set {device.get_name()}:{variable} to {value}. Result: {result}")
 
-    def _get_device(self, device, variable, expected_value):
+    @staticmethod
+    def _get_device(device: GeecsDevice, variable: str, expected_value: Any):
 
         """
         Get the current value of a device variable and compare it to the expected value.
@@ -163,10 +161,11 @@ class ActionManager:
         else:
             message = f"Get {device.get_name()}:{variable} returned {value}, expected {expected_value}"
             logging.warning(message)
-            if self._prompt_user_quit_action(message):
+            if ActionManager._prompt_user_quit_action(message):
                 raise ActionError(message)
 
-    def _wait(self, seconds):
+    @staticmethod
+    def _wait(seconds: float):
 
         """
         Wait for a specified number of seconds.

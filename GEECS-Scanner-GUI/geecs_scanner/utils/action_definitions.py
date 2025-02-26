@@ -82,7 +82,6 @@ def get_all_action_lists(action_list_dict: dict[str, dict[str, dict]]) -> dict[s
     return action_dict
 
 
-
 if __name__ == '__main__':
     """
     test_array: list[ActionStep] = [SetAction(device='device_1', variable='var_1', value='on'),
