@@ -37,6 +37,12 @@ class ShotControlEditor(QDialog):
 
     def __init__(self, main_window: GEECSScannerWindow, config_folder_path: Union[str, Path],
                  current_config: Optional[str] = None, database_dict: Optional[dict] = None):
+        """
+        :param main_window: reference to the main GUI window
+        :param config_folder_path: folder where shot configuration yaml files are saved for the given experiment
+        :param current_config: the name of the current timing configuration, if one is selected
+        :param database_dict: the experimental database dict containing devices and associated variables
+        """
 
         super().__init__()
 
@@ -117,6 +123,9 @@ class ShotControlEditor(QDialog):
     # # # # Methods for selecting, creating, and deleting available timing system configurations # # # # #
 
     def _get_list_of_configurations(self) -> list[str]:
+        """
+        :return: list of all filenames file files ending with .yaml in the folder for saved timing configurations
+        """
         if self.config_folder_path is None:
             logger.error("No defined path for timing configurations")
             return []

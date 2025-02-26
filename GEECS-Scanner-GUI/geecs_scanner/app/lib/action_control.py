@@ -8,7 +8,7 @@ from geecs_scanner.data_acquisition import ActionManager
 import logging
 
 from ...utils.exceptions import ActionError
-from ...utils.sound_player import action_finish_jingle, action_faled_jingle
+from ...utils.sound_player import action_finish_jingle, action_failed_jingle
 
 
 class ActionControl:
@@ -97,4 +97,4 @@ class ActionControl:
                 action_finish_jingle()
             except ActionError as e:
                 logging.error(e.message)
-                action_faled_jingle()
+                action_failed_jingle()

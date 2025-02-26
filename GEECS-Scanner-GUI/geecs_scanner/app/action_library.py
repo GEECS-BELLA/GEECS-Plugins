@@ -1,6 +1,7 @@
 """
-GUI that can organize a list of presets into a multi-scan script.  This list can be separated into two lists to
-independently set presets for the save device elements
+GUI that shows the list of available actions and allows the user to edit and create these actions.  Additionally, they
+can be assigned to quick-access buttons and be executed in this window.  Allows for complex actions to be scripted and
+executed within the GEECS Scanner framework.
 
 -Chris
 """
@@ -23,11 +24,20 @@ from .lib import ActionControl
 
 
 def get_default_action() -> dict:
+    """
+    :return: The default formatting for an action as saved in yaml files: a dict with an empty list of name 'steps'
+    """
     return {'steps': []}
 
 
 class ActionLibrary(QWidget):
     def __init__(self, main_window: GEECSScannerWindow, database_dict: dict, action_configurations_folder: Union[Path, str]):
+        """ GUI Window that holds all the action library elements
+
+        :param main_window: Reference to the main GEECS Scanner window
+        :param database_dict: Dictionary containing all devices and variables in the experiment
+        :param action_configurations_folder: Folder containing yaml's for the experiment's saved and assigned actions
+        """
         super().__init__()
 
         self.main_window = main_window
@@ -118,6 +128,10 @@ class ActionLibrary(QWidget):
     # # # # # # # # # # # GUI elements for using list of actions and saving/deleting actions # # # # # # # # # # #
 
     def load_action_data(self) -> dict:
+        """ Loads all actions from the actions.yaml file into the `actions_data` instance variable dict
+
+        :return: the dictionary that was loaded
+        """
         self.actions_data = {}
         if self.actions_file.exists():
             with open(self.actions_file) as f:
@@ -126,11 +140,16 @@ class ActionLibrary(QWidget):
         return self.actions_data
 
     def populate_action_list(self):
+        """ Clears the list of available actions and adds all actions within the instance variable dict """
         self.ui.listAvailableActions.clear()
         for action_name in self.actions_data['actions'].keys():
             self.ui.listAvailableActions.addItem(action_name)
 
     def get_selected_name(self) -> Optional[str]:
+        """  Gets the name of the currently-selected action from among the list of actions
+
+        :return: String of selected action name, None if nothing selected
+        """
         selected_action = self.ui.listAvailableActions.selectedItems()
         if not selected_action:
             return None
@@ -139,6 +158,11 @@ class ActionLibrary(QWidget):
             return name
 
     def _prompt_new_action(self, message: str, copy_base: Optional[str] = None):
+        """ Prompts the user for a name when creating a new action or copying an existing action
+
+        :param message: Message displayed on pop-up window
+        :param copy_base: Optional name of existing action to be copied, ignored if not given
+        """
         text, ok = QInputDialog.getText(self, 'New Action', message)
         if ok and text:
             name = str(text).strip()
@@ -161,10 +185,11 @@ class ActionLibrary(QWidget):
             self.populate_action_list()
 
     def create_new_action(self):
-        """ Creates a new entry in composite_variables.yaml file with a user-specified name """
+        """ Creates a new action in the instance variable dict with a user-specified name """
         self._prompt_new_action(message="Enter name for new action:")
 
     def copy_action(self):
+        """ Creates a new action as a copy of the currently-selected action """
         copy_base = self.get_selected_name()
         if copy_base not in self.actions_data['actions']:
             return
@@ -172,6 +197,7 @@ class ActionLibrary(QWidget):
         self._prompt_new_action(message=f"Enter name for copy of '{copy_base}':", copy_base=copy_base)
 
     def delete_selected_action(self):
+        """ Prompts the user if they want to delete the selected action, doing so if they reply 'yes' """
         name = self.get_selected_name()
         if not name or name not in self.actions_data['actions']:
             logging.warning(f"No valid action to delete.")
@@ -199,12 +225,15 @@ class ActionLibrary(QWidget):
     # # # # # # # # # # # GUI elements for interacting with the list of steps # # # # # # # # # # #
 
     def change_action_selection(self):
+        """ Refreshes the list of steps when a step is added or deleted, or when the action selection changes """
         self.update_action_list()
         self.update_action_display()
 
     def update_action_list(self, index: Optional[int] = None):
-        """Updates the visible list of actions on the GUI according to the current state of the action dictionary"""
+        """ Updates the visible list of actions on the GUI according to the current state of the action dictionary.
 
+        :param index: Optional, if given then the current selection is updated to this index after refreshing
+        """
         self.ui.listActionSteps.clear()
         if name := self.get_selected_name():
             for item in self.actions_data['actions'][name]['steps']:
@@ -214,8 +243,8 @@ class ActionLibrary(QWidget):
                 self.ui.listActionSteps.setCurrentRow(index)
 
     def add_action(self):
-        """Appends action to the end of either the setup or closeout action list based on the currently-selected
-        radio button.  The action is specified by the action line edit."""
+        """ Appends action to the end of either the setup or closeout action list based on the currently-selected
+        radio button.  The action is specified by the action line edit. """
         if text := self.ui.lineActionType.text().strip():
             if name := self.get_selected_name():
                 self.actions_data['actions'][name]['steps'].append(ActionControl.get_new_action(text))
@@ -223,7 +252,7 @@ class ActionLibrary(QWidget):
                 self.change_action_selection()
 
     def remove_action(self):
-        """Removes the currently-selected action from the list of actions"""
+        """ Removes the currently-selected action from the list of actions """
         if index := self.get_selected_step_index():
             name = self.get_selected_name()
             if index >= 0 and name:
@@ -232,7 +261,7 @@ class ActionLibrary(QWidget):
             self.change_action_selection()
 
     def update_action_display(self):
-        """Updates the visible list of information based on the currently-selected action"""
+        """ Updates the visible list of information based on the currently-selected action """
         self.action_mode = ''
         self.ui.labelActionOption1.setText("")
         self.ui.labelActionOption2.setText("")
@@ -341,6 +370,8 @@ class ActionLibrary(QWidget):
     # # # # # # # # # # # GUI elements for Execute, Save, Revert, and Close buttons # # # # # # # # # # #
 
     def toggle_execution_enable(self):
+        """ In an effort to avoid accidental clicks, the "execute action" buttons are only enabled once the user
+         checks this box.  If this is the first time the box is checked, an ActionControl instance is created """
         self.enable_execute = bool(self.ui.checkboxEnableExecute.isChecked() and self.main_window.experiment)
 
         self.ui.buttonExecuteAction.setEnabled(self.enable_execute)
@@ -351,6 +382,10 @@ class ActionLibrary(QWidget):
             self.action_control = ActionControl(experiment_name=self.main_window.experiment)
 
     def execute_action(self, name: Optional[str] = None):
+        """ Executes an action by sending the contents of the instance variable dict to ActionControl
+
+        :param name: Optional name for action to execute.  If None given, will try the currently-selected action
+        """
         name = name or self.get_selected_name()
         if name is None or name not in self.actions_data['actions']:
             return
@@ -361,19 +396,21 @@ class ActionLibrary(QWidget):
                 self.action_control.perform_action(self.actions_data['actions'][name])
 
     def save_all_changes(self):
+        """ Save the current version of the instance variable dict to the actions.yaml file """
         reply = QMessageBox.question(self, "Save Actions", f"Save all changes to {self.actions_file.name}?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             write_updated_file(filename=self.actions_file, dictionary=self.actions_data)
 
     def discard_all_changes(self):
+        """ Replace the current version of the instance variable dict with the contents of the actions.yaml file """
         reply = QMessageBox.question(self, "Discard Changes", f"Discard all unsaved changes?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             self.load_action_data()
 
     def closeEvent(self, event):
-        # Save changes to list of assigned actions:
+        """ When closing this window, saved assigned actions to its yaml file and tell the main window we've exited """
         updated_names = []
         for action in self.assigned_action_list:
             updated_names.append(action.get_name())
@@ -385,8 +422,7 @@ class ActionLibrary(QWidget):
     # # # # # # # # # # # Code to set up the assigned actions # # # # # # # # # # #
 
     def populate_assigned_action_list(self):
-        """ Called once when the  """
-        # Read yaml file to get current list of assigned actions
+        """ Upon opening this GUI, read the assigned actions yaml file for the assigned actions from last time """
         assigned_action_dict = {}
         if self.assigned_action_file.exists():
             with open(self.assigned_action_file) as file:
@@ -400,11 +436,13 @@ class ActionLibrary(QWidget):
         self.refresh_assigned_action_gui()
 
     def add_assigned_action(self):
+        """ Add an action to the list of assigned actions, creating a row of GUI elements in the process """
         if name := self.get_selected_name():
             self.assigned_action_list.append(AssignedAction(parent_gui=self, action_name=name))
             self.refresh_assigned_action_gui()
 
     def refresh_assigned_action_gui(self):
+        """ Refreshes the GUI elements to reflect current list of assigned actions, moving elements as needed """
         y_position = self.ui.line_2.pos().y() + 40
         color_flag = True
         updated_list: list[AssignedAction] = []
@@ -428,7 +466,17 @@ class ActionLibrary(QWidget):
 
 
 class AssignedAction:
+    """
+    A GUI class that represents a single assigned action.  This includes a "reassign button, a delete button, an execute
+    button, and a text box that displays the name of the assigned action.
+    """
+
+    # noinspection PyUnresolvedReferences
     def __init__(self, parent_gui: ActionLibrary, action_name: str):
+        """
+        :param parent_gui: The "ActionLibrary" gui instance that spawned this AssignedAction
+        :param action_name: stored action for this instance
+        """
         self.parent = parent_gui
         self.action_name = action_name
 
@@ -469,12 +517,19 @@ class AssignedAction:
             widget.move(widget.pos().x(), y_pos)
 
     def set_color(self, flag: bool):
+        """ Sets the color of the text box to be either white or lightgray, according to an alternating pattern in
+         `refresh_assigned_action_gui()`
+
+        :param flag: True for white, False for light gray
+        """
         if flag:
             self.lineName.setStyleSheet("background-color: white; color: black")
         else:
             self.lineName.setStyleSheet("background-color: lightgray; color: black")
 
     def reassign_self(self):
+        """ Give a new name to this instance of AssignedAction, without deleting the buttons.  Uses current selection
+         in ActionLibrary's list widget """
         new_name = self.parent.get_selected_name()
         if not new_name:
             return
@@ -483,6 +538,7 @@ class AssignedAction:
         self.lineName.setText(self.action_name)
 
     def remove_self(self):
+        """ Deletes itself and removes all associated widgets from memory, then calls ActionLibrary's refresh """
         self.action_name = ""
 
         for widget in self.widgets:
@@ -493,6 +549,7 @@ class AssignedAction:
         self.parent.refresh_assigned_action_gui()
 
     def execute_action(self):
+        """ Passes the assigned action name to ActionLibrary's `execute` function """
         self.parent.execute_action(name=self.action_name)
 
     def get_name(self) -> str:

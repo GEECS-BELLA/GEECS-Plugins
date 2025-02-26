@@ -17,6 +17,10 @@ class ApplicationPaths:
     ACTION_LIBRARY_FOLDER = "action_library"
 
     def __init__(self, experiment: str, create_new: bool = True):
+        """
+        :param experiment: Name of the experiment, required for building paths
+        :param create_new: If true, creates all variable instances that are Paths if they don't yet exist, defaults True
+        """
         if experiment == "":
             raise ValueError("Cannot set empty experiment in Application Paths")
 

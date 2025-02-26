@@ -23,6 +23,10 @@ from ..utils import multiscan_finish_jingle
 
 class MultiScanner(QWidget):
     def __init__(self, main_window: GEECSScannerWindow, multiscan_configurations_location: Union[Path, str]):
+        """
+        :param main_window: Reference to the main window GUI
+        :param multiscan_configurations_location: folder where multiscan presets are saved
+        """
         super().__init__()
 
         self.main_window = main_window
@@ -317,6 +321,7 @@ class MultiScanner(QWidget):
             self.ui.checkBoxEnableScanList.setChecked(False)
             self.scan_preset_list = []
 
+    # noinspection PyUnresolvedReferences
     def start_multiscan(self):
         """Initializes a thread to periodically send presets and start scan commands to GEECS Scanner."""
         self.ui.buttonStartMultiscan.setEnabled(False)
@@ -372,7 +377,7 @@ class MultiScanner(QWidget):
             info += f" --> {scan_presets[current_position]}"
 
         self.main_window.ui.textEditScanInfo.setText(info)
-        self.main_window.initialize_scan()
+        self.main_window.initialize_and_start_scan()
 
         logging.info("Next Scan Initialized")
 

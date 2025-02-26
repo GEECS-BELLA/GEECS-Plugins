@@ -128,7 +128,7 @@ class SaveElementEditor(QDialog):
         self.ui.buttonPerformPostscanActions.setEnabled(False)
         self.ui.buttonEnableActions.clicked.connect(self.initialize_action_control)
         self.ui.buttonPerformSetupActions.clicked.connect(self.perform_setup_actions)
-        self.ui.buttonPerformPostscanActions.clicked.connect(self.perform_postscan_actions)
+        self.ui.buttonPerformPostscanActions.clicked.connect(self.perform_closeout_actions)
 
         # Buttons at the bottom to save, open, and close
         self.ui.buttonWindowSave.clicked.connect(self.save_element)
@@ -527,6 +527,7 @@ class SaveElementEditor(QDialog):
         self.update_action_list(index=new_position)
 
     def initialize_action_control(self):
+        """ Initialize an instance of action control and enable the ability to send execution commands """
         if self.config_folder is None:
             logging.error("No defined path for save devices")
             return
@@ -538,9 +539,11 @@ class SaveElementEditor(QDialog):
         self.ui.buttonPerformPostscanActions.setEnabled(True)
 
     def perform_setup_actions(self):
+        """ Sends an execute action command for the setup actions """
         self.action_control.perform_action({'steps': self.actions_dict['setup']})
 
-    def perform_postscan_actions(self):
+    def perform_closeout_actions(self):
+        """ Sends an execute action command for the close-out actions """
         self.action_control.perform_action({'steps': self.actions_dict['closeout']})
 
     def save_element(self):

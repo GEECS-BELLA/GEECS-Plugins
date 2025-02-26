@@ -1,3 +1,7 @@
+"""
+Small script to convert a png image to an ico file, which is needed for setting the Windows icon for the application
+"""
+
 from PIL import Image
 from pathlib import Path
 
