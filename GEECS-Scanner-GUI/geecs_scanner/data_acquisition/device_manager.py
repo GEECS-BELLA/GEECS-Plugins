@@ -181,6 +181,10 @@ class DeviceManager:
             device_name (str): The name of the device.
             scan_setup (dict): Dictionary containing scan setup actions and their corresponding setup/closeout values.
         """
+
+        raise NotImplementedError("Function 'append_device_setup_closeout_actions' not implemented for ActionStep.")
+        # TODO this seems very weird...need to see an example of how this is used to properly refactor with ActionStep
+        """
         # Iterate over each key in the 'scan_setup' dictionary
         for analysis_type, values in scan_setup.items():
             # Ensure the setup and closeout values exist in the 'scan_setup'
@@ -212,6 +216,7 @@ class DeviceManager:
 
             logging.info(
                 f"Added setup and closeout actions for {device_name}: {analysis_type} (setup={setup_value}, closeout={closeout_value})")
+        """
 
     def is_statistic_noscan(self, variable_name):
         """
