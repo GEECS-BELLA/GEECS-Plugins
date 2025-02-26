@@ -18,11 +18,12 @@ import configparser
 import logging
 from importlib.metadata import version
 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QCompleter, QMessageBox
-from PyQt5.QtCore import Qt, QEvent, QTimer, QUrl
+from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QMessageBox
+from PyQt5.QtCore import QEvent, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices, QIcon
 from .gui.GEECSScanner_ui import Ui_MainWindow
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
+from .lib.gui_utilities import display_completer_list
 from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor, ActionLibrary
 from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
 from ..utils.exceptions import ConflictingScanElements
@@ -209,13 +210,16 @@ class GEECSScannerWindow(QMainWindow):
     def eventFilter(self, source, event):
         """ Creates a custom event for text boxes so that the completion suggestions are shown when mouse is clicked """
         if event.type() == QEvent.MouseButtonPress and source == self.ui.experimentDisplay and self.ui.experimentDisplay.isEnabled():
-            self.show_experiment_list()
+            experiment_names = [f.stem for f in AppPaths.BASE_PATH.iterdir() if f.is_dir()]
+            display_completer_list(self, self.ui.experimentDisplay, experiment_names)
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineScanVariable and self.ui.lineScanVariable.isEnabled():
-            self.show_scan_device_list()
+            display_completer_list(self, self.ui.lineScanVariable, self.scan_variable_list + self.scan_composite_list,
+                                   max_visible_lines=30)
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineTimingDevice and self.ui.lineTimingDevice.isEnabled():
-            self.show_timing_configuration_list()
+            if configuration_names := self.get_list_timing_configurations():
+                display_completer_list(self, self.ui.lineTimingDevice, configuration_names)
             return True
         return super().eventFilter(source, event)
 
@@ -439,19 +443,6 @@ class GEECSScannerWindow(QMainWindow):
             config.set(section, option, text)
         return config
 
-    def show_experiment_list(self):
-        """
-        Displays the found experiments in the ./experiments/ subfolder for selecting experiment
-        """
-        folders = [f.stem for f in AppPaths.BASE_PATH.iterdir() if f.is_dir()]
-        completer = QCompleter(folders, self)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-
-        self.ui.experimentDisplay.setCompleter(completer)
-        self.ui.experimentDisplay.setFocus()
-        completer.complete()
-
     def experiment_selected(self, force_update=False):
         """
         Upon selecting the experiment, reset the list of save devices and scan devices and reinitialize Run Control
@@ -503,22 +494,19 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.repititionRateDisplay.setText("N/A")
             self.repetition_rate = 0
 
-    def show_timing_configuration_list(self):
-        """ Shows list of available timing device configurations """
+    def get_list_timing_configurations(self) -> Optional[list[str]]:
+        """
+        Gets list of available timing device configurations
+
+        :return: None if path not defined, otherwise returns list of yaml files in timing configuration folder
+        """
         if self.app_paths is None:
             logging.error("No defined paths for timing configurations")
-            return
+            return None
 
         config_folder_path = self.app_paths.shot_control()
         if config_folder_path.exists():
-            files = [f.stem for f in config_folder_path.iterdir() if f.suffix == ".yaml"]
-            completer = QCompleter(files, self)
-            completer.setCompletionMode(QCompleter.PopupCompletion)
-            completer.setCaseSensitivity(Qt.CaseInsensitive)
-
-            self.ui.lineTimingDevice.setCompleter(completer)
-            self.ui.lineTimingDevice.setFocus()
-            completer.complete()
+            return [f.stem for f in config_folder_path.iterdir() if f.suffix == ".yaml"]
 
     def update_shot_control_device(self):
         """ Updates the shot control device when it is changed in the text box, then reinitializes Run Control """
@@ -770,9 +758,6 @@ class GEECSScannerWindow(QMainWindow):
         except FileNotFoundError as e:
             logging.error(f"Error loading file: {e}")
 
-        completer = QCompleter(self.scan_variable_list + self.scan_composite_list, self.ui.lineScanVariable)
-        self.ui.lineScanVariable.setCompleter(completer)
-
     def read_device_tag_from_nickname(self, name: str):
         """
         Given a string, use it as a key in the scan_devices.yaml file and return the associated GEECS variable name.
@@ -790,17 +775,6 @@ class GEECSScannerWindow(QMainWindow):
 
         except Exception as e:
             logging.error(f"Error loading scan_devices.yaml file: {e}")
-
-    def show_scan_device_list(self):
-        """Displays the list of scan devices when the user interacts with the scan variable selection text box"""
-        completer = QCompleter(self.scan_variable_list + self.scan_composite_list, self)
-        completer.setMaxVisibleItems(30)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-
-        self.ui.lineScanVariable.setCompleter(completer)
-        self.ui.lineScanVariable.setFocus()
-        completer.complete()
 
     def check_scan_device(self):
         """Checks what is inputted into the scan variable selection box against the list of scan variables.  Otherwise,
