@@ -34,4 +34,6 @@ single_scan_devices:
   VS4H: U_VS4H:Current
   VS4V: U_VS4V:Current
   gas jet start time: U_DG645_ShotControl:Delay.Ch A
+  haso stage: U_Zaber:Position.Ch1
   jet opening time: U_DG645_ShotControl:Delay.Ch B
+  probe cam stage: U_ProbeCamStage:Position
