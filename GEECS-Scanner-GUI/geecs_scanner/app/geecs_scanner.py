@@ -815,15 +815,19 @@ class GEECSScannerWindow(QMainWindow):
 
     def build_shot_array(self) -> list[int]:
         """Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot."""
-        if (self.scan_stop - self.scan_start) / self.scan_step_size * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
+        if abs((self.scan_stop - self.scan_start) / self.scan_step_size) * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
             return []
         else:
             array = []
             current = self.scan_start
-            while ((self.scan_step_size > 0 and current <= self.scan_stop)
-                   or (self.scan_step_size < 0 and current >= self.scan_stop)):
+            positive = self.scan_start < self.scan_stop
+            while ((positive and current <= self.scan_stop)
+                   or (not positive and current >= self.scan_stop)):
                 array.extend([current] * self.scan_shot_per_step)
-                current = round(current + self.scan_step_size, 10)
+                if positive:
+                    current = round(current + abs(self.scan_step_size), 10)
+                else:
+                    current = round(current - abs(self.scan_step_size), 10)
             return array
 
     def update_noscan_num_shots(self):
