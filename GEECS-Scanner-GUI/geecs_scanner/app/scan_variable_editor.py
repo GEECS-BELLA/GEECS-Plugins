@@ -144,11 +144,11 @@ class ScanVariableEditor(QDialog):
         # Device name completer prompts
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableDevice:
             display_completer_list(self, location=self.ui.lineVariableDevice,
-                                   completer_list=sorted(self.database_dict.keys()))
+                                   completer_list=list(self.database_dict.keys()))
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineCompositeDevice:
             display_completer_list(self, location=self.ui.lineCompositeDevice,
-                                   completer_list=sorted(self.database_dict.keys()))
+                                   completer_list=list(self.database_dict.keys()))
             return True
 
         # Variable name completer prompts

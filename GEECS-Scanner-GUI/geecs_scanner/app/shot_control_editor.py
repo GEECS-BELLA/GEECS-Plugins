@@ -111,13 +111,13 @@ class ShotControlEditor(QDialog):
             self.dummyButton.setDefault(True)
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineDeviceName:
-            display_completer_list(self, self.ui.lineDeviceName, sorted(self.database_dict.keys()))
+            display_completer_list(self, self.ui.lineDeviceName, list(self.database_dict.keys()))
             self.dummyButton.setDefault(True)
             return True
         if source == self.ui.lineVariableName and event.type() == QEvent.MouseButtonPress:
             if self.device_name in self.database_dict.keys():
                 display_completer_list(self, self.ui.lineVariableName,
-                                       sorted(self.database_dict[self.device_name].keys()))
+                                       list(self.database_dict[self.device_name].keys()))
                 self.ui.buttonAddVariable.setDefault(True)
             return True
         return super().eventFilter(source, event)

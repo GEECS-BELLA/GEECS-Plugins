@@ -152,7 +152,7 @@ class SaveElementEditor(QDialog):
             return True
         elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineDeviceName:
             display_completer_list(self, location=self.ui.lineDeviceName,
-                                   completer_list=sorted(self.database_dict.keys()))
+                                   completer_list=list(self.database_dict.keys()))
             self.ui.buttonAddDevice.setDefault(True)
             return True
         elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableName:
@@ -162,7 +162,7 @@ class SaveElementEditor(QDialog):
         elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1
               and self.action_mode in ['set', 'get']):
             display_completer_list(self, location=self.ui.lineActionOption1,
-                                   completer_list=sorted(self.database_dict.keys()))
+                                   completer_list=list(self.database_dict.keys()))
             self.dummyButton.setDefault(True)
             return True
         elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2

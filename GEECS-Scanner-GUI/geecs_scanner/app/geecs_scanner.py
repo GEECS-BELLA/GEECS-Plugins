@@ -213,8 +213,10 @@ class GEECSScannerWindow(QMainWindow):
             display_completer_list(self, self.ui.experimentDisplay, experiment_names)
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineScanVariable and self.ui.lineScanVariable.isEnabled():
-            display_completer_list(self, self.ui.lineScanVariable, self.scan_variable_list + self.scan_composite_list,
-                                   max_visible_lines=30)
+            full_list = (sorted(self.scan_variable_list, key=lambda s: s.lower()) +
+                         sorted(self.scan_composite_list, key=lambda s: s.lower()))
+            display_completer_list(self, self.ui.lineScanVariable, full_list,
+                                   max_visible_lines=30, alphabetical_sorting=False)
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineTimingDevice and self.ui.lineTimingDevice.isEnabled():
             if configuration_names := self.get_list_timing_configurations():
