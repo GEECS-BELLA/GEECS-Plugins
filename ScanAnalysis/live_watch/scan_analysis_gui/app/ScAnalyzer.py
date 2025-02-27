@@ -227,10 +227,7 @@ class ScAnalyzerWindow(QMainWindow):
         -------
         None
         '''
-        if self.ui.buttonOverwrite.isChecked():
-            self.ui.inputStartScan.setEnabled(True)
-        else:
-            self.ui.inputStartScan.setEnabled(False)
+        self.ui.inputStartScan.setEnabled(self.ui.buttonOverwrite.isChecked())
 
     def event_start_button_clicked(self) -> None:
         '''
