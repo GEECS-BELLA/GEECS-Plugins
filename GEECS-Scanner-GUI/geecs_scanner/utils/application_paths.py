@@ -14,8 +14,13 @@ class ApplicationPaths:
     PRESET_FOLDER = "scan_presets"
     MULTISCAN_FOLDER = "multiscan_presets"
     SHOT_CONTROL_FOLDER = "shot_control_configurations"
+    ACTION_LIBRARY_FOLDER = "action_library"
 
     def __init__(self, experiment: str, create_new: bool = True):
+        """
+        :param experiment: Name of the experiment, required for building paths
+        :param create_new: If true, creates all variable instances that are Paths if they don't yet exist, defaults True
+        """
         if experiment == "":
             raise ValueError("Cannot set empty experiment in Application Paths")
 
@@ -26,6 +31,7 @@ class ApplicationPaths:
         self.exp_presets = self.exp_path / self.PRESET_FOLDER
         self.exp_multiscan = self.exp_path / self.MULTISCAN_FOLDER
         self.exp_shot_control = self.exp_path / self.SHOT_CONTROL_FOLDER
+        self.exp_action_library = self.exp_path / self.ACTION_LIBRARY_FOLDER
 
         if create_new:
             for attr_name in dir(self):
@@ -91,3 +97,7 @@ class ApplicationPaths:
     def shot_control(self) -> Path:
         """ :return: folder for the timing configuration yaml's """
         return self.exp_shot_control
+
+    def action_library(self) -> Path:
+        """ :return: folder for the action library yaml's """
+        return self.exp_action_library

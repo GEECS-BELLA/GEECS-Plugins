@@ -1,0 +1,13 @@
+Devices:
+- BCaveMagSpec
+- Energy Meters
+- Frog_stuff
+- Haso_lift
+- U_BCaveICT
+Info: pressure scan
+Scan Mode: 1D Scan
+Shot per Step: 10
+Start: 1.5
+Step Size: 0.1
+Stop: 2.5
+Variable: Gas Pressure

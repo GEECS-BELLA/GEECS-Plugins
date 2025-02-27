@@ -33,8 +33,8 @@ check_poetry_env() {
 # GLOBAL VARIABLES
 ###############################################################################
 
-BASE_PATH="C:/GEECS/Developers Version/source/GEECS-Plugins/ScanAnalysis"
-#BASE_PATH='Z:/software/control-all-loasis/HTU/Active Version/GEECS-Plugins/ScanAnalysis'
+#BASE_PATH="C:/GEECS/Developers Version/source/GEECS-Plugins/ScanAnalysis"
+BASE_PATH='Z:/software/control-all-loasis/HTU/Active Version/GEECS-Plugins/ScanAnalysis'
 
 GUI_PATH=$BASE_PATH"/live_watch/scan_analysis_gui"
 
