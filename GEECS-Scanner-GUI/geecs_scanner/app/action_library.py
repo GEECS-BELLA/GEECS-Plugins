@@ -131,7 +131,7 @@ class ActionLibrary(QWidget):
 
         :return: the dictionary that was loaded
         """
-        self.actions_data = {}
+        self.actions_data = {'actions': {}}
         if self.actions_file.exists():
             self.actions_data = read_yaml_file_to_dict(self.actions_file)
         self.populate_action_list()

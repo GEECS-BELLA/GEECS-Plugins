@@ -74,7 +74,6 @@ class ScanVariableEditor(QDialog):
         # TODO if config_folder is None, don't set file paths and put dialog in a limited operation mode
         self.file_variables = config_folder / "scan_devices.yaml"
         self.file_composite = config_folder / "composite_variables.yaml"
-        # TODO If the two yaml files do not exist, go ahead and make new, blank files
 
         # Initialize dictionaries for the scan variables and composite variables
         self.scan_variable_data = {}
@@ -173,8 +172,8 @@ class ScanVariableEditor(QDialog):
 
     def update_variable_information_from_files(self):
         """ Loads the data from the two yaml files and populates the lists of nicknames """
-        self.scan_variable_data = {}
-        self.scan_composite_data = {}
+        self.scan_variable_data = {'single_scan_devices': {}}
+        self.scan_composite_data = {'composite_variables': {}}
 
         try:
             self.scan_variable_data = read_yaml_file_to_dict(self.file_variables)
