@@ -399,6 +399,9 @@ class ActionLibrary(QWidget):
         if reply == QMessageBox.Yes:
             write_dict_to_yaml_file(filename=self.actions_file, dictionary=self.actions_data)
 
+            if self.action_control:
+                self.action_control = ActionControl(experiment_name=self.main_window.experiment)
+
     def discard_all_changes(self):
         """ Replace the current version of the instance variable dict with the contents of the actions.yaml file """
         reply = QMessageBox.question(self, "Discard Changes", f"Discard all unsaved changes?",
