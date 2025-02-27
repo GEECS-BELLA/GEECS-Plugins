@@ -94,12 +94,12 @@ class GeecsPathsConfig:
         if experiment is None or base_path is None:
             raise ConfigurationError(f"Could not set experiment name and base path. Check config file {config_path}")
 
-        self.base_path = base_path.resolve()
+        self.base_path = base_path  # .resolve()
         self.experiment = experiment
 
     def is_default_server_address(self) -> bool:
         """ Returns True if the base directory is equivalent to the default server address """
-        default_path = self.get_default_server_address(self.experiment).resolve()
+        default_path = self.get_default_server_address(self.experiment)  # .resolve()
         return self.base_path == default_path
 
     @staticmethod
