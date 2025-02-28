@@ -6,8 +6,10 @@ Child to ScanAnalysis (./scan_analysis/base.py)
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
+
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
+    from numpy.typing import NDArray
 
 from pathlib import Path
 import logging
@@ -15,7 +17,7 @@ import pandas as pd
 
 from scan_analysis.base import ScanAnalysis
 import scan_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
-
+from image_analysis.analyzers.HASO_himg_has_processor import HASOHimgHasProcessor, FilterParameters
 
 class HasoAnalysis(ScanAnalysis):
     """
@@ -54,13 +56,17 @@ class HasoAnalysis(ScanAnalysis):
             'data_img': Path(self.scan_directory) / device_name,
             'save': self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / device_name / "HasoAnalysis",
         }
-        
-        config_file_path = 'scan_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat'
-        
-        self.instantiate_wavekit_resources(config_file_path = config_file_path)
 
-        self._log_info(f"Initialized HasoAnalysis for device '{device_name}' with scan directory '{self.scan_directory}'")
-        
+        # config_file_path = '../../third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat'
+        #
+        # self.instantiate_wavekit_resources(config_file_path = config_file_path)
+        #
+        # self._log_info(f"Initialized HasoAnalysis for device '{device_name}' with scan directory '{self.scan_directory}'")
+
+        self.path_to_bkg_has_file = None
+        self.haso_processor = HASOHimgHasProcessor(background_path=self.path_to_bkg_has_file)
+        self.haso_processor.filter_params = FilterParameters(apply_tiltx_filter=True, apply_tilty_filter=True,
+                                                        apply_curv_filter=True)
     
     def instantiate_wavekit_resources(self, config_file_path: Path):
         
@@ -163,14 +169,19 @@ class HasoAnalysis(ScanAnalysis):
 
             if himg_file:
                 self._log_info(f"Found .himg file for shot {shot_num}: {himg_file}")
-                df = self.get_phase_from_himg(himg_file)
+                result = self.haso_processor.analyze_image(himg_file)
+                base_file_path = himg_file.stem
             else:
                 if has_file:
                     self._log_info(f"No .himg file found for shot {shot_num}. Using existing slopes file: {has_file}")
-                    df = self.compute_phase_from_slopes(has_file)
+                    result = self.haso_processor.analyze_image(has_file)
+                    base_file_path = has_file.stem
                 else:
                     self._log_warning(f"Missing data for shot {shot_num}. Neither .himg nor .has file exists.")
                     continue  # Skip to next shot
+            if result:
+                df = self.process_haso_data(result=result, base_file_path=base_file_path)
+
 
             # Convert DataFrame to numpy array for efficient arithmetic.
             data = df.to_numpy()
@@ -189,6 +200,37 @@ class HasoAnalysis(ScanAnalysis):
         else:
             self._log_warning("No phase data available to average.")
 
+    def process_haso_data(self, result, base_file_path):
+        # Unpack the returned tuple.
+        raw_slopes, processed_slopes, raw_phase, processed_phase, intensity = result
+        self.save_individual_results(result, base_file_path)
+        return pd.DataFrame(raw_phase)
+
+    def save_individual_results(self,result, base_file_path):
+        # Unpack the returned tuple.
+        raw_slopes, processed_slopes, raw_phase, processed_phase, intensity = result
+
+        self.slopes_file_path_raw = self.path_dict['save'] / f"{base_file_path}_raw.has"
+        self.slopes_file_path_postprocessed = self.path_dict['save'] / f"{base_file_path}_postprocessed.has"
+
+        self.save_slopes_file(slopes_data = raw_slopes, save_path = self.slopes_file_path_raw)
+        self.save_slopes_file(slopes_data = processed_slopes, save_path = self.slopes_file_path_postprocessed)
+
+        self.raw_phase_file_path = self.path_dict['save'] / f"{base_file_path}_raw.tsv"
+        self.processed_phase_file_path = self.path_dict['save'] / f"{base_file_path}_postprocessed.tsv"
+        self.intensity_file_path = self.path_dict['save'] / f"{base_file_path}_intensity.tsv"
+
+        self.save_phase_file(phase_values = raw_phase, save_path = self.raw_phase_file_path)
+        self.save_phase_file(phase_values = processed_phase, save_path = self.processed_phase_file_path)
+        self.save_phase_file(phase_values = intensity, save_path = self.intensity_file_path)
+
+    def save_slopes_file(self, slopes_data: HasoSlopes, save_path: Path):
+        slopes_data.save_to_file(str(save_path), '', '')
+
+    def save_phase_file(self, phase_values: float|NDArray, save_path: Path):
+        df = pd.DataFrame(phase_values)
+        df.to_csv(save_path, sep="\t", index=False, header=False)
+
     def run_scan_analysis(self) -> None:
         """
         Perform analysis for a scan scenario.
@@ -197,117 +239,9 @@ class HasoAnalysis(ScanAnalysis):
         self._log_info("Delegating scan analysis to no-scan analysis.")
         self.run_noscan_analysis()
 
-    def create_slopes_file(self, image_file_path: Path) -> Path:
-        """
-        Compute and save the slopes file (.has) from the provided image file.
-
-        Args:
-            image_file_path (Path): Path to the .himg file.
-
-        Returns:
-            Path: The path to the created slopes file (.has).
-        """
-        self._log_info(f"Creating slopes file for image: {image_file_path}")
-        image_file_str = str(image_file_path)
-
-        try:
-            # Create the necessary Wavekit objects.
-            image = wkpy.Image(image_file_path=image_file_str)
-        except Exception as e:
-            self._log_warning(
-                "Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file")
-            return None
-
-        base_name = image_file_path.stem
-        self.slopes_file_path_raw = self.path_dict['save'] / f"{base_name}_raw.has"
-        self.slopes_file_path_postprocessed = self.path_dict['save'] / f"{base_name}_postprocessed.has"
-        
-        # Compute slopes and save the slopes file.
-        learn_from_trimmer = False
-        _, hasoslopes = self.hasoengine.compute_slopes(image, learn_from_trimmer)
-       
-        hasoslopes.save_to_file(str(slopes_file_path_raw), '', '')
-        self._log_info(f"Slopes file saved: {slopes_file_path_raw}")
-        
-        hasoslopes = self.post_process_slopes(hasoslopes)
-        hasoslopes.save_to_file(str(slopes_file_path_postprocessed), '', '')
-        self._log_info(f"Slopes file saved: {slopes_file_path_postprocessed}")
-
-        base_name = slopes_file_path.stem
-        tsv_file_path = self.path_dict['save'] / f"{base_name}_intensity.tsv"
-        
-        haso_intensity = wkpy.Intensity(hasoslopes = hasoslopes)
-        intensity = haso_intensity.get_data()[0]
-        df = pd.DataFrame(intensity)
-        df.to_csv(tsv_file_path, sep="\t", index=False, header=False)
-        self._log_info(f"intensity data saved to TSV file: {tsv_file_path}")
-        
-        return slopes_file_path_raw
-
-    def compute_phase_from_slopes(self, slopes_file_path: Path) -> pd.DataFrame:
-        """
-        Compute phase data from the provided slopes file (.has) and save the result as a TSV.
-
-        Args:
-            slopes_file_path (Path): Path to the slopes (.has) file.
-
-        Returns:
-            DataFrame: The computed phase data.
-        """
-        self._log_info(f"Computing phase data from slopes file: {slopes_file_path}")
-        base_name = slopes_file_path.stem
-        tsv_file_path = self.path_dict['save'] / f"{base_name}.tsv"
-
-        hasodata = wkpy.HasoData(has_file_path=str(slopes_file_path))
-
-        phase = wkpy.Compute.phase_zonal(self.compute_phase_set, hasodata)
-
-        phase_values = phase.get_data()[0]
-        df = pd.DataFrame(phase_values)
-        df.to_csv(tsv_file_path, sep="\t", index=False, header=False)
-        self._log_info(f"Phase data saved to TSV file: {tsv_file_path}")
-        return df
-        
-    def post_process_slopes(self, hasoslopes_to_modify: HasoSlopes, background_path: Optional[Path] = None) -> HasoSlopes:
-        
-        hasoslopes = self.reference_subtract(hasoslopes_to_modify, background_path)
-        hasoslopes = self.post_processor.apply_filter(hasoslopes, True, True, True, False, False, False)
-
-        return hasoslopes
-    
-    def reference_subtract(hasoslopes_to_modify: HasoSlopes, background_path: Optional[Path] = None) -> HasoSlopes:
-        if background_path:
-            bkg_data = wkpy.HasoSlopes(has_file_path=str(background_path))
-            bkg_subtracted = self.post_processor.apply_substractor(hasoslopes_to_modify, bkg_data)
-            return bkg_subtracted
-        else:
-            return hasoslopes_to_modify
-            
-    def get_phase_from_himg(self, image_file_path: Path, use_raw_slopes: Bool = True) -> pd.DataFrame:
-        """
-        Process a .himg file by computing the slopes file and then the phase data.
-
-        Args:
-            image_file_path (Path): Path to the .himg file.
-
-        Returns:
-            DataFrame: The computed phase data.
-        """
-        self._log_info(f"Starting phase analysis for image file: {image_file_path}")
-        self.create_slopes_file(image_file_path)
-        
-        if use_raw_slopes:
-            df = self.compute_phase_from_slopes(self.slopes_file_path_raw)
-        else:
-            df = self.compute_phase_from_slopes(self.slopes_file_path_postprocessed)
-            
-        self._log_info(f"Completed phase analysis for image file: {image_file_path}")
-        return df
-
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     from geecs_python_api.analysis.scans.scan_data import ScanData
-    tag = ScanData.get_scan_tag(year=2025, month=2, day=19, number=3, experiment_name='Undulator')
+    tag = ScanData.get_scan_tag(year=2025, month=2, day=19, number=2, experiment_name='Undulator')
     analyzer = HasoAnalysis(scan_tag=tag, device_name="U_HasoLift", skip_plt_show=True)
     analyzer.run_analysis()
