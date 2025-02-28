@@ -1,0 +1,24 @@
+visa4:
+  yag_screen: True
+  center_yx: [1000, 1750]
+  calibration_dates:
+    crop_region: '02/13/2025'
+    incoherent: 'NA'
+    wavelength: 'NA'
+
+visa5:
+  yag_screen: True
+  center_yx: [1100, 1800]
+  calibration_dates:
+    crop_region: '02/13/2025'
+    incoherent: 'NA'
+    wavelength: 'NA'
+
+visa9:
+  yag_screen: False
+  center_yx: [1450, 1250]
+  incoherent_fit: [531.32913876, 17758.99803129]
+  calibration_dates:
+    crop_region: '02/27/2025'
+    incoherent: '02/27/2025'
+    wavelength: 'NA'

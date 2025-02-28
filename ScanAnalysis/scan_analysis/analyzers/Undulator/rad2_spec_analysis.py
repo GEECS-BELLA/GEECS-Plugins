@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Optional
 import re
+import yaml
 import logging
 import numpy as np
 import matplotlib.pyplot as plt
@@ -27,6 +28,11 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
     def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True,
                  visa_station: Optional[int] = None, debug_mode: bool = False, background_mode: bool = False):
         super().__init__(scan_tag=scan_tag, device_name='UC_UndulatorRad2', skip_plt_show=skip_plt_show)
+
+        # Ensure configuration file exists
+        self.rad2_config_file = Path(__file__).parents[2] / 'config' / 'Undulator' / 'rad2_analysis_settings.yaml'
+        if not self.rad2_config_file.exists():
+            raise FileNotFoundError(self.rad2_config_file)
 
         # set device name explicitly or using a priori knowledge
         self.visa_device = None
@@ -50,9 +56,11 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         self.background_mode = background_mode
         self.incoherent_signal_fit: Optional[tuple[float, float]] = None
 
+        self.crop_region: Optional[tuple[int, int, int, int]] = None
+        self.set_visa_settings()
+
     def run_analysis(self, config_options: Optional[str] = None):
         df = self.auxiliary_data
-        self.incoherent_signal_fit = None
 
         charge = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
 
@@ -161,40 +169,50 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         plt.tight_layout()
         plt.show()
 
-    def crop_rad2(self, input_image: np.ndarray) -> np.ndarray:
-        """ Based on the currently-specified visa station, crop a specific region of the camera
-            TODO would be great to load these from a config yaml, and have dates assigned to them for easy updating
-            TODO #2 also set the linear fit for spontaneous FEL emission to compare spoiler in/out
-
-        :param
-            input_image: input 2d numpy array
-
-        :return
-            Output numpy 2d array.  Should be size y,x = 600, 800 for visa stations 1-8
-
-        :raises
-            ValueError if visa station is not defined for cropping
+    def set_visa_settings(self):
         """
+        Reads the configs yaml file and loads cropping and fit settings.  The cropping region is calculated using this
 
-        height = 600
-        width = 800
-        center: tuple[int, int] = (0, 0)
-        if self.visa_station == 1:
-            pass
-        elif self.visa_station == 4:  # Feb 13th had steep horizontal 0th order internal reflections
-            center = (1000, 1750)
-        elif self.visa_station == 5:
-            center = (1100, 1800)
-        elif self.visa_station == 9:
+        :raises:
+            KeyError if visa station is not defined for cropping
+        """
+        with open(self.rad2_config_file) as file:
+            configuration_file_contents = yaml.safe_load(file)
+
+        visa_station_settings = configuration_file_contents.get(f"visa{self.visa_station}", None)
+        if visa_station_settings is None:
+            raise KeyError(f"Visa station {self.visa_station} not found in {self.rad2_config_file}.")
+
+        center = visa_station_settings.get('center_yx', None)
+        self.incoherent_signal_fit = visa_station_settings.get('incoherent_fit', None)
+        is_yag_screen: Optional[bool] = visa_station_settings.get('yag_screen', None)
+
+        if is_yag_screen is None or center is None:
+            raise KeyError(f"Missing required information in Visa station {self.visa_station}")
+
+        if is_yag_screen:
+            height = 600
+            width = 800
+        else:
             height = 800
             width = 1100
-            center = (1450, 1250)
-            self.incoherent_signal_fit = [531.32913876, 17758.99803129]
-        else:
-            raise ValueError(f"Visa Station {self.visa_station} invalid")
 
-        return input_image[center[0]-int(height/2): center[0]+int(height/2),
-                           center[1]-int(width/2): center[1]+int(width/2)]
+        self.crop_region = [center[0]-int(height/2), center[0]+int(height/2),
+                            center[1]-int(width/2), center[1]+int(width/2)]
+
+    def crop_rad2(self, input_image: np.ndarray) -> np.ndarray:
+        """ Based on the currently-specified visa station, crop a specific region of the camera.
+
+        :param:
+            input_image: input 2d numpy array
+
+        :return:
+            Output numpy 2d array.  Should be size y,x = 600, 800 for visa stations 1-8
+        """
+        if self.crop_region:
+            return input_image[self.crop_region[0]: self.crop_region[1], self.crop_region[2]: self.crop_region[3]]
+        else:
+            return input_image
 
     def butter_lowpass(self, cutoff, fs, order=5):
         nyquist = 0.5 * fs
