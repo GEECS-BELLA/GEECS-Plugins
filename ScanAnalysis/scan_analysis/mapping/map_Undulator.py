@@ -49,4 +49,7 @@ undulator_analyzers = [
     Info(analyzer_class=FrogAnalysis,
          requirements={'U_FROG_Grenouille-Temporal'},
          device_name='U_FROG_Grenouille-Temporal'),
+    Info(analyzer_class=CameraImageAnalysis,
+         requirements={'UC_ACaveMagCam3'},
+         device_name='UC_ACaveMagCam3')
 ]
