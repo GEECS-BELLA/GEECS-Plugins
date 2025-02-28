@@ -29,6 +29,7 @@ CURRENT_VERSION = "v" + version("scananalysis")
 
 # Type aliases for readability
 ProgressCallback = Callable[[str], None]
+ErrorCallback = Callable[[str], None]
 RunningCheck = Callable[[], bool]
 AnalysisFunction = Callable[[ProgressCallback, RunningCheck], None]
 # =============================================================================
@@ -70,28 +71,35 @@ class ScAnalyzerWindow(QMainWindow):
             - Set ignore list.
             - Initialize worker and worker thread.
         '''
-        # thread worker status check
-        if self.worker_thread and self.worker_thread.isRunning():
-            self.write_to_log_display("Analysis is already running!")
-            return
+        try:
+            # thread worker status check
+            if self.worker_thread and self.worker_thread.isRunning():
+                raise AnalysisRunningError("Analysis is already running!")
 
-        # set ignore list
-        self.set_ignore_list()
+            # set ignore list
+            self.set_ignore_list()
+    
+            # enable select buttons while analysis is running
+            to_enable = [self.ui.buttonStop]
+            for field in to_enable:
+                field.setEnabled(True)
+    
+            # disable input fields and select buttons while analysis is running
+            to_disable = self.findChildren(QLineEdit) + [self.ui.buttonOverwrite, self.ui.buttonStart]
+            for field in to_disable:
+                field.setEnabled(False)
 
-        # enable select buttons while analysis is running
-        to_enable = [self.ui.buttonStop]
-        for field in to_enable:
-            field.setEnabled(True)
+            # initialize worker and thread
+            self.initialize_worker()
 
-        # disable input fields and select buttons while analysis is running
-        to_disable = self.findChildren(QLineEdit) + [self.ui.buttonOverwrite, self.ui.buttonStart]
-        for field in to_disable:
-            field.setEnabled(False)
+        except (AnalysisRunningError, Exception) as e:
+            self.log_error_message(str(e))
+            self.end_analysis()
 
-        # initialize worker and thread
-        self.initialize_worker()
-
-    def run_analysis(self, progress_callback: ProgressCallback, is_running: RunningCheck,
+    def run_analysis(self,
+                     progress_callback: ProgressCallback,
+                     error_callback: ErrorCallback,
+                     is_running: RunningCheck,
                      wait_time: float = 0.5) -> None:
         '''
         Run Scan Analysis by initializing and running ScanWatcher.
@@ -117,18 +125,26 @@ class ScAnalyzerWindow(QMainWindow):
 
             # start analysis
             progress_callback.emit("Start ScanWatch.")
-            scan_watcher.start(watch_folder_not_exist='wait')
+            scan_watcher.start(watch_folder_not_exist='raise')
 
             # let watcher idle while periodically checking for queue items
+            processed_scans = scan_watcher.processed_list.copy()
             while is_running():
                 scan_watcher.process_queue()
+
+                # check for progress, emit to gui
+                processed_scan_diff = list(set(scan_watcher.processed_list) - set(processed_scans))
+                if processed_scan_diff:
+                    progress_callback.emit(f"Finished analyzing Scan {processed_scan_diff[0]}.")
+                    processed_scans = scan_watcher.processed_list.copy()
+
                 time.sleep(wait_time)
 
             # terminate analysis
             progress_callback.emit("Terminating analysis.")
 
         except Exception as e:
-            progress_callback.emit(f"Analysis failed: {str(e)}")
+            error_callback.emit(f"Analysis failed: {str(e)}")
 
     def end_analysis(self) -> None:
         '''
@@ -137,14 +153,14 @@ class ScAnalyzerWindow(QMainWindow):
         :return: None
         :rtype: None
         '''
-        self.write_to_log_display("Terminating analysis.")
+        self.log_info_message("Terminating analysis.")
 
         # clean up worker thread
         if self.worker:
-            self.write_to_log_display("Cleaning up worker.")
+            self.log_info_message("Cleaning up worker.")
             self.cleanup_worker()
         if self.worker_thread:
-            self.write_to_log_display("Cleaning up worker thread.")
+            self.log_info_message("Cleaning up worker thread.")
             self.cleanup_thread()
 
         # disable select fields
@@ -173,8 +189,8 @@ class ScAnalyzerWindow(QMainWindow):
         # connect signals
         self.worker_thread.started.connect(self.worker.run)
         self.worker.finished.connect(self.end_analysis)
-        self.worker.progress.connect(self.update_progress)
-        self.worker.error.connect(self.handle_error)
+        self.worker.progress.connect(self.handle_worker_progress)
+        self.worker.error.connect(self.handle_worker_error)
 
         # start thread
         self.worker_thread.start()
@@ -202,33 +218,6 @@ class ScAnalyzerWindow(QMainWindow):
             self.worker.deleteLater()
             self.worker = None
         self.cleanup_thread()
-
-    def update_progress(self, progress_string: str) -> None:
-        '''
-        Pass progress text along to display. 
-        May be deprecated at this point. Keeping it for now to double check. 
-        May also have a use when transitioning to more hierarchial logging.
-
-        :param progress_string: Message passed to log display.
-        :type progress_string: str
-        :return: No return.
-        :rtype: None
-
-        '''
-        self.write_to_log_display(progress_string)
-
-    def handle_error(self, error_message: str) -> None:
-        '''
-        Pass progress text along to display. 
-        May be deprecated at this point. Keeping it for now to double check. 
-        May also have a use when transitioning to more hierarchial logging.
-        :param error_message: Error message.
-        :type error_message: str
-        :return: No return.
-        :rtype: None
-
-        '''
-        self.write_to_log_display(f"Error: {error_message}")
 
     def event_overwrite_button_clicked(self) -> None:
         '''
@@ -267,27 +256,6 @@ class ScAnalyzerWindow(QMainWindow):
         # check if buttons are enabled/disabled
         self.ui.buttonStart.setEnabled(True) if not self.ui.buttonStart.isEnabled() else None
         self.ui.buttonStop.setEnabled(False) if self.ui.buttonStop.isEnabled() else None
-
-    def write_to_log_display(self, text: str) -> None:
-        '''
-        Pass text to display window on GUI.
-
-        Note: It was noted that the GUI may slow down if lots of text is logged.
-        It might be good to terminate old text (only store so much on gui window).
-        All text could be logged in an external text file for reference or debugging.
-
-        :param text: String to print on display.
-        :type text: str
-        :return: No return.
-        :rtype: None
-
-        '''
-        # write to log display
-        self.ui.logDisplay.append(text)
-
-        # auto-scroll display to newest text
-        self.ui.logDisplay.verticalScrollBar().setValue(
-            self.ui.logDisplay.verticalScrollBar().maximum())
 
     def setup_start_button(self) -> None:
         self.ui.buttonStart.setEnabled(True)
@@ -358,37 +326,73 @@ class ScAnalyzerWindow(QMainWindow):
             # Get start scan value
             start_scan_text = self.ui.inputStartScan.text().strip()
             if not start_scan_text:
-                raise ValueError("Start scan value cannot be empty")
-            
-            # ignore scans before start scan
-            ignore_list: List[int] = list(range(1, int(start_scan_text)))
+                raise ValueError("Start scan value cannot be empty.")
 
+            # ignore scans before start scan
+            start_scan = max(1, int(start_scan_text))
+            ignore_list: List[int] = list(range(1, int(start_scan)))
+    
             # append any from 'ignore' text box
             ignore_text = self.ui.inputIgnore.text().strip()
-            list_of_ints: List[int] = []
-            
             if ignore_text:
                 try:
-                    list_of_ints = [
+                    additional_ignores = [
+                        num for num in [
                         int(text.strip()) 
                         for text in ignore_text.split(',') 
                         if text.strip()
+                        ] if num > 0
                     ]
-                except ValueError as e:
-                    raise ValueError("Invalid number in ignore list. Please enter comma-separated integers.") from e
-    
-            # ensure unique list, set to class attribute
-            ignore_list = sorted(list(set(ignore_list + list_of_ints)))
+                    ignore_list.extend(additional_ignores)
 
-            # assign to self attribute if not empty, if empty assign None
-            self.ignore_list = ignore_list if ignore_list else None
+                except ValueError:
+                    raise ValueError("Invalid ignore list format. Please enter integers separated by commas.")
 
-        except (ValueError, AttributeError) as e:
+            # remove duplicates and sort
+            self.ignore_list = sorted(set(ignore_list)) if ignore_list else None
 
-            # !!! SET UP ERROR MESSAGE
+        except ValueError:
+            raise
+        except Exception as e:
+            raise UnexpectedError(original_exception=e,
+                                  custom_message="Unexpected error in 'set_ignore_list'.")
 
-            # Set default empty list in case of error
-            self.ignore_list = []
+    def handle_worker_error(self, message: str) -> None:
+        # display error in GUI log
+        self.log_warning_message(message)
+
+    def handle_worker_progress(self, message: str) -> None:
+        self.log_info_message(message)
+
+    def log_info_message(self, text: str) -> None:
+        self.write_to_log_display(f"INFO : {text}")
+
+    def log_warning_message(self, text: str) -> None:
+        self.write_to_log_display(f"WARNING : {text}")
+
+    def log_error_message(self, text: str) -> None:
+        self.write_to_log_display(f"{text}")
+
+    def write_to_log_display(self, text: str) -> None:
+        '''
+        Pass text to display window on GUI.
+
+        Note: It was noted that the GUI may slow down if lots of text is logged.
+        It might be good to terminate old text (only store so much on gui window).
+        All text could be logged in an external text file for reference or debugging.
+
+        :param text: String to print on display.
+        :type text: str
+        :return: No return.
+        :rtype: None
+
+        '''
+        # write to log display
+        self.ui.logDisplay.append(text)
+
+        # auto-scroll display to newest text
+        self.ui.logDisplay.verticalScrollBar().setValue(
+            self.ui.logDisplay.verticalScrollBar().maximum())
 
     def closeEvent(self, event) -> None:
         '''
@@ -414,10 +418,9 @@ class Worker(QObject):
     Manages the execution of analysis functions in a separate thread,
     providing progress updates and error handling.
     """
-    
-    finished = pyqtSignal()
-    progress = pyqtSignal(str)
     error = pyqtSignal(str)
+    progress = pyqtSignal(str)
+    finished = pyqtSignal()
 
     def __init__(self, analysis_func: AnalysisFunction) -> None:
         """Initialize the Worker with an analysis function.
@@ -436,7 +439,7 @@ class Worker(QObject):
         Sets the running flag to False, which will terminate the analysis
         at the next check point.
         """
-        print("Worker.stop() called.")
+        self.progress.emit("Worker.stop() called.")
         self._is_running = False
 
     def is_running(self) -> bool:
@@ -464,18 +467,84 @@ class Worker(QObject):
             self._is_running = True
             while self.is_running():
 
-                if DEBUG_MODE:
-                    pdb.set_trace()
+                set_pdb_trace()
 
                 # self.analysis_func(self.progress, lambda: self._is_running)
-                self.analysis_func(self.progress, self.is_running)
+                self.analysis_func(self.progress, self.error, self.is_running)
                 break  # exit after one iteration
-            if not self.is_running():
-                self.progress.emit('Worker stopped by user.')
-        except Exception as e:
-            self.error.emit(f"Error: {str(e)}")
-        finally:
+
             self.finished.emit()
+
+        except Exception as e:
+            self.error.emit(str(e))
+            self.finished.emit()
+
+
+# =============================================================================
+# %% error handling
+
+class CustomError(Exception):
+    def __init__(self, custom_message: str = None) -> None:
+        """
+        Initialize custom error with optional message.
+        
+        Args:
+            custom_message (str, optional): Custom message to prepend
+        """
+        super().__init__(custom_message)
+        self.custom_message = custom_message
+        
+    def __str__(self) -> str:
+        """
+        Returns formatted error message.
+        
+        Returns:
+            str: Formatted error message including exception type and details
+        """
+        return (
+            f"ERROR: {self.custom_message if self.custom_message else ''}\n"
+            f"Type: {self.get_class_name()}"
+        )
+
+    @classmethod
+    def get_class_name(cls) -> str:
+        return cls.__name__
+
+class AnalysisRunningError(CustomError):
+    """Error raised when analysis is already running."""
+    pass
+
+class UnexpectedError(CustomError):
+    """Custom error handler for unexpected exceptions."""
+    
+    def __init__(self, original_exception: Exception = None, custom_message: str = None) -> None:
+        super().__init__(custom_message=custom_message)
+        self.original_exception = original_exception
+
+    def __str__(self) -> str:
+        """
+        Returns formatted error message.
+        
+        Returns:
+            str: Formatted error message including exception type and details
+        """
+        error_type = "Unknown" if self.original_exception is None else self.get_original_exception_name()
+        error_details = "" if self.original_exception is None else str(self.original_exception)
+
+        return (
+            f"ERROR: {self.custom_message if self.custom_message else ''}\n"
+            f"Type: {error_type}\n"
+            f"Details: {error_details}"
+        )
+
+    def get_original_exception_name(self):
+        return type(self.original_exception).__name__
+# =============================================================================
+# %% functions
+
+def set_pdb_trace():
+    if DEBUG_MODE:
+        pdb.set_trace()
 
 # =============================================================================
 # %% routine
