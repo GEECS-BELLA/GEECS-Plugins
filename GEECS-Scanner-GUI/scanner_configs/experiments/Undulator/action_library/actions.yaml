@@ -3,21 +3,29 @@ actions:
     steps:
     - action: set
       device: U_GaiaSVEReader
-      value: 1
+      value: 0
       variable: InternalShutterA
     - action: set
       device: U_GaiaSVEReader
-      value: 1
+      value: 0
       variable: InternalShutterB
     - wait: 2
     - action: get
       device: U_GaiaSVEReader
-      expected_value: 1
+      expected_value: 0
       variable: InternalShutterA
     - action: get
       device: U_GaiaSVEReader
-      expected_value: 1
+      expected_value: 0
       variable: InternalShutterB
+  dump_gaia_on_stops:
+    steps:
+    - action: execute
+      action_name: close_gaia_internal_shutters
+    - action: execute
+      action_name: insert_gaia_stops
+    - action: execute
+      action_name: open_gaia_internal_shutters
   insert_gaia_stops:
     steps:
     - action: set
@@ -45,6 +53,25 @@ actions:
       device: U_Hexapod
       value: -20
       variable: ypos
+  open_gaia_internal_shutters:
+    steps:
+    - action: set
+      device: U_GaiaSVEReader
+      value: 1
+      variable: InternalShutterA
+    - action: set
+      device: U_GaiaSVEReader
+      value: 1
+      variable: InternalShutterB
+    - wait: 2
+    - action: get
+      device: U_GaiaSVEReader
+      expected_value: 1
+      variable: InternalShutterA
+    - action: get
+      device: U_GaiaSVEReader
+      expected_value: 1
+      variable: InternalShutterB
   remove_gaia_stops:
     steps:
     - action: set
@@ -114,6 +141,36 @@ actions:
       device: U_PLC
       value: 'off'
       variable: DO.Ch19
+  test_HP_laser_dump_amp4:
+    steps:
+    - action: execute
+      action_name: close_gaia_internal_shutters
+    - action: set
+      device: U_148_PLC
+      value: 'off'
+      variable: DO.Ch9
+    - wait: 3
+    - action: get
+      device: U_148_PLC
+      expected_value: 'off'
+      variable: DI.Ch17
+    - action: execute
+      action_name: open_gaia_internal_shutters
+  test_send_HP_beam_past_AMP4_dump:
+    steps:
+    - action: execute
+      action_name: close_gaia_internal_shutters
+    - action: set
+      device: U_148_PLC
+      value: 'on'
+      variable: DO.Ch9
+    - wait: 3
+    - action: get
+      device: U_148_PLC
+      expected_value: 'off'
+      variable: DI.Ch18
+    - action: execute
+      action_name: open_gaia_internal_shutters
   visa1_energy:
     steps:
     - action: set

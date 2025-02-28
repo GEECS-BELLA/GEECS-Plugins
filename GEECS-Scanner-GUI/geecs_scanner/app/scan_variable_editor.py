@@ -1,9 +1,17 @@
+"""
+Side dialog GUI that allows for the user to view and edit all 1D scan variables and composite variables.  The 1D scan
+variables are in the top 1/3 of the window and is a simple mapping of a nickname to a device+variable combination.  The
+composite variables are a bit more complex, and are saved in a different yaml file.  Currently composite variables that
+are relative and absolute are supported, a "get-only" type of composite variable is available to specify but will not
+work with scan_manager yet.
+
+-Chris
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from . import GEECSScannerWindow
 
-import yaml
 import logging
 import copy
 from pathlib import Path
@@ -12,17 +20,25 @@ from PyQt5.QtWidgets import QDialog, QMessageBox, QInputDialog
 from PyQt5.QtCore import QEvent
 
 from .gui.ScanDeviceEditor_ui import Ui_Dialog
-from .lib.gui_utilities import write_updated_file, display_completer_list, display_completer_variable_list
+from .lib.gui_utilities import (write_dict_to_yaml_file, read_yaml_file_to_dict,
+                                display_completer_list, display_completer_variable_list)
 
 
 def default_composite_variable():
+    """
+    :return: a blank composite variable with the correct formatting, empty composite list and an unspecified mode
+    """
     return {'components': [], 'mode': ""}
 
 
 def list_of_modes() -> list[str]:
+    """
+    :return: list of available types of modes
+    """
     return ['relative', 'absolute', 'get-only']  # TODO Need to better implement the intended `get-only` features
 
 
+# Below is the text that is displayed when a mouse hovers over the "tips" button
 relation_tool_tip = ("The numerical result of this expression is what the device variable is set to.\n"
                      "Use 'composite_var' for the composite variable.\n"
                      "Plan on scanning a 'relative' composite variable from -1 to +1.\n"
@@ -58,7 +74,6 @@ class ScanVariableEditor(QDialog):
         # TODO if config_folder is None, don't set file paths and put dialog in a limited operation mode
         self.file_variables = config_folder / "scan_devices.yaml"
         self.file_composite = config_folder / "composite_variables.yaml"
-        # TODO If the two yaml files do not exist, go ahead and make new, blank files
 
         # Initialize dictionaries for the scan variables and composite variables
         self.scan_variable_data = {}
@@ -111,7 +126,7 @@ class ScanVariableEditor(QDialog):
         # Initial state of child dialog window
         self.variable_order = None
 
-    # Utility methods for the whole GUI
+    # # # # #  Utility methods for the whole GUI  # # # # #
 
     def eventFilter(self, source, event):
         """ Custom event for the text boxes so that the completion suggestions are shown when mouse is clicked """
@@ -128,11 +143,11 @@ class ScanVariableEditor(QDialog):
         # Device name completer prompts
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableDevice:
             display_completer_list(self, location=self.ui.lineVariableDevice,
-                                   completer_list=sorted(self.database_dict.keys()))
+                                   completer_list=list(self.database_dict.keys()))
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineCompositeDevice:
             display_completer_list(self, location=self.ui.lineCompositeDevice,
-                                   completer_list=sorted(self.database_dict.keys()))
+                                   completer_list=list(self.database_dict.keys()))
             return True
 
         # Variable name completer prompts
@@ -157,24 +172,29 @@ class ScanVariableEditor(QDialog):
 
     def update_variable_information_from_files(self):
         """ Loads the data from the two yaml files and populates the lists of nicknames """
-        self.scan_variable_data = {}
-        self.scan_composite_data = {}
+        self.scan_variable_data = {'single_scan_devices': {}}
+        self.scan_composite_data = {'composite_variables': {}}
 
         try:
-            with open(self.file_variables, 'r') as file:
-                self.scan_variable_data = yaml.safe_load(file)
-            with open(self.file_composite, 'r') as file:
-                self.scan_composite_data = yaml.safe_load(file)
+            self.scan_variable_data = read_yaml_file_to_dict(self.file_variables)
+            self.scan_composite_data = read_yaml_file_to_dict(self.file_composite)
+
         except FileNotFoundError as e:
             logging.error(f"Error loading file: {e}")
 
-    def get_scan_variable_list(self):
+    def get_scan_variable_list(self) -> list[str]:
+        """
+        :return: list of nicknames for all 1D scan variables
+        """
         return list(self.scan_variable_data['single_scan_devices'].keys())
 
-    def get_scan_composite_list(self):
+    def get_scan_composite_list(self) -> list[str]:
+        """
+        :return: list of nicknames for all composite variables
+        """
         return list(self.scan_composite_data['composite_variables'].keys())
 
-    # Functionality to the Scan Variables Section
+    # # # # #  Functionality to the Scan Variables Section  # # # # #
 
     def check_variable_nickname(self):
         """ When nickname is entered, check if it exists in the variable list and load device and variable info """
@@ -195,7 +215,7 @@ class ScanVariableEditor(QDialog):
             return
 
         self.scan_variable_data['single_scan_devices'][nickname] = f"{device}:{variable}"
-        write_updated_file(filename=self.file_variables, dictionary=self.scan_variable_data)
+        write_dict_to_yaml_file(filename=self.file_variables, dictionary=self.scan_variable_data)
         logging.info(f"Wrote variable '{nickname}' to '{self.file_variables}'")
 
         self.update_variable_information_from_files()
@@ -211,7 +231,7 @@ class ScanVariableEditor(QDialog):
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             del self.scan_variable_data['single_scan_devices'][nickname]
-            write_updated_file(filename=self.file_variables, dictionary=self.scan_variable_data)
+            write_dict_to_yaml_file(filename=self.file_variables, dictionary=self.scan_variable_data)
             logging.info(f"Removed variable '{nickname}' from '{self.file_variables}'")
 
             self.ui.lineVariableNickname.setText("")
@@ -220,9 +240,10 @@ class ScanVariableEditor(QDialog):
 
             self.update_variable_information_from_files()
 
-    # Functionality to the Composite Variables section
+    # # # # #  Functionality to the Composite Variables section  # # # # #
 
     def update_visible_composite_information(self):
+        """ Updates the GUI with the information of the currently-specified composite variable """
         self.ui.listCompositeComponents.clear()
         name = self.ui.lineCompositeNickname.text().strip()
         if not name or name not in self.scan_composite_data['composite_variables']:
@@ -237,6 +258,13 @@ class ScanVariableEditor(QDialog):
             self.ui.lineCompositeMode.setText(mode)
 
     def get_component_index(self, device: str, variable: str) -> Optional[int]:
+        """
+        Finds the list index of a composite variable component given its device and variable names
+
+        :param device: device name of composite variable component
+        :param variable: variable name of composite variable component
+        :return: the index of the component in the composite variable's list, otherwise None if it doesn't exist
+        """
         name = self.ui.lineCompositeNickname.text().strip()
         if not name or name not in self.scan_composite_data['composite_variables']:
             return None
@@ -250,6 +278,7 @@ class ScanVariableEditor(QDialog):
         return None
 
     def add_composite_component(self):
+        """ Adds a valid device+variable pair to the selected composite variable if it doens't already exist """
         name = self.ui.lineCompositeNickname.text().strip()
         if not name or name not in self.scan_composite_data['composite_variables']:
             return
@@ -270,30 +299,30 @@ class ScanVariableEditor(QDialog):
         self.update_visible_composite_information()
 
     def remove_selected_component(self):
+        """ Removes the selected component from the composite variable """
         name = self.ui.lineCompositeNickname.text().strip()
         if not name or name not in self.scan_composite_data['composite_variables']:
             return
 
-        component = self.get_selected_composite_component()
-        if not component:
-            return
-
-        index = self.get_component_index(component['device'], component['variable'])
-        del self.scan_composite_data['composite_variables'][name]['components'][index]
-        self.update_visible_composite_information()
+        if component := self.get_selected_composite_component():
+            index = self.get_component_index(component['device'], component['variable'])
+            del self.scan_composite_data['composite_variables'][name]['components'][index]
+            self.update_visible_composite_information()
 
     def get_selected_composite_component(self) -> Optional[dict]:
-        selected_variable = self.ui.listCompositeComponents.selectedItems()
-        if not selected_variable:
-            return None
-        for selection in selected_variable:
-            device, variable = selection.text().split(":")
+        """
+        :return: the dict component that corresponds to the currently-selected list widget row
+        """
+        if selected_variable := self.ui.listCompositeComponents.selectedItems():
+            device, variable = selected_variable[0].text().split(":")
             name = self.ui.lineCompositeNickname.text().strip()
             for device_variable in self.scan_composite_data['composite_variables'][name]['components']:
                 if device_variable['device'] == device and device_variable['variable'] == variable:
                     return device_variable
+            return None
 
     def update_visible_relation_information(self):
+        """ Updates the visible text within the relation text box """
         selected_variable = self.ui.listCompositeComponents.selectedItems()
         has_selection = bool(selected_variable)
         self.ui.lineCompositeRelation.setEnabled(has_selection)
@@ -305,17 +334,18 @@ class ScanVariableEditor(QDialog):
             self.ui.lineCompositeRelation.setText("")
 
     def update_relation_data(self):
-        if not self.ui.lineCompositeRelation.isEnabled():
-            return
-
-        device_variable = self.get_selected_composite_component()
-        device_variable['relation'] = self.ui.lineCompositeRelation.text()
+        """ Stores the current contents of the relation textbox into the dict of the composite variable component """
+        if self.ui.lineCompositeRelation.isEnabled():
+            device_variable = self.get_selected_composite_component()
+            device_variable['relation'] = self.ui.lineCompositeRelation.text()
 
     def show_tool_tip(self):
+        """ Shows the tool tip message in a pop-up window (with added message about hovering with the mouse) """
         QMessageBox.about(self, "Relation Tips", f"{relation_tool_tip}\n"
                                                  "(Can also view these tips by hovering over button)")
 
     def update_composite_mode(self):
+        """ Updates the mode of the composite variable with the current selection in the text box """
         variable_name = self.ui.lineCompositeNickname.text().strip()
         if not variable_name or variable_name not in self.scan_composite_data['composite_variables']:
             return
@@ -323,6 +353,11 @@ class ScanVariableEditor(QDialog):
         self.scan_composite_data['composite_variables'][variable_name]['mode'] = self.ui.lineCompositeMode.text()
 
     def _prompt_new_composite_variable(self, message: str, copy_variable: Optional[str] = None):
+        """ Prompts the user for a new composite variable name, through either a new variable or a copy of an old one
+
+        :param message: message to be displayed in pop-up
+        :param copy_variable: If given, will copy this variable's contents to the new variable
+        """
         text, ok = QInputDialog.getText(self, 'New Composite Variable', message)
         if ok and text:
             name = str(text).strip()
@@ -353,6 +388,7 @@ class ScanVariableEditor(QDialog):
         self._prompt_new_composite_variable(message="Enter name for new composite variable:")
 
     def copy_composite_variable(self):
+        """ Copies existing composite variable into a new variable with a different name """
         copy_variable = self.ui.lineCompositeNickname.text().strip()
         if copy_variable not in self.scan_composite_data['composite_variables']:
             return
@@ -361,6 +397,8 @@ class ScanVariableEditor(QDialog):
                                             copy_variable=copy_variable)
 
     def delete_composite_variable(self):
+        """ Prompts the user if they would like to delete the currently-selected composite variable.  This will delete
+         the variable from both the .yaml file and any unsaved changes in the GUI window. """
         name = self.ui.lineCompositeNickname.text().strip()
         if name not in self.scan_composite_data['composite_variables']:
             logging.warning(f"Variable {name} not in dict, cannot delete")
@@ -370,12 +408,11 @@ class ScanVariableEditor(QDialog):
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             # Read current version of file and delete only the specified element if it exists
-            with open(self.file_composite, 'r') as file:
-                scan_composite_data_actual = yaml.safe_load(file)
+            scan_composite_data_actual = read_yaml_file_to_dict(self.file_composite)
 
             if name in scan_composite_data_actual['composite_variables']:
                 del scan_composite_data_actual['composite_variables'][name]
-                write_updated_file(filename=self.file_composite, dictionary=scan_composite_data_actual)
+                write_dict_to_yaml_file(filename=self.file_composite, dictionary=scan_composite_data_actual)
                 logging.info(f"Removed composite variable '{name}' from '{self.file_composite}'")
             else:
                 logging.info(f"Removed composite variable '{name}' from unsaved dictionary")
@@ -390,8 +427,9 @@ class ScanVariableEditor(QDialog):
             self.update_visible_composite_information()
 
     def save_composite_variables_file(self):
+        """ Saves all changes to composite variables """
         reply = QMessageBox.question(self, "Save",
                                      f"Save all changes to {self.file_composite.name}?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
-            write_updated_file(filename=self.file_composite, dictionary=self.scan_composite_data)
+            write_dict_to_yaml_file(filename=self.file_composite, dictionary=self.scan_composite_data)

@@ -1,3 +1,10 @@
+"""
+Contains all things sound-related within GEECS Scanner.  This includes beeps during the shots, and jingles for the
+multiscanner completion and action success/failure.
+
+-Chris + Sam
+"""
+
 from __future__ import annotations
 from typing import Optional
 
@@ -147,7 +154,12 @@ class SoundPlayer(SimpleSoundPlayer):
                 logging.error(f"Error processing sound: {e}")
 
 
-def play_jingle(notes):
+def play_jingle(notes: list[tuple[int, float, float]]):
+    """
+     Plays a given sequence of notes
+
+    :param notes: list of three numbers ( frequency (Hz), duration (s), wait time (s) )
+    """
     player = SimpleSoundPlayer()
     for freq, duration, wait in notes:
         player.play_sound(freq, duration)
@@ -166,6 +178,7 @@ def multiscan_finish_jingle():
 
 
 def action_finish_jingle():
+    """ Plays when an action finishes successfully """
     notes = [
         (900, 0.20, 0),
         (1300, 0.50, 0),
@@ -173,7 +186,8 @@ def action_finish_jingle():
     play_jingle(notes)
 
 
-def action_faled_jingle():
+def action_failed_jingle():
+    """ Plays when an action encounters an error """
     notes = [
         (1300, 0.20, 0),
         (900, 0.50, 0),

@@ -14,14 +14,14 @@ if TYPE_CHECKING:
     from PyQt5.QtWidgets import QLineEdit
     from . import GEECSScannerWindow
 
-import yaml
 import logging
 from pathlib import Path
 from PyQt5.QtWidgets import QDialog, QPushButton, QFileDialog
 from PyQt5.QtCore import QEvent
 from .gui.ScanElementEditor_ui import Ui_Dialog
 from .lib import ActionControl
-from .lib.gui_utilities import parse_variable_text, display_completer_list
+from .lib.gui_utilities import (parse_variable_text, display_completer_list,
+                                read_yaml_file_to_dict, write_dict_to_yaml_file)
 
 
 def get_default_device_dictionary() -> dict[str, bool | list[Any]]:
@@ -128,7 +128,7 @@ class SaveElementEditor(QDialog):
         self.ui.buttonPerformPostscanActions.setEnabled(False)
         self.ui.buttonEnableActions.clicked.connect(self.initialize_action_control)
         self.ui.buttonPerformSetupActions.clicked.connect(self.perform_setup_actions)
-        self.ui.buttonPerformPostscanActions.clicked.connect(self.perform_postscan_actions)
+        self.ui.buttonPerformPostscanActions.clicked.connect(self.perform_closeout_actions)
 
         # Buttons at the bottom to save, open, and close
         self.ui.buttonWindowSave.clicked.connect(self.save_element)
@@ -152,7 +152,7 @@ class SaveElementEditor(QDialog):
             return True
         elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineDeviceName:
             display_completer_list(self, location=self.ui.lineDeviceName,
-                                   completer_list=sorted(self.database_dict.keys()))
+                                   completer_list=list(self.database_dict.keys()))
             self.ui.buttonAddDevice.setDefault(True)
             return True
         elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineVariableName:
@@ -162,7 +162,7 @@ class SaveElementEditor(QDialog):
         elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1
               and self.action_mode in ['set', 'get']):
             display_completer_list(self, location=self.ui.lineActionOption1,
-                                   completer_list=sorted(self.database_dict.keys()))
+                                   completer_list=list(self.database_dict.keys()))
             self.dummyButton.setDefault(True)
             return True
         elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption2
@@ -213,27 +213,21 @@ class SaveElementEditor(QDialog):
     def remove_device(self):
         """Removes a device from the element device list, based on what is currently selected"""
         selected_device = self.ui.listDevices.selectedItems()
-        if not selected_device:
-            return
-        for selection in selected_device:
-            text = selection.text()
+        if selected_device:
+            text = selected_device[0].text()
             if text in self.devices_dict:
                 del self.devices_dict[text]
-        self.update_device_list()
+            self.update_device_list()
 
     def get_selected_device_name(self) -> Optional[str]:
         """Returns the name of the currently-selected device on the GUI"""
         selected_device = self.ui.listDevices.selectedItems()
-        no_selection = not selected_device
-        if no_selection:
-            return None
-
-        device_name = None
-        for selection in selected_device:
-            text = selection.text()
+        if selected_device:
+            device_name = None
+            text = selected_device[0].text()
             if text in self.devices_dict:
                 device_name = text
-        return device_name
+            return device_name
 
     def get_selected_device(self):  # TODO improve type hinting for complex dictionaries
         """Returns the device information on the currently-selected device"""
@@ -288,13 +282,11 @@ class SaveElementEditor(QDialog):
         device = self.get_selected_device()
         if device is not None:
             selected_variable = self.ui.listVariables.selectedItems()
-            if not selected_variable:
-                return
-            for selection in selected_variable:
-                text = selection.text()
+            if selected_variable:
+                text = selected_variable[0].text()
                 if text in device['variable_list']:
                     device["variable_list"].remove(text)
-            self.update_variable_list()
+                self.update_variable_list()
 
     def update_device_checkboxes(self):
         """Updates the checkboxes for the device flags"""
@@ -458,10 +450,8 @@ class SaveElementEditor(QDialog):
         located (setup or closeout), the relative index in that list, and the index in the GUI list
         """
         selected_action = self.ui.listActions.selectedItems()
-        if not selected_action:
-            return
-        for action in selected_action:
-            absolute_index = self.ui.listActions.row(action)
+        if selected_action:
+            absolute_index = self.ui.listActions.row(selected_action[0])
             setup_length = len(self.actions_dict['setup'])
             if absolute_index < setup_length:
                 action_list = self.actions_dict['setup']
@@ -537,6 +527,7 @@ class SaveElementEditor(QDialog):
         self.update_action_list(index=new_position)
 
     def initialize_action_control(self):
+        """ Initialize an instance of action control and enable the ability to send execution commands """
         if self.config_folder is None:
             logging.error("No defined path for save devices")
             return
@@ -548,9 +539,11 @@ class SaveElementEditor(QDialog):
         self.ui.buttonPerformPostscanActions.setEnabled(True)
 
     def perform_setup_actions(self):
+        """ Sends an execute action command for the setup actions """
         self.action_control.perform_action({'steps': self.actions_dict['setup']})
 
-    def perform_postscan_actions(self):
+    def perform_closeout_actions(self):
+        """ Sends an execute action command for the close-out actions """
         self.action_control.perform_action({'steps': self.actions_dict['closeout']})
 
     def save_element(self):
@@ -578,8 +571,7 @@ class SaveElementEditor(QDialog):
             if not closeout_action['steps']:
                 del full_dictionary['closeout_action']
             logging.debug(full_dictionary)
-            with open(file, 'w') as f:
-                yaml.dump(full_dictionary, f, default_flow_style=False)
+            write_dict_to_yaml_file(file, full_dictionary)
 
     def close_window(self):
         """Exits the window"""
@@ -603,8 +595,7 @@ class SaveElementEditor(QDialog):
 
     def load_settings_from_file(self, config_filename: Path):
         """Given a .yaml file, loads the dictionary and parses it to the backend dictionaries for the GUI"""
-        with open(config_filename, 'r') as file:
-            full_dictionary = yaml.safe_load(file)
+        full_dictionary = read_yaml_file_to_dict(config_filename)
 
         if 'Devices' in full_dictionary:
             self.devices_dict = full_dictionary['Devices']

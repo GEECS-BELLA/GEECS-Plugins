@@ -13,12 +13,12 @@ from typing import Optional, Union, TYPE_CHECKING
 if TYPE_CHECKING:
     from . import GEECSScannerWindow
 
-import yaml
 import logging
 from pathlib import Path
 from .gui.ShotControlEditor_ui import Ui_Dialog
-from PyQt5.QtWidgets import QDialog, QCompleter, QInputDialog, QPushButton, QMessageBox
-from PyQt5.QtCore import pyqtSignal, QEvent, Qt
+from PyQt5.QtWidgets import QDialog, QInputDialog, QPushButton, QMessageBox
+from PyQt5.QtCore import pyqtSignal, QEvent
+from .lib.gui_utilities import read_yaml_file_to_dict, write_dict_to_yaml_file, display_completer_list
 
 # Create a module-level logger
 logger = logging.getLogger(__name__)
@@ -37,6 +37,12 @@ class ShotControlEditor(QDialog):
 
     def __init__(self, main_window: GEECSScannerWindow, config_folder_path: Union[str, Path],
                  current_config: Optional[str] = None, database_dict: Optional[dict] = None):
+        """
+        :param main_window: reference to the main GUI window
+        :param config_folder_path: folder where shot configuration yaml files are saved for the given experiment
+        :param current_config: the name of the current timing configuration, if one is selected
+        :param database_dict: the experimental database dict containing devices and associated variables
+        """
 
         super().__init__()
 
@@ -101,37 +107,31 @@ class ShotControlEditor(QDialog):
         """Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
         """
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineConfigurationSelect:
-            self.show_configuration_list()
+            display_completer_list(self, self.ui.lineConfigurationSelect, self._get_list_of_configurations())
             self.dummyButton.setDefault(True)
             return True
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineDeviceName:
-            self.show_device_list()
+            display_completer_list(self, self.ui.lineDeviceName, list(self.database_dict.keys()))
             self.dummyButton.setDefault(True)
             return True
         if source == self.ui.lineVariableName and event.type() == QEvent.MouseButtonPress:
-            self.show_variable_list()
-            self.ui.buttonAddVariable.setDefault(True)
+            if self.device_name in self.database_dict.keys():
+                display_completer_list(self, self.ui.lineVariableName,
+                                       list(self.database_dict[self.device_name].keys()))
+                self.ui.buttonAddVariable.setDefault(True)
             return True
         return super().eventFilter(source, event)
 
     # # # # Methods for selecting, creating, and deleting available timing system configurations # # # # #
 
     def _get_list_of_configurations(self) -> list[str]:
+        """
+        :return: list of all filenames file files ending with .yaml in the folder for saved timing configurations
+        """
         if self.config_folder_path is None:
             logger.error("No defined path for timing configurations")
             return []
         return [f.stem for f in self.config_folder_path.iterdir() if f.suffix == ".yaml"]
-
-    def show_configuration_list(self):
-        """ Displays the found experiments in the ./experiments/ subfolder for selecting experiment """
-        files = self._get_list_of_configurations()
-        completer = QCompleter(files, self)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-
-        self.ui.lineConfigurationSelect.setCompleter(completer)
-        self.ui.lineConfigurationSelect.setFocus()
-        completer.complete()
 
     def configuration_selected(self):
         """ Updates the GUI and backend data to reflect the change in selected configuration """
@@ -139,9 +139,7 @@ class ShotControlEditor(QDialog):
         is_valid = bool(entered_name in self._get_list_of_configurations())
         if is_valid:
             self.configuration_name = entered_name
-            config_file = self.config_folder_path / (self.configuration_name + ".yaml")
-            with open(config_file, 'r') as file:
-                settings = yaml.safe_load(file)
+            settings = read_yaml_file_to_dict(self.config_folder_path / (self.configuration_name + ".yaml"))
         else:
             self.ui.lineConfigurationSelect.setText('')
             self.configuration_name = ''
@@ -193,9 +191,7 @@ class ShotControlEditor(QDialog):
 
         config_file = self.config_folder_path / (configuration_name + ".yaml")
         config_file.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(config_file, 'w') as file:
-            yaml.dump(contents, file, default_flow_style=False)
+        write_dict_to_yaml_file(config_file, contents)
 
         self.ui.lineConfigurationSelect.setText(configuration_name)
         self.configuration_selected()
@@ -222,33 +218,9 @@ class ShotControlEditor(QDialog):
 
     # # # # Methods for setting device and variable names, and adding/removing to the variable list # # # #
 
-    def show_device_list(self):
-        """ Displays list of devices from database dictionary """
-        if self.ui.lineDeviceName.isEnabled():
-            self.ui.lineDeviceName.selectAll()
-            completer = QCompleter(sorted(self.database_dict.keys()), self)
-            completer.setCompletionMode(QCompleter.PopupCompletion)
-            completer.setCaseSensitivity(Qt.CaseSensitive)
-
-            self.ui.lineDeviceName.setCompleter(completer)
-            self.ui.lineDeviceName.setFocus()
-            completer.complete()
-
     def update_device_name(self):
         """ Updates the class variable with the current text of the device name line edit """
         self.device_name = self.ui.lineDeviceName.text()
-
-    def show_variable_list(self):
-        """ Displays the list of variables associated with the current device """
-        if self.ui.lineVariableName.isEnabled() and self.device_name in self.database_dict.keys():
-            self.ui.lineVariableName.selectAll()
-            completer = QCompleter(sorted(self.database_dict[self.device_name].keys()), self)
-            completer.setCompletionMode(QCompleter.PopupCompletion)
-            completer.setCaseSensitivity(Qt.CaseSensitive)
-
-            self.ui.lineVariableName.setCompleter(completer)
-            self.ui.lineVariableName.setFocus()
-            completer.complete()
 
     def _update_variable_list(self):
         """ Updates the GUI list widget that displays the variables using the class variable containing the dict """
@@ -271,10 +243,8 @@ class ShotControlEditor(QDialog):
     def remove_variable(self):
         """ Removes variable from the list of variables """
         selected_variable = self.ui.listShotControlVariables.selectedItems()
-        if not selected_variable:
-            return
-        for selection in selected_variable:
-            text = selection.text()
+        if selected_variable:
+            text = selected_variable[0].text()
             if text in self.variable_dictionary.keys():
                 del self.variable_dictionary[text]
         self._update_variable_list()
@@ -290,11 +260,10 @@ class ShotControlEditor(QDialog):
         self.ui.lineStandbyState.setEnabled(has_selection)
 
         if has_selection:
-            for selection in selected_variable:
-                variable = self.variable_dictionary[selection.text()]
-                self.ui.lineOffState.setText(variable['OFF'])
-                self.ui.lineScanState.setText(variable['SCAN'])
-                self.ui.lineStandbyState.setText(variable['STANDBY'])
+            variable = self.variable_dictionary[selected_variable[0].text()]
+            self.ui.lineOffState.setText(variable['OFF'])
+            self.ui.lineScanState.setText(variable['SCAN'])
+            self.ui.lineStandbyState.setText(variable['STANDBY'])
         else:
             self.ui.lineOffState.setText('')
             self.ui.lineScanState.setText('')
@@ -303,10 +272,8 @@ class ShotControlEditor(QDialog):
     def update_variable_dictionary(self):
         """ Updates the variable dictionary to reflect new changes in the GUI """
         selected_variable = self.ui.listShotControlVariables.selectedItems()
-        if not selected_variable:
-            return
-        for selection in selected_variable:
-            variable = self.variable_dictionary[selection.text()]
+        if selected_variable:
+            variable = self.variable_dictionary[selected_variable[0].text()]
             variable['OFF'] = self.ui.lineOffState.text()
             variable['SCAN'] = self.ui.lineScanState.text()
             variable['STANDBY'] = self.ui.lineStandbyState.text()

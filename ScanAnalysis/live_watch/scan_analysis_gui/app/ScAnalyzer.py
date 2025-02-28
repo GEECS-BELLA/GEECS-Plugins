@@ -6,21 +6,25 @@ Kyle Jensen (kjensen11, kjensen@lbl.gov)
 """
 # =============================================================================
 # %% imports
-from typing import Optional, Callable
+from typing import Optional, Callable, List
 from importlib.metadata import version
 
 import sys
 import time
-import traceback
 from datetime import date
 
-from PyQt5.QtWidgets import QMainWindow, QApplication
+from PyQt5.QtWidgets import QMainWindow, QApplication, QLineEdit
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
-from gui.ScAnalyzer_ui import Ui_MainWindow
+from live_watch.scan_analysis_gui.app.gui.ScAnalyzer_ui import Ui_MainWindow
 from live_watch.scan_watch import ScanWatch
+from live_watch.scan_analysis_gui.utils.exceptions import exception_hook
 # =============================================================================
 # %% global variables
+DEBUG_MODE = False
+if DEBUG_MODE:
+    import pdb
+
 CURRENT_VERSION = "v" + version("scananalysis")
 
 # Type aliases for readability
@@ -28,7 +32,7 @@ ProgressCallback = Callable[[str], None]
 RunningCheck = Callable[[], bool]
 AnalysisFunction = Callable[[ProgressCallback, RunningCheck], None]
 # =============================================================================
-# %% class
+# %% classes
 
 class ScAnalyzerWindow(QMainWindow):
 
@@ -42,28 +46,28 @@ class ScAnalyzerWindow(QMainWindow):
         # set title of gui window
         self.setWindowTitle(f"GEECS ScAnalyzer - {CURRENT_VERSION}")
 
+        # set up buttons
+        self.setup_overwrite_button()
+        self.setup_start_button()
+        self.setup_stop_button()
+
+        # set up text edits
+        self.setup_date_inputs()
+        self.setup_scan_inputs()
+        self.ignore_list = None
+
         # set up gui log to display output
-        self.ui.logDisplay.setReadOnly(True)
-
-        # set initial button status
-        self.ui.buttonStart.setEnabled(True)
-        self.ui.buttonStop.setEnabled(False)
-
-        # set the default values for line edits
-        self.set_default_inputs()
+        self.setup_log_display()
 
         # initialize worker information
         self.worker: Optional[Worker] = None
         self.worker_thread: Optional[QThread] = None
 
-        # connect buttons to functions
-        self.ui.buttonStart.clicked.connect(self.event_start_button_clicked)
-        self.ui.buttonStop.clicked.connect(self.event_stop_button_clicked)
-
     def start_analysis(self) -> None:
         '''
         Prepare to run analysis. 
             - Handle GUI objects.
+            - Set ignore list.
             - Initialize worker and worker thread.
         '''
         # thread worker status check
@@ -71,9 +75,18 @@ class ScAnalyzerWindow(QMainWindow):
             self.write_to_log_display("Analysis is already running!")
             return
 
-        # disable start button while analysis is running
-        self.ui.buttonStart.setEnabled(False)
-        self.ui.buttonStop.setEnabled(True)
+        # set ignore list
+        self.set_ignore_list()
+
+        # enable select buttons while analysis is running
+        to_enable = [self.ui.buttonStop]
+        for field in to_enable:
+            field.setEnabled(True)
+
+        # disable input fields and select buttons while analysis is running
+        to_disable = self.findChildren(QLineEdit) + [self.ui.buttonOverwrite, self.ui.buttonStart]
+        for field in to_disable:
+            field.setEnabled(False)
 
         # initialize worker and thread
         self.initialize_worker()
@@ -99,6 +112,7 @@ class ScAnalyzerWindow(QMainWindow):
                                      int(self.ui.inputYear.text()),
                                      int(self.ui.inputMonth.text()),
                                      int(self.ui.inputDay.text()),
+                                     ignore_list=self.ignore_list,
                                      overwrite_previous=True)
 
             # start analysis
@@ -133,9 +147,15 @@ class ScAnalyzerWindow(QMainWindow):
             self.write_to_log_display("Cleaning up worker thread.")
             self.cleanup_thread()
 
-        # check if buttons are enabled/disabled
-        self.ui.buttonStart.setEnabled(True) if not self.ui.buttonStart.isEnabled() else None
-        self.ui.buttonStop.setEnabled(False) if self.ui.buttonStop.isEnabled() else None
+        # disable select fields
+        to_disable = [self.ui.buttonStop]
+        for field in to_disable:
+            field.setEnabled(False)
+
+        # enable select fields
+        to_enable = self.findChildren(QLineEdit) + [self.ui.buttonOverwrite, self.ui.buttonStart]
+        for input_field in to_enable:
+            input_field.setEnabled(True)
 
     def initialize_worker(self) -> None:
         '''
@@ -210,17 +230,15 @@ class ScAnalyzerWindow(QMainWindow):
         '''
         self.write_to_log_display(f"Error: {error_message}")
 
-    def set_default_inputs(self) -> None:
+    def event_overwrite_button_clicked(self) -> None:
         '''
-        Assign default values to text fields.
-        :return: No return.
-        :rtype: None
+        Actions performed when Overwrite button is clicked.
+
+        Returns
+        -------
+        None
         '''
-        # set default scan date
-        today = date.today()
-        self.ui.inputYear.setText(str(today.year))
-        self.ui.inputMonth.setText(str(today.month))
-        self.ui.inputDay.setText(str(today.day))
+        self.ui.inputStartScan.setEnabled(self.ui.buttonOverwrite.isChecked())
 
     def event_start_button_clicked(self) -> None:
         '''
@@ -270,6 +288,107 @@ class ScAnalyzerWindow(QMainWindow):
         # auto-scroll display to newest text
         self.ui.logDisplay.verticalScrollBar().setValue(
             self.ui.logDisplay.verticalScrollBar().maximum())
+
+    def setup_start_button(self) -> None:
+        self.ui.buttonStart.setEnabled(True)
+        self.ui.buttonStart.clicked.connect(self.event_start_button_clicked)
+
+    def setup_stop_button(self) -> None:
+        self.ui.buttonStop.setEnabled(False)
+        self.ui.buttonStop.clicked.connect(self.event_stop_button_clicked)
+
+    def setup_overwrite_button(self) -> None:
+        '''
+        Setup for Overwrite Processed List button.
+
+        Returns
+        -------
+        None
+        '''
+        self.ui.buttonOverwrite.setCheckable(True)
+        self.ui.buttonOverwrite.clicked.connect(self.event_overwrite_button_clicked)
+        self.ui.buttonOverwrite.setStyleSheet("""
+                                              QPushButton:checked {
+                                                  background-color: #d0d0d0;
+                                                  border: 1px solid #808080;
+                                                  color: #404040;
+                                              }
+                                              QPushButton:disabled {
+                                                  background-color: #d0d0d0;
+                                                  border: 1px solid #808080;
+                                                  color: #404040;
+                                              }
+                                              QPushButton {
+                                                  background-color: #ffffff;
+                                                  border: 1px solid #404040;
+                                                   color: black;
+                                               }
+                                              """)
+
+    def setup_date_inputs(self) -> None:
+        # set default date
+        today = date.today()
+        self.ui.inputYear.setText(str(today.year))
+        self.ui.inputMonth.setText(str(today.month))
+        self.ui.inputDay.setText(str(today.day))
+
+    def setup_scan_inputs(self) -> None:
+        self.ui.inputStartScan.setText(str(1))
+        self.ui.inputStartScan.setEnabled(False)
+        self.ui.inputIgnore.setText('')
+
+    def setup_log_display(self) -> None:
+        self.ui.logDisplay.setReadOnly(True)
+
+    def set_ignore_list(self) -> None:
+        """
+        Sets the ignore_list attribute with scan numbers to be ignored.
+        
+        Combines scan numbers from two sources:
+        1. Range from 0 to start scan number (exclusive)
+        2. Additional scan numbers from ignore input field (comma-separated)
+        
+        The final list is converted to a unique set of integers.
+        
+        Raises:
+            ValueError: If input values cannot be converted to integers
+            AttributeError: If UI elements are not properly initialized
+        """
+        try:
+            # Get start scan value
+            start_scan_text = self.ui.inputStartScan.text().strip()
+            if not start_scan_text:
+                raise ValueError("Start scan value cannot be empty")
+            
+            # ignore scans before start scan
+            ignore_list: List[int] = list(range(1, int(start_scan_text)))
+
+            # append any from 'ignore' text box
+            ignore_text = self.ui.inputIgnore.text().strip()
+            list_of_ints: List[int] = []
+            
+            if ignore_text:
+                try:
+                    list_of_ints = [
+                        int(text.strip()) 
+                        for text in ignore_text.split(',') 
+                        if text.strip()
+                    ]
+                except ValueError as e:
+                    raise ValueError("Invalid number in ignore list. Please enter comma-separated integers.") from e
+    
+            # ensure unique list, set to class attribute
+            ignore_list = sorted(list(set(ignore_list + list_of_ints)))
+
+            # assign to self attribute if not empty, if empty assign None
+            self.ignore_list = ignore_list if ignore_list else None
+
+        except (ValueError, AttributeError) as e:
+
+            # !!! SET UP ERROR MESSAGE
+
+            # Set default empty list in case of error
+            self.ignore_list = []
 
     def closeEvent(self, event) -> None:
         '''
@@ -344,6 +463,10 @@ class Worker(QObject):
         try:
             self._is_running = True
             while self.is_running():
+
+                if DEBUG_MODE:
+                    pdb.set_trace()
+
                 # self.analysis_func(self.progress, lambda: self._is_running)
                 self.analysis_func(self.progress, self.is_running)
                 break  # exit after one iteration
@@ -356,20 +479,6 @@ class Worker(QObject):
 
 # =============================================================================
 # %% routine
-
-def exception_hook(exctype, value, tb):
-    """
-    Global wrapper to print out tracebacks of python errors during the 
-    execution of a PyQT window.
-
-    :param exctype: Exception Type
-    :param value: Value of the exception
-    :param tb: Traceback
-    """
-    print("An error occurred:")
-    traceback.print_exception(exctype, value, tb)
-    sys.__excepthook__(exctype, value, tb)
-    sys.exit(1)
 
 # =============================================================================
 # %% execute

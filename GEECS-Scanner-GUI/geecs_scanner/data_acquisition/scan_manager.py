@@ -493,13 +493,18 @@ class ScanManager:
 
         else:
             current_value = scan_config['start']
-            while current_value <= scan_config['end']:
+            positive_direction = scan_config['start'] < scan_config['end']
+            while (positive_direction and current_value <= scan_config['end'])\
+                    or (not positive_direction and current_value >= scan_config['end']):
                 steps.append({
                     'variables': {device_var: current_value},
                     'wait_time': scan_config.get('wait_time', 1),
                     'is_composite': False
                 })
-                current_value += scan_config['step']
+                if positive_direction:
+                    current_value += abs(scan_config['step'])
+                else:
+                    current_value -= abs(scan_config['step'])
 
         return steps
 
@@ -684,7 +689,7 @@ class ScanManager:
             wait_time = scan_config.get('wait_time', 1)# - 0.5  # Default wait time between steps is 1 second
 
             # Calculate the number of steps and the total time for this device
-            steps = ((end - start) / step) + 1
+            steps = abs((end - start) / step) + 1
             total_time += steps * wait_time
 
         logging.info(f'Estimated scan time: {total_time}')
