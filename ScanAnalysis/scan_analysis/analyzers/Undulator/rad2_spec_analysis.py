@@ -16,7 +16,6 @@ from scipy.signal import butter, filtfilt
 from pathlib import Path
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
 from geecs_python_api.controls.api_defs import ScanTag
-from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from image_analysis.utils import read_imaq_png_image
 from image_analysis.analyzers.online_analysis_modules import image_processing_funcs
@@ -26,7 +25,7 @@ from visa_ebeam_analysis import VisaEBeamAnalysis
 
 class Rad2SpecAnalysis(CameraImageAnalysis):
     def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True,
-                 visa_station: Optional[int] = None, debug_mode: bool = False):
+                 visa_station: Optional[int] = None, debug_mode: bool = False, background_mode: bool = False):
         super().__init__(scan_tag=scan_tag, device_name='UC_UndulatorRad2', skip_plt_show=skip_plt_show)
 
         # set device name explicitly or using a priori knowledge
@@ -46,12 +45,16 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 visa_station = 9
 
         self.visa_station = visa_station
+
         self.debug_mode = debug_mode
+        self.background_mode = background_mode
+        self.incoherent_signal_fit: Optional[tuple[float, float]] = None
 
     def run_analysis(self, config_options: Optional[str] = None):
         df = self.auxiliary_data
+        self.incoherent_signal_fit = None
+
         charge = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
-        index = np.argmax(charge)
 
         photons_arr = np.zeros(len(charge))
         visa_intensity_arr = np.zeros(len(charge))
@@ -65,14 +68,13 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                     plt.show()
 
                 cropped_image = self.crop_rad2(raw_image)
-                image = image_processing_funcs.threshold_reduction(cropped_image, 2)
+                image = image_processing_funcs.threshold_reduction(cropped_image, 4)
                 image = median_filter(image, size=3)
                 projection_arr = np.sum(image, axis=0)
 
                 fs = 200.0
                 cutoff = 4.5
                 filtered_data = self.lowpass_filter(projection_arr[1:-1], cutoff, fs)
-                min = np.min(filtered_data)
 
                 # photons_arr[i] = np.sum(image)
                 photons_arr[i] = np.sum(filtered_data)
@@ -81,8 +83,9 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                     plt.imshow(image)  # ,vmin=0, vmax=7)
                     plt.show()
 
-                    plt.plot(projection_arr[1:-1] - min)
-                    plt.plot(filtered_data - min)
+                    projection_minimum = np.min(filtered_data)
+                    plt.plot(projection_arr[1:-1] - projection_minimum)
+                    plt.plot(filtered_data - projection_minimum)
                     plt.show()
 
             except FileNotFoundError:
@@ -105,18 +108,55 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                     logging.warning(f"OSError at {self.visa_device} shot {i+1}??")
                     visa_intensity_arr[i] = 0
 
-        color_scheme = visa_intensity_arr
-        color_label = "Intensity on VISA Screen"
-        cmap_type = 'viridis'
+        if self.background_mode:
+            fit = np.polyfit(charge[(charge > 20) & (charge < 250)], photons_arr[(charge > 20) & (charge < 250)], 1)
+            print("--Background Mode:  Linear Fit of Light vs Charge--")
+            print(fit)
+            self.incoherent_signal_fit = fit
+        else:
+            if self.incoherent_signal_fit is not None:
+                self.incoherent_signal_fit = (self.incoherent_signal_fit[0], 0)
+
+        if np.min(visa_intensity_arr) == np.max(visa_intensity_arr):
+            color_scheme = 'b'
+            color_label = None
+            cmap_type = None
+        else:
+            color_scheme = visa_intensity_arr
+            color_label = "Intensity on VISA Screen"
+            cmap_type = 'viridis'
 
         plt.scatter(charge, photons_arr, label="1st Order", marker="+", c=color_scheme, cmap=cmap_type)
-        #plt.yscale('log')
-        #plt.plot(x, p(x), label="Incoherent Signal", c='k', ls='--')
+        # plt.yscale('log')
+
+        if self.incoherent_signal_fit is not None:
+            # First, correct the signal by shifting the zero signals to correspond to 0 on the linear fit's intercept
+            x_intercept = -self.incoherent_signal_fit[1] / self.incoherent_signal_fit[0]
+            for i in range(len(charge)):
+                if charge[i] < x_intercept:
+                    photons_arr[i] += charge[i] * self.incoherent_signal_fit[0]
+                else:
+                    photons_arr[i] -= self.incoherent_signal_fit[1]
+
+            # Next, build the linear slope to represent the incoherent signal and organize the shots by brightness
+            p = np.poly1d(self.incoherent_signal_fit)
+            x = np.linspace(np.min(charge), np.max(charge))
+            combined = list(zip(range(len(charge)), charge, photons_arr))
+            sorted_combined = sorted(combined, key=lambda info: info[2])
+
+            # Print out the statistics for the brightest shots, TODO print to file
+            for item in sorted_combined:
+                print(f"{item[0] + 1}:   {item[1]:.2f} pC,   {item[2]:.3E},   Gain = {item[2] / p(item[1]):.2f}")
+
+            # Lastly, actually add this to the plot
+            plt.plot(x, p(x), label="Incoherent Signal", c='k', ls='--')
+
         plt.title(f'Photon Yield VS Charge VISA{self.visa_station}: '
                   f'{self.tag.month}/{self.tag.day}/{self.tag.year} Scan {self.tag.number}')
         plt.xlabel(f'U_BCaveICT Beam Charge (pC)')
         plt.ylabel("UC_Rad2 Camera Counts of 1st Order")
-        plt.colorbar(label=color_label)
+        if color_label:
+            plt.colorbar(label=color_label)
         plt.legend()
         plt.tight_layout()
         plt.show()
@@ -148,13 +188,13 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         elif self.visa_station == 9:
             height = 800
             width = 1100
-            center = (1300, 1750)
+            center = (1450, 1250)
+            self.incoherent_signal_fit = [531.32913876, 17758.99803129]
         else:
             raise ValueError(f"Visa Station {self.visa_station} invalid")
 
         return input_image[center[0]-int(height/2): center[0]+int(height/2),
                            center[1]-int(width/2): center[1]+int(width/2)]
-
 
     def butter_lowpass(self, cutoff, fs, order=5):
         nyquist = 0.5 * fs
@@ -171,6 +211,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=2, day=13, number=27, experiment_name='Undulator')
-    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=True)
+    tag = ScanData.get_scan_tag(year=2025, month=2, day=27, number=28, experiment_name='Undulator')
+    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False, background_mode=False)
     analyzer.run_analysis()
