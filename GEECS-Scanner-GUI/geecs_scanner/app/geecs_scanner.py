@@ -751,8 +751,8 @@ class GEECSScannerWindow(QMainWindow):
             self.scan_variable_list = list(devices.keys())
 
             composite_device_filename = self.app_paths.scan_devices() / "composite_variables.yaml"
-            composite_vars = read_yaml_file_to_dict(composite_device_filename)['composite_variables']
-            self.scan_composite_list = list(composite_vars.keys())
+            self.scan_composite_data = read_yaml_file_to_dict(composite_device_filename)['composite_variables']
+            self.scan_composite_list = list(self.scan_composite_data.keys())
 
         except FileNotFoundError as e:
             logging.error(f"Error loading file: {e}")
@@ -785,7 +785,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.labelStopValue.setText("Stop Value: (abs)")
         elif scan_device in self.scan_composite_list:
             self.scan_variable = scan_device
-            mode = self.scan_composite_data['composite_variables'][scan_device]['mode'][:3]
+            mode = self.scan_composite_data[scan_device]['mode'][:3]
             self.ui.labelStartValue.setText(f"Start Value: ({mode})")
             self.ui.labelStopValue.setText(f"Stop Value: ({mode})")
         else:
