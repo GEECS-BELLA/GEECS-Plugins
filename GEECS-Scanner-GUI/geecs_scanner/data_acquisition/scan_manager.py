@@ -41,7 +41,7 @@ class ScanManager:
         Args:
             experiment_dir (str): Directory where experiment data is stored.
             device_manager (DeviceManager, optional): DeviceManager instance for managing devices.
-            shot_control_device (str, optional): GEECS Device that controls the shot timing
+            shot_control_information (dict): dict containing shot control information
         """
         database_dict.reload(experiment_name=experiment_dir)
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
@@ -267,6 +267,16 @@ class ScanManager:
             else:
                 logging.info('not doing any data saving')
 
+            in_standby = self.check_devices_in_standby_mode()
+            if in_standby:
+                pass
+            else:
+                logging.info("Stopping scanning.")
+                log_df = self.stop_scan()
+                return log_df
+
+            self.synchronize_devices()
+
             # start the acquisition loop
             self.scan_execution_loop()
 
@@ -278,6 +288,53 @@ class ScanManager:
         log_df = self.stop_scan()
 
         return log_df  # Return the DataFrame with the logged data
+
+    def check_devices_in_standby_mode(self):
+        timeout = 6  # timeout in seconds
+        start_time = time.time()
+        while not self.data_logger.all_devices_in_standby:
+            if time.time() - start_time > timeout:
+                logging.error("Timeout reached while waiting for all devices to be go into standby.")
+                return False
+            time.sleep(1)
+        return True
+
+    def synchronize_devices(self):
+
+        timeout = 7.5  # timeout in seconds
+        start_time = time.time()
+        while not self.data_logger.devices_synchronized:
+
+            if time.time() - start_time > timeout:
+                logging.error("Timeout reached while waiting for all devices get synchronized.")
+                logging.info("Stopping scanning.")
+                log_df = self.stop_scan()
+                return log_df
+
+            # TODO: this is hardcoded to fire single shot on a DG645
+            logging.info('sending a single shot to establish device synchronicity')
+            self.shot_control.set('Trigger.ExecuteSingleShot', 'on')
+
+            time.sleep(2)
+
+            # if after firing a single shot, all devices left standby mode, we can move on
+            if self.data_logger.devices_synchronized:
+                logging.info(f'devices synced')
+                break
+            # if a single device fails to leave standby mode, then all devices need to return
+            # to standby mode = None, so that they can cleanly enter standby mode again.
+            else:
+                logging.warning('not all devices exited standby mode after single shot')
+                devices_still_in_standby = [device for device, status in
+                                            self.data_logger.standby_mode_device_status.items() if
+                                            status is True]
+                logging.warning(f"Devices still that failed to leave standby: {devices_still_in_standby}")
+
+                logging.info(f"reseting standby status for all devices back to None")
+                self.data_logger.standby_mode_device_status = {key: None for key in
+                                                               self.data_logger.standby_mode_device_status}
+                logging.info(f"wait for devices to re-enter standby mode")
+                self.check_devices_in_standby_mode()
 
     def stop_scan(self):
         """
