@@ -134,12 +134,16 @@ class TcpSubscriber:
         while True:
             try:
                 # Wait for the socket to be ready (using select)
-                ready = select.select([self.sock], [], [], 0.05)
+                try:
+                    ready = select.select([self.sock], [], [], 0.05)
+                except Exception as ex:
+                    api_error.error(str(ex), 'TcpSubscriber class, method "async_listener", socket timeout')
+                    return
 
                 if ready[0]:  # If the socket is ready for reading
                     # Read the length of the incoming message (first 4 bytes)
                     msg_len = struct.unpack('>i', self.sock.recv(4))[0]
-
+                    api_error.error('async listener message length: {msg_len}')
                     if msg_len > 0:  # If the message length is valid
                         this_msg = ''
 
@@ -148,6 +152,7 @@ class TcpSubscriber:
                             chunk = self.sock.recv(msg_len - len(this_msg))
                             if chunk:
                                 this_msg += chunk.decode('ascii')
+                                api_error.error('async listener message length: {msg_len}')
 
                         # Notify event handler on receiving a new message (general update)
                         if self.message_callback:  # Invoke the callback if it is set
