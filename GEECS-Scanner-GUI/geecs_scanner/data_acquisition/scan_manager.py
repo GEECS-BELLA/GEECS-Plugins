@@ -301,40 +301,44 @@ class ScanManager:
 
     def synchronize_devices(self):
 
-        timeout = 7.5  # timeout in seconds
+        timeout = 17.5  # timeout in seconds
         start_time = time.time()
         while not self.data_logger.devices_synchronized:
-
             if time.time() - start_time > timeout:
                 logging.error("Timeout reached while waiting for all devices get synchronized.")
                 logging.info("Stopping scanning.")
                 log_df = self.stop_scan()
                 return log_df
+            if self.data_logger.all_devices_in_standby:
 
-            # TODO: this is hardcoded to fire single shot on a DG645
-            logging.info('sending a single shot to establish device synchronicity')
-            self.shot_control.set('Trigger.ExecuteSingleShot', 'on')
+                # TODO: this is hardcoded to fire single shot on a DG645
+                logging.info('sending a single shot to establish device synchronicity')
+                res = self.shot_control.set('Trigger.ExecuteSingleShot', 'on')
+                logging.info(f'result from single shoit set command: {res}')
 
-            time.sleep(2)
+                time.sleep(2)
 
-            # if after firing a single shot, all devices left standby mode, we can move on
-            if self.data_logger.devices_synchronized:
-                logging.info(f'devices synced')
-                break
-            # if a single device fails to leave standby mode, then all devices need to return
-            # to standby mode = None, so that they can cleanly enter standby mode again.
-            else:
-                logging.warning('not all devices exited standby mode after single shot')
-                devices_still_in_standby = [device for device, status in
-                                            self.data_logger.standby_mode_device_status.items() if
-                                            status is True]
-                logging.warning(f"Devices still that failed to leave standby: {devices_still_in_standby}")
+                # if after firing a single shot, all devices left standby mode, we can move on
+                if self.data_logger.devices_synchronized:
+                    logging.info(f'devices synced')
+                    break
+                # if a single device fails to leave standby mode, then all devices need to return
+                # to standby mode = None, so that they can cleanly enter standby mode again.
+                else:
+                    logging.warning('not all devices exited standby mode after single shot')
+                    devices_still_in_standby = [device for device, status in
+                                                self.data_logger.standby_mode_device_status.items() if
+                                                status is True]
+                    logging.warning(f"Devices still that failed to leave standby: {devices_still_in_standby}")
 
-                logging.info(f"reseting standby status for all devices back to None")
-                self.data_logger.standby_mode_device_status = {key: None for key in
-                                                               self.data_logger.standby_mode_device_status}
-                logging.info(f"wait for devices to re-enter standby mode")
-                self.check_devices_in_standby_mode()
+                    logging.info(f"reseting standby status for all devices back to None")
+                    self.data_logger.standby_mode_device_status = {key: None for key in
+                                                                   self.data_logger.standby_mode_device_status}
+                    self.data_logger.initial_timestamps = {key: None for key in
+                                                                   self.data_logger.initial_timestamps}
+                    logging.info(f"wait for devices to re-enter standby mode")
+                    self.data_logger.all_devices_in_standby = False
+                    # self.check_devices_in_standby_mode()
 
     def stop_scan(self):
         """

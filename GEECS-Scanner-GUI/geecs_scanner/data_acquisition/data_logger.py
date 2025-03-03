@@ -74,6 +74,7 @@ class DataLogger:
 
         self.last_timestamps = {}
         self.initial_timestamps = {}
+        self.synced_timestamps = {}
         self.standby_mode_device_status = {}
         self.log_entries = {}
 
@@ -97,7 +98,7 @@ class DataLogger:
 
         logging.info(
             'waiting for all devices to go to standby mode. Note, device standby status not checked, just waiting 4 seconds for all devices to timeout')
-        time.sleep(4)
+        time.sleep(1)
 
         logging.info("Logging has started for all event-driven devices.")
 
@@ -144,25 +145,33 @@ class DataLogger:
         if not self.devices_synchronized:
             self.check_device_standby_mode_status(device, timestamp_from_device)
             self.devices_synchronized = self.check_all_exited_standby_status()
+            if not self.devices_synchronized:
+                return
+            if self.devices_synchronized:
+                self.initial_timestamps = self.synced_timestamps
 
         elapsed_time = self._calculate_elapsed_time(device, timestamp_from_device)
 
-        if self._check_duplicate_timestamp(device, timestamp_from_device):
-            return
+        #ensure that the synchronization shot is not included in the logging
+        if elapsed_time>0:
+            if self._check_duplicate_timestamp(device, timestamp_from_device):
+                return
 
-        self._log_device_data(device, elapsed_time)
+            self._log_device_data(device, elapsed_time)
 
     def check_all_standby_status(self):
         device_names = set(self.synchronous_device_names)
         standby_keys = self.standby_mode_device_status.keys()
 
         all_in_dict = device_names.issubset(standby_keys)
-        all_on = all(self.standby_mode_device_status[device] for device in self.synchronous_device_names)
+        all_on = all(self.standby_mode_device_status.get(device,False) for device in self.synchronous_device_names)
 
         if all_in_dict and all_on:
             logging.info("All device names are present in standby_mode_device_status dict and all have True status.")
             return True
         else:
+            logging.info(f'NOt all devices are in standby: {self.standby_mode_device_status}')
+
             return False
 
     def check_all_exited_standby_status(self):
@@ -170,7 +179,7 @@ class DataLogger:
         standby_keys = self.standby_mode_device_status.keys()
 
         all_in_dict = device_names.issubset(standby_keys)
-        all_off = all(not self.standby_mode_device_status[device] for device in self.synchronous_device_names)
+        all_off = all(not self.standby_mode_device_status.get(device,True) for device in self.synchronous_device_names)
 
         if all_in_dict and all_off:
             logging.info("All device names are present in standby_mode_device_status dict and all "
@@ -200,6 +209,7 @@ class DataLogger:
         # check if there has been a timestamp added to the dict for a given device
         t0 = self.initial_timestamps.get(device.get_name(),None)
 
+
         # if this is the first logged timestamp, return None because we can't say for
         # certain if the device is in standby mode
         if t0 is None:
@@ -208,14 +218,25 @@ class DataLogger:
                 f"First TCP event received from {device.get_name()}. Initial dummy timestamp set to {timestamp}.")
             return None
 
+        logging.info(f'checking standby status of {device.get_name()}')
+
+        # update the timestamp in this dict each call. Once all devices have verifiably
+        # entered standby and exited standby synchronously, we will overwrite the
+        # initial_timestamps dict to reset t0 for each device
+        self.synced_timestamps[device.get_name()] = timestamp
+
         # handle the case that this isn't the first call. If the passed timestamp
         # is equal to the timestamp in the dict, that means we've received two
         # TCP events from the device without the device timestamp updating, which
         # means the device has timed out and can be considered to be in standby mode
         if t0 == timestamp:
             self.standby_mode_device_status[device.get_name()] = True
+            logging.info(f'{device.get_name()} is in standby')
+
             return True
         else:
+            self.standby_mode_device_status[device.get_name()] = False
+            logging.info(f'{device.get_name()} has exited in standby')
             return False
 
     def update_repetition_rate(self, new_repetition_rate):
@@ -364,7 +385,7 @@ class DataLogger:
                 for observable in self.event_driven_observables if observable.startswith(device.get_name())
             }
             if elapsed_time not in self.log_entries:
-                logging.info(f'elapsed time in sync devices {elapsed_time}')
+                logging.info(f'elapsed time in sync devices {elapsed_time}. reported by {device.get_name()}')
                 self.log_entries[elapsed_time] = {'Elapsed Time': elapsed_time}
                 # Log configuration variables (such as 'bin') only when a new entry is created
                 self.log_entries[elapsed_time]['Bin #'] = self.bin_num
