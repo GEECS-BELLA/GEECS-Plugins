@@ -289,7 +289,13 @@ class ScanManager:
 
         return log_df  # Return the DataFrame with the logged data
 
-    def check_devices_in_standby_mode(self):
+    def check_devices_in_standby_mode(self)-> bool:
+        """
+        Check whether all devices have entered standby mode, with a timeout.
+
+        Returns:
+            bool: True if all devices are in standby mode within the timeout; otherwise, False.
+        """
         timeout = 6  # timeout in seconds
         start_time = time.time()
         while not self.data_logger.all_devices_in_standby:
@@ -299,46 +305,47 @@ class ScanManager:
             time.sleep(1)
         return True
 
-    def synchronize_devices(self):
-
-        timeout = 17.5  # timeout in seconds
+    def synchronize_devices(self) -> None:
+        """
+        Attempt to synchronize all devices but firing a test shot and checking if
+        all devices exited standby mode. If all devices do not exit standby mode
+        their status is reinitialized to 'none' (i.e. unknown) and then we wait for
+        them all to go back into standby mode (i.e. devices each timeout). Once that condition is
+        satisified, we can fire another test shot to see if all devices exit standby mode.
+        This process repeats until successful or a timeout is reached.
+        """
+        timeout = 17.5  # seconds
         start_time = time.time()
         while not self.data_logger.devices_synchronized:
             if time.time() - start_time > timeout:
-                logging.error("Timeout reached while waiting for all devices get synchronized.")
+                logging.error("Timeout reached while waiting for devices to synchronize.")
                 logging.info("Stopping scanning.")
-                log_df = self.stop_scan()
-                return log_df
+                self.stop_scan()
+                return
             if self.data_logger.all_devices_in_standby:
+                logging.info("Sending single-shot trigger to synchronize devices.")
 
                 # TODO: this is hardcoded to fire single shot on a DG645
-                logging.info('sending a single shot to establish device synchronicity')
                 res = self.shot_control.set('Trigger.ExecuteSingleShot', 'on')
-                logging.info(f'result from single shoit set command: {res}')
-
+                logging.info(f"Result of single shot command: {res}")
+                #wait 2 seconds after the test fire to allow time for shot to execute and for devices to respond
                 time.sleep(2)
-
-                # if after firing a single shot, all devices left standby mode, we can move on
                 if self.data_logger.devices_synchronized:
-                    logging.info(f'devices synced')
+                    logging.info("Devices synchronized.")
                     break
-                # if a single device fails to leave standby mode, then all devices need to return
-                # to standby mode = None, so that they can cleanly enter standby mode again.
                 else:
-                    logging.warning('not all devices exited standby mode after single shot')
+                    logging.warning("Not all devices exited standby after single shot.")
                     devices_still_in_standby = [device for device, status in
-                                                self.data_logger.standby_mode_device_status.items() if
-                                                status is True]
-                    logging.warning(f"Devices still that failed to leave standby: {devices_still_in_standby}")
-
-                    logging.info(f"reseting standby status for all devices back to None")
-                    self.data_logger.standby_mode_device_status = {key: None for key in
-                                                                   self.data_logger.standby_mode_device_status}
-                    self.data_logger.initial_timestamps = {key: None for key in
-                                                                   self.data_logger.initial_timestamps}
-                    logging.info(f"wait for devices to re-enter standby mode")
+                        self.data_logger.standby_mode_device_status.items() if status is True]
+                    logging.warning(f"Devices still in standby: {devices_still_in_standby}")
+                    logging.info("Resetting standby status to none for all devices.")
+                    self.data_logger.standby_mode_device_status = {key: None for key in self.data_logger.standby_mode_device_status}
+                    logging.info("Resetting initial timestamp to None for each device to enforce rechecking of stanby mode.")
+                    self.data_logger.initial_timestamps = {key: None for key in self.data_logger.initial_timestamps}
+                    logging.info("Waiting for devices to re-enter standby mode.")
                     self.data_logger.all_devices_in_standby = False
-                    # self.check_devices_in_standby_mode()
+            #wait 100 ms between checks of device standby status
+            time.sleep(0.1)
 
     def stop_scan(self):
         """
