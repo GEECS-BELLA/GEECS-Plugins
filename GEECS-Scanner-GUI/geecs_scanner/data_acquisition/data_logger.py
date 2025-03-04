@@ -104,7 +104,7 @@ class FileMover:
 
 class DataLogger:
     """
-    Handles the logging of data from devices during an scan, supporting both event-driven
+    Handles the logging of data from devices during a scan, supporting both event-driven
     and asynchronous data acquisition. This class manages polling, logging, and state management
     for various devices in the experimental setup.
     """
@@ -163,56 +163,172 @@ class DataLogger:
             dict: A dictionary storing the logged entries.
         """
 
-        last_timestamps = {}
-        initial_timestamps = {}
-        standby_mode = {}
+        self.last_timestamps = {}
+        self.initial_timestamps = {}
+        self.synced_timestamps = {}
+        self.standby_mode_device_status = {}
         self.log_entries = {}
+
+        self.all_devices_in_standby = False
+        self.devices_synchronized = False
+        self.synchronous_device_names = []
 
         # Start the sound player
         self.sound_player.start_queue()
 
         # Access event-driven and async observables from DeviceManager
-        event_driven_observables = self.device_manager.event_driven_observables
-        async_observables = self.device_manager.async_observables
+        self.event_driven_observables = self.device_manager.event_driven_observables
 
-        def log_update(message, device):
-            """
-            Handle updates from TCP subscribers and log them when a new timestamp is detected.
-
-            Args:
-                message (str): Message from the device containing data to be logged.
-                device (GeecsDevice): The device object from which the message originated.
-            """
-
-            current_timestamp = self._extract_timestamp(message, device)
-
-            if current_timestamp is None:
-                return
-
-            if self._initialize_standby_mode(device, standby_mode, initial_timestamps, current_timestamp):
-                return
-
-            elapsed_time = self._calculate_elapsed_time(device, initial_timestamps, current_timestamp)
-
-            if self._check_duplicate_timestamp(device, last_timestamps, current_timestamp):
-                return
-
-            self._log_device_data(device, event_driven_observables, elapsed_time)
+        for observable in self.event_driven_observables:
+            device_name = observable.split(':')[0]
+            if device_name not in self.synchronous_device_names:
+                self.synchronous_device_names.append(device_name)
 
         # Register the logging function for event-driven observables
-        self._register_event_logging(event_driven_observables, log_update)
+        self._register_event_logging(self._handle_TCP_message_from_device)
 
         logging.info(
             'waiting for all devices to go to standby mode. Note, device standby status not checked, just waiting 4 seconds for all devices to timeout')
-        time.sleep(4)
+        time.sleep(1)
 
         logging.info("Logging has started for all event-driven devices.")
 
         # # Start a thread to monitor device warnings
-        # self.warning_thread = threading.Thread(target=self._monitor_warnings, args=(event_driven_observables, async_observables))
+        # self.warning_thread = threading.Thread(target=self._monitor_warnings, args=(self.event_driven_observables, async_observables))
         # self.warning_thread.start()
 
         return self.log_entries
+
+    def _handle_TCP_message_from_device(self, message, device):
+        """
+        Handle updates from TCP subscribers and log them when a new timestamp is detected.
+
+        Args:
+            message (str): Message from the device containing data to be logged.
+            device (GeecsDevice): The device object from which the message originated.
+        """
+
+        # TCP messages and events get generated constantly from a GEECS device. We need to
+        # determine if a message and event are originating from a triggered event or from a
+        # timeout event. This involves parsing out the device specific timestamp on the first
+        # TCP event. Then, we need to compare it to the timestamp from the following event.
+        # During a timeout event, the device timestamp is not updated as it represents the
+        # timestamp from the last successful acquisition. If we see that the timestamp is not
+        # updating, that means we know that the device has timed out and can be considered
+        # to be in standby mode. It is awaiting the next hardware trigger. So, the process
+        # here is to interpret the first few messages from each device to conclude everything
+        # is in standby mode and can be then be synchronized through a dedicated timing shot
+
+        timestamp_from_device = self._extract_timestamp(message, device)
+
+        #TODO: I think this needs to be changed to raise some kind of error, as not getting a timestamp
+        # is a pretty fatal error
+        if timestamp_from_device is None:
+            return
+
+        if not self.all_devices_in_standby:
+            self.check_device_standby_mode_status(device, timestamp_from_device)
+            self.all_devices_in_standby = self.check_all_standby_status()
+            return
+
+        # This part is a little messy as all the logic and execution that will synchronize devices
+        # occurs in ScanManager
+        if not self.devices_synchronized:
+            self.check_device_standby_mode_status(device, timestamp_from_device)
+            self.devices_synchronized = self.check_all_exited_standby_status()
+            if not self.devices_synchronized:
+                return
+            if self.devices_synchronized:
+                self.initial_timestamps = self.synced_timestamps
+
+        elapsed_time = self._calculate_elapsed_time(device, timestamp_from_device)
+
+        #ensure that the synchronization shot is not included in the logging
+        if elapsed_time>0:
+            if self._check_duplicate_timestamp(device, timestamp_from_device):
+                return
+
+            self._log_device_data(device, elapsed_time)
+
+    def check_all_standby_status(self):
+        device_names = set(self.synchronous_device_names)
+        standby_keys = self.standby_mode_device_status.keys()
+
+        all_in_dict = device_names.issubset(standby_keys)
+        all_on = all(self.standby_mode_device_status.get(device,False) for device in self.synchronous_device_names)
+
+        if all_in_dict and all_on:
+            logging.info("All device names are present in standby_mode_device_status dict and all have True status.")
+            return True
+        else:
+            logging.info(f'NOt all devices are in standby: {self.standby_mode_device_status}')
+
+            return False
+
+    def check_all_exited_standby_status(self):
+        device_names = set(self.synchronous_device_names)
+        standby_keys = self.standby_mode_device_status.keys()
+
+        all_in_dict = device_names.issubset(standby_keys)
+        all_off = all(not self.standby_mode_device_status.get(device,True) for device in self.synchronous_device_names)
+
+        if all_in_dict and all_off:
+            logging.info("All device names are present in standby_mode_device_status dict and all "
+                         "have False status meaning they have exited standby mode.")
+            return True
+        else:
+            return False
+
+    def check_device_standby_mode_status(self, device, timestamp: float):
+        # TODO: statuses are bit wonky and could be cleaned up. Right now, 'None'
+        #  really means the status is unknown. "True" indicates the device verifiably
+        #  went into standby mode. "False" indicates that device originally went into
+        #  standby mode, and has since received a verifiable hardware trigger. So,
+        #  once a "False" status has been flagged, it should stay that way until something
+        #  explicitly turns it back to "None".
+
+        # if this is the first call to this method, add the device a standby_mode
+        # dict to be tracked. When it is entered, we don't know anything about its
+        # status, so set it to none.
+        if device.get_name() not in self.standby_mode_device_status:
+            self.standby_mode_device_status[device.get_name()] = None
+            self.initial_timestamps[device.get_name()] = None
+
+        if self.standby_mode_device_status[device.get_name()] == False:
+            return
+
+        # check if there has been a timestamp added to the dict for a given device
+        t0 = self.initial_timestamps.get(device.get_name(),None)
+
+
+        # if this is the first logged timestamp, return None because we can't say for
+        # certain if the device is in standby mode
+        if t0 is None:
+            self.initial_timestamps[device.get_name()] = timestamp
+            logging.info(
+                f"First TCP event received from {device.get_name()}. Initial dummy timestamp set to {timestamp}.")
+            return None
+
+        logging.info(f'checking standby status of {device.get_name()}')
+
+        # update the timestamp in this dict each call. Once all devices have verifiably
+        # entered standby and exited standby synchronously, we will overwrite the
+        # initial_timestamps dict to reset t0 for each device
+        self.synced_timestamps[device.get_name()] = timestamp
+
+        # handle the case that this isn't the first call. If the passed timestamp
+        # is equal to the timestamp in the dict, that means we've received two
+        # TCP events from the device without the device timestamp updating, which
+        # means the device has timed out and can be considered to be in standby mode
+        if t0 == timestamp:
+            self.standby_mode_device_status[device.get_name()] = True
+            logging.info(f'{device.get_name()} is in standby')
+
+            return True
+        else:
+            self.standby_mode_device_status[device.get_name()] = False
+            logging.info(f'{device.get_name()} has exited in standby')
+            return False
 
     def update_repetition_rate(self, new_repetition_rate):
         self.repetition_rate = new_repetition_rate
@@ -240,85 +356,52 @@ class DataLogger:
             current_timestamp = float(stamp)
         return float(current_timestamp)
 
-    def _register_event_logging(self, event_driven_observables, log_update):
+    def _register_event_logging(self, log_update):
         """
         Register event-driven observables for logging.
 
         Args:
-            event_driven_observables (list): A list of event-driven observables to monitor.
             log_update (function): Function to call when an event update occurs.
         """
 
         for device_name, device in self.device_manager.devices.items():
-            for observable in event_driven_observables:
+            for observable in self.event_driven_observables:
                 if observable.startswith(device_name):
                     logging.info(f"Registering logging for event-driven observable: {observable}")
                     device.event_handler.register('update', 'logger', lambda msg, dev=device: log_update(msg, dev))
 
-    def _initialize_standby_mode(self, device, standby_mode, initial_timestamps, current_timestamp):
-        """
-        Initialize and manage the standby mode for a device based on its timestamp. This is an
-        essential component for getting synchronization correct
-
-        Args:
-            device (GeecsDevice): The device being monitored.
-            standby_mode (dict): A dictionary tracking which devices are in standby mode.
-            initial_timestamps (dict): A dictionary storing initial timestamps for devices.
-            current_timestamp (float): The current timestamp from the device.
-
-        Returns:
-            bool: True if the device is still in standby mode, False otherwise.
-        """
-        if device.get_name() not in standby_mode:
-            standby_mode[device.get_name()] = True
-        if device.get_name() not in initial_timestamps:
-            initial_timestamps[device.get_name()] = current_timestamp
-            logging.info(
-                f"Initial dummy timestamp for {device.get_name()} set to {current_timestamp}. Standby mode enabled.")
-        t0 = initial_timestamps[device.get_name()]
-        if standby_mode[device.get_name()] and current_timestamp != t0:
-            standby_mode[device.get_name()] = False
-            logging.info(f"Device {device.get_name()} exiting standby mode. First real timestamp: {current_timestamp}")
-            initial_timestamps[device.get_name()] = current_timestamp
-        elif standby_mode[device.get_name()]:
-            logging.info(f"Device {device.get_name()} is still in standby mode.")
-            return True
-        return False
-
-    def _calculate_elapsed_time(self, device, initial_timestamps, current_timestamp):
+    def _calculate_elapsed_time(self, device, current_timestamp):
         """
         Calculate the elapsed time for a device based on its initial timestamp.
 
         Args:
             device (GeecsDevice): The device being monitored.
-            initial_timestamps (dict): A dictionary storing initial timestamps for devices.
             current_timestamp (float): The current timestamp from the device.
 
         Returns:
             int: The elapsed time (rounded) since the device's initial timestamp.
         """
 
-        t0 = initial_timestamps[device.get_name()]
+        t0 = self.initial_timestamps[device.get_name()]
         elapsed_time = current_timestamp - t0
         return round(elapsed_time * self.repetition_rate)/self.repetition_rate
 
-    def _check_duplicate_timestamp(self, device, last_timestamps, current_timestamp):
+    def _check_duplicate_timestamp(self, device, current_timestamp):
         """
         Check if the current timestamp for a device is a duplicate.
 
         Args:
             device (GeecsDevice): The device being monitored.
-            last_timestamps (dict): A dictionary storing the last timestamps for devices.
             current_timestamp (float): The current timestamp from the device.
 
         Returns:
             bool: True if the timestamp is a duplicate, False otherwise.
         """
 
-        if device.get_name() in last_timestamps and last_timestamps[device.get_name()] == current_timestamp:
+        if device.get_name() in self.last_timestamps and self.last_timestamps[device.get_name()] == current_timestamp:
             logging.info(f"Timestamp hasn't changed for {device.get_name()}. Skipping log.")
             return True
-        last_timestamps[device.get_name()] = current_timestamp
+        self.last_timestamps[device.get_name()] = current_timestamp
         return False
 
     def update_async_observables(self, async_observables, elapsed_time):
@@ -373,14 +456,13 @@ class DataLogger:
             else:
                 logging.warning(f"Device {device_name} not found in DeviceManager. Skipping {observable}.")
 
-    def _log_device_data(self, device, event_driven_observables, elapsed_time):
+    def _log_device_data(self, device, elapsed_time):
 
         """
         Log the data for a device during an event-driven observation.
 
         Args:
             device (GeecsDevice): The device being logged.
-            event_driven_observables (list): A list of event-driven observables to monitor.
             elapsed_time (int): The time elapsed since the logging started.
 
         Logs:
@@ -391,10 +473,10 @@ class DataLogger:
         with self.lock:
             observables_data = {
                 observable.split(':')[1]: device.state.get(observable.split(':')[1], '')
-                for observable in event_driven_observables if observable.startswith(device.get_name())
+                for observable in self.event_driven_observables if observable.startswith(device.get_name())
             }
             if elapsed_time not in self.log_entries:
-                logging.info(f'elapsed time in sync devices {elapsed_time}')
+                logging.info(f'elapsed time in sync devices {elapsed_time}. reported by {device.get_name()}')
                 self.log_entries[elapsed_time] = {'Elapsed Time': elapsed_time}
                 # Log configuration variables (such as 'bin') only when a new entry is created
                 self.log_entries[elapsed_time]['Bin #'] = self.bin_num
@@ -406,7 +488,7 @@ class DataLogger:
 
                 # TODO move the on-shot tdms writer functionality from scan manager to here
 
-                # Set a flag to tell scan manager that a shot occured
+                # Set a flag to tell scan manager that a shot occurred
                 self.shot_save_event.set()
 
                 # Trigger the beep in the background
@@ -416,6 +498,7 @@ class DataLogger:
             self.log_entries[elapsed_time].update({
                 f"{device.get_name()}:{key}": value for key, value in observables_data.items()
             })
+
 
             # Enqueue a file-moving task.
             # For demonstration, use fixed source and target directories.
@@ -442,7 +525,7 @@ class DataLogger:
 
             if self.data_recording:
                 # Check synchronous devices (event-driven observables)
-                for observable in event_driven_observables:
+                for observable in self.event_driven_observables:
                     device_name = observable.split(':')[0]
                     last_log_time = self.last_log_time_sync.get(device_name, None)
 
