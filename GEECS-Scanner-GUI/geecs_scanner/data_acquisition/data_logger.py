@@ -13,6 +13,94 @@ from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
 import geecs_python_api.controls.interface.message_handling as mh
 
+import queue
+import shutil
+from pathlib import Path
+import datetime
+
+
+class FileMover:
+    def __init__(self):
+        self.task_queue = queue.Queue()
+        self.stop_event = threading.Event()
+        self.worker = threading.Thread(target=self._worker_func, daemon=True)
+        self.worker.start()
+        logging.info("FileMover worker started.")
+
+    def _extract_timestamp(self, file: Path) -> datetime.datetime:
+        """Extract timestamp from file. Here we use the file's modification time."""
+        return datetime.datetime.fromtimestamp(file.stat().st_mtime)
+
+    def _worker_func(self):
+        """
+        Process file move tasks from the queue. When the stop_event is set and the queue is empty,
+        the worker exits.
+        """
+        while True:
+            try:
+                # Wait for a task (timeout allows periodic check of stop_event)
+                task = self.task_queue.get(timeout=1)
+            except queue.Empty:
+                # If no tasks are waiting and the stop_event is set, exit the loop.
+                if self.stop_event.is_set() and self.task_queue.empty():
+                    break
+                continue
+
+            # If a sentinel is encountered, skip further processing.
+            if task is None:
+                continue
+
+            try:
+                source_dir, target_dir, expected_timestamp, elapsed_time = task
+                self._process_task(source_dir, target_dir, expected_timestamp, elapsed_time)
+            except Exception as e:
+                logging.error(f"Error processing task: {e}")
+            finally:
+                self.task_queue.task_done()
+        logging.info("FileMover worker stopped.")
+
+    def _process_task(self, source_dir: Path, target_dir: Path,
+                      expected_timestamp: datetime.datetime, elapsed_time: float):
+        """
+        Search for files in source_dir with a timestamp close to expected_timestamp,
+        rename them with a standard naming convention (including the timestamp and elapsed time),
+        and move them to target_dir.
+        """
+        tolerance = datetime.timedelta(minutes=1)
+        for file in source_dir.glob("*"):
+            if file.is_file():
+                file_ts = self._extract_timestamp(file)
+                if abs(file_ts - expected_timestamp) <= tolerance:
+                    # Create a new filename using the expected timestamp and elapsed time.
+                    new_filename = f"data_{expected_timestamp.strftime('%Y%m%dT%H%M%S')}_{int(elapsed_time)}{file.suffix}"
+                    dest_file = target_dir / new_filename
+                    try:
+                        shutil.move(str(file), str(dest_file))
+                        logging.info(f"Moved {file} to {dest_file}")
+                    except Exception as e:
+                        logging.error(f"Error moving {file} to {dest_file}: {e}")
+
+    def move_files_by_timestamp(self, source_dir: Path, target_dir: Path,
+                                expected_timestamp: datetime.datetime, elapsed_time: float):
+        """
+        Enqueue a file move task.
+        """
+        self.task_queue.put((source_dir, target_dir, expected_timestamp, elapsed_time))
+
+    def shutdown(self, wait: bool = True):
+        """
+        Signal that no new tasks will be added, wait for current tasks to finish,
+        and then shut down the worker thread.
+        """
+        self.stop_event.set()
+        if wait:
+            # Wait for all tasks in the queue to be processed.
+            self.task_queue.join()
+        # Optionally put a sentinel to unblock the worker if needed.
+        self.task_queue.put(None)
+        self.worker.join()
+        logging.info("FileMover has been shut down gracefully.")
+
 
 class DataLogger:
     """
@@ -41,6 +129,9 @@ class DataLogger:
         self.last_log_time_async = {}  # Dictionary to track last log time for async devices
         self.polling_interval = .5
         self.results = {}  # Store results for later processing
+
+        # Create a FileMover instance
+        self.file_mover = FileMover()
 
         self.log_entries = {}
 
@@ -326,6 +417,22 @@ class DataLogger:
                 f"{device.get_name()}:{key}": value for key, value in observables_data.items()
             })
 
+            # Enqueue a file-moving task.
+            # For demonstration, use fixed source and target directories.
+            # Note, below is not fucntional yet. The source dir will need to be determined
+            # using the device name and the IP for the host computer of that device. This
+            # information needs to be parsed from the database. Makes sense that this information
+            # gets parsed once upon intialization of the start_logging method.
+            # The target directory would have to be passed from the ScanManager to account for the
+            # Scan number. Again, this probably should be passed once at the top of the scanning.
+            # Scan number will also be need in renaming the moved files.
+            # Note, the implementation of using timestamps is wrong.
+            source_dir = Path(r"C:\LocalData")
+            target_dir = Path(r"\\CentralServer\SharedData")
+            # Use current time as expected timestamp.
+            expected_timestamp = datetime.datetime.now()
+            self.file_mover.move_files_by_timestamp(source_dir, target_dir, expected_timestamp, elapsed_time)
+
     def _monitor_warnings(self, event_driven_observables, async_observables):
         """
         Monitor the last log time for each device and issue warnings if a device hasn't updated within the threshold.
@@ -371,6 +478,10 @@ class DataLogger:
         self.sound_player.stop()
         # TODO check if this needs to be moved.  It might be cleared before the stop is registered
         # Reset the stop_event for future logging sessions
+
+        # Shut down the file mover gracefully.
+        self.file_mover.shutdown(wait=True)
+        
         self.stop_event.clear()
 
     def reinitialize_sound_player(self, options: Optional[dict] = None):
