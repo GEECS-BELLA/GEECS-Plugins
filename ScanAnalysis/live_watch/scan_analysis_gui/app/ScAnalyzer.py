@@ -28,10 +28,8 @@ if DEBUG_MODE:
 CURRENT_VERSION = "v" + version("scananalysis")
 
 # Type aliases for readability
-ProgressCallback = Callable[[str], None]
-ErrorCallback = Callable[[str], None]
 RunningCheck = Callable[[], bool]
-AnalysisFunction = Callable[[ProgressCallback, RunningCheck], None]
+AnalysisFunction = Callable[[pyqtSignal, RunningCheck], None]
 # =============================================================================
 # %% classes
 
@@ -92,13 +90,13 @@ class ScAnalyzerWindow(QMainWindow):
             # initialize worker and thread
             self.initialize_worker()
 
-        except (AnalysisRunningError, Exception) as e:
+        except Exception as e:
             self.log_error_message(str(e))
             self.end_analysis()
 
     def run_analysis(self,
-                     progress_callback: ProgressCallback,
-                     error_callback: ErrorCallback,
+                     progress_callback: pyqtSignal,
+                     error_callback: pyqtSignal,
                      is_running: RunningCheck,
                      wait_time: float = 0.5) -> None:
         '''
