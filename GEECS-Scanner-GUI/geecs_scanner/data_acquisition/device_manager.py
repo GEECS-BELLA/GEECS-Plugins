@@ -1,6 +1,5 @@
 import logging
 import yaml
-import numpy as np
 import threading
 
 
