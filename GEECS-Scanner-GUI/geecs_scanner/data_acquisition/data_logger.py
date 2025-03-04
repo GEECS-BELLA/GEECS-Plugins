@@ -481,7 +481,7 @@ class DataLogger:
 
         # Shut down the file mover gracefully.
         self.file_mover.shutdown(wait=True)
-        
+
         self.stop_event.clear()
 
     def reinitialize_sound_player(self, options: Optional[dict] = None):
