@@ -16,9 +16,10 @@ undulator_analyzers = [
          requirements={'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
                               'UC_VisaEBeam5', 'UC_VisaEBeam6', 'UC_VisaEBeam7', 'UC_VisaEBeam8']}),
     Info(analyzer_class=Rad2SpecAnalysis,
-         requirements={'AND': ['U_BCaveICT', 'UC_UndulatorRad2',
-                               {'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
-                                       'UC_VisaEBeam5', 'UC_VisaEBeam6', 'UC_VisaEBeam7', 'UC_VisaEBeam8']}]}),
+         # requirements={'AND': ['U_BCaveICT', 'UC_UndulatorRad2',
+         #                       {'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
+         #                               'UC_VisaEBeam5', 'UC_VisaEBeam6', 'UC_VisaEBeam7', 'UC_VisaEBeam8']}]}),
+         requirements={'AND': ['U_BCaveICT', 'UC_UndulatorRad2']}),
     Info(analyzer_class=CameraImageAnalysis,
          requirements={'UC_ALineEbeam1'},
          device_name='UC_ALineEbeam1'),
@@ -48,4 +49,7 @@ undulator_analyzers = [
     Info(analyzer_class=FrogAnalysis,
          requirements={'U_FROG_Grenouille-Temporal'},
          device_name='U_FROG_Grenouille-Temporal'),
+    Info(analyzer_class=CameraImageAnalysis,
+         requirements={'UC_ACaveMagCam3'},
+         device_name='UC_ACaveMagCam3')
 ]
