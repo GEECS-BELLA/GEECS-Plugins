@@ -57,12 +57,6 @@ class HasoAnalysis(ScanAnalysis):
             'save': self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / device_name / "HasoAnalysis",
         }
 
-        # config_file_path = '../../third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat'
-        #
-        # self.instantiate_wavekit_resources(config_file_path = config_file_path)
-        #
-        # self._log_info(f"Initialized HasoAnalysis for device '{device_name}' with scan directory '{self.scan_directory}'")
-
         self.path_to_bkg_has_file = None
         self.haso_processor = HASOHimgHasProcessor(background_path=self.path_to_bkg_has_file)
         self.haso_processor.filter_params = FilterParameters(apply_tiltx_filter=True, apply_tilty_filter=True,
