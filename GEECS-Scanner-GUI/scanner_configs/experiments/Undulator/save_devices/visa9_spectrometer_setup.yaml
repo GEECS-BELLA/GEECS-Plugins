@@ -1,4 +1,9 @@
 Devices:
+  UC_ACaveMagCam3:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - timestamp
   UC_UndulatorRad2:
     save_nonscalar_data: true
     scan_setup:
@@ -8,12 +13,6 @@ Devices:
     synchronous: true
     variable_list:
     - MeanCounts
-    - timestamp
-  UC_VisaEBeam9:
-    post_analysis_class: CameraImageAnalysis
-    save_nonscalar_data: true
-    synchronous: true
-    variable_list:
     - timestamp
   U_BCaveICT:
     save_nonscalar_data: true
@@ -26,7 +25,7 @@ setup_action:
   steps:
   - action: execute
     action_name: remove_visa_plungers
-  - wait: 1.0
+  - wait: 2
   - action: set
     device: U_PLC
     value: 'on'

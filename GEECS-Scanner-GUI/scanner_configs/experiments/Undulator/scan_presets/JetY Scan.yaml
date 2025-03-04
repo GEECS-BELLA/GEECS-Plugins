@@ -1,0 +1,12 @@
+Devices:
+- BCaveMagSpec
+- Energy Meters
+- Frog_stuff
+- U_BCaveICT
+Info: jetY scan
+Scan Mode: 1D Scan
+Shot per Step: 10
+Start: -8.2
+Step Size: 0.1
+Stop: -7.0
+Variable: JetY (mm)
