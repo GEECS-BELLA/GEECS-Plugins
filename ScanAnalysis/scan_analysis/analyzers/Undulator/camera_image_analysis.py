@@ -21,7 +21,7 @@ from scipy.ndimage import median_filter, gaussian_filter
 import imageio as io
 
 from scan_analysis.base import ScanAnalysis
-from image_analysis.utils import read_imaq_png_image
+from image_analysis.utils import read_imaq_image
 
 
 # %% classes
@@ -278,7 +278,7 @@ class CameraImageAnalysis(ScanAnalysis):
         for shot_num in shots_in_bin:
             image_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
             if image_file:
-                image = read_imaq_png_image(image_file)
+                image = read_imaq_image(image_file)
                 images.append(image)
                 # if expected_image_size is None:
                 # expected_image_size = image.shape  # Determine image size from the first valid image
