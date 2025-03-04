@@ -1,16 +1,17 @@
 [tool.poetry]
-name = "scanner-gui-scananalysis-tests"
+name = "test_scanner_tools"
 version = "0.1.0"
 description = ""
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
 
+
 [tool.poetry.dependencies]
 python = ">=3.9, <3.11"
 pytest = "^8.3.4"
 
-GEECS-Scanner_GUI = { path = "../../GEECS-Scanner-GUI", develop = true }
-ScanAnalysis = { path = "../../ScanAnalysis", develop = true }
+GEECS-PythonAPI = { path = "../../GEECS-PythonAPI", develop = true }
+ImageAnalysis = { path = "../../ImageAnalysis", develop = true }
 
 [build-system]
 requires = ["poetry-core"]
