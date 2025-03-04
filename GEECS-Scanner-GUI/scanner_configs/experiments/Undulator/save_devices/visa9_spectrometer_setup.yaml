@@ -22,12 +22,11 @@ Devices:
     - Python Results.ChA
     - Python Results.ChB
     - timestamp
-scan_info:
-  description: collecting data on visa9EBeam and UC_UndulatorRad2
 setup_action:
   steps:
   - action: execute
     action_name: remove_visa_plungers
+  - wait: 1.0
   - action: set
     device: U_PLC
     value: 'on'
@@ -38,9 +37,9 @@ setup_action:
     variable: Position
   - action: set
     device: U_UndulatorSpecStage
-    value: 22.3
+    value: 20.7
     variable: Position.Ch1
   - action: set
     device: U_UndulatorSpecStage
-    value: 17.7
+    value: 17.0
     variable: Position.Ch2
