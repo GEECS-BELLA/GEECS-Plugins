@@ -102,20 +102,16 @@ class ScanDataManager:
             
             device = self.device_manager.devices.get(device_name)
             logging.info(f'device is {device}')
+
             if device:
+                device_name = device.get_name()
                 dev_host_ip_string = device.dev_ip
-                path_str = f'//{dev_host_ip_string}/SharedData/{device_name}'
+                source_dir = Path(f'//{dev_host_ip_string}/SharedData/{device_name}')
 
-                source_dir = Path(path_str)
-
-                data_path_client_side = Path('C:\\SharedData') / device_name
-                #purge directory before starting
-                for item in source_dir.iterdir():
-                    if item.is_file():
-                        item.unlink()
+                self.purge_local_save_dir(source_dir)
 
                 logging.info(f'creating save path for {device_name}')
-
+                data_path_client_side = Path('C:\\SharedData') / device_name
                 save_path = str(data_path_client_side).replace('/', "\\")
 
                 logging.info(f'save path created {save_path}')
@@ -156,6 +152,32 @@ class ScanDataManager:
         time.sleep(1)
 
         return self.scan_data
+
+    def purge_all_local_save_dir(self):
+
+        for device_name in self.device_manager.non_scalar_saving_devices:
+            device = self.device_manager.devices.get(device_name)
+
+            if device:
+                device_name = device.get_name()
+                dev_host_ip_string = device.dev_ip
+                source_dir = Path(f'//{dev_host_ip_string}/SharedData/{device_name}')
+
+                self.purge_local_save_dir(source_dir)
+
+    def purge_local_save_dir(self, source_dir: Path):
+
+        # Purge the source recursively (remove files only)
+        if source_dir.exists():
+            for item in source_dir.rglob('*'):
+                if item.is_file():
+                    try:
+                        item.unlink()
+                        logging.info(f"Removed file: {item}")
+                    except Exception as e:
+                        logging.error(f"Error removing {item}: {e}")
+
+
 
     def initialize_tdms_writers(self, tdms_output_path):
         """
