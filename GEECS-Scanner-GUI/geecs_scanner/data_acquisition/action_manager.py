@@ -5,7 +5,7 @@ import sys
 
 from PyQt5.QtWidgets import QMessageBox, QApplication
 
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_python_api.controls.devices.scan_device import ScanDevice
 from .utils import get_full_config_path  # Import the utility function
 from ..utils.exceptions import ActionError
 
@@ -108,7 +108,7 @@ class ActionManager:
 
                 # Instantiate device if it hasn't been done yet
                 if device_name not in self.instantiated_devices:
-                    self.instantiated_devices[device_name] = GeecsDevice(device_name)
+                    self.instantiated_devices[device_name] = ScanDevice(device_name)
 
                 device = self.instantiated_devices[device_name]
 
