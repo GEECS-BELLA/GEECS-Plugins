@@ -95,7 +95,8 @@ class CameraImageAnalysis(ScanAnalysis):
                 self.run_noscan_analysis()
             else:
                 self.run_scan_analysis()
-            
+            self.auxiliary_data.to_csv(self.auxiliary_file_path.parent / 's_appended.txt', sep='\t', index=False)
+
             return self.display_contents
 
         except Exception as e:
