@@ -92,6 +92,7 @@ class ScanDataManager:
         data_path = self.scan_data.get_folder()
                 
         for device_name in self.device_manager.non_scalar_saving_devices:
+            logging.info(f'attemping to configure save paths for {device_name}')
             data_path = self.scan_data.get_folder() / device_name
             data_path.mkdir(parents=True, exist_ok=True)
             target_dir = data_path
@@ -100,13 +101,24 @@ class ScanDataManager:
                 data_path = new_root / data_path.relative_to(old_root)
             
             device = self.device_manager.devices.get(device_name)
+            logging.info(f'device is {device}')
             if device:
-                dev_host_ip_string = device.dev_ip()
+                dev_host_ip_string = device.dev_ip
                 path_str = f'//{dev_host_ip_string}/SharedData/{device_name}'
+
                 source_dir = Path(path_str)
 
                 data_path_client_side = Path('C:\\SharedData') / device_name
+                #purge directory before starting
+                for item in source_dir.iterdir():
+                    if item.is_file():
+                        item.unlink()
+
+                logging.info(f'creating save path for {device_name}')
+
                 save_path = str(data_path_client_side).replace('/', "\\")
+
+                logging.info(f'save path created {save_path}')
 
                 logging.info(f"Setting save data path for {device_name} to {save_path}")
                 device.set("localsavingpath", save_path, sync=False)
