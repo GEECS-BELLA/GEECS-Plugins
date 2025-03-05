@@ -191,8 +191,11 @@ def get_haso_timestamp(file_path):
     
 def get_himg_timestamp(image_file_path: Path)-> float:
     image_file_path_str = str(image_file_path)
-    haso_image = wkpy.Image(image_file_path =image_file_path_str)
-    meta_data = haso_image.get_info_from_file(image_file_path_str)[1]
+
+    # haso_image = wkpy.Image(image_file_path =image_file_path_str)
+    # meta_data = haso_image.get_info_from_file(image_file_path_str)[1]
+    meta_data = wkpy.Image().get_info_from_file(image_file_path_str)[1]
+
     timestamp = meta_data[2]
     return timestamp
 
