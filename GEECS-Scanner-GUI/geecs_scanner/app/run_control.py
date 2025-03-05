@@ -40,8 +40,10 @@ class RunControl:
         else:
             return get_database_dict()
 
-    def get_action_control(self) -> ActionControl:
+    def get_action_control(self, experiment_name_refresh: Optional[str] = None) -> ActionControl:
         """ Returns instance of action control associated with current experiment name """
+        if experiment_name_refresh:
+            self.action_control = ActionControl(experiment_name=experiment_name_refresh)
         return self.action_control
 
     def submit_run(self, config_dictionary: dict, scan_config: dict) -> bool:
