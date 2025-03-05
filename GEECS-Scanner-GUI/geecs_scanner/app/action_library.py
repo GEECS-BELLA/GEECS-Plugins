@@ -33,7 +33,7 @@ def get_default_action() -> dict:
 
 class ActionLibrary(QWidget):
     def __init__(self, main_window: GEECSScannerWindow, database_dict: dict,
-                 action_configurations_folder: Union[Path, str], action_control: Optional[ActionControl]):
+                 action_configurations_folder: Union[Path, str, None], action_control: Optional[ActionControl]):
         """ GUI Window that holds all the action library elements
 
         :param main_window: Reference to the main GEECS Scanner window
@@ -51,7 +51,13 @@ class ActionLibrary(QWidget):
         self.ui.setupUi(self)
         self.setWindowTitle("Action Library")
 
-        self.actions_file = Path(action_configurations_folder) / 'actions.yaml'
+        if action_configurations_folder is None:
+            self.actions_file = None
+            self.assigned_action_file = None
+        else:
+            self.actions_file = Path(action_configurations_folder) / 'actions.yaml'
+            self.assigned_action_file = Path(action_configurations_folder) / 'assigned_actions.yaml'
+
         self.actions_data = self.load_action_data()
 
         # Functionality to New, Copy, and Delete Buttons
@@ -91,7 +97,6 @@ class ActionLibrary(QWidget):
 
         # Functionality to assign actions to the buttons at the bottom
         self.assigned_action_list: list[AssignedAction] = []
-        self.assigned_action_file = Path(action_configurations_folder) / 'assigned_actions.yaml'
         self.ui.buttonRemoveAssigned_1.setEnabled(False)
         self.ui.buttonExecuteAssigned_1.setEnabled(False)
         self.ui.lineAssignedName_1.setEnabled(False)
@@ -136,7 +141,7 @@ class ActionLibrary(QWidget):
         :return: the dictionary that was loaded
         """
         self.actions_data = {'actions': {}}
-        if self.actions_file.exists():
+        if self.actions_file and self.actions_file.exists():
             self.actions_data = read_yaml_file_to_dict(self.actions_file)
         self.populate_action_list()
         return self.actions_data
@@ -203,6 +208,10 @@ class ActionLibrary(QWidget):
         name = self.get_selected_name()
         if not name or name not in self.actions_data['actions']:
             logging.warning(f"No valid action to delete.")
+            return
+
+        if self.actions_file is None:
+            logging.error("No path to actions.yaml defined, need to specify experiment")
             return
 
         reply = QMessageBox.question(self, "Delete Action", f"Delete action '{name}' from file?",
@@ -395,6 +404,10 @@ class ActionLibrary(QWidget):
 
     def save_all_changes(self):
         """ Save the current version of the instance variable dict to the actions.yaml file """
+        if self.actions_file is None:
+            logging.error("No path to actions.yaml defined, need to specify experiment")
+            return
+
         reply = QMessageBox.question(self, "Save Actions", f"Save all changes to {self.actions_file.name}?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
@@ -412,10 +425,11 @@ class ActionLibrary(QWidget):
 
     def closeEvent(self, event):
         """ When closing this window, saved assigned actions to its yaml file and tell the main window we've exited """
-        updated_names = []
-        for action in self.assigned_action_list:
-            updated_names.append(action.get_name())
-        write_dict_to_yaml_file(self.assigned_action_file, {"assigned_actions": updated_names})
+        if self.assigned_action_file:
+            updated_names = []
+            for action in self.assigned_action_list:
+                updated_names.append(action.get_name())
+            write_dict_to_yaml_file(self.assigned_action_file, {"assigned_actions": updated_names})
 
         self.main_window.exit_action_library()
         event.accept()
@@ -425,7 +439,7 @@ class ActionLibrary(QWidget):
     def populate_assigned_action_list(self):
         """ Upon opening this GUI, read the assigned actions yaml file for the assigned actions from last time """
         assigned_action_dict = {}
-        if self.assigned_action_file.exists():
+        if self.assigned_action_file and self.assigned_action_file.exists():
             assigned_action_dict = read_yaml_file_to_dict(self.assigned_action_file)
 
         # For each action in the list, populate the list of AssignedAction class instances
