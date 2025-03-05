@@ -809,18 +809,24 @@ class GEECSScannerWindow(QMainWindow):
             shot_per_step = int(self.ui.lineShotStep.text())
             self.scan_shot_per_step = shot_per_step
 
-            if step_size == 0:
-                self.ui.lineNumShots.setText("N/A")
-            else:
-                shot_array = self.build_shot_array()
-                self.ui.lineNumShots.setText(str(len(shot_array)))
+            shot_array = self.build_shot_array()
+            self.ui.lineNumShots.setText(str(len(shot_array)))
 
         except ValueError:
             self.ui.lineNumShots.setText("N/A")
+    def build_shot_array(self) -> list[float]:
+        """Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot.
 
-    def build_shot_array(self) -> list[int]:
-        """Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot."""
-        if abs((self.scan_stop - self.scan_start) / self.scan_step_size) * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
+        :return: list of scan device values for each shot
+
+        :raises:
+            ValueError: Scan parameters are not set up correctly for a variety of reasons
+        """
+        if self.scan_step_size == 0:
+            raise ValueError("Step size must be nonzero")
+        elif self.scan_shot_per_step <= 0:
+            raise ValueError("Shots per step must be greater than zero")
+        elif abs((self.scan_stop - self.scan_start) / self.scan_step_size) * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
             raise ValueError("Number of shots exceeds maximum scan size")
         else:
             array = []
