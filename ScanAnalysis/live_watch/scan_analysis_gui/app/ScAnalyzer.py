@@ -38,6 +38,13 @@ AnalysisFunction = Callable[[pyqtSignal, RunningCheck], None]
 class ScAnalyzerWindow(QMainWindow):
 
     def __init__(self) -> None:
+        """
+        Main window for the Scan Analyzer application.
+        
+        This class provides a graphical interface for analyzing scan data,
+        with capabilities to select scan ranges, configure analyzers,
+        and display processing results.
+        """
         super().__init__()
 
         # define attribute defaults
@@ -269,7 +276,8 @@ class ScAnalyzerWindow(QMainWindow):
     def event_analysis_activator_button_clicked(self) -> None:
         """
         Actions performed when Analysis Activator button is clicked.
-
+        Opens the analysis dialog to configure active analyzers.
+    
         Returns
         -------
         None
@@ -313,6 +321,13 @@ class ScAnalyzerWindow(QMainWindow):
         self.ui.inputIgnore.setText('')
 
     def setup_log_display(self) -> None:
+        '''
+        Configure the log display text area to be read-only.
+        
+        Returns
+        -------
+        None
+        '''
         self.ui.logDisplay.setReadOnly(True)
 
     def set_ignore_list(self) -> None:
@@ -369,30 +384,81 @@ class ScAnalyzerWindow(QMainWindow):
         self.log_warning_message(message)
 
     def handle_worker_progress(self, message: str) -> None:
+        '''
+        Handle progress updates from worker threads and log them to the display.
+        
+        Parameters
+        ----------
+        message : str
+            Progress message from the worker thread.
+        
+        Returns
+        -------
+        None
+        '''
         self.log_info_message(message)
 
     def log_info_message(self, text: str) -> None:
+        '''
+        Log an informational message to the display.
+        
+        Parameters
+        ----------
+        text : str
+            Information message to log.
+        
+        Returns
+        -------
+        None
+        '''
         self.write_to_log_display(f"INFO : {text}")
 
     def log_warning_message(self, text: str) -> None:
+        '''
+        Log a warning message to the display.
+        
+        Parameters
+        ----------
+        text : str
+            Warning message to log.
+        
+        Returns
+        -------
+        None
+        '''
         self.write_to_log_display(f"WARNING : {text}")
 
     def log_error_message(self, text: str) -> None:
+        '''
+        Log an error message to the display.
+        
+        Parameters
+        ----------
+        text : str
+            Error message to log.
+        
+        Returns
+        -------
+        None
+        '''
         self.write_to_log_display(f"{text}")
 
     def write_to_log_display(self, text: str) -> None:
         '''
         Pass text to display window on GUI.
-
+    
         Note: It was noted that the GUI may slow down if lots of text is logged.
         It might be good to terminate old text (only store so much on gui window).
         All text could be logged in an external text file for reference or debugging.
-
-        :param text: String to print on display.
-        :type text: str
-        :return: No return.
-        :rtype: None
-
+    
+        Parameters
+        ----------
+        text : str
+            String to print on display.
+        
+        Returns
+        -------
+        None
         '''
         # write to log display
         self.ui.logDisplay.append(text)
@@ -401,7 +467,17 @@ class ScAnalyzerWindow(QMainWindow):
         self.ui.logDisplay.verticalScrollBar().setValue(
             self.ui.logDisplay.verticalScrollBar().maximum())
 
-    def open_analysis_dialog(self):
+    def open_analysis_dialog(self) -> None:
+        """
+        Open a dialog to configure which analyzers are active.
+        
+        Creates a list of analyzer configurations, displays a dialog for the user
+        to modify them, and updates the analyzer_items with the user's selections.
+        
+        Returns
+        -------
+        None
+        """
         # get list of analyses
         device_default = ActivatorTuple._field_defaults.get('device')
         analysis_list = [ActivatorTuple(analyzer=item.analyzer_class.__name__,
