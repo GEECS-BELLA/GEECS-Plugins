@@ -196,7 +196,7 @@ def get_himg_timestamp(image_file_path: Path)-> float:
     timestamp = meta_data[2]
     return timestamp
 
-def extract_timestamp_from_file(self, device_file: Path, device_type: str) -> float:
+def extract_timestamp_from_file(device_file: Path, device_type: str) -> float:
     """
     Extract timestamp from a device file based on its type.
 
