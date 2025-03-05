@@ -10,6 +10,7 @@ from . import DeviceManager
 from geecs_scanner.utils import SoundPlayer
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from image_analysis.utils import extract_timestamp_from_file
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
 import geecs_python_api.controls.interface.message_handling as mh
 
@@ -25,11 +26,8 @@ class FileMover:
         self.stop_event = threading.Event()
         self.worker = threading.Thread(target=self._worker_func, daemon=True)
         self.worker.start()
+        self.scan_number = None
         logging.info("FileMover worker started.")
-
-    def _extract_timestamp(self, file: Path) -> datetime.datetime:
-        """Extract timestamp from file. Here we use the file's modification time."""
-        return datetime.datetime.fromtimestamp(file.stat().st_mtime)
 
     def _worker_func(self):
         """
@@ -51,8 +49,8 @@ class FileMover:
                 continue
 
             try:
-                source_dir, target_dir, expected_timestamp, elapsed_time = task
-                self._process_task(source_dir, target_dir, expected_timestamp, elapsed_time)
+                source_dir, target_dir, device_name, device_type, expected_timestamp, shot_index = task
+                self._process_task(source_dir, target_dir, device_name, device_type, expected_timestamp, shot_index)
             except Exception as e:
                 logging.error(f"Error processing task: {e}")
             finally:
@@ -60,19 +58,23 @@ class FileMover:
         logging.info("FileMover worker stopped.")
 
     def _process_task(self, source_dir: Path, target_dir: Path,
-                      expected_timestamp: datetime.datetime, elapsed_time: float):
+                      device_name: str, device_type: str,
+                      expected_timestamp: float, shot_index: int):
         """
-        Search for files in source_dir with a timestamp close to expected_timestamp,
+        Search for files in source_dir with a timestamp equal to expected_timestamp,
         rename them with a standard naming convention (including the timestamp and elapsed time),
         and move them to target_dir.
         """
-        tolerance = datetime.timedelta(minutes=1)
         for file in source_dir.glob("*"):
             if file.is_file():
-                file_ts = self._extract_timestamp(file)
-                if abs(file_ts - expected_timestamp) <= tolerance:
-                    # Create a new filename using the expected timestamp and elapsed time.
-                    new_filename = f"data_{expected_timestamp.strftime('%Y%m%dT%H%M%S')}_{int(elapsed_time)}{file.suffix}"
+                file_ts = extract_timestamp_from_file(file, device_type)
+                if file_ts == expected_timestamp:
+                    # Create a new filename stem (without extension)
+                    new_file_stem = self.rename_file(self.scan_number, device_name, shot_index)
+                    # Retrieve the extension (e.g. '.tsv') from the original file
+                    ext = file.suffix
+                    # Append the extension to get the complete new filename
+                    new_filename = new_file_stem + ext
                     dest_file = target_dir / new_filename
                     try:
                         shutil.move(str(file), str(dest_file))
@@ -80,12 +82,30 @@ class FileMover:
                     except Exception as e:
                         logging.error(f"Error moving {file} to {dest_file}: {e}")
 
+    def rename_file(self, scan_number: int, device_name: str, shot_index: int) -> str:
+        """
+        Rename master files based on scan number, device name, and matched row index.
+
+        Args:
+            scan_number (str): Scan number in string format (e.g., 'Scan001').
+            device_name (str): Name of the device.
+            shot_number (int): shot number
+        """
+
+        scan_number_str = str(scan_number).zfill(3)
+        shot_number_str = str(shot_index).zfill(3)
+        file_name_stem = f'Scan{scan_number_str}_{device_name}_{shot_number_str}'
+
+        return file_name_stem
+
     def move_files_by_timestamp(self, source_dir: Path, target_dir: Path,
-                                expected_timestamp: datetime.datetime, elapsed_time: float):
+                                device_name: str, device_type: str,
+                                expected_timestamp: float, shot_index: int):
+        source_dir, target_dir, device_name, device_type, expected_timestamp, self.shot_index
         """
         Enqueue a file move task.
         """
-        self.task_queue.put((source_dir, target_dir, expected_timestamp, elapsed_time))
+        self.task_queue.put((source_dir, target_dir, device_name, device_type, expected_timestamp, shot_index))
 
     def shutdown(self, wait: bool = True):
         """
@@ -135,12 +155,13 @@ class DataLogger:
 
         self.log_entries = {}
 
-
         # Initialize the sound player
         self.sound_player = SoundPlayer()
         self.shot_index = 0
 
+        # Note: bin_num and scan_number are updated in ScanManager
         self.bin_num = 0  # Initialize bin as 0
+        self.scan_number = None
 
         self.virtual_variable_name = None
         self.virtual_variable_value = 0
@@ -175,6 +196,9 @@ class DataLogger:
 
         # Start the sound player
         self.sound_player.start_queue()
+
+        #scan number in datalogger updates in scan_manager
+        self.file_mover.scan_number = self.scan_number
 
         # Access event-driven and async observables from DeviceManager
         self.event_driven_observables = self.device_manager.event_driven_observables
@@ -479,6 +503,7 @@ class DataLogger:
                 logging.info(f'elapsed time in sync devices {elapsed_time}. reported by {device.get_name()}')
                 self.log_entries[elapsed_time] = {'Elapsed Time': elapsed_time}
                 # Log configuration variables (such as 'bin') only when a new entry is created
+                # bin number is updated in scan_manager
                 self.log_entries[elapsed_time]['Bin #'] = self.bin_num
                 if self.virtual_variable_name is not None:
                     self.log_entries[elapsed_time][self.virtual_variable_name] = self.virtual_variable_value
@@ -510,11 +535,14 @@ class DataLogger:
             # Scan number. Again, this probably should be passed once at the top of the scanning.
             # Scan number will also be need in renaming the moved files.
             # Note, the implementation of using timestamps is wrong.
-            source_dir = Path(r"C:\LocalData")
-            target_dir = Path(r"\\CentralServer\SharedData")
-            # Use current time as expected timestamp.
-            expected_timestamp = datetime.datetime.now()
-            self.file_mover.move_files_by_timestamp(source_dir, target_dir, expected_timestamp, elapsed_time)
+            if device.get_name() in self.device_save_paths_mapping:
+                device_name = device.get_name()
+                source_dir = self.device_save_paths_mapping[device_name]['source_dir']
+                target_dir = self.device_save_paths_mapping[device_name]['target_dir']
+                device_type = self.device_save_paths_mapping[device_name]['device_type']
+                # Use current time as expected timestamp.
+                expected_timestamp = observables_data['timestamp']
+                self.file_mover.move_files_by_timestamp(source_dir, target_dir, device_name, device_type, expected_timestamp, self.shot_index )
 
     def _monitor_warnings(self, event_driven_observables, async_observables):
         """
