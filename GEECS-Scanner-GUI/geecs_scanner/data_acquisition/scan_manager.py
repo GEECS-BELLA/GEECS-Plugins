@@ -469,6 +469,12 @@ class ScanManager:
 
         if self.save_data:
             self.scan_data_manager.create_and_set_data_paths()
+
+            # map information produced in ScanDataManager to the DataLogger to facilitate
+            # moving of files etc.
+            self.data_logger.device_save_paths_mapping = self.scan_data_manager.device_save_paths_mapping
+            self.data_logger.scan_number = self.scan_data_manager.scan_number_int
+
             self.scan_data_manager.write_scan_info_ini(scan_config)
 
         # Handle scan variables and ensure devices are initialized in DeviceManager
