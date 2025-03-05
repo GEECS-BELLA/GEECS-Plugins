@@ -122,6 +122,15 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.buttonScanVariables.clicked.connect(self.open_scan_variable_editor)
         self.ui.buttonOpenTimingSetup.clicked.connect(self.open_timing_setup)
 
+        # Connect the line edit for the 1d scan variable to the list of available scan variables
+        self.scan_variable = ""
+        self.scan_variable_list = []
+        self.scan_composite_list = []
+        self.scan_composite_data = {}
+        self.populate_scan_variable_lists()
+        self.ui.lineScanVariable.textChanged.connect(self.check_scan_device)
+        self.ui.lineScanVariable.installEventFilter(self)
+
         # Radio buttons that select if the next scan is to be a noscan or 1dscan
         self.ui.noscanRadioButton.setChecked(True)
         self.ui.noscanRadioButton.toggled.connect(self.update_scan_edit_state)
@@ -136,14 +145,6 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.lineShotStep.editingFinished.connect(self.calculate_num_shots)
         self.ui.lineNumShots.editingFinished.connect(self.update_noscan_num_shots)
 
-        # Connect the line edit for the 1d scan variable to the list of available scan variables
-        self.scan_variable = ""
-        self.scan_variable_list = []
-        self.scan_composite_list = []
-        self.scan_composite_data = {}
-        self.populate_scan_variable_lists()
-        self.ui.lineScanVariable.textChanged.connect(self.check_scan_device)
-        self.ui.lineScanVariable.installEventFilter(self)
 
         # Buttons to save the current scan as a preset, delete selected preset, and double-clicking loads the preset
         self.populate_preset_list()
@@ -779,7 +780,9 @@ class GEECSScannerWindow(QMainWindow):
         """Checks what is inputted into the scan variable selection box against the list of scan variables.  Otherwise,
         reset the line edit."""
         scan_device = self.ui.lineScanVariable.text()
-        if scan_device in self.scan_variable_list:
+        if not scan_device:
+            return
+        elif scan_device in self.scan_variable_list:
             self.scan_variable = scan_device
             self.ui.labelStartValue.setText("Start Value: (abs)")
             self.ui.labelStopValue.setText("Stop Value: (abs)")
