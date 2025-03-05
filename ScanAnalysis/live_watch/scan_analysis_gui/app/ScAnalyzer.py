@@ -40,6 +40,10 @@ class ScAnalyzerWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
 
+        # define attribute defaults
+        self.overwrite_processed_scans: bool = False
+        self.ignore_list: list[int] = None
+
         # create instance of Ui_MainWindow, setup elements from .ui file
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
@@ -48,7 +52,7 @@ class ScAnalyzerWindow(QMainWindow):
         self.setWindowTitle(f"GEECS ScAnalyzer - {CURRENT_VERSION}")
 
         # set up buttons
-        self.setup_overwrite_button()
+        self.setup_overwrite_checkbox()
         self.setup_start_button()
         self.setup_stop_button()
         self.setup_analysis_activator_button()
@@ -56,7 +60,6 @@ class ScAnalyzerWindow(QMainWindow):
         # set up text edits
         self.setup_date_inputs()
         self.setup_scan_inputs()
-        self.ignore_list = None
 
         # set up gui log to display output
         self.setup_log_display()
@@ -125,7 +128,7 @@ class ScAnalyzerWindow(QMainWindow):
                                      int(self.ui.inputMonth.text()),
                                      int(self.ui.inputDay.text()),
                                      ignore_list=self.ignore_list,
-                                     overwrite_previous=True,
+                                     overwrite_previous=self.overwrite_processed_scans,
                                      analyzer_list=self.analyzer_items)
 
             # start analysis
@@ -224,7 +227,7 @@ class ScAnalyzerWindow(QMainWindow):
             self.worker = None
         self.cleanup_thread()
 
-    def event_overwrite_button_clicked(self) -> None:
+    def event_overwrite_checkbox_clicked(self, checked) -> None:
         '''
         Actions performed when Overwrite button is clicked.
 
@@ -232,7 +235,8 @@ class ScAnalyzerWindow(QMainWindow):
         -------
         None
         '''
-        self.ui.inputStartScan.setEnabled(self.ui.buttonOverwrite.isChecked())
+        self.overwrite_processed_scans = checked
+        self.log_info_message(f"Overwrite processed scans status: {self.overwrite_processed_scans}")
 
     def event_start_button_clicked(self) -> None:
         '''
@@ -281,7 +285,7 @@ class ScAnalyzerWindow(QMainWindow):
         self.ui.buttonStop.setEnabled(False)
         self.ui.buttonStop.clicked.connect(self.event_stop_button_clicked)
 
-    def setup_overwrite_button(self) -> None:
+    def setup_overwrite_checkbox(self) -> None:
         '''
         Setup for Overwrite Processed List button.
 
@@ -289,25 +293,8 @@ class ScAnalyzerWindow(QMainWindow):
         -------
         None
         '''
-        self.ui.buttonOverwrite.setCheckable(True)
-        self.ui.buttonOverwrite.clicked.connect(self.event_overwrite_button_clicked)
-        self.ui.buttonOverwrite.setStyleSheet("""
-                                              QPushButton:checked {
-                                                  background-color: #d0d0d0;
-                                                  border: 1px solid #808080;
-                                                  color: #404040;
-                                              }
-                                              QPushButton:disabled {
-                                                  background-color: #d0d0d0;
-                                                  border: 1px solid #808080;
-                                                  color: #404040;
-                                              }
-                                              QPushButton {
-                                                  background-color: #ffffff;
-                                                  border: 1px solid #404040;
-                                                   color: black;
-                                               }
-                                              """)
+        self.ui.checkBoxOverwrite.setCheckState(self.overwrite_processed_scans)
+        self.ui.checkBoxOverwrite.toggled.connect(self.event_overwrite_checkbox_clicked)
 
     def setup_analysis_activator_button(self) -> None:
         self.ui.buttonAnalysisActivator.setEnabled(True)
@@ -322,7 +309,7 @@ class ScAnalyzerWindow(QMainWindow):
 
     def setup_scan_inputs(self) -> None:
         self.ui.inputStartScan.setText(str(1))
-        self.ui.inputStartScan.setEnabled(False)
+        self.ui.inputStartScan.setEnabled(True)
         self.ui.inputIgnore.setText('')
 
     def setup_log_display(self) -> None:
