@@ -34,6 +34,7 @@ class AnalyzerInfo(NamedTuple):
     requirements: Union[dict[str, list], set, str]
     device_name: Optional[str] = None
     config_file: Optional[str] = None
+    is_active: bool = True
 
 
 class ScanAnalysis:

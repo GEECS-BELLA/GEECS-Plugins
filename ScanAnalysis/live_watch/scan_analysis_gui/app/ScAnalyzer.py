@@ -13,12 +13,14 @@ import sys
 import time
 from datetime import date
 
-from PyQt5.QtWidgets import QMainWindow, QApplication, QLineEdit
+from PyQt5.QtWidgets import QMainWindow, QApplication, QLineEdit, QDialog
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 from live_watch.scan_analysis_gui.app.gui.ScAnalyzer_ui import Ui_MainWindow
+from live_watch.scan_analysis_gui.app.AnalysisActivator import AnalysisDialog, ActivatorTuple
 from live_watch.scan_watch import ScanWatch
 from live_watch.scan_analysis_gui.utils.exceptions import exception_hook
+from scan_analysis.mapping.map_Undulator import undulator_analyzers
 # =============================================================================
 # %% global variables
 DEBUG_MODE = False
@@ -49,6 +51,7 @@ class ScAnalyzerWindow(QMainWindow):
         self.setup_overwrite_button()
         self.setup_start_button()
         self.setup_stop_button()
+        self.setup_analysis_activator_button()
 
         # set up text edits
         self.setup_date_inputs()
@@ -57,6 +60,9 @@ class ScAnalyzerWindow(QMainWindow):
 
         # set up gui log to display output
         self.setup_log_display()
+
+        # set up analyzer list
+        self.analyzer_items = undulator_analyzers.copy()
 
         # initialize worker information
         self.worker: Optional[Worker] = None
@@ -119,7 +125,8 @@ class ScAnalyzerWindow(QMainWindow):
                                      int(self.ui.inputMonth.text()),
                                      int(self.ui.inputDay.text()),
                                      ignore_list=self.ignore_list,
-                                     overwrite_previous=True)
+                                     overwrite_previous=True,
+                                     analyzer_list=self.analyzer_items)
 
             # start analysis
             progress_callback.emit("Start ScanWatch.")
@@ -255,6 +262,17 @@ class ScAnalyzerWindow(QMainWindow):
         self.ui.buttonStart.setEnabled(True) if not self.ui.buttonStart.isEnabled() else None
         self.ui.buttonStop.setEnabled(False) if self.ui.buttonStop.isEnabled() else None
 
+    def event_analysis_activator_button_clicked(self) -> None:
+        """
+        Actions performed when Analysis Activator button is clicked.
+
+        Returns
+        -------
+        None
+        """
+        # open dialog
+        self.open_analysis_dialog()
+
     def setup_start_button(self) -> None:
         self.ui.buttonStart.setEnabled(True)
         self.ui.buttonStart.clicked.connect(self.event_start_button_clicked)
@@ -290,6 +308,10 @@ class ScAnalyzerWindow(QMainWindow):
                                                    color: black;
                                                }
                                               """)
+
+    def setup_analysis_activator_button(self) -> None:
+        self.ui.buttonAnalysisActivator.setEnabled(True)
+        self.ui.buttonAnalysisActivator.clicked.connect(self.event_analysis_activator_button_clicked)
 
     def setup_date_inputs(self) -> None:
         # set default date
@@ -392,6 +414,29 @@ class ScAnalyzerWindow(QMainWindow):
         self.ui.logDisplay.verticalScrollBar().setValue(
             self.ui.logDisplay.verticalScrollBar().maximum())
 
+    def open_analysis_dialog(self):
+        # get list of analyses
+        device_default = ActivatorTuple._field_defaults.get('device')
+        analysis_list = [ActivatorTuple(analyzer=item.analyzer_class.__name__,
+                                        device=item.device_name or device_default,
+                                        is_active=item.is_active)
+                         for item in self.analyzer_items]
+
+        # open dialog
+        dialog = AnalysisDialog(analysis_list, parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            dialog_output = dialog.get_analysis_states()
+
+        # update current states to analyzer_items
+        for ind, analyzer in enumerate(self.analyzer_items):
+            analysis_name = analyzer.analyzer_class.__name__
+            device_name = analyzer.device_name or device_default
+            for item in dialog_output:
+                if (item.analyzer == analysis_name and
+                    item.device == device_name and
+                    item.is_active != analyzer.is_active):
+                    self.analyzer_items[ind] = analyzer._replace(is_active=item.is_active)
+
     def closeEvent(self, event) -> None:
         '''
         Save termination in the event of GUI window closure.
@@ -476,7 +521,6 @@ class Worker(QObject):
         except Exception as e:
             self.error.emit(str(e))
             self.finished.emit()
-
 
 # =============================================================================
 # %% error handling
