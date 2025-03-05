@@ -191,9 +191,6 @@ class DataLogger:
         self.polling_interval = .5
         self.results = {}  # Store results for later processing
 
-        # Create a FileMover instance
-        self.file_mover = FileMover()
-
         self.log_entries = {}
 
         # Initialize the sound player
@@ -230,6 +227,9 @@ class DataLogger:
         self.synced_timestamps = {}
         self.standby_mode_device_status = {}
         self.log_entries = {}
+
+        # Create a FileMover instance specific to this thread, e.g. scan
+        self.file_mover = FileMover()
 
         self.all_devices_in_standby = False
         self.devices_synchronized = False
