@@ -16,7 +16,6 @@ import logging
 import pandas as pd
 
 from scan_analysis.base import ScanAnalysis
-import scan_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
 from image_analysis.analyzers.HASO_himg_has_processor import HASOHimgHasProcessor, FilterParameters
 
 class HasoAnalysis(ScanAnalysis):
@@ -61,39 +60,6 @@ class HasoAnalysis(ScanAnalysis):
         self.haso_processor = HASOHimgHasProcessor(background_path=self.path_to_bkg_has_file)
         self.haso_processor.filter_params = FilterParameters(apply_tiltx_filter=True, apply_tilty_filter=True,
                                                         apply_curv_filter=True)
-    
-    def instantiate_wavekit_resources(self, config_file_path: Path):
-        
-        """
-        attempt to instantiate necessary wavekit resources
-
-        Args:
-            config_file_path (Path): Path to the config file.
-
-        """
-        
-        self._log_info(f"instantiating wavekit resources: HasoEngine etc.")
-        
-        try:
-            # Create the necessary Wavekit objects.
-            self.hasoengine = wkpy.HasoEngine(config_file_path=config_file_path)
-            self.hasoengine.set_lift_enabled(True, 800)
-            self.hasoengine.set_lift_option(True, 800)
-            
-            # Set preferences with an arbitrary subpupil and denoising strength.
-            start_subpupil = wkpy.uint2D(87, 64)
-            denoising_strength = 0.0
-            self.hasoengine.set_preferences(start_subpupil, denoising_strength, False)
-            
-            self.compute_phase_set = wkpy.ComputePhaseSet(type_phase=wkpy.E_COMPUTEPHASESET.ZONAL)
-            self.compute_phase_set.set_zonal_prefs(100, 500, 1e-6)
-            
-            self.post_processor = wkpy.SlopesPostProcessor()
-            
-        except Exception as e:
-            self._log_warning(
-                "Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file")
-            raise
                 
     def _log_info(self, message: str, *args, **kwargs):
         """Log an info message if logging is enabled."""
