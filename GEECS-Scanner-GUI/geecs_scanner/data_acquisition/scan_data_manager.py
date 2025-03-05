@@ -54,6 +54,7 @@ class ScanDataManager:
         self.data_h5_path = None
         self.sFile_txt_path = None
 
+        self.device_save_paths_mapping = {}
         # self.scan_number_int = self.scan_data.get_tag().number
         # self.parsed_scan_string = f"Scan{self.scan_number_int:03}"
 
@@ -93,12 +94,18 @@ class ScanDataManager:
         for device_name in self.device_manager.non_scalar_saving_devices:
             data_path = self.scan_data.get_folder() / device_name
             data_path.mkdir(parents=True, exist_ok=True)
-            
+            target_dir = data_path
+
             if switch_paths:
                 data_path = new_root / data_path.relative_to(old_root)
             
             device = self.device_manager.devices.get(device_name)
             if device:
+                dev_host_ip_string = device.dev_ip()
+                path_str = f'//{dev_host_ip_string}/SharedData/{device_name}'
+                source_dir = Path(path_str)
+
+
                 save_path = str(data_path).replace('/', "\\")
                 logging.info(f"Setting save data path for {device_name} to {save_path}")
                 device.set("localsavingpath", save_path, sync=False)
@@ -106,7 +113,18 @@ class ScanDataManager:
                 device.set('save', 'on', sync=False)
             else:
                 logging.warning(f"Device {device_name} not found in DeviceManager.")
-     
+
+            device_type = GeecsDatabase.find_device_type(device_name)
+
+            # creating a dict here which contains all of the necessary information to
+            # move and rename a saved file from a local directory to thec correct
+            # scans directory on the data server
+
+            self.device_save_paths_mapping[device_name] = {
+                "target_dir": target_dir,
+                "source_dir": source_dir,
+                "device_type": device_type
+            }
 
         analysis_save_path = self.scan_data.get_analysis_folder()
 
@@ -523,6 +541,8 @@ class ScanDataManager:
     def extract_timestamp_from_file(self, device_file: Path, device_type: str) -> float:
         """
         Extract timestamp from a device file based on its type.
+
+        NOTE: deprecated, this method migrated to image_analysis.utils
 
         Args:
             device_file (Path): Path to the device file.
