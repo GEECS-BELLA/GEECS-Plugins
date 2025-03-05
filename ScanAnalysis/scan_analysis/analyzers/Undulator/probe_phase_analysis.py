@@ -20,7 +20,6 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from image_analysis.utils import read_imaq_image
 
-
 # %% classes
 class ProbePhaseAnalysis(CameraImageAnalysis):
 
@@ -37,6 +36,8 @@ class ProbePhaseAnalysis(CameraImageAnalysis):
             skip_plt_show (bool): Flag that sets if matplotlib is tried to use for plotting
             flag_logging (bool): Flag that sets if error and warning messages are displayed
             flag_save_images (bool): Flag that sets if images are saved to disk
+            scaling_type (str): "phase" or "intensity", an indicator to determin scaling and
+                save paths based on file type
         """
         self.device_name = device_name
         self.scaling_type = scaling_type
@@ -119,6 +120,6 @@ class ProbePhaseAnalysis(CameraImageAnalysis):
         return avg_image.astype(np.uint16)  # Keep 16-bit format for the averaged image
 
 if __name__ == "__main__":
-    tag = ScanData.get_scan_tag(year=2025, month=2, day=26, number=17, experiment_name='Undulator')
-    analyzer = ProbePhaseAnalysis(scan_tag=tag, device_name='U_HasoLift', skip_plt_show=True, scaling_type='intensity')
+    tag = ScanData.get_scan_tag(year=2025, month=2, day=19, number=3, experiment_name='Undulator')
+    analyzer = ProbePhaseAnalysis(scan_tag=tag, device_name='U_HasoLift', skip_plt_show=True, scaling_type='phase')
     analyzer.run_analysis()
