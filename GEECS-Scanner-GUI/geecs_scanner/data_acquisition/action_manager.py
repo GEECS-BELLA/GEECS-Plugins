@@ -166,6 +166,21 @@ class ActionManager:
             if self._prompt_user_quit_action(message):
                 raise ActionError(message)
 
+    def return_value(self, device_name: str, variable: str):
+        """
+        Get the current value of a device variable and compare it to the expected value.
+
+        Args:
+            device_name (str): The device to query.
+            variable (str): The variable to get the value of.
+        """
+
+        if device_name not in self.instantiated_devices:
+            self.instantiated_devices[device_name] = ScanDevice(device_name)
+
+        device: ScanDevice = self.instantiated_devices[device_name]
+        return device.get(variable)
+
     def _wait(self, seconds):
 
         """

@@ -3,11 +3,13 @@ Contains a simpler version of a full "RunControl" that is only capable of perfor
 
 -Chris
 """
-from typing import Union
+from typing import Union, Any
 from geecs_scanner.data_acquisition import ActionManager
 import logging
 
 from ...utils.exceptions import ActionError
+from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
+
 from ...utils.sound_player import action_finish_jingle, action_failed_jingle
 
 
@@ -98,3 +100,18 @@ class ActionControl:
             except ActionError as e:
                 logging.error(e.message)
                 action_failed_jingle()
+
+    def return_device_value(self, device_name: str, variable: str) -> Any:
+        """ Calls TCP get command to a given device for the value of the given variable
+
+        device_name (str): The device to query.
+        variable (str): The variable to get the value of.
+        :return: Value of device variable, None if variable does not exist
+
+        :raises:
+            ActionError if a GeecsDeviceInstantiationError occurred, as ActionError lives outside GEECS-PythonAPI
+        """
+        try:
+            return self.action_manager.return_value(device_name, variable)
+        except GeecsDeviceInstantiationError as e:
+            raise ActionError(message=e.message)
