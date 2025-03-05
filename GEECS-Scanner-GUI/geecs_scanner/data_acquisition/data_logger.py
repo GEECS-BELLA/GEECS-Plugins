@@ -17,8 +17,6 @@ import geecs_python_api.controls.interface.message_handling as mh
 import queue
 import shutil
 from pathlib import Path
-import datetime
-
 
 class FileMover:
     def __init__(self):
@@ -65,10 +63,13 @@ class FileMover:
         rename them with a standard naming convention (including the timestamp and elapsed time),
         and move them to target_dir.
         """
+        time.sleep(0.1)
         for file in source_dir.glob("*"):
             if file.is_file():
                 file_ts = extract_timestamp_from_file(file, device_type)
-                if file_ts == expected_timestamp:
+                logging.info(f'checking {file} with timestamp {file_ts} and looking for {expected_timestamp}')
+
+                if abs(file_ts - expected_timestamp)<0.0011:
                     # Create a new filename stem (without extension)
                     new_file_stem = self.rename_file(self.scan_number, device_name, shot_index)
                     # Retrieve the extension (e.g. '.tsv') from the original file
@@ -101,7 +102,6 @@ class FileMover:
     def move_files_by_timestamp(self, source_dir: Path, target_dir: Path,
                                 device_name: str, device_type: str,
                                 expected_timestamp: float, shot_index: int):
-        source_dir, target_dir, device_name, device_type, expected_timestamp, self.shot_index
         """
         Enqueue a file move task.
         """
