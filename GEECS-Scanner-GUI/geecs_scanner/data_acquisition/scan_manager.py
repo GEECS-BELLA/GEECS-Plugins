@@ -382,7 +382,12 @@ class ScanManager:
         if self.save_data:
             # Step 6: Process results, save to disk, and log data
             log_df = self.scan_data_manager._process_results(self.results)
-            
+
+
+            # pass log_df to the post process cleanup method in scanDataManager
+            self.scan_data_manager.post_process_orphaned_files(log_df)
+
+
             # # Step 7: Process and rename data files
             # self.scan_data_manager.process_and_rename()
             
