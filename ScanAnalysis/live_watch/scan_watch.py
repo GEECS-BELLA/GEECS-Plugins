@@ -13,6 +13,7 @@ from queue import Queue
 
 from geecs_python_api.analysis.scans.scan_data import ScanData
 from scan_analysis.execute_scan_analysis import analyze_scan
+from scan_analysis.base import AnalyzerInfo
 from scan_analysis.mapping.scan_evaluator import check_for_analysis_match
 
 from watchdog.observers.polling import PollingObserver
@@ -74,7 +75,8 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
 
 class ScanWatch:
     def __init__(self, experiment_name: str, year: int, month: Union[int, str], day: int,
-                 ignore_list: list[int] = None, overwrite_previous: bool = False, perform_initial_search: bool = True):
+                 ignore_list: list[int] = None, overwrite_previous: bool = False, perform_initial_search: bool = True,
+                 analyzer_list: Optional[list[AnalyzerInfo]] = None):
         """
         Parameters
         ----------
@@ -96,6 +98,8 @@ class ScanWatch:
         """
         self.tag = ScanData.get_scan_tag(year, month, day, number=0, experiment_name=experiment_name)
         self.watch_folder = ScanData.get_scan_folder_path(tag=self.tag).parents[1] / "analysis"
+
+        self.analyzer_list = analyzer_list
 
         self.analysis_queue = Queue()
 
@@ -203,7 +207,9 @@ class ScanWatch:
         """ If there is a match for an analysis routine, perform the respective analysis(es) """
         logger.info(
             f"Starting analysis on scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}")
-        valid_analyzers = check_for_analysis_match(scan_folder=scan_folder, experiment_name=tag.experiment)
+        valid_analyzers = check_for_analysis_match(scan_folder=scan_folder,
+                                                   experiment_name=tag.experiment,
+                                                   analyzer_list=self.analyzer_list)
 
         analyze_scan(tag, valid_analyzers, debug_mode=False)
 

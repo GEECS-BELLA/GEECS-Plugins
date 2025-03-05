@@ -30,7 +30,7 @@ def check_for_analysis_match(scan_folder: Union[Path, str], experiment_name: Opt
     saved_devices = get_available_directories(scan_folder)
     valid_analyzers = []
     for analyzer_info in analyzer_list:
-        if evaluate_condition(analyzer_info.requirements, saved_devices):
+        if evaluate_condition(analyzer_info.requirements, saved_devices) and analyzer_info.is_active:
             valid_analyzers.append(analyzer_info)
     return valid_analyzers
 
