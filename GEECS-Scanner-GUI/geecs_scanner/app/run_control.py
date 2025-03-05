@@ -4,6 +4,7 @@ from typing import Optional
 from geecs_scanner.data_acquisition.scan_manager import ScanManager, get_database_dict
 
 from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
+from geecs_scanner.app.lib.action_control import ActionControl
 
 
 class RunControl:
@@ -27,6 +28,8 @@ class RunControl:
             self.scan_manager = ScanManager(experiment_dir=experiment_name,
                                             shot_control_information=settings)
 
+            self.action_control = ActionControl(experiment_name=experiment_name)
+
         self.is_in_setup = False
         self.is_in_stopping = False
 
@@ -36,6 +39,10 @@ class RunControl:
             return {}
         else:
             return get_database_dict()
+
+    def get_action_control(self) -> ActionControl:
+        """ Returns instance of action control associated with current experiment name """
+        return self.action_control
 
     def submit_run(self, config_dictionary: dict, scan_config: dict) -> bool:
         """Submits a scan request to Scan Manager after reinitializing it
