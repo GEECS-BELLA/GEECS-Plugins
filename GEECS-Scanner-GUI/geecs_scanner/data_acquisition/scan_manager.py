@@ -277,6 +277,9 @@ class ScanManager:
 
             self.synchronize_devices()
 
+            #clear source directories of synchronization shots
+            self.scan_data_manager.purge_all_local_save_dir()
+
             # start the acquisition loop
             self.scan_execution_loop()
 
@@ -296,7 +299,7 @@ class ScanManager:
         Returns:
             bool: True if all devices are in standby mode within the timeout; otherwise, False.
         """
-        timeout = 6  # timeout in seconds
+        timeout = 8  # timeout in seconds
         start_time = time.time()
         while not self.data_logger.all_devices_in_standby:
             if time.time() - start_time > timeout:
