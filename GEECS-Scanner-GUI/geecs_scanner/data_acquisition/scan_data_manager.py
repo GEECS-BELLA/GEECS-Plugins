@@ -105,8 +105,9 @@ class ScanDataManager:
                 path_str = f'//{dev_host_ip_string}/SharedData/{device_name}'
                 source_dir = Path(path_str)
 
+                data_path_client_side = Path('C:\\SharedData') / device_name
+                save_path = str(data_path_client_side).replace('/', "\\")
 
-                save_path = str(data_path).replace('/', "\\")
                 logging.info(f"Setting save data path for {device_name} to {save_path}")
                 device.set("localsavingpath", save_path, sync=False)
                 time.sleep(.1)
