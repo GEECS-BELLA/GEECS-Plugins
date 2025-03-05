@@ -5,6 +5,10 @@ Script to contain the logic for the GEECSScanner GUI.  Can be launched by runnin
 """
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
+
+import numpy as np
+import numexpr as ne
+
 if TYPE_CHECKING:
     from run_control import RunControl
     from PyQt5.QtWidgets import QWidget
@@ -25,7 +29,7 @@ from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
 from .lib.gui_utilities import display_completer_list, read_yaml_file_to_dict, write_dict_to_yaml_file
 from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor, ActionLibrary
 from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
-from ..utils.exceptions import ConflictingScanElements
+from ..utils.exceptions import ConflictingScanElements, ActionError
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
@@ -145,6 +149,9 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.lineShotStep.editingFinished.connect(self.calculate_num_shots)
         self.ui.lineNumShots.editingFinished.connect(self.update_noscan_num_shots)
 
+        # Tool tip button to display list of scan steps
+        self.ui.toolbuttonStepList.setToolTip("")
+        self.ui.toolbuttonStepList.clicked.connect(self.show_list_of_steps)
 
         # Buttons to save the current scan as a preset, delete selected preset, and double-clicking loads the preset
         self.populate_preset_list()
@@ -722,6 +729,8 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineShotStep.setText("")
             self.ui.lineNumShots.setEnabled(True)
             self.ui.lineNumShots.setText(str(self.noscan_num))
+            self.ui.toolbuttonStepList.setEnabled(False)
+            self.ui.toolbuttonStepList.setVisible(False)
 
         else:
             self.ui.lineScanVariable.setEnabled(True)
@@ -736,6 +745,8 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineShotStep.setText(str(self.scan_shot_per_step))
             self.ui.lineNumShots.setEnabled(False)
             self.calculate_num_shots()
+            self.ui.toolbuttonStepList.setEnabled(True)
+            self.ui.toolbuttonStepList.setVisible(True)
 
     def populate_scan_variable_lists(self):
         """Generates a list of found scan devices from the scan_devices.yaml file"""
@@ -811,9 +822,13 @@ class GEECSScannerWindow(QMainWindow):
 
             shot_array = self.build_shot_array()
             self.ui.lineNumShots.setText(str(len(shot_array)))
+            self._update_list_of_steps(shot_array=shot_array, skip_tcp_request=True)
 
         except ValueError:
             self.ui.lineNumShots.setText("N/A")
+        except SyntaxError:
+            self.ui.lineNumShots.setText("Error")
+
     def build_shot_array(self) -> list[float]:
         """Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot.
 
@@ -840,6 +855,91 @@ class GEECSScannerWindow(QMainWindow):
                 else:
                     current = round(current - abs(self.scan_step_size), 10)
             return array
+
+    def _update_list_of_steps(self, shot_array: Optional[list[float]] = None, skip_tcp_request: bool = False):
+        """
+        Updates the tool tip button with the current steps for the scan, which is visible upon hovering over the button
+
+        :param shot_array: the value of the scan parameter on each shot
+        :param skip_tcp_request: if True, will not evaluate a relative composite variable as this takes longer
+
+        :raises:
+            SyntaxError: Numerical expression for composite variable is bad
+            ValueError: Device variable returned for relative composite variables was not a float
+        """
+        if shot_array is None:
+            self.ui.toolbuttonStepList.setToolTip("")
+            return
+
+        # Gather all the bins
+        bins = np.unique(shot_array)
+
+        # Set up lists to hold strings of devices and associated values
+        scan_device = self.ui.lineScanVariable.text()
+        devices: list[str] = [scan_device]
+        device_values: list[np.ndarray] = [bins]
+
+        # If the variable is a composite variable, get each step value for each device
+        if scan_device in self.scan_composite_list:
+            for component in self.scan_composite_data[scan_device]['components']:
+                devices.append(f"{component['device']}:{component['variable']}")
+
+                expression_results = np.zeros(len(bins))
+                for i in range(len(bins)):
+                    try:
+                        expression_results[i] = ne.evaluate(component['relation'], local_dict={"composite_var": bins[i]})
+                    except SyntaxError:
+                        self.ui.toolbuttonStepList.setToolTip("")
+                        raise SyntaxError(f"Bad relation syntax in composite variable '{scan_device}' at "
+                                          f"'{component['device']}:{component['variable']}'")
+
+                # If the composite variable is relative and not in scan, use a get command to calculate the actual value
+                if self.scan_composite_data[scan_device]['mode'] in ['relative'] and self.RunControl is not None:
+                    # Don't execute get command unless button was explicitly clicked on
+                    if skip_tcp_request:
+                        self.ui.toolbuttonStepList.setToolTip("Click to show")
+                        return
+
+                    # Can't perform get command if scan is ongoing
+                    if not (self.RunControl.is_active() or self.is_starting):
+                        self.ui.toolbuttonStepList.setToolTip("Check back after scan")
+
+                    action_control = self.RunControl.get_action_control()
+                    current_value = action_control.return_device_value(device_name=component['device'],
+                                                                       variable=component['variable'])
+                    try:
+                        expression_results += float(current_value)
+                    except (ValueError, TypeError):
+                        raise ValueError(f"{component['device']}:{component['variable']} must return a float, "
+                                         f"instead returned '{current_value}'")
+
+                device_values.append(expression_results)
+
+        # Transpose the values into a numpy array for easier indexing
+        transposed_device_values = np.vstack(device_values).T
+
+        # Compile the tool tip string
+        message_string = "Bin"
+        for device in devices:
+            message_string += f",   {device}"
+        for i in range(len(bins)):
+            message_string += f"\n{i}:"
+            for j in range(len(devices)):
+                message_string += f"   {transposed_device_values[i, j]:.4f}"
+
+        self.ui.toolbuttonStepList.setToolTip(message_string)
+
+    def show_list_of_steps(self):
+        """ Displays a pop-up with the list of steps for each device variable.  Errors are handled in the case that
+         either a scan parameter is incorrectly configured or there was trouble getting a composite variable value """
+        try:
+            self.calculate_num_shots()
+            self._update_list_of_steps(self.build_shot_array())
+            QMessageBox.about(self, "Scan Steps", f"{self.ui.toolbuttonStepList.toolTip()}")
+        except (ValueError, SyntaxError) as e:
+            QMessageBox.about(self, "Scan Steps", f"{type(e)}:\n{e}")
+        except ActionError as e:
+            QMessageBox.about(self, "Scan Steps", f"{type(e)}:\n{e.message}")
 
     def update_noscan_num_shots(self):
         """Updates the value of the number of shots in noscan mode, but only if it is a positive integer."""
