@@ -13,7 +13,7 @@ import shutil
 # Third-party library imports
 import pandas as pd
 from nptdms import TdmsWriter, ChannelObject
-from torch.fx.experimental.unification.multipledispatch.dispatcher import source
+
 
 # Internal project imports
 from . import DeviceManager, DatabaseDictLookup
@@ -123,20 +123,23 @@ class ScanDataManager:
                 device.set("localsavingpath", save_path, sync=False)
                 time.sleep(.1)
                 device.set('save', 'on', sync=False)
+
+                device_type = GeecsDatabase.find_device_type(device_name)
+
+                # creating a dict here which contains all of the necessary information to
+                # move and rename a saved file from a local directory to thec correct
+                # scans directory on the data server
+
+                self.device_save_paths_mapping[device_name] = {
+                    "target_dir": target_dir,
+                    "source_dir": source_dir,
+                    "device_type": device_type}
+
             else:
                 logging.warning(f"Device {device_name} not found in DeviceManager.")
 
-            device_type = GeecsDatabase.find_device_type(device_name)
 
-            # creating a dict here which contains all of the necessary information to
-            # move and rename a saved file from a local directory to thec correct
-            # scans directory on the data server
 
-            self.device_save_paths_mapping[device_name] = {
-                "target_dir": target_dir,
-                "source_dir": source_dir,
-                "device_type": device_type
-            }
 
         analysis_save_path = self.scan_data.get_analysis_folder()
 
@@ -719,7 +722,7 @@ class ScanDataManager:
                 # Use the file's parent directory name as the variant.
                 variant = file.parent.name
                 # Build the new file stem using the scan number, variant, and shot index.
-                new_file_stem = self.rename_file(self.scan_number, variant, shot_index)
+                new_file_stem = self.rename_file(self.scan_number_int, variant, shot_index)
                 new_filename = new_file_stem + file.suffix
                 # Adjust the target directory: use target_dir.parent / variant.
                 adjusted_target_dir = target_dir.parent / variant
@@ -743,7 +746,7 @@ class ScanDataManager:
         Args:
             scan_number (str): Scan number in string format (e.g., 'Scan001').
             device_name (str): Name of the device.
-            shot_number (int): shot number
+            shot_index (int): shot number
         """
 
         scan_number_str = str(scan_number).zfill(3)
