@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional
 if TYPE_CHECKING:
     from . import GEECSScannerWindow
+    from geecs_scanner.app.lib.action_control import ActionControl
 
 import copy
 import logging
@@ -19,7 +20,8 @@ from PyQt5.QtCore import QEvent, Qt
 from .gui.ActionLibrary_ui import Ui_Form
 from .lib.gui_utilities import (parse_variable_text, write_dict_to_yaml_file, read_yaml_file_to_dict,
                                 display_completer_list, display_completer_variable_list)
-from .lib import ActionControl
+
+from .lib import action_api
 
 
 def get_default_action() -> dict:
@@ -30,12 +32,14 @@ def get_default_action() -> dict:
 
 
 class ActionLibrary(QWidget):
-    def __init__(self, main_window: GEECSScannerWindow, database_dict: dict, action_configurations_folder: Union[Path, str]):
+    def __init__(self, main_window: GEECSScannerWindow, database_dict: dict,
+                 action_configurations_folder: Union[Path, str], action_control: Optional[ActionControl]):
         """ GUI Window that holds all the action library elements
 
         :param main_window: Reference to the main GEECS Scanner window
         :param database_dict: Dictionary containing all devices and variables in the experiment
         :param action_configurations_folder: Folder containing yaml's for the experiment's saved and assigned actions
+        :param action_control: instance of action control if experiment was successfully connected
         """
         super().__init__()
 
@@ -79,7 +83,7 @@ class ActionLibrary(QWidget):
         self.ui.buttonRevertAll.clicked.connect(self.discard_all_changes)
 
         # Functionality to execute actions
-        self.action_control: Optional[ActionControl] = None
+        self.action_control = action_control
         self.enable_execute = False
         self.ui.buttonExecuteAction.setEnabled(False)
         self.ui.checkboxEnableExecute.toggled.connect(self.toggle_execution_enable)
@@ -105,7 +109,7 @@ class ActionLibrary(QWidget):
         """Creates a custom event for the text boxes so that the completion suggestions are shown when mouse is clicked
         """
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionType:
-            display_completer_list(self, location=self.ui.lineActionType, completer_list=ActionControl.list_of_actions)
+            display_completer_list(self, location=self.ui.lineActionType, completer_list=action_api.list_of_actions)
             return True
         elif (event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionOption1
               and self.action_mode in ['set', 'get']):
@@ -234,7 +238,7 @@ class ActionLibrary(QWidget):
         self.ui.listActionSteps.clear()
         if name := self.get_selected_name():
             for item in self.actions_data['actions'][name]['steps']:
-                self.ui.listActionSteps.addItem(ActionControl.generate_action_description(item))
+                self.ui.listActionSteps.addItem(action_api.generate_action_description(item))
 
             if index is not None and 0 <= index < self.ui.listActionSteps.count():
                 self.ui.listActionSteps.setCurrentRow(index)
@@ -244,7 +248,7 @@ class ActionLibrary(QWidget):
         radio button.  The action is specified by the action line edit. """
         if text := self.ui.lineActionType.text().strip():
             if name := self.get_selected_name():
-                self.actions_data['actions'][name]['steps'].append(ActionControl.get_new_action(text))
+                self.actions_data['actions'][name]['steps'].append(action_api.get_new_action(text))
                 self.ui.lineActionType.clear()
                 self.change_action_selection()
 
@@ -375,9 +379,6 @@ class ActionLibrary(QWidget):
         for assigned_action in self.assigned_action_list:
             assigned_action.buttonExecute.setEnabled(self.enable_execute)
 
-        if self.action_control is None and self.ui.buttonExecuteAction.isEnabled():
-            self.action_control = ActionControl(experiment_name=self.main_window.experiment)
-
     def execute_action(self, name: Optional[str] = None):
         """ Executes an action by sending the contents of the instance variable dict to ActionControl
 
@@ -400,7 +401,7 @@ class ActionLibrary(QWidget):
             write_dict_to_yaml_file(filename=self.actions_file, dictionary=self.actions_data)
 
             if self.action_control:
-                self.action_control = ActionControl(experiment_name=self.main_window.experiment)
+                self.action_control = self.main_window.refresh_action_control()
 
     def discard_all_changes(self):
         """ Replace the current version of the instance variable dict with the contents of the actions.yaml file """
