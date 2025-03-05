@@ -380,8 +380,8 @@ class ScanManager:
             # Step 6: Process results, save to disk, and log data
             log_df = self.scan_data_manager._process_results(self.results)
             
-            # Step 7: Process and rename data files
-            self.scan_data_manager.process_and_rename()
+            # # Step 7: Process and rename data files
+            # self.scan_data_manager.process_and_rename()
             
             # Step 8: create sfile in analysis folder
             self.scan_data_manager._make_sFile(log_df)
