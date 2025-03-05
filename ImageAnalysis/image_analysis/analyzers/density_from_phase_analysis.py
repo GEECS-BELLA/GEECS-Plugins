@@ -83,8 +83,10 @@ from typing import Optional, Tuple, TYPE_CHECKING, NewType
 
 from dataclasses import dataclass
 import scipy.ndimage as ndimage
+import logging
 
 from image_analysis import ureg, Q_
+from image_analysis.base import ImageAnalyzer
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -93,10 +95,6 @@ if TYPE_CHECKING:
     LengthQuantity = NewType('LengthQuantity', Quantity) # [length]
     DensityQuantity = NewType('DensityQuantity', Quantity) # [length]**-3
 
-
-# =============================================================================
-# Configuration Dataclass
-# =============================================================================
 @dataclass
 class PhaseAnalysisConfig:
     """
@@ -120,10 +118,24 @@ class PhaseAnalysisConfig:
     roi: Optional[Tuple[int, int, int, int]] = None
     background: Optional[Path] = None
 
+def threshold_data(data: np.ndarray, threshold_frac: float) -> np.ndarray:
+    """
+    Apply a simple threshold to a 2D array.
+    Pixels with values below:
+         data_min + threshold_frac*(data_max - data_min)
+    are set to zero.
+    NaNs are ignored in computing the threshold and remain unchanged.
+    """
+    data_min: float = np.nanmin(data)
+    data_max: float = np.nanmax(data)
+    thresh_val: float = data_min + (data_max - data_min) * threshold_frac
+    thresh: np.ndarray = np.copy(data)
+    # Create a mask that only selects non-NaN values below the threshold.
+    mask = (thresh < thresh_val) & ~np.isnan(thresh)
+    thresh[mask] = 0
 
-# =============================================================================
-# Phase Data Loader
-# =============================================================================
+    return thresh
+
 class PhaseDataLoader:
     """
     Loads phase data from a file.
@@ -145,59 +157,28 @@ class PhaseDataLoader:
             info = np.iinfo(image.dtype)
             return image.astype(np.float64) / info.max
 
-
-def threshold_data(data: np.ndarray, threshold_frac: float) -> np.ndarray:
-    """
-    Apply a simple threshold to a 2D array.
-    Pixels with values below:
-         data_min + threshold_frac*(data_max - data_min)
-    are set to zero.
-    NaNs are ignored in computing the threshold and remain unchanged.
-    """
-    data_min: float = np.nanmin(data)
-    data_max: float = np.nanmax(data)
-    thresh_val: float = data_min + (data_max - data_min) * threshold_frac
-    thresh: np.ndarray = np.copy(data)
-    # Create a mask that only selects non-NaN values below the threshold.
-    mask = (thresh < thresh_val) & ~np.isnan(thresh)
-    thresh[mask] = 0
-    return thresh
-
-
-
-# =============================================================================
-# Phase Preprocessor
-# =============================================================================
 class PhasePreprocessor:
     """
     Handles cropping and background subtraction for phase data.
     """
-    def __init__(self, phase_file: Path, config: PhaseAnalysisConfig) -> None:
-        self.phase_file = phase_file
+    def __init__(self, config: PhaseAnalysisConfig) -> None:
         self.config = config
-        return
+        self.phase_array = None
 
-    def subtract_background(self, background: np.ndarray) -> None:
+    @staticmethod
+    def subtract_background(phase_data:NDArray, background: np.ndarray) -> NDArray:
         """
         Subtract a background array from the phase array.
         The background array must be broadcastable to the shape of the phase array.
         """
-        self.phase_array = (self.phase_array - background)
+        return phase_data - background
 
-    def subtract_constant(self, constant: float) -> None:
-        """
-        Subtract a constant background value from the phase array.
-        """
-        self.phase_array = self.phase_array - constant
-
-    def crop(self, x_min: int, x_max: int, y_min: int, y_max: int) -> None:
+    @staticmethod
+    def crop(phase_data:NDArray, x_min: int, x_max: int, y_min: int, y_max: int) -> NDArray:
         """
         Crop the phase array to the specified region of interest (ROI).
         """
-        self.phase_array = self.phase_array[y_min:y_max, x_min:x_max]
-
-    def get_processed_data(self) -> np.ndarray:
-        return self.phase_array
+        return phase_data[y_min:y_max, x_min:x_max]
 
     @staticmethod
     def compute_column_centroids(data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -271,7 +252,7 @@ class PhasePreprocessor:
 
     # ---------------- Main Rotation Workflow ----------------
 
-    def rotate_phase_data(self, threshold_frac: float = 0.2) -> dict:
+    def rotate_phase_data(self, phase_data: NDArray, threshold_frac: float = 0.2) -> Tuple[NDArray,dict]:
         """
         Rotate the phase data to correct for any tilt based on the weighted column centers.
 
@@ -294,14 +275,14 @@ class PhasePreprocessor:
             final_data: The rotated phase data (2D array).
             fit_params: Dictionary with keys 'slope', 'intercept', 'angle_radians', 'angle_degrees'.
         """
-
+        phase_array = phase_data
         # Step 1: Determine dynamic range.
-        data_min, data_max = np.nanmin(self.phase_array), np.nanmax(self.phase_array)
-        self.phase_array = -(self.phase_array - data_min)
-        self.phase_array = np.abs(self.phase_array - np.nanmin(self.phase_array))
+        data_min, data_max = np.nanmin(phase_array), np.nanmax(phase_array)
+        phase_array = -(phase_array - data_min)
+        phase_array = np.abs(phase_array - np.nanmin(phase_array))
 
         # Step 2: Create a thresholded version for centroid computation.
-        thresh_data = threshold_data(self.phase_array, threshold_frac)
+        thresh_data = threshold_data(phase_array, threshold_frac)
 
         # Step 3: Compute weighted column centroids and column sums.
         centroids, col_sums = self.compute_column_centroids(thresh_data)
@@ -321,13 +302,11 @@ class PhasePreprocessor:
 
         # Step 6: Rotate the original phase data.
         # Using reshape=True so that the output shape is adjusted to contain the entire rotated image.
-        rotated_data = ndimage.rotate(self.phase_array, angle=angle_deg, reshape=True, order=1)
+        rotated_data = ndimage.rotate(phase_array, angle=angle_deg, reshape=True, order=1)
 
-        # Update the class attribute with the rotated data.
-        self.phase_array = rotated_data
-        self.crop(20, -20, 30, -30)
+        phase_array = self.crop(phase_array,20, -20, 35, -35)
 
-        return fit_params
+        return (phase_array,fit_params)
 
     # ---------------- New Background Removal Workflow ----------------
     @staticmethod
@@ -350,7 +329,7 @@ class PhasePreprocessor:
                 terms.append((x ** i) * (y ** j))
         return np.column_stack(terms)
 
-    def remove_background_polyfit(self, threshold_frac: float = 0.15, poly_order: int = 4) -> Tuple[np.ndarray, np.ndarray]:
+    def remove_background_polyfit(self, phase_data:NDArray, threshold_frac: float = 0.15, poly_order: int = 2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         After rotating the phase array, mask out the region that is usually kept by the threshold
         (i.e. the high-signal area) by replacing those pixel values with NaN. Then perform a 2D
@@ -365,14 +344,20 @@ class PhasePreprocessor:
             background_fit: The 2D background (from the polynomial fit).
             coeffs: The polynomial coefficients as a 1D array.
         """
-        data = self.phase_array
+        data = phase_data
         # Compute the dynamic range of the data.
         data_min, data_max = np.nanmin(data), np.nanmax(data)
+        data = -np.abs((data - data_min))
+        data_min, data_max = np.nanmin(data), np.nanmax(data)
         thresh_val = data_min + (data_max - data_min) * threshold_frac
-
         # Create a masked copy: set pixels above the threshold to NaN.
         masked_data = data.copy()
         masked_data[masked_data > thresh_val] = np.nan
+
+        # plt.imshow(masked_data, cmap='viridis', origin='lower')
+        # plt.title("maske phase")
+        # plt.colorbar()
+        # plt.show()
 
         # Build coordinate grids.
         nrows, ncols = masked_data.shape
@@ -406,53 +391,88 @@ class PhasePreprocessor:
         background_fit = (G_full @ coeffs).reshape(nrows, ncols)
 
         # Subtract the background fit from the original phase data.
-        self.phase_array = self.phase_array - background_fit
+        data = data - background_fit
 
-        return background_fit, coeffs
+        # plt.imshow(data, cmap='viridis', origin='lower')
+        # plt.title("maske phase")
+        # plt.colorbar()
+        # plt.show()
 
-    def process_phase_load_only(self) -> None:
-        """
-        Parameters:
-        """
+        return data, background_fit, coeffs
 
-        loader: PhaseDataLoader = PhaseDataLoader(self.phase_file)
-        self.phase_array: np.ndarray = loader.load_data()
+class PhaseDownrampProcessor(ImageAnalyzer):
+    """
+    Handles cropping and background subtraction for phase data.
+    """
 
-        return self.phase_array
+    def __init__(self, config: PhaseAnalysisConfig) -> None:
+        self.config = config
 
-    def process_phase(self) -> None:
-        """
-        Parameters:
-        """
-
-        loader: PhaseDataLoader = PhaseDataLoader(self.phase_file)
-        self.phase_array: np.ndarray = loader.load_data()
+        self.processor  = PhasePreprocessor(config)
 
         # If background is provided, treat it as a Path.
+        # Assumption here is that background is loaded only at
+        # initialization.
         if self.config.background is not None:
             bg_loader = PhaseDataLoader(self.config.background)
-            bg_data = bg_loader.load_data()
-            self.subtract_background(bg_data)
+            self.bg_data = bg_loader.load_data()
 
+        super().__init__()
+
+    def process_phase(self, file_path: Path) -> Tuple[NDArray,NDArray]:
+        """
+        Parameters: file_path
+        """
+        loader: PhaseDataLoader = PhaseDataLoader(file_path)
+        phase_array = loader.load_data()
+
+        phase_array = self.processor.subtract_background(phase_array,self.bg_data)
+        # plt.imshow(phase_array, cmap='viridis', origin='lower')
+        # plt.title("processed phase")
+        # plt.show()
         if self.config.roi is not None:
             x_min, x_max, y_min, y_max = self.config.roi
-            self.crop(x_min, x_max, y_min, y_max)
+            phase_array = self.processor.crop(phase_array, x_min, x_max, y_min, y_max)
 
-        self.fit_parameters = self.rotate_phase_data()
+        # plt.imshow(phase_array, cmap='viridis', origin='lower')
+        # plt.title("processed phase")
+        # plt.show()
 
-        self.remove_background_polyfit()
+        rotation_result = self.processor.rotate_phase_data(phase_array)
+        # plt.imshow(rotation_result[0], cmap='viridis', origin='lower')
+        # plt.title("processed phase")
+        # plt.show()
 
-        thresh_data: np.ndarray = threshold_data(self.phase_array, self.config.threshold_fraction)
+        polynomial_subtraction_result = self.processor.remove_background_polyfit(phase_array)
 
-        self.downramp_phase_analysis(thresh_data)
+        phase_array = polynomial_subtraction_result[0]
+        thresh_data = threshold_data(phase_array, self.config.threshold_fraction)
 
-        return self.phase_array
+        return phase_array, rotation_result[1]
+
+    def analyze_image(self, file_path: Path) -> NDArray:
+
+        try:
+            processed_phase = self.process_phase(file_path)
+            logging.info(f'processed {file_path}')
+
+        except Exception as e:
+            logging.warning(f'could not process {file_path}')
+            raise
+
+        # self.downramp_phase_analysis(processed_phase[1])
+
+        # plt.imshow(processed_phase[0], cmap='viridis', origin='lower')
+        # plt.title("processed phase")
+        # plt.show()
+
+        return {'processed_image':processed_phase[0],'analysis_results':processed_phase[1]}
 
     def downramp_phase_analysis(self, phase_array: NDArray):
         # Find the index of the maximum value in the array.
         max_index = np.unravel_index(np.argmax(phase_array), phase_array.shape)
         row, col = max_index
-        print("Max value at:", row, col)
+        logging.info("Max value at:", row, col)
 
         # Define a window of ±20 pixels around the max point, ensuring we don't go out of bounds.
         row_min = max(row - 40, 0)
@@ -475,11 +495,8 @@ class PhasePreprocessor:
 
         plt.show()
 
-        pass
+        return
 
-# =============================================================================
-# Inversion Technique Base Class
-# =============================================================================
 class InversionTechnique(abc.ABC):
     """
     Abstract base class for an inversion technique.
@@ -581,94 +598,87 @@ class PyabelInversion(InversionTechnique):
 
         return self.density
 
-# =============================================================================
-# Main Density Analysis Class
-# =============================================================================
-class DensityAnalysis:
-    """
-    Main class for performing density analysis.
-    
-    This class loads and pre-processes phase data and then uses a specified
-    inversion technique (custom or PyAbel) to compute a plasma density map.
-    """
-
-    def __init__(self, phase_file: Path, config: PhaseAnalysisConfig) -> None:
-        """
-        Parameters:
-          phase_file: Path
-              Path to the phase data file (TSV or image).
-          config: PhaseAnalysisConfig
-              Configuration parameters (pixel scale, wavelength, threshold fraction, ROI, background).
-        """
-        self.phase_file: Path = phase_file
-        self.config: PhaseAnalysisConfig = config
-
-        # Pre-process: subtract background first, then crop if specified.
-        processor  = PhasePreprocessor(phase_file_path, config)
-        processor.process_phase()
-
-
-    def get_density(self, technique: str = 'pyabel') -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Compute the density map and vertical lineout using a chosen inversion technique.
-        
-        Parameters:
-          technique: str
-              'pyabel' for the PyAbel method.
-        
-        Returns:
-          (vertical_lineout, density_map)
-        """
-        if technique == 'pyabel':
-            inverter = PyabelInversion(self.thresh_data, self.config.pixel_scale, self.config.wavelength_nm)
-        else:
-            raise ValueError("Technique must be 'pyabel'.")
-        return inverter.invert()
-
-    def plot_density(self, density_map: Quantity, vertical_lineout: Quantity) -> None:
-        """
-        Plot the 2D density map and the vertical lineout using units.
-
-        Parameters:
-            density_map: A Pint Quantity (2D array) representing the density map.
-            vertical_lineout: A Pint Quantity (1D array) representing the vertical lineout.
-        """
-        import matplotlib.pyplot as plt
-
-        fig, (ax_map, ax_line) = plt.subplots(1, 2, figsize=(12, 5))
-
-        # Plot the density map (use .magnitude for the numerical values)
-        im = ax_map.imshow(density_map.magnitude, cmap='jet', origin='lower')
-        ax_map.set_title("Density Map")
-        plt.colorbar(im, ax=ax_map, label=f"Density ({(density_map.units)})")
-
-        # Plot the vertical lineout (again, extract .magnitude)
-        ax_line.plot(vertical_lineout.magnitude)
-        ax_line.set_title("Vertical Lineout")
-        ax_line.set_xlabel("Pixel Position")
-        ax_line.set_ylabel(f"Density ({(vertical_lineout.units)}")
-
-        plt.tight_layout()
-        plt.show()
-
-
-# =============================================================================
-# Example Usage
-# =============================================================================
-if __name__ == '__main__':
-    phase_file_path: Path = Path('../Scan003_U_HasoLift_001_postprocessed.tsv')  # or an image file path
-
-    config: PhaseAnalysisConfig = PhaseAnalysisConfig(
-        pixel_scale=14.64,            # um per pixel (vertical)
-        wavelength_nm=800,           # Probe laser wavelength in nm
-        threshold_fraction=0.2,      # Threshold fraction for pre-processing
-        roi=(10, -10, 10, -100),      # Example ROI: (x_min, x_max, y_min, y_max)
-        background=Path('../average_phase.tsv')  # Background is now a Path
-
-    )
-
-    analyzer: DensityAnalysis = DensityAnalysis(phase_file_path, config)
-
-    # --- Using the PyAbel inversion technique ---
-    pyabel_lineout, pyabel_density = analyzer.get_density(technique='pyabel')
-    analyzer.plot_density(pyabel_density, pyabel_lineout)
+# class DensityAnalysis:
+#     """
+#     Main class for performing density analysis.
+#
+#     This class loads and pre-processes phase data and then uses a specified
+#     inversion technique (custom or PyAbel) to compute a plasma density map.
+#     """
+#
+#     def __init__(self, phase_file: Path, config: PhaseAnalysisConfig) -> None:
+#         """
+#         Parameters:
+#           phase_file: Path
+#               Path to the phase data file (TSV or image).
+#           config: PhaseAnalysisConfig
+#               Configuration parameters (pixel scale, wavelength, threshold fraction, ROI, background).
+#         """
+#         self.phase_file: Path = phase_file
+#         self.config: PhaseAnalysisConfig = config
+#
+#         # Pre-process: subtract background first, then crop if specified.
+#         processor  = PhasePreprocessor(phase_file_path, config)
+#         processor.process_phase()
+#
+#
+#     def get_density(self, technique: str = 'pyabel') -> Tuple[np.ndarray, np.ndarray]:
+#         """
+#         Compute the density map and vertical lineout using a chosen inversion technique.
+#
+#         Parameters:
+#           technique: str
+#               'pyabel' for the PyAbel method.
+#
+#         Returns:
+#           (vertical_lineout, density_map)
+#         """
+#         if technique == 'pyabel':
+#             inverter = PyabelInversion(self.thresh_data, self.config.pixel_scale, self.config.wavelength_nm)
+#         else:
+#             raise ValueError("Technique must be 'pyabel'.")
+#         return inverter.invert()
+#
+#     def plot_density(self, density_map: Quantity, vertical_lineout: Quantity) -> None:
+#         """
+#         Plot the 2D density map and the vertical lineout using units.
+#
+#         Parameters:
+#             density_map: A Pint Quantity (2D array) representing the density map.
+#             vertical_lineout: A Pint Quantity (1D array) representing the vertical lineout.
+#         """
+#         import matplotlib.pyplot as plt
+#
+#         fig, (ax_map, ax_line) = plt.subplots(1, 2, figsize=(12, 5))
+#
+#         # Plot the density map (use .magnitude for the numerical values)
+#         im = ax_map.imshow(density_map.magnitude, cmap='jet', origin='lower')
+#         ax_map.set_title("Density Map")
+#         plt.colorbar(im, ax=ax_map, label=f"Density ({(density_map.units)})")
+#
+#         # Plot the vertical lineout (again, extract .magnitude)
+#         ax_line.plot(vertical_lineout.magnitude)
+#         ax_line.set_title("Vertical Lineout")
+#         ax_line.set_xlabel("Pixel Position")
+#         ax_line.set_ylabel(f"Density ({(vertical_lineout.units)}")
+#
+#         plt.tight_layout()
+#         plt.show()
+#
+# if __name__ == '__main__':
+#     phase_file_path: Path = Path('../Scan003_U_HasoLift_001_postprocessed.tsv')  # or an image file path
+#
+#     config: PhaseAnalysisConfig = PhaseAnalysisConfig(
+#         pixel_scale=10.1,            # um per pixel (vertical)
+#         wavelength_nm=800,           # Probe laser wavelength in nm
+#         threshold_fraction=0.2,      # Threshold fraction for pre-processing
+#         roi=(10, -10, 10, -100),      # Example ROI: (x_min, x_max, y_min, y_max)
+#         background=Path('../average_phase.tsv')  # Background is now a Path
+#
+#     )
+#
+#     analyzer: DensityAnalysis = DensityAnalysis(phase_file_path, config)
+#
+#     # --- Using the PyAbel inversion technique ---
+#     pyabel_lineout, pyabel_density = analyzer.get_density(technique='pyabel')
+#     analyzer.plot_density(pyabel_density, pyabel_lineout)
