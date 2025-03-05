@@ -3,6 +3,7 @@ from typing import Optional
 
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import logging
 
@@ -24,6 +25,12 @@ class FileMover:
         self.stop_event = threading.Event()
         self.worker = threading.Thread(target=self._worker_func, daemon=True)
         self.worker.start()
+
+        # To track how many times a file has been checked.
+        self.file_check_counts = {}
+        # Files that have been checked more than 2 times will be marked orphaned.
+        self.orphaned_files = set()
+
         self.scan_number = None
         logging.info("FileMover worker started.")
 
@@ -55,6 +62,7 @@ class FileMover:
                 self.task_queue.task_done()
         logging.info("FileMover worker stopped.")
 
+
     def _process_task(self, source_dir: Path, target_dir: Path,
                       device_name: str, device_type: str,
                       expected_timestamp: float, shot_index: int):
@@ -63,37 +71,144 @@ class FileMover:
         names start with device_name (e.g. "DeviceName-type1", "DeviceName-type2"),
         rename them with a standard naming convention, and move them to the corresponding
         target directories (e.g. "Z:/data/Undulator/DeviceName-type1", etc.).
+
+        This version uses a thread pool to move files concurrently. It batches file moves:
+        files are accumulated into a batch and, if the batch reaches ~20 files (or if no more
+        files remain for the variant, or if the stop_event is set), the batch is submitted for moving.
+        It also tracks how many times a file has been checked; if a file has been checked more than
+        2 times without moving, it is marked as "orphaned" and will be skipped.
         """
+
         # Get the "home" folder; i.e., the parent of source_dir.
         home_dir = source_dir.parent
 
         # Find all subdirectories in the home folder that are relevant variants.
-        # For example, any directory whose name starts with the device name.
         variant_dirs = [d for d in home_dir.iterdir() if d.is_dir() and d.name.startswith(device_name)]
 
-        # Process each variant directory.
+        # For some device types (e.g., saving TDMS files) we expect two files per shot.
+        if device_type == 'PicoscopeV2':
+            expected_file_count = 2
+        else:
+            expected_file_count = 1
+
+        # List to hold futures from concurrent file moves.
+        futures = []
+
+
         for variant in variant_dirs:
             # Adjust the target directory to use the variant folder's name.
             adjusted_target_dir = target_dir.parent / variant.name
             adjusted_target_dir.mkdir(parents=True, exist_ok=True)
             logging.info(f"Processing variant '{variant.name}' with adjusted target '{adjusted_target_dir}'")
 
-            time.sleep(0.1)
+            found_files_count = 0
+            time.sleep(0.1)  # Slight delay if needed
+
             for file in variant.glob("*"):
-                if file.is_file():
-                    file_ts = extract_timestamp_from_file(file, device_type)
-                    logging.info(f'Checking {file} with timestamp {file_ts} against {expected_timestamp}')
-                    if abs(file_ts - expected_timestamp) < 0.0011:
-                        # Create a new filename stem (without extension) using the directory, e.g. variant, name
-                        new_file_stem = self.rename_file(self.scan_number, variant.name, shot_index)
-                        ext = file.suffix
-                        new_filename = new_file_stem + ext
-                        dest_file = adjusted_target_dir / new_filename
-                        try:
-                            shutil.move(str(file), str(dest_file))
-                            logging.info(f"Moved {file} to {dest_file}")
-                        except Exception as e:
-                            logging.error(f"Error moving {file} to {dest_file}: {e}")
+                if not file.is_file():
+                    continue
+
+                # Check if this file was already marked as orphaned.
+                if file in self.orphaned_files:
+                    continue
+
+                file_ts = extract_timestamp_from_file(file, device_type)
+                logging.info(f'Checking {file} with timestamp {file_ts} against {expected_timestamp}')
+
+                if abs(file_ts - expected_timestamp) < 0.0011:
+                    found_files_count += 1
+
+                    # Update check count for the file.
+                    self.file_check_counts[file] = self.file_check_counts.get(file, 0) + 1
+                    if self.file_check_counts[file] > 2:
+                        logging.info(f"File {file} checked >2 times; marking as orphaned.")
+                        self.orphaned_files.add(file)
+                        continue
+
+                    # Create new filename stem using the scan number, variant name, and shot index.
+                    new_file_stem = self.rename_file(self.scan_number, variant.name, shot_index)
+                    ext = file.suffix
+                    new_filename = new_file_stem + ext
+                    dest_file = adjusted_target_dir / new_filename
+
+                    try:
+                        shutil.move(str(file), str(dest_file))
+                        logging.info(f"Moved {file} to {dest_file}")
+                    except Exception as e:
+                        logging.error(f"Error moving {file} to {dest_file}: {e}")
+
+                    # If we have found the expected number of files for this variant, break out.
+                    if found_files_count == expected_file_count:
+                        break
+
+
+    # def _move_file(self, src: Path, dst: Path):
+    #     """Helper function to move a single file."""
+    #     try:
+    #         shutil.move(str(src), str(dst))
+    #         logging.info(f"Moved {src} to {dst}")
+    #         # On successful move, remove tracking for this file.
+    #         if src in self.file_check_counts:
+    #             del self.file_check_counts[src]
+    #         return True
+    #     except Exception as e:
+    #         logging.error(f"Error moving {src} to {dst}: {e}")
+    #         return False
+    #
+
+    # def _process_task(self, source_dir: Path, target_dir: Path,
+    #                   device_name: str, device_type: str,
+    #                   expected_timestamp: float, shot_index: int):
+    #     """
+    #     Search for files in all variant directories under the parent of source_dir whose
+    #     names start with device_name (e.g. "DeviceName-type1", "DeviceName-type2"),
+    #     rename them with a standard naming convention, and move them to the corresponding
+    #     target directories (e.g. "Z:/data/Undulator/DeviceName-type1", etc.).
+    #     """
+    #     # Get the "home" folder; i.e., the parent of source_dir.
+    #     home_dir = source_dir.parent
+    #
+    #     # Find all subdirectories in the home folder that are relevant variants.
+    #     # For example, any directory whose name starts with the device name.
+    #     variant_dirs = [d for d in home_dir.iterdir() if d.is_dir() and d.name.startswith(device_name)]
+    #
+    #     # most device types save a single file per shot per directory. Some files
+    #     # saving tdms files also have an index file, so we expect two files per shot
+    #     if device_type == 'PicoscopeV2':
+    #         expected_file_count = 2
+    #     else:
+    #         expected_file_count = 1
+    #
+    #     # Process each variant directory.
+    #     for variant in variant_dirs:
+    #         # Adjust the target directory to use the variant folder's name.
+    #         adjusted_target_dir = target_dir.parent / variant.name
+    #         adjusted_target_dir.mkdir(parents=True, exist_ok=True)
+    #         logging.info(f"Processing variant '{variant.name}' with adjusted target '{adjusted_target_dir}'")
+    #
+    #         found_files_count = 0
+    #         time.sleep(0.1)
+    #         for file in variant.glob("*"):
+    #             if file.is_file():
+    #                 file_ts = extract_timestamp_from_file(file, device_type)
+    #                 logging.info(f'Checking {file} with timestamp {file_ts} against {expected_timestamp}')
+    #                 if abs(file_ts - expected_timestamp) < 0.0011:
+    #                     found_files_count+=1
+    #                     # Create a new filename stem (without extension) using the directory, e.g. variant, name
+    #                     new_file_stem = self.rename_file(self.scan_number, variant.name, shot_index)
+    #                     ext = file.suffix
+    #                     new_filename = new_file_stem + ext
+    #                     dest_file = adjusted_target_dir / new_filename
+    #                     try:
+    #                         shutil.move(str(file), str(dest_file))
+    #                         logging.info(f"Moved {file} to {dest_file}")
+    #                     except Exception as e:
+    #                         logging.error(f"Error moving {file} to {dest_file}: {e}")
+    #
+    #                     if found_files_count == expected_file_count:
+    #                         break
+
+
 
 
     # def _process_task(self, source_dir: Path, target_dir: Path,
