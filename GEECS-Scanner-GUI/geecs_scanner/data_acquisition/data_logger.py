@@ -20,11 +20,14 @@ import shutil
 from pathlib import Path
 
 class FileMover:
-    def __init__(self):
+    def __init__(self, num_workers: int = 16):
         self.task_queue = queue.Queue()
         self.stop_event = threading.Event()
-        self.worker = threading.Thread(target=self._worker_func, daemon=True)
-        self.worker.start()
+        self.workers = []
+        for i in range(num_workers):
+            worker = threading.Thread(target=self._worker_func, daemon=True)
+            worker.start()
+            self.workers.append(worker)
 
         # To track how many times a file has been checked.
         self.file_check_counts = {}
@@ -102,7 +105,7 @@ class FileMover:
             logging.info(f"Processing variant '{variant.name}' with adjusted target '{adjusted_target_dir}'")
 
             found_files_count = 0
-            time.sleep(0.1)  # Slight delay if needed
+            # time.sleep(0.1)  # Slight delay if needed
 
             for file in variant.glob("*"):
                 if not file.is_file():
@@ -120,7 +123,7 @@ class FileMover:
 
                     # Update check count for the file.
                     self.file_check_counts[file] = self.file_check_counts.get(file, 0) + 1
-                    if self.file_check_counts[file] > 2:
+                    if self.file_check_counts[file] > 1:
                         logging.info(f"File {file} checked >2 times; marking as orphaned.")
                         self.orphaned_files.add(file)
                         continue
@@ -130,6 +133,14 @@ class FileMover:
                     ext = file.suffix
                     new_filename = new_file_stem + ext
                     dest_file = adjusted_target_dir / new_filename
+
+                    new_file_path = file.parent / new_filename
+
+                    # try:
+                    #     file.rename(new_file_path)
+                    #     logging.info(f"renamed {file} to {new_file_path}")
+                    # except Exception as e:
+                    #     logging.error(f"Error renaming {file} to {new_file_path}: {e}")
 
                     try:
                         shutil.move(str(file), str(dest_file))
@@ -266,15 +277,16 @@ class FileMover:
     def shutdown(self, wait: bool = True):
         """
         Signal that no new tasks will be added, wait for current tasks to finish,
-        and then shut down the worker thread.
+        and then shut down all worker threads.
         """
         self.stop_event.set()
         if wait:
-            # Wait for all tasks in the queue to be processed.
             self.task_queue.join()
-        # Optionally put a sentinel to unblock the worker if needed.
-        self.task_queue.put(None)
-        self.worker.join()
+        # Put a sentinel for each worker so that they can exit.
+        for _ in self.workers:
+            self.task_queue.put(None)
+        for worker in self.workers:
+            worker.join()
         logging.info("FileMover has been shut down gracefully.")
 
 
