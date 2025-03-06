@@ -38,7 +38,18 @@ AnalysisFunction = Callable[[pyqtSignal, RunningCheck], None]
 class ScAnalyzerWindow(QMainWindow):
 
     def __init__(self) -> None:
+        """
+        Main window for the Scan Analyzer application.
+        
+        This class provides a graphical interface for analyzing scan data,
+        with capabilities to select scan ranges, configure analyzers,
+        and display processing results.
+        """
         super().__init__()
+
+        # define attribute defaults
+        self.overwrite_processed_scans: bool = False
+        self.ignore_list: list[int] = None
 
         # create instance of Ui_MainWindow, setup elements from .ui file
         self.ui = Ui_MainWindow()
@@ -48,7 +59,7 @@ class ScAnalyzerWindow(QMainWindow):
         self.setWindowTitle(f"GEECS ScAnalyzer - {CURRENT_VERSION}")
 
         # set up buttons
-        self.setup_overwrite_button()
+        self.setup_overwrite_checkbox()
         self.setup_start_button()
         self.setup_stop_button()
         self.setup_analysis_activator_button()
@@ -56,7 +67,6 @@ class ScAnalyzerWindow(QMainWindow):
         # set up text edits
         self.setup_date_inputs()
         self.setup_scan_inputs()
-        self.ignore_list = None
 
         # set up gui log to display output
         self.setup_log_display()
@@ -125,7 +135,7 @@ class ScAnalyzerWindow(QMainWindow):
                                      int(self.ui.inputMonth.text()),
                                      int(self.ui.inputDay.text()),
                                      ignore_list=self.ignore_list,
-                                     overwrite_previous=True,
+                                     overwrite_previous=self.overwrite_processed_scans,
                                      analyzer_list=self.analyzer_items)
 
             # start analysis
@@ -224,7 +234,7 @@ class ScAnalyzerWindow(QMainWindow):
             self.worker = None
         self.cleanup_thread()
 
-    def event_overwrite_button_clicked(self) -> None:
+    def event_overwrite_checkbox_clicked(self, checked) -> None:
         '''
         Actions performed when Overwrite button is clicked.
 
@@ -232,7 +242,8 @@ class ScAnalyzerWindow(QMainWindow):
         -------
         None
         '''
-        self.ui.inputStartScan.setEnabled(self.ui.buttonOverwrite.isChecked())
+        self.overwrite_processed_scans = checked
+        self.log_info_message(f"Overwrite processed scans status: {self.overwrite_processed_scans}")
 
     def event_start_button_clicked(self) -> None:
         '''
@@ -265,7 +276,8 @@ class ScAnalyzerWindow(QMainWindow):
     def event_analysis_activator_button_clicked(self) -> None:
         """
         Actions performed when Analysis Activator button is clicked.
-
+        Opens the analysis dialog to configure active analyzers.
+    
         Returns
         -------
         None
@@ -281,7 +293,7 @@ class ScAnalyzerWindow(QMainWindow):
         self.ui.buttonStop.setEnabled(False)
         self.ui.buttonStop.clicked.connect(self.event_stop_button_clicked)
 
-    def setup_overwrite_button(self) -> None:
+    def setup_overwrite_checkbox(self) -> None:
         '''
         Setup for Overwrite Processed List button.
 
@@ -289,25 +301,8 @@ class ScAnalyzerWindow(QMainWindow):
         -------
         None
         '''
-        self.ui.buttonOverwrite.setCheckable(True)
-        self.ui.buttonOverwrite.clicked.connect(self.event_overwrite_button_clicked)
-        self.ui.buttonOverwrite.setStyleSheet("""
-                                              QPushButton:checked {
-                                                  background-color: #d0d0d0;
-                                                  border: 1px solid #808080;
-                                                  color: #404040;
-                                              }
-                                              QPushButton:disabled {
-                                                  background-color: #d0d0d0;
-                                                  border: 1px solid #808080;
-                                                  color: #404040;
-                                              }
-                                              QPushButton {
-                                                  background-color: #ffffff;
-                                                  border: 1px solid #404040;
-                                                   color: black;
-                                               }
-                                              """)
+        self.ui.checkBoxOverwrite.setCheckState(self.overwrite_processed_scans)
+        self.ui.checkBoxOverwrite.toggled.connect(self.event_overwrite_checkbox_clicked)
 
     def setup_analysis_activator_button(self) -> None:
         self.ui.buttonAnalysisActivator.setEnabled(True)
@@ -322,10 +317,17 @@ class ScAnalyzerWindow(QMainWindow):
 
     def setup_scan_inputs(self) -> None:
         self.ui.inputStartScan.setText(str(1))
-        self.ui.inputStartScan.setEnabled(False)
+        self.ui.inputStartScan.setEnabled(True)
         self.ui.inputIgnore.setText('')
 
     def setup_log_display(self) -> None:
+        '''
+        Configure the log display text area to be read-only.
+        
+        Returns
+        -------
+        None
+        '''
         self.ui.logDisplay.setReadOnly(True)
 
     def set_ignore_list(self) -> None:
@@ -382,30 +384,81 @@ class ScAnalyzerWindow(QMainWindow):
         self.log_warning_message(message)
 
     def handle_worker_progress(self, message: str) -> None:
+        '''
+        Handle progress updates from worker threads and log them to the display.
+        
+        Parameters
+        ----------
+        message : str
+            Progress message from the worker thread.
+        
+        Returns
+        -------
+        None
+        '''
         self.log_info_message(message)
 
     def log_info_message(self, text: str) -> None:
+        '''
+        Log an informational message to the display.
+        
+        Parameters
+        ----------
+        text : str
+            Information message to log.
+        
+        Returns
+        -------
+        None
+        '''
         self.write_to_log_display(f"INFO : {text}")
 
     def log_warning_message(self, text: str) -> None:
+        '''
+        Log a warning message to the display.
+        
+        Parameters
+        ----------
+        text : str
+            Warning message to log.
+        
+        Returns
+        -------
+        None
+        '''
         self.write_to_log_display(f"WARNING : {text}")
 
     def log_error_message(self, text: str) -> None:
+        '''
+        Log an error message to the display.
+        
+        Parameters
+        ----------
+        text : str
+            Error message to log.
+        
+        Returns
+        -------
+        None
+        '''
         self.write_to_log_display(f"{text}")
 
     def write_to_log_display(self, text: str) -> None:
         '''
         Pass text to display window on GUI.
-
+    
         Note: It was noted that the GUI may slow down if lots of text is logged.
         It might be good to terminate old text (only store so much on gui window).
         All text could be logged in an external text file for reference or debugging.
-
-        :param text: String to print on display.
-        :type text: str
-        :return: No return.
-        :rtype: None
-
+    
+        Parameters
+        ----------
+        text : str
+            String to print on display.
+        
+        Returns
+        -------
+        None
         '''
         # write to log display
         self.ui.logDisplay.append(text)
@@ -414,7 +467,17 @@ class ScAnalyzerWindow(QMainWindow):
         self.ui.logDisplay.verticalScrollBar().setValue(
             self.ui.logDisplay.verticalScrollBar().maximum())
 
-    def open_analysis_dialog(self):
+    def open_analysis_dialog(self) -> None:
+        """
+        Open a dialog to configure which analyzers are active.
+        
+        Creates a list of analyzer configurations, displays a dialog for the user
+        to modify them, and updates the analyzer_items with the user's selections.
+        
+        Returns
+        -------
+        None
+        """
         # get list of analyses
         device_default = ActivatorTuple._field_defaults.get('device')
         analysis_list = [ActivatorTuple(analyzer=item.analyzer_class.__name__,
