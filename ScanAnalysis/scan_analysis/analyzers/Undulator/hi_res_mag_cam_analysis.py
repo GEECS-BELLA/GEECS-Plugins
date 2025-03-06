@@ -30,7 +30,6 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
         """
         Noscan analysis simply returns a scatter plot of various beam parameters measured by the Mag Spec
         """
-        use_ict = True
         df = self.auxiliary_data
 
         if self.rerun_analysis:
@@ -74,6 +73,7 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
             average_energy = np.array(df['UC_HiResMagCam Python Result 6 Alias:HiResMagCam.AverageEnergy_MeV'])
             fwhm_percent = np.array(df['UC_HiResMagCam Python Result 15 Alias:HiResMagCam.FWHM_MeV'])
 
+            use_ict = False  # Optional flag to instead load charge using the ICT
             if use_ict:
                 charge = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
             else:
