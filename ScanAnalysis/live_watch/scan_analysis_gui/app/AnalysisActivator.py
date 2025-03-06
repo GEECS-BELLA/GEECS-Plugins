@@ -178,7 +178,7 @@ class AnalysisDialog(QtWidgets.QDialog):
             active_checkbox.setChecked(analysis.is_active)
             self.table.setCellWidget(i, 1, self.create_checkbox_widget(active_checkbox))
 
-    def get_analysis_states(self) -> List[ActivatorTuple]:
+    def get_analysis_states(self) -> list[ActivatorTuple]:
         """
         Get the current state of all analysis items from the table.
         
