@@ -1,5 +1,8 @@
 from __future__ import annotations
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Dict, Any, Callable, List, Union
+
+DeviceSavePaths = Dict[str, Dict[str, Union[Path,str]]]
 
 import time
 import threading
@@ -16,7 +19,7 @@ import geecs_python_api.controls.interface.message_handling as mh
 
 import queue
 import shutil
-from pathlib import Path
+
 
 class FileMover:
     def __init__(self, num_workers: int = 16):
@@ -178,7 +181,6 @@ class FileMover:
             worker.join()
         logging.info("FileMover has been shut down gracefully.")
 
-
 class DataLogger:
     """
     Handles the logging of data from devices during a scan, supporting both event-driven
@@ -186,7 +188,7 @@ class DataLogger:
     for various devices in the experimental setup.
     """
 
-    def __init__(self, experiment_dir, device_manager=None):
+    def __init__(self, experiment_dir:str, device_manager: DeviceManager = None):
 
         """
         Initialize the DataLogger with the experiment directory and a device manager.
@@ -229,7 +231,28 @@ class DataLogger:
         
         self.shot_save_event = threading.Event()
 
-    def start_logging(self):
+        # Dictionaries for tracking timestamps and statuses
+        self.last_timestamps: Dict[str, float] = {}  # Maps device names to timestamps
+        self.initial_timestamps: Dict[str, float] = {}
+        self.synced_timestamps: Dict[str, float] = {}
+        self.standby_mode_device_status: Dict[str, Optional[bool]] = {}
+        self.device_save_paths_mapping: DeviceSavePaths = {}
+        # Uses Optional[bool] because status can be True, False, or None
+
+        # File management and observables
+        self.file_mover: Optional[FileMover] = None  # Will be assigned a FileMover instance later
+        self.synchronous_device_names: List[str] = []
+        self.event_driven_observables: List[str] = []
+
+        # Boolean flags
+        self.all_devices_in_standby: bool = False
+        self.devices_synchronized: bool = False
+
+    def set_device_save_paths_mapping(self, mapping: DeviceSavePaths) -> None:
+        """Set the device_save_paths_mapping externally."""
+        self.device_save_paths_mapping = mapping
+
+    def start_logging(self) -> Dict[str, Any]:
         """
         Start logging data for all devices. Event-driven observables trigger logs, and asynchronous
         observables are polled at regular intervals.
@@ -274,17 +297,13 @@ class DataLogger:
 
         logging.info("Logging has started for all event-driven devices.")
 
-        # # Start a thread to monitor device warnings
-        # self.warning_thread = threading.Thread(target=self._monitor_warnings, args=(self.event_driven_observables, async_observables))
-        # self.warning_thread.start()
-
         return self.log_entries
 
-    def _handle_TCP_message_from_device(self, message, device):
+    def _handle_TCP_message_from_device(self, message: str, device: GeecsDevice) -> None:
         """
         Handle updates from TCP subscribers and log them when a new timestamp is detected.
 
-        Args:
+        args:
             message (str): Message from the device containing data to be logged.
             device (GeecsDevice): The device object from which the message originated.
         """
@@ -300,7 +319,7 @@ class DataLogger:
         # here is to interpret the first few messages from each device to conclude everything
         # is in standby mode and can be then be synchronized through a dedicated timing shot
 
-        timestamp_from_device = self._extract_timestamp(message, device)
+        timestamp_from_device = self._extract_timestamp_from_tcp_message(message, device)
 
         #TODO: I think this needs to be changed to raise some kind of error, as not getting a timestamp
         # is a pretty fatal error
@@ -331,7 +350,7 @@ class DataLogger:
 
             self._log_device_data(device, elapsed_time)
 
-    def check_all_standby_status(self):
+    def check_all_standby_status(self) -> bool:
         device_names = set(self.synchronous_device_names)
         standby_keys = self.standby_mode_device_status.keys()
 
@@ -346,7 +365,7 @@ class DataLogger:
 
             return False
 
-    def check_all_exited_standby_status(self):
+    def check_all_exited_standby_status(self) -> bool:
         device_names = set(self.synchronous_device_names)
         standby_keys = self.standby_mode_device_status.keys()
 
@@ -360,7 +379,7 @@ class DataLogger:
         else:
             return False
 
-    def check_device_standby_mode_status(self, device, timestamp: float):
+    def check_device_standby_mode_status(self, device: GeecsDevice, timestamp: float) -> None:
         # TODO: statuses are bit wonky and could be cleaned up. Right now, 'None'
         #  really means the status is unknown. "True" indicates the device verifiably
         #  went into standby mode. "False" indicates that device originally went into
@@ -381,14 +400,13 @@ class DataLogger:
         # check if there has been a timestamp added to the dict for a given device
         t0 = self.initial_timestamps.get(device.get_name(),None)
 
-
         # if this is the first logged timestamp, return None because we can't say for
         # certain if the device is in standby mode
         if t0 is None:
             self.initial_timestamps[device.get_name()] = timestamp
             logging.info(
                 f"First TCP event received from {device.get_name()}. Initial dummy timestamp set to {timestamp}.")
-            return None
+            return
 
         logging.info(f'checking standby status of {device.get_name()}')
 
@@ -404,17 +422,17 @@ class DataLogger:
         if t0 == timestamp:
             self.standby_mode_device_status[device.get_name()] = True
             logging.info(f'{device.get_name()} is in standby')
-
-            return True
+            return
         else:
             self.standby_mode_device_status[device.get_name()] = False
             logging.info(f'{device.get_name()} has exited in standby')
-            return False
+            return
 
-    def update_repetition_rate(self, new_repetition_rate):
+    def update_repetition_rate(self, new_repetition_rate) -> None:
         self.repetition_rate = new_repetition_rate
 
-    def _extract_timestamp(self, message, device):
+    @staticmethod
+    def _extract_timestamp_from_tcp_message(message: str, device: GeecsDevice) -> float:
 
         """
         Extract the timestamp from a device message.
@@ -437,12 +455,15 @@ class DataLogger:
             current_timestamp = float(stamp)
         return float(current_timestamp)
 
-    def _register_event_logging(self, log_update):
+    def _register_event_logging(self, log_update: Callable[[str, GeecsDevice], None]) -> None:
         """
         Register event-driven observables for logging.
 
         Args:
-            log_update (function): Function to call when an event update occurs.
+            log_update (Callable[[str, GeecsDevice], None]):
+                Function to call when an event update occurs.
+                Expects a `str` message and a `GeecsDevice` object.
+                return type for log_update is None
         """
 
         for device_name, device in self.device_manager.devices.items():
@@ -451,7 +472,7 @@ class DataLogger:
                     logging.info(f"Registering logging for event-driven observable: {observable}")
                     device.event_handler.register('update', 'logger', lambda msg, dev=device: log_update(msg, dev))
 
-    def _calculate_elapsed_time(self, device, current_timestamp):
+    def _calculate_elapsed_time(self, device: GeecsDevice, current_timestamp: float) -> float:
         """
         Calculate the elapsed time for a device based on its initial timestamp.
 
@@ -467,7 +488,7 @@ class DataLogger:
         elapsed_time = current_timestamp - t0
         return round(elapsed_time * self.repetition_rate)/self.repetition_rate
 
-    def _check_duplicate_timestamp(self, device, current_timestamp):
+    def _check_duplicate_timestamp(self, device: GeecsDevice, current_timestamp: float) -> bool:
         """
         Check if the current timestamp for a device is a duplicate.
 
@@ -485,7 +506,7 @@ class DataLogger:
         self.last_timestamps[device.get_name()] = current_timestamp
         return False
 
-    def update_async_observables(self, async_observables, elapsed_time):
+    def update_async_observables(self, async_observables: list, elapsed_time: float)-> None:
         """
         Update log entries with the latest values for asynchronous observables.
 
@@ -537,7 +558,7 @@ class DataLogger:
             else:
                 logging.warning(f"Device {device_name} not found in DeviceManager. Skipping {observable}.")
 
-    def _log_device_data(self, device, elapsed_time):
+    def _log_device_data(self, device:GeecsDevice, elapsed_time:float) -> None:
 
         """
         Log the data for a device during an event-driven observation.
@@ -591,36 +612,7 @@ class DataLogger:
                 expected_timestamp = observables_data['timestamp']
                 self.file_mover.move_files_by_timestamp(source_dir, target_dir, device_name, device_type, expected_timestamp, self.shot_index )
 
-    def _monitor_warnings(self, event_driven_observables, async_observables):
-        """
-        Monitor the last log time for each device and issue warnings if a device hasn't updated within the threshold.
-        """
-        while not self.stop_event.is_set():
-            current_time = time.time()
-
-            if self.data_recording:
-                # Check synchronous devices (event-driven observables)
-                for observable in self.event_driven_observables:
-                    device_name = observable.split(':')[0]
-                    last_log_time = self.last_log_time_sync.get(device_name, None)
-
-                    if last_log_time and (current_time - (last_log_time + self.idle_time)) > self.warning_timeout_sync:
-                        logging.warning(
-                            f"Synchronous device {device_name} hasn't updated in over {self.warning_timeout_sync} seconds.")
-
-                # Check asynchronous devices
-                async_timeout = self.polling_interval * self.warning_timeout_async_factor
-                for observable in async_observables:
-                    device_name = observable.split(':')[0]
-                    last_log_time = self.last_log_time_async.get(device_name, None)
-
-                    if last_log_time and (current_time - (last_log_time + self.idle_time)) > async_timeout:
-                        logging.warning(
-                            f"Asynchronous device {device_name} hasn't updated in over {async_timeout} seconds.")
-
-                time.sleep(1)  # Monitor the warnings every second
-
-    def stop_logging(self):
+    def stop_logging(self) -> None:
         """
         Stop both event-driven and asynchronous logging, unregister all event handlers, and reset states.
         """
@@ -642,7 +634,7 @@ class DataLogger:
 
         self.stop_event.clear()
 
-    def reinitialize_sound_player(self, options: Optional[dict] = None):
+    def reinitialize_sound_player(self, options: Optional[dict] = None) -> None:
         """
         Reinitialize the sound player, stopping the current one and creating a new instance.
         """
@@ -651,11 +643,11 @@ class DataLogger:
         self.sound_player = SoundPlayer(options=options)
         self.shot_index = 0
 
-    def get_current_shot(self):
+    def get_current_shot(self) -> int:
         """
         Get the current shot index. used for progress bar tracking
 
         Returns:
             float: The current shot index.
         """
-        return float(self.shot_index)
+        return self.shot_index
