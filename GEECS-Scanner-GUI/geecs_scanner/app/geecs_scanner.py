@@ -675,10 +675,9 @@ class GEECSScannerWindow(QMainWindow):
 
     def open_action_library(self):
         """Opens the multiscanner window, and in the process sets a flag that disables starting scans on the main gui"""
-        actions_folder = None if self.app_paths is None else self.app_paths.action_library()
         database_dict = self.find_database_dict()
         action_control = None if self.RunControl is None else self.RunControl.get_action_control()
-        self.action_library_window = ActionLibrary(self, database_dict, actions_folder, action_control=action_control)
+        self.action_library_window = ActionLibrary(self, database_dict, action_control=action_control)
         self.action_library_window.show()
 
         self.is_in_action_library = True

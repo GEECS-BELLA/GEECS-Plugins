@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 import copy
 import logging
 from pathlib import Path
-from PyQt5.QtWidgets import QWidget, QInputDialog, QMessageBox, QLineEdit, QPushButton
+from PyQt5.QtWidgets import QWidget, QInputDialog, QMessageBox, QLineEdit, QPushButton, QFileDialog
 from PyQt5.QtCore import QEvent, Qt
 from .gui.ActionLibrary_ui import Ui_Form
 from .lib.gui_utilities import (parse_variable_text, write_dict_to_yaml_file, read_yaml_file_to_dict,
@@ -32,13 +32,11 @@ def get_default_action() -> dict:
 
 
 class ActionLibrary(QWidget):
-    def __init__(self, main_window: GEECSScannerWindow, database_dict: dict,
-                 action_configurations_folder: Union[Path, str, None], action_control: Optional[ActionControl]):
+    def __init__(self, main_window: GEECSScannerWindow, database_dict: dict, action_control: Optional[ActionControl]):
         """ GUI Window that holds all the action library elements
 
         :param main_window: Reference to the main GEECS Scanner window
         :param database_dict: Dictionary containing all devices and variables in the experiment
-        :param action_configurations_folder: Folder containing yaml's for the experiment's saved and assigned actions
         :param action_control: instance of action control if experiment was successfully connected
         """
         super().__init__()
@@ -51,10 +49,11 @@ class ActionLibrary(QWidget):
         self.ui.setupUi(self)
         self.setWindowTitle("Action Library")
 
-        if action_configurations_folder is None:
+        if self.main_window.app_paths is None:
             self.actions_file = None
             self.assigned_action_file = None
         else:
+            action_configurations_folder = self.main_window.app_paths.action_library()
             self.actions_file = Path(action_configurations_folder) / 'actions.yaml'
             self.assigned_action_file = Path(action_configurations_folder) / 'assigned_actions.yaml'
 
@@ -100,6 +99,8 @@ class ActionLibrary(QWidget):
         self.ui.buttonRemoveAssigned_1.setEnabled(False)
         self.ui.buttonExecuteAssigned_1.setEnabled(False)
         self.ui.lineAssignedName_1.setEnabled(False)
+
+        self.ui.buttonAddSaveElement.clicked.connect(self.add_assigned_action_from_save_element)
 
         self.populate_assigned_action_list()
         self.ui.buttonAssignAction_1.clicked.connect(self.add_assigned_action)
@@ -388,19 +389,26 @@ class ActionLibrary(QWidget):
         for assigned_action in self.assigned_action_list:
             assigned_action.buttonExecute.setEnabled(self.enable_execute)
 
-    def execute_action(self, name: Optional[str] = None):
+    def execute_action(self, name: Optional[str] = None, element_filename: Optional[str] = None):
         """ Executes an action by sending the contents of the instance variable dict to ActionControl
 
         :param name: Optional name for action to execute.  If None given, will try the currently-selected action
+        :param element_filename: If given, will try to execute the named action in the associated element yaml file
         """
         name = name or self.get_selected_name()
-        if name is None or name not in self.actions_data['actions']:
+        if element_filename is None and (name is None or name not in self.actions_data['actions']):
             return
         else:
-            reply = QMessageBox.question(self, "Execute Action", f"Execute action '{name}'?",
+            message = name if element_filename is None else f"{name}:  {element_filename}"
+            reply = QMessageBox.question(self, "Execute Action", f"Execute action '{message}'?",
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.Yes:
-                self.action_control.perform_action(self.actions_data['actions'][name])
+                if element_filename is None:
+                    self.action_control.perform_action(self.actions_data['actions'][name])
+                else:
+                    save_device_folder = self.main_window.app_paths.save_devices()
+                    element = read_yaml_file_to_dict(save_device_folder / f"{element_filename}")
+                    self.action_control.perform_action(element[name])
 
     def save_all_changes(self):
         """ Save the current version of the instance variable dict to the actions.yaml file """
@@ -428,7 +436,11 @@ class ActionLibrary(QWidget):
         if self.assigned_action_file:
             updated_names = []
             for action in self.assigned_action_list:
-                updated_names.append(action.get_name())
+                assigned_dict_element = {'name': action.get_name()}
+                element_filename = action.get_element_filename()
+                if element_filename:
+                    assigned_dict_element['element_filename'] = element_filename
+                updated_names.append(assigned_dict_element)
             write_dict_to_yaml_file(self.assigned_action_file, {"assigned_actions": updated_names})
 
         self.main_window.exit_action_library()
@@ -444,8 +456,11 @@ class ActionLibrary(QWidget):
 
         # For each action in the list, populate the list of AssignedAction class instances
         self.assigned_action_list = []
-        for name in assigned_action_dict.get("assigned_actions", []):
-            self.assigned_action_list.append(AssignedAction(parent_gui=self, action_name=name))
+        for action in assigned_action_dict.get("assigned_actions", []):
+            name = action.get('name')
+            element_filename = action.get('element_filename', None)
+            self.assigned_action_list.append(AssignedAction(parent_gui=self, action_name=name,
+                                                            element_filename=element_filename))
 
         self.refresh_assigned_action_gui()
 
@@ -453,6 +468,51 @@ class ActionLibrary(QWidget):
         """ Add an action to the list of assigned actions, creating a row of GUI elements in the process """
         if name := self.get_selected_name():
             self.assigned_action_list.append(AssignedAction(parent_gui=self, action_name=name))
+            self.refresh_assigned_action_gui()
+
+    def add_assigned_action_from_save_element(self):
+        """ Prompts the user to add an action from a save element yaml to the list of assigned actions """
+        if self.main_window.app_paths is None:
+            logging.error("Paths set incorrectly for experiment")
+            return
+
+        # Prompt the user for a file from the save element folder
+        save_device_folder = self.main_window.app_paths.save_devices()
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select a YAML File", str(save_device_folder),
+                                                   "YAML Files (*yaml)", options=options)
+        if file_name:
+            contents = read_yaml_file_to_dict(Path(file_name))
+
+            # Get either the setup or closeout actions, prompting the user if both exist
+            selection = ""
+            if 'setup_action' in contents and 'closeout_action' in contents:
+                msg_box = QMessageBox()
+                msg_box.setWindowTitle("Import Save Element Action")
+                msg_box.setText("Use 'setup_action' or 'closeout_action'?")
+                button_setup = msg_box.addButton("Setup", QMessageBox.ActionRole)
+                button_closeout = msg_box.addButton("Closeout", QMessageBox.ActionRole)
+                msg_box.addButton("Cancel", QMessageBox.ActionRole)
+                msg_box.exec_()
+
+                if msg_box.clickedButton() == button_setup:
+                    selection = 'setup_action'
+                elif msg_box.clickedButton() == button_closeout:
+                    selection = 'closeout_action'
+                else:
+                    return
+
+            elif not selection and 'setup_action' in contents:
+                selection = 'setup_action'
+            elif not selection and 'closeout_action' in contents:
+                selection = 'closeout_action'
+            else:
+                logging.info(f"No actions in '{file_name}'")
+                return
+
+            self.assigned_action_list.append(AssignedAction(parent_gui=self, action_name=selection,
+                                                            element_filename=Path(file_name).name))
             self.refresh_assigned_action_gui()
 
     def refresh_assigned_action_gui(self):
@@ -486,13 +546,16 @@ class AssignedAction:
     """
 
     # noinspection PyUnresolvedReferences
-    def __init__(self, parent_gui: ActionLibrary, action_name: str):
+    def __init__(self, parent_gui: ActionLibrary, action_name: str, element_filename: Optional[str] = None):
         """
         :param parent_gui: The "ActionLibrary" gui instance that spawned this AssignedAction
         :param action_name: stored action for this instance
+        :param element_filename: If given, this is the filename for the element that owns this action
         """
         self.parent = parent_gui
         self.action_name = action_name
+
+        self.element_filename = element_filename
 
         self.buttonAssign = QPushButton(self.parent)
         self.buttonAssign.setText("Assign")
@@ -513,7 +576,7 @@ class AssignedAction:
         self.lineName = QLineEdit(self.parent)
         self.lineName.setReadOnly(True)
         self.lineName.setAlignment(Qt.AlignRight)
-        self.lineName.setText(self.action_name)
+        self._set_line_text()
         self.lineName.move(160, 420)
         self.lineName.resize(371, 28)
 
@@ -541,6 +604,13 @@ class AssignedAction:
         else:
             self.lineName.setStyleSheet("background-color: lightgray; color: black")
 
+    def _set_line_text(self):
+        """ Sets the text for the line edit to be either the action name or additionally include the filename """
+        if self.element_filename is None:
+            self.lineName.setText(self.action_name)
+        else:
+            self.lineName.setText(f"{self.action_name}:  {self.element_filename}")
+
     def reassign_self(self):
         """ Give a new name to this instance of AssignedAction, without deleting the buttons.  Uses current selection
          in ActionLibrary's list widget """
@@ -549,7 +619,8 @@ class AssignedAction:
             return
 
         self.action_name = new_name
-        self.lineName.setText(self.action_name)
+        self.element_filename = None
+        self._set_line_text()
 
     def remove_self(self):
         """ Deletes itself and removes all associated widgets from memory, then calls ActionLibrary's refresh """
@@ -564,7 +635,10 @@ class AssignedAction:
 
     def execute_action(self):
         """ Passes the assigned action name to ActionLibrary's `execute` function """
-        self.parent.execute_action(name=self.action_name)
+        self.parent.execute_action(name=self.action_name, element_filename=self.element_filename)
 
     def get_name(self) -> str:
         return self.action_name
+
+    def get_element_filename(self) -> Optional[str]:
+        return self.element_filename
