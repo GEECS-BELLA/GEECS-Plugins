@@ -12,7 +12,7 @@ from typing import Optional, NamedTuple
 from PyQt5 import QtWidgets, QtCore
 from operator import attrgetter
 
-from gui.AnalysisDialog_ui import Ui_Dialog
+from live_watch.scan_analysis_gui.app.gui.AnalysisDialog_ui import Ui_Dialog
 # =============================================================================
 # %% global variables
 
