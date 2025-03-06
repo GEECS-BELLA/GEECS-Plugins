@@ -208,7 +208,8 @@ class ActionManager:
         msg_box.setIcon(QMessageBox.Warning)
         msg_box.setText(f'Failed "get" command: \n {message} \nQuit out of action and scan?')
         msg_box.setWindowTitle("Action Error")
-        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg_box.setStandardButtons(QMessageBox.Abort | QMessageBox.Ignore)
+        msg_box.setDefaultButton(QMessageBox.Abort)
         response = msg_box.exec_()
 
-        return response == QMessageBox.Yes
+        return response == QMessageBox.Abort
