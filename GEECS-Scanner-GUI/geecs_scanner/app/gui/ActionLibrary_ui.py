@@ -110,6 +110,9 @@ class Ui_Form(object):
         self.checkboxEnableExecute = QtWidgets.QCheckBox(Form)
         self.checkboxEnableExecute.setGeometry(QtCore.QRect(430, 310, 171, 21))
         self.checkboxEnableExecute.setObjectName("checkboxEnableExecute")
+        self.buttonAddSaveElement = QtWidgets.QPushButton(Form)
+        self.buttonAddSaveElement.setGeometry(QtCore.QRect(20, 390, 151, 21))
+        self.buttonAddSaveElement.setObjectName("buttonAddSaveElement")
 
         self.retranslateUi(Form)
         QtCore.QMetaObject.connectSlotsByName(Form)
@@ -157,3 +160,4 @@ class Ui_Form(object):
         self.label_2.setText(_translate("Form", "Saved Quick Actions"))
         self.buttonRevertAll.setText(_translate("Form", "Revert All"))
         self.checkboxEnableExecute.setText(_translate("Form", "Enable Action Execution"))
+        self.buttonAddSaveElement.setText(_translate("Form", "Add From Save Element"))

@@ -9,6 +9,7 @@ work with scan_manager yet.
 """
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
+
 if TYPE_CHECKING:
     from . import GEECSScannerWindow
 
@@ -71,9 +72,16 @@ class ScanVariableEditor(QDialog):
         self.database_dict = database_dict or {}
 
         # Paths to the two yaml files
-        # TODO if config_folder is None, don't set file paths and put dialog in a limited operation mode
-        self.file_variables = config_folder / "scan_devices.yaml"
-        self.file_composite = config_folder / "composite_variables.yaml"
+        if config_folder is None:
+            self.file_variables = None
+            self.file_composite = None
+            file_buttons = [self.ui.buttonVariableSave, self.ui.buttonVariableDelete, self.ui.buttonCompositeSave,
+                            self.ui.buttonCompositeNew, self.ui.buttonCompositeCopy, self.ui.buttonCompositeDelete]
+            for button in file_buttons:
+                button.setEnabled(False)
+        else:
+            self.file_variables = config_folder / "scan_devices.yaml"
+            self.file_composite = config_folder / "composite_variables.yaml"
 
         # Initialize dictionaries for the scan variables and composite variables
         self.scan_variable_data = {}
@@ -174,6 +182,9 @@ class ScanVariableEditor(QDialog):
         """ Loads the data from the two yaml files and populates the lists of nicknames """
         self.scan_variable_data = {'single_scan_devices': {}}
         self.scan_composite_data = {'composite_variables': {}}
+
+        if self.file_variables is None or self.file_composite is None:
+            return
 
         try:
             self.scan_variable_data = read_yaml_file_to_dict(self.file_variables)
@@ -404,7 +415,8 @@ class ScanVariableEditor(QDialog):
             logging.warning(f"Variable {name} not in dict, cannot delete")
             return
 
-        reply = QMessageBox.question(self, "Delete Composite Variable", f"Delete Composite Variable '{name}' from list?",
+        reply = QMessageBox.question(self, "Delete Composite Variable",
+                                     f"Delete Composite Variable '{name}' from list?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             # Read current version of file and delete only the specified element if it exists

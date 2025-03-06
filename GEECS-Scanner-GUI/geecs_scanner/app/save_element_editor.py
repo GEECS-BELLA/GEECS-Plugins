@@ -13,13 +13,14 @@ from typing import TYPE_CHECKING, Optional, Any
 if TYPE_CHECKING:
     from PyQt5.QtWidgets import QLineEdit
     from . import GEECSScannerWindow
+    from geecs_scanner.app.lib.action_control import ActionControl
 
 import logging
 from pathlib import Path
 from PyQt5.QtWidgets import QDialog, QPushButton, QFileDialog
 from PyQt5.QtCore import QEvent
 from .gui.ScanElementEditor_ui import Ui_Dialog
-from .lib import ActionControl
+from .lib import action_api
 from .lib.gui_utilities import (parse_variable_text, display_completer_list,
                                 read_yaml_file_to_dict, write_dict_to_yaml_file)
 
@@ -43,13 +44,17 @@ class SaveElementEditor(QDialog):
     GUI changes to reflect what the user is currently looking at.
     """
 
-    def __init__(self, main_window: GEECSScannerWindow, database_dict: Optional[dict] = None,
-                 config_folder: Path = Path('.'), load_config: Optional[Path] = None):
+    def __init__(self, main_window: GEECSScannerWindow,
+                 database_dict: Optional[dict] = None,
+                 action_control: Optional[ActionControl] = None,
+                 config_folder: Path = Path('.'),
+                 load_config: Optional[Path] = None):
         """
         Initializes the GUI
 
         :param main_window: the main gui window, used only to set the visual stylesheet
         :param database_dict: dictionary that contains all devices and variables in the selected experiment
+        :param action_control: instance of action control if experiment was successfully connected
         :param config_folder: folder that contains other element config files for this experiment
         :param load_config: optional; filename to populate the initial state of the GUI's backend dictionary
         """
@@ -123,7 +128,7 @@ class SaveElementEditor(QDialog):
         if load_config is not None:
             self.load_settings_from_file(config_folder / load_config)
 
-        self.action_control: Optional[ActionControl] = None
+        self.action_control = action_control
         self.ui.buttonPerformSetupActions.setEnabled(False)
         self.ui.buttonPerformPostscanActions.setEnabled(False)
         self.ui.buttonEnableActions.clicked.connect(self.initialize_action_control)
@@ -147,7 +152,7 @@ class SaveElementEditor(QDialog):
         if event.type() == QEvent.MouseButtonPress and source == self.ui.lineActionName:
             self.ui.listActions.clearSelection()
             display_completer_list(self, location=self.ui.lineActionName,
-                                   completer_list=ActionControl.list_of_actions)
+                                   completer_list=action_api.list_of_actions)
             self.ui.buttonAddAction.setDefault(True)
             return True
         elif event.type() == QEvent.MouseButtonPress and source == self.ui.lineDeviceName:
@@ -302,10 +307,10 @@ class SaveElementEditor(QDialog):
         self.ui.listActions.clear()
         self.dummyButton.setDefault(True)
         for item in self.actions_dict['setup']:
-            self.ui.listActions.addItem(ActionControl.generate_action_description(item))
+            self.ui.listActions.addItem(action_api.generate_action_description(item))
         self.ui.listActions.addItem("---Scan---")
         for item in self.actions_dict['closeout']:
-            self.ui.listActions.addItem(ActionControl.generate_action_description(item))
+            self.ui.listActions.addItem(action_api.generate_action_description(item))
         if index is not None and 0 <= index < self.ui.listActions.count():
             self.ui.listActions.setCurrentRow(index)
 
@@ -315,9 +320,9 @@ class SaveElementEditor(QDialog):
         text = self.ui.lineActionName.text().strip()
         if text:
             if self.ui.radioIsSetup.isChecked():
-                self.actions_dict['setup'].append(ActionControl.get_new_action(text))
+                self.actions_dict['setup'].append(action_api.get_new_action(text))
             else:
-                self.actions_dict['closeout'].append(ActionControl.get_new_action(text))
+                self.actions_dict['closeout'].append(action_api.get_new_action(text))
         self.update_action_list()
 
     def remove_action(self):
@@ -533,7 +538,6 @@ class SaveElementEditor(QDialog):
             return
 
         exp_name = self.config_folder.parent.name
-        self.action_control = ActionControl(experiment_name=exp_name)
         self.ui.buttonEnableActions.setEnabled(False)
         self.ui.buttonPerformSetupActions.setEnabled(True)
         self.ui.buttonPerformPostscanActions.setEnabled(True)
