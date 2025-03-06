@@ -36,9 +36,9 @@ setup_action:
     variable: Position
   - action: set
     device: U_UndulatorSpecStage
-    value: 22.3
+    value: 20.7
     variable: Position.Ch1
   - action: set
     device: U_UndulatorSpecStage
-    value: 17.7
+    value: 17.0
     variable: Position.Ch2
