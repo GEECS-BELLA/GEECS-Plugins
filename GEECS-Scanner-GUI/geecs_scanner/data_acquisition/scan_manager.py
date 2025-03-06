@@ -381,7 +381,7 @@ class ScanManager:
 
         if self.save_data:
             # Step 6: Process results, save to disk, and log data
-            log_df = self.scan_data_manager._process_results(self.results)
+            log_df = self.scan_data_manager.process_results(self.results)
 
             # pass log_df to the post process cleanup method in scanDataManager
             self.scan_data_manager.post_process_orphaned_files(log_df)
@@ -475,7 +475,8 @@ class ScanManager:
 
             # map information produced in ScanDataManager to the DataLogger to facilitate
             # moving of files etc.
-            self.data_logger.device_save_paths_mapping = self.scan_data_manager.device_save_paths_mapping
+            # self.data_logger.device_save_paths_mapping = self.scan_data_manager.device_save_paths_mapping
+            self.data_logger.set_device_save_paths_mapping(self.scan_data_manager.device_save_paths_mapping)
             self.data_logger.scan_number = self.scan_data_manager.scan_number_int
 
             self.scan_data_manager.write_scan_info_ini(scan_config)
