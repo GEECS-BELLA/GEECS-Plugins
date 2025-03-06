@@ -381,6 +381,19 @@
     <string>Enable Action Execution</string>
    </property>
   </widget>
+  <widget class="QPushButton" name="buttonAddSaveElement">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>390</y>
+     <width>151</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Add From Save Element</string>
+   </property>
+  </widget>
  </widget>
  <tabstops>
   <tabstop>listAvailableActions</tabstop>
