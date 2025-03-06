@@ -1,0 +1,12 @@
+Devices:
+- BCaveMagSpec
+- Energy Meters
+- Frog_stuff
+- U_BCaveICT
+Info: Jet Blade scan
+Scan Mode: 1D Scan
+Shot per Step: 10
+Start: -17.2
+Step Size: 0.01
+Stop: -17.3
+Variable: Jet Blade

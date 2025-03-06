@@ -60,6 +60,7 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
             # Plot unbinned data
             save_path = self.plot_waterfall_with_labels(linear_energy_axis, interpolated_charge_density_matrix,
                                             f'{str(self.scan_directory)}', 'Shotnumber',
+                                            energy_limits=[0.06, 0.2], vertical_cursor=0.1,
                                             # vertical_values=np.arange(1, len(interpolated_charge_density_matrix) + 1),
                                             vertical_values=shot_num_labels, save_dir=self.save_path,
                                             save_name='charge_density_vs_shotnumber.png')
@@ -77,6 +78,7 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
             # Plot the binned waterfall plot using the average scan parameter values for the vertical axis
             save_path = self.plot_waterfall_with_labels(linear_energy_axis_binned, interpolated_binned_matrix,
                                             f'{str(self.scan_directory)}', self.find_scan_param_column()[1],
+                                            energy_limits=[0.06, 0.2], vertical_cursor=0.1,
                                             vertical_values=self.binned_param_values, save_dir=self.save_path,
                                             save_name='charge_density_vs_scan_parameter.png')
             
@@ -168,7 +170,8 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
     @staticmethod
     def plot_waterfall_with_labels(energy_axis: np.ndarray, charge_density_matrix: np.ndarray, title: str,
                                    ylabel: str, vertical_values: np.ndarray,
-                                   save_dir: Optional[Union[str, Path]] = None, save_name: Optional[str] = None):
+                                   save_dir: Optional[Union[str, Path]] = None, save_name: Optional[str] = None,
+                                   energy_limits: Optional[tuple[float]] = None, vertical_cursor: Optional[float] = None):
         """
         Plot the waterfall chart with centered labels on the vertical axis.
         """
@@ -181,7 +184,13 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
         # Adjust the extent to shift y-values by 0.5 to center the labels
         plt.imshow(charge_density_matrix, aspect='auto', cmap='plasma', extent=extent, interpolation='none')
 
+        if vertical_cursor:
+            plt.axvline(vertical_cursor, color='r', linestyle='--', linewidth=1.5, alpha=0.3)
+
         plt.colorbar(label='Charge Density (pC/GeV)')
+
+        if energy_limits:
+            plt.xlim(energy_limits)
         plt.xlabel('Energy (GeV/c)')
 
         # Set y-axis labels to be the vertical values, centering them within the rows
@@ -201,6 +210,6 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
 
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
-    tag = ScanData.get_scan_tag(year=2024, month=12, day=5, number=5, experiment_name='Undulator')
+    tag = ScanData.get_scan_tag(year=2025, month=2, day=27, number=4, experiment_name='Undulator')
     analyzer = MagSpecStitcherAnalysis(scan_tag=tag, device_name="U_BCaveMagSpec", skip_plt_show=True)
     analyzer.run_analysis()

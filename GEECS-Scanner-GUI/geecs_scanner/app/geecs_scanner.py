@@ -5,9 +5,14 @@ Script to contain the logic for the GEECSScanner GUI.  Can be launched by runnin
 """
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
+
+import numpy as np
+import numexpr as ne
+
 if TYPE_CHECKING:
     from run_control import RunControl
     from PyQt5.QtWidgets import QWidget
+    from geecs_scanner.app.lib.action_control import ActionControl
 
 import sys
 from pathlib import Path
@@ -25,7 +30,7 @@ from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
 from .lib.gui_utilities import display_completer_list, read_yaml_file_to_dict, write_dict_to_yaml_file
 from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor, ActionLibrary
 from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
-from ..utils.exceptions import ConflictingScanElements
+from ..utils.exceptions import ConflictingScanElements, ActionError
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
@@ -122,6 +127,15 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.buttonScanVariables.clicked.connect(self.open_scan_variable_editor)
         self.ui.buttonOpenTimingSetup.clicked.connect(self.open_timing_setup)
 
+        # Connect the line edit for the 1d scan variable to the list of available scan variables
+        self.scan_variable = ""
+        self.scan_variable_list = []
+        self.scan_composite_list = []
+        self.scan_composite_data = {}
+        self.populate_scan_variable_lists()
+        self.ui.lineScanVariable.textChanged.connect(self.check_scan_device)
+        self.ui.lineScanVariable.installEventFilter(self)
+
         # Radio buttons that select if the next scan is to be a noscan or 1dscan
         self.ui.noscanRadioButton.setChecked(True)
         self.ui.noscanRadioButton.toggled.connect(self.update_scan_edit_state)
@@ -136,14 +150,9 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.lineShotStep.editingFinished.connect(self.calculate_num_shots)
         self.ui.lineNumShots.editingFinished.connect(self.update_noscan_num_shots)
 
-        # Connect the line edit for the 1d scan variable to the list of available scan variables
-        self.scan_variable = ""
-        self.scan_variable_list = []
-        self.scan_composite_list = []
-        self.scan_composite_data = {}
-        self.populate_scan_variable_lists()
-        self.ui.lineScanVariable.textChanged.connect(self.check_scan_device)
-        self.ui.lineScanVariable.installEventFilter(self)
+        # Tool tip button to display list of scan steps
+        self.ui.toolbuttonStepList.setToolTip("")
+        self.ui.toolbuttonStepList.clicked.connect(self.show_list_of_steps)
 
         # Buttons to save the current scan as a preset, delete selected preset, and double-clicking loads the preset
         self.populate_preset_list()
@@ -624,8 +633,11 @@ class GEECSScannerWindow(QMainWindow):
         database_dict = self.find_database_dict()
 
         config_folder = None if self.app_paths is None else self.app_paths.save_devices()
+        action_control = None if self.RunControl is None else self.RunControl.get_action_control()
+
         self.element_editor = SaveElementEditor(main_window=self, database_dict=database_dict,
-                                                config_folder=config_folder, load_config=self.load_element_name)
+                                                action_control=action_control, config_folder=config_folder,
+                                                load_config=self.load_element_name)
         self.element_editor.exec_()
         self.refresh_element_list()
 
@@ -663,13 +675,19 @@ class GEECSScannerWindow(QMainWindow):
 
     def open_action_library(self):
         """Opens the multiscanner window, and in the process sets a flag that disables starting scans on the main gui"""
-        actions_folder = None if self.app_paths is None else self.app_paths.action_library()
         database_dict = self.find_database_dict()
-        self.action_library_window = ActionLibrary(self, database_dict, actions_folder)
+        action_control = None if self.RunControl is None else self.RunControl.get_action_control()
+        self.action_library_window = ActionLibrary(self, database_dict, action_control=action_control)
         self.action_library_window.show()
 
         self.is_in_action_library = True
         self.update_gui_status()
+
+    def refresh_action_control(self) -> Optional[ActionControl]:
+        if self.RunControl is None:
+            return None
+        else:
+            return self.RunControl.get_action_control(experiment_name_refresh=self.experiment)
 
     def exit_action_library(self):
         """Cleans up the multiscanner window and resets the enable-ability for buttons on the main window"""
@@ -721,6 +739,8 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineShotStep.setText("")
             self.ui.lineNumShots.setEnabled(True)
             self.ui.lineNumShots.setText(str(self.noscan_num))
+            self.ui.toolbuttonStepList.setEnabled(False)
+            self.ui.toolbuttonStepList.setVisible(False)
 
         else:
             self.ui.lineScanVariable.setEnabled(True)
@@ -735,6 +755,8 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineShotStep.setText(str(self.scan_shot_per_step))
             self.ui.lineNumShots.setEnabled(False)
             self.calculate_num_shots()
+            self.ui.toolbuttonStepList.setEnabled(True)
+            self.ui.toolbuttonStepList.setVisible(True)
 
     def populate_scan_variable_lists(self):
         """Generates a list of found scan devices from the scan_devices.yaml file"""
@@ -779,7 +801,9 @@ class GEECSScannerWindow(QMainWindow):
         """Checks what is inputted into the scan variable selection box against the list of scan variables.  Otherwise,
         reset the line edit."""
         scan_device = self.ui.lineScanVariable.text()
-        if scan_device in self.scan_variable_list:
+        if not scan_device:
+            return
+        elif scan_device in self.scan_variable_list:
             self.scan_variable = scan_device
             self.ui.labelStartValue.setText("Start Value: (abs)")
             self.ui.labelStopValue.setText("Stop Value: (abs)")
@@ -806,19 +830,29 @@ class GEECSScannerWindow(QMainWindow):
             shot_per_step = int(self.ui.lineShotStep.text())
             self.scan_shot_per_step = shot_per_step
 
-            if step_size == 0:
-                self.ui.lineNumShots.setText("N/A")
-            else:
-                shot_array = self.build_shot_array()
-                self.ui.lineNumShots.setText(str(len(shot_array)))
+            shot_array = self.build_shot_array()
+            self.ui.lineNumShots.setText(str(len(shot_array)))
+            self._update_list_of_steps(shot_array=shot_array, skip_tcp_request=True)
 
         except ValueError:
             self.ui.lineNumShots.setText("N/A")
+        except SyntaxError:
+            self.ui.lineNumShots.setText("Error")
 
-    def build_shot_array(self) -> list[int]:
-        """Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot."""
-        if abs((self.scan_stop - self.scan_start) / self.scan_step_size) * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
-            return []
+    def build_shot_array(self) -> list[float]:
+        """Given the parameters for a 1D scan, generate an array with the value of the scan variable for each shot.
+
+        :return: list of scan device values for each shot
+
+        :raises:
+            ValueError: Scan parameters are not set up correctly for a variety of reasons
+        """
+        if self.scan_step_size == 0:
+            raise ValueError("Step size must be nonzero")
+        elif self.scan_shot_per_step <= 0:
+            raise ValueError("Shots per step must be greater than zero")
+        elif abs((self.scan_stop - self.scan_start) / self.scan_step_size) * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
+            raise ValueError("Number of shots exceeds maximum scan size")
         else:
             array = []
             current = self.scan_start
@@ -831,6 +865,92 @@ class GEECSScannerWindow(QMainWindow):
                 else:
                     current = round(current - abs(self.scan_step_size), 10)
             return array
+
+    def _update_list_of_steps(self, shot_array: Optional[list[float]] = None, skip_tcp_request: bool = False):
+        """
+        Updates the tool tip button with the current steps for the scan, which is visible upon hovering over the button
+
+        :param shot_array: the value of the scan parameter on each shot
+        :param skip_tcp_request: if True, will not evaluate a relative composite variable as this takes longer
+
+        :raises:
+            SyntaxError: Numerical expression for composite variable is bad
+            ValueError: Device variable returned for relative composite variables was not a float
+        """
+        if shot_array is None:
+            self.ui.toolbuttonStepList.setToolTip("")
+            return
+
+        # Gather all the bins
+        bins = np.unique(shot_array)
+
+        # Set up lists to hold strings of devices and associated values
+        scan_device = self.ui.lineScanVariable.text()
+        devices: list[str] = [scan_device]
+        device_values: list[np.ndarray] = [bins]
+
+        # If the variable is a composite variable, get each step value for each device
+        if scan_device in self.scan_composite_list:
+            for component in self.scan_composite_data[scan_device]['components']:
+                devices.append(f"{component['device']}:{component['variable']}")
+
+                expression_results = np.zeros(len(bins))
+                for i in range(len(bins)):
+                    try:
+                        expression_results[i] = ne.evaluate(component['relation'], local_dict={"composite_var": bins[i]})
+                    except SyntaxError:
+                        self.ui.toolbuttonStepList.setToolTip("")
+                        raise SyntaxError(f"Bad relation syntax in composite variable '{scan_device}' at "
+                                          f"'{component['device']}:{component['variable']}'")
+
+                # If the composite variable is relative and not in scan, use a get command to calculate the actual value
+                if self.scan_composite_data[scan_device]['mode'] in ['relative'] and self.RunControl is not None:
+                    # Can't perform get command if scan is ongoing
+                    if self.RunControl.is_active() or self.is_starting:
+                        self.ui.toolbuttonStepList.setToolTip("Check back after scan")
+                        return
+
+                    # Don't execute get command unless button was explicitly clicked on
+                    if skip_tcp_request:
+                        self.ui.toolbuttonStepList.setToolTip("Click to show")
+                        return
+
+                    action_control = self.RunControl.get_action_control()
+                    current_value = action_control.return_device_value(device_name=component['device'],
+                                                                       variable=component['variable'])
+                    try:
+                        expression_results += float(current_value)
+                    except (ValueError, TypeError):
+                        raise ValueError(f"{component['device']}:{component['variable']} must return a float, "
+                                         f"instead returned '{current_value}'")
+
+                device_values.append(expression_results)
+
+        # Transpose the values into a numpy array for easier indexing
+        transposed_device_values = np.vstack(device_values).T
+
+        # Compile the tool tip string
+        message_string = "Bin"
+        for device in devices:
+            message_string += f",   {device}"
+        for i in range(len(bins)):
+            message_string += f"\n{i}:"
+            for j in range(len(devices)):
+                message_string += f"   {transposed_device_values[i, j]:.4f}"
+
+        self.ui.toolbuttonStepList.setToolTip(message_string)
+
+    def show_list_of_steps(self):
+        """ Displays a pop-up with the list of steps for each device variable.  Errors are handled in the case that
+         either a scan parameter is incorrectly configured or there was trouble getting a composite variable value """
+        try:
+            self.calculate_num_shots()
+            self._update_list_of_steps(self.build_shot_array())
+            QMessageBox.about(self, "Scan Steps", f"{self.ui.toolbuttonStepList.toolTip()}")
+        except (ValueError, SyntaxError) as e:
+            QMessageBox.about(self, "Scan Steps", f"{type(e)}:\n{e}")
+        except ActionError as e:
+            QMessageBox.about(self, "Scan Steps", f"{type(e)}:\n{e.message}")
 
     def update_noscan_num_shots(self):
         """Updates the value of the number of shots in noscan mode, but only if it is a positive integer."""
@@ -981,6 +1101,17 @@ class GEECSScannerWindow(QMainWindow):
         if not self.repetition_rate > 0:
             logging.error("Need nonzero repetition rate")
             return True
+
+        if self.ui.scanRadioButton.isChecked():
+            try:
+                self._update_list_of_steps(self.build_shot_array())
+            except (ValueError, SyntaxError) as e:
+                logging.error(f"{type(e)}: {e}")
+                return True
+            except ActionError as e:
+                logging.error(f"{type(e)}: {e.message}")
+                return True
+
         return False
 
     def initialize_and_start_scan(self):

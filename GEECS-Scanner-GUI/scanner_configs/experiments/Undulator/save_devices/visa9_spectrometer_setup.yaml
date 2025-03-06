@@ -1,4 +1,9 @@
 Devices:
+  UC_ACaveMagCam3:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - timestamp
   UC_UndulatorRad2:
     save_nonscalar_data: true
     scan_setup:
@@ -9,12 +14,6 @@ Devices:
     variable_list:
     - MeanCounts
     - timestamp
-  UC_VisaEBeam9:
-    post_analysis_class: CameraImageAnalysis
-    save_nonscalar_data: true
-    synchronous: true
-    variable_list:
-    - timestamp
   U_BCaveICT:
     save_nonscalar_data: true
     synchronous: true
@@ -22,12 +21,11 @@ Devices:
     - Python Results.ChA
     - Python Results.ChB
     - timestamp
-scan_info:
-  description: collecting data on visa9EBeam and UC_UndulatorRad2
 setup_action:
   steps:
   - action: execute
     action_name: remove_visa_plungers
+  - wait: 2
   - action: set
     device: U_PLC
     value: 'on'
@@ -38,9 +36,9 @@ setup_action:
     variable: Position
   - action: set
     device: U_UndulatorSpecStage
-    value: 22.3
+    value: 20.7
     variable: Position.Ch1
   - action: set
     device: U_UndulatorSpecStage
-    value: 17.7
+    value: 17.0
     variable: Position.Ch2
