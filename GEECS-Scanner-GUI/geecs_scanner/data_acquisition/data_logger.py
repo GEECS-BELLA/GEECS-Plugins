@@ -91,7 +91,7 @@ class FileMover:
         variant_dirs = [d for d in home_dir.iterdir() if d.is_dir() and d.name.startswith(device_name)]
 
         # For some device types (e.g., saving TDMS files) we expect two files per shot.
-        if device_type == 'PicoscopeV2':
+        if device_type == 'PicoscopeV2' or device_type == 'FROG' or device_type == 'Thorlabs CCS175 Spectrometer':
             expected_file_count = 2
         else:
             expected_file_count = 1
