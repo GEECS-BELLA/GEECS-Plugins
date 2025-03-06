@@ -3,17 +3,18 @@ This was originally created by Reinier van Mourik LiveImageProcessing, later cop
 ScanAnalysis.  If this remains the case, then TODO should make a shared version in geecs-python-api
 """
 from __future__ import annotations
+from typing import TYPE_CHECKING, Optional, Union
+if TYPE_CHECKING:
+    from scan_analysis.base import AnalyzerInfo
 
 import time
 from pathlib import Path
 from time import sleep
-from typing import TYPE_CHECKING, Optional, Union
 import re
 from queue import Queue
 
 from geecs_python_api.analysis.scans.scan_data import ScanData
 from scan_analysis.execute_scan_analysis import analyze_scan
-from scan_analysis.base import AnalyzerInfo
 from scan_analysis.mapping.scan_evaluator import check_for_analysis_match
 
 from watchdog.observers.polling import PollingObserver
