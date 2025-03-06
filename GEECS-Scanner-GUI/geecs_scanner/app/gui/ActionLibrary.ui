@@ -1,0 +1,423 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Form</class>
+ <widget class="QWidget" name="Form">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>621</width>
+    <height>466</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Action Library</string>
+  </property>
+  <widget class="QListWidget" name="listActionSteps">
+   <property name="geometry">
+    <rect>
+     <x>280</x>
+     <y>50</y>
+     <width>321</width>
+     <height>190</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QListWidget" name="listAvailableActions">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>60</y>
+     <width>211</width>
+     <height>311</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="Line" name="line">
+   <property name="geometry">
+    <rect>
+     <x>240</x>
+     <y>10</y>
+     <width>3</width>
+     <height>361</height>
+    </rect>
+   </property>
+   <property name="orientation">
+    <enum>Qt::Vertical</enum>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label">
+   <property name="geometry">
+    <rect>
+     <x>270</x>
+     <y>20</y>
+     <width>41</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Type:</string>
+   </property>
+  </widget>
+  <widget class="QLineEdit" name="lineActionType">
+   <property name="geometry">
+    <rect>
+     <x>310</x>
+     <y>20</y>
+     <width>113</width>
+     <height>22</height>
+    </rect>
+   </property>
+   <property name="readOnly">
+    <bool>true</bool>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonAddStep">
+   <property name="geometry">
+    <rect>
+     <x>440</x>
+     <y>20</y>
+     <width>71</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Add</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonRemoveStep">
+   <property name="geometry">
+    <rect>
+     <x>520</x>
+     <y>20</y>
+     <width>71</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Remove</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonMoveSooner">
+   <property name="geometry">
+    <rect>
+     <x>250</x>
+     <y>110</y>
+     <width>21</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>↑</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonMoveLater">
+   <property name="geometry">
+    <rect>
+     <x>250</x>
+     <y>150</y>
+     <width>21</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>↓</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonNewAction">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>20</y>
+     <width>71</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>New</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonDeleteAction">
+   <property name="geometry">
+    <rect>
+     <x>160</x>
+     <y>20</y>
+     <width>71</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Delete</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonCopyAction">
+   <property name="geometry">
+    <rect>
+     <x>90</x>
+     <y>20</y>
+     <width>71</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Copy</string>
+   </property>
+  </widget>
+  <widget class="QLineEdit" name="lineActionOption1">
+   <property name="geometry">
+    <rect>
+     <x>250</x>
+     <y>260</y>
+     <width>171</width>
+     <height>22</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QLabel" name="labelActionOption2">
+   <property name="geometry">
+    <rect>
+     <x>430</x>
+     <y>240</y>
+     <width>171</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Option 2:</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="labelActionOption1">
+   <property name="geometry">
+    <rect>
+     <x>250</x>
+     <y>240</y>
+     <width>171</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Option 1:</string>
+   </property>
+  </widget>
+  <widget class="QLineEdit" name="lineActionOption3">
+   <property name="geometry">
+    <rect>
+     <x>250</x>
+     <y>310</y>
+     <width>171</width>
+     <height>22</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QLabel" name="labelActionOption3">
+   <property name="geometry">
+    <rect>
+     <x>250</x>
+     <y>290</y>
+     <width>171</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Option 3:</string>
+   </property>
+  </widget>
+  <widget class="QLineEdit" name="lineActionOption2">
+   <property name="geometry">
+    <rect>
+     <x>430</x>
+     <y>260</y>
+     <width>171</width>
+     <height>22</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonSaveAll">
+   <property name="geometry">
+    <rect>
+     <x>250</x>
+     <y>340</y>
+     <width>81</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Save All</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonExecuteAction">
+   <property name="geometry">
+    <rect>
+     <x>430</x>
+     <y>340</y>
+     <width>81</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Execute</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonAssignAction_1">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>420</y>
+     <width>61</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Assign</string>
+   </property>
+  </widget>
+  <widget class="Line" name="line_2">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>380</y>
+     <width>580</width>
+     <height>3</height>
+    </rect>
+   </property>
+   <property name="orientation">
+    <enum>Qt::Horizontal</enum>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonRemoveAssigned_1">
+   <property name="geometry">
+    <rect>
+     <x>90</x>
+     <y>420</y>
+     <width>61</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Remove</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonExecuteAssigned_1">
+   <property name="geometry">
+    <rect>
+     <x>540</x>
+     <y>420</y>
+     <width>61</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Execute</string>
+   </property>
+  </widget>
+  <widget class="QLineEdit" name="lineAssignedName_1">
+   <property name="geometry">
+    <rect>
+     <x>160</x>
+     <y>420</y>
+     <width>371</width>
+     <height>28</height>
+    </rect>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+   </property>
+   <property name="readOnly">
+    <bool>true</bool>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonCloseWindow">
+   <property name="geometry">
+    <rect>
+     <x>520</x>
+     <y>340</y>
+     <width>81</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Close</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_2">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>390</y>
+     <width>581</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Saved Quick Actions</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonRevertAll">
+   <property name="geometry">
+    <rect>
+     <x>340</x>
+     <y>340</y>
+     <width>81</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Revert All</string>
+   </property>
+  </widget>
+  <widget class="QCheckBox" name="checkboxEnableExecute">
+   <property name="geometry">
+    <rect>
+     <x>430</x>
+     <y>310</y>
+     <width>171</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Enable Action Execution</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="buttonAddSaveElement">
+   <property name="geometry">
+    <rect>
+     <x>20</x>
+     <y>390</y>
+     <width>151</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Add From Save Element</string>
+   </property>
+  </widget>
+ </widget>
+ <tabstops>
+  <tabstop>listAvailableActions</tabstop>
+  <tabstop>lineActionType</tabstop>
+  <tabstop>buttonAddStep</tabstop>
+  <tabstop>buttonRemoveStep</tabstop>
+  <tabstop>buttonNewAction</tabstop>
+  <tabstop>buttonCopyAction</tabstop>
+  <tabstop>buttonDeleteAction</tabstop>
+  <tabstop>listActionSteps</tabstop>
+  <tabstop>buttonMoveSooner</tabstop>
+  <tabstop>buttonMoveLater</tabstop>
+  <tabstop>lineActionOption1</tabstop>
+  <tabstop>lineActionOption2</tabstop>
+  <tabstop>lineActionOption3</tabstop>
+  <tabstop>buttonSaveAll</tabstop>
+  <tabstop>buttonExecuteAction</tabstop>
+  <tabstop>buttonAssignAction_1</tabstop>
+  <tabstop>buttonRemoveAssigned_1</tabstop>
+  <tabstop>buttonExecuteAssigned_1</tabstop>
+  <tabstop>lineAssignedName_1</tabstop>
+  <tabstop>buttonRevertAll</tabstop>
+  <tabstop>buttonCloseWindow</tabstop>
+ </tabstops>
+ <resources/>
+ <connections/>
+</ui>

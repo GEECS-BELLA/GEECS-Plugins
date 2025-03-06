@@ -1,9 +1,13 @@
 import time
 import logging
 import yaml
+import sys
 
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from PyQt5.QtWidgets import QMessageBox, QApplication
+
+from geecs_python_api.controls.devices.scan_device import ScanDevice
 from .utils import get_full_config_path  # Import the utility function
+from ..utils.exceptions import ActionError
 
 
 class ActionManager:
@@ -25,7 +29,7 @@ class ActionManager:
         if experiment_dir is not None:
             # Use the utility function to get the path to the actions.yaml file
             try:
-                self.actions_file_path = get_full_config_path(experiment_dir, 'aux_configs', 'actions.yaml')
+                self.actions_file_path = get_full_config_path(experiment_dir, 'action_library', 'actions.yaml')
                 self.load_actions()
             except FileNotFoundError:
                 logging.warning(f"actions.yaml file not found.")
@@ -72,11 +76,15 @@ class ActionManager:
 
         Args:
             action_name (str): The name of the action to execute.
+
+        Raises:
+            ActionError:  if the action name is not defined
         """
 
         if action_name not in self.actions:
-            logging.error(f"Action '{action_name}' is not defined in the available actions.")
-            return
+            message = f"Action '{action_name}' is not defined in the available actions."
+            logging.error(message)
+            raise ActionError(message)
 
         action = self.actions[action_name]
         steps = action['steps']
@@ -100,7 +108,7 @@ class ActionManager:
 
                 # Instantiate device if it hasn't been done yet
                 if device_name not in self.instantiated_devices:
-                    self.instantiated_devices[device_name] = GeecsDevice(device_name)
+                    self.instantiated_devices[device_name] = ScanDevice(device_name)
 
                 device = self.instantiated_devices[device_name]
 
@@ -144,13 +152,34 @@ class ActionManager:
             device (GeecsDevice): The device to query.
             variable (str): The variable to get the value of.
             expected_value (any): The expected value for comparison.
+
+        Raises:
+            ActionError: If the 'get' command fails and the user opts to quit out of the action and scan
         """
 
         value = device.get(variable)
         if value == expected_value:
             logging.info(f"Get {device.get_name()}:{variable} returned expected value: {value}")
         else:
-            logging.warning(f"Get {device.get_name()}:{variable} returned {value}, expected {expected_value}")
+            message = f"Get {device.get_name()}:{variable} returned {value}, expected {expected_value}"
+            logging.warning(message)
+            if self._prompt_user_quit_action(message):
+                raise ActionError(message)
+
+    def return_value(self, device_name: str, variable: str):
+        """
+        Get the current value of a device variable and compare it to the expected value.
+
+        Args:
+            device_name (str): The device to query.
+            variable (str): The variable to get the value of.
+        """
+
+        if device_name not in self.instantiated_devices:
+            self.instantiated_devices[device_name] = ScanDevice(device_name)
+
+        device: ScanDevice = self.instantiated_devices[device_name]
+        return device.get(variable)
 
     def _wait(self, seconds):
 
@@ -163,3 +192,24 @@ class ActionManager:
 
         logging.info(f"Waiting for {seconds} seconds.")
         time.sleep(seconds)
+
+    @staticmethod
+    def _prompt_user_quit_action(message: str) -> bool:
+        """
+        Display a pop-up asking if the user would like to abort the current action or continue.
+
+        :param message: str Message that displays in text box
+        :return: bool True if an error should be raised, false otherwise
+        """
+        if not QApplication.instance():
+            QApplication(sys.argv)
+
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setText(f'Failed "get" command: \n {message} \nQuit out of action and scan?')
+        msg_box.setWindowTitle("Action Error")
+        msg_box.setStandardButtons(QMessageBox.Abort | QMessageBox.Ignore)
+        msg_box.setDefaultButton(QMessageBox.Abort)
+        response = msg_box.exec_()
+
+        return response == QMessageBox.Abort

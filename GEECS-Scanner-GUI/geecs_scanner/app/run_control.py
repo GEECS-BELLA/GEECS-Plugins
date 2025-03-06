@@ -1,8 +1,10 @@
 import logging
-import yaml
 from pathlib import Path
 from typing import Optional
 from geecs_scanner.data_acquisition.scan_manager import ScanManager, get_database_dict
+
+from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
+from geecs_scanner.app.lib.action_control import ActionControl
 
 
 class RunControl:
@@ -22,10 +24,11 @@ class RunControl:
             logging.warning("Specify experiment name and shot control configuration")
             raise ValueError
         else:
-            with open(shot_control_configuration, 'r') as file:
-                settings = yaml.safe_load(file)
+            settings = read_yaml_file_to_dict(shot_control_configuration)
             self.scan_manager = ScanManager(experiment_dir=experiment_name,
                                             shot_control_information=settings)
+
+            self.action_control = ActionControl(experiment_name=experiment_name)
 
         self.is_in_setup = False
         self.is_in_stopping = False
@@ -36,6 +39,12 @@ class RunControl:
             return {}
         else:
             return get_database_dict()
+
+    def get_action_control(self, experiment_name_refresh: Optional[str] = None) -> ActionControl:
+        """ Returns instance of action control associated with current experiment name """
+        if experiment_name_refresh:
+            self.action_control = ActionControl(experiment_name=experiment_name_refresh)
+        return self.action_control
 
     def submit_run(self, config_dictionary: dict, scan_config: dict) -> bool:
         """Submits a scan request to Scan Manager after reinitializing it

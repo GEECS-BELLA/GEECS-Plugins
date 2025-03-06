@@ -1,6 +1,5 @@
 import logging
 import yaml
-import numpy as np
 import threading
 
 
@@ -44,7 +43,7 @@ class DeviceManager:
 
             try:
                 # Use self.experiment_dir when calling the utility function
-                self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'aux_configs',
+                self.composite_variables_file_path = get_full_config_path(self.experiment_dir, 'scan_devices',
                                                                           'composite_variables.yaml')
 
                 # Load composite variables from the file

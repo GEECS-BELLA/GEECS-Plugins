@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import logging
 from typing import Optional, Any, Dict, Union
 
 import time
@@ -9,9 +11,11 @@ from geecs_python_api.controls.interface.geecs_database import GeecsDatabase, lo
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
 # Load experiment info globally
-expt = load_config().get('Experiment', 'expt')
-GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(expt)
-
+try:
+    expt = load_config().get('Experiment', 'expt')
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(expt)
+except AttributeError:
+    logging.error("Could not load experiment info due to error in config.ini file")
 
 class CompositeDeviceError(Exception):
     """Base class for composite device-related errors."""

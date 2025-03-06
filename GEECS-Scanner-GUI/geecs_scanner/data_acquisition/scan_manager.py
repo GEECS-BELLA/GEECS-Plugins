@@ -41,7 +41,7 @@ class ScanManager:
         Args:
             experiment_dir (str): Directory where experiment data is stored.
             device_manager (DeviceManager, optional): DeviceManager instance for managing devices.
-            shot_control_device (str, optional): GEECS Device that controls the shot timing
+            shot_control_information (dict): dict containing shot control information
         """
         database_dict.reload(experiment_name=experiment_dir)
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
@@ -137,7 +137,7 @@ class ScanManager:
             self.MC_ip = new_mc_ip
             self.enable_live_ECS_dump(client_ip=self.MC_ip)
 
-        self.data_logger.reinitialize_sound_player()
+        self.data_logger.reinitialize_sound_player(options=self.options_dict)
         self.data_logger.last_log_time_sync = {}
         self.data_logger.update_repetition_rate(self.options_dict.get('rep_rate_hz', 1))
         self.console_logger.stop_logging()
@@ -267,6 +267,16 @@ class ScanManager:
             else:
                 logging.info('not doing any data saving')
 
+            in_standby = self.check_devices_in_standby_mode()
+            if in_standby:
+                pass
+            else:
+                logging.info("Stopping scanning.")
+                log_df = self.stop_scan()
+                return log_df
+
+            self.synchronize_devices()
+
             # start the acquisition loop
             self.scan_execution_loop()
 
@@ -278,6 +288,64 @@ class ScanManager:
         log_df = self.stop_scan()
 
         return log_df  # Return the DataFrame with the logged data
+
+    def check_devices_in_standby_mode(self)-> bool:
+        """
+        Check whether all devices have entered standby mode, with a timeout.
+
+        Returns:
+            bool: True if all devices are in standby mode within the timeout; otherwise, False.
+        """
+        timeout = 6  # timeout in seconds
+        start_time = time.time()
+        while not self.data_logger.all_devices_in_standby:
+            if time.time() - start_time > timeout:
+                logging.error("Timeout reached while waiting for all devices to be go into standby.")
+                return False
+            time.sleep(1)
+        return True
+
+    def synchronize_devices(self) -> None:
+        """
+        Attempt to synchronize all devices but firing a test shot and checking if
+        all devices exited standby mode. If all devices do not exit standby mode
+        their status is reinitialized to 'none' (i.e. unknown) and then we wait for
+        them all to go back into standby mode (i.e. devices each timeout). Once that condition is
+        satisified, we can fire another test shot to see if all devices exit standby mode.
+        This process repeats until successful or a timeout is reached.
+        """
+        timeout = 17.5  # seconds
+        start_time = time.time()
+        while not self.data_logger.devices_synchronized:
+            if time.time() - start_time > timeout:
+                logging.error("Timeout reached while waiting for devices to synchronize.")
+                logging.info("Stopping scanning.")
+                self.stop_scan()
+                return
+            if self.data_logger.all_devices_in_standby:
+                logging.info("Sending single-shot trigger to synchronize devices.")
+
+                # TODO: this is hardcoded to fire single shot on a DG645
+                res = self.shot_control.set('Trigger.ExecuteSingleShot', 'on')
+                logging.info(f"Result of single shot command: {res}")
+                #wait 2 seconds after the test fire to allow time for shot to execute and for devices to respond
+                time.sleep(2)
+                if self.data_logger.devices_synchronized:
+                    logging.info("Devices synchronized.")
+                    break
+                else:
+                    logging.warning("Not all devices exited standby after single shot.")
+                    devices_still_in_standby = [device for device, status in
+                        self.data_logger.standby_mode_device_status.items() if status is True]
+                    logging.warning(f"Devices still in standby: {devices_still_in_standby}")
+                    logging.info("Resetting standby status to none for all devices.")
+                    self.data_logger.standby_mode_device_status = {key: None for key in self.data_logger.standby_mode_device_status}
+                    logging.info("Resetting initial timestamp to None for each device to enforce rechecking of stanby mode.")
+                    self.data_logger.initial_timestamps = {key: None for key in self.data_logger.initial_timestamps}
+                    logging.info("Waiting for devices to re-enter standby mode.")
+                    self.data_logger.all_devices_in_standby = False
+            #wait 100 ms between checks of device standby status
+            time.sleep(0.1)
 
     def stop_scan(self):
         """
@@ -493,13 +561,18 @@ class ScanManager:
 
         else:
             current_value = scan_config['start']
-            while current_value <= scan_config['end']:
+            positive_direction = scan_config['start'] < scan_config['end']
+            while (positive_direction and current_value <= scan_config['end'])\
+                    or (not positive_direction and current_value >= scan_config['end']):
                 steps.append({
                     'variables': {device_var: current_value},
                     'wait_time': scan_config.get('wait_time', 1),
                     'is_composite': False
                 })
-                current_value += scan_config['step']
+                if positive_direction:
+                    current_value += abs(scan_config['step'])
+                else:
+                    current_value -= abs(scan_config['step'])
 
         return steps
 
@@ -684,7 +757,7 @@ class ScanManager:
             wait_time = scan_config.get('wait_time', 1)# - 0.5  # Default wait time between steps is 1 second
 
             # Calculate the number of steps and the total time for this device
-            steps = ((end - start) / step) + 1
+            steps = abs((end - start) / step) + 1
             total_time += steps * wait_time
 
         logging.info(f'Estimated scan time: {total_time}')

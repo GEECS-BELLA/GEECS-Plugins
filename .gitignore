@@ -27,7 +27,9 @@ ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_g
 ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/WFSL_HASO4_LIFT_680_8244_MC.lift
 ScanAnalysis/log_dll_load.txt
 ScanAnalysis/single_shot_estimated_legendre.txt
-.poetry-lock-hash
 
 ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFSL_HASO4_LIFT_680_8244_MC.lift
 ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat
+
+GEECS-Scanner-GUI/log_dll_load.txt
+.poetry-lock-hash

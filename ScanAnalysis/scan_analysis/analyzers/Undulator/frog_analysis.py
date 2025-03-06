@@ -73,7 +73,7 @@ class FrogAnalysis(ScanAnalysis):
             if self.flag['logging']:
                 logging.warning(f"Data directory '{self.path_dict['data_img']}' does not exist or is empty.")
 
-    def run_analysis(self):
+    def run_analysis(self, config_options: Optional[Union[Path, str]] = None) -> Optional[list[Union[Path, str]]]:
         """
         Run the appropriate analysis based on scan type.
 
@@ -188,6 +188,7 @@ class FrogAnalysis(ScanAnalysis):
             try:
                 file = self.scan_data.get_device_shot_path(self.tag, self.device_name,
                                                            shot_num, file_extension='png')
+
                 images[ind] = read_imaq_image(file)
 
             except Exception as e:
@@ -319,7 +320,7 @@ def testing():
 
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    kwargs = {'year': 2024, 'month': 12, 'day': 10, 'number': 9, 'experiment': 'Undulator'}
+    kwargs = {'year': 2025, 'month': 3, 'day': 6, 'number': 15, 'experiment': 'Undulator'}
     tag = ScanData.get_scan_tag(**kwargs)
 
     analyzer = FrogAnalysis(scan_tag=tag, device_name="U_FROG_Grenouille-Temporal")
