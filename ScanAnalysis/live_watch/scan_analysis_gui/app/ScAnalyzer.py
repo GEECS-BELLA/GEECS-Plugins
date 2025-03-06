@@ -99,7 +99,7 @@ class ScAnalyzerWindow(QMainWindow):
                 field.setEnabled(True)
     
             # disable input fields and select buttons while analysis is running
-            to_disable = self.findChildren(QLineEdit) + [self.ui.buttonOverwrite, self.ui.buttonStart]
+            to_disable = self.findChildren(QLineEdit) + [self.ui.checkBoxOverwrite, self.ui.buttonStart]
             for field in to_disable:
                 field.setEnabled(False)
 
@@ -184,7 +184,7 @@ class ScAnalyzerWindow(QMainWindow):
             field.setEnabled(False)
 
         # enable select fields
-        to_enable = self.findChildren(QLineEdit) + [self.ui.buttonOverwrite, self.ui.buttonStart]
+        to_enable = self.findChildren(QLineEdit) + [self.ui.checkBoxOverwrite, self.ui.buttonStart]
         for input_field in to_enable:
             input_field.setEnabled(True)
 
