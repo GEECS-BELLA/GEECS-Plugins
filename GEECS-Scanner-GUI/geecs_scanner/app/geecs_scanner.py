@@ -1102,6 +1102,17 @@ class GEECSScannerWindow(QMainWindow):
         if not self.repetition_rate > 0:
             logging.error("Need nonzero repetition rate")
             return True
+
+        if self.ui.scanRadioButton.isChecked():
+            try:
+                self._update_list_of_steps(self.build_shot_array())
+            except (ValueError, SyntaxError) as e:
+                logging.error(f"{type(e)}: {e}")
+                return True
+            except ActionError as e:
+                logging.error(f"{type(e)}: {e.message}")
+                return True
+
         return False
 
     def initialize_and_start_scan(self):
