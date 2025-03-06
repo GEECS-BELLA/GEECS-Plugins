@@ -1,12 +1,13 @@
 from __future__ import annotations
-from typing import Optional, List, Tuple
+from pathlib import Path
+from typing import Optional, Dict, Union
+
+DeviceSavePaths = Dict[str, Dict[str, Union[Path,str]]]
 
 # Standard library imports
 import time
 import logging
-from pathlib import Path
 import shutil
-
 
 # Third-party library imports
 import pandas as pd
@@ -20,7 +21,6 @@ from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from image_analysis.utils import extract_timestamp_from_file
-
 
 class ScanDataManager:
     """
@@ -46,23 +46,25 @@ class ScanDataManager:
             database_dict (DatabaseDictLookup): contains a dictionary of all experiment devices and variables
         """
         self.device_manager = device_manager  # Explicitly pass device_manager
-        self.scan_data = scan_data
+        self.scan_data: ScanData = scan_data
         if database_dict is None:
             database_dict = DatabaseDictLookup().reload()
         self.database_dict = database_dict
-        self.tdms_writer = None
-        self.data_txt_path = None
-        self.data_h5_path = None
-        self.sFile_txt_path = None
+        self.tdms_writer: Optional[TdmsWriter] = None
+        self.data_txt_path: Optional[Path] = None
+        self.data_h5_path: Optional[Path] = None
+        self.sFile_txt_path: Optional[Path] = None
+        self.tdms_output_path: Optional[Path] = None
+        self.sFile_info_path: Optional[Path] = None
 
-        self.device_save_paths_mapping = {}
+        self.device_save_paths_mapping: DeviceSavePaths = {}
         # self.scan_number_int = self.scan_data.get_tag().number
         # self.parsed_scan_string = f"Scan{self.scan_number_int:03}"
 
-        self.scan_number_int = None
-        self.parsed_scan_string = None
+        self.scan_number_int: Optional[int] = None
+        self.parsed_scan_string: Optional[str] = None
 
-    def create_and_set_data_paths(self):
+    def create_and_set_data_paths(self) -> ScanData:
         """
         Create data paths for devices that need non-scalar saving, and initialize the TDMS writers.
 
@@ -133,7 +135,7 @@ class ScanDataManager:
 
         return self.scan_data
 
-    def purge_all_local_save_dir(self):
+    def purge_all_local_save_dir(self) -> None:
 
         for device_name in self.device_manager.non_scalar_saving_devices:
             device = self.device_manager.devices.get(device_name)
@@ -146,7 +148,7 @@ class ScanDataManager:
                 self.purge_local_save_dir(source_dir)
 
     @staticmethod
-    def purge_local_save_dir(source_dir: Path):
+    def purge_local_save_dir(source_dir: Path) -> None:
 
         # Purge the source recursively (remove files only)
         if source_dir.exists():
@@ -158,7 +160,7 @@ class ScanDataManager:
                     except Exception as e:
                         logging.error(f"Error removing {item}: {e}")
 
-    def initialize_tdms_writers(self, tdms_output_path):
+    def initialize_tdms_writers(self, tdms_output_path: str) -> None:
         """
         Initialize the TDMS writers for scalar data and index data.
 
@@ -168,7 +170,7 @@ class ScanDataManager:
         self.tdms_writer = TdmsWriter(tdms_output_path, index_file=True)
         logging.info(f"TDMS writer initialized with path: {tdms_output_path}")
 
-    def write_scan_info_ini(self, scan_config):
+    def write_scan_info_ini(self, scan_config: DeviceSavePaths) -> None:
         """
         Write the scan configuration to an .ini file.
 
@@ -346,7 +348,7 @@ class ScanDataManager:
             new_headers.append(new_header)
         return new_headers
 
-    def _process_results(self, results):
+    def process_results(self, results):
 
         """
         Process and save scan results to multiple formats.
