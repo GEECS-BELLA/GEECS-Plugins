@@ -53,10 +53,10 @@ elif sampleCase == 102:
     image_name = "U_HiResMagCam"
 
 elif sampleCase == 2:
-    data_day = 27
-    data_month = 2
+    data_day = 6
+    data_month = 3
     data_year = 2025
-    scan_number = 20
+    scan_number = 22
     image_name = "UC_HiResMagCam"
     #image_name = "UC_BCaveMagSpecCam1"
     key = 'U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'
@@ -90,7 +90,7 @@ input_params = calibration_analyzer.build_input_parameter_dictionary()
 picoscope_charge_arr = scan_data.data_frame[key]
 num_shots = len(picoscope_charge_arr)
 
-shot_arr = np.array(range(num_shots))+2
+shot_arr = np.array(range(num_shots))+1
 
 clipping_arr = np.zeros(num_shots)
 saturation_arr = np.zeros(num_shots)
