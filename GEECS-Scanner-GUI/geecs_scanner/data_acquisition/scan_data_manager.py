@@ -2,11 +2,9 @@ from __future__ import annotations
 from typing import Optional, List, Tuple
 
 # Standard library imports
-import os
 import time
 import logging
 from pathlib import Path
-import concurrent.futures
 import shutil
 
 
@@ -21,7 +19,7 @@ from . import DeviceManager, DatabaseDictLookup
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
-from image_analysis.utils import get_imaq_timestamp_from_png, get_picoscopeV2_timestamp, get_custom_imaq_timestamp, get_himg_timestamp, extract_timestamp_from_file
+from image_analysis.utils import extract_timestamp_from_file
 
 
 class ScanDataManager:
@@ -73,36 +71,17 @@ class ScanDataManager:
         """
 
         ScanData.reload_paths_config()
+        self.scan_data = ScanData.build_next_scan_data()
+        
         # if not ScanData.paths_config.is_default_server_address():
         #     raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
 
-        switch_paths = False
-        
-        self.scan_data = ScanData.build_next_scan_data()
-        
-        if not ScanData.paths_config.is_default_server_address():
-            # raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
-
-            # something changed about how paths were working, which breaks how this part works on
-            # non control room computers. Added this switch paths bit to make a solution
-
-            # Define old and new root paths
-            old_root = ScanData.paths_config.base_path
-            new_root = ScanData.paths_config.get_default_server_address('Undulator')
-
-            switch_paths = True
-            
-        data_path = self.scan_data.get_folder()
-                
         for device_name in self.device_manager.non_scalar_saving_devices:
             logging.info(f'attemping to configure save paths for {device_name}')
             data_path = self.scan_data.get_folder() / device_name
             data_path.mkdir(parents=True, exist_ok=True)
             target_dir = data_path
 
-            if switch_paths:
-                data_path = new_root / data_path.relative_to(old_root)
-            
             device = self.device_manager.devices.get(device_name)
             logging.info(f'device is {device}')
 
@@ -138,11 +117,6 @@ class ScanDataManager:
             else:
                 logging.warning(f"Device {device_name} not found in DeviceManager.")
 
-
-
-
-        analysis_save_path = self.scan_data.get_analysis_folder()
-
         self.parsed_scan_string = self.scan_data.get_folder().parts[-1]
         self.scan_number_int = int(self.parsed_scan_string[-3:])
 
@@ -171,7 +145,8 @@ class ScanDataManager:
 
                 self.purge_local_save_dir(source_dir)
 
-    def purge_local_save_dir(self, source_dir: Path):
+    @staticmethod
+    def purge_local_save_dir(source_dir: Path):
 
         # Purge the source recursively (remove files only)
         if source_dir.exists():
@@ -279,8 +254,6 @@ class ScanDataManager:
 
         Args:
             df (pandas.DataFrame): DataFrame containing the data to be saved.
-
-            output_path (Path): Path where the TDMS file will be saved.
         """
         # Initialize the TDMS writer
 
@@ -404,7 +377,8 @@ class ScanDataManager:
             logging.warning("No data was collected during the logging period.")
             return pd.DataFrame()
 
-    def fill_async_nans(self, log_df, async_observables, fill_value=0):
+    @staticmethod
+    def fill_async_nans(log_df, async_observables, fill_value=0):
         """
         Fill NaN values and empty strings in asynchronous observable columns with the most recent non-NaN value.
         If a column starts with NaN or empty strings, it will backfill with the first non-NaN value.
@@ -442,231 +416,6 @@ class ScanDataManager:
         log_df = log_df.infer_objects(copy=False)
         logging.info(f"Filled remaining NaN and empty values with {fill_value}.")
         return log_df
-
-    def process_and_rename(self, scan_number: Optional[int] = None) -> None:
-        """
-        Process the device directories and rename files based on timestamps and scan data.
-        The device type is dynamically determined from the directory name, and the appropriate
-        timestamp extraction method is used based on the device type.
-
-        Args:
-            scan_number (Optional[int]): Specific scan number to process. If None, uses
-                the scan number from `self.scan_number_int`.
-        """
-
-        if self.scan_data is None:
-            logging.error("Called 'process_and_rename()' before 'scan_data' is set.")
-            return
-
-        directory_path = self.scan_data.get_folder()
-
-        logging.info(f"Processing scan folder: {directory_path}")
-
-        # Exclude directories with certain suffixes
-        device_directories = [
-            d for d in directory_path.iterdir() if
-            d.is_dir() and not any(d.name.endswith(suffix) for suffix in self.DEPENDENT_SUFFIXES)
-        ]
-
-        # Load scan data  # TODO what happens if scan_number is given but scan_data is None?
-        scan_num = self.scan_number_int if self.scan_number_int is not None else scan_number
-        if scan_num is None:
-            logging.error("Scan number is not provided.")
-            return
-
-        scan_folder_string = f"Scan{scan_num:03}"
-
-        # sPath = self.scan_data.get_analysis_folder().parent / f's{scan_num}.txt'
-
-        sDataPath = self.scan_data.get_folder() / f'ScanData{scan_folder_string}.txt'
-
-        logging.info(f"Loading scan data from: {sDataPath}")
-
-        try:
-            df = pd.read_csv(sDataPath, sep='\t')
-        except FileNotFoundError:
-            logging.error(f"Scan data file {sDataPath} not found.")
-            return
-
-        max_workers = os.cpu_count() * 2  # Adjust multiplier based on your workload
-        
-        try:
-            # Process each device directory concurrently using threads
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = [executor.submit(self.process_device_files, device_dir, df, scan_folder_string) for device_dir in
-                           device_directories]
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logging.error(f"Error during file processing: {e}")
-        except Exception as e:
-            logging.error(f'error during file renaming: {e}')
-
-    def process_device_files(self, device_dir: Path, df: pd.DataFrame, scan_number: str) -> None:
-        """
-        Generic method to process device files and rename them based on timestamps.
-
-        Args:
-            device_dir (Path): Path to the device directory.
-            df (pd.DataFrame): DataFrame containing scan data.
-            scan_number (str): Scan number in string format (e.g., 'Scan001').
-        """
-        device_name = device_dir.name
-        logging.info(f"Processing device directory: {device_name}")
-
-        # Get the device type and extract relevant data
-        device_type = GeecsDatabase.find_device_type(device_name)
-        if not device_type:
-            logging.warning(f"Device type for {device_name} not found. Skipping.")
-            return
-
-        # Handle special case for FROG device type
-        if device_type == "FROG":
-            device_dir = device_dir.with_name(f"{device_dir.name}-Temporal")
-            logging.info(f"Adjusted path for FROG device: {device_dir}")
-
-        # Collect and match files with timestamps
-        # device_files = sorted(device_dir.glob("*"), key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
-        device_files = sorted(device_dir.glob("*"), key=lambda x: int(x.stem.split('_')[-1]))
-        logging.info(f"sorted device files to rename: {device_files}")
-        matched_rows = self.process_and_match_files(device_files, df, device_name, device_type)
-
-        # Rename master and dependent files
-        self.rename_files(matched_rows, scan_number, device_name)
-        self.process_dependent_directories(device_name, device_dir, matched_rows, scan_number)
-
-    def process_and_match_files(
-            self, device_files: List[Path], df: pd.DataFrame, device_name: str, device_type: str
-    ) -> List[Tuple[Path, int]]:
-        """
-        Match device files with timestamps from the DataFrame.
-
-        Args:
-            device_files (List[Path]): List of device files to process.
-            df (pd.DataFrame): DataFrame containing scan data.
-            device_name (str): Name of the device.
-            device_type (str): Type of the device.
-
-        Returns:
-            List[Tuple[Path, int]]: List of matched files and their corresponding row indices.
-        """
-        matched_rows = []
-        device_timestamp_column = f'{device_name} timestamp'
-
-        if device_timestamp_column not in df.columns:
-            logging.warning(f"No matching timestamp column for {device_name} in scan data.")
-            return matched_rows
-
-        tolerance = 1
-        rounded_df_timestamps = df[device_timestamp_column].round(tolerance)
-        logging.info(f'rounded timestamps extracted from sFile: {rounded_df_timestamps}')
-        for device_file in device_files:
-            try:
-                file_timestamp = self.extract_timestamp_from_file(device_file, device_type)
-                file_timestamp_rounded = round(file_timestamp, tolerance)
-                # logging.info(f'rounded timestamp extracted for {device_file}: {file_timestamp_rounded}')
-                match = rounded_df_timestamps[rounded_df_timestamps == file_timestamp_rounded]
-                if not match.empty:
-                    matched_rows.append((device_file, match.index[0]))
-                    # logging.info(f"Matched file {device_file} with row {match.index[0]}")
-                else:
-                    logging.warning(f"No match for {device_file} with timestamp {file_timestamp_rounded}")
-            except Exception as e:
-                logging.error(f"Error extracting timestamp from {device_file}: {e}")
-
-        return matched_rows
-
-    def extract_timestamp_from_file(self, device_file: Path, device_type: str) -> float:
-        """
-        Extract timestamp from a device file based on its type.
-
-        NOTE: deprecated, this method migrated to image_analysis.utils
-
-        Args:
-            device_file (Path): Path to the device file.
-            device_type (str): Type of the device.
-
-        Returns:
-            float: Extracted timestamp.
-        """
-        device_map = {
-            "Point Grey Camera": get_imaq_timestamp_from_png,
-            "MagSpecCamera": get_imaq_timestamp_from_png,
-            "PicoscopeV2": get_picoscopeV2_timestamp,
-            "MagSpecStitcher": get_custom_imaq_timestamp,
-            "FROG": get_custom_imaq_timestamp,
-            "HASO4_3": get_himg_timestamp,
-            "Thorlabs CCS175 Spectrometer": get_picoscopeV2_timestamp,
-        }
-
-        if device_type in device_map:
-            return device_map[device_type](device_file)
-        else:
-            raise ValueError(f"Unsupported device type: {device_type}")
-
-    def process_dependent_directories(
-            self, device_name: str, device_dir: Path, matched_rows: List[Tuple[Path, int]], scan_number: str
-    ) -> None:
-        """
-        Process and rename files in dependent directories.
-
-        Args:
-            device_name (str): Name of the device.
-            device_dir (Path): Path to the master device directory.
-            matched_rows (List[Tuple[Path, int]]): List of matched master files and their indices.
-            scan_number (str): Scan number in string format (e.g., 'Scan001').
-        """
-        for suffix in self.DEPENDENT_SUFFIXES:
-            dependent_dir = device_dir.parent / f"{device_name}{suffix}"
-            if dependent_dir.exists() and dependent_dir.is_dir():
-                logging.info(f"Processing dependent directory: {dependent_dir}")
-                dependent_files = sorted(dependent_dir.glob("*"),
-                                         key=lambda x: int(str(x).split('_')[-1].split('.')[0]))
-                self.rename_files_in_dependent_directory(dependent_files, matched_rows, scan_number, device_name,
-                                                         suffix)
-
-    def rename_files_in_dependent_directory(
-            self, dependent_files: List[Path], matched_rows: List[Tuple[Path, int]], scan_number: str, device_name: str,
-            suffix: str
-    ) -> None:
-        """
-        Rename dependent files based on matched rows from the master directory.
-
-        Args:
-            dependent_files (List[Path]): List of dependent files.
-            matched_rows (List[Tuple[Path, int]]): List of matched master files and their indices.
-            scan_number (str): Scan number in string format (e.g., 'Scan001').
-            device_name (str): Name of the device.
-            suffix (str): Suffix for the dependent directory.
-        """
-        for i, (master_file, row_index) in enumerate(matched_rows):
-            if i < len(dependent_files):
-                dependent_file = dependent_files[i]
-                new_name = f"{scan_number}_{device_name}{suffix}_{str(row_index + 1).zfill(3)}{dependent_file.suffix}"
-                new_path = dependent_file.parent / new_name
-                dependent_file.rename(new_path)
-                # logging.info(f"Renamed {dependent_file} to {new_path}")
-            else:
-                logging.warning(f"Not enough files in dependent directory to match {master_file}")
-
-    def rename_files(self, matched_rows: List[Tuple[Path, int]], scan_number: str, device_name: str) -> None:
-        """
-        Rename master files based on scan number, device name, and matched row index.
-
-        Args:
-            matched_rows (List[Tuple[Path, int]]): List of matched files and their indices.
-            scan_number (str): Scan number in string format (e.g., 'Scan001').
-            device_name (str): Name of the device.
-        """
-        for file_path, row_index in matched_rows:
-            row_number = str(row_index + 1).zfill(3)
-            new_file_name = f"{scan_number}_{device_name}_{row_number}{file_path.suffix}"
-            new_file_path = file_path.parent / new_file_name
-
-            if not new_file_path.exists():  # Check if the target file already exists
-                # logging.info(f"Renaming {file_path} to {new_file_path}")
-                file_path.rename(new_file_path)
 
     def post_process_orphaned_files(self, log_df):
         """
@@ -739,7 +488,8 @@ class ScanDataManager:
 
     # this method is copied directly from data_logger.py FileMover class. Maybe it should be made
     # a utility function of this project
-    def rename_file(self, scan_number: int, device_name: str, shot_index: int) -> str:
+    @staticmethod
+    def rename_file(scan_number: int, device_name: str, shot_index: int) -> str:
         """
         Rename master files based on scan number, device name, and matched row index.
 

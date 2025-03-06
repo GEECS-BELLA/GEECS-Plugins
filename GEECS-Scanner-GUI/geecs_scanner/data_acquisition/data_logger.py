@@ -3,7 +3,6 @@ from typing import Optional
 
 import time
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import logging
 
@@ -94,10 +93,6 @@ class FileMover:
         else:
             expected_file_count = 1
 
-        # List to hold futures from concurrent file moves.
-        futures = []
-
-
         for variant in variant_dirs:
             # Adjust the target directory to use the variant folder's name.
             adjusted_target_dir = target_dir.parent / variant.name
@@ -134,14 +129,6 @@ class FileMover:
                     new_filename = new_file_stem + ext
                     dest_file = adjusted_target_dir / new_filename
 
-                    new_file_path = file.parent / new_filename
-
-                    # try:
-                    #     file.rename(new_file_path)
-                    #     logging.info(f"renamed {file} to {new_file_path}")
-                    # except Exception as e:
-                    #     logging.error(f"Error renaming {file} to {new_file_path}: {e}")
-
                     try:
                         shutil.move(str(file), str(dest_file))
                         logging.info(f"Moved {file} to {dest_file}")
@@ -151,113 +138,15 @@ class FileMover:
                     # If we have found the expected number of files for this variant, break out.
                     if found_files_count == expected_file_count:
                         break
-
-
-    # def _move_file(self, src: Path, dst: Path):
-    #     """Helper function to move a single file."""
-    #     try:
-    #         shutil.move(str(src), str(dst))
-    #         logging.info(f"Moved {src} to {dst}")
-    #         # On successful move, remove tracking for this file.
-    #         if src in self.file_check_counts:
-    #             del self.file_check_counts[src]
-    #         return True
-    #     except Exception as e:
-    #         logging.error(f"Error moving {src} to {dst}: {e}")
-    #         return False
-    #
-
-    # def _process_task(self, source_dir: Path, target_dir: Path,
-    #                   device_name: str, device_type: str,
-    #                   expected_timestamp: float, shot_index: int):
-    #     """
-    #     Search for files in all variant directories under the parent of source_dir whose
-    #     names start with device_name (e.g. "DeviceName-type1", "DeviceName-type2"),
-    #     rename them with a standard naming convention, and move them to the corresponding
-    #     target directories (e.g. "Z:/data/Undulator/DeviceName-type1", etc.).
-    #     """
-    #     # Get the "home" folder; i.e., the parent of source_dir.
-    #     home_dir = source_dir.parent
-    #
-    #     # Find all subdirectories in the home folder that are relevant variants.
-    #     # For example, any directory whose name starts with the device name.
-    #     variant_dirs = [d for d in home_dir.iterdir() if d.is_dir() and d.name.startswith(device_name)]
-    #
-    #     # most device types save a single file per shot per directory. Some files
-    #     # saving tdms files also have an index file, so we expect two files per shot
-    #     if device_type == 'PicoscopeV2':
-    #         expected_file_count = 2
-    #     else:
-    #         expected_file_count = 1
-    #
-    #     # Process each variant directory.
-    #     for variant in variant_dirs:
-    #         # Adjust the target directory to use the variant folder's name.
-    #         adjusted_target_dir = target_dir.parent / variant.name
-    #         adjusted_target_dir.mkdir(parents=True, exist_ok=True)
-    #         logging.info(f"Processing variant '{variant.name}' with adjusted target '{adjusted_target_dir}'")
-    #
-    #         found_files_count = 0
-    #         time.sleep(0.1)
-    #         for file in variant.glob("*"):
-    #             if file.is_file():
-    #                 file_ts = extract_timestamp_from_file(file, device_type)
-    #                 logging.info(f'Checking {file} with timestamp {file_ts} against {expected_timestamp}')
-    #                 if abs(file_ts - expected_timestamp) < 0.0011:
-    #                     found_files_count+=1
-    #                     # Create a new filename stem (without extension) using the directory, e.g. variant, name
-    #                     new_file_stem = self.rename_file(self.scan_number, variant.name, shot_index)
-    #                     ext = file.suffix
-    #                     new_filename = new_file_stem + ext
-    #                     dest_file = adjusted_target_dir / new_filename
-    #                     try:
-    #                         shutil.move(str(file), str(dest_file))
-    #                         logging.info(f"Moved {file} to {dest_file}")
-    #                     except Exception as e:
-    #                         logging.error(f"Error moving {file} to {dest_file}: {e}")
-    #
-    #                     if found_files_count == expected_file_count:
-    #                         break
-
-
-
-
-    # def _process_task(self, source_dir: Path, target_dir: Path,
-    #                   device_name: str, device_type: str,
-    #                   expected_timestamp: float, shot_index: int):
-    #     """
-    #     Search for files in source_dir with a timestamp equal to expected_timestamp,
-    #     rename them with a standard naming convention (including the timestamp and elapsed time),
-    #     and move them to target_dir.
-    #     """
-    #     time.sleep(0.1)
-    #     for file in source_dir.glob("*"):
-    #         if file.is_file():
-    #             file_ts = extract_timestamp_from_file(file, device_type)
-    #             logging.info(f'checking {file} with timestamp {file_ts} and looking for {expected_timestamp}')
-    #
-    #             if abs(file_ts - expected_timestamp)<0.0011:
-    #                 # Create a new filename stem (without extension)
-    #                 new_file_stem = self.rename_file(self.scan_number, device_name, shot_index)
-    #                 # Retrieve the extension (e.g. '.tsv') from the original file
-    #                 ext = file.suffix
-    #                 # Append the extension to get the complete new filename
-    #                 new_filename = new_file_stem + ext
-    #                 dest_file = target_dir / new_filename
-    #                 try:
-    #                     shutil.move(str(file), str(dest_file))
-    #                     logging.info(f"Moved {file} to {dest_file}")
-    #                 except Exception as e:
-    #                     logging.error(f"Error moving {file} to {dest_file}: {e}")
-
-    def rename_file(self, scan_number: int, device_name: str, shot_index: int) -> str:
+    @staticmethod
+    def rename_file(scan_number: int, device_name: str, shot_index: int) -> str:
         """
         Rename master files based on scan number, device name, and matched row index.
 
         Args:
             scan_number (str): Scan number in string format (e.g., 'Scan001').
             device_name (str): Name of the device.
-            shot_number (int): shot number
+            shot_index (int): shot number
         """
 
         scan_number_str = str(scan_number).zfill(3)
@@ -692,22 +581,12 @@ class DataLogger:
                 f"{device.get_name()}:{key}": value for key, value in observables_data.items()
             })
 
-
-            # Enqueue a file-moving task.
-            # For demonstration, use fixed source and target directories.
-            # Note, below is not fucntional yet. The source dir will need to be determined
-            # using the device name and the IP for the host computer of that device. This
-            # information needs to be parsed from the database. Makes sense that this information
-            # gets parsed once upon intialization of the start_logging method.
-            # The target directory would have to be passed from the ScanManager to account for the
-            # Scan number. Again, this probably should be passed once at the top of the scanning.
-            # Scan number will also be need in renaming the moved files.
-            # Note, the implementation of using timestamps is wrong.
             if device.get_name() in self.device_save_paths_mapping:
                 device_name = device.get_name()
                 source_dir = self.device_save_paths_mapping[device_name]['source_dir']
                 target_dir = self.device_save_paths_mapping[device_name]['target_dir']
                 device_type = self.device_save_paths_mapping[device_name]['device_type']
+
                 # Use current time as expected timestamp.
                 expected_timestamp = observables_data['timestamp']
                 self.file_mover.move_files_by_timestamp(source_dir, target_dir, device_name, device_type, expected_timestamp, self.shot_index )
