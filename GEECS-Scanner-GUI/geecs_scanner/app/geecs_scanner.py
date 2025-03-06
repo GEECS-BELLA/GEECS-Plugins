@@ -906,14 +906,15 @@ class GEECSScannerWindow(QMainWindow):
 
                 # If the composite variable is relative and not in scan, use a get command to calculate the actual value
                 if self.scan_composite_data[scan_device]['mode'] in ['relative'] and self.RunControl is not None:
+                    # Can't perform get command if scan is ongoing
+                    if self.RunControl.is_active() or self.is_starting:
+                        self.ui.toolbuttonStepList.setToolTip("Check back after scan")
+                        return
+
                     # Don't execute get command unless button was explicitly clicked on
                     if skip_tcp_request:
                         self.ui.toolbuttonStepList.setToolTip("Click to show")
                         return
-
-                    # Can't perform get command if scan is ongoing
-                    if not (self.RunControl.is_active() or self.is_starting):
-                        self.ui.toolbuttonStepList.setToolTip("Check back after scan")
 
                     action_control = self.RunControl.get_action_control()
                     current_value = action_control.return_device_value(device_name=component['device'],
