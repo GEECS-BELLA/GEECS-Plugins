@@ -317,7 +317,7 @@ class ScanManager:
         satisified, we can fire another test shot to see if all devices exit standby mode.
         This process repeats until successful or a timeout is reached.
         """
-        timeout = 17.5  # seconds
+        timeout = 25.5  # seconds
         start_time = time.time()
         while not self.data_logger.devices_synchronized:
             if time.time() - start_time > timeout:
