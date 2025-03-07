@@ -59,7 +59,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         self.crop_region: Optional[tuple[int, int, int, int]] = None
         self.set_visa_settings()
 
-    def run_analysis(self, config_options: Optional[str] = None):
+    def run_noscan_analysis(self, config_options: Optional[str] = None):
         df = self.auxiliary_data
 
         charge = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
@@ -198,8 +198,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 self.append_to_sfile({'UC_Rad2_EstimatedGain': photons_arr / p(charge)})
                 logging.info("Wrote estimated gain to sfile")
 
-        return self.display_contents
-
     def set_visa_settings(self):
         """
         Reads the configs yaml file and loads cropping and fit settings.  The cropping region is calculated using this
@@ -261,5 +259,5 @@ if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
     tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=61, experiment_name='Undulator')
-    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False, background_mode=False)
+    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=True, debug_mode=False, background_mode=False)
     analyzer.run_analysis()
