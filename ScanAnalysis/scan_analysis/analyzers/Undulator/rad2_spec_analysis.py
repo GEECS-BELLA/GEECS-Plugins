@@ -63,6 +63,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         df = self.auxiliary_data
 
         charge = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
+        # charge = np.array(df['U_UndulatorExitICT Python Results.ChB'])
 
         photons_arr = np.zeros(len(charge))
         visa_intensity_arr = np.zeros(len(charge))
@@ -134,9 +135,13 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             color_label = "Intensity on VISA Screen"
             cmap_type = 'viridis'
 
+        plt.close('all')
+        plt.figure(figsize=(5.5, 4))
+
         plt.scatter(charge, photons_arr, label="1st Order", marker="+", c=color_scheme, cmap=cmap_type)
         # plt.yscale('log')
 
+        top_shots_string = ""
         if self.incoherent_signal_fit is not None:
             # First, correct the signal by shifting the zero signals to correspond to 0 on the linear fit's intercept
             x_intercept = -self.incoherent_signal_fit[1] / self.incoherent_signal_fit[0]
@@ -149,12 +154,17 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             # Next, build the linear slope to represent the incoherent signal and organize the shots by brightness
             p = np.poly1d(self.incoherent_signal_fit)
             x = np.linspace(np.min(charge), np.max(charge))
-            combined = list(zip(range(len(charge)), charge, photons_arr))
-            sorted_combined = sorted(combined, key=lambda info: info[2])
+            if not self.background_mode:
+                combined = list(zip(range(len(charge)), charge, photons_arr))
+                sorted_combined = sorted(combined, key=lambda info: info[2])
 
-            # Print out the statistics for the brightest shots, TODO print to file
-            for item in sorted_combined:
-                print(f"{item[0] + 1}:   {item[1]:.2f} pC,   {item[2]:.3E},   Gain = {item[2] / p(item[1]):.2f}")
+                # Print out the statistics for the brightest shots, TODO print to file
+                #for item in sorted_combined:
+                #    print(f"{item[0] + 1}:   {item[1]:.2f} pC,   {item[2]:.3E},   Gain = {item[2] / p(item[1]):.2f}")
+
+                for i in [-5, -4, -3, -2, -1]:
+                    item = sorted_combined[i]
+                    top_shots_string += f"{item[0] + 1}:  {item[1]:.2f} pC,  G={item[2] / p(item[1]):.2f}\n"
 
             # Lastly, actually add this to the plot
             plt.plot(x, p(x), label="Incoherent Signal", c='k', ls='--')
@@ -163,11 +173,23 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                   f'{self.tag.month}/{self.tag.day}/{self.tag.year} Scan {self.tag.number}')
         plt.xlabel(f'U_BCaveICT Beam Charge (pC)')
         plt.ylabel("UC_Rad2 Camera Counts of 1st Order")
+        if top_shots_string:
+            plt.text(0.05, 0.95, top_shots_string, transform=plt.gca().transAxes,
+                     fontsize=8, verticalalignment='top')
         if color_label:
             plt.colorbar(label=color_label)
         plt.legend()
         plt.tight_layout()
-        plt.show()
+
+        save_path = Path(self.path_dict['save']) / "photon_vs_charge.png"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
+        self.close_or_show_plot()
+        if self.flag_logging:
+            logging.info(f"Image saved at {save_path}")
+
+        self.display_contents.append(str(save_path))
+        return self.display_contents
 
     def set_visa_settings(self):
         """
@@ -229,6 +251,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=2, day=27, number=28, experiment_name='Undulator')
+    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=61, experiment_name='Undulator')
     analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False, background_mode=False)
     analyzer.run_analysis()
