@@ -21,7 +21,7 @@ from geecs_python_api.controls.api_defs import ScanTag
 from image_analysis.utils import read_imaq_png_image
 from image_analysis.analyzers.online_analysis_modules import image_processing_funcs
 
-from visa_ebeam_analysis import VisaEBeamAnalysis
+from .visa_ebeam_analysis import VisaEBeamAnalysis
 
 
 class Rad2SpecAnalysis(CameraImageAnalysis):
@@ -197,6 +197,13 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             if p:
                 self.append_to_sfile({'UC_Rad2_EstimatedGain': photons_arr / p(charge)})
                 logging.info("Wrote estimated gain to sfile")
+
+        if self.flag_save_images:
+            filepath = self.path_dict['save'] / 'noscan.gif'
+            self.create_gif(data['images'], filepath,
+                            titles=[f"Shot {num}" for num in data['shot_num']])
+
+            self.display_contents.append(str(filepath))
 
     def set_visa_settings(self):
         """
