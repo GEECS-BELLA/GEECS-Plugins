@@ -133,6 +133,11 @@ class ScAnalyzerWindow(QMainWindow):
         :rtype: None
         '''
         try:
+            analysis_date = date(year=int(self.ui.inputYear.text()), month=int(self.ui.inputMonth.text()),
+                                 day=int(self.ui.inputDay.text()))
+            if analysis_date != date.today() and self.documentID is None:
+                raise DateCheckError("Cannot perform analysis on previous date without DocumentID")
+
             # initialize scan watcher
             scan_watcher = ScanWatch('Undulator',
                                      int(self.ui.inputYear.text()),
@@ -627,9 +632,17 @@ class CustomError(Exception):
     def get_class_name(cls) -> str:
         return cls.__name__
 
+
 class AnalysisRunningError(CustomError):
     """Error raised when analysis is already running."""
     pass
+
+
+class DateCheckError(Exception):
+    def __init__(self, message="Date is not valid without a given documentID"):
+        self.message = message
+        super().__init__(self.message)
+
 
 class UnexpectedError(CustomError):
     """Custom error handler for unexpected exceptions."""
