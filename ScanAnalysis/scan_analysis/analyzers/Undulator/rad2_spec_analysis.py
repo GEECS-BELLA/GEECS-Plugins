@@ -142,6 +142,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         # plt.yscale('log')
 
         top_shots_string = ""
+        p = None
         if self.incoherent_signal_fit is not None:
             # First, correct the signal by shifting the zero signals to correspond to 0 on the linear fit's intercept
             x_intercept = -self.incoherent_signal_fit[1] / self.incoherent_signal_fit[0]
@@ -189,6 +190,14 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             logging.info(f"Image saved at {save_path}")
 
         self.display_contents.append(str(save_path))
+
+        if not self.background_mode:
+            self.append_to_sfile({'UC_Rad2_CameraCounts': photons_arr})
+            logging.info("Wrote camera counts to sfile")
+            if p:
+                self.append_to_sfile({'UC_Rad2_EstimatedGain': photons_arr / p(charge)})
+                logging.info("Wrote estimated gain to sfile")
+
         return self.display_contents
 
     def set_visa_settings(self):
