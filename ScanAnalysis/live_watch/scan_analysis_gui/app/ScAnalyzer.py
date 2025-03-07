@@ -78,6 +78,10 @@ class ScAnalyzerWindow(QMainWindow):
         self.worker: Optional[Worker] = None
         self.worker_thread: Optional[QThread] = None
 
+        # set up line edit to specify document id
+        self.documentID: Optional[str] = None
+        self.ui.lineDocumentID.editingFinished.connect(self.updateDocumentID)
+
     def start_analysis(self) -> None:
         '''
         Prepare to run analysis. 
@@ -330,6 +334,13 @@ class ScAnalyzerWindow(QMainWindow):
         None
         '''
         self.ui.logDisplay.setReadOnly(True)
+
+    def updateDocumentID(self):
+        """ Updates the document ID if a non-empty string is entered into the line edit """
+        if line_contents := self.ui.lineDocumentID.text().strip():
+            self.documentID = line_contents
+        else:
+            self.documentID = None
 
     def set_ignore_list(self) -> None:
         """
