@@ -16,13 +16,12 @@ from scipy.signal import butter, filtfilt
 
 from pathlib import Path
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
 from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from image_analysis.utils import read_imaq_png_image
 from image_analysis.analyzers.online_analysis_modules import image_processing_funcs
-
-from .visa_ebeam_analysis import VisaEBeamAnalysis
 
 
 class Rad2SpecAnalysis(CameraImageAnalysis):
@@ -68,6 +67,8 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 
         photons_arr = np.zeros(len(charge))
         visa_intensity_arr = np.zeros(len(charge))
+        cropped_image_list = []
+        cropped_image_num = []
 
         for i in range(len(charge)):
             shot_filename = ScanData.get_device_shot_path(self.tag, self.device_name, i+1)
@@ -80,6 +81,10 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 cropped_image = self.crop_rad2(raw_image)
                 image = image_processing_funcs.threshold_reduction(cropped_image, 4)
                 image = median_filter(image, size=3)
+
+                cropped_image_list.append(image)
+                cropped_image_num.append(i+1)
+
                 projection_arr = np.sum(image, axis=0)
 
                 fs = 200.0
@@ -196,13 +201,15 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             self.append_to_sfile({'UC_Rad2_CameraCounts': photons_arr})
             logging.info("Wrote camera counts to sfile")
             if p:
-                self.append_to_sfile({'UC_Rad2_EstimatedGain': photons_arr / p(charge)})
+                estimated_gain = np.where(charge > 5, photons_arr / p(charge), 0)
+                print(estimated_gain)
+                self.append_to_sfile({'UC_Rad2_EstimatedGain': estimated_gain})
                 logging.info("Wrote estimated gain to sfile")
 
         if self.flag_save_images:
             filepath = self.path_dict['save'] / 'noscan.gif'
-            self.create_gif(data['images'], filepath,
-                            titles=[f"Shot {num}" for num in data['shot_num']])
+            self.create_gif(cropped_image_list, filepath,
+                            titles=[f"Shot {num}" for num in cropped_image_num])
 
             self.display_contents.append(str(filepath))
 
@@ -266,6 +273,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=61, experiment_name='Undulator')
+    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=25, experiment_name='Undulator')
     analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=True, debug_mode=False, background_mode=False)
     analyzer.run_analysis()
