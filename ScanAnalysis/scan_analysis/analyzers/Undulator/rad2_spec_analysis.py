@@ -17,6 +17,7 @@ from scipy.signal import butter, filtfilt
 from pathlib import Path
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
 from geecs_python_api.controls.api_defs import ScanTag
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from image_analysis.utils import read_imaq_png_image
 from image_analysis.analyzers.online_analysis_modules import image_processing_funcs
