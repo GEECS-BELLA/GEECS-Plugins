@@ -247,50 +247,6 @@ class FrogAnalysis(ScanAnalysis):
 
         return outputs
 
-    def append_to_sfile(self,
-                        dict_to_append: Dict[str, Union[List, NDArray[np.float64]]]) -> None:
-        """
-        Append new data to the auxiliary file.
-        
-        Args:
-            dict_to_append: Dictionary containing column names and their values to append
-            
-        Raises:
-            DataLengthError: If the length of array values doesn't match existing data
-        """
-        try:
-            # copy auxiliary dataframe
-            df_copy = self.auxiliary_data.copy()
-    
-            # check column lengths match existing dataframe
-            lengths = {len(vals) for vals in dict_to_append.values() if isinstance(vals, (list, np.ndarray))}
-            if lengths and lengths.pop() != len(df_copy):
-                if self.flag['logging']:
-                    raise DataLengthError()
-
-            # check if columns exist within dataframe
-            existing_cols = set(df_copy) & set(dict_to_append.keys())
-            if existing_cols:
-                if self.flag['logging']:
-                    logging.warning(f"Warning: Columns already exist in sfile: {existing_cols}. Overwriting existing columns.")
-    
-            # append new fields to df_copy
-            df_new = df_copy.assign(**dict_to_append)
-    
-            # save updated dataframe to sfile
-            df_new.to_csv(self.auxiliary_file_path,
-                          index=False, sep='\t', header=True)
-    
-            # copy updated dataframe to class attribute
-            self.auxiliary_data = df_new.copy()
-
-        except DataLengthError:
-            logging.error(f"Error: Error appending {self.device_name} field to sfile due to inconsistent array lengths. Scan file not updated.")
-
-        except Exception as e:
-            logging.error(f"Error: Unexpected error in {self.append_to_sfile.__name__}: {e}")
-
-
     @staticmethod
     def calculate_second_moment(data: NDArray[np.float64]) -> float:
         """
@@ -310,14 +266,8 @@ class FrogAnalysis(ScanAnalysis):
         mean = np.sum(indices * data) / np.sum(data)
         second_moment = np.sqrt(((indices - mean)**2 * data).sum() / data.sum())
         return second_moment
-
-# error classes
-class DataLengthError(ValueError):
-    """Raised when data arrays have inconsistent lengths."""
-    pass
-
-
 # %% routine
+
 
 def testing():
 
