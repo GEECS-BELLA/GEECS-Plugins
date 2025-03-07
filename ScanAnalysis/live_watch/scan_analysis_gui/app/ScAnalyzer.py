@@ -136,7 +136,8 @@ class ScAnalyzerWindow(QMainWindow):
                                      int(self.ui.inputDay.text()),
                                      ignore_list=self.ignore_list,
                                      overwrite_previous=self.overwrite_processed_scans,
-                                     analyzer_list=self.analyzer_items)
+                                     analyzer_list=self.analyzer_items,
+                                     documentID=self.documentID)
 
             # start analysis
             progress_callback.emit("Start ScanWatch.")
