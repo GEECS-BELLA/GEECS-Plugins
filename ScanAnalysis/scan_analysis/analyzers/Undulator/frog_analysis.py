@@ -189,9 +189,6 @@ class FrogAnalysis(ScanAnalysis):
                 file = self.scan_data.get_device_shot_path(self.tag, self.device_name,
                                                            shot_num, file_extension='png')
 
-                # maybe can be removed if naming convention goes back to standard
-                file = Path(str(file).replace('-Temporal_', '_'))
-
                 images[ind] = read_imaq_image(file)
 
             except Exception as e:
@@ -273,7 +270,7 @@ def testing():
 
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    kwargs = {'year': 2024, 'month': 12, 'day': 10, 'number': 9, 'experiment': 'Undulator'}
+    kwargs = {'year': 2025, 'month': 3, 'day': 6, 'number': 15, 'experiment': 'Undulator'}
     tag = ScanData.get_scan_tag(**kwargs)
 
     analyzer = FrogAnalysis(scan_tag=tag, device_name="U_FROG_Grenouille-Temporal")
