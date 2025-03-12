@@ -11,7 +11,6 @@ import yaml
 import logging
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.ndimage import median_filter
 from scipy.signal import butter, filtfilt
 
 from pathlib import Path
@@ -57,7 +56,11 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         self.incoherent_signal_fit: Optional[tuple[float, float]] = None
 
         self.crop_region: Optional[tuple[int, int, int, int]] = None
+        self.background_threshold: float = self.camera_analysis_settings.get('Background Level', 2)
+        # background_full = np.load(Path(__file__).parents[3] / 'calibrations' / 'Undulator' / 'rad2_background.npy')
+
         self.set_visa_settings()
+        # self.background_roi = self.crop_rad2(background_full)
 
     def run_noscan_analysis(self, config_options: Optional[str] = None):
         df = self.auxiliary_data
@@ -78,9 +81,11 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                     plt.imshow(np.log(raw_image+1))
                     plt.show()
 
-                cropped_image = self.crop_rad2(raw_image)
-                image = image_processing_funcs.threshold_reduction(cropped_image, 4)
-                image = median_filter(image, size=3)
+                image = self.crop_rad2(raw_image)
+                image = image_processing_funcs.threshold_reduction(image, self.background_threshold)
+                image = self.filter_image(image)
+
+                #image = image_processing_funcs.threshold_reduction(image, self.background_roi)
 
                 cropped_image_list.append(image)
                 cropped_image_num.append(i+1)
@@ -202,7 +207,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             logging.info("Wrote camera counts to sfile")
             if p:
                 estimated_gain = np.where(charge > 5, photons_arr / p(charge), 0)
-                print(estimated_gain)
                 self.append_to_sfile({'UC_Rad2_EstimatedGain': estimated_gain})
                 logging.info("Wrote estimated gain to sfile")
 
@@ -225,7 +229,11 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 
         visa_station_settings = configuration_file_contents.get(f"visa{self.visa_station}", None)
         if visa_station_settings is None:
-            raise KeyError(f"Visa station {self.visa_station} not found in {self.rad2_config_file}.")
+            if self.debug_mode:
+                print("No configured visa station, continuing in debug mode")
+                return
+            else:
+                raise KeyError(f"Visa station {self.visa_station} not found in {self.rad2_config_file}.")
 
         center = visa_station_settings.get('center_yx', None)
         self.incoherent_signal_fit = visa_station_settings.get('incoherent_fit', None)
@@ -273,6 +281,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=25, experiment_name='Undulator')
-    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=True, debug_mode=False, background_mode=False)
+    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=90, experiment_name='Undulator')
+    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False, background_mode=False)
     analyzer.run_analysis()
