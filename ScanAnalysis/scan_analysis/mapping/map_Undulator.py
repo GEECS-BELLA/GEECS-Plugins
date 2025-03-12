@@ -8,6 +8,7 @@ from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageA
 from scan_analysis.analyzers.Undulator.hamaspectro_analysis import FiberSpectrometerAnalysis
 from scan_analysis.analyzers.Undulator.frog_analysis import FrogAnalysis
 from scan_analysis.analyzers.Undulator.haso_lift_analysis import HasoAnalysis
+from scan_analysis.analyzers.Undulator.ACaveMagCam3_analysis import ACaveMagCam3ScanAnalysis
 
 
 undulator_analyzers = [
@@ -48,7 +49,7 @@ undulator_analyzers = [
     Info(analyzer_class=FrogAnalysis,
          requirements={'U_FROG_Grenouille-Temporal'},
          device_name='U_FROG_Grenouille-Temporal'),
-    Info(analyzer_class=CameraImageAnalysis,
+    Info(analyzer_class=ACaveMagCam3ScanAnalysis,
          requirements={'UC_ACaveMagCam3'},
          device_name='UC_ACaveMagCam3'),
     Info(analyzer_class=HasoAnalysis,

@@ -27,6 +27,7 @@ import traceback
 PRINT_TRACEBACK = False
 
 
+
 # %% classes
 class CameraImageAnalysis(ScanAnalysis):
 
@@ -97,7 +98,10 @@ class CameraImageAnalysis(ScanAnalysis):
                 self.run_noscan_analysis()
             else:
                 self.run_scan_analysis()
-            self.auxiliary_data.to_csv(self.auxiliary_file_path.parent / 's_appended.txt', sep='\t', index=False)
+            # self.auxiliary_data.to_csv(self.auxiliary_file_path.parent / 's_appended.txt', sep='\t', index=False)
+
+            self.auxiliary_data.to_csv(self.auxiliary_file_path, sep='\t', index=False)
+
 
             return self.display_contents
 
@@ -290,10 +294,6 @@ class CameraImageAnalysis(ScanAnalysis):
             else:
                 if self.flag_logging:
                     logging.warning(f"Missing data for shot {shot_num}, adding zero array.")
-                # kj comment: not sure the below makes sense.
-                # Will keep code for now but comment out.
-                # if expected_image_size:
-                #     images.append(np.zeros(expected_image_size, dtype=np.uint16))
 
         return images
 
@@ -486,7 +486,7 @@ class CameraImageAnalysis(ScanAnalysis):
             image_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
             if image_file:
                 data['shot_num'].append(shot_num)
-                data['images'].append(read_imaq_png_image(image_file))
+                data['images'].append(read_imaq_image(image_file))
             else:
                 if self.flag_logging:
                     logging.warning(f"Missing data for shot {shot_num}.")
