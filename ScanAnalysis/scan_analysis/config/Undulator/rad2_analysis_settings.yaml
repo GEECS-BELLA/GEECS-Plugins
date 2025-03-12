@@ -62,7 +62,9 @@ visa9:
   yag_screen: False
   center_yx: [1500, 1300]
   incoherent_fit: [1625.01620916, -37119.80952916]
+  zeroth_order: 273.2
+  wavelength_per_pixel: 0.39883
   calibration_dates:
     crop_region: '03/06/2025'
     incoherent: '03/06/2025'
-    wavelength: 'NA'
+    wavelength: '03/04/2025'
