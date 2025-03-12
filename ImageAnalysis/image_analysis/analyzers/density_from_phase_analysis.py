@@ -79,7 +79,7 @@ import cv2
 import matplotlib.pyplot as plt
 import abel  # pip install pyabel
 import abc
-from typing import Optional, Tuple, TYPE_CHECKING, NewType
+from typing import Optional, Tuple, Union, TYPE_CHECKING, NewType
 
 from dataclasses import dataclass
 import scipy.ndimage as ndimage
@@ -161,9 +161,10 @@ class PhasePreprocessor:
     """
     Handles cropping and background subtraction for phase data.
     """
-    def __init__(self, config: PhaseAnalysisConfig) -> None:
+    def __init__(self, config: PhaseAnalysisConfig, debug_mode: bool = False) -> None:
         self.config = config
         self.phase_array = None
+        self.debug_mode = debug_mode
 
     @staticmethod
     def subtract_background(phase_data:NDArray, background: np.ndarray) -> NDArray:
@@ -405,7 +406,7 @@ class PhaseDownrampProcessor(ImageAnalyzer):
     Handles cropping and background subtraction for phase data.
     """
 
-    def __init__(self, config: PhaseAnalysisConfig) -> None:
+    def __init__(self, config: PhaseAnalysisConfig, debug_mode:bool = False) -> None:
         self.config = config
 
         self.processor  = PhasePreprocessor(config)
@@ -419,17 +420,21 @@ class PhaseDownrampProcessor(ImageAnalyzer):
 
         super().__init__()
 
-    def process_phase(self, file_path: Path) -> Tuple[NDArray,NDArray]:
+    def process_phase(self, file_path: Path) -> Tuple[NDArray,dict[str,float]]:
         """
         Parameters: file_path
         """
         loader: PhaseDataLoader = PhaseDataLoader(file_path)
         phase_array = loader.load_data()
+        plt.imshow(phase_array, cmap='viridis', origin='lower')
+        plt.title("first phase")
+        plt.show()
 
-        phase_array = self.processor.subtract_background(phase_array,self.bg_data)
-        # plt.imshow(phase_array, cmap='viridis', origin='lower')
-        # plt.title("processed phase")
-        # plt.show()
+        phase_array = self.processor.subtract_background(phase_array, self.bg_data)
+
+        plt.imshow(phase_array, cmap='viridis', origin='lower')
+        plt.title("bkg subtracted phase")
+        plt.show()
         if self.config.roi is not None:
             x_min, x_max, y_min, y_max = self.config.roi
             phase_array = self.processor.crop(phase_array, x_min, x_max, y_min, y_max)
@@ -439,32 +444,49 @@ class PhaseDownrampProcessor(ImageAnalyzer):
         # plt.show()
 
         rotation_result = self.processor.rotate_phase_data(phase_array)
-        # plt.imshow(rotation_result[0], cmap='viridis', origin='lower')
-        # plt.title("processed phase")
-        # plt.show()
+        plt.imshow(rotation_result[0], cmap='viridis', origin='lower')
+        plt.title("processed phase")
+        plt.show()
 
         polynomial_subtraction_result = self.processor.remove_background_polyfit(phase_array)
 
         phase_array = polynomial_subtraction_result[0]
         thresh_data = threshold_data(phase_array, self.config.threshold_fraction)
 
+        plt.imshow(thresh_data, cmap='viridis', origin='lower')
+        plt.title("processed phase")
+        plt.show()
+
         return phase_array, rotation_result[1]
 
-    def analyze_image(self, file_path: Path) -> NDArray:
+    def analyze_image(self, image: NDArray = None, file_path: Path = None) -> dict[str, Union[float, int, str, np.ndarray]]:
+
+        """
+        Apply some HTU specific processing of a phase map showing a density down ramp feature.
+
+        Parameters:
+            image (NDArray): None. This part of the signature for the base class, but this analyzer
+                requires loading of an already post processed file
+            file_path (Path): Path to the image file.
+
+        Returns:
+            A dictionary containing results (e.g., phase map and/or related parameters).
+
+        """
 
         try:
             processed_phase = self.process_phase(file_path)
-            logging.info(f'processed {file_path}')
+            logging.info(f'processed {image}')
 
         except Exception as e:
-            logging.warning(f'could not process {file_path}')
+            logging.warning(f'could not process {image}')
             raise
 
         # self.downramp_phase_analysis(processed_phase[1])
 
-        # plt.imshow(processed_phase[0], cmap='viridis', origin='lower')
-        # plt.title("processed phase")
-        # plt.show()
+        plt.imshow(processed_phase[0], cmap='viridis', origin='lower')
+        plt.title("processed phase")
+        plt.show()
 
         return {'processed_image':processed_phase[0],'analysis_results':processed_phase[1]}
 
