@@ -11,7 +11,6 @@ import yaml
 import logging
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.ndimage import median_filter
 from scipy.signal import butter, filtfilt
 
 from pathlib import Path
@@ -56,8 +55,16 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         self.background_mode = background_mode
         self.incoherent_signal_fit: Optional[tuple[float, float]] = None
 
+        self.crop_height: Optional[int] = None
+        self.crop_width: Optional[int] = None
+        self.zeroth_order_location: Optional[float] = None
+        self.wavelength_calibration: Optional[float] = None
         self.crop_region: Optional[tuple[int, int, int, int]] = None
+        self.background_threshold: float = self.camera_analysis_settings.get('Background Level', 2)
+        # background_full = np.load(Path(__file__).parents[3] / 'calibrations' / 'Undulator' / 'rad2_background.npy')
+
         self.set_visa_settings()
+        # self.background_roi = self.crop_rad2(background_full)
 
     def run_noscan_analysis(self, config_options: Optional[str] = None):
         df = self.auxiliary_data
@@ -69,18 +76,27 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         visa_intensity_arr = np.zeros(len(charge))
         cropped_image_list = []
         cropped_image_num = []
+        photon_lineouts = []
+        energy_spectrum: Optional[np.ndarray] = None
 
         for i in range(len(charge)):
             shot_filename = ScanData.get_device_shot_path(self.tag, self.device_name, i+1)
             try:
                 raw_image = read_imaq_png_image(Path(shot_filename))*1.0
+                if energy_spectrum is None and self.zeroth_order_location and self.wavelength_calibration:
+                    pixel_axis = np.arange(0, np.shape(raw_image)[1])
+                    wavelength_axis = (pixel_axis - self.zeroth_order_location) * self.wavelength_calibration
+                    energy_spectrum = wavelength_axis[self.crop_region[2]+1: self.crop_region[3]-1]
+
                 if self.debug_mode:
                     plt.imshow(np.log(raw_image+1))
                     plt.show()
 
-                cropped_image = self.crop_rad2(raw_image)
-                image = image_processing_funcs.threshold_reduction(cropped_image, 4)
-                image = median_filter(image, size=3)
+                image = self.crop_rad2(raw_image)
+                image = image_processing_funcs.threshold_reduction(image, self.background_threshold)
+                image = self.filter_image(image)
+
+                #image = image_processing_funcs.threshold_reduction(image, self.background_roi)
 
                 cropped_image_list.append(image)
                 cropped_image_num.append(i+1)
@@ -93,22 +109,25 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 
                 # photons_arr[i] = np.sum(image)
                 photons_arr[i] = np.sum(filtered_data)
+                photon_lineouts.append(filtered_data)
 
                 if self.debug_mode:
                     plt.imshow(image)  # ,vmin=0, vmax=7)
                     plt.show()
 
                     projection_minimum = np.min(filtered_data)
-                    plt.plot(projection_arr[1:-1] - projection_minimum)
-                    plt.plot(filtered_data - projection_minimum)
+                    plt.plot(energy_spectrum, projection_arr[1:-1] - projection_minimum)
+                    plt.plot(energy_spectrum, filtered_data - projection_minimum)
                     plt.show()
 
             except FileNotFoundError:
                 logging.warning(f"{self.device_name} shot {i+1} not found")
                 photons_arr[i] = 0
+                photon_lineouts.append(np.zeros(self.crop_width - 2))
             except OSError:
                 logging.warning(f"OSError at {self.device_name} shot {i+1}??")
                 photons_arr[i] = 0
+                photon_lineouts.append(np.zeros(self.crop_width - 2))
 
             if self.visa_device:
                 visa_camera_shot = ScanData.get_device_shot_path(self.tag, self.visa_device, i+1)
@@ -197,12 +216,18 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 
         self.display_contents.append(str(save_path))
 
+        if energy_spectrum:
+            scan_spectrum = np.vstack([energy_spectrum, photon_lineouts])
+            lineout_save_path = save_path.parent / 'scan_spectrum.npy'
+            np.save(lineout_save_path, scan_spectrum)
+            if self.flag_logging:
+                logging.info(f"Lineouts saved at '{lineout_save_path}'")
+
         if not self.background_mode:
             self.append_to_sfile({'UC_Rad2_CameraCounts': photons_arr})
             logging.info("Wrote camera counts to sfile")
             if p:
                 estimated_gain = np.where(charge > 5, photons_arr / p(charge), 0)
-                print(estimated_gain)
                 self.append_to_sfile({'UC_Rad2_EstimatedGain': estimated_gain})
                 logging.info("Wrote estimated gain to sfile")
 
@@ -225,24 +250,30 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 
         visa_station_settings = configuration_file_contents.get(f"visa{self.visa_station}", None)
         if visa_station_settings is None:
-            raise KeyError(f"Visa station {self.visa_station} not found in {self.rad2_config_file}.")
+            if self.debug_mode:
+                print("No configured visa station, continuing in debug mode")
+                return
+            else:
+                raise KeyError(f"Visa station {self.visa_station} not found in {self.rad2_config_file}.")
 
         center = visa_station_settings.get('center_yx', None)
         self.incoherent_signal_fit = visa_station_settings.get('incoherent_fit', None)
         is_yag_screen: Optional[bool] = visa_station_settings.get('yag_screen', None)
+        self.zeroth_order_location = visa_station_settings.get('zeroth_order', None)
+        self.wavelength_calibration = visa_station_settings.get('wavelength_per_pixel', None)
 
         if is_yag_screen is None or center is None:
             raise KeyError(f"Missing required information in Visa station {self.visa_station}")
 
         if is_yag_screen:
-            height = 600
-            width = 800
+            self.crop_height = 600
+            self.crop_width = 800
         else:
-            height = 800
-            width = 1100
+            self.crop_height = 800
+            self.crop_width = 1100
 
-        self.crop_region = [center[0]-int(height/2), center[0]+int(height/2),
-                            center[1]-int(width/2), center[1]+int(width/2)]
+        self.crop_region = [center[0]-int(self.crop_height/2), center[0]+int(self.crop_height/2),
+                            center[1]-int(self.crop_width/2), center[1]+int(self.crop_width/2)]
 
     def crop_rad2(self, input_image: np.ndarray) -> np.ndarray:
         """ Based on the currently-specified visa station, crop a specific region of the camera.
@@ -257,6 +288,9 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             return input_image[self.crop_region[0]: self.crop_region[1], self.crop_region[2]: self.crop_region[3]]
         else:
             return input_image
+
+    def get_visa_station(self):
+        return self.visa_station
 
     def butter_lowpass(self, cutoff, fs, order=5):
         nyquist = 0.5 * fs
@@ -273,6 +307,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=25, experiment_name='Undulator')
-    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=True, debug_mode=False, background_mode=False)
+    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=90, experiment_name='Undulator')
+    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False, background_mode=False)
     analyzer.run_analysis()
