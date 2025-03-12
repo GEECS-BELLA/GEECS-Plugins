@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import configparser
 import numpy as np
-from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union, Type, Any
 if TYPE_CHECKING:
     from .types import Array2D
@@ -59,7 +58,7 @@ class ImageAnalyzer:
         pass
 
     def analyze_image(self,
-                      image: Union[Array2D, Path],
+                      image: Array2D,
                       auxiliary_data: Optional[dict] = None
                       ) -> dict[str, Union[float, int, str, np.ndarray]]:
         """ Calculate metrics from an image.
@@ -71,7 +70,7 @@ class ImageAnalyzer:
 
         Parameters
         ----------
-        image : 2d array or Path to image file
+        image : 2d array
         auxiliary_data : dict
             Additional data used by the image analyzer for this image, such as
             image range.
@@ -83,6 +82,7 @@ class ImageAnalyzer:
 
         """
         raise NotImplementedError()
+
 
 class LabviewImageAnalyzer(ImageAnalyzer):
     """
