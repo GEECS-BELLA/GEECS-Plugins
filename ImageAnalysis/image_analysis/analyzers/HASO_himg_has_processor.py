@@ -15,13 +15,9 @@ except Exception as e:
 
 import logging
 
-import numpy as np
-from warnings import warn
 
 from image_analysis.base import ImageAnalyzer
-from image_analysis.utils import ROI, NotAPath
-
-from image_analysis import ureg, Q_, Quantity
+from image_analysis.utils import ROI
 
 from dataclasses import dataclass
 
@@ -86,6 +82,9 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
         self.flag_logging = True
 
+        self.raw_slopes: wkpy.HasoSlopes = None
+        self.processed_slopes: wkpy.HasoSlopes = None
+
         super().__init__()
 
         config_file_path = Path('C:/GEECS/Developers Version/source/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
@@ -129,16 +128,18 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
             self.post_processor = wkpy.SlopesPostProcessor()
 
-        except Exception as e:
+        except Exception:
             self._log_warning(
                 f"Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file")
             raise
 
-    def analyze_image(self, file_path: Path) -> Tuple[wkpy.HasoSlopes, wkpy.HasoSlopes, NDArray, NDArray, NDArray]:
+    def analyze_image(self, image: NDArray = None, file_path: Path = None) -> Tuple[wkpy.HasoSlopes, wkpy.HasoSlopes, NDArray, NDArray, NDArray]:
         """
         Create phase map from a .himg or .has file.
 
         Parameters:
+            image (NDArray): None. This part of the signature for the base class, but this analyzer
+                requires loading of the image and processing with a third party SDK
             file_path: Path to the image file.
 
         Returns:
@@ -169,7 +170,7 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
         return self.raw_slopes, self.processed_slopes, raw_phase, processed_phase, haso_intensity
 
-    def create_slopes_object_from_himg(self, image_file_path: Path) -> HasoSlopes:
+    def create_slopes_object_from_himg(self, image_file_path: Path) -> wkpy.HasoSlopes:
         """
         Compute and save the slopes file (.has) from the provided image file.
 
@@ -185,10 +186,10 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         try:
             # Create the necessary Wavekit objects.
             image = wkpy.Image(image_file_path=image_file_str)
-        except Exception as e:
+        except Exception:
             self._log_warning(
                 "Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file")
-            return None
+            raise
 
         # Compute slopes
         learn_from_trimmer = False
@@ -196,17 +197,18 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
         return hasoslopes
 
-    def load_slopes_from_has_file(self, slopes_file_path: Path) -> HasoSlopes:
+    @staticmethod
+    def load_slopes_from_has_file(slopes_file_path: Path) -> wkpy.HasoSlopes:
 
         hasoslopes = wkpy.HasoSlopes(has_file_path=str(slopes_file_path))
         return hasoslopes
 
-    def post_process_slopes(self) -> HasoSlopes:
+    def post_process_slopes(self):
         self.processed_slopes = self.raw_slopes
         self.reference_subtract(self.background_path)
         self.apply_filter_wrapper(self.filter_params)
 
-    def reference_subtract(self, background_path: Optional[Path] = None) -> HasoSlopes:
+    def reference_subtract(self, background_path: Optional[Path] = None):
         if background_path:
             #TODO: add a check that the background path is to a .has file
             bkg_data = wkpy.HasoSlopes(has_file_path=str(background_path))
@@ -225,12 +227,12 @@ class HASOHimgHasProcessor(ImageAnalyzer):
             filter_params.apply_others_filter
         )
 
-    def compute_phase_from_slopes(self, slopes_data: HasoSlopes) -> float|NDArray:
+    def compute_phase_from_slopes(self, slopes_data: wkpy.HasoSlopes) -> float|NDArray:
         """
         Compute phase data from the provided slopes file (.has) and save the result as a TSV.
 
         Args:
-            slopes_file_path (Path): Path to the slopes (.has) file.
+            slopes_data (wkpy.HasoSlopes): slopes data
 
         Returns:
             DataFrame: The computed phase data.
