@@ -67,10 +67,10 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
             return devices[0]
 
         elif len(devices) > 1:
-            raise Exception("Multiple compatible device directories detected. Please define explicitly.")
+            raise FileNotFoundError("Multiple compatible device directories detected. Please define explicitly.")
 
         elif len(devices) == 0:
-            raise Exception("No compatible device directory detected. Something ain't right here.")
+            raise FileNotFoundError("No compatible device directory detected. Something ain't right here.")
 
     def apply_cross_mask(self, image: np.ndarray) -> np.ndarray:
         settings = self.camera_analysis_settings

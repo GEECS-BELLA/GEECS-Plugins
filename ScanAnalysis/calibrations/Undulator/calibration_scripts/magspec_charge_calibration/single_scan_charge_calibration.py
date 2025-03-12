@@ -29,8 +29,8 @@ def linear(x, a):
 
 doPrint = False
 normalizationCheck = False
-
-sampleCase = 1
+key = 'U_BCaveICT Charge pC'
+sampleCase = 2
 if sampleCase == 1:
     data_day = 9
     data_month = 5
@@ -51,6 +51,15 @@ elif sampleCase == 102:
     data_year = 2023
     scan_number = 24
     image_name = "U_HiResMagCam"
+
+elif sampleCase == 2:
+    data_day = 6
+    data_month = 3
+    data_year = 2025
+    scan_number = 22
+    image_name = "UC_HiResMagCam"
+    #image_name = "UC_BCaveMagSpecCam1"
+    key = 'U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'
 
 else:
     print("Pick a valid sample case!")
@@ -78,15 +87,16 @@ calibration_analyzer = UC_GenericMagSpecCamAnalyzer(
 
 input_params = calibration_analyzer.build_input_parameter_dictionary()
 
-num_shots = len(scan_data.data_frame['U_BCaveICT Charge pC'])
+picoscope_charge_arr = scan_data.data_frame[key]
+num_shots = len(picoscope_charge_arr)
 
-shot_arr = np.array(range(num_shots)) + 1
+shot_arr = np.array(range(num_shots))+1
 
 clipping_arr = np.zeros(num_shots)
 saturation_arr = np.zeros(num_shots)
 camera_counts_arr = np.zeros(num_shots)
+camera_counts_arr_alt = np.zeros(num_shots)
 
-picoscope_charge_arr = scan_data.data_frame['U_BCaveICT Charge pC']
 
 for i in range(len(shot_arr)):
     if i % 10 == 0:
@@ -96,21 +106,43 @@ for i in range(len(shot_arr)):
         print("Shot Number:", shot_number)
 
     fullpath = ScanData.get_device_shot_path(scan_tag, image_name, int(shot_number))
-    image = read_imaq_png_image(Path(fullpath))*1.0
-    if doPrint:
-        print("Loaded")
+    try:
+        image = read_imaq_png_image(Path(fullpath)) * 1.0
+        if doPrint:
+            print("Loaded")
 
-    analyzer_returns = calibration_analyzer.analyze_image(image)
-    mag_spec_dict = analyzer_returns["analyzer_return_dictionary"]
-    clipping_arr[i] = mag_spec_dict['camera_clipping_factor']
-    saturation_arr[i] = mag_spec_dict['camera_saturation_counts']
-    camera_counts_arr[i] = mag_spec_dict['total_charge_pC']
-    if doPrint:
-        print("Clipped Percentage:", clipping_arr[i])
-        print("Saturation Counts:", saturation_arr[i])
-        print("Camera Counts:", camera_counts_arr[i])
-        print("Picoscope Charge:", picoscope_charge_arr[i])
+        analyzer_returns = calibration_analyzer.analyze_image(image)
+        mag_spec_dict = analyzer_returns["analyzer_return_dictionary"]
+        clipping_arr[i] = mag_spec_dict['camera_clipping_factor']
+        saturation_arr[i] = mag_spec_dict['camera_saturation_counts']
+        camera_counts_arr[i] = mag_spec_dict['total_charge_pC']
+        if doPrint:
+            print("Clipped Percentage:", clipping_arr[i])
+            print("Saturation Counts:", saturation_arr[i])
+            print("Camera Counts:", camera_counts_arr[i])
+            print("Picoscope Charge:", picoscope_charge_arr[i])
+    except FileNotFoundError:
+        print(f"No file for shot {shot_number}")
+        clipping_arr[i] = 100
+        saturation_arr[i] = 100
+        camera_counts_arr[i] = 0
+
+"""
+    image_name_alt = 'UC_BCaveMagSpecCam1'
+    fullpath_alt = ScanData.get_device_shot_path(scan_tag, image_name_alt, int(shot_number))
+    try:
+        image = read_imaq_png_image(Path(fullpath_alt)) * 1.0
+        camera_counts_arr_alt[i] = np.sum(image)
+    except FileNotFoundError:
+        print(f"No file for shot {shot_number}")
+        camera_counts_arr_alt[i] = 0
+plt.scatter(camera_counts_arr, camera_counts_arr_alt)
+plt.show()
+"""
+
 print()
+
+
 
 clip_tolerance = 0.001
 clip_pass = np.where(clipping_arr < clip_tolerance)[0]

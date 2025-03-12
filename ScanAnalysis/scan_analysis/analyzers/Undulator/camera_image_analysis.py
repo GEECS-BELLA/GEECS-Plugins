@@ -23,9 +23,11 @@ import imageio as io
 from scan_analysis.base import ScanAnalysis
 from image_analysis.utils import read_imaq_image
 
+import traceback
+PRINT_TRACEBACK = False
+
 
 # %% classes
-
 class CameraImageAnalysis(ScanAnalysis):
 
     def __init__(self, scan_tag: ScanTag, device_name: str,
@@ -100,6 +102,8 @@ class CameraImageAnalysis(ScanAnalysis):
             return self.display_contents
 
         except Exception as e:
+            if PRINT_TRACEBACK:
+                print(traceback.format_exc())
             if self.flag_logging:
                 logging.warning(f"Warning: Image analysis failed due to: {e}")
             return

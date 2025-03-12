@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'ScAnalyzer.ui'
+# Form implementation generated from reading ui file '.\ScAnalyzer.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.9
 #
@@ -19,10 +19,10 @@ class Ui_MainWindow(object):
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.buttonStart = QtWidgets.QPushButton(self.centralwidget)
-        self.buttonStart.setGeometry(QtCore.QRect(20, 320, 93, 28))
+        self.buttonStart.setGeometry(QtCore.QRect(20, 340, 93, 28))
         self.buttonStart.setObjectName("buttonStart")
         self.buttonStop = QtWidgets.QPushButton(self.centralwidget)
-        self.buttonStop.setGeometry(QtCore.QRect(130, 320, 93, 28))
+        self.buttonStop.setGeometry(QtCore.QRect(130, 340, 93, 28))
         self.buttonStop.setObjectName("buttonStop")
         self.inputYear = QtWidgets.QLineEdit(self.centralwidget)
         self.inputYear.setGeometry(QtCore.QRect(90, 60, 113, 22))
@@ -73,6 +73,12 @@ class Ui_MainWindow(object):
         self.checkBoxOverwrite = QtWidgets.QCheckBox(self.centralwidget)
         self.checkBoxOverwrite.setGeometry(QtCore.QRect(20, 260, 191, 20))
         self.checkBoxOverwrite.setObjectName("checkBoxOverwrite")
+        self.lineDocumentID = QtWidgets.QLineEdit(self.centralwidget)
+        self.lineDocumentID.setGeometry(QtCore.QRect(90, 300, 113, 22))
+        self.lineDocumentID.setObjectName("lineDocumentID")
+        self.label = QtWidgets.QLabel(self.centralwidget)
+        self.label.setGeometry(QtCore.QRect(10, 300, 81, 21))
+        self.label.setObjectName("label")
         MainWindow.setCentralWidget(self.centralwidget)
 
         self.retranslateUi(MainWindow)
@@ -91,13 +97,4 @@ class Ui_MainWindow(object):
         self.labelScanSettings.setText(_translate("MainWindow", "Scan Settings"))
         self.buttonAnalysisActivator.setText(_translate("MainWindow", "Analysis Activator"))
         self.checkBoxOverwrite.setText(_translate("MainWindow", "Overwrite Processed Scans"))
-
-
-if __name__ == "__main__":
-    import sys
-    app = QtWidgets.QApplication(sys.argv)
-    MainWindow = QtWidgets.QMainWindow()
-    ui = Ui_MainWindow()
-    ui.setupUi(MainWindow)
-    MainWindow.show()
-    sys.exit(app.exec_())
+        self.label.setText(_translate("MainWindow", "DocumentID"))
