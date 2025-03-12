@@ -19,7 +19,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo  # Available in Python 3.9+
 
 try:
-    import scan_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
+    import image_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
 except:
     logging.warning(f'wavekit not installed properly')
     
@@ -194,8 +194,9 @@ def get_haso_timestamp(file_path):
     
 def get_himg_timestamp(image_file_path: Path)-> float:
     image_file_path_str = str(image_file_path)
-    haso_image = wkpy.Image(image_file_path =image_file_path_str)
-    meta_data = haso_image.get_info_from_file(image_file_path_str)[1]
+
+    meta_data = wkpy.Image.get_info_from_file(image_file_path_str)[1]
+    
     timestamp = meta_data[2]
     return timestamp
 
@@ -321,3 +322,9 @@ class NotAPath(Path().__class__):
 
     def exists(self):
         return False
+
+
+if __name__ == '__main__':
+    file_path = Path('Z:\\data\\Undulator\\Y2025\\03-Mar\\25_0305\\scans\\Scan009\\U_HasoLift\\Scan009_U_HasoLift_001.himg')
+    print(file_path.exists())
+    ts = get_himg_timestamp(file_path)
