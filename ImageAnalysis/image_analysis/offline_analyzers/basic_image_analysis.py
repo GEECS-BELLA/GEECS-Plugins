@@ -53,4 +53,4 @@ class BasicImageAnalyzer(ImageAnalyzer):
                 raise ValueError("Either an image or file_path must be provided.")
             image = self.load_image(file_path)
 
-        return {'processed_image': image, 'analysis_results': {'test result':'hello'}}
+        return {'processed_image_uint16': image, 'analyzer_return_dictionary': {'test result':'hello'}}

@@ -61,15 +61,15 @@ def process_shot_parallel(
         logging.warning(f"Analyzer returned non-dict result for shot {shot_num}.")
         return shot_num, None, {}
 
-    if "processed_image" not in results_dict:
-        logging.warning(f"Shot {shot_num}: 'processed_image' key not found in analyzer result.")
+    if "processed_image_uint16" not in results_dict:
+        logging.warning(f"Shot {shot_num}: 'processed_image_uint16' key not found in analyzer result.")
         image = None
     else:
-        image = results_dict.get("processed_image")
+        image = results_dict.get("processed_image_uint16")
 
-    analysis = results_dict.get("analysis_results", {})
+    analysis = results_dict.get("analyzer_return_dictionary", {})
     if not isinstance(analysis, dict):
-        logging.warning(f"Shot {shot_num} analysis returned non-dict 'analysis_results'.")
+        logging.warning(f"Shot {shot_num} analysis returned non-dict 'analyzer_return_dictionary'.")
         analysis = {}
 
     if image is None and analysis:
@@ -178,8 +178,8 @@ class Array2DScanAnalysis(ScanAnalysis):
             If no processed image is returned but analysis results are available,
             update the auxiliary data and log the outcome, but do not add to self.data.
             """
-            image = analysis_result.get("processed_image")
-            analysis = analysis_result.get("analysis_results", {})
+            image = analysis_result.get("processed_image_uint16")
+            analysis = analysis_result.get("analyzer_return_dictionary", {})
 
             # Always update auxiliary data if analysis exists.
             if analysis:
@@ -250,7 +250,7 @@ class Array2DScanAnalysis(ScanAnalysis):
                     # If using the process pool, result is a tuple: (shot_num, image, analysis).
                     if isinstance(result, tuple):
                         _, image, analysis = result
-                        analysis_result = {"processed_image": image, "analysis_results": analysis}
+                        analysis_result = {"processed_image_uint16": image, "analyzer_return_dictionary": analysis}
                     else:
                         analysis_result = result
                     process_success(shot_num, analysis_result)
@@ -541,15 +541,15 @@ class Array2DScanAnalysis(ScanAnalysis):
             # Use the injected image analyzer
             logging.info(f'attempting to process {file_path}')
             results_dict = self.image_analyzer.analyze_image(file_path=file_path)
-            # Expecting results_dict to have keys: 'processed_image' and 'analysis_results'
-            image = results_dict.get("processed_image")
+            # Expecting results_dict to have keys: 'processed_image_uint16' and 'analyzer_return_dictionary'
+            image = results_dict.get("processed_image_uint16")
             if image is not None:
                 image = image.astype(np.uint16)
                 self.data['shot_num'].append(shot_num)
                 self.data['images'].append(image)
 
                 # Update auxiliary data if analysis results are provided
-                analysis_dict = results_dict.get("analysis_results", {})
+                analysis_dict = results_dict.get("analyzer_return_dictionary", {})
                 if analysis_dict:
                     for key, value in analysis_dict.items():
                         if not isinstance(value, numbers.Number):
@@ -650,7 +650,7 @@ if __name__ == "__main__":
     from scan_analysis.base import AnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan
     from geecs_python_api.controls.api_defs import ScanTag
-    from image_analysis.analyzers.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
+    from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
 
     perform_analysis = True
     analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
