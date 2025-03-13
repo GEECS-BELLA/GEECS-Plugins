@@ -76,7 +76,8 @@ class ACaveMagCam3ImageAnalyzer(BasicImageAnalyzer):
             roi_analysis_result[f'{roi_name}:max'] = max_val
 
         # Append the flattened result dictionary to your list
-        return {'processed_image':roi_image, 'analysis_results': roi_analysis_result}
+        return_dictionary = self.build_return_dictionary(return_image=roi_image, return_scalars=roi_analysis_result)
+        return return_dictionary
 
 if __name__ == "__main__":
     image_analyzer  = ACaveMagCam3ImageAnalyzer()
