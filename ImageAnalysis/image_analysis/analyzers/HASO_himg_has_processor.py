@@ -231,7 +231,7 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
             filter_params.apply_others_filter
         )
 
-    def compute_phase_from_slopes(self, slopes_data: wkpy.HasoSlopes) -> float|NDArray:
+    def compute_phase_from_slopes(self, slopes_data: wkpy.HasoSlopes) -> NDArray:
         """
         Compute phase data from the provided slopes file (.has) and save the result as a TSV.
 
@@ -248,19 +248,22 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
         return phase_values
 
     def save_individual_results(self, result):
-        # Unpack the returned tuple.
+
         base_file_path = self.file_path.parent
+        file_stem = self.file_path.stem
+        logging.info(f'base file path is {base_file_path}')
+        # Unpack the returned tuple.
         raw_slopes, processed_slopes, raw_phase, processed_phase, intensity = result
 
-        self.slopes_file_path_raw = self.path_dict['save'] / f"{base_file_path}_raw.has"
-        self.slopes_file_path_postprocessed = self.path_dict['save'] / f"{base_file_path}_postprocessed.has"
+        self.slopes_file_path_raw = base_file_path / f"{file_stem}_raw.has"
+        self.slopes_file_path_postprocessed = base_file_path / f"{file_stem}_postprocessed.has"
 
         self.save_slopes_file(slopes_data=raw_slopes, save_path=self.slopes_file_path_raw)
         self.save_slopes_file(slopes_data=processed_slopes, save_path=self.slopes_file_path_postprocessed)
 
-        self.raw_phase_file_path = self.path_dict['save'] / f"{base_file_path}_raw.tsv"
-        self.processed_phase_file_path = self.path_dict['save'] / f"{base_file_path}_postprocessed.tsv"
-        self.intensity_file_path = self.path_dict['save'] / f"{base_file_path}_intensity.tsv"
+        self.raw_phase_file_path = base_file_path / f"{file_stem}_raw.tsv"
+        self.processed_phase_file_path = base_file_path/ f"{file_stem}_postprocessed.tsv"
+        self.intensity_file_path = base_file_path / f"{file_stem}_intensity.tsv"
 
         self.save_phase_file(phase_values=raw_phase, save_path=self.raw_phase_file_path)
         self.save_phase_file(phase_values=processed_phase, save_path=self.processed_phase_file_path)
@@ -269,7 +272,7 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
     def save_slopes_file(self, slopes_data: wkpy.HasoSlopes, save_path: Path):
         slopes_data.save_to_file(str(save_path), '', '')
 
-    def save_phase_file(phase_values: float | NDArray, save_path: Path) -> None:
+    def save_phase_file(self, phase_values: NDArray, save_path: Path) -> None:
 
         # Convert phase_values to a numpy array (if it's a scalar, it'll become a 0-d array).
         arr = np.array(phase_values)
@@ -283,6 +286,9 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
 
 if __name__ == "__main__":
     has  = HASOHimgHasProcessor()
+    path_to_himg = Path('Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001.himg')
     path_to_has = Path('Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001_raw.has')
+
     haso_processor = HASOHimgHasProcessor()
     print(haso_processor.roi)
+    haso_processor.analyze_image(file_path = path_to_himg)
