@@ -10,6 +10,9 @@ from scan_analysis.analyzers.Undulator.hamaspectro_analysis import FiberSpectrom
 from scan_analysis.analyzers.Undulator.frog_analysis import FrogAnalysis
 
 from image_analysis.analyzers.basic_image_analysis import BasicImageAnalyzer
+from image_analysis.analyzers.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
+from image_analysis.analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
+
 
 
 undulator_analyzers = [
@@ -50,11 +53,12 @@ undulator_analyzers = [
     Info(analyzer_class=FrogAnalysis,
          requirements={'U_FROG_Grenouille-Temporal'},
          device_name='U_FROG_Grenouille-Temporal'),
-    # Info(analyzer_class=CameraImageAnalysis,
-    #      requirements={'UC_ACaveMagCam3'},
-    #      device_name='UC_ACaveMagCam3'),
     Info(analyzer_class=Array2DScanAnalysis,
          requirements={'UC_ACaveMagCam3'},
          device_name='UC_ACaveMagCam3',
-         image_analyzer_class = ACaveMagCam3ImageAnalyzer)
+         image_analyzer_class = ACaveMagCam3ImageAnalyzer),
+    Info(analyzer_class=Array2DScanAnalysis,
+         requirements={'U_HasoLift'},
+         device_name='U_HasoLift',
+         image_analyzer_class=HASOHimgHasProcessor)
 ]
