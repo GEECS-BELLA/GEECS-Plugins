@@ -7,6 +7,8 @@ from scan_analysis.execute_scan_analysis import analyze_scan
 from scan_analysis.base import AnalyzerInfo as Info
 from scan_analysis.analyzers.Undulator.array2D_scan_analysis import Array2DScanAnalysis
 from image_analysis.analyzers.basic_image_analysis import BasicImageAnalyzer
+from image_analysis.analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
+
 
 
 
@@ -41,6 +43,14 @@ class TestExecuteAnalysis(unittest.TestCase):
         test_tag = ScanTag(year=2025, month=3, day=6, number=39, experiment='Undulator')
         test_analyzer = analyzer_info
         analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
+
+    def test_HasoLift(self):
+        analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
+             requirements={'U_HasoLift'},
+             device_name='U_HasoLift',
+             image_analyzer_class=HASOHimgHasProcessor)
+        test_tag = ScanTag(year=2025, month=2, day=19, number=2, experiment='Undulator')
+        analyze_scan(test_tag, [analyzer_info])
 
 
 if __name__ == "__main__":
