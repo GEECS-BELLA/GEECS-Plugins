@@ -18,7 +18,7 @@ class ACaveMagCam3ImageAnalyzer(BasicImageAnalyzer):
         ----------
 
         """
-
+        self.run_analyze_image_asynchronously = True
         self.flag_logging = True
 
         super().__init__()

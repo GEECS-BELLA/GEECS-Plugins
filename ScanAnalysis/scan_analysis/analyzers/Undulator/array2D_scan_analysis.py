@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Union, Optional, List
 
+
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
     from numpy.typing import NDArray
@@ -18,24 +19,47 @@ import logging
 import numpy as np
 import numbers
 import cv2
+import matplotlib
+use_interactive = False
+if not use_interactive:
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
+
 import imageio as io
 
 from scan_analysis.base import ScanAnalysis
 
 from image_analysis.analyzers.basic_image_analysis import BasicImageAnalyzer
-from image_analysis.base import ImageAnalyzer
+
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 import traceback
 PRINT_TRACEBACK = False
+
+
+def process_shot_parallel(shot_num: int, file_path: Path, analyzer_class: type[BasicImageAnalyzer]) -> tuple[
+    int, np.ndarray, dict]:
+    """
+    Helper function for parallel processing in a separate process.
+    Creates a new analyzer instance from analyzer_class, processes the image,
+    and returns the shot number, processed image, and analysis results.
+    """
+
+    # Instantiate a fresh analyzer in this process
+    analyzer = analyzer_class()
+    results_dict = analyzer.analyze_image(file_path=file_path)
+    image = results_dict.get("processed_image")
+    analysis = results_dict.get("analysis_results", {})
+    return shot_num, image, analysis
+
 
 # %% classes
 class Array2DScanAnalysis(ScanAnalysis):
 
     def __init__(self, scan_tag: ScanTag,
                  device_name: str,
-                 image_analyzer: Optional[ImageAnalyzer] = None,
+                 image_analyzer: Optional[BasicImageAnalyzer] = None,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
                  flag_save_images: bool = True):
@@ -74,31 +98,34 @@ class Array2DScanAnalysis(ScanAnalysis):
                 logging.warning(f"Data directory '{self.path_dict['data_img']}' does not exist or is empty. Skipping")
 
     def run_analysis(self, config_options: Optional[str] = None):
-        # initialize analysis
         if self.path_dict['data_img'] is None or self.auxiliary_data is None:
             if self.flag_logging:
                 logging.info("Skipping analysis due to missing data or auxiliary file.")
             return
 
-        # initialize various analysis parameters
         if config_options is not None:
-            # TODO read the given file to `self.camera_analysis_settings`
             raise NotImplementedError
 
-        # if saving, make sure save location exists
         if self.flag_save_images and not self.path_dict['save'].exists():
             self.path_dict['save'].mkdir(parents=True)
 
-        # delegate analysis type
         try:
-            if self.noscan:
-                self.run_noscan_analysis()
-            else:
-                self.run_scan_analysis()
+            # # Process each shot in a common method.
+            # self._process_all_shots()
 
+            # Run the image analyzer on every shot in parallel.
+            self._process_all_shots_parallel()
+
+            # Depending on the scan type, perform additional processing.
+            if self.noscan:
+                self._postprocess_noscan()
+            else:
+                if use_interactive:
+                    self._postprocess_scan_interactive()
+                else:
+                    self._postprocess_scan_parallel()
 
             self.auxiliary_data.to_csv(self.auxiliary_file_path, sep='\t', index=False)
-
             return self.display_contents
 
         except Exception as e:
@@ -107,6 +134,232 @@ class Array2DScanAnalysis(ScanAnalysis):
             if self.flag_logging:
                 logging.warning(f"Warning: Image analysis failed due to: {e}")
             return
+
+    def _process_all_shots(self) -> None:
+        """Run the image analyzer on every shot and update self.data."""
+        # Clear existing data (if needed)
+        self.data = {'shot_num': [], 'images': []}
+        for shot_num in self.auxiliary_data['Shotnumber'].values:
+            image_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
+            img = self.get_image_analysis_result(shot_num, file_path=image_file)
+            if img is not None:
+                self.data['shot_num'].append(shot_num)
+                self.data['images'].append(img)
+
+    def _process_all_shots_parallel(self) -> None:
+        """
+        Run the image analyzer on every shot in parallel and update self.data.
+        This method uses both a ProcessPoolExecutor and a ThreadPoolExecutor
+        (depending on whether the analyzer should run asynchronously) and mirrors
+        the error handling and logging from your sample code.
+        """
+        # Clear existing data
+        self.data = {'shot_num': [], 'images': []}
+
+        # Define success and error handlers:
+        def process_success(shot_number: int, analysis_result: dict) -> None:
+            """
+            On successful analysis of a shot, update self.data and auxiliary_data.
+            """
+            image = analysis_result.get("processed_image")
+            analysis = analysis_result.get("analysis_results", {})
+            if image is not None:
+                image = image.astype(np.uint16)
+                self.data['shot_num'].append(shot_number)
+                self.data['images'].append(image)
+                # Update auxiliary data only with numeric values
+                for key, value in analysis.items():
+                    if not isinstance(value, numbers.Number):
+                        logging.warning(
+                            f"[{self.__class__.__name__} using {self.image_analyzer.__class__.__name__}] "
+                            f"analysis result for shot {shot_number} key '{key}' is not numeric (got {type(value).__name__}). Skipping."
+                        )
+                    else:
+                        self.auxiliary_data.loc[self.auxiliary_data['Shotnumber'] == shot_number, key] = value
+                logging.info(f"Finished processing shot {shot_number}.")
+
+        def process_error(shot_number: int, exception: Exception) -> None:
+            """
+            Log an error if processing a shot fails.
+            """
+            logging.error(f"Error while analyzing shot {shot_number}: {exception}")
+
+        # Gather tasks: each shot number paired with its file path.
+        tasks = []
+        for shot_num in self.auxiliary_data['Shotnumber'].values:
+            file_path = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
+            if file_path is not None:
+                tasks.append((shot_num, file_path))
+
+        # Dictionary to map futures to shot numbers.
+        image_analysis_futures = {}
+
+        # Submit image analysis jobs.
+        # Use ProcessPoolExecutor if the analyzer is CPU-bound,
+        # or ThreadPoolExecutor if run_analyze_image_asynchronously is True.
+        with ProcessPoolExecutor() as process_pool, ThreadPoolExecutor() as thread_pool:
+            for shot_num, file_path in tasks:
+                if self.image_analyzer.run_analyze_image_asynchronously:
+                    # For asynchronous (likely I/O-bound) processing, use the thread pool.
+                    future = thread_pool.submit(self.image_analyzer.analyze_image, image = None, file_path=file_path)
+                else:
+                    # For CPU-bound tasks, use the process pool.
+                    # Pass the analyzer's class so each process can create its own instance.
+                    future = process_pool.submit(process_shot_parallel, shot_num, file_path,
+                                                 self.image_analyzer.__class__)
+                image_analysis_futures[future] = shot_num
+
+            # Process completed futures.
+            for future in as_completed(image_analysis_futures):
+                shot_num = image_analysis_futures[future]
+                if (exception := future.exception()) is not None:
+                    process_error(shot_num, exception)
+                else:
+                    result = future.result()
+                    # If using the process pool, result is a tuple: (shot_num, image, analysis).
+                    # If using the thread pool, result is assumed to be the analysis dictionary.
+                    if isinstance(result, tuple):
+                        # Unpack the result from the process pool.
+                        _, image, analysis = result
+                        analysis_result = {"processed_image": image, "analysis_results": analysis}
+                    else:
+                        analysis_result = result
+                    process_success(shot_num, analysis_result)
+
+    def _postprocess_noscan(self) -> None:
+        """Perform post-processing for a no-scan: average images and create a GIF."""
+        avg_image = self.average_images(self.data['images'])
+        if self.flag_save_images:
+            self.save_geecs_scaled_image(avg_image, save_dir=self.path_dict['save'],
+                                         save_name=f'{self.device_name}_average_processed.png')
+            save_name = f'{self.device_name}_average_processed_visual.png'
+            self.save_normalized_image(avg_image, save_dir=self.path_dict['save'],
+                                       save_name=save_name, label=save_name)
+            display_content_path = Path(self.path_dict['save']) / save_name
+            self.display_contents.append(str(display_content_path))
+            # Create GIF
+            filepath = self.path_dict['save'] / 'noscan.gif'
+            self.create_gif(self.data['images'], filepath,
+                            titles=[f"Shot {num}" for num in self.data['shot_num']])
+            self.display_contents.append(str(filepath))
+
+    def _save_bin_images(self, bin_key: int, processed_image: np.ndarray) -> None:
+        """
+        Helper method to save images for a single bin.
+        This saves both the scaled and normalized images.
+        """
+        save_name_scaled = f"{self.device_name}_{bin_key}_processed.png"
+        save_name_normalized = f"{self.device_name}_{bin_key}_processed_visual.png"
+        self.save_geecs_scaled_image(processed_image,
+                                     save_dir=self.path_dict["save"],
+                                     save_name=save_name_scaled)
+        self.save_normalized_image(processed_image,
+                                   save_dir=self.path_dict["save"],
+                                   save_name=save_name_normalized)
+        if self.flag_logging:
+            logging.info(f"Saved bin {bin_key} images: {save_name_scaled} and {save_name_normalized}")
+
+    def _postprocess_scan_parallel(self) -> None:
+        """
+        Post-process a scanned variable by binning the images (from self.data) and then
+        saving the resulting images in parallel.
+        """
+        # Use your existing parallel (or sequential) binning method to create binned_data.
+        binned_data = self.bin_images_from_data(flag_save=False)  # we handle saving separately
+
+        # Save each bin's images concurrently using a thread pool.
+        if self.flag_save_images:
+            with ThreadPoolExecutor() as executor:
+                futures = []
+                for bin_key, bin_item in binned_data.items():
+                    processed_image = bin_item["image"]
+                    futures.append(executor.submit(self._save_bin_images, bin_key, processed_image))
+                for future in as_completed(futures):
+                    # Optionally handle exceptions:
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logging.error(f"Error saving images for a bin: {e}")
+
+        # Create an image grid if more than one bin exists.
+        if len(binned_data) > 1 and self.flag_save_images:
+            plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get("Plot Scale", None)
+            save_path = Path(self.path_dict["save"]) / f'{self.device_name}_averaged_image_grid.png'
+            self.create_image_array(binned_data, plot_scale=plot_scale, save_path=save_path)
+            self.display_contents.append(str(save_path))
+        self.binned_data = binned_data
+
+    def _postprocess_scan_interactive(self) -> None:
+        """Perform post-processing for a scan: bin images and create an image grid."""
+        binned_data = self.bin_images_from_data(flag_save=self.flag_save_images)
+        for bin_key, bin_item in binned_data.items():
+            processed_image = bin_item["image"]
+            if self.flag_save_images:
+                self.save_geecs_scaled_image(processed_image, save_dir=self.path_dict["save"],
+                                             save_name=f"{self.device_name}_{bin_key}_processed.png")
+                self.save_normalized_image(processed_image, save_dir=self.path_dict["save"],
+                                           save_name=f"{self.device_name}_{bin_key}_processed_visual.png")
+        if len(binned_data) > 1 and self.flag_save_images:
+            plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get("Plot Scale", None)
+            save_path = Path(self.path_dict["save"]) / f"{self.device_name}_averaged_image_grid.png"
+            self.create_image_array(binned_data, plot_scale=plot_scale, save_path=save_path)
+            self.display_contents.append(str(save_path))
+        self.binned_data = binned_data
+
+    def bin_images_from_data(self, flag_save: Optional[bool] = None) -> dict:
+        """
+        Groups the already processed images (stored in self.data) by their bin value
+        (as defined in self.auxiliary_data) and averages the images for each bin.
+
+        Args:
+            flag_save (bool): Whether to save the binned images. Defaults to self.flag_save_images.
+
+        Returns:
+            dict: A dictionary mapping each bin value to a dict with keys 'value' (the bin parameter)
+                  and 'image' (the averaged image).
+        """
+        if flag_save is None:
+            flag_save = self.flag_save_images
+
+        # Assume that self.auxiliary_data contains a column "Bin #" and that each shot number in self.data['shot_num']
+        # corresponds to an entry in self.auxiliary_data. Also, assume self.scan_parameter holds the name of the parameter
+        # used for binning.
+        unique_bins = np.unique(self.auxiliary_data["Bin #"].values)
+        if self.flag_logging:
+            logging.info(f"Unique bins from auxiliary data: {unique_bins}")
+
+        binned_data = {}
+        # Loop over each bin value
+        for bin_val in unique_bins:
+            # Get the shot numbers that belong to this bin.
+            bin_shots = self.auxiliary_data[self.auxiliary_data["Bin #"] == bin_val]["Shotnumber"].values
+            # Find the indices in self.data that match these shot numbers.
+            indices = [i for i, shot in enumerate(self.data["shot_num"]) if shot in bin_shots]
+            if not indices:
+                if self.flag_logging:
+                    logging.warning(f"No images found for bin {bin_val}.")
+                continue
+
+            # Gather the images for this bin.
+            images = [self.data["images"][i] for i in indices]
+            # Average the images (using your average_images method)
+            avg_image = self.average_images(images)
+            # Get a representative parameter value for the bin.
+            # Here we assume the auxiliary data contains a column with self.scan_parameter.
+            param_value = self.auxiliary_data.loc[
+                self.auxiliary_data["Bin #"] == bin_val, self.scan_parameter
+            ].mean()
+            binned_data[bin_val] = {"value": param_value, "image": avg_image}
+
+            if flag_save:
+                save_name = f"{self.device_name}_{bin_val}.png"
+                self.save_geecs_scaled_image(avg_image,
+                                             save_dir=self.path_dict["save"],
+                                             save_name=save_name)
+                if self.flag_logging:
+                    logging.info(f"Binned and averaged images for bin {bin_val} saved as {save_name}.")
+
+        return binned_data
 
     def save_fig(self, save_path: Path,
                  bbox_inches: str = 'tight', pad_inches: float = 0.) -> None:
@@ -288,65 +541,6 @@ class Array2DScanAnalysis(ScanAnalysis):
             logging.error(f"Error processing shot {shot_num}: {e}")
             return None
 
-    def bin_images(self, flag_save=None):
-        # TODO should we keep flag_save as an argument here or just use the class variable?
-        # set default
-        if flag_save is None:
-            flag_save = self.flag_save_images
-
-        # identify unique parameter bins
-        unique_bins = np.unique(self.bins)
-        if self.flag_logging:
-            logging.info(f"unique_bins: {unique_bins}")
-
-        # preallocate storage
-        binned_data = {bins: {} for bins in unique_bins}
-
-        # iterate parameter bins
-        for bin_ind, bin_val in enumerate(unique_bins):
-
-            # load all images for this bin
-            images = self.load_images_for_bin(bin_val)  # TODO couldn't figure out the type hinting warning here...
-            if len(images) == 0:
-                if self.flag_logging:
-                    logging.warning(f"No images found for bin {bin_val}.")
-                continue
-
-            # average the images
-            # need to confirm this is foolproof, are binned_param_values completely correlated?
-            avg_image = self.average_images(images)
-            binned_data[bin_val] = {'value': self.binned_param_values[bin_ind],
-                                    'image': avg_image}
-
-            if flag_save:
-                save_name = f"{self.device_name}_{bin_val}.png"
-                self.save_geecs_scaled_image(avg_image,
-                                             save_dir=self.path_dict['save'],
-                                             save_name=save_name)
-
-                if self.flag_logging:
-                    logging.info(f"Averaged images for bin {bin_val} and saved as {save_name}.")
-
-            else:
-                if self.flag_logging:
-                    logging.info(f"Averaged images for bin {bin_val} but not saved.")
-
-        # check for empty bins and remove
-        binned_data = {key: value for key, value in binned_data.items() if value}
-
-        return binned_data  # TODO figure out type hinting for this.  Tried dict[dict] but Pycharm wasn't happy
-
-    def load_images_for_bin(self, bin_number: int) -> list[NDArray]:
-        images = []
-        shots_in_bin = self.auxiliary_data[self.auxiliary_data['Bin #'] == bin_number]['Shotnumber'].values
-
-        for shot_num in shots_in_bin:
-            image_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
-            image = self.get_image_analysis_result(shot_num, file_path=image_file)
-            if image is not None:
-                images.append(image)
-        return images
-
     @staticmethod
     def average_images(images: list[np.ndarray]) -> Optional[np.ndarray]:
         """
@@ -424,71 +618,6 @@ class Array2DScanAnalysis(ScanAnalysis):
         # Create GIF
         io.mimsave(output_file, images, duration=duration, loop=0)
 
-    def run_noscan_analysis(self):
-        """
-        Image analysis in the case of a no scan.
-
-        """
-        # load images
-        for shot_num in self.auxiliary_data['Shotnumber'].values:
-            image_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
-            self.get_image_analysis_result(shot_num=shot_num, file_path = image_file)
-
-        # get average image
-        avg_image = self.average_images(self.data['images'])
-        if self.flag_save_images:
-            self.save_geecs_scaled_image(avg_image, save_dir=self.path_dict['save'],
-                                         save_name=f'{self.device_name}_average_processed.png')
-                                         
-            save_name = f'{self.device_name}_average_processed_visual.png'
-            self.save_normalized_image(avg_image, save_dir=self.path_dict['save'],
-                                       save_name = save_name, label = save_name)
-            display_content_path = Path(self.path_dict['save']) / save_name
-
-            self.display_contents.append(str(display_content_path))
-
-        # make gif
-        if self.flag_save_images:
-            filepath = self.path_dict['save'] / 'noscan.gif'
-            self.create_gif(self.data['images'], filepath,
-                            titles=[f"Shot {num}" for num in self.data['shot_num']])
-                            
-            self.display_contents.append(str(filepath))
-
-    def run_scan_analysis(self):
-        """
-        Image analysis in the case of a scanned variable.
-
-        """
-        # bin data
-        binned_data = self.bin_images(flag_save=self.flag_save_images)
-
-        for bin_key, bin_item in binned_data.items():
-
-            # overwrite stored image
-            processed_image = binned_data[bin_key]['image']
-
-            # save figures
-            if self.flag_save_images:
-                self.save_geecs_scaled_image(processed_image, save_dir=self.path_dict['save'],
-                                             save_name=f'{self.device_name}_{bin_key}_processed.png')
-                self.save_normalized_image(processed_image, save_dir=self.path_dict['save'],
-                                           save_name=f'{self.device_name}_{bin_key}_processed_visual.png')
-
-        # Once all bins are processed, create an array of the averaged images
-        if len(binned_data) > 1 and self.flag_save_images:
-            plot_scale = (getattr(self, 'camera_analysis_settings', {}) or {}).get('Plot Scale', None)
-
-            # generate image array
-            save_path = Path(self.path_dict['save']) /  f'{self.device_name}_averaged_image_grid.png'
-            self.create_image_array(binned_data, plot_scale=plot_scale, save_path=save_path)
-
-            # append save_path to display content list
-            self.display_contents.append(str(save_path))
-
-        # save binned data to class variable
-        self.binned_data = binned_data
-
 if __name__ == "__main__":
     from scan_analysis.base import AnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan
@@ -500,6 +629,16 @@ if __name__ == "__main__":
                          requirements={'UC_ACaveMagCam3'},
                          device_name='UC_ACaveMagCam3',
                          image_analyzer_class=ACaveMagCam3ImageAnalyzer)
-    test_tag = ScanTag(year=2025, month=3, day=6, number=40, experiment='Undulator')
+
+    # # no scan example
+    # test_tag = ScanTag(year=2025, month=3, day=6, number=40, experiment='Undulator')
+
+    # emq2 scan example
+    test_tag = ScanTag(year=2025, month=3, day=7, number=22, experiment='Undulator')
+
     test_analyzer = analyzer_info
+    import time
+    t0 = time.monotonic()
     analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
+    t1 = time.monotonic()
+    print(t1-t0)
