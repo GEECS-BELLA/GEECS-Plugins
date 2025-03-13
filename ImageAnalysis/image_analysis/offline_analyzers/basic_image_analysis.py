@@ -5,10 +5,10 @@ from pathlib import Path
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
-    from ..types import Array2D
+    from image_analysis.types import Array2D
 
-from ..base import ImageAnalyzer
-from ..utils import read_imaq_image
+from image_analysis.base import ImageAnalyzer
+from image_analysis.utils import read_imaq_image
 
 class BasicImageAnalyzer(ImageAnalyzer):
     def __init__(self):
