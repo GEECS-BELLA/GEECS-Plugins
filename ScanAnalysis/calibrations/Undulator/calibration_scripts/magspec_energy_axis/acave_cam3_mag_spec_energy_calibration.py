@@ -16,7 +16,7 @@ def read_double_array(file_path):
 
 if __name__ == "__main__":
     super_path = 'Z:/data/Undulator/Y2023/09-Sep/23_0905/auxiliary data/'
-    filename = 'energy vs pixel UC_ACaveMagSpecCam3 251mT'
+    filename = 'energy vs pixel UC_ACaveMagSpecCam3 200mT'
     energy_file = super_path + filename
     energy_array = read_double_array(energy_file)
     if energy_array.size > 0:
