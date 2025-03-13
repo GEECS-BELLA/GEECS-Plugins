@@ -83,50 +83,12 @@ class ImageAnalyzer:
         """
         raise NotImplementedError()
 
-
-class LabviewImageAnalyzer(ImageAnalyzer):
-    """
-    Intermediate class for ImageAnalyzer intended for analyzers that also want to be compatible with LabView through
-    labview_adapters.py.
-
-        Derived classes should implement
-            configure()
-            __init__()
-    """
-    def __init__(self):
-        """ Only initializes class variables used by the functions defined here for all LabviewImageAnalyzers.
-
-        Currently, only the roi and background settings.
-
-        TODO:  determine if self.roi can be a ROI instance, or if it has to be a list.
-        """
-        super().__init__()
-        self.roi = None
-        self.background = None
-
-    def apply_config(self, config_file):
-        """ Loads the config file and passes elements of 'settings' as keyword arguments to the configure function
-
-        Parameters
-        ----------
-        config_file : str
-            file location of the .ini config file
-
-        """
-        parser = configparser.ConfigParser()
-        parser.read(config_file)
-        if 'roi' in parser:
-            self.roi = self.read_roi(parser)
-        config = dict(parser["settings"])
-        self.configure(**config)
-        return self
-
     def build_return_dictionary(self, return_image, return_scalars=None, return_lineouts=None, input_parameters=None):
         """ Builds a return dictionary compatible with labview_adapters.py
 
             Parameters
             ----------
-            return_image : 2d array
+            return_image : NDArray
                 Image to be returned to labview.  Will be converted to UInt16
             return_scalars : dict
                 Dictionary of scalars from python analysis.  To be passed back to labview correctly, the keys for each
@@ -149,9 +111,12 @@ class LabviewImageAnalyzer(ImageAnalyzer):
                 "analyzer_return_dictionary": return_scalars
                 "processed_image_uint16": uint_image
                 "analyzer_return_lineouts": return_lineouts
-
             """
-        uint_image = return_image.astype(np.uint16)
+
+        if return_image is not None:
+            uint_image = return_image.astype(np.uint16)
+        else:
+            uint_image = None
 
         if return_scalars is None:
             return_scalars = dict()
@@ -191,6 +156,57 @@ class LabviewImageAnalyzer(ImageAnalyzer):
             "analyzer_return_lineouts": return_lineouts,
         }
         return return_dictionary
+
+    def build_input_parameter_dictionary(self) -> dict:
+        """Compiles list of class variables into a dictionary
+
+        Can be overwritten by implementing classes if you prefer more control over the return dictionary.
+        For example, adding units into the key names.
+
+        Returns
+        -------
+        dict
+            A compiled dictionary containing all class variables
+        """
+        return self.__dict__
+
+
+class LabviewImageAnalyzer(ImageAnalyzer):
+    """
+    Intermediate class for ImageAnalyzer intended for analyzers that also want to be compatible with LabView through
+    labview_adapters.py.
+
+        Derived classes should implement
+            configure()
+            __init__()
+    """
+    def __init__(self):
+        """ Only initializes class variables used by the functions defined here for all LabviewImageAnalyzers.
+
+        Currently, only the roi and background settings.
+
+        TODO:  determine if self.roi can be a ROI instance, or if it has to be a list.
+        """
+        super().__init__()
+        self.roi = None
+        self.background = None
+
+    def apply_config(self, config_file):
+        """ Loads the config file and passes elements of 'settings' as keyword arguments to the configure function
+
+        Parameters
+        ----------
+        config_file : str
+            file location of the .ini config file
+
+        """
+        parser = configparser.ConfigParser()
+        parser.read(config_file)
+        if 'roi' in parser:
+            self.roi = self.read_roi(parser)
+        config = dict(parser["settings"])
+        self.configure(**config)
+        return self
 
     @staticmethod
     def read_roi(parser):
@@ -276,16 +292,3 @@ class LabviewImageAnalyzer(ImageAnalyzer):
                 else:
                     setattr(self, key, None)
         return self
-
-    def build_input_parameter_dictionary(self) -> dict:
-        """Compiles list of class variables into a dictionary
-
-        Can be overwritten by implementing classes if you prefer more control over the return dictionary.
-        For example, adding units into the key names.
-
-        Returns
-        -------
-        dict
-            A compiled dictionary containing all class variables
-        """
-        return self.__dict__
