@@ -20,9 +20,11 @@ import numpy as np
 import numbers
 import cv2
 import matplotlib
+
 use_interactive = False
 if not use_interactive:
     matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 
@@ -37,20 +39,44 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 import traceback
 PRINT_TRACEBACK = False
 
-
-def process_shot_parallel(shot_num: int, file_path: Path, analyzer_class: type[BasicImageAnalyzer]) -> tuple[
-    int, np.ndarray, dict]:
+def process_shot_parallel(
+        shot_num: int, file_path: Path, analyzer_class: type[BasicImageAnalyzer]
+) -> tuple[int, Optional[np.ndarray], dict]:
     """
     Helper function for parallel processing in a separate process.
     Creates a new analyzer instance from analyzer_class, processes the image,
     and returns the shot number, processed image, and analysis results.
-    """
 
-    # Instantiate a fresh analyzer in this process
-    analyzer = analyzer_class()
-    results_dict = analyzer.analyze_image(file_path=file_path)
-    image = results_dict.get("processed_image")
+    If the analyzer's return value is not as expected (e.g., not a dict, missing
+    keys, or values are None), it logs a warning and returns safe defaults.
+    """
+    try:
+        analyzer = analyzer_class()
+        results_dict = analyzer.analyze_image(file_path=file_path)
+    except Exception as e:
+        logging.error(f"Error during analysis for shot {shot_num}: {e}")
+        return shot_num, None, {}
+
+    if not isinstance(results_dict, dict):
+        logging.warning(f"Analyzer returned non-dict result for shot {shot_num}.")
+        return shot_num, None, {}
+
+    if "processed_image" not in results_dict:
+        logging.warning(f"Shot {shot_num}: 'processed_image' key not found in analyzer result.")
+        image = None
+    else:
+        image = results_dict.get("processed_image")
+
     analysis = results_dict.get("analysis_results", {})
+    if not isinstance(analysis, dict):
+        logging.warning(f"Shot {shot_num} analysis returned non-dict 'analysis_results'.")
+        analysis = {}
+
+    if image is None and analysis:
+        logging.info(f"Shot {shot_num} returned no processed image, but analysis results are available.")
+    elif image is None:
+        logging.warning(f"Shot {shot_num} returned no processed image or analysis results.")
+
     return shot_num, image, analysis
 
 
@@ -135,17 +161,6 @@ class Array2DScanAnalysis(ScanAnalysis):
                 logging.warning(f"Warning: Image analysis failed due to: {e}")
             return
 
-    def _process_all_shots(self) -> None:
-        """Run the image analyzer on every shot and update self.data."""
-        # Clear existing data (if needed)
-        self.data = {'shot_num': [], 'images': []}
-        for shot_num in self.auxiliary_data['Shotnumber'].values:
-            image_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
-            img = self.get_image_analysis_result(shot_num, file_path=image_file)
-            if img is not None:
-                self.data['shot_num'].append(shot_num)
-                self.data['images'].append(img)
-
     def _process_all_shots_parallel(self) -> None:
         """
         Run the image analyzer on every shot in parallel and update self.data.
@@ -160,23 +175,38 @@ class Array2DScanAnalysis(ScanAnalysis):
         def process_success(shot_number: int, analysis_result: dict) -> None:
             """
             On successful analysis of a shot, update self.data and auxiliary_data.
+            If no processed image is returned but analysis results are available,
+            update the auxiliary data and log the outcome, but do not add to self.data.
             """
             image = analysis_result.get("processed_image")
             analysis = analysis_result.get("analysis_results", {})
-            if image is not None:
-                image = image.astype(np.uint16)
-                self.data['shot_num'].append(shot_number)
-                self.data['images'].append(image)
-                # Update auxiliary data only with numeric values
+
+            # Always update auxiliary data if analysis exists.
+            if analysis:
                 for key, value in analysis.items():
                     if not isinstance(value, numbers.Number):
                         logging.warning(
                             f"[{self.__class__.__name__} using {self.image_analyzer.__class__.__name__}] "
-                            f"analysis result for shot {shot_number} key '{key}' is not numeric (got {type(value).__name__}). Skipping."
+                            f"Analysis result for shot {shot_number} key '{key}' is not numeric (got {type(value).__name__}). Skipping."
                         )
                     else:
                         self.auxiliary_data.loc[self.auxiliary_data['Shotnumber'] == shot_number, key] = value
-                logging.info(f"Finished processing shot {shot_number}.")
+                logging.info(f"Finished processing analysis for shot {shot_number}.")
+            else:
+                logging.warning(f"No analysis results returned for shot {shot_number}.")
+
+            # If a processed image is available, update self.data.
+            if image is not None:
+                try:
+                    image = image.astype(np.uint16)
+                except Exception as e:
+                    logging.error(f"Error converting image for shot {shot_number} to uint16: {e}")
+                    image = None
+                if image is not None:
+                    self.data['shot_num'].append(shot_number)
+                    self.data['images'].append(image)
+            else:
+                logging.info(f"Shot {shot_number} returned no processed image; only auxiliary data was updated.")
 
         def process_error(shot_number: int, exception: Exception) -> None:
             """
@@ -197,11 +227,12 @@ class Array2DScanAnalysis(ScanAnalysis):
         # Submit image analysis jobs.
         # Use ProcessPoolExecutor if the analyzer is CPU-bound,
         # or ThreadPoolExecutor if run_analyze_image_asynchronously is True.
+
         with ProcessPoolExecutor() as process_pool, ThreadPoolExecutor() as thread_pool:
             for shot_num, file_path in tasks:
                 if self.image_analyzer.run_analyze_image_asynchronously:
                     # For asynchronous (likely I/O-bound) processing, use the thread pool.
-                    future = thread_pool.submit(self.image_analyzer.analyze_image, image = None, file_path=file_path)
+                    future = thread_pool.submit(self.image_analyzer.analyze_image, file_path=file_path)
                 else:
                     # For CPU-bound tasks, use the process pool.
                     # Pass the analyzer's class so each process can create its own instance.
@@ -217,9 +248,7 @@ class Array2DScanAnalysis(ScanAnalysis):
                 else:
                     result = future.result()
                     # If using the process pool, result is a tuple: (shot_num, image, analysis).
-                    # If using the thread pool, result is assumed to be the analysis dictionary.
                     if isinstance(result, tuple):
-                        # Unpack the result from the process pool.
                         _, image, analysis = result
                         analysis_result = {"processed_image": image, "analysis_results": analysis}
                     else:
@@ -291,19 +320,26 @@ class Array2DScanAnalysis(ScanAnalysis):
 
     def _postprocess_scan_interactive(self) -> None:
         """Perform post-processing for a scan: bin images and create an image grid."""
-        binned_data = self.bin_images_from_data(flag_save=self.flag_save_images)
+        # Bin images from the already processed data.
+        # Here we let bin_images_from_data handle the grouping without saving,
+        # as we'll do the saving in our helper.
+        binned_data = self.bin_images_from_data(flag_save=False)
+
+        # Process each bin sequentially.
         for bin_key, bin_item in binned_data.items():
-            processed_image = bin_item["image"]
-            if self.flag_save_images:
-                self.save_geecs_scaled_image(processed_image, save_dir=self.path_dict["save"],
-                                             save_name=f"{self.device_name}_{bin_key}_processed.png")
-                self.save_normalized_image(processed_image, save_dir=self.path_dict["save"],
-                                           save_name=f"{self.device_name}_{bin_key}_processed_visual.png")
+            processed_image = bin_item.get("image")
+            if self.flag_save_images and processed_image is not None:
+                self._save_bin_images(bin_key, processed_image)
+            elif processed_image is None:
+                logging.warning(f"Bin {bin_key} has no processed image; skipping saving for this bin.")
+
+        # If more than one bin exists, create an image grid.
         if len(binned_data) > 1 and self.flag_save_images:
             plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get("Plot Scale", None)
             save_path = Path(self.path_dict["save"]) / f"{self.device_name}_averaged_image_grid.png"
             self.create_image_array(binned_data, plot_scale=plot_scale, save_path=save_path)
             self.display_contents.append(str(save_path))
+
         self.binned_data = binned_data
 
     def bin_images_from_data(self, flag_save: Optional[bool] = None) -> dict:
@@ -405,38 +441,30 @@ class Array2DScanAnalysis(ScanAnalysis):
         if self.flag_logging:
             logging.info(f"Image saved at {save_path}")
 
-    def save_normalized_image(self, image: np.ndarray, save_dir: Union[str, Path], save_name: str, label: Optional[str] = None):
+    def save_normalized_image(self, image: np.ndarray, save_dir: Union[str, Path], save_name: str,
+                              label: Optional[str] = None):
         """
         Display and optionally save a 16-bit image with specified min/max values for visualization.
-        Optionally, add a label to the image before saving.
-
-        Args:
-            image (np.ndarray): The image to save.
-            save_dir (Union[str, Path]): The directory where the image will be saved.
-            save_name (str): The name of the saved image file.
-            label (Optional[str]): A label to add to the image. Defaults to None.
+        Uses a local figure to avoid global state issues in multithreaded environments.
         """
         max_val = np.max(image)
+        # Create a new figure and axes locally
+        fig, ax = plt.subplots()
+        im = ax.imshow(image, cmap='plasma', vmin=0, vmax=max_val)
+        fig.colorbar(im, ax=ax)  # Adds a color scale bar to the current axes
+        ax.axis('off')  # Hide axes for a cleaner look
 
-        # Display the image
-        plt.clf()
-
-        plt.imshow(image, cmap='plasma', vmin=0, vmax=max_val)
-        plt.colorbar()  # Adds a color scale bar
-        plt.axis('off')  # Hide axis for a cleaner look
-        
         # Add a label if provided
         if label:
-            plt.title(label, fontsize=12, pad=10)  # Add the label at the top of the plot
+            ax.set_title(label, fontsize=12, pad=10)
 
-
-        # Save the image if a path is provided
-        if save_dir and save_name:
-            save_path = Path(save_dir) / save_name
-            save_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
-            plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
-            if self.flag_logging:
-                logging.info(f"Image saved at {save_path}")
+        # Ensure the directory exists and save the figure
+        save_path = Path(save_dir) / save_name
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
+        plt.close(fig)  # Close the figure to free up memory
+        if self.flag_logging:
+            logging.info(f"Image saved at {save_path}")
 
     def create_image_array(self, binned_data: dict[dict], ref_coords: Optional[tuple] = None,
                            plot_scale: Optional[float] = None, save_path: Optional[Path] = None):
@@ -630,8 +658,8 @@ if __name__ == "__main__":
                          device_name='UC_ACaveMagCam3',
                          image_analyzer_class=ACaveMagCam3ImageAnalyzer)
 
-    # # no scan example
-    # test_tag = ScanTag(year=2025, month=3, day=6, number=40, experiment='Undulator')
+    # no scan example
+    test_tag = ScanTag(year=2025, month=3, day=6, number=39, experiment='Undulator')
 
     # emq2 scan example
     test_tag = ScanTag(year=2025, month=3, day=7, number=22, experiment='Undulator')
