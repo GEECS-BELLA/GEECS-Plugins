@@ -27,6 +27,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
+from image_analysis.base import ImageAnalyzer  # explicit import for the base image analyzer
+
+
 
 # %% classes
 class AnalyzerInfo(NamedTuple):
@@ -35,6 +38,8 @@ class AnalyzerInfo(NamedTuple):
     device_name: Optional[str] = None
     config_file: Optional[str] = None
     is_active: bool = True
+    # New optional field for explicit image analyzer import
+    image_analyzer_class: Optional[Type[ImageAnalyzer]] = None
 
 
 # error classes

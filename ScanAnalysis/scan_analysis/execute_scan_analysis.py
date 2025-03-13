@@ -11,7 +11,12 @@ if TYPE_CHECKING:
 
 import logging
 import itertools
-from logmaker_4_googledocs import docgen
+try:
+    from logmaker_4_googledocs import docgen
+    loaded_docgen = True
+except:
+    logging.warning(f'could not properly load docgen, results will not auto populate scan log')
+    loaded_docgen = False
 
 
 def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], upload_to_scanlog: bool = True,
@@ -27,13 +32,28 @@ def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], upload_to_scan
     :return:
     """
     all_display_files = []
+
     for analyzer_info in analyzer_list:
         device = analyzer_info.device_name if analyzer_info.device_name else ''
         print(tag, ":", analyzer_info.analyzer_class.__name__, device)
         if not debug_mode:
             try:
                 analyzer_class = analyzer_info.analyzer_class
-                analyzer = analyzer_class(scan_tag=tag, device_name=analyzer_info.device_name, skip_plt_show=True)
+                # Instantiate the image analyzer if specified
+                if hasattr(analyzer_info, 'image_analyzer_class') and analyzer_info.image_analyzer_class:
+                    image_analyzer = analyzer_info.image_analyzer_class()
+                    analyzer = analyzer_class(
+                        scan_tag=tag,
+                        device_name=analyzer_info.device_name,
+                        skip_plt_show=True,
+                        image_analyzer=image_analyzer
+                    )
+                else:
+                    analyzer = analyzer_class(
+                        scan_tag=tag,
+                        device_name=analyzer_info.device_name,
+                        skip_plt_show=True
+                    )
                 index_of_files = analyzer.run_analysis(config_options=analyzer_info.config_file)
                 print(f'index of files: {index_of_files}')
                 # if index_of_files:  # TODO And if a Google doc procedure is defined for the given experiment
@@ -44,7 +64,7 @@ def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], upload_to_scan
             except Exception as err:
                 logging.error(f"Error in analyze_scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}): {err}")
                 
-    if upload_to_scanlog and len(all_display_files) > 0:
+    if loaded_docgen and upload_to_scanlog and len(all_display_files) > 0:
         flattened_file_paths = list(itertools.chain.from_iterable(all_display_files))
         print(f'flatten file list: {flattened_file_paths}')
         insert_display_content_to_doc(tag, flattened_file_paths, documentID=documentID)
