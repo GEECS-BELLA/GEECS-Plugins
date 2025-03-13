@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import configparser
 import numpy as np
+from numpy.typing import NDArray
 from typing import TYPE_CHECKING, Optional, Union, Type, Any
 if TYPE_CHECKING:
     from .types import Array2D
@@ -83,7 +84,11 @@ class ImageAnalyzer:
         """
         raise NotImplementedError()
 
-    def build_return_dictionary(self, return_image, return_scalars=None, return_lineouts=None, input_parameters=None):
+    def build_return_dictionary(self, return_image: Optional[NDArray] = None,
+                                return_scalars: Optional[dict[str, Union[int, float]]] = None,
+                                return_lineouts: Optional[Union[NDArray, list[NDArray]]] = None,
+                                input_parameters: Optional[dict[str, Any]] = None
+                                ) -> dict[str, Union[NDArray, dict, None]]:
         """ Builds a return dictionary compatible with labview_adapters.py
 
             Parameters
