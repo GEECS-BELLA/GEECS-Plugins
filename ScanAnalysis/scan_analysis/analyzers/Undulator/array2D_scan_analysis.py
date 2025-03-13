@@ -37,7 +37,7 @@ from image_analysis.analyzers.basic_image_analysis import BasicImageAnalyzer
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 import traceback
-PRINT_TRACEBACK = False
+PRINT_TRACEBACK = True
 
 def process_shot_parallel(
         shot_num: int, file_path: Path, analyzer_class: type[BasicImageAnalyzer]
@@ -143,13 +143,14 @@ class Array2DScanAnalysis(ScanAnalysis):
             self._process_all_shots_parallel()
 
             # Depending on the scan type, perform additional processing.
-            if self.noscan:
-                self._postprocess_noscan()
-            else:
-                if use_interactive:
-                    self._postprocess_scan_interactive()
+            if len(self.data['images'])>2:
+                if self.noscan:
+                    self._postprocess_noscan()
                 else:
-                    self._postprocess_scan_parallel()
+                    if use_interactive:
+                        self._postprocess_scan_interactive()
+                    else:
+                        self._postprocess_scan_parallel()
 
             self.auxiliary_data.to_csv(self.auxiliary_file_path, sep='\t', index=False)
             return self.display_contents
@@ -216,8 +217,10 @@ class Array2DScanAnalysis(ScanAnalysis):
 
         # Gather tasks: each shot number paired with its file path.
         tasks = []
+        allowed_exts = ['.png', '.himg', '.tsv'] # not yet implemented but might need to be
         for shot_num in self.auxiliary_data['Shotnumber'].values:
-            file_path = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
+            file_path = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.*'), None)
+            logging.info(f'file path foudn is {file_path}')
             if file_path is not None:
                 tasks.append((shot_num, file_path))
 
