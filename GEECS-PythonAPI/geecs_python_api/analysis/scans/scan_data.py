@@ -425,6 +425,11 @@ class ScanData:
         if txt_path.is_file():
             self.data_frame = pd.read_csv(txt_path, delimiter='\t')
 
+        txt_path = self.get_analysis_folder().parent / f's{self.__tag.number}.txt'
+        print(txt_path)
+        if txt_path.is_file():
+            self.sfile = pd.read_csv(txt_path, delimiter='\t')
+
         return tdms_path.is_file()
 
     def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
