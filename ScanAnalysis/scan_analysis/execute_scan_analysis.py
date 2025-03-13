@@ -13,11 +13,16 @@ import logging
 from pathlib import Path
 import yaml
 import itertools
-from logmaker_4_googledocs import docgen
+try:
+    from logmaker_4_googledocs import docgen
+    update_scan_log = True
+except:
+    logging.warning(f'could not properly load docgen, results will not auto populate scan log')
+    update_scan_log = False
+
 
 
 def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], debug_mode: bool = False, documentID = None):
-
     all_dispay_files = []
     for analyzer_info in analyzer_list:
         device = analyzer_info.device_name if analyzer_info.device_name else ''
@@ -25,7 +30,21 @@ def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], debug_mode: bo
         if not debug_mode:
             try:
                 analyzer_class = analyzer_info.analyzer_class
-                analyzer = analyzer_class(scan_tag=tag, device_name=analyzer_info.device_name, skip_plt_show=True)
+                # Instantiate the image analyzer if specified
+                if hasattr(analyzer_info, 'image_analyzer_class') and analyzer_info.image_analyzer_class:
+                    image_analyzer = analyzer_info.image_analyzer_class()
+                    analyzer = analyzer_class(
+                        scan_tag=tag,
+                        device_name=analyzer_info.device_name,
+                        skip_plt_show=True,
+                        image_analyzer=image_analyzer
+                    )
+                else:
+                    analyzer = analyzer_class(
+                        scan_tag=tag,
+                        device_name=analyzer_info.device_name,
+                        skip_plt_show=True
+                    )
                 index_of_files = analyzer.run_analysis(config_options=analyzer_info.config_file)
                 print(f'index of files: {index_of_files}')
                 # if index_of_files:  # TODO And if a Google doc procedure is defined for the given experiment
@@ -35,11 +54,11 @@ def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], debug_mode: bo
                     all_dispay_files.append(index_of_files)
             except Exception as err:
                 logging.error(f"Error in analyze_scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}): {err}")
-                
-    if len(all_dispay_files)>0:
-        flattened_file_paths = list(itertools.chain.from_iterable(all_dispay_files))
-        print(f'flatten file list: {flattened_file_paths}')
-        insert_display_content_to_doc(tag, flattened_file_paths, documentID=documentID)
+    if update_scan_log:
+        if len(all_dispay_files)>0:
+            flattened_file_paths = list(itertools.chain.from_iterable(all_dispay_files))
+            print(f'flatten file list: {flattened_file_paths}')
+            insert_display_content_to_doc(tag, flattened_file_paths, documentID=documentID)
 
 
 def insert_display_content_to_doc(scan_tag, path_list, documentID = None):
