@@ -32,7 +32,7 @@ import imageio as io
 
 from scan_analysis.base import ScanAnalysis
 
-from image_analysis.analyzers.basic_image_analysis import BasicImageAnalyzer
+from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
 
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
