@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/">
+        <file>trashcan_icon.ico</file>
+        <file>application_icon.ico</file>
+    </qresource>
+</RCC>

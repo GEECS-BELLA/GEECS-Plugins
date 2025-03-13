@@ -1,3 +1,13 @@
+"""
+Contains all things sound-related within GEECS Scanner.  This includes beeps during the shots, and jingles for the
+multiscanner completion and action success/failure.
+
+-Chris + Sam
+"""
+
+from __future__ import annotations
+from typing import Optional
+
 import platform
 import os
 import queue
@@ -5,6 +15,7 @@ import threading
 import numpy as np
 import logging
 import time
+import random
 
 # For Windows-specific imports
 if platform.system() == "Windows":
@@ -66,7 +77,8 @@ class SoundPlayer(SimpleSoundPlayer):
     A class to handle playing sounds (beep and toot) in a background thread.
     """
 
-    def __init__(self, beep_frequency=700, beep_duration=0.1, toot_frequency=1200, toot_duration=0.75, sample_rate=44100):
+    def __init__(self, beep_frequency=700, beep_duration=0.1, toot_frequency=1200, toot_duration=0.75,
+                 sample_rate=44100, options: Optional[dict] = None):
         """
         Initialize the SoundPlayer with default or user-defined frequency, duration.  Then begins thread and Queue
 
@@ -92,6 +104,8 @@ class SoundPlayer(SimpleSoundPlayer):
         self.sound_thread = threading.Thread(target=self._process_queue)
         self.sound_thread.daemon = True  # Mark thread as a daemon so it exits when the main program exits
         self.running = False  # Flag to control thread running
+
+        self.random_beeps = False if options is None else options.get('randomized_beeps', False)
 
     def start_queue(self):
         self.running = True  # Flag to control thread running
@@ -128,13 +142,28 @@ class SoundPlayer(SimpleSoundPlayer):
 
                 # Play the requested sound
                 if sound_type == 'beep':
-                    self.play_sound(self.beep_frequency, self.beep_duration)
+                    if self.random_beeps:
+                        self.play_sound(round(self.beep_frequency*(0.7*(random.random()+0.5))), self.beep_duration)
+                    else:
+                        self.play_sound(self.beep_frequency, self.beep_duration)
                 elif sound_type == 'toot':
                     self.play_sound(self.toot_frequency, self.toot_duration)
                 # Mark the task as done
                 self.sound_queue.task_done()
             except Exception as e:
                 logging.error(f"Error processing sound: {e}")
+
+
+def play_jingle(notes: list[tuple[int, float, float]]):
+    """
+     Plays a given sequence of notes
+
+    :param notes: list of three numbers ( frequency (Hz), duration (s), wait time (s) )
+    """
+    player = SimpleSoundPlayer()
+    for freq, duration, wait in notes:
+        player.play_sound(freq, duration)
+        time.sleep(wait)
 
 
 def multiscan_finish_jingle():
@@ -145,15 +174,26 @@ def multiscan_finish_jingle():
         (1175, 0.25, 0),
         (1568, 0.5, 0)
     ]
-    player = SimpleSoundPlayer()
-    for freq, duration, wait in notes:
-        player.play_sound(freq, duration)
-        time.sleep(wait)
+    play_jingle(notes)
+
+
+def action_finish_jingle():
+    """ Plays when an action finishes successfully """
+    notes = [
+        (900, 0.20, 0),
+        (1300, 0.50, 0),
+    ]
+    play_jingle(notes)
+
+
+def action_failed_jingle():
+    """ Plays when an action encounters an error """
+    notes = [
+        (1300, 0.20, 0),
+        (900, 0.50, 0),
+    ]
+    play_jingle(notes)
 
 
 if __name__ == '__main__':
-    sound_player = SoundPlayer(beep_frequency=800, toot_frequency=2000)
-    sound_player.play_toot()
-    sound_player._process_queue()
-    time.sleep(1)
-    sound_player.stop()
+    action_finish_jingle()

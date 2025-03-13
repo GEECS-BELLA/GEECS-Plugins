@@ -12,13 +12,17 @@ from imageio.v3 import imread, imopen
 import struct
 import re
 from nptdms import TdmsFile
+import logging
 
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from zoneinfo import ZoneInfo  # Available in Python 3.9+
-import scan_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
 
-
+try:
+    import scan_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
+except:
+    logging.warning(f'wavekit not installed properly')
+    
 def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
     """ Read PNG file as output by NI IMAQ, which uses an uncommon format.
     """
@@ -145,7 +149,6 @@ def get_picoscopeV2_timestamp(file_path):
         print(f"Error accessing file '{file_path}': {e}")
         return None
         
-
 def get_haso_timestamp(file_path):
     """
     Extracts the 'acquisition_date' from the XML file at file_path and converts it

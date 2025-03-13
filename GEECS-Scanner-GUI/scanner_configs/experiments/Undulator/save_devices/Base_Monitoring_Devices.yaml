@@ -1,50 +1,70 @@
 Devices:
   UC_Amp2_IR_input:
-    variable_list: ["MeanCounts", "MaxCounts","timestamp","centroidx","centroidy"]
-    synchronous: False
-    save_nonscalar_data: False
-
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - MeanCounts
+    - MaxCounts
+    - timestamp
+    - centroidx
+    - centroidy
   UC_Amp3_IR_input:
-    variable_list: ["MeanCounts", "MaxCounts","timestamp","centroidx","centroidy"]
-    synchronous: False
-    save_nonscalar_data: True
-
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - MeanCounts
+    - MaxCounts
+    - timestamp
+    - centroidx
+    - centroidy
   UC_Amp4_IR_input:
-    variable_list: ["MeanCounts", "MaxCounts","timestamp","centroidx","centroidy"]
-    synchronous: False
-    save_nonscalar_data: True
-
-  U_LaserEnergyMLinkPicoscope:
-    variable_list: ["Python Results.ChA", "Python Results.ChB", "timestamp"]
-    synchronous: True
-    save_nonscalar_data: True
-
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - MeanCounts
+    - MaxCounts
+    - timestamp
+    - centroidx
+    - centroidy
   UC_GaiaMode:
-    variable_list: ["MeanCounts", "MaxCounts","timestamp","centroidx","centroidy"]
-    synchronous: False
-    save_nonscalar_data: True
-
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - MeanCounts
+    - MaxCounts
+    - timestamp
+    - centroidx
+    - centroidy
   UC_GhostFocus:
-    variable_list: ["MeanCounts", "MaxCounts","timestamp","centroidx","centroidy"]
-    synchronous: False
-    save_nonscalar_data: True
-
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - MeanCounts
+    - MaxCounts
+    - timestamp
+    - centroidx
+    - centroidy
   UC_GhostUpstream:
-    variable_list: ["MeanCounts", "MaxCounts","timestamp","centroidx","centroidy"]
-    synchronous: False
-    save_nonscalar_data: True
-
-  U_148Spectrometer:
-    variable_list: ["exposure"]
-    synchronous: False
-    save_nonscalar_data: True
-
-  U_FROG_Grenouille:
-    variable_list: ["temporalFWHM"]
-    synchronous: False
-    save_nonscalar_data: False
-
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - MeanCounts
+    - MaxCounts
+    - timestamp
+    - centroidx
+    - centroidy
+  U_LaserEnergyMLinkPicoscope:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - Python Results.ChA
+    - Python Results.ChB
+    - timestamp
   U_VacuumGauge:
-    variable_list: ["AI_mean.Channel 0", "AI_mean.Channel 1","AI_mean.Channel 2","AI_mean.Channel 3"]
-    synchronous: False
-    save_nonscalar_data: False
+    save_nonscalar_data: false
+    synchronous: false
+    variable_list:
+    - AI_mean.Channel 0
+    - AI_mean.Channel 1
+    - AI_mean.Channel 2
+    - AI_mean.Channel 3

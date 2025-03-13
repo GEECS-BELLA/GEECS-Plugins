@@ -1,0 +1,12 @@
+Devices:
+- BCaveMagSpec
+- Energy Meters
+- Frog_stuff
+- U_BCaveICT
+Info: Compressor scan
+Scan Mode: 1D Scan
+Shot per Step: 10
+Start: 42000.0
+Step Size: 25.0
+Stop: 42400.0
+Variable: Grating Separation (um)

@@ -19,7 +19,7 @@
      <x>20</x>
      <y>110</y>
      <width>171</width>
-     <height>131</height>
+     <height>111</height>
     </rect>
    </property>
   </widget>
@@ -36,7 +36,7 @@
   <widget class="QCheckBox" name="checkboxSaveNonscalar">
    <property name="geometry">
     <rect>
-     <x>210</x>
+     <x>30</x>
      <y>250</y>
      <width>151</width>
      <height>20</height>
@@ -50,7 +50,7 @@
    <property name="geometry">
     <rect>
      <x>30</x>
-     <y>250</y>
+     <y>230</y>
      <width>131</width>
      <height>20</height>
     </rect>
@@ -135,7 +135,7 @@
    <property name="geometry">
     <rect>
      <x>80</x>
-     <y>40</y>
+     <y>39</y>
      <width>55</width>
      <height>21</height>
     </rect>
@@ -148,9 +148,9 @@
    <property name="geometry">
     <rect>
      <x>240</x>
-     <y>40</y>
+     <y>39</y>
      <width>101</width>
-     <height>20</height>
+     <height>21</height>
     </rect>
    </property>
    <property name="text">
@@ -173,9 +173,9 @@
   <widget class="QLineEdit" name="lineActionName">
    <property name="geometry">
     <rect>
-     <x>80</x>
+     <x>100</x>
      <y>310</y>
-     <width>131</width>
+     <width>111</width>
      <height>22</height>
     </rect>
    </property>
@@ -220,7 +220,7 @@
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>470</y>
+     <y>475</y>
      <width>171</width>
      <height>21</height>
     </rect>
@@ -233,7 +233,7 @@
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>490</y>
+     <y>495</y>
      <width>171</width>
      <height>22</height>
     </rect>
@@ -298,7 +298,7 @@
    <property name="geometry">
     <rect>
      <x>200</x>
-     <y>490</y>
+     <y>495</y>
      <width>171</width>
      <height>22</height>
     </rect>
@@ -308,7 +308,7 @@
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>540</y>
+     <y>545</y>
      <width>171</width>
      <height>22</height>
     </rect>
@@ -318,7 +318,7 @@
    <property name="geometry">
     <rect>
      <x>200</x>
-     <y>470</y>
+     <y>475</y>
      <width>171</width>
      <height>21</height>
     </rect>
@@ -331,7 +331,7 @@
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>520</y>
+     <y>525</y>
      <width>171</width>
      <height>21</height>
     </rect>
@@ -367,9 +367,9 @@
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>270</y>
+     <y>274</y>
      <width>371</width>
-     <height>16</height>
+     <height>5</height>
     </rect>
    </property>
    <property name="orientation">
@@ -380,9 +380,9 @@
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>30</y>
+     <y>36</y>
      <width>371</width>
-     <height>16</height>
+     <height>10</height>
     </rect>
    </property>
    <property name="orientation">
@@ -393,9 +393,9 @@
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>610</y>
+     <y>616</y>
      <width>371</width>
-     <height>16</height>
+     <height>5</height>
     </rect>
    </property>
    <property name="orientation">
@@ -498,7 +498,7 @@
   <widget class="QLabel" name="labelActionOption1_2">
    <property name="geometry">
     <rect>
-     <x>40</x>
+     <x>50</x>
      <y>310</y>
      <width>41</width>
      <height>21</height>
@@ -506,6 +506,19 @@
    </property>
    <property name="text">
     <string>Type:</string>
+   </property>
+  </widget>
+  <widget class="QCheckBox" name="checkboxAddAllVariables">
+   <property name="geometry">
+    <rect>
+     <x>210</x>
+     <y>250</y>
+     <width>151</width>
+     <height>20</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Subscribe to All Vars</string>
    </property>
   </widget>
  </widget>

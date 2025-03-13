@@ -23,9 +23,11 @@ import imageio as io
 from scan_analysis.base import ScanAnalysis
 from image_analysis.utils import read_imaq_png_image
 
+import traceback
+PRINT_TRACEBACK = False
+
 
 # %% classes
-
 class CameraImageAnalysis(ScanAnalysis):
 
     def __init__(self, scan_tag: ScanTag, device_name: str,
@@ -99,6 +101,8 @@ class CameraImageAnalysis(ScanAnalysis):
             return self.display_contents
 
         except Exception as e:
+            if PRINT_TRACEBACK:
+                print(traceback.format_exc())
             if self.flag_logging:
                 logging.warning(f"Warning: Image analysis failed due to: {e}")
             return
@@ -434,12 +438,12 @@ class CameraImageAnalysis(ScanAnalysis):
 
         # Initialize the colormap and normalization
         cmap = plt.get_cmap('plasma')
-        norm = Normalize(vmin=np.min(image_arrays), vmax=np.max(image_arrays))
+        norm = Normalize(vmin=np.min(image_arrays), vmax=np.mean([img.max() for img in image_arrays]))
 
         # Font parameters for adding titles
         font = cv2.FONT_HERSHEY_TRIPLEX
-        font_scale = 1
-        thickness = 2
+        font_scale = 0.5
+        thickness = 1
         color = (255, 255, 255)
 
         images = []
@@ -456,10 +460,10 @@ class CameraImageAnalysis(ScanAnalysis):
 
             # Add title text
             (text_width, text_height), _ = cv2.getTextSize(title, font, font_scale, thickness)
-            title_position = (max((target_width_pixels - text_width) // 2, 0), max(50, text_height + 10))
+            title_position = (max((target_width_pixels - text_width) // 2, 0), max(25, text_height + 10))
 
             # Add space for the title
-            title_bar_height = 60
+            title_bar_height = 30
             title_image = np.zeros((title_bar_height + resized_image.shape[0], target_width_pixels, 3), dtype=np.uint8)
             title_image[title_bar_height:, :, :] = resized_image
 
@@ -553,6 +557,6 @@ class CameraImageAnalysis(ScanAnalysis):
 
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
-    tag = ScanData.get_scan_tag(year=2024, month=11, day=26, number=13, experiment_name='Undulator')
-    analyzer = CameraImageAnalysis(scan_tag=tag, device_name="UC_ALineEBeam3", skip_plt_show=True)
+    tag = ScanData.get_scan_tag(year=2025, month=2, day=13, number=29, experiment_name='Undulator')
+    analyzer = CameraImageAnalysis(scan_tag=tag, device_name="UC_ACaveMagCam3", skip_plt_show=True)
     analyzer.run_analysis()

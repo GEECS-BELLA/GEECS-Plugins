@@ -1,0 +1,13 @@
+Devices:
+- Energy Meters
+- Frog_stuff
+- U_BCaveICT
+- visa9_spectrometer_setup
+- HASO_Lift
+Info: EMQ2 scan (Visa9)
+Scan Mode: 1D Scan
+Shot per Step: 10
+Start: -0.76
+Step Size: 0.01
+Stop: -0.88
+Variable: EMQ2 Current

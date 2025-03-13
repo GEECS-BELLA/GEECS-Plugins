@@ -1,0 +1,13 @@
+Devices:
+- BCaveMagSpec
+- Energy Meters
+- Frog_stuff
+- Haso_lift
+- U_BCaveICT
+Info: jetX scan (JetZ=5.0mm)
+Scan Mode: 1D Scan
+Shot per Step: 10
+Start: 5.5
+Step Size: 0.25
+Stop: 7.5
+Variable: JetX (mm)

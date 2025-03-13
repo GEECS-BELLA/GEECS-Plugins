@@ -1,0 +1,9 @@
+Devices:
+- HP-FocusDiagnostics
+Info: Finding location of vertical focus plane in ghost line
+Scan Mode: 1D Scan
+Shot per Step: 10
+Start: 65.0
+Step Size: 0.5
+Stop: 75.0
+Variable: Ghost Focus

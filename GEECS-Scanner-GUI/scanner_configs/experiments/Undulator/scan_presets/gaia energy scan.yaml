@@ -1,0 +1,13 @@
+Devices:
+- BCaveMagSpec
+- Energy Meters
+- Frog_stuff
+- Haso_lift
+- U_BCaveICT
+Info: gaia timing scan
+Scan Mode: 1D Scan
+Shot per Step: 10
+Start: 0.00058
+Step Size: 1.0e-05
+Stop: 0.00067
+Variable: Gaia Lamp timing

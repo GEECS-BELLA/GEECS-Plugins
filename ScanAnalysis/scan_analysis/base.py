@@ -16,8 +16,8 @@ For the "requirements" block of AnalyzerInfo to be compatible with `scan_evaluat
 """
 # %% imports
 from __future__ import annotations
-
-from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple
+from numpy.typing import NDArray
+from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple, Dict, List
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
 from pathlib import Path
@@ -34,7 +34,13 @@ class AnalyzerInfo(NamedTuple):
     requirements: Union[dict[str, list], set, str]
     device_name: Optional[str] = None
     config_file: Optional[str] = None
+    is_active: bool = True
 
+
+# error classes
+class DataLengthError(ValueError):
+    """Raised when data arrays have inconsistent lengths."""
+    pass
 
 class ScanAnalysis:
     """
@@ -63,7 +69,7 @@ class ScanAnalysis:
         self.scan_data = ScanData(tag=self.tag, load_scalars=True, read_mode=True)
         self.scan_directory = self.scan_data.get_folder()  # ScanData.get_scan_folder_path(tag=scan_tag)
         self.experiment_dir = scan_tag.experiment
-        self.auxiliary_file_path = self.scan_directory / f"ScanData{self.scan_directory.name}.txt"
+        self.auxiliary_file_path = self.scan_data.get_analysis_folder().parent / f"s{self.tag.number}.txt"
         self.ini_file_path = self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
         self.noscan = False
 
@@ -127,9 +133,11 @@ class ScanAnalysis:
         return cleaned_scan_parameter
 
     def load_auxiliary_data(self):
-        """ Uses the data frame in the ScanData instance to find the bins and the binned parameter values """
+        """ Uses the data frame in the ScanData instance to find the bins and the binned parameter values 
+            Note: Auxiliary data loaded from tdms file, not scan file or sfile.
+        """
         try:
-            self.auxiliary_data = self.scan_data.data_frame
+            self.auxiliary_data = pd.read_csv(self.auxiliary_file_path, delimiter='\t')
             self.bins = self.auxiliary_data['Bin #'].values
 
             if not self.noscan:
@@ -146,6 +154,51 @@ class ScanAnalysis:
             plt.show()  # Display for interactive use
         else:
             plt.close('all')  # Ensure plots close when not using the GUI
+
+    def append_to_sfile(self,
+                        dict_to_append: Dict[str, Union[List, NDArray[np.float64]]]) -> None:
+        """
+        Append new data to the auxiliary file.
+
+        Args:
+            dict_to_append: Dictionary containing column names and their values to append
+
+        Raises:
+            DataLengthError: If the length of array values doesn't match existing data
+        """
+        try:
+            # copy auxiliary dataframe
+            df_copy = self.auxiliary_data.copy()
+
+            # check column lengths match existing dataframe
+            lengths = {len(vals) for vals in dict_to_append.values() if isinstance(vals, (list, np.ndarray))}
+            if lengths and lengths.pop() != len(df_copy):
+                raise DataLengthError()
+
+            # check if columns exist within dataframe
+            existing_cols = set(df_copy) & set(dict_to_append.keys())
+            if existing_cols:
+                # if self.flag['logging']:
+                logging.warning(f"Warning: Columns already exist in sfile: "
+                                f"{existing_cols}. Overwriting existing columns.")
+
+            # append new fields to df_copy
+            df_new = df_copy.assign(**dict_to_append)
+
+            # save updated dataframe to sfile
+            df_new.to_csv(self.auxiliary_file_path,
+                          index=False, sep='\t', header=True)
+
+            # copy updated dataframe to class attribute
+            self.auxiliary_data = df_new.copy()
+
+        except DataLengthError:
+            # if self.flag['logging']:
+            logging.error(f"Error: Error appending {self.device_name} field to sfile due to "
+                          f"inconsistent array lengths. Scan file not updated.")
+
+        except Exception as e:
+            logging.error(f"Error: Unexpected error in {self.append_to_sfile.__name__}: {e}")
 
     def generate_limited_shotnumber_labels(self, max_labels: int = 20) -> np.ndarray:
         """
