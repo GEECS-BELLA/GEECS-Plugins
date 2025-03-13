@@ -91,6 +91,8 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
 
         self.instantiate_wavekit_resources(config_file_path=config_file_path)
 
+        self.run_analyze_image_asynchronously = False
+
     def _log_info(self, message: str, *args, **kwargs):
         """Log an info message if logging is enabled."""
         if self.flag_logging:
