@@ -216,7 +216,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 
         self.display_contents.append(str(save_path))
 
-        if energy_spectrum:
+        if energy_spectrum is not None:
             scan_spectrum = np.vstack([energy_spectrum, photon_lineouts])
             lineout_save_path = save_path.parent / 'scan_spectrum.npy'
             np.save(lineout_save_path, scan_spectrum)
@@ -307,6 +307,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=90, experiment_name='Undulator')
+    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=25, experiment_name='Undulator')
     analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False, background_mode=False)
     analyzer.run_analysis()
