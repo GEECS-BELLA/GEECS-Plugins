@@ -5,10 +5,10 @@ from pathlib import Path
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
-    from ..types import Array2D
+    from image_analysis.types import Array2D
 
 import numpy as np
-from image_analysis.analyzers.basic_image_analysis import BasicImageAnalyzer
+from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
 
 class ACaveMagCam3ImageAnalyzer(BasicImageAnalyzer):
 
@@ -76,7 +76,8 @@ class ACaveMagCam3ImageAnalyzer(BasicImageAnalyzer):
             roi_analysis_result[f'{roi_name}:max'] = max_val
 
         # Append the flattened result dictionary to your list
-        return {'processed_image':roi_image, 'analysis_results': roi_analysis_result}
+        return_dictionary = self.build_return_dictionary(return_image=roi_image, return_scalars=roi_analysis_result)
+        return return_dictionary
 
 if __name__ == "__main__":
     image_analyzer  = ACaveMagCam3ImageAnalyzer()
