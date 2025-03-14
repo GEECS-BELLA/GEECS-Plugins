@@ -9,8 +9,9 @@ readme = "README.md"
 python = ">=3.9, <3.11"
 pytest = "^8.3.4"
 
-GEECS-Scanner_GUI = { path = "../GEECS-Scanner-GUI", develop = true }
-ScanAnalysis = { path = "../ScanAnalysis", develop = true }
+GEECS-Scanner_GUI = { path = "../../GEECS-Scanner-GUI", develop = true }
+ScanAnalysis = { path = "../../ScanAnalysis", develop = true }
+pytest-qt = "^4.4.0"
 
 [build-system]
 requires = ["poetry-core"]
