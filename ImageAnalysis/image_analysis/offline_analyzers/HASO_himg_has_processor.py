@@ -5,7 +5,7 @@ from pathlib import Path
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
-    from ..types import Array2D, QuantityArray2D
+    from image_analysis.types import Array2D, QuantityArray2D
 
 try:
     import image_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
@@ -16,7 +16,7 @@ except Exception as e:
 import logging
 import numpy as np
 
-from image_analysis.analyzers.basic_image_analysis import BasicImageAnalyzer
+from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
 from image_analysis.utils import ROI
 
 from dataclasses import dataclass
@@ -86,7 +86,6 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
         self.processed_slopes: wkpy.HasoSlopes = None
 
         super().__init__()
-
         config_file_path = Path('C:/GEECS/Developers Version/source/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
 
         self.instantiate_wavekit_resources(config_file_path=config_file_path)
