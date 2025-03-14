@@ -219,7 +219,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         tasks = []
         allowed_exts = ['.png', '.himg', '.tsv'] # not yet implemented but might need to be
         for shot_num in self.auxiliary_data['Shotnumber'].values:
-            file_path = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.*'), None)
+            file_path = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}*.*'), None)
             logging.info(f'file path foudn is {file_path}')
             if file_path is not None:
                 tasks.append((shot_num, file_path))
