@@ -31,9 +31,7 @@ from matplotlib.colors import Normalize
 import imageio as io
 
 from scan_analysis.base import ScanAnalysis
-
 from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
-
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 import traceback
@@ -109,6 +107,8 @@ class Array2DScanAnalysis(ScanAnalysis):
         # define flags
         self.flag_logging = flag_logging
         self.flag_save_images = flag_save_images
+
+        self.file_pattern: str = "*_{shot_num:03d}.png"
 
         # organize various paths
         self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
@@ -217,10 +217,10 @@ class Array2DScanAnalysis(ScanAnalysis):
 
         # Gather tasks: each shot number paired with its file path.
         tasks = []
-        allowed_exts = ['.png', '.himg', '.tsv'] # not yet implemented but might need to be
         for shot_num in self.auxiliary_data['Shotnumber'].values:
-            file_path = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}*.*'), None)
-            logging.info(f'file path foudn is {file_path}')
+            pattern = self.file_pattern.format(shot_num=shot_num)
+            file_path = next(self.path_dict['data_img'].glob(pattern), None)
+            logging.info(f'file path found is {file_path}')
             if file_path is not None:
                 tasks.append((shot_num, file_path))
 
