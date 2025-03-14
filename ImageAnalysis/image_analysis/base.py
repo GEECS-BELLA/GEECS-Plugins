@@ -21,7 +21,7 @@ class ImageAnalyzer:
     # asynchronously, for example if it waits for an external process
     run_analyze_image_asynchronously = False
 
-    def __init__(self):
+    def __init__(self, config: Optional[Any] = None):
         """ Initializes this ImageAnalyzer, with Analyzer parameters as kwargs
 
             As the same ImageAnalyzer instance can be applied to many images,
@@ -55,7 +55,19 @@ class ImageAnalyzer:
 
                 super().__init__()
 
+
+        New:
+            config: Optional[Any]
+                Optional configuration data (e.g., a dictionary, file path, or configuration object)
+                that can be used by derived classes to initialize additional parameters. If not provided,
+                defaults will be used.
+
         """
+
+        # Default implementation does nothing with config.
+        # Subclasses can process config as needed.
+        self.config = config
+
         pass
 
     def analyze_image(self,
