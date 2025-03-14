@@ -46,8 +46,8 @@
    <widget class="QLineEdit" name="inputYear">
     <property name="geometry">
      <rect>
-      <x>90</x>
-      <y>60</y>
+      <x>100</x>
+      <y>40</y>
       <width>113</width>
       <height>22</height>
      </rect>
@@ -56,8 +56,8 @@
    <widget class="QLineEdit" name="inputMonth">
     <property name="geometry">
      <rect>
-      <x>90</x>
-      <y>90</y>
+      <x>100</x>
+      <y>70</y>
       <width>113</width>
       <height>22</height>
      </rect>
@@ -66,8 +66,8 @@
    <widget class="QLineEdit" name="inputDay">
     <property name="geometry">
      <rect>
-      <x>90</x>
-      <y>120</y>
+      <x>100</x>
+      <y>100</y>
       <width>113</width>
       <height>22</height>
      </rect>
@@ -76,8 +76,8 @@
    <widget class="QLabel" name="labelYear">
     <property name="geometry">
      <rect>
-      <x>40</x>
-      <y>60</y>
+      <x>50</x>
+      <y>40</y>
       <width>31</width>
       <height>21</height>
      </rect>
@@ -89,8 +89,8 @@
    <widget class="QLabel" name="labelMonth">
     <property name="geometry">
      <rect>
-      <x>40</x>
-      <y>90</y>
+      <x>50</x>
+      <y>70</y>
       <width>41</width>
       <height>21</height>
      </rect>
@@ -102,8 +102,8 @@
    <widget class="QLabel" name="labelDay">
     <property name="geometry">
      <rect>
-      <x>40</x>
-      <y>120</y>
+      <x>50</x>
+      <y>100</y>
       <width>41</width>
       <height>21</height>
      </rect>
@@ -125,8 +125,8 @@
    <widget class="QLineEdit" name="inputStartScan">
     <property name="geometry">
      <rect>
-      <x>90</x>
-      <y>190</y>
+      <x>100</x>
+      <y>170</y>
       <width>113</width>
       <height>22</height>
      </rect>
@@ -135,8 +135,8 @@
    <widget class="QLabel" name="labelStartScan">
     <property name="geometry">
      <rect>
-      <x>20</x>
-      <y>190</y>
+      <x>30</x>
+      <y>170</y>
       <width>61</width>
       <height>21</height>
      </rect>
@@ -148,8 +148,8 @@
    <widget class="QLabel" name="labelIgnore">
     <property name="geometry">
      <rect>
-      <x>10</x>
-      <y>220</y>
+      <x>20</x>
+      <y>200</y>
       <width>81</width>
       <height>21</height>
      </rect>
@@ -161,8 +161,8 @@
    <widget class="QLineEdit" name="inputIgnore">
     <property name="geometry">
      <rect>
-      <x>90</x>
-      <y>220</y>
+      <x>100</x>
+      <y>200</y>
       <width>113</width>
       <height>22</height>
      </rect>
@@ -172,7 +172,7 @@
     <property name="geometry">
      <rect>
       <x>70</x>
-      <y>160</y>
+      <y>140</y>
       <width>81</width>
       <height>21</height>
      </rect>
@@ -213,7 +213,7 @@
     <property name="geometry">
      <rect>
       <x>20</x>
-      <y>260</y>
+      <y>240</y>
       <width>191</width>
       <height>20</height>
      </rect>
@@ -225,7 +225,7 @@
    <widget class="QLineEdit" name="lineDocumentID">
     <property name="geometry">
      <rect>
-      <x>90</x>
+      <x>100</x>
       <y>300</y>
       <width>113</width>
       <height>22</height>
@@ -235,7 +235,7 @@
    <widget class="QLabel" name="label">
     <property name="geometry">
      <rect>
-      <x>10</x>
+      <x>20</x>
       <y>300</y>
       <width>81</width>
       <height>21</height>
@@ -243,6 +243,19 @@
     </property>
     <property name="text">
      <string>DocumentID</string>
+    </property>
+   </widget>
+   <widget class="QCheckBox" name="checkBoxScanlog">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>270</y>
+      <width>181</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Write to Scan Log</string>
     </property>
    </widget>
   </widget>

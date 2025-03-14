@@ -78,6 +78,10 @@ class ScAnalyzerWindow(QMainWindow):
         self.worker: Optional[Worker] = None
         self.worker_thread: Optional[QThread] = None
 
+        # set up checkbox to toggle uploading images to the scanlog
+        self.ui.checkBoxScanlog.toggled.connect(self.toggle_scanlog_upload)
+        self.toggle_scanlog_upload()
+
         # set up line edit to specify document id
         self.documentID: Optional[str] = None
         self.ui.lineDocumentID.editingFinished.connect(self.updateDocumentID)
@@ -135,7 +139,7 @@ class ScAnalyzerWindow(QMainWindow):
         try:
             analysis_date = date(year=int(self.ui.inputYear.text()), month=int(self.ui.inputMonth.text()),
                                  day=int(self.ui.inputDay.text()))
-            if analysis_date != date.today() and self.documentID is None:
+            if self.ui.checkBoxScanlog.isChecked() and analysis_date != date.today() and self.documentID is None:
                 raise DateCheckError("Cannot perform analysis on previous date without DocumentID")
 
             # initialize scan watcher
@@ -146,6 +150,7 @@ class ScAnalyzerWindow(QMainWindow):
                                      ignore_list=self.ignore_list,
                                      overwrite_previous=self.overwrite_processed_scans,
                                      analyzer_list=self.analyzer_items,
+                                     upload_to_scanlog=self.ui.checkBoxScanlog.isChecked(),
                                      documentID=self.documentID)
 
             # start analysis
@@ -339,6 +344,10 @@ class ScAnalyzerWindow(QMainWindow):
         None
         '''
         self.ui.logDisplay.setReadOnly(True)
+
+    def toggle_scanlog_upload(self):
+        """ Enables/Disables the `updateDocumentID` line edit if the checkbox is checked or not """
+        self.ui.lineDocumentID.setEnabled(self.ui.checkBoxScanlog.isChecked())
 
     def updateDocumentID(self):
         """ Updates the document ID if a non-empty string is entered into the line edit """

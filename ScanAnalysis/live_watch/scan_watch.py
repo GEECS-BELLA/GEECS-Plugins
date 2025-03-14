@@ -77,7 +77,8 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
 class ScanWatch:
     def __init__(self, experiment_name: str, year: int, month: Union[int, str], day: int,
                  ignore_list: list[int] = None, overwrite_previous: bool = False, perform_initial_search: bool = True,
-                 analyzer_list: Optional[list[AnalyzerInfo]] = None, documentID: Optional[str] = None):
+                 analyzer_list: Optional[list[AnalyzerInfo]] = None,
+                 upload_to_scanlog: bool = True, documentID: Optional[str] = None):
         """
         Parameters
         ----------
@@ -95,6 +96,8 @@ class ScanWatch:
             Flag to ignore previously analyzed scan directories if True
         perform_initial_search: bool
             Flag to search through the target directory for existing scans to analyze
+        upload_to_scanlog: bool
+            Flag to upload returned list of files to google doc
         documentID: str
             If given, will use this documentID when uploading data.  Otherwise, defaults to today's scanlog
 
@@ -120,6 +123,7 @@ class ScanWatch:
         if perform_initial_search:
             self.initial_search_of_watch_folder()
 
+        self.upload_to_scanlog = upload_to_scanlog
         self.documentID = documentID
 
     def _check_watch_folder_exists(self, watch_folder_not_exist: str = 'raise'):
@@ -216,7 +220,8 @@ class ScanWatch:
                                                    experiment_name=tag.experiment,
                                                    analyzer_list=self.analyzer_list)
 
-        analyze_scan(tag, valid_analyzers, debug_mode=False, documentID=self.documentID)
+        analyze_scan(tag, valid_analyzers, debug_mode=False,
+                     upload_to_scanlog=self.upload_to_scanlog, documentID=self.documentID)
 
         self._write_processed_list()
 

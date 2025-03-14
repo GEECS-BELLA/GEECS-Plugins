@@ -5,10 +5,10 @@ from pathlib import Path
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
-    from ..types import Array2D
+    from image_analysis.types import Array2D
 
-from ..base import ImageAnalyzer
-from ..utils import read_imaq_image
+from image_analysis.base import ImageAnalyzer
+from image_analysis.utils import read_imaq_image
 
 class BasicImageAnalyzer(ImageAnalyzer):
     def __init__(self):
@@ -53,4 +53,4 @@ class BasicImageAnalyzer(ImageAnalyzer):
                 raise ValueError("Either an image or file_path must be provided.")
             image = self.load_image(file_path)
 
-        return {'processed_image': image, 'analysis_results': {'test result':'hello'}}
+        return {'processed_image_uint16': image, 'analyzer_return_dictionary': {'test result':'hello'}}
