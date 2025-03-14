@@ -44,8 +44,9 @@ STRING_OPTIONS = ["Master Control IP", "Save Hiatus Period (s)"]
 
 
 class GEECSScannerWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, unit_test_mode: bool = False):
         super().__init__()
+        self.unit_test_mode = unit_test_mode
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
@@ -61,7 +62,8 @@ class GEECSScannerWindow(QMainWindow):
         self.experiment = ""
         self.repetition_rate = 0
         self.timing_configuration_name = ""
-        self.load_config_settings()
+        if not self.unit_test_mode:
+            self.load_config_settings()
 
         # Initializes run control if possible, this serves as the interface to scan_manager and data_acquisition
         self.RunControl: Optional[RunControl] = None
@@ -303,27 +305,30 @@ class GEECSScannerWindow(QMainWindow):
             return
 
         logging.info("Reinitialization of Run Control")
-        self.app_paths = AppPaths(experiment=self.experiment)
 
-        # Before initializing, rewrite config file if experiment name or timing configuration name has changed
-        config = configparser.ConfigParser()
-        config.read(AppPaths.config_file())
+        # Do not change application paths or write to config if window is in unit test mode
+        if not self.unit_test_mode:
+            self.app_paths = AppPaths(experiment=self.experiment)
 
-        do_write = False
-        if config['Experiment']['expt'] != self.experiment:
-            logging.info("Experiment name changed, rewriting config file")
-            config.set('Experiment', 'expt', self.experiment)
-            do_write = True
+            # Before initializing, rewrite config file if experiment name or timing configuration name has changed
+            config = configparser.ConfigParser()
+            config.read(AppPaths.config_file())
 
-        if ((not config.has_option('Experiment', 'timing_configuration')) or
-                config['Experiment']['timing_configuration'] != self.timing_configuration_name):
-            logging.info("Timing configuration changed, rewriting config file")
-            config.set('Experiment', 'timing_configuration', self.timing_configuration_name)
-            do_write = True
+            do_write = False
+            if config['Experiment']['expt'] != self.experiment:
+                logging.info("Experiment name changed, rewriting config file")
+                config.set('Experiment', 'expt', self.experiment)
+                do_write = True
 
-        if do_write:
-            with open(AppPaths.config_file(), 'w') as file:
-                config.write(file)
+            if ((not config.has_option('Experiment', 'timing_configuration')) or
+                    config['Experiment']['timing_configuration'] != self.timing_configuration_name):
+                logging.info("Timing configuration changed, rewriting config file")
+                config.set('Experiment', 'timing_configuration', self.timing_configuration_name)
+                do_write = True
+
+            if do_write:
+                with open(AppPaths.config_file(), 'w') as file:
+                    config.write(file)
 
         shot_control_path = self.app_paths.shot_control() / (self.timing_configuration_name + ".yaml")
         if not shot_control_path.exists():
