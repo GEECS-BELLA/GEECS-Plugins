@@ -5,17 +5,17 @@ pytest is a testing framework that is very popular due to its simplicity.
 """
 
 import pytest
-import numpy as np
 
 from pathlib import Path
 
 from geecs_python_api.analysis.scans.scan_data import ScanData, ScanTag
-from image_analysis.analyzers.density_from_phase_analysis import PhaseAnalysisConfig, PhasePreprocessor, PhaseDownrampProcessor
+from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, PhasePreprocessor, PhaseDownrampProcessor
 
 def get_path_to_phase_file():
     st = ScanTag(2025, 3, 6, 16, experiment='Undulator')
     s_data = ScanData(tag=st)
     path_to_file = Path(s_data.get_analysis_folder() / "U_HasoLift" / "HasoAnalysis" / 'Scan016_U_HasoLift_002_postprocessed.tsv')
+    print(path_to_file)
     return path_to_file
 
 def get_path_to_bkg_file():
@@ -30,7 +30,9 @@ def test_get_path_to_haso_file():
 
 def test_phase_processing():
     phase_file_path: Path = get_path_to_phase_file()
+    print(f'file to process: {phase_file_path}')
     bkg_file_path = get_path_to_bkg_file()
+    print(f'bkg to process: {bkg_file_path}')
 
     config: PhaseAnalysisConfig = PhaseAnalysisConfig(
         pixel_scale=10.1,            # um per pixel (vertical)
@@ -41,7 +43,7 @@ def test_phase_processing():
     )
 
     processor  = PhaseDownrampProcessor(config)
-    processor.analyze_image(phase_file_path)
+    processor.analyze_image( file_path = phase_file_path)
 
 
 if __name__ == "__main__":
