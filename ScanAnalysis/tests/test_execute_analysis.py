@@ -6,8 +6,8 @@ from scan_analysis.execute_scan_analysis import analyze_scan
 
 from scan_analysis.base import AnalyzerInfo as Info
 from scan_analysis.analyzers.Undulator.array2D_scan_analysis import Array2DScanAnalysis
-from image_analysis.analyzers.basic_image_analysis import BasicImageAnalyzer
-from image_analysis.analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
+from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
+from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
 
 
 
