@@ -31,24 +31,36 @@ def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnaly
     Additionally, handle extra configuration that may be a path (to a config file) or a configuration object.
     """
     image_analyzer = None
-    config = getattr(analyzer_info, "image_analyzer_config", None)
+    config = getattr(analyzer_info, "image_analysis_config", None)
+    logging.info(f'the image analyzer config from the passed analyzer info is {config}')
+    logging.info(f'the complete analyzer info is {analyzer_info}')
+    logging.info(f'the image analyzer class is  {analyzer_info.image_analyzer_class}')
+
+
     if analyzer_info.image_analyzer_class:
+        logging.info(f'image analyzer class recongnized, search for config')
+
         if config is not None:
+            logging.info(f'image analyzer class recongnized, there is a config')
+            logging.info(f'config type is {type(config)}')
             # If it's a string or Path, assume it's a path to a config file.
             if isinstance(config, (str, Path)):
                 # You could load the configuration from file here.
                 # For example: config_obj = load_config(Path(config))
                 # For now, we'll simply pass the path.
-                image_analyzer = analyzer_info.image_analyzer_class(config)
+                image_analyzer = analyzer_info.image_analyzer_class(config=config)
             # Otherwise, if it's an instance of PhaseAnalysisConfig (or similar), pass it directly.
             elif isinstance(config, PhaseAnalysisConfig):
-                image_analyzer = analyzer_info.image_analyzer_class(config)
+                logging.info(f'config type matched the PhaseAnalysisConfig')
+
+                image_analyzer = analyzer_info.image_analyzer_class(config=config)
+                logging.info(f'config in the image analyzer set to {image_analyzer.config}')
             else:
                 # Fallback: pass it as-is.
                 image_analyzer = analyzer_info.image_analyzer_class(config)
         else:
             image_analyzer = analyzer_info.image_analyzer_class()
-
+    logging.info(f'the image analyzer config is {image_analyzer.config}')
     analyzer_instance = analyzer_info.analyzer_class(
         scan_tag=tag,
         device_name=analyzer_info.device_name,
@@ -61,34 +73,6 @@ def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnaly
         analyzer_instance.file_pattern = analyzer_info.file_pattern or default_pattern
 
     return analyzer_instance
-
-# def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnalysis:
-#     """
-#     Helper function to instantiate an analyzer from an AnalyzerInfo object.
-#
-#     If an image analyzer class is specified in analyzer_info, instantiate it and pass it
-#     to the analyzer's constructor. Also, if the analyzer supports a file pattern and one is provided,
-#     set it. If not provided, use a default file pattern.
-#     """
-#     # Instantiate the image analyzer if provided; otherwise, use None.
-#     image_analyzer = analyzer_info.image_analyzer_class() if analyzer_info.image_analyzer_class else None
-#
-#     # Create the main analyzer instance.
-#     analyzer_instance = analyzer_info.analyzer_class(
-#         scan_tag=tag,
-#         device_name=analyzer_info.device_name,
-#         skip_plt_show=True,
-#         image_analyzer=image_analyzer
-#     )
-#
-#     # Check if the analyzer supports a file pattern.
-#     if hasattr(analyzer_instance, "file_pattern"):
-#         # Use the file_pattern provided in analyzer_info if available,
-#         # otherwise use the default.
-#         default_pattern = "*_{shot_num:03d}.png"
-#         analyzer_instance.file_pattern = analyzer_info.file_pattern or default_pattern
-#
-#     return analyzer_instance
 
 def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], upload_to_scanlog: bool = True,
                  documentID: Optional[str] = None, debug_mode: bool = False):
@@ -110,6 +94,7 @@ def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], upload_to_scan
         if not debug_mode:
             try:
                 # Use the helper to instantiate the analyzer (with image analyzer and file pattern settings)
+                logging.info(f'attempting to instantiate image the scan analyzer with an ImageAnalyzer config: {analyzer_info}')
                 analyzer = instantiate_analyzer(tag, analyzer_info)
                 index_of_files = analyzer.run_analysis(config_options=analyzer_info.config_file)
                 print(f'index of files: {index_of_files}')
