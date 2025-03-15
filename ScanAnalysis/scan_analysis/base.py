@@ -41,6 +41,7 @@ class AnalyzerInfo(NamedTuple):
     # New optional field for explicit image analyzer import
     image_analyzer_class: Optional[Type[ImageAnalyzer]] = None
     file_pattern: Optional[str] = "*_{shot_num:03d}.png"
+    image_analysis_config: Optional[any] = None
 
 
 # error classes
