@@ -559,8 +559,12 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
 
         # Convert each figure to an image array.
         img1 = fig_to_array(fig1)
+        plt.close(fig1)  # Close the figure object.
         img2 = fig_to_array(fig2)
+        plt.close(fig2)  # Close the figure object.
         img3 = fig_to_array(fig3)
+        plt.close(fig3)  # Close the figure object.
+
 
         # Create a composite figure with 1 row and 3 columns.
         combined_fig, axs = plt.subplots(1, 3, figsize=(15, 5))
@@ -581,6 +585,7 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         # combined_save_path = "combined_shock_analysis.pdf"
 
         combined_fig.savefig(combined_save_path)
+        plt.close(combined_fig)  # Correct way to close the figure.
         logging.info("Combined shock analysis figure saved to %s", combined_save_path)
 
         results["combined_fig"] = combined_fig
