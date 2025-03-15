@@ -231,7 +231,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         # Use ProcessPoolExecutor if the analyzer is CPU-bound,
         # or ThreadPoolExecutor if run_analyze_image_asynchronously is True.
 
-        with ProcessPoolExecutor() as process_pool, ThreadPoolExecutor() as thread_pool:
+        with ProcessPoolExecutor(max_workers=1) as process_pool, ThreadPoolExecutor(max_workers=1) as thread_pool:
             for shot_num, file_path in tasks:
                 if self.image_analyzer.run_analyze_image_asynchronously:
                     # For asynchronous (likely I/O-bound) processing, use the thread pool.
