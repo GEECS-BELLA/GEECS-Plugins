@@ -170,10 +170,11 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
         processed_phase = self.compute_phase_from_slopes(self.processed_slopes)
 
         result = self.raw_slopes, self.processed_slopes, raw_phase, processed_phase, haso_intensity
-
         self.save_individual_results(result)
 
-        return
+        return_dict = self.build_return_dictionary(return_lineouts=processed_phase)
+
+        return return_dict
 
     def create_slopes_object_from_himg(self, image_file_path: Path) -> wkpy.HasoSlopes:
         """
