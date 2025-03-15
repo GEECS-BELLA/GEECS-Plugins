@@ -23,11 +23,11 @@ from dataclasses import dataclass
 
 @dataclass
 class FilterParameters:
-    apply_tiltx_filter: bool = False
-    apply_tilty_filter: bool = False
-    apply_curv_filter: bool = False
-    apply_astig0_filter: bool = False
-    apply_astig45_filter: bool = False
+    apply_tiltx_filter: bool = True
+    apply_tilty_filter: bool = True
+    apply_curv_filter: bool = True
+    apply_astig0_filter: bool = True
+    apply_astig45_filter: bool = True
     apply_others_filter: bool = False
 
 class HASOHimgHasProcessor(BasicImageAnalyzer):

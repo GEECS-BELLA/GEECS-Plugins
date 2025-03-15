@@ -449,6 +449,7 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
             plt.show()
 
         phase_array = threshold_data(phase_array, self.config.threshold_fraction)
+
         if self.use_interactive:
             plt.imshow(phase_array, cmap='plasma', origin='lower')
             plt.title("bkg fit subtracted and threshed")
