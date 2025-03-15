@@ -126,9 +126,8 @@ def threshold_data(data: np.ndarray, threshold_frac: float) -> np.ndarray:
     are set to zero.
     NaNs are ignored in computing the threshold and remain unchanged.
     """
-    data_min: float = np.nanmin(data)
     data_max: float = np.nanmax(data)
-    thresh_val: float = data_min + (data_max - data_min) * threshold_frac
+    thresh_val: float = data_max * threshold_frac
     thresh: np.ndarray = np.copy(data)
     # Create a mask that only selects non-NaN values below the threshold.
     mask = (thresh < thresh_val) & ~np.isnan(thresh)
@@ -172,7 +171,11 @@ class PhasePreprocessor:
         Subtract a background array from the phase array.
         The background array must be broadcastable to the shape of the phase array.
         """
-        return phase_data - background
+        bkg_subtracted = phase_data - background
+        bkg_subtracted = -(bkg_subtracted - np.nanmin(bkg_subtracted))
+        bkg_subtracted = abs(bkg_subtracted - np.nanmin(bkg_subtracted))
+
+        return bkg_subtracted
 
     @staticmethod
     def crop(phase_data:NDArray, x_min: int, x_max: int, y_min: int, y_max: int) -> NDArray:
@@ -253,7 +256,7 @@ class PhasePreprocessor:
 
     # ---------------- Main Rotation Workflow ----------------
 
-    def rotate_phase_data(self, phase_data: NDArray, threshold_frac: float = 0.2) -> Tuple[NDArray,dict]:
+    def rotate_phase_data(self, phase_data: NDArray, threshold_frac: float = 0.25) -> Tuple[NDArray,dict]:
         """
         Rotate the phase data to correct for any tilt based on the weighted column centers.
 
@@ -279,11 +282,12 @@ class PhasePreprocessor:
         phase_array = phase_data
         # Step 1: Determine dynamic range.
         data_min, data_max = np.nanmin(phase_array), np.nanmax(phase_array)
-        phase_array = -(phase_array - data_min)
-        phase_array = np.abs(phase_array - np.nanmin(phase_array))
 
         # Step 2: Create a thresholded version for centroid computation.
         thresh_data = threshold_data(phase_array, threshold_frac)
+        # plt.imshow(thresh_data, cmap='plasma', origin='lower')
+        # plt.title("thresh data for centroid fitting")
+        # plt.show()
 
         # Step 3: Compute weighted column centroids and column sums.
         centroids, col_sums = self.compute_column_centroids(thresh_data)
@@ -295,17 +299,17 @@ class PhasePreprocessor:
         angle_rad = self.compute_rotation_angle(slope)
         angle_deg = np.degrees(angle_rad)
         fit_params = {
-            'slope': slope,
-            'intercept': intercept,
-            'angle_radians': angle_rad,
-            'angle_degrees': angle_deg
+            'Laser Plasma Slope': slope,
+            'Laser Plasma Intercept': intercept,
+            'Laser Plasma angle_radians': angle_rad,
+            'Laser Plasma angle_degrees': angle_deg
         }
 
         # Step 6: Rotate the original phase data.
         # Using reshape=True so that the output shape is adjusted to contain the entire rotated image.
         rotated_data = ndimage.rotate(phase_array, angle=angle_deg, reshape=True, order=1)
 
-        phase_array = self.crop(phase_array,20, -20, 35, -35)
+        phase_array = self.crop(rotated_data,20, -20, 35, -35)
 
         return (phase_array,fit_params)
 
@@ -330,7 +334,7 @@ class PhasePreprocessor:
                 terms.append((x ** i) * (y ** j))
         return np.column_stack(terms)
 
-    def remove_background_polyfit(self, phase_data:NDArray, threshold_frac: float = 0.15, poly_order: int = 2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def remove_background_polyfit(self, phase_data:NDArray, threshold_frac: float = 0.3, poly_order: int = 2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         After rotating the phase array, mask out the region that is usually kept by the threshold
         (i.e. the high-signal area) by replacing those pixel values with NaN. Then perform a 2D
@@ -348,12 +352,13 @@ class PhasePreprocessor:
         data = phase_data
         # Compute the dynamic range of the data.
         data_min, data_max = np.nanmin(data), np.nanmax(data)
-        data = -np.abs((data - data_min))
-        data_min, data_max = np.nanmin(data), np.nanmax(data)
         thresh_val = data_min + (data_max - data_min) * threshold_frac
         # Create a masked copy: set pixels above the threshold to NaN.
         masked_data = data.copy()
         masked_data[masked_data > thresh_val] = np.nan
+        # plt.imshow(masked_data, cmap='plasma', origin='lower')
+        # plt.title("threshed data for bkg fitting")
+        # plt.show()
 
         # Build coordinate grids.
         nrows, ncols = masked_data.shape
@@ -418,39 +423,38 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         """
         Parameters: file_path
         """
-        print(f'loader file path: {file_path}')
+        logging.info(f'loader file path: {file_path}')
         loader: PhaseDataLoader = PhaseDataLoader(file_path)
         phase_array = loader.load_data()
         if self.use_interactive:
-            plt.imshow(phase_array, cmap='viridis', origin='lower')
+            plt.imshow(phase_array, cmap='plasma', origin='lower')
             plt.title("first phase")
             plt.show()
 
         phase_array = self.processor.subtract_background(phase_array, self.bg_data)
         if self.use_interactive:
-            plt.imshow(phase_array, cmap='viridis', origin='lower')
+            plt.imshow(phase_array, cmap='plasma', origin='lower')
             plt.title("bkg subtracted phase")
             plt.show()
         if self.config.roi is not None:
             x_min, x_max, y_min, y_max = self.config.roi
             phase_array = self.processor.crop(phase_array, x_min, x_max, y_min, y_max)
 
-        rotation_result = self.processor.rotate_phase_data(phase_array)
+        polynomial_subtraction_result = self.processor.remove_background_polyfit(phase_array)
+
+        phase_array = polynomial_subtraction_result[0]
         if self.use_interactive:
-            plt.imshow(rotation_result[0], cmap='viridis', origin='lower')
-            plt.title("processed phase")
+            plt.imshow(phase_array, cmap='plasma', origin='lower')
+            plt.title("bkg fit subtracted")
             plt.show()
 
-        # polynomial_subtraction_result = self.processor.remove_background_polyfit(phase_array)
-        #
-        # phase_array = polynomial_subtraction_result[0]
-        thresh_data = threshold_data(phase_array, self.config.threshold_fraction)
+        phase_array = threshold_data(phase_array, self.config.threshold_fraction)
         if self.use_interactive:
-            plt.imshow(thresh_data, cmap='viridis', origin='lower')
-            plt.title("processed phase")
+            plt.imshow(phase_array, cmap='plasma', origin='lower')
+            plt.title("bkg fit subtracted and threshed")
             plt.show()
 
-        return phase_array, rotation_result[1]
+        return phase_array
 
     def analyze_image(self, image: NDArray = None, file_path: Path = None) -> dict[str, Union[float, int, str, np.ndarray]]:
 
@@ -466,59 +470,363 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
             A dictionary containing results (e.g., phase map and/or related parameters).
 
         """
-
+        self.file_path = file_path
         try:
-            processed_phase = self.process_phase(file_path)
+            processed_phase = self.process_phase(self.file_path)
             logging.info(f'processed {file_path}')
 
         except Exception as e:
-            logging.warning(f'could not process {file_path}')
+            logging.warning(f'could not process {self.file_path}')
             raise
 
-        # self.downramp_phase_analysis(processed_phase[1])
-        if self.use_interactive:
-            plt.imshow(processed_phase[0], cmap='viridis', origin='lower')
-            plt.title("processed phase")
-            plt.show()
+        scalar_results_dict = self.compile_shock_analysis(processed_phase)
 
-
-        phase_converted = processed_phase[0] / 800 * 2 * np.pi
-        phase_converted = phase_converted - np.nanmin(phase_converted)
-        phase_scale_16bit_scale = (2**16-1)/(4*np.pi)
+        phase_converted = processed_phase
+        phase_scale_16bit_scale = (2**16-1)/(2*np.pi)
         phase_converted = phase_scale_16bit_scale * phase_converted
         phase_converted = phase_converted.astype(np.uint16)
-        # Append the flattened result dictionary to your list
-        return_dictionary = self.build_return_dictionary(return_image=phase_converted, return_scalars=processed_phase[1])
+
+        return_dictionary = self.build_return_dictionary(return_image=phase_converted, return_scalars=scalar_results_dict)
+
         return return_dictionary
 
-    def downramp_phase_analysis(self, phase_array: NDArray):
-        # Find the index of the maximum value in the array.
-        max_index = np.unravel_index(np.argmax(phase_array), phase_array.shape)
-        row, col = max_index
-        logging.info("Max value at:", row, col)
+    def compile_shock_analysis(self, phase_array: NDArray, window_size: int = 20) -> dict:
+        """
+        Runs all shock analysis methods, collects computed metrics,
+        and compiles a composite figure (1 row × 3 columns) of intermediary plots.
 
-        # Define a window of ±20 pixels around the max point, ensuring we don't go out of bounds.
-        row_min = max(row - 40, 0)
-        row_max = min(row + 40, phase_array.shape[0])
-        col_min = max(col - 40, 0)
-        col_max = min(col + 40, phase_array.shape[1])
+        It does the following:
+          1. Calls get_shock_angle to compute the shock angle.
+          2. Calls get_shock_gradient_and_position to compute the local slope and its position.
+          3. Calls calculate_delta_plateau to compute the plateau average and delta.
+          4. Retrieves the corresponding figures from each method.
+          5. Converts each figure to an image array and compiles them into a single composite figure.
+          6. Returns a dictionary with all computed metrics and the composite figure.
 
-        # Crop the region.
-        cropped_region = phase_array[row_min:row_max, col_min:col_max]
-        # Display the cropped region.
-        plt.imshow(cropped_region, cmap='viridis', origin='lower')
-        plt.title("Cropped Region with Row-wise Max Markers")
+        Parameters:
+          phase_array : NDArray
+              The input phase image.
+          window_size : int, optional
+              The window size used for gradient and plateau calculations (default is 20).
 
-        # For each row in the cropped region, overlay a black marker at the max value.
-        for i in range(cropped_region.shape[0]):
-            # Get the column index for the maximum value in this row.
-            max_col_index = np.argmax(cropped_region[i, :])
-            # Plot the marker. Note: x corresponds to column, y to row.
-            plt.plot(max_col_index, i, marker='o', markersize=5, color='black')
+        Returns:
+          dict: A dictionary with keys:
+                'shock_angle': computed shock angle (in degrees),
+                'max_slope': the maximum local slope,
+                'best_center': the column index corresponding to the steepest gradient,
+                'plateau_value': the average intensity of the plateau region,
+                'delta': the difference between the overall max and the plateau average,
+                'combined_fig': the composite matplotlib figure.
+        """
+        # Run the individual analysis methods.
 
-        plt.show()
+        rotation_result = self.processor.rotate_phase_data(phase_array)
+        thresholded_rotated = threshold_data(rotation_result[0], self.config.threshold_fraction)
 
-        return
+        shock_angle = self.get_shock_angle(thresholded_rotated)
+        max_slope, best_center = self.get_shock_gradient_and_position(thresholded_rotated, window_size=window_size)
+        plateau_value, delta = self.calculate_delta_plateau(thresholded_rotated, best_center, window_size=window_size)
+
+        results = {
+            "Plasma downramp shock_angle": shock_angle,
+            "Plasma downramp shock slope (phase/pixel)": max_slope,
+            "Plasma downramp shock location (pixel)": best_center,
+            "Plasma downramp plateau avg (phase)": plateau_value,
+            "Plasma downramp peak to plateau (phase)": delta,
+        }
+
+        merged = {**results, **rotation_result[1]}
+
+        def fig_to_array(fig):
+            """
+            Converts a matplotlib figure to a NumPy array using its true pixel dimensions.
+            """
+            # Force a draw on the canvas.
+            fig.canvas.draw()
+            # Get the figure size in pixels.
+            w, h = fig.get_size_inches() * fig.dpi
+            w, h = int(w), int(h)
+            # Get the RGB buffer from the canvas.
+            buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+            # Reshape to an image array.
+            return buf.reshape(h, w, 3)
+
+        # Retrieve the saved figure objects.
+        fig1 = self.shock_angle_fig  # from get_shock_angle
+        fig2 = self.shock_grad_fig  # from get_shock_gradient_and_position
+        fig3 = self.delta_plateau_fig  # from calculate_delta_plateau
+
+        # Convert each figure to an image array.
+        img1 = fig_to_array(fig1)
+        img2 = fig_to_array(fig2)
+        img3 = fig_to_array(fig3)
+
+        # Create a composite figure with 1 row and 3 columns.
+        combined_fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        axs[0].imshow(img1)
+        axs[0].set_title("Shock Angle Determination")
+        axs[0].axis('off')
+
+        axs[1].imshow(img2)
+        axs[1].set_title("Shock Gradient & Position")
+        axs[1].axis('off')
+
+        axs[2].imshow(img3)
+        axs[2].set_title("Plateau estimation")
+        axs[2].axis('off')
+
+        plt.tight_layout()
+        combined_save_path = self.file_path.parent / f'{self.file_path.stem}_combined_shock_analysis.pdf'
+        # combined_save_path = "combined_shock_analysis.pdf"
+
+        combined_fig.savefig(combined_save_path)
+        logging.info("Combined shock analysis figure saved to %s", combined_save_path)
+
+        results["combined_fig"] = combined_fig
+
+        return merged
+
+    def get_shock_angle(self, phase_array: NDArray):
+
+        # Create a new figure and store it.
+        # fig = plt.figure(figsize=(6, 4))
+        fig = plt.figure()
+
+        # Threshold the data.
+        threshed = threshold_data(phase_array, threshold_frac=0.2)
+
+        # Rotate the image by 90 degrees (counter-clockwise).
+        # np.rot90 rotates the array counter-clockwise by 90°.
+        rotated = np.rot90(threshed)
+
+        # Now treat columns of the rotated image as "rows" for analysis.
+        num_cols = rotated.shape[1]
+        col_indices = np.arange(num_cols)
+
+        # For each column in the rotated image, find the row index of the maximum value.
+        max_rows = np.array([np.argmax(rotated[:, j]) for j in range(num_cols)])
+
+        # Optionally, compute weights (for example, the sum of each column).
+        col_weights = np.array([np.sum(rotated[:, j]) for j in range(num_cols)])
+
+        # Fit a line to the points (col index, max row index) using a weighted linear fit.
+        try:
+            # We want to fit max_rows as a function of col_indices.
+            coeffs = np.polyfit(col_indices, max_rows, 1, w=col_weights)
+            slope, intercept = coeffs
+            logging.info("Weighted fit (rotated): slope = %f, intercept = %f", slope, intercept)
+        except Exception as e:
+            logging.error("Error during weighted fit: %s", e)
+            slope, intercept = 0, 0
+
+        # Compute the fitted line on the rotated image.
+        fitted_line = slope * col_indices + intercept
+
+        # Now, convert the markers and fitted line from the rotated system back to the original.
+        # Let W = rotated.shape[0] (this equals the original image width).
+        W = rotated.shape[0]
+
+        # For each column j in the rotated image, the corresponding original coordinates are:
+        #   row_orig = j,  col_orig = (W - 1) - (value from rotated)
+        orig_marker_rows = col_indices  # because for each column j in rotated, original row = j.
+        orig_marker_cols = W - 1 - max_rows
+
+        # For the fitted line, for each j (rotated column), the fitted line gives a rotated row coordinate.
+        orig_fit_rows = col_indices  # same as above.
+        orig_fit_cols = W - 1 - (slope * col_indices + intercept)
+
+        # Now clear the current figure and plot the original thresholded image.
+        plt.clf()  # Clear the figure.
+        plt.imshow(threshed, cmap='plasma', origin='lower')
+        plt.title("Shock Angle")
+
+        # # Plot markers.
+        # for r, c in zip(orig_marker_rows, orig_marker_cols):
+        #     plt.plot(c, r, marker='o', markersize=5, color='black')
+
+        # Plot the fitted line.
+        plt.plot(orig_fit_cols, orig_fit_rows, color='cyan', linewidth=2, label='Weighted Fit to peaks')
+        plt.legend()
+
+        self.shock_angle_fig = fig
+        # save_path =  "shock_angle.pdf"
+        # fig.savefig(save_path)
+        # logging.info("Shock angle figure saved to %s", save_path)
+
+        # Compute the angle from the rotated slope.
+        angle_rotated_rad = np.arctan(slope)
+        angle_rotated_deg = np.degrees(angle_rotated_rad)
+        # Adjust back to the original orientation.
+        angle_original_deg = angle_rotated_deg - 90.0
+
+        logging.info("Computed line angle (rotated): %.2f deg; original: %.2f deg", angle_rotated_deg,
+                     angle_original_deg)
+        self.shock_angle_fig = fig
+        return angle_original_deg
+
+    def get_shock_gradient_and_position(self, image: np.ndarray, window_size: int = 20) -> tuple[float, int]:
+        """
+        Analyzes the phase image by:
+          1. Summing the image over rows to produce a 1D profile (assumed to represent intensity vs. column).
+          2. Visualizing the profile.
+          3. Computing the local slope over a moving window of a specified size.
+          4. Finding the window with the largest (absolute) local slope.
+          5. Overlaying the corresponding fitted line segment on the plot.
+          6. Also plotting the local slopes as a function of window center.
+          7. Returning the maximum local slope and the center column index of that window.
+
+        Parameters:
+          image : np.ndarray
+              The original (unrotated) image.
+          window_size : int, optional
+              The number of pixels in the moving window for the local fit (default is 20).
+
+        Returns:
+          max_slope : float
+              The slope (in intensity units per pixel) of the window with the largest (absolute) slope.
+          best_center : int
+              The column index corresponding to the center of the window with the maximum slope.
+        """
+
+        # Create a new figure and store it.
+        fig = plt.figure(figsize=(6, 4))
+
+        # Sum over rows to produce a 1D profile (intensity vs. column)
+        profile = np.sum(image, axis=0)
+        x = np.arange(len(profile))
+
+        plt.plot(x, profile, label="Summed phase", color="blue")
+        plt.xlabel("pixel (10.1 um per pixel)")
+        plt.ylabel("Vertical sum of phase")
+        plt.title("Shock gradient and position estimator")
+
+        # Lists to store the slope of each window and its center position.
+        window_centers = []
+        window_slopes = []
+
+        max_slope = 0.0
+        best_center = None
+        best_fit_line_x = None
+        best_fit_line_y = None
+
+        # Slide over the profile with a window of size 'window_size'
+        for start in range(0, len(profile) - window_size + 1):
+            end = start + window_size
+            x_window = x[start:end]
+            y_window = profile[start:end]
+
+            # Fit a line: y = m*x + b using np.polyfit
+            coeffs = np.polyfit(x_window, y_window, 1)  # coeffs[0] is slope, coeffs[1] is intercept
+            slope = coeffs[0]
+            center = (start + end) // 2
+
+            window_centers.append(center)
+            window_slopes.append(10*slope)
+
+            # Check if the absolute slope is larger than the current best
+            if abs(slope) > abs(max_slope):
+                max_slope = slope
+                best_center = center
+                best_fit_line_x = x_window
+                best_fit_line_y = slope * x_window + coeffs[1]
+
+        # Overlay the best-fit line segment if available.
+        if best_fit_line_x is not None and best_fit_line_y is not None:
+            plt.plot(best_fit_line_x, best_fit_line_y, 'r-', linewidth=2, label="Max local slope")
+
+        # # Also plot the local slopes (dashed line) as a function of the window center.
+        # plt.plot(window_centers, window_slopes, 'g--', linewidth=0.5, label="Local Slopes")
+
+        plt.legend()
+        # if self.use_interactive:
+        #     plt.show()
+        # Instead of showing the plot, save it as a PDF.
+        self.shock_grad_fig = fig  # from get_shock_gradient_and_position
+
+        # save_path = "gradient and position.pdf"
+        # fig.savefig(save_path)
+        # logging.info("Shock angle figure saved to %s", save_path)
+
+        return max_slope, best_center
+
+    def calculate_delta_plateau(self, image: np.ndarray, best_center: int, window_size: int = 20) -> tuple[
+        float, float]:
+        """
+        Calculates the plateau value and the delta between the maximum intensity and the plateau.
+
+        The plateau is defined as the average intensity over a region starting 2 window sizes
+        to the left of the steepest slope (best_center) and spanning 5 window sizes. The delta is
+        defined as the overall maximum intensity in the profile minus the plateau value.
+
+        Parameters:
+          image : np.ndarray
+              The original (unrotated) image.
+          best_center : int
+              The column index where the steepest slope was found.
+          window_size : int, optional
+              The size of the window (in pixels) used in earlier analysis (default is 20).
+
+        Returns:
+          plateau_value : float
+              The average intensity of the plateau region.
+          delta : float
+              The difference between the overall maximum intensity and the plateau average.
+        """
+
+
+
+        # Sum the image over rows to produce a 1D profile.
+        profile = np.sum(image, axis=0)
+        x = np.arange(len(profile))
+
+        overall_max = np.max(profile)
+
+        # Define the plateau region.
+        # Start: best_center minus 2 window sizes.
+        start_index = best_center - (1 + 3) * window_size
+        # End: start + 5 window sizes.
+        end_index = start_index + 3 * window_size
+
+        # Ensure the indices are within bounds.
+        start_index = max(start_index, 0)
+        end_index = min(end_index, len(profile))
+
+        # Compute the plateau average.
+        plateau_region = profile[start_index:end_index]
+        plateau_value = np.mean(plateau_region)
+
+        # Compute delta as overall maximum minus plateau.
+        delta = overall_max - plateau_value
+
+        # Plot the intensity profile.
+        fig = plt.figure(figsize=(6, 4))
+        plt.plot(x, profile, label="Summed phase", color="blue")
+        plt.xlabel("pixel (10.1 um per pixel")
+        plt.ylabel("Vertically summed phase")
+        plt.title("Plateau and Peak to Plateau estimate")
+
+        # Mark the plateau region on the plot.
+        plt.axvspan(start_index, end_index, color="green", alpha=0.3, label="Plateau Region")
+        # Mark the overall maximum.
+        max_index = np.argmax(profile)
+        plt.axvline(x=max_index, color="red", linestyle="--", label=f"Max (col {max_index})")
+
+        # Also, draw a horizontal line at the plateau value.
+        plt.axhline(y=plateau_value, color="purple", linestyle="--", label=f"Plateau Avg: {plateau_value:.2f}")
+
+        plt.legend()
+        # if self.use_interactive:
+        #     plt.show()
+        self.delta_plateau_fig = fig # from calculate_delta_plateau
+
+        # save_path = "delta and plateau.pdf"
+        # fig.savefig(save_path)
+        # logging.info("Shock angle figure saved to %s", save_path)
+
+        logging.info("Overall max: %f, Plateau avg: %f, Delta: %f", overall_max, plateau_value, delta)
+
+        return plateau_value, delta
+
 
 class InversionTechnique(abc.ABC):
     """
