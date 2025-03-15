@@ -11,11 +11,13 @@ from image_analysis.base import ImageAnalyzer
 from image_analysis.utils import read_imaq_image
 
 class BasicImageAnalyzer(ImageAnalyzer):
-    def __init__(self):
+    def __init__(self, config: Optional[Any] = None):
         """
         BasicImageAnalyzer constructor that ignores ROI.
+        Now accepts an optional configuration parameter.
         """
-        super().__init__()
+        # Call the parent initializer with config.
+        super().__init__(config=config)
 
     @staticmethod
     def load_image(file_path: Path) -> NDArray:
