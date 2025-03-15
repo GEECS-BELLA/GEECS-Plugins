@@ -355,11 +355,6 @@ class PhasePreprocessor:
         masked_data = data.copy()
         masked_data[masked_data > thresh_val] = np.nan
 
-        # plt.imshow(masked_data, cmap='viridis', origin='lower')
-        # plt.title("maske phase")
-        # plt.colorbar()
-        # plt.show()
-
         # Build coordinate grids.
         nrows, ncols = masked_data.shape
         X, Y = np.meshgrid(np.arange(ncols), np.arange(nrows))
@@ -394,11 +389,6 @@ class PhasePreprocessor:
         # Subtract the background fit from the original phase data.
         data = data - background_fit
 
-        # plt.imshow(data, cmap='viridis', origin='lower')
-        # plt.title("maske phase")
-        # plt.colorbar()
-        # plt.show()
-
         return data, background_fit, coeffs
 
 class PhaseDownrampProcessor(BasicImageAnalyzer):
@@ -418,7 +408,11 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
             bg_loader = PhaseDataLoader(self.config.background)
             self.bg_data = bg_loader.load_data()
 
-        super().__init__()
+        super().__init__(config=self.config)
+
+        self.run_analyze_image_asynchronously = True
+
+        self.use_interactive = False
 
     def process_phase(self, file_path: Path) -> Tuple[NDArray,dict[str,float]]:
         """
@@ -427,36 +421,34 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         print(f'loader file path: {file_path}')
         loader: PhaseDataLoader = PhaseDataLoader(file_path)
         phase_array = loader.load_data()
-        plt.imshow(phase_array, cmap='viridis', origin='lower')
-        plt.title("first phase")
-        plt.show()
+        if self.use_interactive:
+            plt.imshow(phase_array, cmap='viridis', origin='lower')
+            plt.title("first phase")
+            plt.show()
 
         phase_array = self.processor.subtract_background(phase_array, self.bg_data)
-
-        plt.imshow(phase_array, cmap='viridis', origin='lower')
-        plt.title("bkg subtracted phase")
-        plt.show()
+        if self.use_interactive:
+            plt.imshow(phase_array, cmap='viridis', origin='lower')
+            plt.title("bkg subtracted phase")
+            plt.show()
         if self.config.roi is not None:
             x_min, x_max, y_min, y_max = self.config.roi
             phase_array = self.processor.crop(phase_array, x_min, x_max, y_min, y_max)
 
-        # plt.imshow(phase_array, cmap='viridis', origin='lower')
-        # plt.title("processed phase")
-        # plt.show()
-
         rotation_result = self.processor.rotate_phase_data(phase_array)
-        plt.imshow(rotation_result[0], cmap='viridis', origin='lower')
-        plt.title("processed phase")
-        plt.show()
+        if self.use_interactive:
+            plt.imshow(rotation_result[0], cmap='viridis', origin='lower')
+            plt.title("processed phase")
+            plt.show()
 
-        polynomial_subtraction_result = self.processor.remove_background_polyfit(phase_array)
-
-        phase_array = polynomial_subtraction_result[0]
+        # polynomial_subtraction_result = self.processor.remove_background_polyfit(phase_array)
+        #
+        # phase_array = polynomial_subtraction_result[0]
         thresh_data = threshold_data(phase_array, self.config.threshold_fraction)
-
-        plt.imshow(thresh_data, cmap='viridis', origin='lower')
-        plt.title("processed phase")
-        plt.show()
+        if self.use_interactive:
+            plt.imshow(thresh_data, cmap='viridis', origin='lower')
+            plt.title("processed phase")
+            plt.show()
 
         return phase_array, rotation_result[1]
 
@@ -484,13 +476,19 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
             raise
 
         # self.downramp_phase_analysis(processed_phase[1])
+        if self.use_interactive:
+            plt.imshow(processed_phase[0], cmap='viridis', origin='lower')
+            plt.title("processed phase")
+            plt.show()
 
-        plt.imshow(processed_phase[0], cmap='viridis', origin='lower')
-        plt.title("processed phase")
-        plt.show()
 
+        phase_converted = processed_phase[0] / 800 * 2 * np.pi
+        phase_converted = phase_converted - np.nanmin(phase_converted)
+        phase_scale_16bit_scale = (2**16-1)/(4*np.pi)
+        phase_converted = phase_scale_16bit_scale * phase_converted
+        phase_converted = phase_converted.astype(np.uint16)
         # Append the flattened result dictionary to your list
-        return_dictionary = self.build_return_dictionary(return_image=processed_phase[0], return_scalars=processed_phase[1])
+        return_dictionary = self.build_return_dictionary(return_image=phase_converted, return_scalars=processed_phase[1])
         return return_dictionary
 
     def downramp_phase_analysis(self, phase_array: NDArray):
