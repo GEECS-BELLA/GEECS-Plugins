@@ -305,7 +305,7 @@ class PhasePreprocessor:
         # Using reshape=True so that the output shape is adjusted to contain the entire rotated image.
         rotated_data = ndimage.rotate(phase_array, angle=angle_deg, reshape=True, order=1)
 
-        phase_array = self.crop(phase_array,20, -20, 35, -35)
+        phase_array = self.crop(rotated_data,20, -20, 35, -35)
 
         return (phase_array,fit_params)
 
@@ -441,9 +441,9 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
             plt.title("processed phase")
             plt.show()
 
-        # polynomial_subtraction_result = self.processor.remove_background_polyfit(phase_array)
-        #
-        # phase_array = polynomial_subtraction_result[0]
+        polynomial_subtraction_result = self.processor.remove_background_polyfit(phase_array)
+
+        phase_array = polynomial_subtraction_result[0]
         thresh_data = threshold_data(phase_array, self.config.threshold_fraction)
         if self.use_interactive:
             plt.imshow(thresh_data, cmap='viridis', origin='lower')
