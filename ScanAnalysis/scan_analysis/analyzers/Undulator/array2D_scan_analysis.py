@@ -37,47 +37,6 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 import traceback
 PRINT_TRACEBACK = True
 
-def process_shot_parallel(
-        shot_num: int, file_path: Path, analyzer_class: type[BasicImageAnalyzer]
-) -> tuple[int, Optional[np.ndarray], dict]:
-    """
-    Helper function for parallel processing in a separate process.
-    Creates a new analyzer instance from analyzer_class, processes the image,
-    and returns the shot number, processed image, and analysis results.
-
-    If the analyzer's return value is not as expected (e.g., not a dict, missing
-    keys, or values are None), it logs a warning and returns safe defaults.
-    """
-    try:
-        analyzer = analyzer_class()
-        results_dict = analyzer.analyze_image(file_path=file_path)
-    except Exception as e:
-        logging.error(f"Error during analysis for shot {shot_num}: {e}")
-        return shot_num, None, {}
-
-    if not isinstance(results_dict, dict):
-        logging.warning(f"Analyzer returned non-dict result for shot {shot_num}.")
-        return shot_num, None, {}
-
-    if "processed_image_uint16" not in results_dict:
-        logging.warning(f"Shot {shot_num}: 'processed_image_uint16' key not found in analyzer result.")
-        image = None
-    else:
-        image = results_dict.get("processed_image_uint16")
-
-    analysis = results_dict.get("analyzer_return_dictionary", {})
-    if not isinstance(analysis, dict):
-        logging.warning(f"Shot {shot_num} analysis returned non-dict 'analyzer_return_dictionary'.")
-        analysis = {}
-
-    if image is None and analysis:
-        logging.info(f"Shot {shot_num} returned no processed image, but analysis results are available.")
-    elif image is None:
-        logging.warning(f"Shot {shot_num} returned no processed image or analysis results.")
-
-    return shot_num, image, analysis
-
-
 # %% classes
 class Array2DScanAnalysis(ScanAnalysis):
 
@@ -162,6 +121,47 @@ class Array2DScanAnalysis(ScanAnalysis):
                 logging.warning(f"Warning: Image analysis failed due to: {e}")
             return
 
+    @staticmethod
+    def process_shot_parallel(
+            shot_num: int, file_path: Path, analyzer_class: type[BasicImageAnalyzer]
+    ) -> tuple[int, Optional[np.ndarray], dict]:
+        """
+        Helper function for parallel processing in a separate process.
+        Creates a new analyzer instance from analyzer_class, processes the image,
+        and returns the shot number, processed image, and analysis results.
+
+        If the analyzer's return value is not as expected (e.g., not a dict, missing
+        keys, or values are None), it logs a warning and returns safe defaults.
+        """
+        try:
+            analyzer = analyzer_class()
+            results_dict = analyzer.analyze_image(file_path=file_path)
+        except Exception as e:
+            logging.error(f"Error during analysis for shot {shot_num}: {e}")
+            return shot_num, None, {}
+
+        if not isinstance(results_dict, dict):
+            logging.warning(f"Analyzer returned non-dict result for shot {shot_num}.")
+            return shot_num, None, {}
+
+        if "processed_image_uint16" not in results_dict:
+            logging.warning(f"Shot {shot_num}: 'processed_image_uint16' key not found in analyzer result.")
+            image = None
+        else:
+            image = results_dict.get("processed_image_uint16")
+
+        analysis = results_dict.get("analyzer_return_dictionary", {})
+        if not isinstance(analysis, dict):
+            logging.warning(f"Shot {shot_num} analysis returned non-dict 'analyzer_return_dictionary'.")
+            analysis = {}
+
+        if image is None and analysis:
+            logging.info(f"Shot {shot_num} returned no processed image, but analysis results are available.")
+        elif image is None:
+            logging.warning(f"Shot {shot_num} returned no processed image or analysis results.")
+
+        return shot_num, image, analysis
+
     def _process_all_shots_parallel(self) -> None:
         """
         Run the image analyzer on every shot in parallel and update self.data.
@@ -198,11 +198,11 @@ class Array2DScanAnalysis(ScanAnalysis):
 
             # If a processed image is available, update self.data.
             if image is not None:
-                try:
-                    image = image.astype(np.uint16)
-                except Exception as e:
-                    logging.error(f"Error converting image for shot {shot_number} to uint16: {e}")
-                    image = None
+                # try:
+                #     image = image.astype(np.uint16)
+                # except Exception as e:
+                #     logging.error(f"Error converting image for shot {shot_number} to uint16: {e}")
+                #     image = None
                 if image is not None:
                     self.data['shot_num'].append(shot_number)
                     self.data['images'].append(image)
@@ -239,7 +239,7 @@ class Array2DScanAnalysis(ScanAnalysis):
                 else:
                     # For CPU-bound tasks, use the process pool.
                     # Pass the analyzer's class so each process can create its own instance.
-                    future = process_pool.submit(process_shot_parallel, shot_num, file_path,
+                    future = process_pool.submit(self.process_shot_parallel, shot_num, file_path,
                                                  self.image_analyzer.__class__)
                 image_analysis_futures[future] = shot_num
 
@@ -385,9 +385,12 @@ class Array2DScanAnalysis(ScanAnalysis):
             avg_image = self.average_images(images)
             # Get a representative parameter value for the bin.
             # Here we assume the auxiliary data contains a column with self.scan_parameter.
-            param_value = self.auxiliary_data.loc[
-                self.auxiliary_data["Bin #"] == bin_val, self.scan_parameter
-            ].mean()
+
+
+            column_full_name, column_alias = self.find_scan_param_column()
+
+            param_value = self.auxiliary_data.loc[self.auxiliary_data["Bin #"] == bin_val, column_full_name].mean()
+
             binned_data[bin_val] = {"value": param_value, "image": avg_image}
 
             if flag_save:
