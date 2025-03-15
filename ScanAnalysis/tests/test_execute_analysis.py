@@ -7,6 +7,8 @@ from scan_analysis.execute_scan_analysis import analyze_scan
 
 from scan_analysis.base import AnalyzerInfo as Info
 from scan_analysis.analyzers.Undulator.array2D_scan_analysis import Array2DScanAnalysis
+from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
+
 from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
 from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
 from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, PhaseDownrampProcessor
@@ -47,10 +49,11 @@ class TestExecuteAnalysis(unittest.TestCase):
         analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
 
     def test_HasoLift(self):
-        analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
-             requirements={'U_HasoLift'},
-             device_name='U_HasoLift',
-             image_analyzer_class=HASOHimgHasProcessor)
+        analyzer_info = Info(analyzer_class=HIMGWithAveraging,
+            requirements={'U_HasoLift'},
+            device_name='U_HasoLift',
+            image_analyzer_class=HASOHimgHasProcessor,
+            file_pattern = "*_{shot_num:03d}.himg")
         test_tag = ScanTag(year=2025, month=2, day=19, number=2, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
 
@@ -63,7 +66,7 @@ class TestExecuteAnalysis(unittest.TestCase):
 
             return path_to_file
 
-        bkg_file_path = get_path_to_bkg_file
+        bkg_file_path = get_path_to_bkg_file()
         config: PhaseAnalysisConfig = PhaseAnalysisConfig(
             pixel_scale=10.1,  # um per pixel (vertical)
             wavelength_nm=800,  # Probe laser wavelength in nm
@@ -76,7 +79,7 @@ class TestExecuteAnalysis(unittest.TestCase):
                 requirements={'U_HasoLift'},
                 device_name='U_HasoLift',
                 image_analyzer_class=PhaseDownrampProcessor,
-                file_pattern = "*_{shot_num:03d}-postprocessed.tsv",
+                file_pattern = "*_{shot_num:03d}_postprocessed.tsv",
                 image_analysis_config = config)
 
         test_tag = ScanTag(year=2025, month=2, day=19, number=3, experiment='Undulator')
