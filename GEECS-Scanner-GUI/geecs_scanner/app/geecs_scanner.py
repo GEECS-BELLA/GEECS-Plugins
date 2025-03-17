@@ -350,8 +350,8 @@ class GEECSScannerWindow(QMainWindow):
         except ValueError:
             logging.error("ValueError at RunControl: presumably because no experiment name or shot control given")
             self.RunControl = None
-        except ConnectionRefusedError as e:
-            logging.error(f"ConnectionRefusedError at RunControl: {e}")
+        except (ConnectionError, ConnectionRefusedError) as e:
+            logging.error(f"{type(e)} at RunControl: {e}")
             self.RunControl = None
 
         sys.path.pop(0)

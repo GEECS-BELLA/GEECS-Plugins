@@ -55,7 +55,7 @@ def test_element_list(app, qtbot: QtBot):
 
     # Next, if we create a new element does it correctly refresh the list
     temp_file = app.app_paths.save_devices() / "temp.yaml"
-    with open(temp_file, "w") as file:
+    with open(temp_file, "w"):
         pass
     assert list1.count() == 0
     assert list2.count() == 2
@@ -83,6 +83,7 @@ def test_element_list(app, qtbot: QtBot):
 
 def test_open_element_editor(app, qtbot):
     """ Tests opening the element editor using 'New' and 'Edit' with elements selected/not selected """
+
     def check_and_close_element_editor(check_value: str = ''):
         active_modal = QApplication.activeModalWidget()
         if active_modal:
