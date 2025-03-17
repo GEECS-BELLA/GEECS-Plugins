@@ -1,7 +1,11 @@
-import sys
+"""
+This is a test that the tests will work, and it gives a base example of how to test PyQT5 GUI features
+
+-Chris
+"""
+
 import pytest
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton
-from PyQt5.QtTest import QTest
+from PyQt5.QtWidgets import QMainWindow, QPushButton
 from PyQt5.QtCore import Qt
 
 
