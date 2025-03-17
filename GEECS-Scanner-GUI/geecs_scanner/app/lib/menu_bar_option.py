@@ -144,8 +144,12 @@ class MenuBarOptionStr(MenuBarOption):
 
     def prompt_new_value(self):
         """ Opens a dialog box to prompt the user for a new value """
-        text, ok = QInputDialog.getText(self.main_window, 'Update Optional Parameter', self.get_name(), text=self.value)
-        if ok:
-            self.value = text.strip()
+        if self.unit_test_mode:
+            self.value = 'test' if not self.value else ''
+
+        else:
+            text, ok = QInputDialog.getText(self.main_window, 'Update Optional Parameter', self.get_name(), text=self.value)
+            if ok:
+                self.value = text.strip()
 
         self.setChecked(not self.value == "")
