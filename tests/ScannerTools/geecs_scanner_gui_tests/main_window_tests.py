@@ -197,5 +197,20 @@ def test_opening_side_guis(app, qtbot: QtBot):
     assert app.is_in_multiscan is False
 
 
+# Test changing selections in scan variables
+
+# Test making a preset, applying it, and deleting it
+
+# Test calculating number of shots
+
+# Test generating list of steps
+
+# Test combining save element dicts
+
+# TODO Test Updating config
+
+# TODO Test starting/stopping scan and logic for which buttons are enabled
+
+
 if __name__ == '__main__':
     pytest.main()
