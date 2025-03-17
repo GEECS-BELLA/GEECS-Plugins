@@ -1,7 +1,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
+    from PyQt5.QtWidgets import QRadioButton
 
 import pytest
 
@@ -152,6 +154,7 @@ def test_menu_options(app, qtbot: QtBot):
 
 def test_opening_side_guis(app, qtbot: QtBot):
     """ Tests opening the other 4 main gui windows and closing them """
+
     def close_window(gui_reference, gui_class):
         active_modal = QApplication.activeModalWidget()
         if active_modal:
@@ -197,7 +200,71 @@ def test_opening_side_guis(app, qtbot: QtBot):
     assert app.is_in_multiscan is False
 
 
-# Test changing selections in scan variables
+def test_adjusting_scan_parameters(app, qtbot: QtBot):
+    """ Tests the basic functionality of changing the scan settings.  This ensures that (1) the correct line edits
+     are enabled when their respective radio button is selected and (2) """
+    scan_line_elements = [app.ui.lineStartValue, app.ui.lineStopValue, app.ui.lineStepSize, app.ui.lineShotStep]
+
+    def check_scan_line_edits(selected_radio: QRadioButton, check_value: bool):
+        """ First checks that only the specified radio button is the one currently checked.  Next, checks that
+         the line edits are enabled/disabled correctly based on the given expected boolean """
+        assert app.ui.noscanRadioButton.isChecked() is (selected_radio is app.ui.noscanRadioButton)
+        assert app.ui.scanRadioButton.isChecked() is (selected_radio is app.ui.scanRadioButton)
+        assert app.ui.backgroundRadioButton.isChecked() is (selected_radio is app.ui.backgroundRadioButton)
+
+        assert app.ui.lineScanVariable.isEnabled() is check_value
+        for element in scan_line_elements:
+            assert element.isEnabled() is check_value
+
+        assert app.ui.lineNumShots.isEnabled() is not check_value
+
+    # Click on 'NoScan', check line edit status
+    qtbot.mouseClick(app.ui.noscanRadioButton, Qt.LeftButton)
+    check_scan_line_edits(app.ui.noscanRadioButton, False)
+
+    # Click on 'Background', check line edit status.  Set number of noscan shots to 50
+    qtbot.mouseClick(app.ui.backgroundRadioButton, Qt.LeftButton)
+    check_scan_line_edits(app.ui.backgroundRadioButton, False)
+
+    app.ui.lineNumShots.setText('50')
+    app.update_noscan_num_shots()
+    assert app.noscan_num == 50
+
+    # Click on 'Scan', check line edit status.  Check number of scan variables and set test values to all line edits
+    qtbot.mouseClick(app.ui.scanRadioButton, Qt.LeftButton)
+    check_scan_line_edits(app.ui.scanRadioButton, True)
+
+    assert len(app.scan_variable_list) == 2
+    assert len(app.scan_composite_list) == 2
+    app.ui.lineScanVariable.setText(app.scan_variable_list[0])
+    for i in range(len(scan_line_elements)):
+        scan_line_elements[i].setText(str(i))
+    app.calculate_num_shots()
+
+    # Click on 'NoScan', check line edit status.  Check that "50" was preserved in number of noscan shots and reset it
+    qtbot.mouseClick(app.ui.noscanRadioButton, Qt.LeftButton)
+    check_scan_line_edits(app.ui.noscanRadioButton, False)
+
+    assert app.noscan_num == 50
+    assert int(app.ui.lineNumShots.text()) == 50
+    app.ui.lineNumShots.setText('100')
+    app.update_noscan_num_shots()
+
+    # Check that scan line edits are empty
+    assert app.ui.lineScanVariable.text() == ''
+    for line in scan_line_elements:
+        assert line.text() == ''
+
+    # Click on 'Scan', check that previously entered values were preserved.  Reset it and go back to 'NoScan'
+    qtbot.mouseClick(app.ui.scanRadioButton, Qt.LeftButton)
+    assert app.ui.lineScanVariable.text() == app.scan_variable_list[0]
+    for i in range(len(scan_line_elements)):
+        assert int(float(scan_line_elements[i].text())) == i
+        scan_line_elements[i].setText("")
+    app.calculate_num_shots()
+
+    qtbot.mouseClick(app.ui.noscanRadioButton, Qt.LeftButton)
+
 
 # Test making a preset, applying it, and deleting it
 
