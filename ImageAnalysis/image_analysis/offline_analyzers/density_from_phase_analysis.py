@@ -599,7 +599,7 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         fig = plt.figure()
 
         # Threshold the data.
-        threshed = threshold_data(phase_array, threshold_frac=0.2)
+        threshed = threshold_data(phase_array, threshold_frac=self.config.threshold_fraction)
 
         # Rotate the image by 90 degrees (counter-clockwise).
         # np.rot90 rotates the array counter-clockwise by 90°.
