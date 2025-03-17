@@ -206,11 +206,11 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.actionDarkMode.toggled.connect(self.toggle_light_dark)
 
         # Initial state of side-gui's
-        self.element_editor = None
-        self.multiscanner_window = None
-        self.action_library_window = None
-        self.timing_editor = None
-        self.variable_editor = None
+        self.element_editor: Optional[SaveElementEditor] = None
+        self.multiscanner_window: Optional[MultiScanner] = None
+        self.action_library_window: Optional[ActionLibrary] = None
+        self.timing_editor: Optional[ShotControlEditor] = None
+        self.variable_editor: Optional[ScanVariableEditor] = None
 
         # Set current GUI mode
         self.toggle_light_dark()
