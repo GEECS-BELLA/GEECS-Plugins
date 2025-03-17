@@ -10,8 +10,8 @@ from pathlib import Path
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt, QTimer
 
-from geecs_scanner.app.geecs_scanner import GEECSScannerWindow
-from geecs_scanner.app.save_element_editor import SaveElementEditor
+from geecs_scanner.app import (GEECSScannerWindow, SaveElementEditor, ScanVariableEditor,
+                               ShotControlEditor, MultiScanner, ActionLibrary)
 from geecs_scanner.utils import ApplicationPaths as AppPaths
 
 
@@ -148,6 +148,53 @@ def test_menu_options(app, qtbot: QtBot):
         str_opt.trigger()
         assert str_opt.get_value() == ''
         assert str_opt.isChecked() is False
+
+
+def test_opening_side_guis(app, qtbot: QtBot):
+    """ Tests opening the other 4 main gui windows and closing them """
+    def close_window(gui_reference, gui_class):
+        active_modal = QApplication.activeModalWidget()
+        if active_modal:
+            assert isinstance(active_modal, gui_class)
+            active_modal.close()
+        elif gui_reference:
+            assert isinstance(gui_reference, gui_class)
+            if hasattr(gui_reference, 'close'):
+                gui_reference.close()
+            else:
+                raise AssertionError(f"No function 'close' for '{gui_class}'.")
+        else:
+            raise AssertionError(f"No active gui found for '{gui_class}'.")
+
+    # 1D Scan Variable Editor
+    QTimer.singleShot(200, lambda: close_window(app.variable_editor, ScanVariableEditor))
+    qtbot.mouseClick(app.ui.buttonScanVariables, Qt.LeftButton)
+    assert app.variable_editor is not None
+    app.variable_editor = None
+
+    # Shot Control/Timing Device Editor
+    QTimer.singleShot(200, lambda: close_window(app.timing_editor, ShotControlEditor))
+    qtbot.mouseClick(app.ui.buttonOpenTimingSetup, Qt.LeftButton)
+    assert app.timing_editor is not None
+    app.timing_editor = None
+
+    # Action Library
+    QTimer.singleShot(200, lambda: close_window(app.action_library_window, ActionLibrary))
+    qtbot.mouseClick(app.ui.buttonActionLibrary, Qt.LeftButton)
+    assert app.action_library_window is not None
+    assert app.is_in_action_library is True
+    qtbot.wait(300)
+    assert app.action_library_window is None
+    assert app.is_in_action_library is False
+
+    # Multiscanner
+    QTimer.singleShot(200, lambda: close_window(app.multiscanner_window, MultiScanner))
+    qtbot.mouseClick(app.ui.buttonLaunchMultiScan, Qt.LeftButton)
+    assert app.multiscanner_window is not None
+    assert app.is_in_multiscan is True
+    qtbot.wait(300)
+    assert app.multiscanner_window is None
+    assert app.is_in_multiscan is False
 
 
 if __name__ == '__main__':
