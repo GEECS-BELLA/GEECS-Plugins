@@ -22,10 +22,9 @@ from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAn
 
 
 def get_path_to_bkg_file():
-    st = ScanTag(2025, 2, 19, 2, experiment='Undulator')
+    st = ScanTag(2025, 3, 6, 15, experiment='Undulator')
     s_data = ScanData(tag=st)
     path_to_file = s_data.get_folder() / 'U_HasoLift' / 'average_phase.tsv'
-
     return path_to_file
 
 
@@ -33,8 +32,8 @@ bkg_file_path = get_path_to_bkg_file()
 phase_analysis_config: PhaseAnalysisConfig = PhaseAnalysisConfig(
     pixel_scale=10.1,  # um per pixel (vertical)
     wavelength_nm=800,  # Probe laser wavelength in nm
-    threshold_fraction=0.3,  # Threshold fraction for pre-processing
-    roi=(10, -10, 50, -200),  # Example ROI: (x_min, x_max, y_min, y_max)
+    threshold_fraction=0.4,  # Threshold fraction for pre-processing
+    roi=(10, -10, 75, -250),  # Example ROI: (x_min, x_max, y_min, y_max)
     background=bkg_file_path  # Background is now a Path
 )
 
@@ -89,6 +88,6 @@ undulator_analyzers = [
          requirements={'U_HasoLift'},
          device_name='U_HasoLift',
          image_analyzer_class=PhaseDownrampProcessor,
-         file_pattern = "*_{shot_num:03d}_postprocessed.himg",
-         image_analysis_config = phase_analysis_config )
+         file_pattern="*_{shot_num:03d}_postprocessed.tsv",
+         image_analysis_config=phase_analysis_config)
 ]
