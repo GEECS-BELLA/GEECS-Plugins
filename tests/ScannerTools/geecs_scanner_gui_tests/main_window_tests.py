@@ -120,5 +120,35 @@ def test_open_element_editor(app, qtbot):
     app.ui.foundDevices.clearSelection()
 
 
+def test_menu_options(app, qtbot: QtBot):
+    from geecs_scanner.app.geecs_scanner import BOOLEAN_OPTIONS, STRING_OPTIONS
+    assert len(app.all_options) == len(BOOLEAN_OPTIONS) + len(STRING_OPTIONS)
+
+    if len(BOOLEAN_OPTIONS) > 0:
+        bool_opt = app.all_options[0]
+        assert bool_opt.get_name() == BOOLEAN_OPTIONS[0]
+        initial_value = bool_opt.isChecked()
+
+        bool_opt.trigger()
+        assert initial_value is not bool_opt.isChecked()
+
+        bool_opt.trigger()
+        assert initial_value is bool_opt.isChecked()
+
+    if len(STRING_OPTIONS) > 0:
+        str_opt = app.all_options[len(BOOLEAN_OPTIONS)]
+        assert str_opt.get_name() == STRING_OPTIONS[0]
+        assert str_opt.get_value() == ''
+        assert str_opt.isChecked() is False
+
+        str_opt.trigger()
+        assert str_opt.get_value() == 'test'
+        assert str_opt.isChecked() is True
+
+        str_opt.trigger()
+        assert str_opt.get_value() == ''
+        assert str_opt.isChecked() is False
+
+
 if __name__ == '__main__':
     pytest.main()
