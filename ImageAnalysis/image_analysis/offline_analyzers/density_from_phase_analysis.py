@@ -158,7 +158,7 @@ class PhaseDataLoader:
 
 class PhasePreprocessor:
     """
-    Handles cropping and background subtraction for phase data.
+    Handles some basic pre-processing like cropping and background subtraction for phase data.
     """
     def __init__(self, config: PhaseAnalysisConfig, debug_mode: bool = False) -> None:
         self.config = config
@@ -254,48 +254,36 @@ class PhasePreprocessor:
         """
         return np.arctan(slope)
 
-    # ---------------- Main Rotation Workflow ----------------
 
-    def rotate_phase_data(self, phase_data: NDArray, threshold_frac: float = 0.25) -> Tuple[NDArray,dict]:
+    def rotate_phase_data(self, phase_data: NDArray) -> Tuple[NDArray,dict]:
         """
         Rotate the phase data to correct for any tilt based on the weighted column centers.
 
         This workflow assumes that the phase data in self.phase_array has already been
-        background-subtracted and cropped as desired.
+        background-subtracted, cropped and appropriately thresholded as desired.
 
         Steps:
-          1. Compute the dynamic range (min, max) of the data.
-          2. Create a thresholded copy for centroid computation.
-          3. Compute weighted column centroids and column sums.
-          4. Fit a weighted linear model (centroid vs. column index) to obtain the slope.
-          5. Compute the rotation angle (in radians and degrees) from the slope.
-          6. Rotate the original phase data using scipy.ndimage.rotate with reshape=True.
-          7. Clip the rotated data back to the original range.
+          1. Compute weighted column centroids and column sums.
+          2. Fit a weighted linear model (centroid vs. column index) to obtain the slope.
+          3. Compute the rotation angle (in radians and degrees) from the slope.
+          4. Rotate the original phase data using scipy.ndimage.rotate with reshape=True.
 
         Parameters:
-            threshold_frac: Fraction of the dynamic range to use as a threshold.
+            phase_data: NDArray, phase data to be rotated and analyzed
 
         Returns:
             final_data: The rotated phase data (2D array).
-            fit_params: Dictionary with keys 'slope', 'intercept', 'angle_radians', 'angle_degrees'.
+            fit_params: Dictionary with keys 'Laser Plasma Slope', 'Laser Plasma Intercept',
+                'Laser Plasma angle_radians', 'Laser Plasma angle_degrees'.
         """
         phase_array = phase_data
-        # Step 1: Determine dynamic range.
-        data_min, data_max = np.nanmin(phase_array), np.nanmax(phase_array)
+        # Step 1: Compute weighted column centroids and column sums.
+        centroids, col_sums = self.compute_column_centroids(phase_array)
 
-        # Step 2: Create a thresholded version for centroid computation.
-        thresh_data = threshold_data(phase_array, threshold_frac)
-        # plt.imshow(thresh_data, cmap='plasma', origin='lower')
-        # plt.title("thresh data for centroid fitting")
-        # plt.show()
-
-        # Step 3: Compute weighted column centroids and column sums.
-        centroids, col_sums = self.compute_column_centroids(thresh_data)
-
-        # Step 4: Fit a weighted line to the centroids.
+        # Step 2: Fit a weighted line to the centroids.
         slope, intercept = self.fit_line_to_centroids(centroids, col_sums)
 
-        # Step 5: Compute rotation angle.
+        # Step 3: Compute rotation angle.
         angle_rad = self.compute_rotation_angle(slope)
         angle_deg = np.degrees(angle_rad)
         fit_params = {
@@ -305,7 +293,7 @@ class PhasePreprocessor:
             'Laser Plasma angle_degrees': angle_deg
         }
 
-        # Step 6: Rotate the original phase data.
+        # Step 4: Rotate the original phase data.
         # Using reshape=True so that the output shape is adjusted to contain the entire rotated image.
         rotated_data = ndimage.rotate(phase_array, angle=angle_deg, reshape=True, order=1)
 
@@ -334,15 +322,14 @@ class PhasePreprocessor:
                 terms.append((x ** i) * (y ** j))
         return np.column_stack(terms)
 
-    def remove_background_polyfit(self, phase_data:NDArray, threshold_frac: float = 0.3, poly_order: int = 2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def remove_background_polyfit(self, phase_data:NDArray, threshold_frac: float = 1, poly_order: int = 2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        After rotating the phase array, mask out the region that is usually kept by the threshold
-        (i.e. the high-signal area) by replacing those pixel values with NaN. Then perform a 2D
-        polynomial fit (of arbitrary order) to the remaining background data and subtract the fitted
-        background from the full data.
+        utility to do some more background subtraction using 2D polynomial fits.
 
         Parameters:
-            threshold_frac: Fraction of the dynamic range used to determine the threshold.
+            threshold_frac: Fraction of the peak value, above which is set to nan. Meant to be used
+                to 'mask out' the part of the phase data that contains the plasma. Default value of
+                1 applys no mask.
             poly_order: The maximum order of the polynomial to fit.
 
         Returns:
@@ -433,7 +420,8 @@ class PhasePreprocessor:
     @staticmethod
     def apply_gaussian_binary_mask(image, center_x=None, center_y=None, sigma_x=100, sigma_y=20, threshold_factor=0.01):
         """
-        Applies a Gaussian mask to a 2D image, then binarizes the masked image based on 10% of its max value.
+        Applies a Gaussian mask to a 2D image, then binarizes the masked image based on specified fraction
+        (1% default) of its max value.
 
         Parameters:
         - image (np.ndarray): 2D grayscale image.
@@ -495,6 +483,7 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         self.run_analyze_image_asynchronously = False
 
         self.use_interactive = False
+
         self.shock_angle_fig = None
         self.shock_grad_fig = None
         self.delta_plateau_fig = None
@@ -502,7 +491,8 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
     def __getstate__(self):
         # Make a copy of the instance's dictionary.
         state = self.__dict__.copy()
-        # Remove or clear non-pickleable attributes.
+        # Remove or clear non-pickleable attributes. Necessary for use with parallel processing
+        # in Array2DScanAnalysis
         state['shock_angle_fig'] = None
         state['shock_grad_fig'] = None
         state['delta_plateau_fig'] = None
@@ -537,7 +527,6 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
             plt.title("bkg fit subtracted step 1")
             plt.show()
 
-        gauss_masked_array = self.processor.apply_gaussian_binary_mask(phase_array)
         gauss_masked_array = self.processor.apply_gaussian_mask(phase_array)
 
         phase_array = gauss_masked_array
@@ -617,9 +606,7 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
                 'combined_fig': the composite matplotlib figure.
         """
         # Run the individual analysis methods.
-
         rotation_result = self.processor.rotate_phase_data(phase_array)
-        # thresholded_rotated = threshold_data(rotation_result[0], self.config.threshold_fraction)
         rotated_phase  =rotation_result[0]
         if self.use_interactive:
             plt.imshow(rotated_phase, cmap='plasma', origin='lower')
@@ -747,18 +734,11 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         plt.imshow(threshed, cmap='plasma', origin='lower')
         plt.title("Shock Angle")
 
-        # # Plot markers.
-        # for r, c in zip(orig_marker_rows, orig_marker_cols):
-        #     plt.plot(c, r, marker='o', markersize=5, color='black')
-
         # Plot the fitted line.
         plt.plot(orig_fit_cols, orig_fit_rows, color='cyan', linewidth=2, label='Weighted Fit to peaks')
         plt.legend()
 
         self.shock_angle_fig = fig
-        # save_path =  "shock_angle.pdf"
-        # fig.savefig(save_path)
-        # logging.info("Shock angle figure saved to %s", save_path)
 
         # Compute the angle from the rotated slope.
         angle_rotated_rad = np.arctan(slope)
@@ -841,18 +821,8 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         if best_fit_line_x is not None and best_fit_line_y is not None:
             plt.plot(best_fit_line_x, best_fit_line_y, 'r-', linewidth=2, label="Max local slope")
 
-        # # Also plot the local slopes (dashed line) as a function of the window center.
-        # plt.plot(window_centers, window_slopes, 'g--', linewidth=0.5, label="Local Slopes")
-
         plt.legend()
-        # if self.use_interactive:
-        #     plt.show()
-        # Instead of showing the plot, save it as a PDF.
-        self.shock_grad_fig = fig  # from get_shock_gradient_and_position
-
-        # save_path = "gradient and position.pdf"
-        # fig.savefig(save_path)
-        # logging.info("Shock angle figure saved to %s", save_path)
+        self.shock_grad_fig = fig
 
         return max_slope, best_center
 
@@ -879,8 +849,6 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
           delta : float
               The difference between the overall maximum intensity and the plateau average.
         """
-
-
 
         # Sum the image over rows to produce a 1D profile.
         profile = np.sum(image, axis=0)
@@ -922,13 +890,7 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         plt.axhline(y=plateau_value, color="purple", linestyle="--", label=f"Plateau Avg: {plateau_value:.2f}")
 
         plt.legend()
-        # if self.use_interactive:
-        #     plt.show()
         self.delta_plateau_fig = fig # from calculate_delta_plateau
-
-        # save_path = "delta and plateau.pdf"
-        # fig.savefig(save_path)
-        # logging.info("Shock angle figure saved to %s", save_path)
 
         logging.info("Overall max: %f, Plateau avg: %f, Delta: %f", overall_max, plateau_value, delta)
 
