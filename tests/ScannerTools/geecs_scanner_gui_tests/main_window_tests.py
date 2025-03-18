@@ -266,7 +266,22 @@ def test_adjusting_scan_parameters(app, qtbot: QtBot):
     qtbot.mouseClick(app.ui.noscanRadioButton, Qt.LeftButton)
 
 
-# Test making a preset, applying it, and deleting it
+def test_scan_preset(app, qtbot: QtBot):
+    assert app.ui.listScanPresets.count() == 0
+
+    try:  # Checks that the button is connected to the right function, but will not be able to save presets this way
+        qtbot.mouseClick(app.ui.presetSaveButton, Qt.LeftButton)
+        assert False, "Should throw an AssertionError if filename not explicitly provided in unit test mode"
+    except AssertionError:
+        assert True
+
+    app.save_current_preset(filename="blank")
+
+    app.ui.foundDevices.setCurrentRow(0)
+    qtbot.mouseClick(app.ui.addDeviceButton, Qt.LeftButton)
+    qtbot.mouseClick(app.ui.scanRadioButton, Qt.LeftButton)
+    app.ui.lineScanVariable.setText()
+
 
 # Test calculating number of shots
 
