@@ -10,7 +10,7 @@ from scan_analysis.analyzers.Undulator.array2D_scan_analysis import Array2DScanA
 from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
 
 from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
-# from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
+from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
 from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, PhaseDownrampProcessor
 
 from pathlib import Path
@@ -54,7 +54,7 @@ class TestExecuteAnalysis(unittest.TestCase):
             device_name='U_HasoLift',
             image_analyzer_class=HASOHimgHasProcessor,
             file_pattern = "*_{shot_num:03d}.himg")
-        test_tag = ScanTag(year=2025, month=2, day=19, number=2, experiment='Undulator')
+        test_tag = ScanTag(year=2025, month=3, day=6, number=15, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
 
     def test_DensityDownRampPhase(self):
