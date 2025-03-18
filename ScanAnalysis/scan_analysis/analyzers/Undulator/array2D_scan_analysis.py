@@ -123,7 +123,7 @@ class Array2DScanAnalysis(ScanAnalysis):
 
     @staticmethod
     def process_shot_parallel(
-            shot_num: int, file_path: Path, analyzer_class: type[BasicImageAnalyzer]
+            shot_num: int, file_path: Path, image_analyzer: BasicImageAnalyzer
     ) -> tuple[int, Optional[np.ndarray], dict]:
         """
         Helper function for parallel processing in a separate process.
@@ -134,7 +134,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         keys, or values are None), it logs a warning and returns safe defaults.
         """
         try:
-            analyzer = analyzer_class()
+            analyzer = image_analyzer
             results_dict = analyzer.analyze_image(file_path=file_path)
         except Exception as e:
             logging.error(f"Error during analysis for shot {shot_num}: {e}")
@@ -231,7 +231,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         # Use ProcessPoolExecutor if the analyzer is CPU-bound,
         # or ThreadPoolExecutor if run_analyze_image_asynchronously is True.
 
-        with ProcessPoolExecutor(max_workers=4) as process_pool, ThreadPoolExecutor(max_workers=1) as thread_pool:
+        with ProcessPoolExecutor(max_workers=8) as process_pool, ThreadPoolExecutor(max_workers=1) as thread_pool:
             for shot_num, file_path in tasks:
                 if self.image_analyzer.run_analyze_image_asynchronously:
                     # For asynchronous (likely I/O-bound) processing, use the thread pool.
@@ -240,7 +240,7 @@ class Array2DScanAnalysis(ScanAnalysis):
                     # For CPU-bound tasks, use the process pool.
                     # Pass the analyzer's class so each process can create its own instance.
                     future = process_pool.submit(self.process_shot_parallel, shot_num, file_path,
-                                                 self.image_analyzer.__class__)
+                                                 self.image_analyzer)
                 image_analysis_futures[future] = shot_num
 
             # Process completed futures.
