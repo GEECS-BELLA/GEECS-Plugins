@@ -10,6 +10,7 @@ import re
 import yaml
 import logging
 import numpy as np
+from nptdms import TdmsFile
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 
@@ -21,11 +22,13 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from image_analysis.utils import read_imaq_png_image
 from image_analysis.analyzers.online_analysis_modules import image_processing_funcs
+from online_analysis.HTU.picoscope_ICT_analysis import Undulator_Exit_ICT
 
 
 class Rad2SpecAnalysis(CameraImageAnalysis):
     def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True,
-                 visa_station: Optional[int] = None, debug_mode: bool = False, background_mode: bool = False):
+                 visa_station: Optional[int] = None, debug_mode: bool = False, background_mode: bool = False,
+                 update_undulator_exit_ict: bool = True):
         super().__init__(scan_tag=scan_tag, device_name='UC_UndulatorRad2', skip_plt_show=skip_plt_show)
 
         # Ensure configuration file exists
@@ -53,6 +56,8 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 
         self.debug_mode = debug_mode
         self.background_mode = background_mode
+        self.update_undulator_exit_ict = update_undulator_exit_ict
+
         self.incoherent_signal_fit: Optional[tuple[float, float]] = None
 
         self.crop_height: Optional[int] = None
@@ -70,8 +75,11 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         df = self.auxiliary_data
 
         charge_start = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
-        charge_end = np.array(df['U_UndulatorExitICT Python Results.ChB'])
-        valid = np.where(np.abs((charge_end - charge_start) / charge_start) < 0.15)[0]
+        if 'U_UndulatorExitICT Updated Charge pC' in df:
+            charge_end = np.array(df['U_UndulatorExitICT Updated Charge pC'])
+        else:
+            charge_end = np.array(df['U_UndulatorExitICT Python Results.ChB'])
+        valid = np.where(np.abs((charge_end - charge_start) / charge_start) < 0.25)[0]
 
         if self.debug_mode:
             plt.scatter(charge_start, charge_end, c='b', label='all shots')
@@ -106,6 +114,17 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         energy_spectrum: Optional[np.ndarray] = None
 
         for i in range(len(charge)):
+            if self.update_undulator_exit_ict and not use_bcave:
+                try:
+                    ict_filename = ScanData.get_device_shot_path(self.tag, device_name="U_UndulatorExitICT",
+                                                                 shot_number=i+1, file_extension="tdms")
+                    tdms_file = TdmsFile.read(ict_filename)
+                    ict_lineout = tdms_file['Picoscope']['ChB'][:]
+                    charge[i] = Undulator_Exit_ICT(data=ict_lineout, dt=4e-9, crit_f=0.125)
+                except FileNotFoundError:
+                    logging.warning(f"No ICT data for shot {i+1}")
+                    charge[i] = 0
+
             shot_filename = ScanData.get_device_shot_path(self.tag, self.device_name, i+1)
             try:
                 raw_image = read_imaq_png_image(Path(shot_filename))*1.0
@@ -260,6 +279,10 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 self.append_to_sfile({'UC_Rad2_EstimatedGain': estimated_gain})
                 logging.info("Wrote estimated gain to sfile")
 
+        if self.update_undulator_exit_ict:
+            self.append_to_sfile({'U_UndulatorExitICT Updated Charge pC': charge})
+            logging.info("Wrote updated UndulatorExitICT charge values")
+
         if self.flag_save_images:
             filepath = self.path_dict['save'] / 'noscan.gif'
             self.create_gif(cropped_image_list, filepath,
@@ -337,5 +360,6 @@ if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
     tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=24, experiment_name='Undulator')
-    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=True, background_mode=False)
+    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False,
+                                background_mode=True, update_undulator_exit_ict=True)
     analyzer.run_analysis()
