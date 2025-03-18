@@ -212,10 +212,21 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
     def post_process_slopes(self):
         self.processed_slopes = self.raw_slopes
         self.reference_subtract(self.background_path)
+        #masking capability frame exists, but not easily configurable yet
         # self.apply_mask()
         self.apply_filter_wrapper(self.filter_params)
 
     def apply_mask(self):
+        """
+        mask a hasoslopes object with a rectangular ROI.
+        The pupil objects are not well documented in the SDK manual
+        so it's not straightforward to generate an arbitray pupil and apply it.
+        Here, we read the pupil buffer from the existing hasoslopes object,
+        which is a 2D array of bools. We set everythign to false, then use
+        apply_roi to set a specificed rectangular ROI to true. This then gets
+        applied to the slopes using the sdk method apply_pupil
+        """
+
         self.pupil = wkpy.Pupil(hasoslopes=self.processed_slopes)
         pupil_buffer = self.pupil.get_data()
         new_mask = self.apply_roi(pupil_buffer, 10,-10,75,-250)
