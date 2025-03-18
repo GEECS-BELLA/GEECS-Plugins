@@ -212,19 +212,13 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
     def post_process_slopes(self):
         self.processed_slopes = self.raw_slopes
         self.reference_subtract(self.background_path)
-        print(f'pupils buffer row 100: {self.processed_slopes.get_pupil_buffer()[100]}')
-        self.apply_mask()
-        print(f'pupils buffer row 100 after mask: {self.processed_slopes.get_pupil_buffer()[100]}')
-
+        # self.apply_mask()
         self.apply_filter_wrapper(self.filter_params)
 
     def apply_mask(self):
-        print(self.processed_slopes.get_info())
         self.pupil = wkpy.Pupil(hasoslopes=self.processed_slopes)
-        print(f'pupil dimensions: {self.pupil.get_dimensions()}')
         pupil_buffer = self.pupil.get_data()
-        new_mask = self.apply_roi(pupil_buffer, 1,100,1,200)
-        print(f'new mask row 100: {new_mask[100]}')
+        new_mask = self.apply_roi(pupil_buffer, 10,-10,75,-250)
         self.pupil.set_data(datas=new_mask)
         self.processed_slopes = self.post_processor.apply_pupil(self.processed_slopes, self.pupil)
 
@@ -337,6 +331,7 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
 if __name__ == "__main__":
     has  = HASOHimgHasProcessor()
     path_to_himg = Path('Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001.himg')
+    path_to_himg = Path('Z:/data/Undulator/Y2025/03-Mar/25_0306/scans/Scan055/U_HasoLift/Scan055_U_HasoLift_061.himg')
     path_to_has = Path('Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001_raw.has')
 
     haso_processor = HASOHimgHasProcessor()
