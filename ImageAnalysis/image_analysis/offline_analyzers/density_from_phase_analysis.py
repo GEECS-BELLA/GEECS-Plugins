@@ -356,9 +356,9 @@ class PhasePreprocessor:
         # Create a masked copy: set pixels above the threshold to NaN.
         masked_data = data.copy()
         masked_data[masked_data > thresh_val] = np.nan
-        # plt.imshow(masked_data, cmap='plasma', origin='lower')
-        # plt.title("threshed data for bkg fitting")
-        # plt.show()
+        plt.imshow(masked_data, cmap='plasma', origin='lower')
+        plt.title("threshed data for bkg fitting")
+        plt.show()
 
         # Build coordinate grids.
         nrows, ncols = masked_data.shape
@@ -395,6 +395,84 @@ class PhasePreprocessor:
         data = data - background_fit
 
         return data, background_fit, coeffs
+
+    @staticmethod
+    def apply_gaussian_mask(image, center_x=None, center_y=None, sigma_x=150, sigma_y=30):
+        """
+        Applies a Gaussian mask to a 2D image to suppress unwanted background artifacts.
+
+        Parameters:
+        - image (np.ndarray): 2D grayscale image.
+        - center_x (int, optional): X-coordinate of the Gaussian center (default: image center).
+        - center_y (int, optional): Y-coordinate of the Gaussian center (default: image center).
+        - sigma_x (float): Standard deviation in the x-direction.
+        - sigma_y (float): Standard deviation in the y-direction.
+
+        Returns:
+        - np.ndarray: The masked image.
+        """
+        rows, cols = image.shape
+
+        # Default to image center if center_x or center_y is not provided
+        if center_x is None:
+            center_x = cols // 2
+        if center_y is None:
+            center_y = rows // 2
+
+        y, x = np.mgrid[0:rows, 0:cols]
+
+        # Compute the Gaussian mask
+        gaussian_mask = np.exp(
+            -(((x - center_x) ** 2) / (2 * sigma_x ** 2) + ((y - center_y) ** 2) / (2 * sigma_y ** 2)))
+
+        # Apply the mask
+        masked_image = image * gaussian_mask
+
+        return masked_image
+
+    @staticmethod
+    def apply_gaussian_binary_mask(image, center_x=None, center_y=None, sigma_x=100, sigma_y=20, threshold_factor=0.01):
+        """
+        Applies a Gaussian mask to a 2D image, then binarizes the masked image based on 10% of its max value.
+
+        Parameters:
+        - image (np.ndarray): 2D grayscale image.
+        - center_x (int, optional): X-coordinate of the Gaussian center (default: image center).
+        - center_y (int, optional): Y-coordinate of the Gaussian center (default: image center).
+        - sigma_x (float): Standard deviation in the x-direction.
+        - sigma_y (float): Standard deviation in the y-direction.
+        - threshold_factor (float): Fraction of the max value to use for binarization.
+
+        Returns:
+        - np.ndarray: The final masked and binarized image.
+        - np.ndarray: The binary mask used.
+        """
+
+        rows, cols = image.shape
+
+        # Default to image center if center_x or center_y is not provided
+        if center_x is None:
+            center_x = cols // 2
+        if center_y is None:
+            center_y = rows // 2
+
+        y, x = np.mgrid[0:rows, 0:cols]
+
+        # Compute the Gaussian mask
+        gaussian_mask = np.exp(
+            -(((x - center_x) ** 2) / (2 * sigma_x ** 2) + ((y - center_y) ** 2) / (2 * sigma_y ** 2)))
+
+        # Apply the Gaussian mask to the image
+        masked_image = image * gaussian_mask
+
+        # Determine threshold based on 10% of the max masked image value
+        threshold = threshold_factor * np.nanmax(masked_image)
+
+        # Binarize the image
+        binary_mask = (masked_image > threshold).astype(np.float32)
+
+        return binary_mask * image
+
 
 class PhaseDownrampProcessor(BasicImageAnalyzer):
     """
@@ -440,12 +518,18 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
             x_min, x_max, y_min, y_max = self.config.roi
             phase_array = self.processor.crop(phase_array, x_min, x_max, y_min, y_max)
 
-        polynomial_subtraction_result = self.processor.remove_background_polyfit(phase_array)
-
+        polynomial_subtraction_result = self.processor.remove_background_polyfit(phase_array, threshold_frac=1)
         phase_array = polynomial_subtraction_result[0]
         if self.use_interactive:
             plt.imshow(phase_array, cmap='plasma', origin='lower')
-            plt.title("bkg fit subtracted")
+            plt.title("bkg fit subtracted step 1")
+            plt.show()
+
+        gauss_masked_array = self.processor.apply_gaussian_binary_mask(phase_array)
+        phase_array = gauss_masked_array
+        if self.use_interactive:
+            plt.imshow(phase_array, cmap='plasma', origin='lower')
+            plt.title("gauss masked array")
             plt.show()
 
         phase_array = threshold_data(phase_array, self.config.threshold_fraction)
