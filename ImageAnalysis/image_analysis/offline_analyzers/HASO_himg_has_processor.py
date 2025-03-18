@@ -212,7 +212,55 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
     def post_process_slopes(self):
         self.processed_slopes = self.raw_slopes
         self.reference_subtract(self.background_path)
+        print(f'pupils buffer row 100: {self.processed_slopes.get_pupil_buffer()[100]}')
+        self.apply_mask()
+        print(f'pupils buffer row 100 after mask: {self.processed_slopes.get_pupil_buffer()[100]}')
+
         self.apply_filter_wrapper(self.filter_params)
+
+    def apply_mask(self):
+        print(self.processed_slopes.get_info())
+        self.pupil = wkpy.Pupil(hasoslopes=self.processed_slopes)
+        print(f'pupil dimensions: {self.pupil.get_dimensions()}')
+        pupil_buffer = self.pupil.get_data()
+        new_mask = self.apply_roi(pupil_buffer, 1,100,1,200)
+        print(f'new mask row 100: {new_mask[100]}')
+        self.pupil.set_data(datas=new_mask)
+        self.processed_slopes = self.post_processor.apply_pupil(self.processed_slopes, self.pupil)
+
+    def apply_roi(self, bool_array, x_start, x_end, y_start, y_end):
+        """
+        Takes a 2D boolean NumPy array, resets it to False, and applies a region of interest (ROI)
+        where values are set to True within the given x and y bounds.
+
+        Parameters:
+        - bool_array (np.ndarray): Input 2D boolean array.
+        - x_start (int): Starting column index (inclusive).
+        - x_end (int): Ending column index (exclusive).
+        - y_start (int): Starting row index (inclusive).
+        - y_end (int): Ending row index (exclusive).
+
+        Returns:
+        - np.ndarray: Updated boolean array with the applied ROI.
+        """
+
+        # Ensure input is a NumPy array
+        bool_array = np.asarray(bool_array, dtype=bool)
+
+        # Get the size of the array
+        rows, cols = bool_array.shape
+        print(f"Array Size: {rows}x{cols}")
+
+        # Reset all values to False
+        bool_array.fill(False)
+
+        # Apply the ROI, ensuring indices are within bounds
+        x_start, x_end = max(0, x_start), min(cols, x_end)
+        y_start, y_end = max(0, y_start), min(rows, y_end)
+
+        bool_array[y_start:y_end, x_start:x_end] = True
+
+        return bool_array
 
     def reference_subtract(self, background_path: Optional[Path] = None):
         if background_path:
