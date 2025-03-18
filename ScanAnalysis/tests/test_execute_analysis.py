@@ -70,7 +70,7 @@ class TestExecuteAnalysis(unittest.TestCase):
         config: PhaseAnalysisConfig = PhaseAnalysisConfig(
             pixel_scale=10.1,  # um per pixel (vertical)
             wavelength_nm=800,  # Probe laser wavelength in nm
-            threshold_fraction=0.1,  # Threshold fraction for pre-processing
+            threshold_fraction=0.05,  # Threshold fraction for pre-processing
             roi=(10, -10, 75, -250),  # Example ROI: (x_min, x_max, y_min, y_max)
             background=bkg_file_path  # Background is now a Path
         )
