@@ -473,7 +473,6 @@ class PhasePreprocessor:
 
         return binary_mask * image
 
-
 class PhaseDownrampProcessor(BasicImageAnalyzer):
     """
     Handles cropping and background subtraction for phase data.
@@ -514,6 +513,7 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
             plt.imshow(phase_array, cmap='plasma', origin='lower')
             plt.title("bkg subtracted phase")
             plt.show()
+
         if self.config.roi is not None:
             x_min, x_max, y_min, y_max = self.config.roi
             phase_array = self.processor.crop(phase_array, x_min, x_max, y_min, y_max)
@@ -526,6 +526,8 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
             plt.show()
 
         gauss_masked_array = self.processor.apply_gaussian_binary_mask(phase_array)
+        gauss_masked_array = self.processor.apply_gaussian_mask(phase_array)
+
         phase_array = gauss_masked_array
         if self.use_interactive:
             plt.imshow(phase_array, cmap='plasma', origin='lower')
@@ -533,7 +535,6 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
             plt.show()
 
         phase_array = threshold_data(phase_array, self.config.threshold_fraction)
-
         if self.use_interactive:
             plt.imshow(phase_array, cmap='plasma', origin='lower')
             plt.title("bkg fit subtracted and threshed")
@@ -606,11 +607,15 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         # Run the individual analysis methods.
 
         rotation_result = self.processor.rotate_phase_data(phase_array)
-        thresholded_rotated = threshold_data(rotation_result[0], self.config.threshold_fraction)
-
-        shock_angle = self.get_shock_angle(thresholded_rotated)
-        max_slope, best_center = self.get_shock_gradient_and_position(thresholded_rotated, window_size=window_size)
-        plateau_value, delta = self.calculate_delta_plateau(thresholded_rotated, best_center, window_size=window_size)
+        # thresholded_rotated = threshold_data(rotation_result[0], self.config.threshold_fraction)
+        rotated_phase  =rotation_result[0]
+        if self.use_interactive:
+            plt.imshow(rotated_phase, cmap='plasma', origin='lower')
+            plt.title("rotated phase to use for analysis")
+            plt.show()
+        shock_angle = self.get_shock_angle(rotated_phase)
+        max_slope, best_center = self.get_shock_gradient_and_position(rotated_phase, window_size=window_size)
+        plateau_value, delta = self.calculate_delta_plateau(rotated_phase, best_center, window_size=window_size)
 
         results = {
             "Plasma downramp shock_angle": shock_angle,
@@ -916,7 +921,6 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         logging.info("Overall max: %f, Plateau avg: %f, Delta: %f", overall_max, plateau_value, delta)
 
         return plateau_value, delta
-
 
 class InversionTechnique(abc.ABC):
     """
