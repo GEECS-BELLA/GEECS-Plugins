@@ -993,14 +993,24 @@ class GEECSScannerWindow(QMainWindow):
             logging.error("No defined path for scan presets")
         return preset_list
 
-    def save_current_preset(self):
+    def save_current_preset(self, filename: Optional[str] = None):
         """Takes the current scan configuration and prompts the user if they would like to save it as a preset.  If so,
-        the user give a filename to save under and the information is compiled into a yaml that "apply_preset" uses"""
+        the user give a filename to save under and the information is compiled into a yaml that "apply_preset" uses
+
+        :param filename: Can optionally provide the filename as an argument, primarily used for unit tests
+        """
         if self.app_paths is None:
             logging.error("No defined paths for scan presets")
             return
 
-        text, ok = QInputDialog.getText(self, 'Save Configuration', 'Enter filename:')
+        if filename is not None:
+            text = filename
+            ok = True
+        else:
+            if self.unit_test_mode:
+                raise AssertionError("In 'Unit Test Mode', must manually give a filename string")
+            text, ok = QInputDialog.getText(self, 'Save Configuration', 'Enter filename:')
+
         if ok and text:
             save_device_list = []
             for i in range(self.ui.selectedDevices.count()):
