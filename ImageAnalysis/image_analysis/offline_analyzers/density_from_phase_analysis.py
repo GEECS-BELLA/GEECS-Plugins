@@ -356,9 +356,9 @@ class PhasePreprocessor:
         # Create a masked copy: set pixels above the threshold to NaN.
         masked_data = data.copy()
         masked_data[masked_data > thresh_val] = np.nan
-        plt.imshow(masked_data, cmap='plasma', origin='lower')
-        plt.title("threshed data for bkg fitting")
-        plt.show()
+        # plt.imshow(masked_data, cmap='plasma', origin='lower')
+        # plt.title("threshed data for bkg fitting")
+        # plt.show()
 
         # Build coordinate grids.
         nrows, ncols = masked_data.shape
