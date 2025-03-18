@@ -225,7 +225,8 @@ class ScanData:
             The full path to the device's shot file.
         """
         scan_path = ScanData.get_scan_folder_path(tag=tag, base_directory=base_directory)
-        file = scan_path / f'{device_name}' / f'Scan{tag.number:03d}_{device_name}_{shot_number:03d}.{file_extension}'
+        extension = "." + file_extension if "." not in file_extension else file_extension
+        file = scan_path / f'{device_name}' / f'Scan{tag.number:03d}_{device_name}_{shot_number:03d}{extension}'
         return file
 
     @staticmethod
