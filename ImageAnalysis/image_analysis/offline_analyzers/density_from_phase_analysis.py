@@ -495,6 +495,18 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         self.run_analyze_image_asynchronously = True
 
         self.use_interactive = False
+        self.shock_angle_fig = None
+        self.shock_grad_fig = None
+        self.delta_plateau_fig = None
+
+    def __getstate__(self):
+        # Make a copy of the instance's dictionary.
+        state = self.__dict__.copy()
+        # Remove or clear non-pickleable attributes.
+        state['shock_angle_fig'] = None
+        state['shock_grad_fig'] = None
+        state['delta_plateau_fig'] = None
+        return state
 
     def process_phase(self, file_path: Path) -> Tuple[NDArray,dict[str,float]]:
         """
