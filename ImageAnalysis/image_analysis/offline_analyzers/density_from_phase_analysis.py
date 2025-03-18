@@ -492,7 +492,7 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
 
         super().__init__(config=self.config)
 
-        self.run_analyze_image_asynchronously = True
+        self.run_analyze_image_asynchronously = False
 
         self.use_interactive = False
         self.shock_angle_fig = None
