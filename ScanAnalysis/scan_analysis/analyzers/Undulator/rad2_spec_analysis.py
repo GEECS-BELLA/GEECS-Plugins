@@ -69,8 +69,34 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
     def run_noscan_analysis(self, config_options: Optional[str] = None):
         df = self.auxiliary_data
 
-        charge = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
-        # charge = np.array(df['U_UndulatorExitICT Python Results.ChB'])
+        charge_start = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
+        charge_end = np.array(df['U_UndulatorExitICT Python Results.ChB'])
+        valid = np.where(np.abs((charge_end - charge_start) / charge_start) < 0.15)[0]
+
+        if self.debug_mode:
+            plt.scatter(charge_start, charge_end, c='b', label='all shots')
+            plt.scatter(charge_start[valid], charge_end[valid], c='r', label='within 15%')
+            plt.plot([0, 200], [0, 200], c='k', ls='--', label='slope = 1')
+            plt.legend()
+            plt.xlabel("BCaveICT Charge (pC)")
+            plt.ylabel("UndulatorExitICT Charge (pC)")
+            print("Valid Indices:")
+            print(valid)
+            print("Worst offender shot")
+            print(np.argmax(charge_end)+1, charge_end[np.argmax(charge_end)])
+            sample = 32
+            print("Sample Shot", sample+1)
+            print(charge_start[sample], "pC")
+            print(charge_end[sample], "pC")
+            plt.show()
+
+        use_bcave = False
+        if use_bcave:
+            charge = charge_start
+            charge_label = "BCaveICT (pC)"
+        else:
+            charge = charge_end
+            charge_label = "Und.ExitICT (pC)"
 
         photons_arr = np.zeros(len(charge))
         visa_intensity_arr = np.zeros(len(charge))
@@ -143,7 +169,9 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                     visa_intensity_arr[i] = 0
 
         if self.background_mode:
-            fit = np.polyfit(charge[(charge > 20) & (charge < 250)], photons_arr[(charge > 20) & (charge < 250)], 1)
+            x_axis = charge[valid]
+            y_axis = photons_arr[valid]
+            fit = np.polyfit(x_axis[(x_axis > 20) & (x_axis < 250)], y_axis[(x_axis > 20) & (x_axis < 250)], 1)
             print("--Background Mode:  Linear Fit of Light vs Charge--")
             print(fit)
             self.incoherent_signal_fit = fit
@@ -164,6 +192,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         plt.figure(figsize=(5.5, 4))
 
         plt.scatter(charge, photons_arr, label="1st Order", marker="+", c=color_scheme, cmap=cmap_type)
+        plt.scatter(charge[valid], photons_arr[valid], label="Valid Shots", marker="+", c='r')
         # plt.yscale('log')
 
         top_shots_string = ""
@@ -197,7 +226,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 
         plt.title(f'Photon Yield VS Charge VISA{self.visa_station}: '
                   f'{self.tag.month}/{self.tag.day}/{self.tag.year} Scan {self.tag.number}')
-        plt.xlabel(f'U_BCaveICT Beam Charge (pC)')
+        plt.xlabel(charge_label)
         plt.ylabel("UC_Rad2 Camera Counts of 1st Order")
         if top_shots_string:
             plt.text(0.05, 0.95, top_shots_string, transform=plt.gca().transAxes,
@@ -307,6 +336,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=25, experiment_name='Undulator')
-    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False, background_mode=False)
+    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=24, experiment_name='Undulator')
+    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=True, background_mode=False)
     analyzer.run_analysis()
