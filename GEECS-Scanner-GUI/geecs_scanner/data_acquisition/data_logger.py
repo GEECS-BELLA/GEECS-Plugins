@@ -2,6 +2,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable, List, Union
 
+from torch.xpu import device
+
 DeviceSavePaths = Dict[str, Dict[str, Union[Path,str]]]
 
 import time
@@ -20,153 +22,214 @@ import geecs_python_api.controls.interface.message_handling as mh
 import queue
 import shutil
 
+from dataclasses import dataclass
+
+
+@dataclass
+class FileMoveTask:
+    source_dir: Path
+    target_dir: Path
+    device_name: str
+    device_type: str
+    expected_timestamp: float
+    shot_index: int
+    random_part: Optional[str] = None  # Unique identifier extracted from primary file.
+    suffix: Optional[str] = None  # For variant processing (e.g. "-interpSpec" or "-interpDiv")
+    new_name: Optional[str] = None  # The standardized file stem (e.g., "Scan001_DeviceA_005")
+
 
 class FileMover:
-    def __init__(self, num_workers: int = 16):
+    def __init__(self, num_workers: int = 16) -> None:
         self.task_queue = queue.Queue()
         self.stop_event = threading.Event()
         self.workers = []
-        for i in range(num_workers):
+        for _ in range(num_workers):
             worker = threading.Thread(target=self._worker_func, daemon=True)
             worker.start()
             self.workers.append(worker)
 
-        # To track how many times a file has been checked.
+        # Track how many times a file has been checked.
         self.file_check_counts = {}
-        # Files that have been checked more than 2 times will be marked orphaned.
+        # Files checked more than twice without moving will be marked as orphaned.
         self.orphaned_files = set()
 
-        self.scan_number = None
+        self.scan_number: Optional[int] = None
         logging.info("FileMover worker started.")
 
-    def _worker_func(self):
-        """
-        Process file move tasks from the queue. When the stop_event is set and the queue is empty,
-        the worker exits.
-        """
+    def _worker_func(self) -> None:
+        """Process file move tasks from the queue until stopped."""
         while True:
             try:
-                # Wait for a task (timeout allows periodic check of stop_event)
-                task = self.task_queue.get(timeout=1)
+                task: Optional[FileMoveTask] = self.task_queue.get(timeout=1)
             except queue.Empty:
-                # If no tasks are waiting and the stop_event is set, exit the loop.
                 if self.stop_event.is_set() and self.task_queue.empty():
                     break
                 continue
 
-            # If a sentinel is encountered, skip further processing.
             if task is None:
                 continue
 
             try:
-                source_dir, target_dir, device_name, device_type, expected_timestamp, shot_index = task
-                self._process_task(source_dir, target_dir, device_name, device_type, expected_timestamp, shot_index)
+                self._process_task(task)
             except Exception as e:
                 logging.error(f"Error processing task: {e}")
             finally:
                 self.task_queue.task_done()
         logging.info("FileMover worker stopped.")
 
-
-    def _process_task(self, source_dir: Path, target_dir: Path,
-                      device_name: str, device_type: str,
-                      expected_timestamp: float, shot_index: int):
+    def _process_task(self, task: FileMoveTask) -> None:
         """
-        Search for files in all variant directories under the parent of source_dir whose
-        names start with device_name (e.g. "DeviceName-type1", "DeviceName-type2"),
-        rename them with a standard naming convention, and move them to the corresponding
-        target directories (e.g. "Z:/data/Undulator/DeviceName-type1", etc.).
-
-        This version uses a thread pool to move files concurrently. It batches file moves:
-        files are accumulated into a batch and, if the batch reaches ~20 files (or if no more
-        files remain for the variant, or if the stop_event is set), the batch is submitted for moving.
-        It also tracks how many times a file has been checked; if a file has been checked more than
-        2 times without moving, it is marked as "orphaned" and will be skipped.
+        Process a FileMoveTask:
+          1. Identify the relevant variant directories under the parent of source_dir.
+          2. For each file in those directories, check if its timestamp matches the expected timestamp.
+          3. For matching primary files, extract the unique random part and generate a new name.
+          4. Move the primary file, and for MagSpec devices, process variant files using the random part.
         """
+        source_dir = task.source_dir
+        target_dir = task.target_dir
+        device_name = task.device_name
+        device_type = task.device_type
+        expected_timestamp = task.expected_timestamp
+        shot_index = task.shot_index
 
-        # Get the "home" folder; i.e., the parent of source_dir.
         home_dir = source_dir.parent
 
-        # Find all subdirectories in the home folder that are relevant variants.
-        variant_dirs = [d for d in home_dir.iterdir() if d.is_dir() and d.name.startswith(device_name)]
+        # For MagSpec devices, only search the primary folder (exact match).
+        if device_type in ['MagSpecStitcher', 'MagSpecCamera']:
+            variant_dirs = [d for d in home_dir.iterdir() if d.is_dir() and d.name == device_name]
+        else:
+            variant_dirs = [d for d in home_dir.iterdir() if d.is_dir() and d.name.startswith(device_name)]
 
-        # For some device types (e.g., saving TDMS files) we expect two files per shot.
-        if device_type == 'PicoscopeV2' or device_type == 'FROG' or device_type == 'Thorlabs CCS175 Spectrometer':
+        # Determine expected file count.
+        if device_type in ['PicoscopeV2', 'FROG', 'Thorlabs CCS175 Spectrometer']:
             expected_file_count = 2
+        elif device_type in ['MagSpecStitcher', 'MagSpecCamera']:
+            expected_file_count = 1
         else:
             expected_file_count = 1
 
         for variant in variant_dirs:
-            # Adjust the target directory to use the variant folder's name.
             adjusted_target_dir = target_dir.parent / variant.name
             adjusted_target_dir.mkdir(parents=True, exist_ok=True)
-            logging.info(f"Processing variant '{variant.name}' with adjusted target '{adjusted_target_dir}'")
+            logging.info(f"Processing variant '{variant.name}' with target '{adjusted_target_dir}'")
 
             found_files_count = 0
-            # time.sleep(0.1)  # Slight delay if needed
-
             for file in variant.glob("*"):
                 if not file.is_file():
                     continue
-
-                # Check if this file was already marked as orphaned.
                 if file in self.orphaned_files:
                     continue
 
                 file_ts = extract_timestamp_from_file(file, device_type)
-                logging.info(f'Checking {file} with timestamp {file_ts} against {expected_timestamp}')
-
+                logging.info(f"Checking {file} with timestamp {file_ts} against expected {expected_timestamp}")
                 if abs(file_ts - expected_timestamp) < 0.0011:
                     found_files_count += 1
-
-                    # Update check count for the file.
                     self.file_check_counts[file] = self.file_check_counts.get(file, 0) + 1
                     if self.file_check_counts[file] > 1:
                         logging.info(f"File {file} checked >2 times; marking as orphaned.")
                         self.orphaned_files.add(file)
                         continue
 
-                    # Create new filename stem using the scan number, variant name, and shot index.
-                    new_file_stem = self.rename_file(self.scan_number, variant.name, shot_index)
-                    ext = file.suffix
-                    new_filename = new_file_stem + ext
-                    dest_file = adjusted_target_dir / new_filename
+                    # Extract the unique random part from the primary file.
+                    # Expects filename format: "{device_name}_{random}.png"
+                    random_part = file.stem.replace(f"{device_name}_", "")
+                    task.random_part = random_part
 
-                    try:
-                        shutil.move(str(file), str(dest_file))
-                        logging.info(f"Moved {file} to {dest_file}")
-                    except Exception as e:
-                        logging.error(f"Error moving {file} to {dest_file}: {e}")
+                    # Generate the new standardized file stem.
+                    task.new_name = self.rename_file(self.scan_number, device_name, shot_index)
 
-                    # If we have found the expected number of files for this variant, break out.
+                    # Move the primary file.
+                    self._move_file(task, file, variant.name)
+
+                    # For MagSpec devices, process additional variant files.
+                    if device_type in ['MagSpecStitcher', 'MagSpecCamera']:
+                        task.suffix = "-interpSpec"
+                        self._process_variant_file(task)
+                        task.suffix = "-interpDiv"
+                        self._process_variant_file(task)
+
                     if found_files_count == expected_file_count:
                         break
+
+    def _move_file(self, task: FileMoveTask, source_file: Path, new_device_name: str) -> bool:
+        """
+        Rename and move a file using information from task.
+
+        Args:
+            task (FileMoveTask): The task containing parameters.
+            source_file (Path): The file to move.
+            new_device_name (str): Device name (or variant name) to use in renaming.
+
+        Returns:
+            bool: True if moved successfully, False otherwise.
+        """
+        target_dir = task.target_dir.parent / new_device_name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        new_file_stem = task.new_name if task.new_name else self.rename_file(self.scan_number, new_device_name,
+                                                                             task.shot_index)
+        new_filename = new_file_stem + source_file.suffix
+        dest_file = target_dir / new_filename
+        try:
+            shutil.move(str(source_file), str(dest_file))
+            logging.info(f"Moved {source_file} to {dest_file}")
+            return True
+        except Exception as e:
+            logging.error(f"Error moving {source_file} to {dest_file}: {e}")
+            return False
+
+    def _process_variant_file(self, task: FileMoveTask) -> None:
+        """
+        Process a file in a variant directory based on task.suffix.
+
+        The variant directory is constructed as: f"{device_name}{task.suffix}".
+        Searches for a file whose name contains task.random_part,
+        renames it using task.new_name (with task.suffix appended),
+        and moves it to the corresponding target directory.
+        """
+        if task.suffix is None or task.random_part is None:
+            logging.info("No suffix or random_part in task; skipping variant processing.")
+            return
+
+        variant_dir = task.source_dir.parent / f"{task.device_name}{task.suffix}"
+        if not variant_dir.exists():
+            logging.info(f"Variant directory {variant_dir} does not exist; skipping processing for {task.suffix}.")
+            return
+
+        candidate = None
+        for file in variant_dir.glob("*"):
+            if file.is_file() and task.random_part in file.stem:
+                candidate = file
+                break
+
+        if candidate is None:
+            logging.warning(f"No file found in {variant_dir} containing '{task.random_part}'.")
+            return
+
+        new_device_name = f"{task.device_name}{task.suffix}"
+        self._move_file(task, candidate, new_device_name)
+
     @staticmethod
     def rename_file(scan_number: int, device_name: str, shot_index: int) -> str:
         """
-        Rename master files based on scan number, device name, and matched row index.
+        Generate a new file stem based on scan number, device name, and shot index.
 
         Args:
-            scan_number (str): Scan number in string format (e.g., 'Scan001').
-            device_name (str): Name of the device.
-            shot_index (int): shot number
-        """
+            scan_number (int): Scan number (zero-padded to 3 digits).
+            device_name (str): Device name.
+            shot_index (int): Shot number (zero-padded to 3 digits).
 
+        Returns:
+            str: New file name stem.
+        """
         scan_number_str = str(scan_number).zfill(3)
         shot_number_str = str(shot_index).zfill(3)
-        file_name_stem = f'Scan{scan_number_str}_{device_name}_{shot_number_str}'
+        return f"Scan{scan_number_str}_{device_name}_{shot_number_str}"
 
-        return file_name_stem
+    def move_files_by_timestamp(self, task: FileMoveTask) -> None:
+        """Enqueue a file move task."""
+        self.task_queue.put(task)
 
-    def move_files_by_timestamp(self, source_dir: Path, target_dir: Path,
-                                device_name: str, device_type: str,
-                                expected_timestamp: float, shot_index: int):
-        """
-        Enqueue a file move task.
-        """
-        self.task_queue.put((source_dir, target_dir, device_name, device_type, expected_timestamp, shot_index))
-
-    def shutdown(self, wait: bool = True):
+    def shutdown(self, wait: bool = True) -> None:
         """
         Signal that no new tasks will be added, wait for current tasks to finish,
         and then shut down all worker threads.
@@ -174,7 +237,6 @@ class FileMover:
         self.stop_event.set()
         if wait:
             self.task_queue.join()
-        # Put a sentinel for each worker so that they can exit.
         for _ in self.workers:
             self.task_queue.put(None)
         for worker in self.workers:
