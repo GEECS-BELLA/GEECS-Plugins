@@ -11,6 +11,7 @@ from importlib.metadata import version
 
 import sys
 import time
+import traceback
 from datetime import date
 
 from PyQt5.QtWidgets import QMainWindow, QApplication, QLineEdit, QDialog
@@ -174,7 +175,8 @@ class ScAnalyzerWindow(QMainWindow):
             progress_callback.emit("Terminating analysis.")
 
         except Exception as e:
-            error_callback.emit(f"Analysis failed: {str(e)}")
+            error_callback.emit(f"Analysis failed: {type(e)}: {str(e)}")
+            error_callback.emit(traceback.format_exc())
 
     def end_analysis(self) -> None:
         '''

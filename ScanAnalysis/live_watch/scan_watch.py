@@ -243,8 +243,11 @@ class ScanWatch:
         """ Read yaml file for the dictionary """
         contents = None
         if self.processed_list_filename.exists():
-            with open(self.processed_list_filename, 'r') as file:
-                contents = yaml.safe_load(file) or []
+            try:
+                with open(self.processed_list_filename, 'r') as file:
+                    contents = yaml.safe_load(file) or []
+            except FileNotFoundError:  # Rare race condition.  In this case don't worry about new data
+                logging.warning(f"Could not read {self.processed_list_filename}: temporarily unavailable.")
         return contents
 
     def _write_processed_list(self):
