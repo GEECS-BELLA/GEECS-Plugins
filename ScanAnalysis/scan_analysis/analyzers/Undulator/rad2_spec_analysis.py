@@ -1,5 +1,6 @@
 """
-Refurbished analysis for the Rad2 Spectrometer
+Analysis for the Rad2 Spectrometer.  Generates a plot of counts vs charge, for Visa stations 1-9.  Also includes an
+optional step to recalculate the UndulatorExitICT charge values for data saved before 3-18-2025.
 
 Chris
 """
@@ -72,39 +73,59 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         # self.background_roi = self.crop_rad2(background_full)
 
     def run_noscan_analysis(self, config_options: Optional[str] = None):
+        """
+        Analyze all UC_Rad2 shots in a given scan to generate a light vs charge plot.  The charge is determined based
+        on what is available in the auxiliary data and what visa station we are currently at.  By design, Visa 1-8
+        uses the BCave ICT, while Visa 9 uses the UndulatorExit ICT.
+        """
         df = self.auxiliary_data
+        use_bcave = None
+        charge_start = None
+        charge_end = None
 
-        charge_start = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
-        if 'U_UndulatorExitICT Updated Charge pC' in df:
-            charge_end = np.array(df['U_UndulatorExitICT Updated Charge pC'])
-        else:
-            charge_end = np.array(df['U_UndulatorExitICT Python Results.ChB'])
-        valid = np.where(np.abs((charge_end - charge_start) / charge_start) < 0.25)[0]
+        if 'U_UndulatorExitICT Python Results.ChB' in df or 'U_UndulatorExitICT Updated Charge pC' in df:
+            if 'U_UndulatorExitICT Updated Charge pC' in df:
+                charge_end = np.array(df['U_UndulatorExitICT Updated Charge pC'])
+            else:
+                charge_end = np.array(df['U_UndulatorExitICT Python Results.ChB'])
 
-        if self.debug_mode:
-            plt.scatter(charge_start, charge_end, c='b', label='all shots')
-            plt.scatter(charge_start[valid], charge_end[valid], c='r', label='within 15%')
-            plt.plot([0, 200], [0, 200], c='k', ls='--', label='slope = 1')
-            plt.legend()
-            plt.xlabel("BCaveICT Charge (pC)")
-            plt.ylabel("UndulatorExitICT Charge (pC)")
-            print("Valid Indices:")
-            print(valid)
-            print("Worst offender shot")
-            print(np.argmax(charge_end)+1, charge_end[np.argmax(charge_end)])
-            sample = 32
-            print("Sample Shot", sample+1)
-            print(charge_start[sample], "pC")
-            print(charge_end[sample], "pC")
-            plt.show()
+            if self.visa_station == 9:
+                use_bcave = False
+        if 'U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC' in df:
+            charge_start = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
 
-        use_bcave = False
-        if use_bcave:
+            if self.visa_station != 9:
+                use_bcave = True
+
+        if use_bcave is True and charge_start is not None:
             charge = charge_start
             charge_label = "BCaveICT (pC)"
-        else:
+        elif use_bcave is False and charge_end is not None:
             charge = charge_end
             charge_label = "Und.ExitICT (pC)"
+        else:
+            raise RuntimeError("Need Visa9+ExitICT or Visa1-8+BCaveICT")
+
+        if charge_start is not None and charge_end is not None:
+            valid = np.where(np.abs((charge_end - charge_start) / charge_start) < 0.25)[0]
+            if self.debug_mode:
+                plt.scatter(charge_start, charge_end, c='b', label='all shots')
+                plt.scatter(charge_start[valid], charge_end[valid], c='r', label='within 15%')
+                plt.plot([0, 200], [0, 200], c='k', ls='--', label='slope = 1')
+                plt.legend()
+                plt.xlabel("BCaveICT Charge (pC)")
+                plt.ylabel("UndulatorExitICT Charge (pC)")
+                print("Valid Indices:")
+                print(valid)
+                print("Worst offender shot")
+                print(np.argmax(charge_end)+1, charge_end[np.argmax(charge_end)])
+                sample = 32
+                print("Sample Shot", sample+1)
+                print(charge_start[sample], "pC")
+                print(charge_end[sample], "pC")
+                plt.show()
+        else:
+            valid = None
 
         photons_arr = np.zeros(len(charge))
         visa_intensity_arr = np.zeros(len(charge))
@@ -112,6 +133,8 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         cropped_image_num = []
         photon_lineouts = []
         energy_spectrum: Optional[np.ndarray] = None
+
+        # # # # #  Loop through every shot in the scan   # # # # #
 
         for i in range(len(charge)):
             if self.update_undulator_exit_ict and not use_bcave:
@@ -141,8 +164,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 image = image_processing_funcs.threshold_reduction(image, self.background_threshold)
                 image = self.filter_image(image)
 
-                #image = image_processing_funcs.threshold_reduction(image, self.background_roi)
-
                 cropped_image_list.append(image)
                 cropped_image_num.append(i+1)
 
@@ -152,12 +173,11 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 cutoff = 4.5
                 filtered_data = self.lowpass_filter(projection_arr[1:-1], cutoff, fs)
 
-                # photons_arr[i] = np.sum(image)
                 photons_arr[i] = np.sum(filtered_data)
                 photon_lineouts.append(filtered_data)
 
                 if self.debug_mode:
-                    plt.imshow(image)  # ,vmin=0, vmax=7)
+                    plt.imshow(image)
                     plt.show()
 
                     projection_minimum = np.min(filtered_data)
@@ -187,7 +207,8 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                     logging.warning(f"OSError at {self.visa_device} shot {i+1}??")
                     visa_intensity_arr[i] = 0
 
-        if self.background_mode:
+        # # # #  If on 'background' mode, make a linear fit of the data on shots with ~100% charge transmission  # # # #
+        if self.background_mode and valid:
             x_axis = charge[valid]
             y_axis = photons_arr[valid]
             fit = np.polyfit(x_axis[(x_axis > 20) & (x_axis < 250)], y_axis[(x_axis > 20) & (x_axis < 250)], 1)
@@ -195,6 +216,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             print(fit)
             self.incoherent_signal_fit = fit
 
+        # # # # #  If on a visa screen, make the color scheme the intensity on the visa camera   # # # # #
         if np.min(visa_intensity_arr) == np.max(visa_intensity_arr):
             color_scheme = 'b'
             color_label = None
@@ -204,6 +226,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             color_label = "Intensity on VISA Screen"
             cmap_type = 'viridis'
 
+        # # # # #  Generate the main plot of counts vs charge, with added info for Estimated Gain   # # # # #
         top_shots_string = ""
         p = None
         x = None
@@ -236,7 +259,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         plt.figure(figsize=(5.5, 4))
 
         plt.scatter(charge, photons_arr, label="1st Order", marker="+", c=color_scheme, cmap=cmap_type)
-        if self.background_mode:
+        if self.background_mode and valid:
             plt.scatter(charge[valid], photons_arr[valid], label="Valid Shots", marker="+", c='r')
         # plt.yscale('log')
 
@@ -258,13 +281,14 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         plt.legend()
         plt.tight_layout()
 
+        # # # # #  Save plots and append data to the sfile   # # # # #
+
         save_path = Path(self.path_dict['save']) / "photon_vs_charge.png"
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
         self.close_or_show_plot()
         if self.flag_logging:
             logging.info(f"Image saved at {save_path}")
-
         self.display_contents.append(str(save_path))
 
         if energy_spectrum is not None:
@@ -282,7 +306,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 self.append_to_sfile({'UC_Rad2_EstimatedGain': estimated_gain})
                 logging.info("Wrote estimated gain to sfile")
 
-        if self.update_undulator_exit_ict:
+        if self.update_undulator_exit_ict and use_bcave is False:
             self.append_to_sfile({'U_UndulatorExitICT Updated Charge pC': charge})
             logging.info("Wrote updated UndulatorExitICT charge values")
 
@@ -290,7 +314,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             filepath = self.path_dict['save'] / 'noscan.gif'
             self.create_gif(cropped_image_list, filepath,
                             titles=[f"Shot {num}" for num in cropped_image_num])
-
             self.display_contents.append(str(filepath))
 
     def set_visa_settings(self):
