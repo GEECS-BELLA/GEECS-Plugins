@@ -17,33 +17,74 @@ from image_analysis import labview_adapters
 import matplotlib.pyplot as plt
 import numpy as np
 import logging
+from image_analysis.labview_adapters import analyzer_from_device_type
+from image_analysis.utils import read_imaq_png_image
 
 
 class HiResMagCamAnalysis(CameraImageAnalysis):
-    def __init__(self, scan_tag: ScanTag, device_name=None, skip_plt_show: bool = True):
+    def __init__(self, scan_tag: ScanTag, device_name=None, skip_plt_show: bool = True, rerun_analysis: bool = False):
+
+
         super().__init__(scan_tag=scan_tag, device_name='UC_HiResMagCam', skip_plt_show=skip_plt_show)
+        self.rerun_analysis = rerun_analysis
 
     def run_noscan_analysis(self):
         """
         Noscan analysis simply returns a scatter plot of various beam parameters measured by the Mag Spec
         """
-        use_ict = True
         df = self.auxiliary_data
 
-        peak_charge = np.array(df['UC_HiResMagCam Python Result 4 Alias:HiResMagCam.PeakCharge_pCMeV'])
-        clipped_percent = np.array(df['UC_HiResMagCam Python Result 1 Alias:HiResMagCam.ClippedPercentage'])
-        saturation_counts = np.array(df['UC_HiResMagCam Python Result 2 Alias:HiResMagCam.SaturationCounts'])
-        peak_energy = np.array(df['UC_HiResMagCam Python Result 5 Alias:HiResMagCam.PeakEnergy_MeV'])
-        average_energy = np.array(df['UC_HiResMagCam Python Result 6 Alias:HiResMagCam.AverageEnergy_MeV'])
-        fwhm_percent = np.array(df['UC_HiResMagCam Python Result 15 Alias:HiResMagCam.FWHM_MeV'])
+        if self.rerun_analysis:
+            data: list[dict] = []
+            hires_analyzer = analyzer_from_device_type(device_type=self.device_name)
+            for shot_num in self.auxiliary_data['Shotnumber'].values:
+                image_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
+                if not image_file:
+                    if self.flag_logging:
+                        logging.warning(f"Missing {self.device_name} data for shot {shot_num}.")
+                    data.append({'shot_num': shot_num, 'analyzer_return_dictionary': {}})
+                else:
+                    image = read_imaq_png_image(image_file) * 1.0
+                    results = hires_analyzer.analyze_image(image)
+                    data.append({'shot_num': shot_num,
+                                 'analyzer_return_dictionary': results['analyzer_return_dictionary']})
 
-        if use_ict:
-            charge = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
+            num_shots = len(data)
+            peak_charge = np.zeros(num_shots)
+            clipped_percent = np.zeros(num_shots)
+            saturation_counts = np.zeros(num_shots)
+            peak_energy = np.zeros(num_shots)
+            average_energy = np.zeros(num_shots)
+            fwhm_percent = np.zeros(num_shots)
+            charge = np.zeros(num_shots)
+            for i in range(len(data)):
+                scalar_dict = data[i].get('analyzer_return_dictionary', {})
+                peak_charge[i] = scalar_dict.get('peak_charge_pc/MeV', 0)
+                clipped_percent[i] = scalar_dict.get('camera_clipping_factor', 0)
+                saturation_counts[i] = scalar_dict.get('camera_saturation_counts', 0)
+                peak_energy[i] = scalar_dict.get('peak_charge_energy_MeV', 0)
+                average_energy[i] = scalar_dict.get('weighted_average_energy_MeV', 0)
+                fwhm_percent[i] = scalar_dict.get('fwhm_percent', 0)
+                charge[i] = scalar_dict.get('total_charge_pC', 0)
+
         else:
-            charge = np.array(df['UC_HiResMagCam Python Result 3 Alias:HiResMagCam.Charge_pC'])
+            peak_charge = np.array(df['UC_HiResMagCam Python Result 4 Alias:HiResMagCam.PeakCharge_pCMeV'])
+            clipped_percent = np.array(df['UC_HiResMagCam Python Result 1 Alias:HiResMagCam.ClippedPercentage'])
+            saturation_counts = np.array(df['UC_HiResMagCam Python Result 2 Alias:HiResMagCam.SaturationCounts'])
+            peak_energy = np.array(df['UC_HiResMagCam Python Result 5 Alias:HiResMagCam.PeakEnergy_MeV'])
+            average_energy = np.array(df['UC_HiResMagCam Python Result 6 Alias:HiResMagCam.AverageEnergy_MeV'])
+            fwhm_percent = np.array(df['UC_HiResMagCam Python Result 15 Alias:HiResMagCam.FWHM_MeV'])
+
+            use_ict = False  # Optional flag to instead load charge using the ICT
+            if use_ict:
+                charge = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
+            else:
+                charge = np.array(df['UC_HiResMagCam Python Result 3 Alias:HiResMagCam.Charge_pC'])
 
         valid = np.where((clipped_percent < 0.91) & (saturation_counts < 20000) & (charge >= 5))[0]
-        plot_title = f"U_HiResMagSpec: {self.tag.month:02d}/{self.tag.day:02d}/{self.tag.year % 100:02d} Scan {self.tag.number:03d}"
+
+        plt.close('all')
+        plt.figure(figsize=(5.5, 4))
 
         plt.set_cmap('plasma')
         plt.scatter(peak_energy, peak_charge, marker="+", c='k', s=5)
@@ -52,7 +93,9 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
         plt.xlabel("Energy at Peak Charge (MeV)")
         plt.ylabel("Peak Charge (pC/MeV)")
         plt.colorbar(label="FWHM Energy Spread (%)")
-        plt.scatter(np.average(peak_energy[valid]), np.average(peak_charge[valid]), marker="+", s=80, c="k", label="Average")
+        plt.scatter(np.average(peak_energy[valid]), np.average(peak_charge[valid]), marker="+", s=80, c="k",
+                    label="Average")
+        plot_title = f"U_HiResMagSpec: {self.tag.month:02d}/{self.tag.day:02d}/{self.tag.year % 100:02d} Scan {self.tag.number:03d}"
         plt.xlim([min(peak_energy[valid]) * 0.95, max(peak_energy[valid]) * 1.05])
         plt.ylim([min(peak_charge[valid]) * 0.9, max(peak_charge[valid]) * 1.1])
         plt.legend()
@@ -159,6 +202,7 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
 
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
-    tag = ScanData.get_scan_tag(year=2024, month=11, day=26, number=5, experiment_name='Undulator')
-    analyzer = HiResMagCamAnalysis(scan_tag=tag, skip_plt_show=True)
+
+    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=6, experiment_name='Undulator')
+    analyzer = HiResMagCamAnalysis(scan_tag=tag, skip_plt_show=False, rerun_analysis=True)
     analyzer.run_analysis()

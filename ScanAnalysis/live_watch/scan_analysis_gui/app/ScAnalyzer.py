@@ -78,6 +78,10 @@ class ScAnalyzerWindow(QMainWindow):
         self.worker: Optional[Worker] = None
         self.worker_thread: Optional[QThread] = None
 
+        # set up line edit to specify document id
+        self.documentID: Optional[str] = None
+        self.ui.lineDocumentID.editingFinished.connect(self.updateDocumentID)
+
     def start_analysis(self) -> None:
         '''
         Prepare to run analysis. 
@@ -129,6 +133,11 @@ class ScAnalyzerWindow(QMainWindow):
         :rtype: None
         '''
         try:
+            analysis_date = date(year=int(self.ui.inputYear.text()), month=int(self.ui.inputMonth.text()),
+                                 day=int(self.ui.inputDay.text()))
+            if analysis_date != date.today() and self.documentID is None:
+                raise DateCheckError("Cannot perform analysis on previous date without DocumentID")
+
             # initialize scan watcher
             scan_watcher = ScanWatch('Undulator',
                                      int(self.ui.inputYear.text()),
@@ -136,7 +145,8 @@ class ScAnalyzerWindow(QMainWindow):
                                      int(self.ui.inputDay.text()),
                                      ignore_list=self.ignore_list,
                                      overwrite_previous=self.overwrite_processed_scans,
-                                     analyzer_list=self.analyzer_items)
+                                     analyzer_list=self.analyzer_items,
+                                     documentID=self.documentID)
 
             # start analysis
             progress_callback.emit("Start ScanWatch.")
@@ -329,6 +339,13 @@ class ScAnalyzerWindow(QMainWindow):
         None
         '''
         self.ui.logDisplay.setReadOnly(True)
+
+    def updateDocumentID(self):
+        """ Updates the document ID if a non-empty string is entered into the line edit """
+        if line_contents := self.ui.lineDocumentID.text().strip():
+            self.documentID = line_contents
+        else:
+            self.documentID = None
 
     def set_ignore_list(self) -> None:
         """
@@ -615,9 +632,17 @@ class CustomError(Exception):
     def get_class_name(cls) -> str:
         return cls.__name__
 
+
 class AnalysisRunningError(CustomError):
     """Error raised when analysis is already running."""
     pass
+
+
+class DateCheckError(Exception):
+    def __init__(self, message="Date is not valid without a given documentID"):
+        self.message = message
+        super().__init__(self.message)
+
 
 class UnexpectedError(CustomError):
     """Custom error handler for unexpected exceptions."""

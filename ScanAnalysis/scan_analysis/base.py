@@ -16,8 +16,8 @@ For the "requirements" block of AnalyzerInfo to be compatible with `scan_evaluat
 """
 # %% imports
 from __future__ import annotations
-
-from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple
+from numpy.typing import NDArray
+from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple, Dict, List
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
 from pathlib import Path
@@ -36,6 +36,11 @@ class AnalyzerInfo(NamedTuple):
     config_file: Optional[str] = None
     is_active: bool = True
 
+
+# error classes
+class DataLengthError(ValueError):
+    """Raised when data arrays have inconsistent lengths."""
+    pass
 
 class ScanAnalysis:
     """
@@ -149,6 +154,51 @@ class ScanAnalysis:
             plt.show()  # Display for interactive use
         else:
             plt.close('all')  # Ensure plots close when not using the GUI
+
+    def append_to_sfile(self,
+                        dict_to_append: Dict[str, Union[List, NDArray[np.float64]]]) -> None:
+        """
+        Append new data to the auxiliary file.
+
+        Args:
+            dict_to_append: Dictionary containing column names and their values to append
+
+        Raises:
+            DataLengthError: If the length of array values doesn't match existing data
+        """
+        try:
+            # copy auxiliary dataframe
+            df_copy = self.auxiliary_data.copy()
+
+            # check column lengths match existing dataframe
+            lengths = {len(vals) for vals in dict_to_append.values() if isinstance(vals, (list, np.ndarray))}
+            if lengths and lengths.pop() != len(df_copy):
+                raise DataLengthError()
+
+            # check if columns exist within dataframe
+            existing_cols = set(df_copy) & set(dict_to_append.keys())
+            if existing_cols:
+                # if self.flag['logging']:
+                logging.warning(f"Warning: Columns already exist in sfile: "
+                                f"{existing_cols}. Overwriting existing columns.")
+
+            # append new fields to df_copy
+            df_new = df_copy.assign(**dict_to_append)
+
+            # save updated dataframe to sfile
+            df_new.to_csv(self.auxiliary_file_path,
+                          index=False, sep='\t', header=True)
+
+            # copy updated dataframe to class attribute
+            self.auxiliary_data = df_new.copy()
+
+        except DataLengthError:
+            # if self.flag['logging']:
+            logging.error(f"Error: Error appending {self.device_name} field to sfile due to "
+                          f"inconsistent array lengths. Scan file not updated.")
+
+        except Exception as e:
+            logging.error(f"Error: Unexpected error in {self.append_to_sfile.__name__}: {e}")
 
     def generate_limited_shotnumber_labels(self, max_labels: int = 20) -> np.ndarray:
         """
