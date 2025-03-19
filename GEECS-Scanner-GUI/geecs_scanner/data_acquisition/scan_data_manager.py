@@ -136,21 +136,35 @@ class ScanDataManager:
         return self.scan_data
 
     def purge_all_local_save_dir(self) -> None:
-
+        """
+        Purge all local save directories for non-scalar saving devices.
+        Instead of purging only directories with an exact match of the device name,
+        this method now purges any directory under the SharedData folder that contains the device name.
+        """
         for device_name in self.device_manager.non_scalar_saving_devices:
             device = self.device_manager.devices.get(device_name)
-
             if device:
-                device_name = device.get_name()
+                dev_name = device.get_name()
                 dev_host_ip_string = device.dev_ip
-                source_dir = Path(f'//{dev_host_ip_string}/SharedData/{device_name}')
+                base_dir = Path(f'//{dev_host_ip_string}/SharedData')
 
-                self.purge_local_save_dir(source_dir)
+                if base_dir.exists():
+                    # Iterate over all directories in the SharedData folder.
+                    for subdir in base_dir.iterdir():
+                        if subdir.is_dir() and dev_name in subdir.name:
+                            logging.info(f"Purging directory: {subdir}")
+                            self.purge_local_save_dir(subdir)
+                else:
+                    logging.warning(f"Base directory {base_dir} does not exist.")
 
     @staticmethod
     def purge_local_save_dir(source_dir: Path) -> None:
+        """
+        Purge a directory recursively by removing all files.
 
-        # Purge the source recursively (remove files only)
+        Args:
+            source_dir (Path): The directory to purge.
+        """
         if source_dir.exists():
             for item in source_dir.rglob('*'):
                 if item.is_file():
@@ -418,91 +432,3 @@ class ScanDataManager:
         log_df = log_df.infer_objects(copy=False)
         logging.info(f"Filled remaining NaN and empty values with {fill_value}.")
         return log_df
-
-    def post_process_orphaned_files(self, log_df):
-        """
-        Process orphaned files for each device using the saved device mapping and logged timestamps.
-
-        Args:
-            log_df (pd.DataFrame): DataFrame with a column for each device's timestamp, e.g. "DeviceA timestamp".
-        """
-        for device_name, device_info in self.device_save_paths_mapping.items():
-            # Extract the device-specific parameters from the mapping.
-            source_dir = Path(device_info['source_dir'])
-            target_dir = Path(device_info['target_dir'])
-            device_type = device_info['device_type']
-            # Get the logged timestamps for this device from the DataFrame.
-            logged_timestamps = log_df[f'{device_name} timestamp'].tolist()
-
-            # Call a helper function to post-process files for this device.
-            self._post_process_device(source_dir, target_dir, device_name, device_type, logged_timestamps)
-
-    def _post_process_device(self, source_dir: Path, target_dir: Path,
-                             device_name: str, device_type: str,
-                             logged_timestamps: list[float]):
-        """
-        For a given device, look for orphaned files in the source directory (and its subdirectories),
-        extract their timestamp, match with logged timestamps, and then move them to the corresponding
-        adjusted target directory (e.g. "Z:/data/Undulator/DeviceName-type1") using the appropriate naming convention.
-
-        Args:
-            source_dir (Path): The directory where the files are stored.
-            target_dir (Path): The base directory for processed files.
-            device_name (str): Name of the device.
-            device_type (str): Type of the device.
-            logged_timestamps (list[float]): List of timestamps logged for the device.
-        """
-        tolerance = 0.0011  # Adjust as needed
-
-        # Look recursively for files that match the device name.
-        files = [f for f in source_dir.rglob("*") if f.is_file() and device_name in f.name]
-        for file in files:
-            file_ts = extract_timestamp_from_file(file, device_type)
-            logging.info(f"Post-processing file {file}: timestamp {file_ts}")
-
-            match_found = False
-            shot_index = None
-            # Try to find a matching timestamp from the logged timestamps.
-            for idx, ts in enumerate(logged_timestamps):
-                if abs(file_ts - ts) < tolerance:
-                    shot_index = idx + 1  # Determine shot index
-                    match_found = True
-                    break
-
-            if match_found:
-                # Use the file's parent directory name as the variant.
-                variant = file.parent.name
-                # Build the new file stem using the scan number, variant, and shot index.
-                new_file_stem = self.rename_file(self.scan_number_int, variant, shot_index)
-                new_filename = new_file_stem + file.suffix
-                # Adjust the target directory: use target_dir.parent / variant.
-                adjusted_target_dir = target_dir.parent / variant
-                adjusted_target_dir.mkdir(parents=True, exist_ok=True)
-                dest_file = adjusted_target_dir / new_filename
-
-                try:
-                    shutil.move(str(file), str(dest_file))
-                    logging.info(f"Moved {file} to {dest_file}")
-                except Exception as e:
-                    logging.error(f"Error moving {file} to {dest_file}: {e}")
-            else:
-                logging.warning(f"No matching timestamp for file {file} (timestamp {file_ts})")
-
-    # this method is copied directly from data_logger.py FileMover class. Maybe it should be made
-    # a utility function of this project
-    @staticmethod
-    def rename_file(scan_number: int, device_name: str, shot_index: int) -> str:
-        """
-        Rename master files based on scan number, device name, and matched row index.
-
-        Args:
-            scan_number (str): Scan number in string format (e.g., 'Scan001').
-            device_name (str): Name of the device.
-            shot_index (int): shot number
-        """
-
-        scan_number_str = str(scan_number).zfill(3)
-        shot_number_str = str(shot_index).zfill(3)
-        file_name_stem = f'Scan{scan_number_str}_{device_name}_{shot_number_str}'
-
-        return file_name_stem
