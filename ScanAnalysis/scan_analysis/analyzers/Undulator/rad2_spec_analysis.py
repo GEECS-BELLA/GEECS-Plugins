@@ -227,6 +227,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             cmap_type = 'viridis'
 
         # # # # #  Generate the main plot of counts vs charge, with added info for Estimated Gain   # # # # #
+        raw_photons_arr = np.copy(photons_arr)
         top_shots_string = ""
         p = None
         x = None
@@ -299,7 +300,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 logging.info(f"Lineouts saved at '{lineout_save_path}'")
 
         if not self.background_mode:
-            self.append_to_sfile({'UC_Rad2_CameraCounts': photons_arr})
+            self.append_to_sfile({'UC_Rad2_CameraCounts': raw_photons_arr})
             logging.info("Wrote camera counts to sfile")
             if p:
                 estimated_gain = np.where(charge > 5, photons_arr / p(charge), 0)
