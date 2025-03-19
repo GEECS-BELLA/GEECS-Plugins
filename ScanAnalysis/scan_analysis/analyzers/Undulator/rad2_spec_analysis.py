@@ -194,9 +194,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             print("--Background Mode:  Linear Fit of Light vs Charge--")
             print(fit)
             self.incoherent_signal_fit = fit
-        else:
-            if self.incoherent_signal_fit is not None:
-                self.incoherent_signal_fit = (self.incoherent_signal_fit[0], 0)
 
         if np.min(visa_intensity_arr) == np.max(visa_intensity_arr):
             color_scheme = 'b'
@@ -207,15 +204,9 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             color_label = "Intensity on VISA Screen"
             cmap_type = 'viridis'
 
-        plt.close('all')
-        plt.figure(figsize=(5.5, 4))
-
-        plt.scatter(charge, photons_arr, label="1st Order", marker="+", c=color_scheme, cmap=cmap_type)
-        plt.scatter(charge[valid], photons_arr[valid], label="Valid Shots", marker="+", c='r')
-        # plt.yscale('log')
-
         top_shots_string = ""
         p = None
+        x = None
         if self.incoherent_signal_fit is not None:
             # First, correct the signal by shifting the zero signals to correspond to 0 on the linear fit's intercept
             x_intercept = -self.incoherent_signal_fit[1] / self.incoherent_signal_fit[0]
@@ -226,7 +217,8 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                     photons_arr[i] -= self.incoherent_signal_fit[1]
 
             # Next, build the linear slope to represent the incoherent signal and organize the shots by brightness
-            p = np.poly1d(self.incoherent_signal_fit)
+
+            p = np.poly1d([self.incoherent_signal_fit[0], 0])
             x = np.linspace(np.min(charge), np.max(charge))
             if not self.background_mode:
                 combined = list(zip(range(len(charge)), charge, photons_arr))
@@ -240,7 +232,18 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                     item = sorted_combined[i]
                     top_shots_string += f"{item[0] + 1}:  {item[1]:.2f} pC,  G={item[2] / p(item[1]):.2f}\n"
 
+        plt.close('all')
+        plt.figure(figsize=(5.5, 4))
+
+        plt.scatter(charge, photons_arr, label="1st Order", marker="+", c=color_scheme, cmap=cmap_type)
+        if self.background_mode:
+            plt.scatter(charge[valid], photons_arr[valid], label="Valid Shots", marker="+", c='r')
+        # plt.yscale('log')
+
+        if self.incoherent_signal_fit is not None:
             # Lastly, actually add this to the plot
+            if self.background_mode:
+                p = np.poly1d(self.incoherent_signal_fit)
             plt.plot(x, p(x), label="Incoherent Signal", c='k', ls='--')
 
         plt.title(f'Photon Yield VS Charge VISA{self.visa_station}: '
@@ -359,7 +362,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=24, experiment_name='Undulator')
+    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=25, experiment_name='Undulator')
     analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False,
-                                background_mode=True, update_undulator_exit_ict=True)
+                                background_mode=False, update_undulator_exit_ict=True)
     analyzer.run_analysis()
