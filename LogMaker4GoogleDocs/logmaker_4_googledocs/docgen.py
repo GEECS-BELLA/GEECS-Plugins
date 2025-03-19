@@ -881,9 +881,8 @@ def insertImageToExperimentLog(scanNumber, row, column, image_path, documentID =
             print(f"Failed to load config file from: {config_path}")
         else:
             print(f"Successfully loaded config file: {config_path}")
-
-        if documentID is None:
-            documentID = experiment_config['DEFAULT']['logid']
+            
+        documentID = experiment_config['DEFAULT']['logid']  
     
     ### note, the ID below is the path to directory in the bellaOps HTU experiment logs.
     ### it's only for temporary storage so no need for multiple directories to be defined

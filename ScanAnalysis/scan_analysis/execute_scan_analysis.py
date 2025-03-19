@@ -16,7 +16,7 @@ import itertools
 from logmaker_4_googledocs import docgen
 
 
-def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], debug_mode: bool = False, documentID = None):
+def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], debug_mode: bool = False):
 
     all_dispay_files = []
     for analyzer_info in analyzer_list:
@@ -39,10 +39,9 @@ def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], debug_mode: bo
     if len(all_dispay_files)>0:
         flattened_file_paths = list(itertools.chain.from_iterable(all_dispay_files))
         print(f'flatten file list: {flattened_file_paths}')
-        insert_display_content_to_doc(tag, flattened_file_paths, documentID=documentID)
+        insert_display_content_to_doc(tag, flattened_file_paths)
 
-
-def insert_display_content_to_doc(scan_tag, path_list, documentID = None):
+def insert_display_content_to_doc(scan_tag, path_list):
     """
     Inserts display content from a list of paths into a Google Doc for a given scan.
 
@@ -75,7 +74,6 @@ def insert_display_content_to_doc(scan_tag, path_list, documentID = None):
                 row=row,
                 column=col,
                 image_path=image_path,  # Pass as string for use with google scripts
-                documentID=documentID,
                 experiment=scan_tag.experiment
             )
 
