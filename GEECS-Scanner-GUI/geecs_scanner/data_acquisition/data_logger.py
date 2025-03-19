@@ -2,14 +2,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable, List, Union
 
-from torch.xpu import device
-
 DeviceSavePaths = Dict[str, Dict[str, Union[Path,str]]]
 
 import time
 import threading
 from datetime import datetime
 import logging
+import pandas as pd
 
 from . import DeviceManager
 from geecs_scanner.utils import SoundPlayer
@@ -228,6 +227,70 @@ class FileMover:
     def move_files_by_timestamp(self, task: FileMoveTask) -> None:
         """Enqueue a file move task."""
         self.task_queue.put(task)
+
+    def post_process_orphaned_files(self, log_df: pd.DataFrame, device_save_paths_mapping: dict) -> None:
+        """
+        Process orphaned files for each device using the saved device mapping and logged timestamps.
+        For each device, we look recursively through the source directory for files whose names
+        contain the device name, extract their timestamp, and then match that timestamp with the
+        one in the DataFrame to determine the correct shot number. With that information, we then
+        create a FileMoveTask and process the file accordingly.
+
+        Args:
+            log_df (pd.DataFrame): DataFrame containing a 'shotnumber' column and a column for each device's timestamp,
+                                   e.g. "DeviceA timestamp".
+            device_save_paths_mapping (dict): Mapping of device names to their save path information.
+        """
+        logging.info(f'looking to handle orphaned data files')
+        tolerance = 0.0011  # Adjust as needed
+
+        for device_name, device_info in device_save_paths_mapping.items():
+            source_dir = Path(device_info['source_dir'])
+            target_dir = Path(device_info['target_dir'])
+            device_type = device_info['device_type']
+
+            # Create a list of (shotnumber, timestamp) pairs from the df.
+            # Ensure the df columns are named appropriately.
+            shot_timestamp_pairs = [
+                (row['Shotnumber'], row[f'{device_name} timestamp'])
+                for _, row in log_df.iterrows()
+                if pd.notnull(row[f'{device_name} timestamp'])
+            ]
+
+            # Recursively find orphaned files that include the device name.
+            orphan_files = [f for f in source_dir.rglob("*") if f.is_file() and device_name in f.name]
+
+            for file in orphan_files:
+                file_ts = extract_timestamp_from_file(file, device_type)
+                logging.info(f"Found orphan file {file} with timestamp {file_ts}")
+                matched_shot = None
+
+                # Find the matching shot number using the pairs from the DataFrame.
+                for shot_number, ts in shot_timestamp_pairs:
+                    if abs(file_ts - ts) < tolerance:
+                        matched_shot = shot_number
+                        break
+
+                if matched_shot is not None:
+                    # Extract unique random part from the filename.
+                    random_part = file.stem.replace(f"{device_name}_", "")
+
+                    # Create a FileMoveTask for this orphan file.
+                    task = FileMoveTask(
+                        source_dir=file.parent,
+                        target_dir=target_dir,
+                        device_name=device_name,
+                        device_type=device_type,
+                        expected_timestamp=file_ts,
+                        shot_index=matched_shot,
+                        random_part=random_part
+                    )
+                    logging.info(f"Enqueuing orphan task for {file} with shot number {matched_shot}")
+                    # Process the task using your FileMover's method.
+
+                    self.move_files_by_timestamp(task)
+                else:
+                    logging.warning(f"No matching shot number found for orphan file {file} (timestamp {file_ts})")
 
     def shutdown(self, wait: bool = True) -> None:
         """
@@ -666,13 +729,16 @@ class DataLogger:
 
             if device.get_name() in self.device_save_paths_mapping:
                 device_name = device.get_name()
-                source_dir = self.device_save_paths_mapping[device_name]['source_dir']
-                target_dir = self.device_save_paths_mapping[device_name]['target_dir']
-                device_type = self.device_save_paths_mapping[device_name]['device_type']
-
-                # Use current time as expected timestamp.
-                expected_timestamp = observables_data['timestamp']
-                self.file_mover.move_files_by_timestamp(source_dir, target_dir, device_name, device_type, expected_timestamp, self.shot_index )
+                cfg = self.device_save_paths_mapping[device_name]
+                task = FileMoveTask(
+                    source_dir=cfg['source_dir'],
+                    target_dir=cfg['target_dir'],
+                    device_name=device_name,
+                    device_type=cfg['device_type'],
+                    expected_timestamp=observables_data['timestamp'],
+                    shot_index=self.shot_index
+                )
+                self.file_mover.move_files_by_timestamp(task)
 
     def stop_logging(self) -> None:
         """
@@ -691,8 +757,8 @@ class DataLogger:
         # TODO check if this needs to be moved.  It might be cleared before the stop is registered
         # Reset the stop_event for future logging sessions
 
-        # Shut down the file mover gracefully.
-        self.file_mover.shutdown(wait=True)
+        # # Shut down the file mover gracefully.
+        # self.file_mover.shutdown(wait=True)
 
         self.stop_event.clear()
 
