@@ -9,8 +9,7 @@ from scan_analysis.analyzers.Undulator.array2D_scan_analysis import Array2DScanA
 from scan_analysis.analyzers.Undulator.hamaspectro_analysis import FiberSpectrometerAnalysis
 from scan_analysis.analyzers.Undulator.frog_analysis import FrogAnalysis
 
-from image_analysis.analyzers.basic_image_analysis import BasicImageAnalyzer
-
+from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
 
 undulator_analyzers = [
     Info(analyzer_class=MagSpecStitcherAnalysis,
