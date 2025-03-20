@@ -15,9 +15,12 @@ from PyQt5.QtCore import Qt, QTimer
 
 from geecs_scanner.app import (GEECSScannerWindow, SaveElementEditor, ScanVariableEditor,
                                ShotControlEditor, MultiScanner, ActionLibrary)
+from geecs_scanner.app.geecs_scanner import MAXIMUM_SCAN_SIZE
+
 from geecs_scanner.utils import ApplicationPaths as AppPaths
 from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
 from geecs_scanner.utils.exceptions import ConflictingScanElements
+
 
 @pytest.fixture
 def app(qtbot: QtBot):
@@ -315,11 +318,61 @@ def test_scan_preset(app, qtbot: QtBot):
     assert int(float(app.ui.lineNumShots.text())) == 100
 
 
-# Test calculating number of shots
+def test_shot_calculation(app, qtbot: QtBot):
+    """ Tests calculating the number of shots in various configurations """
+    app.save_current_preset(filename="blank")
+
+    def calculate_and_assert(expected_string: str = "N/A"):
+        app.calculate_num_shots()
+        assert app.ui.lineNumShots.text() == expected_string
+
+    qtbot.mouseClick(app.ui.scanRadioButton, Qt.LeftButton)
+    assert app.ui.lineNumShots.text() == "N/A"
+
+    app.ui.lineStartValue.setText("1.0")
+    app.ui.lineStopValue.setText("2.0")
+    app.ui.lineStepSize.setText("0.5")
+    app.ui.lineShotStep.setText("10")
+    calculate_and_assert("30")
+
+    app.ui.lineStepSize.setText("-0.2")
+    calculate_and_assert("60")
+
+    app.ui.lineStopValue.setText("-1.0")
+    calculate_and_assert("110")
+
+    app.ui.lineStepSize.setText("0.5")
+    calculate_and_assert("50")
+
+    app.ui.lineShotStep.setText("10.5")
+    calculate_and_assert()
+    app.ui.lineShotStep.setText("0")
+    calculate_and_assert()
+    app.ui.lineShotStep.setText("10")
+
+    app.ui.lineStepSize.setText("0")
+    calculate_and_assert()
+    app.ui.lineStepSize.setText("50")
+    calculate_and_assert("10")
+    app.ui.lineStepSize.setText("0.5")
+
+    app.ui.lineStopValue.setText("1.0")
+    calculate_and_assert("10")
+
+    app.ui.lineShotStep.setText(str(MAXIMUM_SCAN_SIZE + 1))
+    calculate_and_assert()
+
+    app.ui.listScanPresets.setCurrentRow(0)
+    app.apply_preset()
+    app.ui.listScanPresets.setCurrentRow(0)
+    app.delete_selected_preset()
+
 
 # Test generating list of steps
 
+
 def test_dictionary_combining(app, qtbot: QtBot):
+    """ Tests combining element dictionaries while (1) throwing errors for conflicting flags and (2) no duplicates """
     test_dict_location = app.app_paths.experiment() / 'aux_configs'
     dict_a = read_yaml_file_to_dict(test_dict_location / 'test_a.yaml')
     dict_b = read_yaml_file_to_dict(test_dict_location / 'test_b.yaml')
@@ -352,4 +405,3 @@ def test_dictionary_combining(app, qtbot: QtBot):
 
 if __name__ == '__main__':
     pytest.main()
-
