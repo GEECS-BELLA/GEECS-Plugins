@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional, Union, NamedTuple
 from pathlib import Path
 
 if TYPE_CHECKING:
@@ -19,7 +19,11 @@ import numpy as np
 
 from image_analysis.base import ImageAnalyzer
 
-from image_analysis.utils import ROI
+class SlopesMask(NamedTuple):
+    top: Optional[int]
+    bottom: Optional[int]
+    left: Optional[int]
+    right: Optional[int]
 
 from dataclasses import dataclass
 
@@ -45,14 +49,12 @@ class HasoHimgHasConfig:
         laser_wavelength: float
           Probe laser wavelength in nanometers.
     """
-    roi: ROI = ROI(top=None, bottom=None, left=None, right=None)
+    roi: SlopesMask = SlopesMask(top=1, bottom=-1, left=1, right=-1)
     background_path: Path = None
     laser_wavelength: float = 800  # in nanometer
 
     # global path to the wavekit config file for the specific serial number of HASO
     wakekit_config_file_path: Path = Path('C:/GEECS/Developers Version/source/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
-
-
 
 class HASOHimgHasProcessor(ImageAnalyzer):
 
@@ -172,7 +174,9 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         result = self.raw_slopes, self.processed_slopes, raw_phase, processed_phase, haso_intensity
         self.save_individual_results(result)
 
-        image = Array2D(processed_phase)
+        # image: Array2D = Array2D(processed_phase)
+        # for some reason the above throws an error that Array2D is undefined...
+        image = processed_phase
 
         return image
 
@@ -229,8 +233,7 @@ class HASOHimgHasProcessor(ImageAnalyzer):
     def post_process_slopes(self):
         self.processed_slopes = self.raw_slopes
         self.reference_subtract(self.background_path)
-        #masking capability frame exists, but not easily configurable yet
-        # self.apply_mask()
+        self.apply_mask()
         self.apply_filter_wrapper(self.filter_params)
 
     def apply_mask(self):
@@ -271,16 +274,13 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
         # Get the size of the array
         rows, cols = bool_array.shape
-        print(f"Array Size: {rows}x{cols}")
 
         # Reset all values to False
         bool_array.fill(False)
 
-        self.roi.crop(bool_array)
-
         # Apply the ROI, ensuring indices are within bounds
-        x_start, x_end = max(0, x_start), min(cols, x_end)
-        y_start, y_end = max(0, y_start), min(rows, y_end)
+        x_start, x_end = max(0, self.roi.left), min(cols, self.roi.right)
+        y_start, y_end = max(0, self.roi.top), min(rows, self.roi.bottom)
 
         bool_array[y_start:y_end, x_start:x_end] = True
 
@@ -361,9 +361,11 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 if __name__ == "__main__":
     has  = HASOHimgHasProcessor()
     path_to_himg = Path('Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001.himg')
-    path_to_himg = Path('Z:/data/Undulator/Y2025/03-Mar/25_0306/scans/Scan055/U_HasoLift/Scan055_U_HasoLift_061.himg')
+    # path_to_himg = Path('Z:/data/Undulator/Y2025/03-Mar/25_0306/scans/Scan055/U_HasoLift/Scan055_U_HasoLift_061.himg')
     path_to_has = Path('Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001_raw.has')
 
-    roi = ROI(top=75, bottom=-250, left=10, right=-10)
-    haso_processor = HASOHimgHasProcessor(roi = roi)
+    roi = SlopesMask(top=75, bottom=246, left=10, right=670)
+    analysis_config = HasoHimgHasConfig()
+    analysis_config.roi = roi
+    haso_processor = HASOHimgHasProcessor(config = analysis_config)
     haso_processor.analyze_image_file(image_filepath = path_to_himg)
