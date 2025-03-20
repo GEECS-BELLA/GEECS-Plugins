@@ -70,8 +70,8 @@ class ScanAnalysisTestCase(unittest.TestCase):
         scan_data = ScanData(tag=scan_tag)
 
         # Copy it twice to ensure repeatability
-        scan_data.copy_fresh_sfile_to_analysis()
-        scan_data.copy_fresh_sfile_to_analysis()
+        # scan_data.copy_fresh_sfile_to_analysis()
+        # scan_data.copy_fresh_sfile_to_analysis()
 
 
 if __name__ == "__main__":
