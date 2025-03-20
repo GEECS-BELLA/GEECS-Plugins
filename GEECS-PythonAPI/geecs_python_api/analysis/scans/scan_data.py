@@ -8,6 +8,7 @@ import pandas as pd
 import calendar as cal
 from datetime import datetime
 from pathlib import Path
+import shutil
 import logging
 from datetime import datetime as dtime, date
 from typing import Optional, Union, NamedTuple
@@ -470,6 +471,18 @@ class ScanData:
             self.data_frame = pd.read_csv(txt_path, delimiter='\t')
 
         return tdms_path.is_file()
+
+    def copy_fresh_sfile_to_analysis(self):
+        """ Deletes the existing sfile in the `analysis` folder and makes a new copy from the `scans` folder """
+        analysis_sfile = self.get_analysis_folder().parent / f"s{self.__tag.number}.txt"
+        scan_sfile = self.get_folder() / f"ScanDataScan{self.__tag.number:03d}.txt"
+
+        if not scan_sfile.exists():
+            raise FileNotFoundError(f"Original s file '{scan_sfile}' not found.  Cannot copy")
+        else:
+            if analysis_sfile.exists():
+                analysis_sfile.unlink()
+            shutil.copy2(src=scan_sfile, dst=analysis_sfile)
 
     def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
         if not self.scan_info:
