@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from PyQt5.QtWidgets import QRadioButton
 
 import pytest
+import copy
 
 from pathlib import Path
 
@@ -15,7 +16,8 @@ from PyQt5.QtCore import Qt, QTimer
 from geecs_scanner.app import (GEECSScannerWindow, SaveElementEditor, ScanVariableEditor,
                                ShotControlEditor, MultiScanner, ActionLibrary)
 from geecs_scanner.utils import ApplicationPaths as AppPaths
-
+from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
+from geecs_scanner.utils.exceptions import ConflictingScanElements
 
 @pytest.fixture
 def app(qtbot: QtBot):
@@ -317,7 +319,31 @@ def test_scan_preset(app, qtbot: QtBot):
 
 # Test generating list of steps
 
-# Test combining save element dicts
+def test_dictionary_combining(app, qtbot: QtBot):
+    test_dict_location = app.app_paths.experiment() / 'aux_configs'
+    dict_a = read_yaml_file_to_dict(test_dict_location / 'test_a.yaml')
+    dict_b = read_yaml_file_to_dict(test_dict_location / 'test_b.yaml')
+    dict_c = read_yaml_file_to_dict(test_dict_location / 'test_c.yaml')
+
+    test_ab = copy.deepcopy(dict_a['Devices'])
+    app.combine_elements(test_ab, dict_b['Devices'])
+    assert len(test_ab['device_1']['variable_list']) == 3  # Should not append two copies of a particular variable
+    assert test_ab['device_1']['synchronous'] is True
+    assert len(test_ab['device_2']['variable_list']) == 1
+
+    try:
+        app.combine_elements(dict_a['Devices'], dict_c['Devices'])
+        raise AssertionError("Mismatched 'synchronous' flags, should raise an error")
+    except ConflictingScanElements:
+        assert True
+
+    test_bc = copy.deepcopy(dict_b['Devices'])
+    app.combine_elements(test_bc, dict_c['Devices'])
+    assert len(test_bc['device_1']['variable_list']) == 2
+    assert test_ab['device_1']['synchronous'] is True
+    assert test_bc['device_2']['synchronous'] is False
+    assert len(test_bc['device_2']['variable_list']) == 1
+
 
 # TODO Test Updating config
 
@@ -326,3 +352,4 @@ def test_scan_preset(app, qtbot: QtBot):
 
 if __name__ == '__main__':
     pytest.main()
+
