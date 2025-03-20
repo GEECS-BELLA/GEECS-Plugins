@@ -1,0 +1,729 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>wavekit_py.io_wavekit_cameraset &#8212; Wavekit Python 2020 documentation</title>
+    <link rel="stylesheet" href="../../_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="../../_static/language_data.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Wavekit Python 2020 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for wavekit_py.io_wavekit_cameraset</h1><div class="highlight"><pre>
+<span></span><span class="ch">#!/usr/bin/python</span>
+
+<span class="kn">import</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">sys</span> 
+<span class="kn">import</span> <span class="nn">ctypes</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+
+<span class="kn">import</span> <span class="nn">io_thirdparty_load_library</span> <span class="k">as</span> <span class="nn">imop_library</span>
+
+<span class="kn">import</span> <span class="nn">io_wavekit_structure</span> <span class="k">as</span> <span class="nn">imop_struct</span>
+<span class="kn">import</span> <span class="nn">io_wavekit_enum</span> <span class="k">as</span> <span class="nn">imop_enum</span>
+
+<div class="viewcode-block" id="CameraSet"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet">[docs]</a><span class="k">class</span> <span class="nc">CameraSet</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Class CameraSet</span>
+<span class="sd">    </span>
+<span class="sd">    - Constructor from Config File :</span>
+<span class="sd">        - **config_file_path** - string : Path to config file (\*.dat)</span>
+<span class="sd">    </span>
+<span class="sd">    - Constructor from Image File :</span>
+<span class="sd">        - **image_file_path** - string : Path to image file (\*.himg)</span>
+<span class="sd">        </span>
+<span class="sd">    - Constructor from Camera : </span>
+<span class="sd">        - **camera** - Camera : Camera Object</span>
+<span class="sd">        </span>
+<span class="sd">    - Constructor from Copy : </span>
+<span class="sd">        - **cameraset** - CameraSet : CameraSet Object</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init_from_file</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">config_file_path</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CameraSet constructor</span>
+<span class="sd">        </span>
+<span class="sd">        :param config_file_path: path to config file</span>
+<span class="sd">        :type config_file_path: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_NewFromConfigFile</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">config_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init_from_file&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init_from_image_file</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">image_file_path</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CameraSet constructor</span>
+<span class="sd">        </span>
+<span class="sd">        :param image_file_path: path to image file</span>
+<span class="sd">        :type image_file_path: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_NewFromImageFile</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">image_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init_from_file&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init_from_camera</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">camera</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CameraSet constructor</span>
+<span class="sd">        </span>
+<span class="sd">        :param camera: Camera Object</span>
+<span class="sd">        :type camera: Camera</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_NewFromCamera</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">camera</span><span class="o">.</span><span class="n">camera</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init_from_camera&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init_from_copy</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">cameraset</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CameraSet constructor from copy</span>
+<span class="sd">        </span>
+<span class="sd">        :param cameraset: CameraSet Object</span>
+<span class="sd">        :type cameraset: CameraSet</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_NewFromCopy</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">cameraset</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init_from_copy&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>  <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CameraSet constructor</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dll</span>   <span class="o">=</span> <span class="n">imop_library</span><span class="o">.</span><span class="n">load_dll</span><span class="p">()</span>
+        <span class="n">entered</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">arg_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">try</span> <span class="p">:</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">arg_size</span> <span class="o">==</span> <span class="mi">1</span><span class="p">):</span>
+                <span class="k">if</span><span class="p">(</span><span class="s1">&#39;config_file_path&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">):</span>
+                    <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__init_from_file</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;config_file_path&#39;</span><span class="p">])</span>
+                <span class="k">if</span><span class="p">(</span><span class="s1">&#39;image_file_path&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">):</span>
+                    <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__init_from_image_file</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;image_file_path&#39;</span><span class="p">])</span>
+                <span class="k">if</span><span class="p">(</span><span class="s1">&#39;camera&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">):</span>
+                    <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__init_from_camera</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;camera&#39;</span><span class="p">])</span>
+                <span class="k">if</span><span class="p">(</span><span class="s1">&#39;cameraset&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">):</span>
+                    <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__init_from_copy</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;cameraset&#39;</span><span class="p">])</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+        <span class="k">if</span><span class="p">(</span><span class="n">entered</span> <span class="o">==</span> <span class="mi">0</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="s1">&#39;---CAN NOT CREATE CAMERASET OBJECT---&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__del_obj__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CameraSet destructor</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_Delete</span><span class="p">(</span>
+            <span class="n">message</span><span class="p">,</span> 
+            <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="fm">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__del_obj__</span><span class="p">()</span>
+        <span class="n">imop_library</span><span class="o">.</span><span class="n">free_dll</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">_handle</span><span class="p">)</span>
+
+<div class="viewcode-block" id="CameraSet.get_specifications"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.get_specifications">[docs]</a>    <span class="k">def</span> <span class="nf">get_specifications</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Camera specifications</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Camera specifications </span>
+<span class="sd">        :rtype: Config_t, CameraSpecs_t</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">driver_name</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">camera_name</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">camera_sn</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">width</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="n">height</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="n">pixel_steps_x</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">pixel_steps_y</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">bits_depth</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ubyte</span><span class="p">()</span>
+            <span class="n">is_signed</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+            <span class="n">max_level</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ulonglong</span><span class="p">()</span>
+            <span class="n">max_frame_rate</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">roi_width</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_uint</span><span class="p">()</span>
+            <span class="n">roi_height</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_uint</span><span class="p">()</span>
+            <span class="n">roi_offset_x</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="n">roi_offset_y</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetSpecifications</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">driver_name</span><span class="p">,</span>
+                <span class="n">camera_name</span><span class="p">,</span>
+                <span class="n">camera_sn</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">width</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">height</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">pixel_steps_x</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">pixel_steps_y</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">bits_depth</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">is_signed</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">max_level</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">max_frame_rate</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">roi_width</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">roi_height</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">roi_offset_x</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">roi_offset_y</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">Config_t</span><span class="p">(</span>
+                    <span class="n">camera_name</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">),</span>
+                    <span class="n">camera_sn</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">),</span>
+                    <span class="kc">None</span><span class="p">,</span>
+                    <span class="n">driver_name</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+                    <span class="p">),</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">CameraSpecs_t</span><span class="p">(</span>
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">dimensions</span><span class="p">(</span>
+                        <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="n">width</span><span class="o">.</span><span class="n">value</span><span class="p">,</span><span class="n">height</span><span class="o">.</span><span class="n">value</span><span class="p">),</span> 
+                        <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="n">pixel_steps_x</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">pixel_steps_y</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+                        <span class="p">),</span>
+                    <span class="n">bits_depth</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">is_signed</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">max_level</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">max_frame_rate</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="n">roi_width</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">roi_height</span><span class="o">.</span><span class="n">value</span><span class="p">),</span> 
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">int2D</span><span class="p">(</span><span class="n">roi_offset_x</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">roi_offset_y</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+                    <span class="p">)</span>
+            <span class="p">)</span>   
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_driver_info&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.get_specific_features_list_size"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.get_specific_features_list_size">[docs]</a>    <span class="k">def</span> <span class="nf">get_specific_features_list_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Camera features list size.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Features list size.</span>
+<span class="sd">        :rtype: int</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">size_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetSpecificFeaturesListSize</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">size_out</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">size_out</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_specific_features_list_size&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.get_specific_feature_name"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.get_specific_feature_name">[docs]</a>    <span class="k">def</span> <span class="nf">get_specific_feature_name</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">index</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Camera features name at the choosen index.</span>
+<span class="sd">        </span>
+<span class="sd">        :param index: Index in the *get_specific_features_list_size* range</span>
+<span class="sd">        :type index: int</span>
+<span class="sd">        :return: Feature name</span>
+<span class="sd">        :rtype: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">feature_name</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetSpecificFeatureName</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">index</span><span class="p">,</span>
+                <span class="n">feature_name</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">feature_name</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_specific_feature_name&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.get_parameters_list_size"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.get_parameters_list_size">[docs]</a>    <span class="k">def</span> <span class="nf">get_parameters_list_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Camera parameters list size.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Parameters list size.</span>
+<span class="sd">        :rtype: int</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">size_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_uint</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetParametersListSize</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">size_out</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">size_out</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_parameters_list_size&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.get_parameter_name"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.get_parameter_name">[docs]</a>    <span class="k">def</span> <span class="nf">get_parameter_name</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">index</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Camera parameter name at the choosen index.</span>
+<span class="sd">        </span>
+<span class="sd">        :param index: Index in the *get_parameters_list_size* range</span>
+<span class="sd">        :type index: int</span>
+<span class="sd">        :return: Parameter name.</span>
+<span class="sd">        :rtype: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">parameter_name</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetParameterName</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">index</span><span class="p">,</span>
+                <span class="n">parameter_name</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">parameter_name</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_parameter_name&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.get_parameter_type"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.get_parameter_type">[docs]</a>    <span class="k">def</span> <span class="nf">get_parameter_type</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">parameter_name</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Camera parameter type corresponding to the parameter_name.</span>
+<span class="sd">        </span>
+<span class="sd">        :param parameter_name: Parameter Name </span>
+<span class="sd">        :type parameter_name: string        </span>
+<span class="sd">        :return: Parameter type value </span>
+<span class="sd">        :rtype: int</span>
+<span class="sd">        </span>
+<span class="sd">        .. seealso:: E_TYPES_T        </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">parameter_type</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetParameterType</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">parameter_type</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">parameter_type</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_parameter_type&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.get_parameter_option"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.get_parameter_option">[docs]</a>    <span class="k">def</span> <span class="nf">get_parameter_option</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">parameter_name</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Camera parameter options corresponding to parameter_name.</span>
+<span class="sd">        </span>
+<span class="sd">        :param parameter_name: Parameter Name </span>
+<span class="sd">        :type parameter_name: string</span>
+<span class="sd">        :return: Parameter options : (has_default_value, has_limits, is_connection_parameter, is_gettable, is_gettable_onfly, is_settable, is_settable_onfly, is_string_enum)</span>
+<span class="sd">        :rtype: ParameterOption_t</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">is_settable</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+            <span class="n">is_gettable</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+            <span class="n">has_default_value</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+            <span class="n">has_limits</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+            <span class="n">is_string_enum</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+            <span class="n">is_settable_on_fly</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+            <span class="n">is_gettable_on_fly</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+            <span class="n">is_connection_parameter</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetParameterOption</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">is_settable</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">is_gettable</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">has_default_value</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">has_limits</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">is_string_enum</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">is_settable_on_fly</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">is_gettable_on_fly</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">is_connection_parameter</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">ParameterOption_t</span><span class="p">(</span>
+                <span class="n">has_default_value</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">has_limits</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">is_connection_parameter</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">is_gettable</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">is_gettable_on_fly</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">is_settable</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">is_settable_on_fly</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">is_string_enum</span><span class="o">.</span><span class="n">value</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_parameter_option&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.get_parameter_limits"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.get_parameter_limits">[docs]</a>    <span class="k">def</span> <span class="nf">get_parameter_limits</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">parameter_name</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Camera parameter limits.</span>
+<span class="sd">        </span>
+<span class="sd">        :param parameter_name: Parameter Name </span>
+<span class="sd">        :type parameter_name: string        </span>
+<span class="sd">        :return: min, max</span>
+<span class="sd">        :rtype: tuple(int or double, int or double)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_parameter_type</span><span class="p">(</span><span class="n">parameter_name</span><span class="p">)</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_TYPES</span><span class="o">.</span><span class="n">INT</span><span class="p">)</span> <span class="p">:</span>
+                <span class="n">min_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+                <span class="n">max_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetParameterIntLimits</span><span class="p">(</span>
+                    <span class="n">message</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">min_out</span><span class="p">),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">max_out</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">(</span>
+                    <span class="n">min_out</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">max_out</span><span class="o">.</span><span class="n">value</span>
+                    <span class="p">)</span>
+            <span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_parameter_type</span><span class="p">(</span><span class="n">parameter_name</span><span class="p">)</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_TYPES</span><span class="o">.</span><span class="n">REAL</span><span class="p">)</span> <span class="p">:</span>
+                <span class="n">min_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+                <span class="n">max_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetParameterRealLimits</span><span class="p">(</span>
+                    <span class="n">message</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">min_out</span><span class="p">),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">max_out</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">(</span>
+                    <span class="n">min_out</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">max_out</span><span class="o">.</span><span class="n">value</span>
+                    <span class="p">)</span>            
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="s1">&#39;Parameter type must be int or real)&#39;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_parameter_limits&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.get_available_values_list_size"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.get_available_values_list_size">[docs]</a>    <span class="k">def</span> <span class="nf">get_available_values_list_size</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">parameter_name</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Parameter available values list size.</span>
+<span class="sd">        </span>
+<span class="sd">        .. seealso:: CameraSet.get_parameter_option</span>
+<span class="sd">                </span>
+<span class="sd">        :param parameter_name: Parameter Name </span>
+<span class="sd">        :type parameter_name: string        </span>
+<span class="sd">        :return: Size of the list</span>
+<span class="sd">        :rtype: int</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">size_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetAvailableValuesListSize</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">size_out</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">size_out</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_available_values_list_size&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.get_available_value"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.get_available_value">[docs]</a>    <span class="k">def</span> <span class="nf">get_available_value</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">parameter_name</span><span class="p">,</span>
+        <span class="n">index</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Parameter available value at corresponding index.</span>
+<span class="sd">        </span>
+<span class="sd">        .. seealso:: CameraSet.get_parameter_option</span>
+<span class="sd">        </span>
+<span class="sd">        :param parameter_name: Parameter Name </span>
+<span class="sd">        :type parameter_name: string</span>
+<span class="sd">        :param index: Index </span>
+<span class="sd">        :type index: index        </span>
+<span class="sd">        :return: Value at index</span>
+<span class="sd">        :rtype: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">value_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetAvailableValue</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">index</span><span class="p">,</span>
+                <span class="n">value_out</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">value_out</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_available_value&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.get_parameter_value"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.get_parameter_value">[docs]</a>    <span class="k">def</span> <span class="nf">get_parameter_value</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">parameter_name</span><span class="p">,</span>
+        <span class="n">get_factory_value</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Camera current parameter value.</span>
+<span class="sd">        </span>
+<span class="sd">        :param parameter_name: Parameter Name </span>
+<span class="sd">        :type parameter_name: string</span>
+<span class="sd">        :param get_factory_value: True to get the factory value, False to get current value (default : False)</span>
+<span class="sd">        :type get_factory_value: bool        </span>
+<span class="sd">        :return: Value </span>
+<span class="sd">        :rtype: int or double or bool or string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_parameter_type</span><span class="p">(</span><span class="n">parameter_name</span><span class="p">)</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_TYPES</span><span class="o">.</span><span class="n">INT</span><span class="p">)</span> <span class="p">:</span>
+                <span class="n">val_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetParameterIntValue</span><span class="p">(</span>
+                    <span class="n">message</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">val_out</span><span class="p">),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">get_factory_value</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">(</span><span class="n">val_out</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_parameter_type</span><span class="p">(</span><span class="n">parameter_name</span><span class="p">)</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_TYPES</span><span class="o">.</span><span class="n">REAL</span><span class="p">)</span> <span class="p">:</span>
+                <span class="n">val_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetParameterRealValue</span><span class="p">(</span>
+                    <span class="n">message</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">val_out</span><span class="p">),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">get_factory_value</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">(</span><span class="n">val_out</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_parameter_type</span><span class="p">(</span><span class="n">parameter_name</span><span class="p">)</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_TYPES</span><span class="o">.</span><span class="n">BOOL</span><span class="p">)</span> <span class="p">:</span>
+                <span class="n">val_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetParameterBooleanValue</span><span class="p">(</span>
+                    <span class="n">message</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">val_out</span><span class="p">),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">get_factory_value</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">(</span><span class="n">val_out</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_parameter_type</span><span class="p">(</span><span class="n">parameter_name</span><span class="p">)</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_TYPES</span><span class="o">.</span><span class="n">STRING</span><span class="p">)</span> <span class="p">:</span>
+                <span class="n">val_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_GetParameterStringValue</span><span class="p">(</span>
+                    <span class="n">message</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">val_out</span><span class="p">,</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">get_factory_value</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">(</span><span class="n">val_out</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>            
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="s1">&#39;Unknown parameter type&#39;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_parameter_value&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.reset_parameters"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.reset_parameters">[docs]</a>    <span class="k">def</span> <span class="nf">reset_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Reset parameters to factory values.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_ResetParameters</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : reset_parameters&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.set_parameter_value"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.set_parameter_value">[docs]</a>    <span class="k">def</span> <span class="nf">set_parameter_value</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">parameter_name</span><span class="p">,</span>
+        <span class="n">parameter_value</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set Camera parameter value.</span>
+<span class="sd">        </span>
+<span class="sd">        :param parameter_name: Parameter Name </span>
+<span class="sd">        :type parameter_name: string</span>
+<span class="sd">        :param parameter_value: Parameter Value </span>
+<span class="sd">        :type parameter_value: int or double or bool or string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_parameter_type</span><span class="p">(</span><span class="n">parameter_name</span><span class="p">)</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_TYPES</span><span class="o">.</span><span class="n">INT</span><span class="p">)</span> <span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_SetParameterIntValue</span><span class="p">(</span>
+                    <span class="n">message</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">parameter_value</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">elif</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_parameter_type</span><span class="p">(</span><span class="n">parameter_name</span><span class="p">)</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_TYPES</span><span class="o">.</span><span class="n">REAL</span><span class="p">)</span> <span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_SetParameterRealValue</span><span class="p">(</span>
+                    <span class="n">message</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">(</span><span class="n">parameter_value</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">elif</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_parameter_type</span><span class="p">(</span><span class="n">parameter_name</span><span class="p">)</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_TYPES</span><span class="o">.</span><span class="n">BOOL</span><span class="p">)</span> <span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_SetParameterBooleanValue</span><span class="p">(</span>
+                    <span class="n">message</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">parameter_value</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">elif</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_parameter_type</span><span class="p">(</span><span class="n">parameter_name</span><span class="p">)</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_TYPES</span><span class="o">.</span><span class="n">STRING</span><span class="p">)</span> <span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_SetParameterStringValue</span><span class="p">(</span>
+                    <span class="n">message</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">parameter_value</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="s1">&#39;Unknown parameter type&#39;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : set_parameter_value&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.save"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.save">[docs]</a>    <span class="k">def</span> <span class="nf">save</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">save_file_path</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Save CameraSet to a file.</span>
+<span class="sd">        </span>
+<span class="sd">        :param save_file_path: Absolute path to the file (\*.xml)</span>
+<span class="sd">        :type save_file_path: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_Save</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">save_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : save&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CameraSet.load"><a class="viewcode-back" href="../../CameraSet.html#wavekit_py.io_wavekit_cameraset.CameraSet.load">[docs]</a>    <span class="k">def</span> <span class="nf">load</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">load_file_path</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Load file content to CameraSet object.</span>
+<span class="sd">        </span>
+<span class="sd">        :param load_file_path: Absolute path to the file (\*.xml)</span>
+<span class="sd">        :type load_file_path: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CameraSet_Load</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cameraset</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">load_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : load&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Wavekit Python 2020 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" >Module code</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2020, Imagine Optic.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.8.5.
+    </div>
+  </body>
+</html>

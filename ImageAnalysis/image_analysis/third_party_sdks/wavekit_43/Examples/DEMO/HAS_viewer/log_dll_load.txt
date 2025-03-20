@@ -1,0 +1,720 @@
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64
+---------------------------------------------------------------------------
+dlls_dir           : D:\Python_interface\Sources\wavekit_py\..\dlls\x64
+dll_name           : imop_wavekit_4_2_c_vc100_x64.dll
+dll_full_file_name : D:\Python_interface\Sources\wavekit_py\..\dlls\x64\imop_wavekit_4_2_c_vc100_x64.dll
+cur_path           : D:\Python_interface\Sources\dlls\x64

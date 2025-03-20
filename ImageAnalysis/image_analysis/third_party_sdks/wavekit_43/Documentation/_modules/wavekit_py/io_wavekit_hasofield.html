@@ -1,0 +1,577 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>wavekit_py.io_wavekit_hasofield &#8212; Wavekit Python 2020 documentation</title>
+    <link rel="stylesheet" href="../../_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="../../_static/language_data.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Wavekit Python 2020 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for wavekit_py.io_wavekit_hasofield</h1><div class="highlight"><pre>
+<span></span><span class="ch">#!/usr/bin/python</span>
+
+<span class="kn">import</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">ctypes</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+
+<span class="kn">import</span> <span class="nn">io_thirdparty_load_library</span> <span class="k">as</span> <span class="nn">imop_library</span>
+
+<span class="kn">import</span> <span class="nn">io_wavekit_surface</span> <span class="k">as</span> <span class="nn">imop_surface</span>
+<span class="kn">import</span> <span class="nn">io_wavekit_structure</span> <span class="k">as</span> <span class="nn">imop_struct</span>
+<span class="kn">import</span> <span class="nn">io_wavekit_enum</span> <span class="k">as</span> <span class="nn">imop_enum</span>
+
+<div class="viewcode-block" id="HasoField"><a class="viewcode-back" href="../../HasoField.html#wavekit_py.io_wavekit_hasofield.HasoField">[docs]</a><span class="k">class</span> <span class="nc">HasoField</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Class HasoField</span>
+<span class="sd">    </span>
+<span class="sd">    - Constructor from Parameters :</span>
+<span class="sd">        - **config_file_path** - string : Absolute path to Haso configuration file (\*.dat)</span>
+<span class="sd">        - **hasoslopes** - HasoSlopes : HasoSlopes object</span>
+<span class="sd">        - **phase** - Phase : Phase object</span>
+<span class="sd">        - **curv_radius** - double : Radius of curvature (mm)</span>
+<span class="sd">        - **wavelength** - double : Wavelength of the source used to compute the HasoSlopes (nm)</span>
+<span class="sd">        - **oversampling** - uchar : Increment of oversampling level</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="k">def</span> <span class="nf">__init_</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">config_file_path</span><span class="p">,</span>
+        <span class="n">hasoslopes</span><span class="p">,</span>
+        <span class="n">phase</span><span class="p">,</span>
+        <span class="n">curv_radius</span><span class="p">,</span>
+        <span class="n">wavelength</span><span class="p">,</span>
+        <span class="n">oversampling</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;HasoField constructor from HasoSlopes and phase</span>
+<span class="sd">        *HasoSlopes* provides slopes pupil, and *Phase* provides a pupil which is expected</span>
+<span class="sd">        to be equal to slopes pupil or to the greatest common</span>
+<span class="sd">        pupil between slopes pupil and a projection pupil used for *Phase* computation. </span>
+<span class="sd">        This implies that pupil of *Phase* must be included in pupil of</span>
+<span class="sd">        *HasoSlopes*. After checking this is the case, function uses the pupil</span>
+<span class="sd">        of *Phase* for resulting *HasoField*. </span>
+<span class="sd">        It is possible to oversample the resulting field: each increment of **oversampling_level** doubles the field&#39;s size.</span>
+<span class="sd">        </span>
+<span class="sd">        :param config_file_path: Absolute path to Haso configuration file</span>
+<span class="sd">        :type config_file_path: string</span>
+<span class="sd">        :param hasoslopes: HasoSlopes object</span>
+<span class="sd">        :type hasoslopes: HasoSlopes</span>
+<span class="sd">        :param phase: Phase object</span>
+<span class="sd">        :type phase: Phase</span>
+<span class="sd">        :param curv_radius: Radius of curvature (mm)</span>
+<span class="sd">        :type curv_radius: double</span>
+<span class="sd">        :param wavelength: Wavelength of the source used to compute the HasoSlopes (nm)</span>
+<span class="sd">        :type wavelength: double</span>
+<span class="sd">        :param oversampling: Increment of oversampling level</span>
+<span class="sd">        :type oversampling: uchar</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoField_New</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hasofield</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">config_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">hasoslopes</span><span class="o">.</span><span class="n">hasoslopes</span><span class="p">,</span>
+                <span class="n">phase</span><span class="o">.</span><span class="n">phase</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">(</span><span class="n">curv_radius</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">(</span><span class="n">wavelength</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ubyte</span><span class="p">(</span><span class="n">oversampling</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init_&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>  <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;HasoField constructor</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hasofield</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dll</span>   <span class="o">=</span> <span class="n">imop_library</span><span class="o">.</span><span class="n">load_dll</span><span class="p">()</span>
+        <span class="n">entered</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">arg_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">try</span> <span class="p">:</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">arg_size</span> <span class="o">==</span> <span class="mi">6</span><span class="p">):</span>
+                <span class="k">if</span><span class="p">(</span><span class="s1">&#39;config_file_path&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span>
+                    <span class="ow">and</span> <span class="s1">&#39;hasoslopes&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span>
+                    <span class="ow">and</span> <span class="s1">&#39;phase&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span>
+                    <span class="ow">and</span> <span class="s1">&#39;curv_radius&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span>
+                    <span class="ow">and</span> <span class="s1">&#39;wavelength&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span>
+                    <span class="ow">and</span> <span class="s1">&#39;oversampling&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span>
+                    <span class="p">):</span>
+                    <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__init_</span><span class="p">(</span>
+                        <span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;config_file_path&#39;</span><span class="p">],</span>
+                        <span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;hasoslopes&#39;</span><span class="p">],</span>
+                        <span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;phase&#39;</span><span class="p">],</span>
+                        <span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;curv_radius&#39;</span><span class="p">],</span>
+                        <span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">],</span>
+                        <span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;oversampling&#39;</span><span class="p">]</span>
+                        <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+        <span class="k">if</span><span class="p">(</span><span class="n">entered</span> <span class="o">==</span> <span class="mi">0</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="s1">&#39;---CAN NOT CREATE HASOFIELD OBJECT---&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__del_obj__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Hasofield destructor</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoField_Delete</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">hasofield</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="fm">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__del_obj__</span><span class="p">()</span>
+        <span class="n">imop_library</span><span class="o">.</span><span class="n">free_dll</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">_handle</span><span class="p">)</span>
+
+<div class="viewcode-block" id="HasoField.get_wavelength"><a class="viewcode-back" href="../../HasoField.html#wavekit_py.io_wavekit_hasofield.HasoField.get_wavelength">[docs]</a>    <span class="k">def</span> <span class="nf">get_wavelength</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Source wavelength</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Wavelength of the source (nm)</span>
+<span class="sd">        :rtype: double</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">ret</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoField_GetWaveLength</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasofield</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">ret</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">ret</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_wavelength&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="HasoField.psf"><a class="viewcode-back" href="../../HasoField.html#wavekit_py.io_wavekit_hasofield.HasoField.psf">[docs]</a>    <span class="k">def</span> <span class="nf">psf</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">null_phase</span><span class="p">,</span> 
+        <span class="n">flat_intensity</span><span class="p">,</span>
+        <span class="n">defocus</span><span class="p">,</span>
+        <span class="n">config_file_path</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Point spread function </span>
+<span class="sd">        This function computes point spread function from a HasoField. The</span>
+<span class="sd">        function allows to choose the defocus which is zero by default. It also</span>
+<span class="sd">        provides options to use null phase instead of measured phase, and flat</span>
+<span class="sd">        intensity instead of measured intensity. When using a null phase, phase</span>
+<span class="sd">        contained in input HasoField is not used. When using a flat intensity,</span>
+<span class="sd">        intensity contained in input HasoField is used anyway, as well as pupil, to</span>
+<span class="sd">        compute average intensity.</span>
+<span class="sd">        </span>
+<span class="sd">        :param null_phase: Phase is null</span>
+<span class="sd">        :type null_phase: bool</span>
+<span class="sd">        :param flat_intensity: Intensity surface is flat</span>
+<span class="sd">        :type flat_intensity: bool</span>
+<span class="sd">        :param defocus: Defocus parameter(mm)</span>
+<span class="sd">        :type defocus: float</span>
+<span class="sd">        :param config_file_path: Absolute path to the Haso configuration file</span>
+<span class="sd">        :type config_file_path: string</span>
+<span class="sd">        :return: PSF stored as Surface - Surface step in um</span>
+<span class="sd">        :rtype: Surface</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">ret</span> <span class="o">=</span> <span class="n">imop_surface</span><span class="o">.</span><span class="n">Surface</span><span class="p">(</span>
+                <span class="n">dimensions</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">dimensions</span><span class="p">(</span>
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span> 
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span><span class="mf">1.0</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoField_PSF</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasofield</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">null_phase</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">flat_intensity</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">(</span><span class="n">defocus</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">config_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ret</span><span class="o">.</span><span class="n">surface</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">ret</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : psf&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoField.mtf"><a class="viewcode-back" href="../../HasoField.html#wavekit_py.io_wavekit_hasofield.HasoField.mtf">[docs]</a>    <span class="k">def</span> <span class="nf">mtf</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> 
+        <span class="n">psf_surface</span><span class="p">,</span> 
+        <span class="n">config_file_path</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Modulation transfer function from point spread function surface</span>
+<span class="sd">        </span>
+<span class="sd">        :param psf_surface: PSF stored as Surface</span>
+<span class="sd">        :type psf_surface: Surface</span>
+<span class="sd">        :param config_file_path: Absolute path to the Haso configuration file</span>
+<span class="sd">        :type config_file_path: string</span>
+<span class="sd">        :return: MTF stored as Surface - Surface step in cycles/mm</span>
+<span class="sd">        :rtype: Surface</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">ret</span> <span class="o">=</span> <span class="n">imop_surface</span><span class="o">.</span><span class="n">Surface</span><span class="p">(</span>
+                <span class="n">dimensions</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">dimensions</span><span class="p">(</span>
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span> 
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span><span class="mf">1.0</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoField_MTF</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">psf_surface</span><span class="o">.</span><span class="n">surface</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">config_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ret</span><span class="o">.</span><span class="n">surface</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">ret</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : mtf&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoField.strehl"><a class="viewcode-back" href="../../HasoField.html#wavekit_py.io_wavekit_hasofield.HasoField.strehl">[docs]</a>    <span class="k">def</span> <span class="nf">strehl</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> 
+        <span class="n">config_file_path</span><span class="p">,</span> 
+        <span class="n">flat_experimental_intensity</span><span class="p">,</span> 
+        <span class="n">flat_theoretical_intensity</span><span class="p">,</span>
+        <span class="n">through_focus</span><span class="p">,</span> 
+        <span class="n">oversample</span><span class="p">,</span> 
+        <span class="n">defocus</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Strehl ratio from HasoField function</span>
+<span class="sd">        This function computes Strehl ratio from a HasoField. Input HasoField is</span>
+<span class="sd">        used to compute experimental and theoretical point spread functions (PSF).</span>
+<span class="sd">        The function allows to choose the defocus. It also</span>
+<span class="sd">        provides options to use flat intensity instead of measured intensity for</span>
+<span class="sd">        computation of experimental or theoretical PSF. Another option is available</span>
+<span class="sd">        to compute Strehl ratio through focus, in which case theoretical PSF is</span>
+<span class="sd">        computed in the same place as experimental PSF rather than at focal point.</span>
+<span class="sd">        There is also an option to oversample PSF surfaces before ratio computation.</span>
+<span class="sd">        </span>
+<span class="sd">        :param config_file_path: Absolute path to the Haso configuration file</span>
+<span class="sd">        :type config_file_path: string</span>
+<span class="sd">        :param flat_experimental_intensity: Use flat experimental intensity</span>
+<span class="sd">        :type flat_experimental_intensity: bool</span>
+<span class="sd">        :param flat_theoretical_intensity: Use flat theoretical intensity</span>
+<span class="sd">        :type flat_theoretical_intensity: bool</span>
+<span class="sd">        :param through_focus: Use through focus</span>
+<span class="sd">        :type through_focus: bool</span>
+<span class="sd">        :param oversample: Use oversample</span>
+<span class="sd">        :type oversample: bool</span>
+<span class="sd">        :param defocus: Defocus parameter(mm)</span>
+<span class="sd">        :type defocus: float</span>
+<span class="sd">        :return: Strehl ratio</span>
+<span class="sd">        :rtype: float</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">ratio</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoField_Strehl</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasofield</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">config_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">flat_experimental_intensity</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">flat_theoretical_intensity</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">through_focus</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">oversample</span><span class="p">),</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">(</span><span class="n">defocus</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">ratio</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">ratio</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : strehl&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoField.strehl_from_psf"><a class="viewcode-back" href="../../HasoField.html#wavekit_py.io_wavekit_hasofield.HasoField.strehl_from_psf">[docs]</a>    <span class="k">def</span> <span class="nf">strehl_from_psf</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> 
+        <span class="n">config_file_path</span><span class="p">,</span>
+        <span class="n">experimental_psf</span><span class="p">,</span> 
+        <span class="n">theoretical_psf</span><span class="p">,</span> 
+        <span class="n">oversample</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Strehl ratio from PSF function</span>
+<span class="sd">        This function Strehl ratio from experimental and theoretical point</span>
+<span class="sd">        spread functions (PSF).</span>
+<span class="sd">        There is also an option to oversample both PSF surfaces before ratio computation.</span>
+<span class="sd">        </span>
+<span class="sd">        :param config_file_path: Absolute path to the Haso configuration file</span>
+<span class="sd">        :type config_file_path: string</span>
+<span class="sd">        :param experimental_psf: Experimental psf values</span>
+<span class="sd">        :type experimental_psf: Surface</span>
+<span class="sd">        :param theoretical_psf: Theoretical psf values</span>
+<span class="sd">        :type theoretical_psf: Surface</span>
+<span class="sd">        :param oversample: Use oversample</span>
+<span class="sd">        :type oversample: bool</span>
+<span class="sd">        :return: Strehl ratio</span>
+<span class="sd">        :rtype: float</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">ratio</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoField_StrehlFromPSF</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasofield</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">config_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">experimental_psf</span><span class="o">.</span><span class="n">surface</span><span class="p">,</span>
+                <span class="n">theoretical_psf</span><span class="o">.</span><span class="n">surface</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">oversample</span><span class="p">),</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">ratio</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">ratio</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : strehl_from_psf&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoField.gaussian_param"><a class="viewcode-back" href="../../HasoField.html#wavekit_py.io_wavekit_hasofield.HasoField.gaussian_param">[docs]</a>    <span class="k">def</span> <span class="nf">gaussian_param</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">config_file_path</span><span class="p">,</span>
+        <span class="n">nb_planes</span><span class="p">,</span>
+        <span class="n">spot_type</span><span class="p">,</span>
+        <span class="n">degree</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Gaussian parameters function</span>
+<span class="sd">        This function computes gaussian parameters of a beam from a HasoField.</span>
+<span class="sd">        Input HasoField is used to compute values of the point spread function (PSF)</span>
+<span class="sd">        over different computation planes. The number of computation planes can be</span>
+<span class="sd">        set by user. The different computation planes constitute the computation</span>
+<span class="sd">        data, which can be got after processing. In a given computation plane, the</span>
+<span class="sd">        PSF forms a spot which can be approximated by a circle or a square whose size</span>
+<span class="sd">        plays a role for gaussian parameters determination. By default, the function</span>
+<span class="sd">        is configured to use circular spots, but it can be configured to use tilted</span>
+<span class="sd">        square spots. The square&#39;s tilt is defined by the angle it forms with an</span>
+<span class="sd">        horizontal axis. When the processor is configured to use circular spots, it</span>
+<span class="sd">        characterizes the circle by its radius. When the processor is configured to</span>
+<span class="sd">        use square spots, it characterizes the square by the half length of its side.</span>
+<span class="sd">        In both cases, this quantity is stored in attribute spot_size of</span>
+<span class="sd">        corresponding ComputationPlane instance.</span>
+<span class="sd">        </span>
+<span class="sd">        :param nb_planes: Number of planes</span>
+<span class="sd">        :type nb_planes: int</span>
+<span class="sd">        :param config_file_path: Haso Configuration file</span>
+<span class="sd">        :type config_file_path: string</span>
+<span class="sd">        :param spot_type: spot shape (circular or square)</span>
+<span class="sd">        :type spot_type: E_SPOT_SHAPE</span>
+<span class="sd">        :param degree: Angle of the square spot shape forms with an horizontal axis (degree)</span>
+<span class="sd">        :type degree: float</span>
+<span class="sd">        :return: Gaussian Parameters : Waist position (mm), Waist radius (mm), Rayleigh length (mm), Divergence of the beam (radians), m squared parameter</span>
+<span class="sd">        :rtype: GaussianParameters_t</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">spot_type</span><span class="o">==</span><span class="n">imop_enum</span><span class="o">.</span><span class="n">E_SPOT_SHAPE</span><span class="o">.</span><span class="n">SQUARE</span><span class="p">):</span>
+                <span class="n">spot_type</span> <span class="o">=</span> <span class="s2">&quot;square&quot;</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">spot_type</span><span class="o">==</span><span class="n">imop_enum</span><span class="o">.</span><span class="n">E_SPOT_SHAPE</span><span class="o">.</span><span class="n">CIRCULAR</span><span class="p">):</span>
+                <span class="n">spot_type</span> <span class="o">=</span> <span class="s2">&quot;circle&quot;</span>
+            <span class="n">waist_position_millimeter</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">waist_radius_millimeter</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">rayleigh_length_millimeter</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">divergence</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">msquared</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoField_GaussianParam</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">config_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasofield</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">nb_planes</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">waist_position_millimeter</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">waist_radius_millimeter</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">rayleigh_length_millimeter</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">divergence</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">msquared</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">spot_type</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">(</span><span class="n">degree</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">GaussianParameters_t</span><span class="p">(</span>
+                    <span class="n">waist_position_millimeter</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> 
+                    <span class="n">waist_radius_millimeter</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> 
+                    <span class="n">rayleigh_length_millimeter</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">divergence</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> 
+                    <span class="n">msquared</span><span class="o">.</span><span class="n">value</span>
+                    <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : gaussian_param&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoField.complete_gaussian_param"><a class="viewcode-back" href="../../HasoField.html#wavekit_py.io_wavekit_hasofield.HasoField.complete_gaussian_param">[docs]</a>    <span class="k">def</span> <span class="nf">complete_gaussian_param</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> 
+        <span class="n">config_file_path</span><span class="p">,</span>
+        <span class="n">nb_planes</span><span class="p">,</span>
+        <span class="n">spot_type</span><span class="p">,</span>
+        <span class="n">degree</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Complete gaussian parameters function</span>
+<span class="sd">        This function computes gaussian parameters of a beam from a HasoField.</span>
+<span class="sd">        Input HasoField is used to compute values of the point spread function (PSF)</span>
+<span class="sd">        over different computation planes. The number of computation planes can be</span>
+<span class="sd">        set by user. The different computation planes constitute the computation</span>
+<span class="sd">        data, which can be got after processing. In a given computation plane, the</span>
+<span class="sd">        PSF forms a spot which can be approximated by a circle or a square whose size</span>
+<span class="sd">        plays a role for gaussian parameters determination. By default, the function</span>
+<span class="sd">        is configured to use circular spots, but it can be configured to use tilted</span>
+<span class="sd">        square spots. The square&#39;s tilt is defined by the angle it forms with an</span>
+<span class="sd">        horizontal axis. When the processor is configured to use circular spots, it</span>
+<span class="sd">        characterizes the circle by its radius. When the processor is configured to</span>
+<span class="sd">        use square spots, it characterizes the square by the half length of its side.</span>
+<span class="sd">        In both cases, this quantity is stored in attribute spot_size of</span>
+<span class="sd">        corresponding ComputationPlane instance.</span>
+<span class="sd">        </span>
+<span class="sd">        :param config_file_path: Absolute path to the Haso configuration file</span>
+<span class="sd">        :type config_file_path: string</span>
+<span class="sd">        :param nb_planes: Number of planes</span>
+<span class="sd">        :type nb_planes: int</span>
+<span class="sd">        :param spot_type: spot shape (circular or square)</span>
+<span class="sd">        :type spot_type: E_SPOT_SHAPE</span>
+<span class="sd">        :param degree: Angle of the square spot shape forms with an horizontal axis (degree)</span>
+<span class="sd">        :type degree: float</span>
+<span class="sd">        :param tab_psf: Array of computed psf - psf is a surface with step mm</span>
+<span class="sd">        :type tab_psf: surface_array</span>
+<span class="sd">        :return: Gaussian Parameters (Waist position (mm), Waist radius (mm), Rayleigh length (mm), Divergence of the beam (radians), m squared parameter) ; Gaussian Planes Parameters (Array of z cote (mm) of the different planes, Array of spot size (mm) of the different planes, Array of max energy of the different planes) ; Array of computed psf - psf is a surface with step mm ; Indicator of whether the entire beam of last processing could be obtained </span>
+<span class="sd">        :rtype: tuple(GaussianParameters_t, GaussianParametersPlanes_t, Surface[], bool)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">spot_type</span><span class="o">==</span><span class="n">imop_enum</span><span class="o">.</span><span class="n">E_SPOT_SHAPE</span><span class="o">.</span><span class="n">SQUARE</span><span class="p">):</span>
+                <span class="n">spot_type</span> <span class="o">=</span> <span class="s2">&quot;square&quot;</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">spot_type</span><span class="o">==</span><span class="n">imop_enum</span><span class="o">.</span><span class="n">E_SPOT_SHAPE</span><span class="o">.</span><span class="n">CIRCULAR</span><span class="p">):</span>
+                <span class="n">spot_type</span> <span class="o">=</span> <span class="s2">&quot;circle&quot;</span>
+            <span class="n">waist_position_millimeter</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">waist_radius_millimeter</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">rayleigh_length_millimeter</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">divergence</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">msquared</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">threshold</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">tab_z_cote_mm</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_planes</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="n">tab_spot_size_mm</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_planes</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="n">threshold_validity</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ubyte</span><span class="p">()</span>
+            <span class="n">tab_max_energy</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_planes</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="n">psf_list</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">psf_array</span> <span class="o">=</span> <span class="p">(</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span> <span class="o">*</span> <span class="n">nb_planes</span><span class="p">)()</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nb_planes</span><span class="p">):</span>
+                <span class="n">psf_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">imop_surface</span><span class="o">.</span><span class="n">Surface</span><span class="p">(</span>
+                    <span class="n">dimensions</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">dimensions</span><span class="p">(</span>
+                        <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span> 
+                        <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span><span class="mf">1.0</span><span class="p">)</span>
+                        <span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="n">psf_array</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">psf_list</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">surface</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoField_CompleteGaussianParam</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">,</span>    
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">,</span>  
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span> 
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span>
+                <span class="p">]</span>  
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoField_CompleteGaussianParam</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">config_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasofield</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">nb_planes</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">waist_position_millimeter</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">waist_radius_millimeter</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">rayleigh_length_millimeter</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">divergence</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">msquared</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">spot_type</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">(</span><span class="n">degree</span><span class="p">),</span>
+                <span class="n">tab_z_cote_mm</span><span class="p">,</span>
+                <span class="n">tab_spot_size_mm</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="n">psf_array</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">threshold_validity</span><span class="p">),</span>
+                <span class="n">tab_max_energy</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">threshold</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">GaussianParameters_t</span><span class="p">(</span>
+                    <span class="n">waist_position_millimeter</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> 
+                    <span class="n">waist_radius_millimeter</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> 
+                    <span class="n">rayleigh_length_millimeter</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">divergence</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">msquared</span><span class="o">.</span><span class="n">value</span>
+                    <span class="p">),</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">GaussianParametersPlanes_t</span><span class="p">(</span>
+                    <span class="n">tab_z_cote_mm</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> 
+                    <span class="n">tab_spot_size_mm</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                    <span class="n">tab_max_energy</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+                    <span class="p">),</span>
+                <span class="n">psf_list</span><span class="p">,</span>
+                <span class="nb">bool</span><span class="p">(</span><span class="n">threshold_validity</span><span class="p">),</span>
+                <span class="n">threshold</span><span class="o">.</span><span class="n">value</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : complete_gaussian_param&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Wavekit Python 2020 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" >Module code</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2020, Imagine Optic.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.8.5.
+    </div>
+  </body>
+</html>

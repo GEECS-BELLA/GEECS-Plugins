@@ -3,9 +3,12 @@ from __future__ import annotations
 import configparser
 import numpy as np
 from numpy.typing import NDArray
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union, Type, Any
 if TYPE_CHECKING:
     from .types import Array2D
+
+from utils import read_imaq_image
 
 
 class ImageAnalyzer:
@@ -21,7 +24,7 @@ class ImageAnalyzer:
     # asynchronously, for example if it waits for an external process
     run_analyze_image_asynchronously = False
 
-    def __init__(self):
+    def __init__(self, config: Optional[Any] = None):
         """ Initializes this ImageAnalyzer, with Analyzer parameters as kwargs
 
             As the same ImageAnalyzer instance can be applied to many images,
@@ -55,7 +58,19 @@ class ImageAnalyzer:
 
                 super().__init__()
 
+
+        New:
+            config: Optional[Any]
+                Optional configuration data (e.g., a dictionary, file path, or configuration object)
+                that can be used by derived classes to initialize additional parameters. If not provided,
+                defaults will be used.
+
         """
+
+        # Default implementation does nothing with config.
+        # Subclasses can process config as needed.
+        self.config = config
+
         pass
 
     def analyze_image(self,
@@ -161,6 +176,50 @@ class ImageAnalyzer:
             "analyzer_return_lineouts": return_lineouts,
         }
         return return_dictionary
+
+    def analyze_image_file(self,
+                           image_filepath: Path,
+                           auxiliary_data: Optional[dict] = None
+                           )-> dict[str, Union[float, int, str, np.ndarray]]:
+        """
+        Method to enable the use of a file path rather than Array2D.
+
+         Parameters
+         ----------
+         image_filepath : Path
+
+        Returns
+        -------
+        analysis : dict[str, Union[float, np.ndarray]]
+            metric name as key. value can be a float, int, str, 1d array, 2d array, etc.
+
+        """
+
+        image = self.load_image(image_filepath)
+
+        return self.analyze_image(image, auxiliary_data)
+
+    @staticmethod
+    def load_image(file_path:Path)->Array2D:
+        """
+        load an image from a path. By default, the read_imaq_png function is used.
+        For file types not directly supported by this method, e.g. .himg files from a
+        Haso device type, this method be implemented in that device's ImageAnalyzer
+        subclass.
+
+         Parameters
+         ----------
+         file_path : Path
+
+         Returns
+         -------
+         image : Array2D
+        """
+
+        image = Array2D(read_imaq_image(file_path))
+
+        return image
+
 
     def build_input_parameter_dictionary(self) -> dict:
         """Compiles list of class variables into a dictionary

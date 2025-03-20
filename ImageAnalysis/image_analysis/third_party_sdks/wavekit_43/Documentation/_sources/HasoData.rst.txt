@@ -1,0 +1,6 @@
+
+
+Wavekit_Python::HasoData
+========================
+.. automodule:: wavekit_py.io_wavekit_hasodata
+   :members:

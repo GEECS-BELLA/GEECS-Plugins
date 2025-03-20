@@ -1,0 +1,363 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Wavekit_Python::HasoData &#8212; Wavekit Python 2020 documentation</title>
+    <link rel="stylesheet" href="_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="_static/language_data.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Wavekit_Python::HasoEngine" href="HasoEngine.html" />
+    <link rel="prev" title="Wavekit_Python::HasoConfig" href="HasoConfig.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="HasoEngine.html" title="Wavekit_Python::HasoEngine"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="HasoConfig.html" title="Wavekit_Python::HasoConfig"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">Wavekit Python 2020 documentation</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="module-wavekit_py.io_wavekit_hasodata">
+<span id="wavekit-python-hasodata"></span><h1>Wavekit_Python::HasoData<a class="headerlink" href="#module-wavekit_py.io_wavekit_hasodata" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData">
+<em class="property">class </em><code class="descclassname">wavekit_py.io_wavekit_hasodata.</code><code class="descname">HasoData</code><span class="sig-paren">(</span><em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData" title="Permalink to this definition">¶</a></dt>
+<dd><p>HasoData Class</p>
+<ul class="simple">
+<li>Default Constructor (Empty HasoData)</li>
+<li><dl class="first docutils">
+<dt>Constructor from HasoSlopes :</dt>
+<dd><ul class="first last">
+<li><strong>hasoslopes</strong> - HasoSlopes : HasoSlopes object</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Constructor from Copy :</dt>
+<dd><ul class="first last">
+<li><strong>hasodata</strong> - HasoData : HasoData object</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Constructor from Has File :</dt>
+<dd><ul class="first last">
+<li><strong>has_file_path</strong> - string : Absolute path (*.has)</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.apply_slopes_post_processor_list">
+<code class="descname">apply_slopes_post_processor_list</code><span class="sig-paren">(</span><em>slopespostprocessorlist</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.apply_slopes_post_processor_list"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.apply_slopes_post_processor_list" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set and apply a SlopesPostProcessorList to the raw HasoSlopes stored in the HasoData object. Results is stored in the HasoData object processed slopes.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>slopespostprocessorlist</strong> (<a class="reference internal" href="SlopesPostProcessorList.html#wavekit_py.io_wavekit_slopespostprocessorlist.SlopesPostProcessorList" title="wavekit_py.io_wavekit_slopespostprocessorlist.SlopesPostProcessorList"><em>SlopesPostProcessorList</em></a>) – SlopesPostProcessorList object</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.get_compute_phase_mode">
+<code class="descname">get_compute_phase_mode</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.get_compute_phase_mode"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.get_compute_phase_mode" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get phase reconstruction mode.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">E_COMPUTEPHASESET phase reconstruction mode enumeration.</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">uchar</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.get_compute_phase_parameters">
+<code class="descname">get_compute_phase_parameters</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.get_compute_phase_parameters"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.get_compute_phase_parameters" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get ComputePhaseSet object.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">SlopesPostProcessorList object</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference internal" href="SlopesPostProcessorList.html#wavekit_py.io_wavekit_slopespostprocessorlist.SlopesPostProcessorList" title="wavekit_py.io_wavekit_slopespostprocessorlist.SlopesPostProcessorList">SlopesPostProcessorList</a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.get_compute_slopes_parameters">
+<code class="descname">get_compute_slopes_parameters</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.get_compute_slopes_parameters"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.get_compute_slopes_parameters" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get informations from 
+ef HasoData object.</p>
+<blockquote>
+<div><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">return:</th><td class="field-body">Wavelength(nm), StartSubPupil, DenoisingStrength, isAutoStartSubPupilDetectionON, isSpotTrackerON, isLiftON, isELSON</td>
+</tr>
+<tr class="field-even field"><th class="field-name">rtype:</th><td class="field-body">tuple(float, uint2D, float, bool, bool, bool, bool)</td>
+</tr>
+</tbody>
+</table>
+</div></blockquote>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.get_dimensions">
+<code class="descname">get_dimensions</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.get_dimensions"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.get_dimensions" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get HasoData dimensions and steps.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">HasoData dimensions of the pupil</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.dimensions" title="wavekit_py.io_wavekit_structure.dimensions">dimensions</a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.get_hasoslopes">
+<code class="descname">get_hasoslopes</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.get_hasoslopes"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.get_hasoslopes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get raw and processed HasoSlopes objects.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Computed HasoSlopes, Raw HasoSlopes</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">tuple(<a class="reference internal" href="HasoSlopes.html#wavekit_py.io_wavekit_hasoslopes.HasoSlopes" title="wavekit_py.io_wavekit_hasoslopes.HasoSlopes">HasoSlopes</a>, <a class="reference internal" href="HasoSlopes.html#wavekit_py.io_wavekit_hasoslopes.HasoSlopes" title="wavekit_py.io_wavekit_hasoslopes.HasoSlopes">HasoSlopes</a>)</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.get_info">
+<code class="descname">get_info</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.get_info"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.get_info" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get informations from HasoData object.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">haso_model, haso_serial_number, camera_serial_number, revision, lower_calibration_wl, upper_calibration_wl, exposure_time_requested, exposure_time_applied, nb_summed_images, time_stamp, is_background_removed, is_smearing_removed, wavelength_nm, session_name, trigger_type, comments, max_level,  start_subpupil, denoising_strength</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">tuple(<a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.Config_t" title="wavekit_py.io_wavekit_structure.Config_t">Config_t</a>, <a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.WaveLength_t" title="wavekit_py.io_wavekit_structure.WaveLength_t">WaveLength_t</a>, <a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.Metadata_t" title="wavekit_py.io_wavekit_structure.Metadata_t">Metadata_t</a>, <a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.AcquisitionInfo_t" title="wavekit_py.io_wavekit_structure.AcquisitionInfo_t">AcquisitionInfo_t</a>, <a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.uint2D" title="wavekit_py.io_wavekit_structure.uint2D">uint2D</a>, float)</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.get_info_from_has_file">
+<em class="property">static </em><code class="descname">get_info_from_has_file</code><span class="sig-paren">(</span><em>has_file_path</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.get_info_from_has_file"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.get_info_from_has_file" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get informations from (*.has) file.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Haso Config : haso_model, haso_serial_number, revision; Haso Dimensions : size, step; Haso Metadata : time_stamp, comments, session_name; Used Wavelength : wavelength_nm, lower_calibration_wl, upper_calibration_wl; Software List</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">tuple(<a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.Config_t" title="wavekit_py.io_wavekit_structure.Config_t">Config_t</a>, <a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.WaveLength_t" title="wavekit_py.io_wavekit_structure.WaveLength_t">WaveLength_t</a>, <a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.dimensions" title="wavekit_py.io_wavekit_structure.dimensions">dimensions</a>, <a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.Metadata_t" title="wavekit_py.io_wavekit_structure.Metadata_t">Metadata_t</a>, str)</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.get_processor_list">
+<code class="descname">get_processor_list</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.get_processor_list"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.get_processor_list" title="Permalink to this definition">¶</a></dt>
+<dd><p>SlopesPostProcessorList getter.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">SlopesPostProcessorList object</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference internal" href="SlopesPostProcessorList.html#wavekit_py.io_wavekit_slopespostprocessorlist.SlopesPostProcessorList" title="wavekit_py.io_wavekit_slopespostprocessorlist.SlopesPostProcessorList">SlopesPostProcessorList</a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.reset_to_raw_data">
+<code class="descname">reset_to_raw_data</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.reset_to_raw_data"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.reset_to_raw_data" title="Permalink to this definition">¶</a></dt>
+<dd><p>Reset slopes to their raw state and clear process history.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.save">
+<code class="descname">save</code><span class="sig-paren">(</span><em>has_file_path</em>, <em>comments</em>, <em>session_name</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.save"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.save" title="Permalink to this definition">¶</a></dt>
+<dd><p>Saves a HasoData object to a (*.has) file.
+If file already exists, it is overwritten, provided that opening
+succeeds. If file opening fails, an exception is thrown.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>has_file_path</strong> (<em>string</em>) – Absolute path to the (*.has) file</li>
+<li><strong>comments</strong> (<em>string</em>) – Comments</li>
+<li><strong>session_name</strong> (<em>string</em>) – Session name</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.set_compute_phase_parameters">
+<code class="descname">set_compute_phase_parameters</code><span class="sig-paren">(</span><em>computephaseset</em>, <em>modalcoef</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.set_compute_phase_parameters"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.set_compute_phase_parameters" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set ComputePhaseSet object.</p>
+<div class="admonition warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">allowed value E_COMPUTEPHASESET</p>
+</div>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>computephaseset</strong> (<a class="reference internal" href="ComputePhaseSet.html#wavekit_py.io_wavekit_computephaseset.ComputePhaseSet" title="wavekit_py.io_wavekit_computephaseset.ComputePhaseSet"><em>ComputePhaseSet</em></a>) – ComputePhaseSet object</li>
+<li><strong>modalcoef</strong> (<a class="reference internal" href="ModalCoef.html#wavekit_py.io_wavekit_modalcoef.ModalCoef" title="wavekit_py.io_wavekit_modalcoef.ModalCoef"><em>ModalCoef</em></a>) – ModalCoef object</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.set_hasoslopes">
+<code class="descname">set_hasoslopes</code><span class="sig-paren">(</span><em>hasoslopes</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.set_hasoslopes"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.set_hasoslopes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set raw HasoSlopes objects.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>hasoslopes</strong> (<a class="reference internal" href="HasoSlopes.html#wavekit_py.io_wavekit_hasoslopes.HasoSlopes" title="wavekit_py.io_wavekit_hasoslopes.HasoSlopes"><em>HasoSlopes</em></a>) – HasoSlopes object</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_hasodata.HasoData.set_wavelength">
+<code class="descname">set_wavelength</code><span class="sig-paren">(</span><em>wavelength</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_hasodata.html#HasoData.set_wavelength"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_hasodata.HasoData.set_wavelength" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set source wavelength.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>wavelength</strong> (<em>float</em>) – Source wavelength (nm)</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="HasoConfig.html"
+                        title="previous chapter">Wavekit_Python::HasoConfig</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="HasoEngine.html"
+                        title="next chapter">Wavekit_Python::HasoEngine</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/HasoData.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="HasoEngine.html" title="Wavekit_Python::HasoEngine"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="HasoConfig.html" title="Wavekit_Python::HasoConfig"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">Wavekit Python 2020 documentation</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2020, Imagine Optic.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.8.5.
+    </div>
+  </body>
+</html>

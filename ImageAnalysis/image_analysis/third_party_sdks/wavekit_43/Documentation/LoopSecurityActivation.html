@@ -1,0 +1,171 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Wavekit_Python::LoopSecurityActivation &#8212; Wavekit Python 2020 documentation</title>
+    <link rel="stylesheet" href="_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="_static/language_data.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Wavekit_Python::LoopSmoothing" href="LoopSmoothing.html" />
+    <link rel="prev" title="Wavekit_Python::LoopSecurity" href="LoopSecurity.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="LoopSmoothing.html" title="Wavekit_Python::LoopSmoothing"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="LoopSecurity.html" title="Wavekit_Python::LoopSecurity"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">Wavekit Python 2020 documentation</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="module-wavekit_py.io_wavekit_loopsecurityactivation">
+<span id="wavekit-python-loopsecurityactivation"></span><h1>Wavekit_Python::LoopSecurityActivation<a class="headerlink" href="#module-wavekit_py.io_wavekit_loopsecurityactivation" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="wavekit_py.io_wavekit_loopsecurityactivation.LoopSecurityActivation">
+<em class="property">class </em><code class="descclassname">wavekit_py.io_wavekit_loopsecurityactivation.</code><code class="descname">LoopSecurityActivation</code><span class="sig-paren">(</span><em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_loopsecurityactivation.html#LoopSecurityActivation"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_loopsecurityactivation.LoopSecurityActivation" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class LoopSecurityActivation</p>
+<ul class="simple">
+<li><dl class="first docutils">
+<dt>Constructor from Parameters :</dt>
+<dd><ul class="first last">
+<li><strong>do_check_saturated_act_count</strong> - bool : Activates the requested actuators positions check, test will return false if too many acturators reach their boundaries</li>
+<li><strong>do_check_camera_fill_pct</strong> - bool : Activates the camera saturation level check</li>
+<li><strong>do_check_pupil_size_variation</strong> - bool : Activates the pupil size variation check, test will return false if pupil is too different from the interaction matrix pupil</li>
+<li><strong>do_check_dwf_pv</strong> - bool : Activates the delta wavefront peak-to-valley check</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Constructor from Level :</dt>
+<dd><ul class="first last">
+<li><strong>level</strong> - string : Security level. Values are ‘LOW’, ‘MEDIUM’ or ‘HIGH’</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_loopsecurityactivation.LoopSecurityActivation.get_activation_parameters">
+<code class="descname">get_activation_parameters</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_loopsecurityactivation.html#LoopSecurityActivation.get_activation_parameters"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_loopsecurityactivation.LoopSecurityActivation.get_activation_parameters" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get switches states</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">requested actuators positions check,  camera saturation level check,  pupil size variation check, delta wavefront peak-to-valley check</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">tuple(bool, bool, bool, bool)</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_loopsecurityactivation.LoopSecurityActivation.set_activation_parameters">
+<code class="descname">set_activation_parameters</code><span class="sig-paren">(</span><em>do_check_saturated_act_count</em>, <em>do_check_camera_fill_pct</em>, <em>do_check_pupil_size_variation</em>, <em>do_check_dwf_pv</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_loopsecurityactivation.html#LoopSecurityActivation.set_activation_parameters"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_loopsecurityactivation.LoopSecurityActivation.set_activation_parameters" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set switches states</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>do_check_saturated_act_count</strong> (<em>bool</em>) – Activates the requested actuators positions check, test will return false if too many acturators reach their boundaries</li>
+<li><strong>do_check_camera_fill_pct</strong> (<em>bool</em>) – Activates the camera saturation level check</li>
+<li><strong>do_check_pupil_size_variation</strong> (<em>bool</em>) – Activates the pupil size variation check, test will return false if pupil is too different from the interaction matrix pupil</li>
+<li><strong>do_check_dwf_pv</strong> (<em>bool</em>) – Activates the delta wavefront peak-to-valley check</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="LoopSecurity.html"
+                        title="previous chapter">Wavekit_Python::LoopSecurity</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="LoopSmoothing.html"
+                        title="next chapter">Wavekit_Python::LoopSmoothing</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/LoopSecurityActivation.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="LoopSmoothing.html" title="Wavekit_Python::LoopSmoothing"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="LoopSecurity.html" title="Wavekit_Python::LoopSecurity"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">Wavekit Python 2020 documentation</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2020, Imagine Optic.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.8.5.
+    </div>
+  </body>
+</html>

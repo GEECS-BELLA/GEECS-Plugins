@@ -1,0 +1,446 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Wavekit_Python::WavefrontCorrectorSet &#8212; Wavekit Python 2020 documentation</title>
+    <link rel="stylesheet" href="_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="_static/language_data.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Wavekit_Python::WavefrontCorrector" href="WavefrontCorrector.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="WavefrontCorrector.html" title="Wavekit_Python::WavefrontCorrector"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">Wavekit Python 2020 documentation</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="module-wavekit_py.io_wavekit_wavefrontcorrectorset">
+<span id="wavekit-python-wavefrontcorrectorset"></span><h1>Wavekit_Python::WavefrontCorrectorSet<a class="headerlink" href="#module-wavekit_py.io_wavekit_wavefrontcorrectorset" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet">
+<em class="property">class </em><code class="descclassname">wavekit_py.io_wavekit_wavefrontcorrectorset.</code><code class="descname">WavefrontCorrectorSet</code><span class="sig-paren">(</span><em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class WavefrontCorrectorSet</p>
+<ul class="simple">
+<li><dl class="first docutils">
+<dt>Constructor from Config File :</dt>
+<dd><ul class="first last">
+<li><strong>config_file_path</strong> - string : Absolute path to WavefrontCorrector configuration file (*.dat)</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Constructor from WavefrontCorrector :</dt>
+<dd><ul class="first last">
+<li><strong>wavefrontcorrector</strong> - WavefrontCorrector : WavefrontCorrector object</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Constructor from Copy :</dt>
+<dd><ul class="first last">
+<li><strong>wavefrontcorrectorset</strong> - WavefrontCorrectorSet : WavefrontCorrectorSet object to copy</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_actuators_count">
+<code class="descname">get_actuators_count</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_actuators_count"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_actuators_count" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector actuators count</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Actuators count</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">int</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_available_value">
+<code class="descname">get_available_value</code><span class="sig-paren">(</span><em>parameter_name</em>, <em>index</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_available_value"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_available_value" title="Permalink to this definition">¶</a></dt>
+<dd><p>If parameter is a string to be selected among a finite set of strings,
+extract the possible value located at the index position from this set.</p>
+<div class="admonition seealso">
+<p class="first admonition-title">See also</p>
+<p class="last">WavefrontCorrectorSet.get_parameter_option</p>
+</div>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>parameter_name</strong> (<em>string</em>) – Parameter name</li>
+<li><strong>index</strong> (<em>int</em>) – index</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">Value at index</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last">string</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_available_values_list_size">
+<code class="descname">get_available_values_list_size</code><span class="sig-paren">(</span><em>parameter_name</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_available_values_list_size"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_available_values_list_size" title="Permalink to this definition">¶</a></dt>
+<dd><p>If parameter is a string to be selected among a finite set of strings, return the size of this set.</p>
+<div class="admonition seealso">
+<p class="first admonition-title">See also</p>
+<p class="last">WavefrontCorrectorSet.get_parameter_option</p>
+</div>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>parameter_name</strong> (<em>string</em>) – Parameter name</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">Size of the list (count of strings expected in that parameter)</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body">int</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_flat_mirror_positions">
+<code class="descname">get_flat_mirror_positions</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_flat_mirror_positions"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_flat_mirror_positions" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector commands to flat mirror shape</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Command value</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">float list[]</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_initial_preferences">
+<code class="descname">get_initial_preferences</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_initial_preferences"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_initial_preferences" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector constraints</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Corrector preferences (lowest command value, highest command value, status and fixed positions for each actuator), initial positions</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">tuple(<a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.CorrectorPrefs_t" title="wavekit_py.io_wavekit_structure.CorrectorPrefs_t">CorrectorPrefs_t</a>, float list[])</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_limits">
+<code class="descname">get_parameter_limits</code><span class="sig-paren">(</span><em>parameter_name</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_parameter_limits"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_limits" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector parameters specifications.
+Each parameter comes with specifications given its type 
+and has therefore a dedicated specification value(s) getter.
+Please ensure your retrieved the parameters type given its name to call the approriate function.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>parameter_name</strong> (<em>string</em>) – Parameter name</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">min, max</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body">tuple(int or double, int or double)</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_list_size">
+<code class="descname">get_parameter_list_size</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_parameter_list_size"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_list_size" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector parameters list size</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Parameters list size (total count of wavefront corrector parameters)</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">int</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_name">
+<code class="descname">get_parameter_name</code><span class="sig-paren">(</span><em>index</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_parameter_name"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_name" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector parameters list size</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>index</strong> (<em>int</em>) – Parameter index</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">Parameter name</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body">string</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_option">
+<code class="descname">get_parameter_option</code><span class="sig-paren">(</span><em>parameter_name</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_parameter_option"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_option" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector parameter options</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>parameter_name</strong> (<em>string</em>) – Parameter name</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">Parameter options (has_default_value, has_limits, is_connection_parameter, is_gettable, is_gettable_onfly, is_settable, is_settable_onfly, is_string_enum)</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.ParameterOption_t" title="wavekit_py.io_wavekit_structure.ParameterOption_t">ParameterOption_t</a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_type">
+<code class="descname">get_parameter_type</code><span class="sig-paren">(</span><em>parameter_name</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_parameter_type"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_type" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector parameter type</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>parameter_name</strong> (<em>string</em>) – Parameter name</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">E_TYPES_T Parameter type value</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body">int</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_value">
+<code class="descname">get_parameter_value</code><span class="sig-paren">(</span><em>parameter_name</em>, <em>get_factory_value=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_parameter_value"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_parameter_value" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector parameter</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>parameter_name</strong> (<em>string</em>) – Parameter name</li>
+<li><strong>get_factory_value</strong> (<em>bool</em>) – True to get the factory value, False to get current value (default : False)</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">Parameter value</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last">int or double or bool or string</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_specific_feature_list_size">
+<code class="descname">get_specific_feature_list_size</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_specific_feature_list_size"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_specific_feature_list_size" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector features list size</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Features list size</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">int</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_specific_feature_name">
+<code class="descname">get_specific_feature_name</code><span class="sig-paren">(</span><em>index</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_specific_feature_name"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_specific_feature_name" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector features name</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>index</strong> (<em>int</em>) – Feature index</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">Features name</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body">string</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_specifications">
+<code class="descname">get_specifications</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.get_specifications"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.get_specifications" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get WavefrontCorrector specifications</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">WavefrontCorrector specifications : WFC name, WFC Serial number, revision, Driver name, actuators count, stabilization delay, indicator of whether Wavefront corrector electronic can store its position</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.Config_t" title="wavekit_py.io_wavekit_structure.Config_t">Config_t</a>, <a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.CorrectorSpecs_t" title="wavekit_py.io_wavekit_structure.CorrectorSpecs_t">CorrectorSpecs_t</a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.load">
+<code class="descname">load</code><span class="sig-paren">(</span><em>file_path</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.load"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.load" title="Permalink to this definition">¶</a></dt>
+<dd><p>Load file content to WavefrontCorrectorSet object</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>file_path</strong> (<em>string</em>) – Absolute path to the file</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.reset">
+<code class="descname">reset</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.reset"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.reset" title="Permalink to this definition">¶</a></dt>
+<dd><p>Reset parameters to factory values</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.save">
+<code class="descname">save</code><span class="sig-paren">(</span><em>file_path</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.save"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.save" title="Permalink to this definition">¶</a></dt>
+<dd><p>Save WavefrontCorrectorSet to a file</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>file_path</strong> (<em>string</em>) – Absolute path to the file</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.set_parameter_value">
+<code class="descname">set_parameter_value</code><span class="sig-paren">(</span><em>parameter_name</em>, <em>parameter_value</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_wavefrontcorrectorset.html#WavefrontCorrectorSet.set_parameter_value"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_wavefrontcorrectorset.WavefrontCorrectorSet.set_parameter_value" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set WavefrontCorrector parameter</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>parameter_name</strong> (<em>string</em>) – Parameter name</li>
+<li><strong>parameter_value</strong> (<em>int</em><em> or </em><em>double</em><em> or </em><em>bool</em><em> or </em><em>string</em>) – Parameter value</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="WavefrontCorrector.html"
+                        title="previous chapter">Wavekit_Python::WavefrontCorrector</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/WavefrontCorrectorSet.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="WavefrontCorrector.html" title="Wavekit_Python::WavefrontCorrector"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">Wavekit Python 2020 documentation</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2020, Imagine Optic.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.8.5.
+    </div>
+  </body>
+</html>

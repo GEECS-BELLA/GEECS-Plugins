@@ -1,0 +1,1171 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>wavekit_py.io_wavekit_corrdatamanager &#8212; Wavekit Python 2020 documentation</title>
+    <link rel="stylesheet" href="../../_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="../../_static/language_data.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Wavekit Python 2020 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for wavekit_py.io_wavekit_corrdatamanager</h1><div class="highlight"><pre>
+<span></span><span class="ch">#!/usr/bin/python</span>
+
+<span class="kn">import</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">sys</span> 
+<span class="kn">import</span> <span class="nn">ctypes</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+
+<span class="kn">import</span> <span class="nn">io_thirdparty_load_library</span> <span class="k">as</span> <span class="nn">imop_library</span>
+
+<span class="kn">import</span> <span class="nn">io_wavekit_structure</span> <span class="k">as</span> <span class="nn">imop_struct</span>
+<span class="kn">import</span> <span class="nn">io_wavekit_phase</span> <span class="k">as</span> <span class="nn">imop_phase</span>
+<span class="kn">import</span> <span class="nn">io_wavekit_hasoslopes</span> <span class="k">as</span> <span class="nn">imop_hslp</span>
+
+<div class="viewcode-block" id="CorrDataManager"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager">[docs]</a><span class="k">class</span> <span class="nc">CorrDataManager</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Class CorrDataManager</span>
+<span class="sd">    </span>
+<span class="sd">    - Constructor from Config Files :</span>
+<span class="sd">        - **haso_config_file_path** - string : Absolute path to Haso configuration file (\*.dat)</span>
+<span class="sd">        - **wfc_config_file_path** - string : Absolute path to WavefrontCorrector configuration file (\*.dat)</span>
+<span class="sd">    </span>
+<span class="sd">    - Constructor from Backup File :</span>
+<span class="sd">        - **haso_config_file_path** - string : Absolute path to Haso configuration file (\*.dat)</span>
+<span class="sd">        - **interaction_matrix_file_path** - string : Absolute path to CorrDataManager dump file (\*.aoc)</span>
+<span class="sd">    </span>
+<span class="sd">    - Constructor from Copy :</span>
+<span class="sd">        - **corrdatamanager** - CorrDataManager : CorrDataManager object to copy</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+        
+    <span class="k">def</span> <span class="nf">__init_from_configs_files</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">haso_config_file_path</span><span class="p">,</span>
+        <span class="n">wfc_config_file_path</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CorrDataManager constructor from a Haso configuration file and a wavefront configuration file.</span>
+<span class="sd">        </span>
+<span class="sd">        :param haso_config_file_path: Absolute path to Haso configuration file</span>
+<span class="sd">        :type haso_config_file_path: string</span>
+<span class="sd">        :param wfc_config_file_path: Absolute path to WavefrontCorrector configuration file</span>
+<span class="sd">        :type wfc_config_file_path: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_NewFromConfigsFiles</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">haso_config_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">wfc_config_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init_from_configs_files&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init_from_backup_file</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">haso_config_file_path</span><span class="p">,</span>
+        <span class="n">interaction_matrix_file_path</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CorrDataManager constructor from a CorrDataManager dump file.</span>
+<span class="sd">        </span>
+<span class="sd">        :param haso_config_file_path: Absolute path to Haso configuration file</span>
+<span class="sd">        :type haso_config_file_path: string</span>
+<span class="sd">        :param interaction_matrix_file_path:  Absolute path to CorrDataManager dump file</span>
+<span class="sd">        :type interaction_matrix_file_path: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_NewFromBackupFile</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">haso_config_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">interaction_matrix_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init_from_backup_file&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init_from_copy</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">corrdatamanager</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CorrDataManager copy constructor.</span>
+<span class="sd">        </span>
+<span class="sd">        :param corrdatamanager: CorrDataManager object to be copied</span>
+<span class="sd">        :type corrdatamanager: CorrDataManager</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_NewFromCopy</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">corrdatamanager</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init_from_copy&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CorrDataManager constructor</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dll</span>   <span class="o">=</span> <span class="n">imop_library</span><span class="o">.</span><span class="n">load_dll</span><span class="p">()</span>
+        <span class="n">entered</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">arg_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">try</span> <span class="p">:</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">arg_size</span> <span class="o">==</span> <span class="mi">1</span><span class="p">):</span>
+                <span class="k">if</span><span class="p">(</span><span class="s1">&#39;corrdatamanager&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">):</span>
+                    <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__init_from_copy</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;corrdatamanager&#39;</span><span class="p">])</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">arg_size</span> <span class="o">==</span> <span class="mi">2</span><span class="p">):</span>
+                <span class="k">if</span><span class="p">(</span><span class="s1">&#39;haso_config_file_path&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span>
+                   <span class="ow">and</span> <span class="s1">&#39;wfc_config_file_path&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span>
+                   <span class="p">):</span>
+                    <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__init_from_configs_files</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;haso_config_file_path&#39;</span><span class="p">],</span> <span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;wfc_config_file_path&#39;</span><span class="p">])</span>
+                <span class="k">if</span><span class="p">(</span><span class="s1">&#39;haso_config_file_path&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span>
+                   <span class="ow">and</span> <span class="s1">&#39;interaction_matrix_file_path&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span>
+                   <span class="p">):</span>
+                    <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__init_from_backup_file</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;haso_config_file_path&#39;</span><span class="p">],</span> <span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;interaction_matrix_file_path&#39;</span><span class="p">])</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span> <span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+        <span class="k">if</span><span class="p">(</span><span class="n">entered</span> <span class="o">==</span> <span class="mi">0</span><span class="p">):</span>            
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init&#39;</span><span class="p">,</span><span class="s1">&#39;---CAN NOT CREATE CORRDATAMANAGER OBJECT---&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__del_obj__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;CorrDataManager copy destructor.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_Delete</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="fm">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__del_obj__</span><span class="p">()</span>
+        <span class="n">imop_library</span><span class="o">.</span><span class="n">free_dll</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">_handle</span><span class="p">)</span>
+
+<div class="viewcode-block" id="CorrDataManager.get_specifications"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_specifications">[docs]</a>    <span class="k">def</span> <span class="nf">get_specifications</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Haso and Wavefront corrector specifications getter.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Haso specifications : serial number, dimensions; Wavefront corrector specifications : serial number, name, actuators count</span>
+<span class="sd">        :rtype: CorrDataManagerSpecs_t</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">nb_actuators</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="n">wavefrontcorrector_name</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">wavefrontcorrector_serial_number</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">haso_slopes_size</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">haso_slopes_step</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+            <span class="n">haso_serial_number</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetSpecifications</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">nb_actuators</span><span class="p">),</span>
+                <span class="n">wavefrontcorrector_name</span><span class="p">,</span>
+                <span class="n">wavefrontcorrector_serial_number</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">haso_slopes_size</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">haso_slopes_step</span><span class="p">),</span>
+                <span class="n">haso_serial_number</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">CorrDataManagerSpecs_t</span><span class="p">(</span>
+                <span class="n">haso_serial_number</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">),</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">dimensions</span><span class="p">(</span><span class="n">haso_slopes_size</span><span class="p">,</span> <span class="n">haso_slopes_step</span><span class="p">),</span>
+                <span class="n">wavefrontcorrector_serial_number</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">),</span>
+                <span class="n">wavefrontcorrector_name</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">),</span>
+                <span class="n">nb_actuators</span><span class="o">.</span><span class="n">value</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_specifications&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CorrDataManager.load_backup_file"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.load_backup_file">[docs]</a>    <span class="k">def</span> <span class="nf">load_backup_file</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">backup_file_path</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Load data extracted from a CorrDataManager backup file into current CorrDataManager object.</span>
+<span class="sd">        </span>
+<span class="sd">        :param backup_file_path: Absolute path to CorrDataManager backup file (\*.aoc)</span>
+<span class="sd">        :type backup_file_path: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_LoadBackupFile</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">backup_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : load_backup_file&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CorrDataManager.save_backup_file"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.save_backup_file">[docs]</a>    <span class="k">def</span> <span class="nf">save_backup_file</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">backup_file_path</span><span class="p">,</span>
+        <span class="n">comments</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Dump CorrDataManager data to file.</span>
+<span class="sd">        </span>
+<span class="sd">        :param backup_file_path: Absolute path to CorrDataManager backup file (\*.aoc)</span>
+<span class="sd">        :type backup_file_path: string</span>
+<span class="sd">        :param comments: User-defined comment to write to backup file</span>
+<span class="sd">        :type comments: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_SaveBackupFile</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">backup_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">comments</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : save_backup_file&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CorrDataManager.set_microlenses_focal_length"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.set_microlenses_focal_length">[docs]</a>    <span class="k">def</span> <span class="nf">set_microlenses_focal_length</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">microlenses_focal_length_um</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set Micro lenses focal length.</span>
+<span class="sd">        Provided for backward compatibility with old formatted interaction matrix backup files.</span>
+<span class="sd">        This value is used for correction loop computations.</span>
+<span class="sd">        If a focal length value has already been set in the correction data manager, it won&#39;t be replaced.</span>
+
+<span class="sd">        :param backup_file_path: Micro lenses focal length (um)</span>
+<span class="sd">        :type backup_file_path: float</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_SetMicrolensesFocalLength</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">(</span><span class="n">microlenses_focal_length_um</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : set_microlenses_focal_length&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CorrDataManager.reset_interaction_matrix"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.reset_interaction_matrix">[docs]</a>    <span class="k">def</span> <span class="nf">reset_interaction_matrix</span><span class="p">(</span>
+        <span class="bp">self</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Reset Interaction matrix, greatest common pupil and Wavefront corrector preferences to the last stable state.</span>
+<span class="sd">        Restore the CorrDataManager to last interaction matrix computation state or last loading from a backup file.</span>
+
+<span class="sd">        .. warning:: This function clears command matrix and diagnostics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ResetInteractionMatrix</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : reset_interaction_matrix&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CorrDataManager.get_actuators_count"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_actuators_count">[docs]</a>    <span class="k">def</span> <span class="nf">get_actuators_count</span><span class="p">(</span>
+        <span class="bp">self</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Wavefront corrector actuators number.</span>
+
+<span class="sd">        :return: WavefrontCorrector actuators count</span>
+<span class="sd">        :rtype: int</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">actuator_count</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetActuatorsCount</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">actuator_count</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">actuator_count</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_actuators_count&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CorrDataManager.get_actuator_prefs"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_actuator_prefs">[docs]</a>    <span class="k">def</span> <span class="nf">get_actuator_prefs</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">actuator_index</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Preferences for one wavefront corrector actuator.</span>
+<span class="sd">        </span>
+<span class="sd">        .. seealso:: WavefrontCorrector.get_preferences for details on wavefront corrector preferences</span>
+
+<span class="sd">        :param actuator_index: Index of the actuator</span>
+<span class="sd">        :type actuator_index: int</span>
+<span class="sd">        :return: lowest, highest command value, status, fixed position</span>
+<span class="sd">        :rtype: ActuatorPrefs_t</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">min_</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">max_</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">validity</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="n">fixed_value</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetActuatorPrefs</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">actuator_index</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">min_</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">max_</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">validity</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">fixed_value</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">ActuatorPrefs_t</span><span class="p">(</span>
+                <span class="n">min_</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">max_</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">validity</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">fixed_value</span><span class="o">.</span><span class="n">value</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_actuator_prefs&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CorrDataManager.get_corrector_init_prefs"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_corrector_init_prefs">[docs]</a>    <span class="k">def</span> <span class="nf">get_corrector_init_prefs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Wavefront corrector actuators preferences.</span>
+<span class="sd">        </span>
+<span class="sd">        .. seealso:: WavefrontCorrector.get_preferences for details on wavefront corrector preferences</span>
+
+<span class="sd">        :return: Corrector preferences : lowest command, highest command, validity, fixed positions for each actuator</span>
+<span class="sd">        :rtype: CorrectorPrefs_t</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">nb_actuators</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_actuators_count</span><span class="p">()</span>
+            <span class="n">min_</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_actuators</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="n">max_</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_actuators</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="n">validity</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_actuators</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">intc</span><span class="p">)</span>
+            <span class="n">fixed_value</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_actuators</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetCorrectorInitPrefs</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">intc</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">)</span>
+            <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetCorrectorInitPrefs</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">min_</span><span class="p">,</span>
+                <span class="n">max_</span><span class="p">,</span>
+                <span class="n">validity</span><span class="p">,</span>
+                <span class="n">fixed_value</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">CorrectorPrefs_t</span><span class="p">(</span>
+                    <span class="n">min_</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                    <span class="n">max_</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                    <span class="n">validity</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                    <span class="n">fixed_value</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_corrector_init_prefs&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.get_corrector_prefs"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_corrector_prefs">[docs]</a>    <span class="k">def</span> <span class="nf">get_corrector_prefs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Wavefront corrector actuators preferences.</span>
+<span class="sd">        </span>
+<span class="sd">        .. seealso:: WavefrontCorrector.get_preferences for details on wavefront corrector preferences</span>
+
+<span class="sd">        :return: Corrector preferences : lowest command, highest command, validity, fixed positions for each actuator</span>
+<span class="sd">        :rtype: CorrectorPrefs_t</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">nb_actuators</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_actuators_count</span><span class="p">()</span>
+            <span class="n">min_</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_actuators</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="n">max_</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_actuators</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="n">validity</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_actuators</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">intc</span><span class="p">)</span>
+            <span class="n">fixed_value</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_actuators</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetCorrectorPrefs</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">intc</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">)</span>
+            <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetCorrectorPrefs</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">min_</span><span class="p">,</span>
+                <span class="n">max_</span><span class="p">,</span>
+                <span class="n">validity</span><span class="p">,</span>
+                <span class="n">fixed_value</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">CorrectorPrefs_t</span><span class="p">(</span>
+                    <span class="n">min_</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                    <span class="n">max_</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                    <span class="n">validity</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                    <span class="n">fixed_value</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_corrector_prefs&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="CorrDataManager.set_actuator_prefs"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.set_actuator_prefs">[docs]</a>    <span class="k">def</span> <span class="nf">set_actuator_prefs</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">actuator_index</span><span class="p">,</span>
+        <span class="n">actuator_prefs</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set Preferences for one wavefront corrector actuator.</span>
+<span class="sd">        The new preferences have to be compliant with the Wavefront corrector specifications.</span>
+<span class="sd">        If the new preferences are compliant with the one used for the last calibration process or the last loaded ones, \</span>
+<span class="sd">        the interaction matrix is recomputed,</span>
+<span class="sd">        else the interaction matrix is erased and a new calibration process (or loading from file or backup restoration) is needed.</span>
+<span class="sd">        </span>
+<span class="sd">        .. seealso:: WavefrontCorrector.get_preferences for details on wavefront corrector preferences</span>
+
+<span class="sd">        :param actuator_index: Index of the actuator</span>
+<span class="sd">        :type actuator_index: int</span>
+<span class="sd">        :param actuator_prefs: Structure containing lowest, highest command, validity value, fixed position</span>
+<span class="sd">        :type actuator_prefs: ActuatorPrefs_t</span>
+<span class="sd">        :return: if true, interaction matrix has been erased</span>
+<span class="sd">        :rtype: bool</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">new_data</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_SetActuatorPrefs</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">actuator_index</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">(</span><span class="n">actuator_prefs</span><span class="o">.</span><span class="n">min_value</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">(</span><span class="n">actuator_prefs</span><span class="o">.</span><span class="n">max_value</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">actuator_prefs</span><span class="o">.</span><span class="n">validity</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">(</span><span class="n">actuator_prefs</span><span class="o">.</span><span class="n">fixed_value</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">new_data</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">new_data</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : set_actuator_prefs&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.set_corrector_prefs"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.set_corrector_prefs">[docs]</a>    <span class="k">def</span> <span class="nf">set_corrector_prefs</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">prefs</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set Wavefront corrector actuators preferences.</span>
+<span class="sd">        The new preferences have to be compliant with the Wavefront corrector specifications \</span>
+<span class="sd">        read from configuration file).</span>
+<span class="sd">        If the new preferences are compliant with the one used for the last calibration process \</span>
+<span class="sd">        or the last loaded ones, the interaction matrix is recomputed,</span>
+<span class="sd">        else the interaction matrix is erased and a new calibration process \</span>
+<span class="sd">        (or loading from file or backup restoration) is needed.</span>
+<span class="sd">        </span>
+<span class="sd">        .. seealso:: WavefrontCorrector.get_preferences for details on wavefront corrector preferences</span>
+
+<span class="sd">        :param prefs_lists: Structure containing lowest, highest command values, validity values, fixed positions lists</span>
+<span class="sd">        :type prefs_lists: CorrectorPrefs_t</span>
+<span class="sd">        :return: if true, indicates that interaction matrix has been erased</span>
+<span class="sd">        :rtype: bool</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">new_data_needed</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_SetCorrectorPrefs</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">intc</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_SetCorrectorPrefs</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">prefs</span><span class="o">.</span><span class="n">min_array</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">prefs</span><span class="o">.</span><span class="n">max_array</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">prefs</span><span class="o">.</span><span class="n">validity_array</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">intc</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">prefs</span><span class="o">.</span><span class="n">fixed_value_array</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">new_data_needed</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">new_data_needed</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : set_corrector_prefs&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.check_relative_position_saturation"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.check_relative_position_saturation">[docs]</a>    <span class="k">def</span> <span class="nf">check_relative_position_saturation</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">current_positions_array</span><span class="p">,</span>
+        <span class="n">delta_commands_array</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Count the number of actuators which will be saturated \</span>
+<span class="sd">        (reaching min or max of their positions) if relative command is applied</span>
+
+<span class="sd">        :param current_positions_array: List of current wavefront corrector positions</span>
+<span class="sd">        :type current_positions_array: float</span>
+<span class="sd">        :param delta_commands_array: List of delta commands</span>
+<span class="sd">        :type delta_commands_array: float</span>
+<span class="sd">        :return: Count of actuators which will be at min or max of their positions if command is applied</span>
+<span class="sd">        :rtype: int</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">saturated_act_count</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_CheckRelativePositionsSaturation</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_CheckRelativePositionsSaturation</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">current_positions_array</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">delta_commands_array</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">saturated_act_count</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">saturated_act_count</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : check_relative_position_saturation&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.set_calibration_prefs"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.set_calibration_prefs">[docs]</a>    <span class="k">def</span> <span class="nf">set_calibration_prefs</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">push_pull_value</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Calibration process supposes back and forth moves on all actuators.</span>
+<span class="sd">        Use this function to calibrate the amplitude of these moves.</span>
+
+<span class="sd">        :param push_pull_value: In case experiment type is &quot;push-pull&quot; (type 0), indicates the actuators displacement amplitude</span>
+<span class="sd">        :type push_pull_value: float</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_SetCalibrationPrefs</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">(</span><span class="n">push_pull_value</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : set_calibration_prefs&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.get_calibration_commands"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_calibration_commands">[docs]</a>    <span class="k">def</span> <span class="nf">get_calibration_commands</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">actuator_index</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get the two wavefront corrector commands corresponding to the actuator actuator_index calibration.</span>
+<span class="sd">        Command application must be performed using the functions of WFC.</span>
+<span class="sd">        Corresponding HasoSlopes must be computed on appropriate Image captured by the Haso sensor,</span>
+<span class="sd">        Function returns an error if actuator is invalid. If so, please do not move the actuator and continue with the next one.</span>
+
+<span class="sd">        :param actuator_index: Index of the actuator</span>
+<span class="sd">        :type actuator_index: int</span>
+<span class="sd">        :return: Wavefront corrector commands associated to the first move (push), Wavefront corrector commands associated to the second move (pull)</span>
+<span class="sd">        :rtype: tuple(float list[], float list[])</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">nb_actuators</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_specifications</span><span class="p">()</span><span class="o">.</span><span class="n">nb_actuators</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">first_command</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_actuators</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="n">second_command</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">nb_actuators</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetCalibrationCommands</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">)</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetCalibrationCommands</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">actuator_index</span><span class="p">),</span>
+                <span class="n">first_command</span><span class="p">,</span>
+                <span class="n">second_command</span>               
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="n">first_command</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                <span class="n">second_command</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_calibration_commands&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.get_calibration_matrix_size"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_calibration_matrix_size">[docs]</a>    <span class="k">def</span> <span class="nf">get_calibration_matrix_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Calibration matrix size.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Size of calibration matrix</span>
+<span class="sd">        :rtype: uint2D</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetCalibrationMatrixSize</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>                
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">size</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_calibration_matrix_size&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.compute_interaction_matrix"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.compute_interaction_matrix">[docs]</a>    <span class="k">def</span> <span class="nf">compute_interaction_matrix</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">hasoslopes_list</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compute interaction matrix from collected calibration data (two HasoSlopes measured per actuator).</span>
+<span class="sd">        </span>
+<span class="sd">        .. seealso:: Calibration Matrix computation details</span>
+<span class="sd">        </span>
+<span class="sd">        :param hasoslopes_list: HasoSlopes measured for each calibration step.</span>
+<span class="sd">        :type hasoslopes_list: HasoSlopes list[] </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">array_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">hasoslopes_list</span><span class="p">)</span>
+            <span class="n">hasoslopes_array</span> <span class="o">=</span> <span class="p">(</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="o">*</span><span class="n">array_size</span><span class="p">)()</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">array_size</span><span class="p">):</span>
+                <span class="n">hasoslopes_array</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">hasoslopes_list</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">hasoslopes</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ComputeInteractionMatrix</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">array_size</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="n">hasoslopes_array</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : compute_interaction_matrix&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.update_interaction_matrix"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.update_interaction_matrix">[docs]</a>    <span class="k">def</span> <span class="nf">update_interaction_matrix</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">index</span><span class="p">,</span>
+        <span class="n">hasoslopes_push</span><span class="p">,</span>
+        <span class="n">hasoslopes_pull</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compute interaction matrix from collected calibration data (two HasoSlopes measured per actuator).</span>
+<span class="sd">        </span>
+<span class="sd">        :param index: Index of the actuator</span>
+<span class="sd">        :type index: int</span>
+<span class="sd">        :param hasoslopes_push: HasoSlopes measured for the push movement of the actuator</span>
+<span class="sd">        :type hasoslopes_push: HasoSlopes</span>
+<span class="sd">        :param hasoslopes_pull: HasoSlopes measured for the pull movement of the actuator</span>
+<span class="sd">        :type hasoslopes_pull: HasoSlopes</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_UpdateInteractionMatrix</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">index</span><span class="p">),</span>
+                <span class="n">hasoslopes_push</span><span class="o">.</span><span class="n">hasoslopes</span><span class="p">,</span>
+                <span class="n">hasoslopes_pull</span><span class="o">.</span><span class="n">hasoslopes</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : update_interaction_matrix&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.get_interaction_matrix_size"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_interaction_matrix_size">[docs]</a>    <span class="k">def</span> <span class="nf">get_interaction_matrix_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Interaction matrix size.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Size of interaction matrix</span>
+<span class="sd">        :rtype: uint2D</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetInteractionMatrixSize</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">size</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_interaction_matrix_size&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.get_interaction_matrix_buffer"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_interaction_matrix_buffer">[docs]</a>    <span class="k">def</span> <span class="nf">get_interaction_matrix_buffer</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Interaction matrix content.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: 2D Array of interaction matrix content</span>
+<span class="sd">        :rtype: 2D float numpy array</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">data_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_interaction_matrix_size</span><span class="p">()</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">data_size</span><span class="o">.</span><span class="n">Y</span><span class="p">,</span><span class="n">data_size</span><span class="o">.</span><span class="n">X</span><span class="p">),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetInteractionMatrixBuffer</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">)</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetInteractionMatrixBuffer</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">data</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">data</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_interaction_matrix_buffer&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.set_command_matrix_prefs"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.set_command_matrix_prefs">[docs]</a>    <span class="k">def</span> <span class="nf">set_command_matrix_prefs</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">nb_kept_modes</span><span class="p">,</span>
+        <span class="n">tilt_filtering</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set Command matrix computation preferences.</span>
+<span class="sd">        </span>
+<span class="sd">        :param nb_kept_modes: Number of influences (starting from the highest) to keep</span>
+<span class="sd">        :type nb_kept_modes: int</span>
+<span class="sd">        :param tilt_filtering: If True, computed command matrix does not take tilt into account</span>
+<span class="sd">        :type tilt_filtering: bool</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_SetCommandMatrixPrefs</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">nb_kept_modes</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">tilt_filtering</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : set_command_matrix_prefs&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.compute_command_matrix"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.compute_command_matrix">[docs]</a>    <span class="k">def</span> <span class="nf">compute_command_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Computes command matrix.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ComputeCommandMatrix</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : compute_command_matrix&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.get_command_matrix_size"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_command_matrix_size">[docs]</a>    <span class="k">def</span> <span class="nf">get_command_matrix_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Command matrix size.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Size of command matrix</span>
+<span class="sd">        :rtype: uint2D</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetCommandMatrixSize</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">size</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_command_matrix_size&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.get_command_matrix_buffer"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_command_matrix_buffer">[docs]</a>    <span class="k">def</span> <span class="nf">get_command_matrix_buffer</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get Command matrix content.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: 2D Array of command matrix content</span>
+<span class="sd">        :rtype: 2D float numpy array</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">data_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_command_matrix_size</span><span class="p">()</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">data_size</span><span class="o">.</span><span class="n">Y</span><span class="p">,</span> <span class="n">data_size</span><span class="o">.</span><span class="n">X</span><span class="p">),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetCommandMatrixBuffer</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">)</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetCommandMatrixBuffer</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">data</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">data</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_command_matrix_buffer&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.get_greatest_common_pupil"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_greatest_common_pupil">[docs]</a>    <span class="k">def</span> <span class="nf">get_greatest_common_pupil</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compute the greatest common pupil.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Greatest common pupil as a 2D Array</span>
+<span class="sd">        :rtype: 2D bool numpy array</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">data_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_specifications</span><span class="p">()</span><span class="o">.</span><span class="n">dimensions</span><span class="o">.</span><span class="n">size</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">data_size</span><span class="o">.</span><span class="n">Y</span><span class="p">,</span> <span class="n">data_size</span><span class="o">.</span><span class="n">X</span><span class="p">),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">bool_</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetGreatestCommonPupil</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">bool_</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">)</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetGreatestCommonPupil</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">data</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">data</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_greatest_common_pupil&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.apply_pupil_mask"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.apply_pupil_mask">[docs]</a>    <span class="k">def</span> <span class="nf">apply_pupil_mask</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">pupil_mask</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the greatest common pupil to the intersection between itself and the pupil_mask.</span>
+<span class="sd">        If the pupil_mask has more &quot;1&quot; values than the current greatest common pupil, it won&#39;t have any effect on it (Reduce pupil size only).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ApplyPupilMask</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">pupil_mask</span><span class="o">.</span><span class="n">pupil</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : apply_pupil_mask&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.remove_pupil_mask"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.remove_pupil_mask">[docs]</a>    <span class="k">def</span> <span class="nf">remove_pupil_mask</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Restore the greatest common pupil.</span>
+<span class="sd">        Cancel the effects of pupil mask(s) : \</span>
+<span class="sd">        Restore the greatest common pupil to last interaction matrix computation value or last loading from a backup value.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_RemovePupilMask</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : remove_pupil_mask&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.get_actuator_influence"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_actuator_influence">[docs]</a>    <span class="k">def</span> <span class="nf">get_actuator_influence</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">actuator_index</span><span class="p">,</span>
+        <span class="n">use_actuator_pupil</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get actuator influence as HasoSlopes.</span>
+<span class="sd">        The influence pupil may be the pupil where actuator influence has been computed or the greatest common pupil of all the actuators </span>
+<span class="sd">        (CorrDataManager greatest common pupil).</span>
+<span class="sd">        Returns 0 HasoSlopes if actuator in not valid.</span>
+<span class="sd">        </span>
+<span class="sd">        :param actuator_index: Actuator index</span>
+<span class="sd">        :type actuator_index: int</span>
+<span class="sd">        :param use_actuator_pupil: If true, influence pupil will be the actuator&#39;s one, else it will be the corrdata_manager one</span>
+<span class="sd">        :type use_actuator_pupil: bool</span>
+<span class="sd">        :return: HasoSlopes object</span>
+<span class="sd">        :rtype: HasoSlopes</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">hasoslopes_out</span> <span class="o">=</span> <span class="n">imop_hslp</span><span class="o">.</span><span class="n">HasoSlopes</span><span class="p">(</span>
+                <span class="n">dimensions</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_specifications</span><span class="p">()</span><span class="o">.</span><span class="n">dimensions</span><span class="p">,</span>
+                <span class="n">serial_number</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_specifications</span><span class="p">()</span><span class="o">.</span><span class="n">haso_serial_number</span>
+                <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetActuatorInfluence</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">actuator_index</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">use_actuator_pupil</span><span class="p">),</span>
+                <span class="n">hasoslopes_out</span><span class="o">.</span><span class="n">hasoslopes</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">hasoslopes_out</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_actuator_influence&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.get_diagnostic_singular_vector"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_diagnostic_singular_vector">[docs]</a>    <span class="k">def</span> <span class="nf">get_diagnostic_singular_vector</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get vector of singular values.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Array of influences, sorted in descending order.</span>
+<span class="sd">        :rtype: float list[]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_actuators_count</span><span class="p">(),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetDiagnosticSingularVector</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">)</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetDiagnosticSingularVector</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">data</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">data</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_diagnostic_singular_vector&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.get_diagnostic_eigen_vector"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.get_diagnostic_eigen_vector">[docs]</a>    <span class="k">def</span> <span class="nf">get_diagnostic_eigen_vector</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">mode_index</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get HasoSlopes object and commands array associated to an influence.</span>
+<span class="sd">        </span>
+<span class="sd">        :param mode_index: Influence index</span>
+<span class="sd">        :type mode_index: int</span>
+<span class="sd">        :return: HasoSlopes object, Command array</span>
+<span class="sd">        :rtype: tuple(HasoSlopes, float list[])</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_actuators_count</span><span class="p">(),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="n">hasoslopes_out</span> <span class="o">=</span> <span class="n">imop_hslp</span><span class="o">.</span><span class="n">HasoSlopes</span><span class="p">(</span>
+                <span class="n">dimensions</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_specifications</span><span class="p">()</span><span class="o">.</span><span class="n">dimensions</span><span class="p">,</span>
+                <span class="n">serial_number</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_specifications</span><span class="p">()</span><span class="o">.</span><span class="n">haso_serial_number</span>
+                <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetDiagnosticEigenVectors</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">)</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_GetDiagnosticEigenVectors</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">(</span><span class="n">mode_index</span><span class="p">),</span>
+                <span class="n">hasoslopes_out</span><span class="o">.</span><span class="n">hasoslopes</span><span class="p">,</span>
+                <span class="n">data</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="n">hasoslopes_out</span><span class="p">,</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_diagnostic_eigen_vector&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.compute_delta_command_from_delta_slopes"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.compute_delta_command_from_delta_slopes">[docs]</a>    <span class="k">def</span> <span class="nf">compute_delta_command_from_delta_slopes</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">delta_slopes</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compute the relative wavefront corrector commands corresponding to a delta_slopes variation.</span>
+<span class="sd">        This function uses the CorrDataManager command matrix and wavefront corrector preferences to compute the output command.</span>
+<span class="sd">        Typical application is to compute the delta slopes as the difference between the current measured slopes</span>
+<span class="sd">        and references slopes (for example, references slopes can be created from a particular set of Zernike coefficients,</span>
+<span class="sd">        see Imop_HasoSlopes_NewFromModalCoef).</span>
+<span class="sd">        </span>
+<span class="sd">        :param delta_slopes: Slopes delta (stored as HasoSlopes)</span>
+<span class="sd">        :type delta_slopes: HasoSlopes</span>
+<span class="sd">        :return: Array of size actuators count, containing the commands deltas (relatives variations to apply from actuators initial positions)</span>
+<span class="sd">        :rtype: float list[]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">delta_commands</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_actuators_count</span><span class="p">(),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ComputeDeltaCommandFromDeltaSlopes</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">)</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ComputeDeltaCommandFromDeltaSlopes</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">delta_slopes</span><span class="o">.</span><span class="n">hasoslopes</span><span class="p">,</span>
+                <span class="n">delta_commands</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">delta_commands</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : compute_delta_command_from_delta_slopes&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.compute_command_from_modalcoef"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.compute_command_from_modalcoef">[docs]</a>    <span class="k">def</span> <span class="nf">compute_command_from_modalcoef</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">modalcoef</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compute the relative wavefront corrector commands corresponding to a modal coefficients data.</span>
+<span class="sd">        This function uses the CorrDataManager command matrix and wavefront corrector preferences to compute the output command.</span>
+<span class="sd">        Typical application is to compute commands from slopes computed from modal coeffecients data.</span>
+<span class="sd">        </span>
+<span class="sd">        :param modalcoef: ModalCoef </span>
+<span class="sd">        :type modalcoef: ModalCoef</span>
+<span class="sd">        :return: Array of size actuators count, containing the commands deltas (relatives variations to apply from actuators initial positions)</span>
+<span class="sd">        :rtype: float list[]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">delta_commands</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_actuators_count</span><span class="p">(),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ComputeCommandFromModalCoefs</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">)</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ComputeCommandFromModalCoefs</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">modalcoef</span><span class="o">.</span><span class="n">modalcoef</span><span class="p">,</span>
+                <span class="n">delta_commands</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">delta_commands</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : compute_command_from_modalcoef&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.compute_closed_loop_iteration"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.compute_closed_loop_iteration">[docs]</a>    <span class="k">def</span> <span class="nf">compute_closed_loop_iteration</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">delta_slopes</span><span class="p">,</span>
+        <span class="n">do_tilt_check</span><span class="p">,</span>
+        <span class="n">smoothing_params</span><span class="p">,</span>
+        <span class="n">specified_loop_gain</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compute the relative wavefront corrector commands corresponding to a delta_phase variation.</span>
+<span class="sd">        This function uses the CorrDataManager command matrix and wavefront corrector preferences to compute the output command.</span>
+<span class="sd">        Typical application is to compute the delta phase as the difference between the current measured phase</span>
+<span class="sd">        and reference phase (for example, reference phase can be created from a particular set of Zernike coefficients).</span>
+<span class="sd">        </span>
+<span class="sd">        :param delta_slopes: Array of target slopes deltas (stored as HasoSlopes)</span>
+<span class="sd">        :type delta_slopes: HasoSlopes</span>
+<span class="sd">        :param do_tilt_check: Indicates if the computed commands deltas must be adapted to avoid huge tilts</span>
+<span class="sd">        :type do_tilt_check: bool</span>
+<span class="sd">        :param smoothing_params: Closed Loop smoothing params object</span>
+<span class="sd">        :type smoothing_params: LoopSmoothing</span>
+<span class="sd">        :param specified_loop_gain: User specified loop smoothing gain</span>
+<span class="sd">        :type specified_loop_gain: float</span>
+<span class="sd">        :return: Array of size actuators count, containing the commands deltas (relatives variations to apply from actuators initial positions), Loop smoothing gain really applied</span>
+<span class="sd">        :rtype: tuple(float list[], float)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">delta_command</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_actuators_count</span><span class="p">(),</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">)</span>
+            <span class="n">applied_loop_gain</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ComputeClosedLoopIteration</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ComputeClosedLoopIteration</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">delta_slopes</span><span class="o">.</span><span class="n">hasoslopes</span><span class="p">,</span>
+                <span class="n">delta_command</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">do_tilt_check</span><span class="p">),</span>
+                <span class="n">smoothing_params</span><span class="o">.</span><span class="n">loopsmoothing</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">(</span><span class="n">specified_loop_gain</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">applied_loop_gain</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="n">delta_command</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+                <span class="n">applied_loop_gain</span><span class="o">.</span><span class="n">value</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : compute_closed_loop_iteration&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+            
+<div class="viewcode-block" id="CorrDataManager.compute_slopes_from_command"><a class="viewcode-back" href="../../CorrDataManager.html#wavekit_py.io_wavekit_corrdatamanager.CorrDataManager.compute_slopes_from_command">[docs]</a>    <span class="k">def</span> <span class="nf">compute_slopes_from_command</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">command_array</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Simulation of the expected slopes given a wavefront corrector command.</span>
+<span class="sd">        Function returns an error if command is not compliant with the current corrdata_manager wavefront corrector preferences.</span>
+<span class="sd">        </span>
+<span class="sd">        :param command_array: Array of size actuators count, containing for each actuator its current position</span>
+<span class="sd">        :type command_array: float list[]</span>
+<span class="sd">        :return: HasoSlopes object, where the simulated slopes are stored</span>
+<span class="sd">        :rtype: HasoSlopes</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">hasoslopes_out</span> <span class="o">=</span> <span class="n">imop_hslp</span><span class="o">.</span><span class="n">HasoSlopes</span><span class="p">(</span>
+                <span class="n">dimensions</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_specifications</span><span class="p">()</span><span class="o">.</span><span class="n">dimensions</span><span class="p">,</span>
+                <span class="n">serial_number</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_specifications</span><span class="p">()</span><span class="o">.</span><span class="n">haso_serial_number</span>
+                <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ComputeSlopesFromCommand</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_CorrDataManager_ComputeSlopesFromCommand</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">corrdatamanager</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">command_array</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">single</span><span class="p">),</span>
+                <span class="n">hasoslopes_out</span><span class="o">.</span><span class="n">hasoslopes</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">hasoslopes_out</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : compute_slopes_from_command&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Wavekit Python 2020 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" >Module code</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2020, Imagine Optic.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.8.5.
+    </div>
+  </body>
+</html>

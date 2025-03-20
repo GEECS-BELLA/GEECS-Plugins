@@ -1,0 +1,203 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Wavekit_Python::ComputePupil &#8212; Wavekit Python 2020 documentation</title>
+    <link rel="stylesheet" href="_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="_static/language_data.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Wavekit_Python::ComputeSlopes" href="ComputeSlopes.html" />
+    <link rel="prev" title="Wavekit_Python::ComputePhaseSet" href="ComputePhaseSet.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="ComputeSlopes.html" title="Wavekit_Python::ComputeSlopes"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="ComputePhaseSet.html" title="Wavekit_Python::ComputePhaseSet"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">Wavekit Python 2020 documentation</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="module-wavekit_py.io_wavekit_computepupil">
+<span id="wavekit-python-computepupil"></span><h1>Wavekit_Python::ComputePupil<a class="headerlink" href="#module-wavekit_py.io_wavekit_computepupil" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="wavekit_py.io_wavekit_computepupil.ComputePupil">
+<em class="property">class </em><code class="descclassname">wavekit_py.io_wavekit_computepupil.</code><code class="descname">ComputePupil</code><a class="reference internal" href="_modules/wavekit_py/io_wavekit_computepupil.html#ComputePupil"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_computepupil.ComputePupil" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class ComputePupil</p>
+<dl class="staticmethod">
+<dt id="wavekit_py.io_wavekit_computepupil.ComputePupil.apply_neighbor_extension">
+<em class="property">static </em><code class="descname">apply_neighbor_extension</code><span class="sig-paren">(</span><em>pupil_in</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_computepupil.html#ComputePupil.apply_neighbor_extension"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_computepupil.ComputePupil.apply_neighbor_extension" title="Permalink to this definition">¶</a></dt>
+<dd><p>Apply a “NeighborExtension” (Fill) to a Pupil object.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>pupil_in</strong> (<a class="reference internal" href="Pupil.html#wavekit_py.io_wavekit_pupil.Pupil" title="wavekit_py.io_wavekit_pupil.Pupil"><em>Pupil</em></a>) – Pupil object</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">processed Pupil object</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference internal" href="Pupil.html#wavekit_py.io_wavekit_pupil.Pupil" title="wavekit_py.io_wavekit_pupil.Pupil">Pupil</a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="wavekit_py.io_wavekit_computepupil.ComputePupil.apply_shut_of_boundaries">
+<em class="property">static </em><code class="descname">apply_shut_of_boundaries</code><span class="sig-paren">(</span><em>pupil_in</em>, <em>shutoff_radius</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_computepupil.html#ComputePupil.apply_shut_of_boundaries"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_computepupil.ComputePupil.apply_shut_of_boundaries" title="Permalink to this definition">¶</a></dt>
+<dd><p>Apply a “ShutOfBoundaries” (Erosion) to a Pupil object.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>pupil_in</strong> (<a class="reference internal" href="Pupil.html#wavekit_py.io_wavekit_pupil.Pupil" title="wavekit_py.io_wavekit_pupil.Pupil"><em>Pupil</em></a>) – Pupil object</li>
+<li><strong>shutoff_radius</strong> (<em>uint</em>) – Radius of the boundary neighbourood where sub-pupils must be shut off</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">processed Pupil object</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last"><a class="reference internal" href="Pupil.html#wavekit_py.io_wavekit_pupil.Pupil" title="wavekit_py.io_wavekit_pupil.Pupil">Pupil</a></p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="wavekit_py.io_wavekit_computepupil.ComputePupil.fit_legendre_pupil">
+<em class="property">static </em><code class="descname">fit_legendre_pupil</code><span class="sig-paren">(</span><em>pupil_in</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_computepupil.html#ComputePupil.fit_legendre_pupil"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_computepupil.ComputePupil.fit_legendre_pupil" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the geometric parameters of the Legendre pupil from a pupil input.
+This function is not configurable. It takes a user pupil as input and
+detects a square pupil that is as large as possible and entirely inside it.
+If several pupils with the same size suit, one of them is chosen arbitrarily.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>pupil_in</strong> (<a class="reference internal" href="Pupil.html#wavekit_py.io_wavekit_pupil.Pupil" title="wavekit_py.io_wavekit_pupil.Pupil"><em>Pupil</em></a>) – Pupil object</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">Computed Legendre Pupil parameters</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.LegendrePupil_t" title="wavekit_py.io_wavekit_structure.LegendrePupil_t">LegendrePupil_t</a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="wavekit_py.io_wavekit_computepupil.ComputePupil.fit_zernike_pupil">
+<em class="property">static </em><code class="descname">fit_zernike_pupil</code><span class="sig-paren">(</span><em>pupil_in</em>, <em>detection_mode</em>, <em>covering</em>, <em>has_central_occultation=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_computepupil.html#ComputePupil.fit_zernike_pupil"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_computepupil.ComputePupil.fit_zernike_pupil" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute the geometric parameters of the Zernike pupil from a pupil input.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>pupil_in</strong> (<a class="reference internal" href="Pupil.html#wavekit_py.io_wavekit_pupil.Pupil" title="wavekit_py.io_wavekit_pupil.Pupil"><em>Pupil</em></a>) – Pupil object</li>
+<li><strong>detection_mode</strong> (<em>E_PUPIL_DETECTION</em>) – Circular pupil detection mode</li>
+<li><strong>covering</strong> (<em>E_PUPIL_COVERING</em>) – Circular pupil covering mode</li>
+<li><strong>has_central_occultation</strong> (<em>bool</em>) – If pupil has a central occultation, this boolean must be set to true</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">Computed Zernike Pupil parameters</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last"><a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.ZernikePupil_t" title="wavekit_py.io_wavekit_structure.ZernikePupil_t">ZernikePupil_t</a></p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="ComputePhaseSet.html"
+                        title="previous chapter">Wavekit_Python::ComputePhaseSet</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="ComputeSlopes.html"
+                        title="next chapter">Wavekit_Python::ComputeSlopes</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/ComputePupil.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="ComputeSlopes.html" title="Wavekit_Python::ComputeSlopes"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="ComputePhaseSet.html" title="Wavekit_Python::ComputePhaseSet"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">Wavekit Python 2020 documentation</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2020, Imagine Optic.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.8.5.
+    </div>
+  </body>
+</html>
