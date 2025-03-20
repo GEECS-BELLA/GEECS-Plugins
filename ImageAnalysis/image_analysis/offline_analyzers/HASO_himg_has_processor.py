@@ -1,22 +1,24 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Optional, Union
 from pathlib import Path
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
-    from image_analysis.types import Array2D, QuantityArray2D
+    from image_analysis.types import Array2D
 
 try:
     import image_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
-except Exception as e:
-    print("could not import wkpy, e.g. might be running on non windows machine")
+except ModuleNotFoundError as e:
+    errmsg = "could not import wkpy, e.g. might be running on non windows machine"
+    e.add_note(errmsg)
     raise
 
 import logging
 import numpy as np
 
-from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
+from image_analysis.base import ImageAnalyzer
+
 from image_analysis.utils import ROI
 
 from dataclasses import dataclass
@@ -30,52 +32,48 @@ class FilterParameters:
     apply_astig45_filter: bool = True
     apply_others_filter: bool = False
 
-class HASOHimgHasProcessor(BasicImageAnalyzer):
+@dataclass
+class HasoHimgHasConfig:
+    """
+    Configuration parameters for HasoHimg processor.
+
+    Attributes:
+        roi: Optional[Tuple[int, int, int, int]]
+          Region of interest (x_min, x_max, y_min, y_max) to crop the phase data.
+        background_path: Path
+          path to a slopes file for bkg subtraction.
+        laser_wavelength: float
+          Probe laser wavelength in nanometers.
+    """
+    roi: ROI = ROI(top=None, bottom=None, left=None, right=None)
+    background_path: Path = None
+    laser_wavelength: float = 800  # in nanometer
+
+    # global path to the wavekit config file for the specific serial number of HASO
+    wakekit_config_file_path: Path = Path('C:/GEECS/Developers Version/source/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
+
+
+
+class HASOHimgHasProcessor(ImageAnalyzer):
 
     # Default filter parameters as a class attribute
     default_filter_params = FilterParameters()
 
-    def __init__(self, 
-                 roi: ROI = ROI(top=None, bottom=None, left=None, right=None),
-                 medium: str = 'plasma',
-                 background_path: Path = None,
-                 on_no_background: str = 'warn',
-
-                 laser_wavelength: float = 800, #in nanmeter
-                ):
+    def __init__(self, config: HasoHimgHasConfig = HasoHimgHasConfig()):
         """
         Parameters
         ----------
-        roi : ROI
-            Region of interest, as top, bottom (where top < bottom), left, right.
-        medium : str
-            One of 'plasma', 'gas/He', 'gas/N', for calculating density from Abel-
-            inverted wavefront.
-        background_path : Path
-            A file or folder containing interferograms to use as background.
-        on_no_background : str
-            What to do if no background is set explicitly and no background path is
-            given. 
-                'raise': raise ValueError
-                'warn': return wavefront with no background subtraction and issue warning
-                'ignore': return wavefrtont with no background subtraction and don't
-                          issue warning.
-
-        laser_wavelength : [length] Quantity
-            of imaging laser
-
+        config : HasoHimgHasConfig
+            configuration for processing the .himg and .has files. contains roi, bkg and laser wavelength
+            information
         """
 
-        self.roi = roi
-        self.medium = medium
-        self.background: Optional[QuantityArray2D] = None
-        self.on_no_background: str = on_no_background
+        self.roi = config.roi
 
         # for loading backgrounds on the fly. 
-        self.background_path: Path = background_path
-        self.background_cache: dict[tuple[Path, ROI], Array2D] = {}
+        self.background_path = config.background_path
 
-        self.laser_wavelength = laser_wavelength
+        self.laser_wavelength = config.laser_wavelength
 
         # Use default filter parameters from class attribute
         self.filter_params = HASOHimgHasProcessor.default_filter_params
@@ -85,12 +83,15 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
         self.raw_slopes: wkpy.HasoSlopes = None
         self.processed_slopes: wkpy.HasoSlopes = None
 
-        super().__init__()
-        config_file_path = Path('C:/GEECS/Developers Version/source/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
+        super().__init__(config = config)
 
-        self.instantiate_wavekit_resources(config_file_path=config_file_path)
+        self.wakekit_config_file_path = config.wakekit_config_file_path
+
+        self.instantiate_wavekit_resources(config_file_path=self.wakekit_config_file_path)
 
         self.run_analyze_image_asynchronously = False
+
+        self.image_file_path: Path = None
 
     def _log_info(self, message: str, *args, **kwargs):
         """Log an info message if logging is enabled."""
@@ -122,6 +123,7 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
             # Set preferences with an arbitrary subpupil and denoising strength.
             start_subpupil = wkpy.uint2D(87, 64)
             denoising_strength = 0.0
+
             self.hasoengine.set_preferences(start_subpupil, denoising_strength, False)
 
             self.compute_phase_set = wkpy.ComputePhaseSet(type_phase=wkpy.E_COMPUTEPHASESET.ZONAL)
@@ -134,22 +136,20 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
                 f"Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file")
             raise
 
-    def analyze_image(self, image: NDArray = None, file_path: Path = None) -> Tuple[wkpy.HasoSlopes, wkpy.HasoSlopes, NDArray, NDArray, NDArray]:
+    def load_image(self, file_path:Path) -> Array2D:
         """
-        Create phase map from a .himg or .has file.
+         Create phase map from a .himg or .has file.
 
-        Parameters:
-            image (NDArray): None. This part of the signature for the base class, but this analyzer
-                requires loading of the image and processing with a third party SDK
-            file_path: Path to the image file.
+         Parameters:
+             file_path: Path to the image file.
 
-        Returns:
-            A dictionary containing results (e.g., phase map and/or related parameters).
+         Returns:
+             image: Array2D.
 
-        Raises:
-            ValueError: If the file type is not supported.
-        """
-        self.file_path = file_path
+         Raises:
+             ValueError: If the file type is not supported.
+         """
+        self.image_file_path = file_path
         ext = file_path.suffix.lower()
         self._log_info(f'extension is {ext}')
         if ext == ".himg":
@@ -172,9 +172,26 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
         result = self.raw_slopes, self.processed_slopes, raw_phase, processed_phase, haso_intensity
         self.save_individual_results(result)
 
-        return_dict = self.build_return_dictionary(return_lineouts=processed_phase)
+        image = Array2D(processed_phase)
 
-        return return_dict
+        return image
+
+    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None) -> dict[str, Union[float, int, str, np.ndarray]]:
+        """
+        Create phase map from a .himg or .has file.
+
+        Parameters:
+            image (NDArray): None. This part of the signature for the base class, but this analyzer
+                requires loading of the image and processing with a third party SDK
+
+        Returns:
+            A dictionary containing results (e.g., phase map and/or related parameters).
+
+        Raises:
+            ValueError: If the file type is not supported.
+        """
+
+        return  self.build_return_dictionary(return_lineouts=image)
 
     def create_slopes_object_from_himg(self, image_file_path: Path) -> wkpy.HasoSlopes:
         """
@@ -259,6 +276,8 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
         # Reset all values to False
         bool_array.fill(False)
 
+        self.roi.crop(bool_array)
+
         # Apply the ROI, ensuring indices are within bounds
         x_start, x_end = max(0, x_start), min(cols, x_end)
         y_start, y_end = max(0, y_start), min(rows, y_end)
@@ -304,8 +323,8 @@ class HASOHimgHasProcessor(BasicImageAnalyzer):
 
     def save_individual_results(self, result):
 
-        base_file_path = self.file_path.parent
-        file_stem = self.file_path.stem
+        base_file_path = self.image_file_path.parent
+        file_stem = self.image_file_path.stem
         logging.info(f'base file path is {base_file_path}')
         # Unpack the returned tuple.
         raw_slopes, processed_slopes, raw_phase, processed_phase, intensity = result
@@ -345,6 +364,6 @@ if __name__ == "__main__":
     path_to_himg = Path('Z:/data/Undulator/Y2025/03-Mar/25_0306/scans/Scan055/U_HasoLift/Scan055_U_HasoLift_061.himg')
     path_to_has = Path('Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001_raw.has')
 
-    haso_processor = HASOHimgHasProcessor()
-    print(haso_processor.roi)
-    haso_processor.analyze_image(file_path = path_to_himg)
+    roi = ROI(top=75, bottom=-250, left=10, right=-10)
+    haso_processor = HASOHimgHasProcessor(roi = roi)
+    haso_processor.analyze_image_file(image_filepath = path_to_himg)
