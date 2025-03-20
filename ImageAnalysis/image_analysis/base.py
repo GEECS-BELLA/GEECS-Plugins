@@ -58,7 +58,6 @@ class ImageAnalyzer:
 
                 super().__init__()
 
-
         New:
             config: Optional[Any]
                 Optional configuration data (e.g., a dictionary, file path, or configuration object)
@@ -98,6 +97,49 @@ class ImageAnalyzer:
 
         """
         raise NotImplementedError()
+
+    def analyze_image_file(self,
+                           image_filepath: Path,
+                           auxiliary_data: Optional[dict] = None
+                           )-> dict[str, Union[float, int, str, np.ndarray]]:
+        """
+        Method to enable the use of a file path rather than Array2D.
+
+         Parameters
+         ----------
+         image_filepath : Path
+
+        Returns
+        -------
+        analysis : dict[str, Union[float, np.ndarray]]
+            metric name as key. value can be a float, int, str, 1d array, 2d array, etc.
+
+        """
+
+        image = self.load_image(image_filepath)
+
+        return self.analyze_image(image, auxiliary_data)
+
+    def load_image(self, file_path:Path)->Array2D:
+        """
+        load an image from a path. By default, the read_imaq_png function is used.
+        For file types not directly supported by this method, e.g. .himg files from a
+        Haso device type, this method be implemented in that device's ImageAnalyzer
+        subclass.
+
+         Parameters
+         ----------
+         file_path : Path
+
+         Returns
+         -------
+         image : Array2D
+        """
+
+        image = Array2D(read_imaq_image(file_path))
+
+        return image
+
 
     def build_return_dictionary(self, return_image: Optional[NDArray] = None,
                                 return_scalars: Optional[dict[str, Union[int, float]]] = None,
@@ -176,49 +218,6 @@ class ImageAnalyzer:
             "analyzer_return_lineouts": return_lineouts,
         }
         return return_dictionary
-
-    def analyze_image_file(self,
-                           image_filepath: Path,
-                           auxiliary_data: Optional[dict] = None
-                           )-> dict[str, Union[float, int, str, np.ndarray]]:
-        """
-        Method to enable the use of a file path rather than Array2D.
-
-         Parameters
-         ----------
-         image_filepath : Path
-
-        Returns
-        -------
-        analysis : dict[str, Union[float, np.ndarray]]
-            metric name as key. value can be a float, int, str, 1d array, 2d array, etc.
-
-        """
-
-        image = self.load_image(image_filepath)
-
-        return self.analyze_image(image, auxiliary_data)
-
-    @staticmethod
-    def load_image(file_path:Path)->Array2D:
-        """
-        load an image from a path. By default, the read_imaq_png function is used.
-        For file types not directly supported by this method, e.g. .himg files from a
-        Haso device type, this method be implemented in that device's ImageAnalyzer
-        subclass.
-
-         Parameters
-         ----------
-         file_path : Path
-
-         Returns
-         -------
-         image : Array2D
-        """
-
-        image = Array2D(read_imaq_image(file_path))
-
-        return image
 
 
     def build_input_parameter_dictionary(self) -> dict:
