@@ -96,7 +96,8 @@ class TestUC_BeamSpot(unittest.TestCase):
                 start_time = time.time()
                 charge_return = copy_of_Undulator_Exit_ICT(data, dt=4e-9, crit_f=0.125)
                 print("    Computation time:", time.time()-start_time, "s")
-                assert time.time()-start_time < 0.1
+                if DO_PLOT is False:
+                    assert time.time()-start_time < 0.1
                 assert charge_return == ict_analysis.Undulator_Exit_ICT(data, dt=4e-9, crit_f=0.125)
                 print("    Charge:", charge_return, "pC")
 
@@ -123,7 +124,8 @@ class TestUC_BeamSpot(unittest.TestCase):
                     start_time = time.time()
                     charge_return = copy_of_B_Cave_ICT(data, dt=4e-9, crit_f=0.125)
                     print("    Computation time:", time.time() - start_time, "s")
-                    assert time.time() - start_time < 0.1
+                    if DO_PLOT is False:
+                        assert time.time() - start_time < 0.1
                     assert charge_return == ict_analysis.B_Cave_ICT(data, dt=4e-9, crit_f=0.125)
                     print("    Charge:", charge_return, "pC")
 
