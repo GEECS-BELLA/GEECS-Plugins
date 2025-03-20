@@ -241,14 +241,24 @@ class ScanWatch:
 
     def _read_yaml_file(self) -> dict:
         """ Read yaml file for the dictionary """
-        contents = None
-        if self.processed_list_filename.exists():
-            try:
-                with open(self.processed_list_filename, 'r') as file:
-                    contents = yaml.safe_load(file) or []
-            except FileNotFoundError:  # Rare race condition.  In this case don't worry about new data
-                logging.warning(f"Could not read {self.processed_list_filename}: temporarily unavailable.")
-        return contents
+        attempts = 0
+        while attempts < 3:
+            if self.processed_list_filename.exists():
+                try:
+                    with open(self.processed_list_filename, 'r') as file:
+                        contents = yaml.safe_load(file) or {}
+                    logging.info(f"Read scans from '{self.processed_list_filename}'.")
+                    return contents
+
+                except FileNotFoundError:  # Race condition or network issue
+                    logging.warning(f"Could not read {self.processed_list_filename}: temporarily unavailable.")
+                    attempts += 1
+                    time.sleep(secs=1)
+        logging.warning(f"Max attempts reached, did not write to '{self.processed_list_filename}'.")
+        if attempts > 3:
+            raise FileNotFoundError(f"Max attempts reached, did not write to '{self.processed_list_filename}'.")
+        else:
+            return {}
 
     def _write_processed_list(self):
         """ Update yaml file with the new processed list """
@@ -259,8 +269,20 @@ class ScanWatch:
         else:
             data = recursive_update(data, new_contents)
 
-        with open(self.processed_list_filename, 'w') as file:
-            yaml.safe_dump(data, file)
+        attempts = 0
+        while attempts < 3:
+            try:
+                with open(self.processed_list_filename, 'w') as file:
+                    yaml.safe_dump(data, file)
+                logging.info(f"Wrote scans to '{self.processed_list_filename}'.")
+                return
+
+            except FileNotFoundError:  # Race condition or network issue
+                logging.warning(f"Failed attempt writing to '{self.processed_list_filename}': temporarily unavailable.")
+                attempts += 1
+                time.sleep(secs=1)
+        logging.warning(f"Max attempts reached, did not write to '{self.processed_list_filename}'.")
+        raise FileNotFoundError(f"Max attempts reached, did not write to '{self.processed_list_filename}'.")
 
 
 def recursive_update(base: dict, new: dict) -> dict:
