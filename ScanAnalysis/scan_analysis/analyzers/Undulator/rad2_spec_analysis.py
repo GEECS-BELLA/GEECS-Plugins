@@ -28,7 +28,7 @@ from online_analysis.HTU.picoscope_ICT_analysis import Undulator_Exit_ICT
 
 class Rad2SpecAnalysis(CameraImageAnalysis):
     def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True,
-                 visa_station: Optional[int] = None, debug_mode: bool = False, background_mode: bool = False,
+                 visa_station: Optional[int] = None, debug_mode: bool = False, force_background_mode: bool = False,
                  update_undulator_exit_ict: bool = True):
         super().__init__(scan_tag=scan_tag, device_name='UC_UndulatorRad2', skip_plt_show=skip_plt_show)
 
@@ -56,7 +56,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         self.visa_station = visa_station
 
         self.debug_mode = debug_mode
-        self.background_mode = background_mode
+        self.background_mode = ScanData.is_background_scan(tag=self.tag) if not force_background_mode else True
         self.update_undulator_exit_ict = update_undulator_exit_ict
 
         self.incoherent_signal_fit: Optional[tuple[float, float]] = None
@@ -208,7 +208,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                     visa_intensity_arr[i] = 0
 
         # # # #  If on 'background' mode, make a linear fit of the data on shots with ~100% charge transmission  # # # #
-        if self.background_mode and valid:
+        if self.background_mode and valid is not None:
             x_axis = charge[valid]
             y_axis = photons_arr[valid]
             fit = np.polyfit(x_axis[(x_axis > 20) & (x_axis < 250)], y_axis[(x_axis > 20) & (x_axis < 250)], 1)
@@ -230,8 +230,8 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         raw_photons_arr = np.copy(photons_arr)
         top_shots_string = ""
         p = None
-        x = None
-        if self.incoherent_signal_fit is not None:
+        x = np.linspace(np.min(charge), np.max(charge))
+        if self.background_mode is False and self.incoherent_signal_fit is not None:
             # First, correct the signal by shifting the zero signals to correspond to 0 on the linear fit's intercept
             x_intercept = -self.incoherent_signal_fit[1] / self.incoherent_signal_fit[0]
             for i in range(len(charge)):
@@ -243,7 +243,6 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             # Next, build the linear slope to represent the incoherent signal and organize the shots by brightness
 
             p = np.poly1d([self.incoherent_signal_fit[0], 0])
-            x = np.linspace(np.min(charge), np.max(charge))
             if not self.background_mode:
                 combined = list(zip(range(len(charge)), charge, photons_arr))
                 sorted_combined = sorted(combined, key=lambda info: info[2])
@@ -260,7 +259,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         plt.figure(figsize=(5.5, 4))
 
         plt.scatter(charge, photons_arr, label="1st Order", marker="+", c=color_scheme, cmap=cmap_type)
-        if self.background_mode and valid:
+        if self.background_mode and valid is not None:
             plt.scatter(charge[valid], photons_arr[valid], label="Valid Shots", marker="+", c='r')
         # plt.yscale('log')
 
@@ -277,6 +276,10 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         if top_shots_string:
             plt.text(0.05, 0.95, top_shots_string, transform=plt.gca().transAxes,
                      fontsize=8, verticalalignment='top')
+        if self.background_mode and self.incoherent_signal_fit is not None:
+            fit_information = f"Fit: [ {self.incoherent_signal_fit[0]:.4f}, {self.incoherent_signal_fit[1]:.4f} ]"
+            plt.text(0.45, 0.10, fit_information, transform=plt.gca().transAxes,
+                     fontsize=10, verticalalignment='top')
         if color_label:
             plt.colorbar(label=color_label)
         plt.legend()
@@ -302,7 +305,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         if not self.background_mode:
             self.append_to_sfile({'UC_Rad2_CameraCounts': raw_photons_arr})
             logging.info("Wrote camera counts to sfile")
-            if p:
+            if p is not None:
                 estimated_gain = np.where(charge > 5, photons_arr / p(charge), 0)
                 self.append_to_sfile({'UC_Rad2_EstimatedGain': estimated_gain})
                 logging.info("Wrote estimated gain to sfile")
@@ -388,5 +391,5 @@ if __name__ == "__main__":
 
     tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=25, experiment_name='Undulator')
     analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False,
-                                background_mode=False, update_undulator_exit_ict=True)
+                                force_background_mode=False, update_undulator_exit_ict=True)
     analyzer.run_analysis()
