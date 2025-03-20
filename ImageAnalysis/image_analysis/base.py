@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Optional, Union, Type, Any
 if TYPE_CHECKING:
     from .types import Array2D
 
-from utils import read_imaq_image
+from image_analysis.utils import read_imaq_image
 
 
 class ImageAnalyzer:
