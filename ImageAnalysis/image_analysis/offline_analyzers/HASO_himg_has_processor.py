@@ -42,14 +42,13 @@ class HasoHimgHasConfig:
     Configuration parameters for HasoHimg processor.
 
     Attributes:
-        roi: Optional[Tuple[int, int, int, int]]
-          Region of interest (x_min, x_max, y_min, y_max) to crop the phase data.
+        mask: SlopesMask
         background_path: Path
           path to a slopes file for bkg subtraction.
         laser_wavelength: float
           Probe laser wavelength in nanometers.
     """
-    roi: SlopesMask = SlopesMask(top=1, bottom=-1, left=1, right=-1)
+    mask: SlopesMask = SlopesMask(top=1, bottom=-1, left=1, right=-1)
     background_path: Path = None
     laser_wavelength: float = 800  # in nanometer
 
@@ -66,11 +65,11 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         Parameters
         ----------
         config : HasoHimgHasConfig
-            configuration for processing the .himg and .has files. contains roi, bkg and laser wavelength
+            configuration for processing the .himg and .has files. contains mask, bkg and laser wavelength
             information
         """
 
-        self.roi = config.roi
+        self.mask = config.mask
 
         # for loading backgrounds on the fly. 
         self.background_path = config.background_path
@@ -94,6 +93,16 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         self.run_analyze_image_asynchronously = False
 
         self.image_file_path: Path = None
+
+    def __getstate__(self):
+        # Make a copy of the instance's dictionary.
+        state = self.__dict__.copy()
+        # Remove or clear non-pickleable attributes. Necessary for use with parallel processing
+        # in Array2DScanAnalysis
+        state['shock_angle_fig'] = None
+        state['shock_grad_fig'] = None
+        state['delta_plateau_fig'] = None
+        return state
 
     def _log_info(self, message: str, *args, **kwargs):
         """Log an info message if logging is enabled."""
@@ -238,35 +247,32 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
     def apply_mask(self):
         """
-        mask a hasoslopes object with a rectangular ROI.
+        mask a hasoslopes object with a rectangular mask.
         The pupil objects are not well documented in the SDK manual
         so it's not straightforward to generate an arbitray pupil and apply it.
         Here, we read the pupil buffer from the existing hasoslopes object,
         which is a 2D array of bools. We set everythign to false, then use
-        apply_roi to set a specificed rectangular ROI to true. This then gets
+        get_mask to set a specificed rectangular mask to true. This then gets
         applied to the slopes using the sdk method apply_pupil
         """
 
         self.pupil = wkpy.Pupil(hasoslopes=self.processed_slopes)
         pupil_buffer = self.pupil.get_data()
-        new_mask = self.apply_roi(pupil_buffer, 10,-10,75,-250)
+        new_mask = self.get_mask(pupil_buffer)
         self.pupil.set_data(datas=new_mask)
         self.processed_slopes = self.post_processor.apply_pupil(self.processed_slopes, self.pupil)
 
-    def apply_roi(self, bool_array, x_start, x_end, y_start, y_end):
+    def get_mask(self, bool_array):
         """
-        Takes a 2D boolean NumPy array, resets it to False, and applies a region of interest (ROI)
+        Takes a 2D boolean NumPy array, resets it to False, and applies a mask
         where values are set to True within the given x and y bounds.
 
         Parameters:
         - bool_array (np.ndarray): Input 2D boolean array.
-        - x_start (int): Starting column index (inclusive).
-        - x_end (int): Ending column index (exclusive).
-        - y_start (int): Starting row index (inclusive).
-        - y_end (int): Ending row index (exclusive).
+
 
         Returns:
-        - np.ndarray: Updated boolean array with the applied ROI.
+        - np.ndarray: Updated boolean array with the applied mask.
         """
 
         # Ensure input is a NumPy array
@@ -278,9 +284,9 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         # Reset all values to False
         bool_array.fill(False)
 
-        # Apply the ROI, ensuring indices are within bounds
-        x_start, x_end = max(0, self.roi.left), min(cols, self.roi.right)
-        y_start, y_end = max(0, self.roi.top), min(rows, self.roi.bottom)
+        # Apply the mask, ensuring indices are within bounds
+        x_start, x_end = max(0, self.mask.left), min(cols, self.mask.right)
+        y_start, y_end = max(0, self.mask.top), min(rows, self.mask.bottom)
 
         bool_array[y_start:y_end, x_start:x_end] = True
 
@@ -364,8 +370,10 @@ if __name__ == "__main__":
     # path_to_himg = Path('Z:/data/Undulator/Y2025/03-Mar/25_0306/scans/Scan055/U_HasoLift/Scan055_U_HasoLift_061.himg')
     path_to_has = Path('Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001_raw.has')
 
-    roi = SlopesMask(top=75, bottom=246, left=10, right=670)
+    mask = SlopesMask(top=75, bottom=246, left=10, right=670)
     analysis_config = HasoHimgHasConfig()
-    analysis_config.roi = roi
-    haso_processor = HASOHimgHasProcessor(config = analysis_config)
+    analysis_config.mask = mask
+    # haso_processor = HASOHimgHasProcessor(config = analysis_config)
+    haso_processor = HASOHimgHasProcessor()
+
     haso_processor.analyze_image_file(image_filepath = path_to_himg)
