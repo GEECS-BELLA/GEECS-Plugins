@@ -55,6 +55,16 @@ class ScanAnalysisTestCase(unittest.TestCase):
         scan_images = ScanImages(scan, "UC_VisaEBeam3")
         scan_analysis = ScanAnalysis(scan, scan_images, key_device="U_S1H")
 
+    def test_background_check(self):
+        experiment_name = 'Undulator'
+        background_scan_tag = ScanData.get_scan_tag(year=25, month=3, day=6, number=24, experiment='Undulator')
+        normal_scan_tag = ScanData.get_scan_tag(year=25, month=3, day=6, number=25, experiment="Undulator")
+        old_scan_tag = ScanData.get_scan_tag(year=2023, month=8, day=9, number=4, experiment="Undulator")
+
+        assert ScanData.is_background_scan(tag=background_scan_tag) == True
+        assert ScanData.is_background_scan(tag=normal_scan_tag) == False
+        assert ScanData.is_background_scan(tag=old_scan_tag) == False
+
 
 if __name__ == "__main__":
     unittest.main()

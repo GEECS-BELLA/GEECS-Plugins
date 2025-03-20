@@ -384,6 +384,34 @@ class ScanData:
         next_tag = ScanData.get_next_scan_tag(experiment, year, month, day, base_directory=base_directory)
         return ScanData(tag=next_tag, load_scalars=False, read_mode=False, base_directory=base_directory)
 
+    @staticmethod
+    def is_background_scan(tag: ScanTag, base_directory: Optional[Union[Path, str]] = None) -> bool:
+        """
+        Checks if the given scan tag references a scan that was designated as a background
+
+        Parameters:
+        ----------
+        tag : ScanTag
+            The scan tag containing year, month, day, and scan number.
+        base_directory : Optional[Union[Path, str]], optional
+            Base directory for the scan (default: CONFIG.local_base_path).
+
+        Returns:
+        -------
+        bool
+            True if scan was explictly set as a Background scan, False otherwise
+        """
+
+        scan_folder = ScanData.get_scan_folder_path(tag=tag, base_directory=base_directory)
+        config_filename = scan_folder / f"ScanInfoScan{tag.number:03d}.ini"
+
+        config = ConfigParser()
+        config.read(config_filename)
+
+        if config.has_section('Scan Info') and config.has_option('Scan Info', 'Background'):
+            return config.get('Scan Info', 'Background').strip().lower() == '"true"'
+        return False
+
     def get_folder(self) -> Optional[Path]:
         return self.__folder
 
