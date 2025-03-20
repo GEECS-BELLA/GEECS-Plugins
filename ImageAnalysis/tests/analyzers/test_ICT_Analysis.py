@@ -23,12 +23,17 @@ def copy_of_analysis(data, dt, crit_f, calib):
     value = np.array(data)
     bkg = np.mean(value[0:100])
 
-    sinusoidal_background = ict_analysis.get_sinusoidal_noise(data=data, background_region=(0, 2500))
+    signal_location = np.argmin(data)
+    background_end = signal_location - 200 if signal_location > 200 else signal_location-10
+    if background_end <= 0:
+        return 0
+    sinusoidal_background = ict_analysis.get_sinusoidal_noise(data=data, background_region=(0, background_end))
 
     if DO_PLOT:
         axis = np.arange(len(value))
         plt.plot(axis, value, c='b')
         plt.plot([axis[0], axis[-1]], [bkg, bkg], ls='--', c='k')
+        plt.plot([background_end, background_end], [np.min(value), np.max(value)], ls='dotted', c='g')
         plt.plot(axis, sinusoidal_background, ls='--', c='r')
         plt.show()
 
@@ -54,17 +59,18 @@ def copy_of_Undulator_Exit_ICT(data, dt, crit_f):
     return charge_pC
 
 class TestUC_BeamSpot(unittest.TestCase):
-    scan_number = 24
+    scan_day = 7  # 6
+    scan_number = 56  # 24
 
     def get_acave_tdms_file(self, shot_number: int):
         device = 'U_UndulatorExitICT'
-        data_folder = f'Z:\\data\\Undulator\\Y2025\\03-Mar\\25_0306\\scans\\Scan{self.scan_number:03d}\\{device}\\'
+        data_folder = f'Z:\\data\\Undulator\\Y2025\\03-Mar\\25_03{self.scan_day:02d}\\scans\\Scan{self.scan_number:03d}\\{device}\\'
         shot_prefix = f'Scan{self.scan_number:03d}_{device}'
         return data_folder + shot_prefix + f'_{shot_number:03d}' + '.tdms'
 
     def get_bcave_tdms_file(self, shot_number: int):
         device = 'U_BCaveICT'
-        data_folder = f'Z:\\data\\Undulator\\Y2025\\03-Mar\\25_0306\\scans\\Scan{self.scan_number:03d}\\{device}\\'
+        data_folder = f'Z:\\data\\Undulator\\Y2025\\03-Mar\\25_03{self.scan_day:02d}\\scans\\Scan{self.scan_number:03d}\\{device}\\'
         shot_prefix = f'Scan{self.scan_number:03d}_{device}'
         return data_folder + shot_prefix + f'_{shot_number:03d}' + '.tdms'
 
@@ -95,8 +101,8 @@ class TestUC_BeamSpot(unittest.TestCase):
 
                 start_time = time.time()
                 charge_return = copy_of_Undulator_Exit_ICT(data, dt=4e-9, crit_f=0.125)
-                print("    Computation time:", time.time()-start_time, "s")
                 if DO_PLOT is False:
+                    print("    Computation time:", time.time() - start_time, "s")
                     assert time.time()-start_time < 0.1
                 assert charge_return == ict_analysis.Undulator_Exit_ICT(data, dt=4e-9, crit_f=0.125)
                 print("    Charge:", charge_return, "pC")
@@ -123,8 +129,8 @@ class TestUC_BeamSpot(unittest.TestCase):
 
                     start_time = time.time()
                     charge_return = copy_of_B_Cave_ICT(data, dt=4e-9, crit_f=0.125)
-                    print("    Computation time:", time.time() - start_time, "s")
                     if DO_PLOT is False:
+                        print("    Computation time:", time.time() - start_time, "s")
                         assert time.time() - start_time < 0.1
                     assert charge_return == ict_analysis.B_Cave_ICT(data, dt=4e-9, crit_f=0.125)
                     print("    Charge:", charge_return, "pC")
@@ -136,7 +142,8 @@ class TestUC_BeamSpot(unittest.TestCase):
 
         if do_bcave_comparison:
             plt.scatter(bcave_charge, acave_charge, c='b', label='all shots')
-            plt.plot([0, 200], [0, 200], c='k', ls='--', label='slope = 1')
+            max_range = max(np.max(bcave_charge), np.max(acave_charge))*1.2
+            plt.plot([0, max_range], [0, max_range], c='k', ls='--', label='slope = 1')
             plt.legend()
             plt.xlabel("BCaveICT Charge (pC)")
             plt.ylabel("UndulatorExitICT Charge (pC)")

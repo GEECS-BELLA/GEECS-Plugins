@@ -97,7 +97,11 @@ def get_sinusoidal_noise(data, background_region: tuple[int, int]):
 def test_func(data, dt, crit_f, calib):
     value = np.array(data)
 
-    sinusoidal_background = get_sinusoidal_noise(data=data, background_region=(0, 2500))
+    signal_location = np.argmin(data)
+    background_end = signal_location - 200 if signal_location > 200 else signal_location-10
+    if background_end <= 0:
+        return 0
+    sinusoidal_background = get_sinusoidal_noise(data=data, background_region=(0, background_end))
     value = value - sinusoidal_background
 
     value = np.array(apply_butterworth_filter(value, order=int(1), crit_f=crit_f))
