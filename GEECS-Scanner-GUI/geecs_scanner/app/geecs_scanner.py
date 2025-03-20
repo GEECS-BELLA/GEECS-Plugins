@@ -858,6 +858,8 @@ class GEECSScannerWindow(QMainWindow):
             raise ValueError("Shots per step must be greater than zero")
         elif abs((self.scan_stop - self.scan_start) / self.scan_step_size) * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
             raise ValueError("Number of shots exceeds maximum scan size")
+        elif self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
+            raise ValueError("Number of shots exceeds maximum scan size")
         else:
             array = []
             current = self.scan_start
