@@ -267,6 +267,7 @@ def test_adjusting_scan_parameters(app, qtbot: QtBot):
 
 
 def test_scan_preset(app, qtbot: QtBot):
+    """ Tests saving, loading, and deleting presets """
     assert app.ui.listScanPresets.count() == 0
 
     try:  # Checks that the button is connected to the right function, but will not be able to save presets this way
@@ -276,11 +277,40 @@ def test_scan_preset(app, qtbot: QtBot):
         assert True
 
     app.save_current_preset(filename="blank")
+    assert app.ui.listScanPresets.count() == 1
 
     app.ui.foundDevices.setCurrentRow(0)
     qtbot.mouseClick(app.ui.addDeviceButton, Qt.LeftButton)
     qtbot.mouseClick(app.ui.scanRadioButton, Qt.LeftButton)
-    app.ui.lineScanVariable.setText()
+    app.ui.lineScanVariable.setText(app.scan_variable_list[0])
+
+    app.save_current_preset(filename="test")
+    assert app.ui.listScanPresets.count() == 2
+    assert app.ui.noscanRadioButton.isChecked() is False
+
+    app.ui.listScanPresets.setCurrentRow(0)
+    app.apply_preset()  # Double-clicking is not possible, just calling the function
+    assert app.ui.selectedDevices.count() == 0
+    assert app.ui.noscanRadioButton.isChecked() is True
+    assert app.ui.lineScanVariable.text() == ""
+    assert int(float(app.ui.lineNumShots.text())) == 100
+
+    app.ui.listScanPresets.setCurrentRow(1)
+    app.apply_preset()
+    assert app.ui.selectedDevices.count() == 1
+    assert app.ui.scanRadioButton.isChecked() is True
+    assert app.ui.lineScanVariable.text() == app.scan_variable_list[0]
+
+    app.ui.listScanPresets.setCurrentRow(0)
+    app.apply_preset()
+    app.ui.listScanPresets.setCurrentRow(1)
+    app.delete_selected_preset()
+    assert app.ui.listScanPresets.count() == 1
+    app.ui.listScanPresets.setCurrentRow(0)
+    app.delete_selected_preset()
+    assert app.ui.listScanPresets.count() == 0
+    assert app.ui.selectedDevices.count() == 0
+    assert int(float(app.ui.lineNumShots.text())) == 100
 
 
 # Test calculating number of shots
