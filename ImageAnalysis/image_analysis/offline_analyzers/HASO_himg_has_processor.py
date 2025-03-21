@@ -88,21 +88,13 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
         self.wakekit_config_file_path = config.wakekit_config_file_path
 
-        self.instantiate_wavekit_resources(config_file_path=self.wakekit_config_file_path)
+        # self.instantiate_wavekit_resources(config_file_path=self.wakekit_config_file_path)
 
         self.run_analyze_image_asynchronously = False
 
         self.image_file_path: Path = None
 
-    def __getstate__(self):
-        # Make a copy of the instance's dictionary.
-        state = self.__dict__.copy()
-        # Remove or clear non-pickleable attributes. Necessary for use with parallel processing
-        # in Array2DScanAnalysis
-        state['shock_angle_fig'] = None
-        state['shock_grad_fig'] = None
-        state['delta_plateau_fig'] = None
-        return state
+        self.wavekit_resources_instantiated = False
 
     def _log_info(self, message: str, *args, **kwargs):
         """Log an info message if logging is enabled."""
@@ -160,6 +152,10 @@ class HASOHimgHasProcessor(ImageAnalyzer):
          Raises:
              ValueError: If the file type is not supported.
          """
+        if not self.wavekit_resources_instantiated:
+            self.instantiate_wavekit_resources(config_file_path = self.wakekit_config_file_path)
+            self.wavekit_resources_instantiated = True
+
         self.image_file_path = file_path
         ext = file_path.suffix.lower()
         self._log_info(f'extension is {ext}')

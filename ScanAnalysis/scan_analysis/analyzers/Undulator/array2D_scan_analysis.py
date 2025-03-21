@@ -64,7 +64,8 @@ from matplotlib.colors import Normalize
 import imageio as io
 
 from scan_analysis.base import ScanAnalysis
-from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
+from image_analysis.base import ImageAnalyzer
+
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 import traceback
@@ -75,7 +76,7 @@ class Array2DScanAnalysis(ScanAnalysis):
 
     def __init__(self, scan_tag: ScanTag,
                  device_name: str,
-                 image_analyzer: Optional[BasicImageAnalyzer] = None,
+                 image_analyzer: Optional[ImageAnalyzer] = None,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
                  flag_save_images: bool = True):
@@ -95,7 +96,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         super().__init__(scan_tag, device_name=device_name,
                          skip_plt_show=skip_plt_show)
 
-        self.image_analyzer = image_analyzer or BasicImageAnalyzer()
+        self.image_analyzer = image_analyzer or ImageAnalyzer()
         # define flags
         self.flag_logging = flag_logging
         self.flag_save_images = flag_save_images
@@ -156,7 +157,7 @@ class Array2DScanAnalysis(ScanAnalysis):
 
     @staticmethod
     def process_shot_parallel(
-            shot_num: int, file_path: Path, image_analyzer: BasicImageAnalyzer
+            shot_num: int, file_path: Path, image_analyzer: ImageAnalyzer
     ) -> tuple[int, Optional[np.ndarray], dict]:
         """
         Helper function for parallel processing in a separate process.
@@ -168,7 +169,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         """
         try:
             analyzer = image_analyzer
-            results_dict = analyzer.analyze_image(file_path=file_path)
+            results_dict = analyzer.analyze_image_file(image_filepath=file_path)
         except Exception as e:
             logging.error(f"Error during analysis for shot {shot_num}: {e}")
             return shot_num, None, {}
@@ -268,7 +269,7 @@ class Array2DScanAnalysis(ScanAnalysis):
             for shot_num, file_path in tasks:
                 if self.image_analyzer.run_analyze_image_asynchronously:
                     # For asynchronous (likely I/O-bound) processing, use the thread pool.
-                    future = thread_pool.submit(self.image_analyzer.analyze_image, file_path=file_path)
+                    future = thread_pool.submit(self.image_analyzer.analyze_image_file, image_filepath=file_path)
                 else:
                     # For CPU-bound tasks, use the process pool.
                     # Pass the analyzer's class so each process can create its own instance.
@@ -579,7 +580,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         try:
             # Use the injected image analyzer
             logging.info(f'attempting to process {file_path}')
-            results_dict = self.image_analyzer.analyze_image(file_path=file_path)
+            results_dict = self.image_analyzer.analyze_image_file(image_filepath=file_path)
             # Expecting results_dict to have keys: 'processed_image_uint16' and 'analyzer_return_dictionary'
             image = results_dict.get("processed_image_uint16")
             if image is not None:

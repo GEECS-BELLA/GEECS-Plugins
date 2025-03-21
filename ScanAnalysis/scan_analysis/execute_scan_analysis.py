@@ -22,6 +22,7 @@ except:
 
 from scan_analysis.base import ScanAnalysis
 from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig  # import your config class
+from image_analysis.offline_analyzers.HASO_himg_has_processor import HasoHimgHasConfig  # import your config class
 
 def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnalysis:
     """
@@ -35,7 +36,6 @@ def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnaly
     logging.info(f'the image analyzer config from the passed analyzer info is {config}')
     logging.info(f'the complete analyzer info is {analyzer_info}')
     logging.info(f'the image analyzer class is  {analyzer_info.image_analyzer_class}')
-
 
     if analyzer_info.image_analyzer_class:
         logging.info(f'image analyzer class recongnized, search for config')
@@ -52,7 +52,10 @@ def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnaly
             # Otherwise, if it's an instance of PhaseAnalysisConfig (or similar), pass it directly.
             elif isinstance(config, PhaseAnalysisConfig):
                 logging.info(f'config type matched the PhaseAnalysisConfig')
-
+                image_analyzer = analyzer_info.image_analyzer_class(config=config)
+                logging.info(f'config in the image analyzer set to {image_analyzer.config}')
+            elif isinstance(config, HasoHimgHasConfig):
+                logging.info(f'config type matched the HasoHimgHasConfig')
                 image_analyzer = analyzer_info.image_analyzer_class(config=config)
                 logging.info(f'config in the image analyzer set to {image_analyzer.config}')
             else:
