@@ -86,7 +86,7 @@ import scipy.ndimage as ndimage
 import logging
 
 from image_analysis import ureg, Q_
-from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
+from image_analysis.base import ImageAnalyzer
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -254,7 +254,6 @@ class PhasePreprocessor:
         """
         return np.arctan(slope)
 
-
     def rotate_phase_data(self, phase_data: NDArray) -> Tuple[NDArray,dict]:
         """
         Rotate the phase data to correct for any tilt based on the weighted column centers.
@@ -388,8 +387,8 @@ class PhasePreprocessor:
             image: np.ndarray,
             center_x: Optional[int] = None,
             center_y: Optional[int] = None,
-            sigma_x: float = 150,
-            sigma_y: float = 30,
+            sigma_x: float = 100,
+            sigma_y: float = 20,
             binarize: bool = False,
             threshold_factor: float = 0.01
     ) -> Union[np.ndarray, tuple[np.ndarray, np.ndarray]]:
@@ -433,7 +432,7 @@ class PhasePreprocessor:
             binary_mask = (masked_image > threshold).astype(np.float32)
             return binary_mask * image
 
-class PhaseDownrampProcessor(BasicImageAnalyzer):
+class PhaseDownrampProcessor(ImageAnalyzer):
     """
     Handles cropping and background subtraction for phase data.
     """
