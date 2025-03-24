@@ -135,7 +135,7 @@ class ImageAnalyzer:
          image : Array2D
         """
 
-        image = Array2D(read_imaq_image(file_path))
+        image = read_imaq_image(file_path)
 
         return image
 
