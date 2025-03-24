@@ -384,23 +384,36 @@ class PhasePreprocessor:
         return data, background_fit, coeffs
 
     @staticmethod
-    def apply_gaussian_mask(image, center_x=None, center_y=None, sigma_x=150, sigma_y=30):
+    def apply_gaussian_mask(
+            image: np.ndarray,
+            center_x: Optional[int] = None,
+            center_y: Optional[int] = None,
+            sigma_x: float = 150,
+            sigma_y: float = 30,
+            binarize: bool = False,
+            threshold_factor: float = 0.01
+    ) -> Union[np.ndarray, tuple[np.ndarray, np.ndarray]]:
         """
-        Applies a Gaussian mask to a 2D image to suppress unwanted background artifacts.
+        Applies a Gaussian mask to a 2D image.
 
         Parameters:
-        - image (np.ndarray): 2D grayscale image.
-        - center_x (int, optional): X-coordinate of the Gaussian center (default: image center).
-        - center_y (int, optional): Y-coordinate of the Gaussian center (default: image center).
-        - sigma_x (float): Standard deviation in the x-direction.
-        - sigma_y (float): Standard deviation in the y-direction.
+            image (np.ndarray): 2D grayscale image.
+            center_x (int, optional): X-coordinate of the Gaussian center (default: image center).
+            center_y (int, optional): Y-coordinate of the Gaussian center (default: image center).
+            sigma_x (float): Standard deviation in the x-direction.
+            sigma_y (float): Standard deviation in the y-direction.
+            binarize (bool): If True, binarizes the masked image based on threshold_factor.
+                             If False, returns the Gaussian masked image.
+            threshold_factor (float): Fraction of the maximum masked value to use as threshold.
 
         Returns:
-        - np.ndarray: The masked image.
+            If binarize is False:
+                np.ndarray: The masked image.
+            If binarize is True:
+                tuple[np.ndarray, np.ndarray]: A tuple where the first element is the final image (binary mask multiplied by the image)
+                and the second element is the binary mask.
         """
         rows, cols = image.shape
-
-        # Default to image center if center_x or center_y is not provided
         if center_x is None:
             center_x = cols // 2
         if center_y is None:
@@ -408,58 +421,17 @@ class PhasePreprocessor:
 
         y, x = np.mgrid[0:rows, 0:cols]
 
-        # Compute the Gaussian mask
-        gaussian_mask = np.exp(
-            -(((x - center_x) ** 2) / (2 * sigma_x ** 2) + ((y - center_y) ** 2) / (2 * sigma_y ** 2)))
-
-        # Apply the mask
+        # Compute the Gaussian mask.
+        gaussian_mask = np.exp(-(((x - center_x) ** 2) / (2 * sigma_x ** 2) +
+                                 ((y - center_y) ** 2) / (2 * sigma_y ** 2)))
         masked_image = image * gaussian_mask
 
-        return masked_image
-
-    @staticmethod
-    def apply_gaussian_binary_mask(image, center_x=None, center_y=None, sigma_x=100, sigma_y=20, threshold_factor=0.01):
-        """
-        Applies a Gaussian mask to a 2D image, then binarizes the masked image based on specified fraction
-        (1% default) of its max value.
-
-        Parameters:
-        - image (np.ndarray): 2D grayscale image.
-        - center_x (int, optional): X-coordinate of the Gaussian center (default: image center).
-        - center_y (int, optional): Y-coordinate of the Gaussian center (default: image center).
-        - sigma_x (float): Standard deviation in the x-direction.
-        - sigma_y (float): Standard deviation in the y-direction.
-        - threshold_factor (float): Fraction of the max value to use for binarization.
-
-        Returns:
-        - np.ndarray: The final masked and binarized image.
-        - np.ndarray: The binary mask used.
-        """
-
-        rows, cols = image.shape
-
-        # Default to image center if center_x or center_y is not provided
-        if center_x is None:
-            center_x = cols // 2
-        if center_y is None:
-            center_y = rows // 2
-
-        y, x = np.mgrid[0:rows, 0:cols]
-
-        # Compute the Gaussian mask
-        gaussian_mask = np.exp(
-            -(((x - center_x) ** 2) / (2 * sigma_x ** 2) + ((y - center_y) ** 2) / (2 * sigma_y ** 2)))
-
-        # Apply the Gaussian mask to the image
-        masked_image = image * gaussian_mask
-
-        # Determine threshold based on 10% of the max masked image value
-        threshold = threshold_factor * np.nanmax(masked_image)
-
-        # Binarize the image
-        binary_mask = (masked_image > threshold).astype(np.float32)
-
-        return binary_mask * image
+        if not binarize:
+            return masked_image
+        else:
+            threshold = threshold_factor * np.nanmax(masked_image)
+            binary_mask = (masked_image > threshold).astype(np.float32)
+            return binary_mask * image
 
 class PhaseDownrampProcessor(BasicImageAnalyzer):
     """
@@ -498,7 +470,7 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         state['delta_plateau_fig'] = None
         return state
 
-    def process_phase(self, file_path: Path) -> Tuple[NDArray,dict[str,float]]:
+    def process_phase(self, file_path: Path) -> NDArray:
         """
         Parameters: file_path
         """
@@ -527,7 +499,7 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
             plt.title("bkg fit subtracted step 1")
             plt.show()
 
-        gauss_masked_array = self.processor.apply_gaussian_mask(phase_array)
+        gauss_masked_array = self.processor.apply_gaussian_mask(phase_array, binarize=True)
 
         phase_array = gauss_masked_array
         if self.use_interactive:
@@ -543,24 +515,21 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
 
         return phase_array
 
-    def analyze_image(self, image: NDArray = None, file_path: Path = None) -> dict[str, Union[float, int, str, np.ndarray]]:
+    def analyze_image_file(self, image_filepath: Path, auxiliary_data: Optional[dict] = None) -> dict[str, Union[float, int, str, np.ndarray]]:
 
         """
         Apply some HTU specific processing of a phase map showing a density down ramp feature.
 
         Parameters:
-            image (NDArray): None. This part of the signature for the base class, but this analyzer
-                requires loading of an already post processed file
-            file_path (Path): Path to the image file.
+            image_filepath (Path): Path to the image file.
 
         Returns:
             A dictionary containing results (e.g., phase map and/or related parameters).
-
         """
-        self.file_path = file_path
+        self.file_path = image_filepath
         try:
             processed_phase = self.process_phase(self.file_path)
-            logging.info(f'processed {file_path}')
+            logging.info(f'processed {self.file_path}')
 
         except Exception as e:
             logging.warning(f'could not process {self.file_path}')
@@ -832,7 +801,7 @@ class PhaseDownrampProcessor(BasicImageAnalyzer):
         Calculates the plateau value and the delta between the maximum intensity and the plateau.
 
         The plateau is defined as the average intensity over a region starting 2 window sizes
-        to the left of the steepest slope (best_center) and spanning 5 window sizes. The delta is
+        to the left of the steepest slope (best_center) and spanning 3 window sizes. The delta is
         defined as the overall maximum intensity in the profile minus the plateau value.
 
         Parameters:
