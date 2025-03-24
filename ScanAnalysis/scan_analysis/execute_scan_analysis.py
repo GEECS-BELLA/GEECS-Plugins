@@ -4,53 +4,80 @@ specified analyzer with the scan folder location
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from scan_analysis.base import AnalyzerInfo
     from geecs_python_api.controls.api_defs import ScanTag
 
 import logging
-from pathlib import Path
-import yaml
 import itertools
-from logmaker_4_googledocs import docgen
+try:
+    from logmaker_4_googledocs import docgen
+    loaded_docgen = True
+except:
+    logging.warning(f'could not properly load docgen, results will not auto populate scan log')
+    loaded_docgen = False
 
 
-def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], debug_mode: bool = False, documentID = None):
+def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], upload_to_scanlog: bool = True,
+                 documentID: Optional[str] = None, debug_mode: bool = False):
+    """
+    Performs all given analysis routines on a given scan.  Optionally uploads results to google doc scanlog
 
-    all_dispay_files = []
+    :param tag: Tag representing the scan date, number, and experiment
+    :param analyzer_list: List of valid analyzers that can be run on the given scan
+    :param upload_to_scanlog: If True, will upload index of files to Google scanlog
+    :param documentID: If given, the Google doc ID of the scanlog.  Otherwise, will default to today's
+    :param debug_mode: If True, will not attempt analysis.
+    :return:
+    """
+    all_display_files = []
+
     for analyzer_info in analyzer_list:
         device = analyzer_info.device_name if analyzer_info.device_name else ''
         print(tag, ":", analyzer_info.analyzer_class.__name__, device)
         if not debug_mode:
             try:
                 analyzer_class = analyzer_info.analyzer_class
-                analyzer = analyzer_class(scan_tag=tag, device_name=analyzer_info.device_name, skip_plt_show=True)
+                # Instantiate the image analyzer if specified
+                if hasattr(analyzer_info, 'image_analyzer_class') and analyzer_info.image_analyzer_class:
+                    image_analyzer = analyzer_info.image_analyzer_class()
+                    analyzer = analyzer_class(
+                        scan_tag=tag,
+                        device_name=analyzer_info.device_name,
+                        skip_plt_show=True,
+                        image_analyzer=image_analyzer
+                    )
+                else:
+                    analyzer = analyzer_class(
+                        scan_tag=tag,
+                        device_name=analyzer_info.device_name,
+                        skip_plt_show=True
+                    )
                 index_of_files = analyzer.run_analysis(config_options=analyzer_info.config_file)
                 print(f'index of files: {index_of_files}')
                 # if index_of_files:  # TODO And if a Google doc procedure is defined for the given experiment
                 #     # TODO Append the images to the appropriate location in the daily experiment log on Google
                 #     pass
                 if index_of_files:
-                    all_dispay_files.append(index_of_files)
+                    all_display_files.append(index_of_files)
             except Exception as err:
                 logging.error(f"Error in analyze_scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}): {err}")
                 
-    if len(all_dispay_files)>0:
-        flattened_file_paths = list(itertools.chain.from_iterable(all_dispay_files))
+    if loaded_docgen and upload_to_scanlog and len(all_display_files) > 0:
+        flattened_file_paths = list(itertools.chain.from_iterable(all_display_files))
         print(f'flatten file list: {flattened_file_paths}')
         insert_display_content_to_doc(tag, flattened_file_paths, documentID=documentID)
 
 
-def insert_display_content_to_doc(scan_tag, path_list, documentID = None):
+def insert_display_content_to_doc(scan_tag: ScanTag, path_list: list[str], documentID: Optional[str] = None):
     """
     Inserts display content from a list of paths into a Google Doc for a given scan.
 
     Args:
         scan_tag: The scan tag containing metadata (e.g., year, month, day, number).
         path_list (list[str]): A list of file paths to insert into the Google Doc.
-        experiment (str): The experiment name used to map the correct configuration file.
-
+        documentID (str): If given, the Google doc ID of the scanlog.  Otherwise, will default to today's
     Returns:
         None
     """
@@ -74,7 +101,7 @@ def insert_display_content_to_doc(scan_tag, path_list, documentID = None):
                 scanNumber=scan_tag.number,
                 row=row,
                 column=col,
-                image_path=image_path,  # Pass as string for use with google scripts
+                image_path=image_path,  # Pass as string for use with Google scripts
                 documentID=documentID,
                 experiment=scan_tag.experiment
             )

@@ -5,8 +5,11 @@ from scan_analysis.analyzers.Undulator.mag_spec_stitcher_analysis import MagSpec
 from scan_analysis.analyzers.Undulator.rad2_spec_analysis import Rad2SpecAnalysis
 from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.array2D_scan_analysis import Array2DScanAnalysis
 from scan_analysis.analyzers.Undulator.hamaspectro_analysis import FiberSpectrometerAnalysis
 from scan_analysis.analyzers.Undulator.frog_analysis import FrogAnalysis
+
+from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
 
 undulator_analyzers = [
     Info(analyzer_class=MagSpecStitcherAnalysis,
@@ -16,7 +19,7 @@ undulator_analyzers = [
          requirements={'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
                               'UC_VisaEBeam5', 'UC_VisaEBeam6', 'UC_VisaEBeam7', 'UC_VisaEBeam8']}),
     Info(analyzer_class=Rad2SpecAnalysis,
-         requirements={'AND': ['U_BCaveICT', 'UC_UndulatorRad2']}),
+         requirements={'AND': ['UC_UndulatorRad2', {'OR': ['U_BCaveICT', 'U_UndulatorExitICT']}]}),
     Info(analyzer_class=CameraImageAnalysis,
          requirements={'UC_ALineEbeam1'},
          device_name='UC_ALineEbeam1'),
@@ -46,7 +49,11 @@ undulator_analyzers = [
     Info(analyzer_class=FrogAnalysis,
          requirements={'U_FROG_Grenouille-Temporal'},
          device_name='U_FROG_Grenouille-Temporal'),
-    Info(analyzer_class=CameraImageAnalysis,
+    # Info(analyzer_class=CameraImageAnalysis,
+    #      requirements={'UC_ACaveMagCam3'},
+    #      device_name='UC_ACaveMagCam3'),
+    Info(analyzer_class=Array2DScanAnalysis,
          requirements={'UC_ACaveMagCam3'},
-         device_name='UC_ACaveMagCam3')
+         device_name='UC_ACaveMagCam3',
+         image_analyzer_class = ACaveMagCam3ImageAnalyzer)
 ]

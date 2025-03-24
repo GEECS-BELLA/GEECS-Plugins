@@ -77,7 +77,8 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
 class ScanWatch:
     def __init__(self, experiment_name: str, year: int, month: Union[int, str], day: int,
                  ignore_list: list[int] = None, overwrite_previous: bool = False, perform_initial_search: bool = True,
-                 analyzer_list: Optional[list[AnalyzerInfo]] = None, documentID: Optional[str] = None):
+                 analyzer_list: Optional[list[AnalyzerInfo]] = None,
+                 upload_to_scanlog: bool = True, documentID: Optional[str] = None):
         """
         Parameters
         ----------
@@ -95,6 +96,8 @@ class ScanWatch:
             Flag to ignore previously analyzed scan directories if True
         perform_initial_search: bool
             Flag to search through the target directory for existing scans to analyze
+        upload_to_scanlog: bool
+            Flag to upload returned list of files to google doc
         documentID: str
             If given, will use this documentID when uploading data.  Otherwise, defaults to today's scanlog
 
@@ -120,6 +123,7 @@ class ScanWatch:
         if perform_initial_search:
             self.initial_search_of_watch_folder()
 
+        self.upload_to_scanlog = upload_to_scanlog
         self.documentID = documentID
 
     def _check_watch_folder_exists(self, watch_folder_not_exist: str = 'raise'):
@@ -216,7 +220,8 @@ class ScanWatch:
                                                    experiment_name=tag.experiment,
                                                    analyzer_list=self.analyzer_list)
 
-        analyze_scan(tag, valid_analyzers, debug_mode=False, documentID=self.documentID)
+        analyze_scan(tag, valid_analyzers, debug_mode=False,
+                     upload_to_scanlog=self.upload_to_scanlog, documentID=self.documentID)
 
         self._write_processed_list()
 
@@ -236,11 +241,24 @@ class ScanWatch:
 
     def _read_yaml_file(self) -> dict:
         """ Read yaml file for the dictionary """
-        contents = None
-        if self.processed_list_filename.exists():
-            with open(self.processed_list_filename, 'r') as file:
-                contents = yaml.safe_load(file) or []
-        return contents
+        attempts = 0
+        while attempts < 3:
+            if self.processed_list_filename.exists():
+                try:
+                    with open(self.processed_list_filename, 'r') as file:
+                        contents = yaml.safe_load(file) or {}
+                    logging.info(f"Read scans from '{self.processed_list_filename}'.")
+                    return contents
+
+                except FileNotFoundError:  # Race condition or network issue
+                    logging.warning(f"Could not read {self.processed_list_filename}: temporarily unavailable.")
+                    attempts += 1
+                    time.sleep(secs=1)
+        logging.warning(f"Max attempts reached, did not write to '{self.processed_list_filename}'.")
+        if attempts > 3:
+            raise FileNotFoundError(f"Max attempts reached, did not write to '{self.processed_list_filename}'.")
+        else:
+            return {}
 
     def _write_processed_list(self):
         """ Update yaml file with the new processed list """
@@ -251,8 +269,20 @@ class ScanWatch:
         else:
             data = recursive_update(data, new_contents)
 
-        with open(self.processed_list_filename, 'w') as file:
-            yaml.safe_dump(data, file)
+        attempts = 0
+        while attempts < 3:
+            try:
+                with open(self.processed_list_filename, 'w') as file:
+                    yaml.safe_dump(data, file)
+                logging.info(f"Wrote scans to '{self.processed_list_filename}'.")
+                return
+
+            except FileNotFoundError:  # Race condition or network issue
+                logging.warning(f"Failed attempt writing to '{self.processed_list_filename}': temporarily unavailable.")
+                attempts += 1
+                time.sleep(secs=1)
+        logging.warning(f"Max attempts reached, did not write to '{self.processed_list_filename}'.")
+        raise FileNotFoundError(f"Max attempts reached, did not write to '{self.processed_list_filename}'.")
 
 
 def recursive_update(base: dict, new: dict) -> dict:
