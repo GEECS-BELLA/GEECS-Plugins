@@ -64,7 +64,7 @@ class ScanDataManager:
         self.scan_number_int: Optional[int] = None
         self.parsed_scan_string: Optional[str] = None
 
-    def create_and_set_data_paths(self) -> ScanData:
+    def create_and_set_data_paths(self, save_local: bool = True) -> ScanData:
         """
         Create data paths for devices that need non-scalar saving, and initialize the TDMS writers.
 
@@ -85,32 +85,31 @@ class ScanDataManager:
             target_dir = data_path
 
             device = self.device_manager.devices.get(device_name)
+            device_type = GeecsDatabase.find_device_type(device_name)
             logging.info(f'device is {device}')
 
             if device:
                 device_name = device.get_name()
                 dev_host_ip_string = device.dev_ip
-                source_dir = Path(f'//{dev_host_ip_string}/SharedData/{device_name}')
+                if save_local:
+                    source_dir = Path(f'//{dev_host_ip_string}/SharedData/{device_name}')
+                    self.purge_local_save_dir(source_dir)
+                    logging.info(f'creating save path for {device_name}')
+                    data_path_client_side = Path('C:\\SharedData') / device_name
+                else:
+                    source_dir = target_dir
+                    data_path_client_side = target_dir
 
-                self.purge_local_save_dir(source_dir)
-
-                logging.info(f'creating save path for {device_name}')
-                data_path_client_side = Path('C:\\SharedData') / device_name
                 save_path = str(data_path_client_side).replace('/', "\\")
-
-                logging.info(f'save path created {save_path}')
 
                 logging.info(f"Setting save data path for {device_name} to {save_path}")
                 device.set("localsavingpath", save_path, sync=False)
                 time.sleep(.1)
                 device.set('save', 'on', sync=False)
 
-                device_type = GeecsDatabase.find_device_type(device_name)
-
                 # creating a dict here which contains all of the necessary information to
                 # move and rename a saved file from a local directory to thec correct
                 # scans directory on the data server
-
                 self.device_save_paths_mapping[device_name] = {
                     "target_dir": target_dir,
                     "source_dir": source_dir,
