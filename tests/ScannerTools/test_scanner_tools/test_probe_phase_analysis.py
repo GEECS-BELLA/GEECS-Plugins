@@ -46,7 +46,7 @@ def test_phase_processing():
 
     processor  = PhaseDownrampProcessor(config)
     processor.use_interactive = True
-    processor.analyze_image( file_path = phase_file_path)
+    processor.analyze_image_file( image_filepath = phase_file_path)
 
 
 if __name__ == "__main__":
