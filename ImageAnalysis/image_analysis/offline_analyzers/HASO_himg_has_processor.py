@@ -11,7 +11,7 @@ try:
     import image_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
 except ModuleNotFoundError as e:
     errmsg = "could not import wkpy, e.g. might be running on non windows machine"
-    e.add_note(errmsg)
+    e.args += (errmsg,)
     raise
 
 import logging
