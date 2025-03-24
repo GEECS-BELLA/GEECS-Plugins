@@ -170,7 +170,7 @@ class DataLogger:
             logging.info("All device names are present in standby_mode_device_status dict and all have True status.")
             return True
         else:
-            logging.info(f'NOt all devices are in standby: {self.standby_mode_device_status}')
+            logging.info(f'Not all devices are in standby: {self.standby_mode_device_status}')
 
             return False
 
