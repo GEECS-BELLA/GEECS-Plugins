@@ -8,6 +8,7 @@ import pandas as pd
 import calendar as cal
 from datetime import datetime
 from pathlib import Path
+import shutil
 import logging
 from datetime import datetime as dtime, date
 from typing import Optional, Union, NamedTuple
@@ -225,7 +226,8 @@ class ScanData:
             The full path to the device's shot file.
         """
         scan_path = ScanData.get_scan_folder_path(tag=tag, base_directory=base_directory)
-        file = scan_path / f'{device_name}' / f'Scan{tag.number:03d}_{device_name}_{shot_number:03d}.{file_extension}'
+        extension = "." + file_extension if "." not in file_extension else file_extension
+        file = scan_path / f'{device_name}' / f'Scan{tag.number:03d}_{device_name}_{shot_number:03d}{extension}'
         return file
 
     @staticmethod
@@ -383,6 +385,34 @@ class ScanData:
         next_tag = ScanData.get_next_scan_tag(experiment, year, month, day, base_directory=base_directory)
         return ScanData(tag=next_tag, load_scalars=False, read_mode=False, base_directory=base_directory)
 
+    @staticmethod
+    def is_background_scan(tag: ScanTag, base_directory: Optional[Union[Path, str]] = None) -> bool:
+        """
+        Checks if the given scan tag references a scan that was designated as a background
+
+        Parameters:
+        ----------
+        tag : ScanTag
+            The scan tag containing year, month, day, and scan number.
+        base_directory : Optional[Union[Path, str]], optional
+            Base directory for the scan (default: CONFIG.local_base_path).
+
+        Returns:
+        -------
+        bool
+            True if scan was explictly set as a Background scan, False otherwise
+        """
+
+        scan_folder = ScanData.get_scan_folder_path(tag=tag, base_directory=base_directory)
+        config_filename = scan_folder / f"ScanInfoScan{tag.number:03d}.ini"
+
+        config = ConfigParser()
+        config.read(config_filename)
+
+        if config.has_section('Scan Info') and config.has_option('Scan Info', 'Background'):
+            return config.get('Scan Info', 'Background').strip().lower() == '"true"'
+        return False
+
     def get_folder(self) -> Optional[Path]:
         return self.__folder
 
@@ -441,6 +471,18 @@ class ScanData:
             self.data_frame = pd.read_csv(txt_path, delimiter='\t')
 
         return tdms_path.is_file()
+
+    def copy_fresh_sfile_to_analysis(self):
+        """ Deletes the existing sfile in the `analysis` folder and makes a new copy from the `scans` folder """
+        analysis_sfile = self.get_analysis_folder().parent / f"s{self.__tag.number}.txt"
+        scan_sfile = self.get_folder() / f"ScanDataScan{self.__tag.number:03d}.txt"
+
+        if not scan_sfile.exists():
+            raise FileNotFoundError(f"Original s file '{scan_sfile}' not found.  Cannot copy")
+        else:
+            if analysis_sfile.exists():
+                analysis_sfile.unlink()
+            shutil.copy2(src=scan_sfile, dst=analysis_sfile)
 
     def group_shots_by_step(self, device: str, variable: str) -> tuple[list[np.ndarray], Optional[np.ndarray], bool]:
         if not self.scan_info:
