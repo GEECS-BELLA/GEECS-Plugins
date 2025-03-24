@@ -70,7 +70,6 @@ class ImageAnalyzer:
         # Subclasses can process config as needed.
         self.config = config
 
-        pass
 
     def analyze_image(self,
                       image: Array2D,
