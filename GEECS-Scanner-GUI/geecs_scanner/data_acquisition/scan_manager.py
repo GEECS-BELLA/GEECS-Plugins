@@ -131,6 +131,7 @@ class ScanManager:
 
         if config_dictionary is not None and 'options' in config_dictionary:
             self.options_dict = config_dictionary['options']
+            self.save_local = self.options_dict.get('Save Local', True)
 
         new_mc_ip = self.options_dict.get("Master Control IP", "")
         if self.shot_control and new_mc_ip and self.MC_ip != new_mc_ip:
@@ -472,8 +473,7 @@ class ScanManager:
         time.sleep(2)
 
         if self.save_data:
-            self.scan_data_manager.create_and_set_data_paths()
-
+            self.scan_data_manager.create_and_set_data_paths(save_local=self.save_local)
             # map information produced in ScanDataManager to the DataLogger to facilitate
             # moving of files etc.
             # self.data_logger.device_save_paths_mapping = self.scan_data_manager.device_save_paths_mapping
