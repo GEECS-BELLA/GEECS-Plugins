@@ -521,11 +521,13 @@ class ScanManager:
 
         steps = [
             "enable remote scan ECS dumps",
+            "Main: Check scans path>>None"
         ]
         
         for step in steps:
             success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
-            time.sleep(.5)
+            time.sleep(3.5)
+            logging.info(f'enable live ecs dumps step {step} complete')
             if not success:
                 logging.warning(f"Failed to enable live ECS dumps on MC on computer: {client_ip}")
                 break
@@ -534,9 +536,10 @@ class ScanManager:
         if self.shot_control is None:
             logging.error("Cannot enable live ECS dump without shot control device")
             return
+        logging.info('sending comands to MC to generate ECS live dump')
 
         steps = [
-            "Main: Check scans path>>None",
+            # "Main: Check scans path>>None",
             "Save Live Expt Devices Configuration>>ScanStart"
         ]
         
