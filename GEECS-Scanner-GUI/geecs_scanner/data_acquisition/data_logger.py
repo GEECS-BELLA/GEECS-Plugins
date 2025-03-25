@@ -142,6 +142,8 @@ class FileMover:
 
                     # For MagSpec devices, process additional variant files.
                     if device_type in ['MagSpecStitcher', 'MagSpecCamera']:
+                        task.suffix = "-interp"
+                        self._process_variant_file(task)
                         task.suffix = "-interpSpec"
                         self._process_variant_file(task)
                         task.suffix = "-interpDiv"
