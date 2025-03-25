@@ -49,12 +49,21 @@ class TestExecuteAnalysis(unittest.TestCase):
         analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
 
     def test_HasoLift(self):
+
+        from image_analysis.offline_analyzers.HASO_himg_has_processor import SlopesMask, HasoHimgHasConfig
+        mask = SlopesMask(top=75, bottom=246, left=10, right=670)
+        analysis_config = HasoHimgHasConfig()
+        analysis_config.mask = mask
+
+        # haso_processor = HASOHimgHasProcessor(config = analysis_config)
         analyzer_info = Info(analyzer_class=HIMGWithAveraging,
             requirements={'U_HasoLift'},
             device_name='U_HasoLift',
             image_analyzer_class=HASOHimgHasProcessor,
-            file_pattern = "*_{shot_num:03d}.himg")
-        test_tag = ScanTag(year=2025, month=3, day=6, number=15, experiment='Undulator')
+            file_pattern = "*_{shot_num:03d}.himg",
+            image_analysis_config= analysis_config)
+
+        test_tag = ScanTag(year=2025, month=2, day=19, number=2, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
 
     def test_DensityDownRampPhase(self):
