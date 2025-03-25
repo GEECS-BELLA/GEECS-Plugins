@@ -17,30 +17,41 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 DO_PLOT = False
+MAX_TIME = 0.2
+FIND_SHOT = None
 
 
 def copy_of_analysis(data, dt, crit_f, calib):
     value = np.array(data)
+    value = np.array(ict_analysis.apply_butterworth_filter(value, order=int(1), crit_f=crit_f))
     bkg = np.mean(value[0:100])
 
     signal_location = np.argmin(data)
-    background_end = signal_location - 200 if signal_location > 200 else signal_location-10
-    if background_end <= 0:
-        return 0
-    sinusoidal_background = ict_analysis.get_sinusoidal_noise(data=data, background_region=(0, background_end))
+    first_interval_end = signal_location - 100 if signal_location > 100 else None
+    second_interval_start = signal_location + 600 if signal_location + 600 < len(value) else None
+
+    sinusoidal_background_1 = ict_analysis.get_sinusoidal_noise(data=value,
+                                                              signal_region=(first_interval_end, second_interval_start))
+    value_2 = value - sinusoidal_background_1
+
+    sinusoidal_background_2 = ict_analysis.get_sinusoidal_noise(data=value_2,
+                                                              signal_region=(first_interval_end, second_interval_start))
+    subtracted_value = value_2 - sinusoidal_background_2
 
     if DO_PLOT:
         axis = np.arange(len(value))
         plt.plot(axis, value, c='b')
         plt.plot([axis[0], axis[-1]], [bkg, bkg], ls='--', c='k')
-        plt.plot([background_end, background_end], [np.min(value), np.max(value)], ls='dotted', c='g')
-        plt.plot(axis, sinusoidal_background, ls='--', c='r')
+        plt.plot(axis, subtracted_value, c='orange')
+        if second_interval_start:
+            plt.plot([second_interval_start, second_interval_start], [np.min(value), np.max(value)], ls='dotted', c='g')
+        if first_interval_end:
+            plt.plot([first_interval_end, first_interval_end], [np.min(value), np.max(value)], ls='dotted', c='g')
+        plt.plot(axis, sinusoidal_background_1 + sinusoidal_background_2, ls='--', c='r')
         plt.show()
 
-    value = value - sinusoidal_background
-    value = np.array(ict_analysis.apply_butterworth_filter(value, order=int(1), crit_f=crit_f))
-    ind_roi = ict_analysis.identify_primary_valley(value)
-    value = np.array(value[ind_roi])
+    ind_roi = ict_analysis.identify_primary_valley(subtracted_value)
+    value = np.array(subtracted_value[ind_roi])
     integrated_signal = np.trapz(value, x=None, dx=dt)
     charge_pC = integrated_signal * -calib * 10 ** (12)
 
@@ -59,8 +70,8 @@ def copy_of_Undulator_Exit_ICT(data, dt, crit_f):
     return charge_pC
 
 class TestUC_BeamSpot(unittest.TestCase):
-    scan_day = 7  # 6
-    scan_number = 56  # 24
+    scan_day = 24  # 7  # 6
+    scan_number = 1  # 56  # 24
 
     def get_acave_tdms_file(self, shot_number: int):
         device = 'U_UndulatorExitICT'
@@ -80,10 +91,12 @@ class TestUC_BeamSpot(unittest.TestCase):
         bcave_charge = np.zeros(total)
 
         do_bcave_comparison = True
+        global DO_PLOT
 
         for i in range(100):
-            #i = 13#11
             print(f"Shot {i:03d}")
+            if FIND_SHOT is not None:
+                DO_PLOT = bool(i == FIND_SHOT-1)
 
             try:
                 print(f"  A Cave ICT:")
@@ -103,7 +116,7 @@ class TestUC_BeamSpot(unittest.TestCase):
                 charge_return = copy_of_Undulator_Exit_ICT(data, dt=4e-9, crit_f=0.125)
                 if DO_PLOT is False:
                     print("    Computation time:", time.time() - start_time, "s")
-                    assert time.time()-start_time < 0.1
+                    assert time.time()-start_time < MAX_TIME
                 assert charge_return == ict_analysis.Undulator_Exit_ICT(data, dt=4e-9, crit_f=0.125)
                 print("    Charge:", charge_return, "pC")
 
@@ -131,7 +144,7 @@ class TestUC_BeamSpot(unittest.TestCase):
                     charge_return = copy_of_B_Cave_ICT(data, dt=4e-9, crit_f=0.125)
                     if DO_PLOT is False:
                         print("    Computation time:", time.time() - start_time, "s")
-                        assert time.time() - start_time < 0.1
+                        assert time.time() - start_time < MAX_TIME
                     assert charge_return == ict_analysis.B_Cave_ICT(data, dt=4e-9, crit_f=0.125)
                     print("    Charge:", charge_return, "pC")
 
@@ -143,7 +156,10 @@ class TestUC_BeamSpot(unittest.TestCase):
         if do_bcave_comparison:
             plt.scatter(bcave_charge, acave_charge, c='b', label='all shots')
             max_range = max(np.max(bcave_charge), np.max(acave_charge))*1.2
-            plt.plot([0, max_range], [0, max_range], c='k', ls='--', label='slope = 1')
+            if self.scan_day != 24:
+                plt.plot([0, max_range], [0, max_range], c='k', ls='--', label='slope = 1')
+            for i in range(len(bcave_charge)):
+                plt.text(x=bcave_charge[i], y=acave_charge[i], s=f"{i+1}")
             plt.legend()
             plt.xlabel("BCaveICT Charge (pC)")
             plt.ylabel("UndulatorExitICT Charge (pC)")

@@ -1,6 +1,7 @@
 import numpy as np
+from typing import Optional
 from scipy import signal
-from scipy.optimize import curve_fit
+from scipy.optimize import least_squares
 
 
 def apply_butterworth_filter(data, order=int(1), crit_f=0.025, filt_type='low'):
@@ -52,14 +53,14 @@ def identify_primary_valley(data):
     return valley_ind
 
 
-def get_sinusoidal_noise(data, background_region: tuple[int, int]):
+def get_sinusoidal_noise(data, signal_region: tuple[Optional[int], Optional[int]]):
     """
     Fits a sinusoidal function to the given region of "noise"
 
     Parameters
     ----------
     data - full numpy array or list of data
-    background_region - tuple representing the first and last index of the data array to use for the background region
+    signal_region - tuple representing the first and last index of the region with the beam signal, which we exclude
 
     Returns
     -------
@@ -67,11 +68,24 @@ def get_sinusoidal_noise(data, background_region: tuple[int, int]):
     """
     x_axis = np.arange(len(data))
 
-    bg_data = data[background_region[0]: background_region[1]]
-    bg_axis = x_axis[background_region[0]: background_region[1]]
+    p1 = signal_region[0]
+    p2 = signal_region[1]
+
+    if p1 is None and p2 is not None:
+        bg_data = data[p2:]
+        bg_axis = x_axis[p2:]
+    elif p2 is None and p1 is not None:
+        bg_data = data[:p1]
+        bg_axis = x_axis[:p1]
+    else:
+        bg_data = np.concatenate((data[:p1], data[p2:]))
+        bg_axis = np.concatenate((x_axis[:p1], x_axis[p2:]))
 
     def sin_model(t, amplitude, frequency, phase, offset):
         return amplitude * np.sin(2 * np.pi * frequency * t + phase) + offset
+
+    def residuals(p, x, y):
+        return y - sin_model(x, *p)
 
     fft_data = np.fft.rfft(bg_data)
     fft_axis = np.fft.rfftfreq(len(bg_data), d=(bg_axis[1] - bg_axis[0]) if len(bg_axis) > 1 else 1)
@@ -82,10 +96,24 @@ def get_sinusoidal_noise(data, background_region: tuple[int, int]):
         dominant_freq_idx = np.argmax(np.abs(fft_data))
 
     initial_freq = fft_axis[dominant_freq_idx]
-    p0 = [np.std(bg_data), initial_freq, 0, np.mean(bg_data)]
+
+    ave_val = np.mean(bg_data)
+    std_val = np.std(bg_data)
+
+    if bg_data[0] > ave_val + std_val:
+        phi_est = np.pi/2
+    elif bg_data[0] < ave_val - std_val:
+        phi_est = -np.pi/2
+    elif bg_data[100] > bg_data[0]:
+        phi_est = 0
+    else:
+        phi_est = np.pi
+
+    p0 = [std_val, initial_freq, phi_est, np.mean(bg_data)]
 
     try:
-        params, pcov = curve_fit(sin_model, bg_axis, bg_data, p0=p0)
+        result = least_squares(residuals, p0, args=(bg_axis[::4], bg_data[::4]), loss='soft_l1')
+        params = result.x
     except RuntimeError:
         params = p0
 
@@ -96,15 +124,16 @@ def get_sinusoidal_noise(data, background_region: tuple[int, int]):
 
 def test_func(data, dt, crit_f, calib):
     value = np.array(data)
+    value = np.array(apply_butterworth_filter(value, order=int(1), crit_f=crit_f))
 
     signal_location = np.argmin(data)
-    background_end = signal_location - 200 if signal_location > 200 else signal_location-10
-    if background_end <= 0:
-        return 0
-    sinusoidal_background = get_sinusoidal_noise(data=data, background_region=(0, background_end))
-    value = value - sinusoidal_background
+    first_interval_end = signal_location - 100 if signal_location > 100 else None
+    second_interval_start = signal_location + 600 if signal_location + 600 < len(value) else None
 
-    value = np.array(apply_butterworth_filter(value, order=int(1), crit_f=crit_f))
+    # Perform the sinusoidal fit twice
+    value -= get_sinusoidal_noise(data=value, signal_region=(first_interval_end, second_interval_start))
+    value -= get_sinusoidal_noise(data=value, signal_region=(first_interval_end, second_interval_start))
+
     ind_roi = identify_primary_valley(value)
     value = np.array(value[ind_roi])
     integrated_signal = np.trapz(value, x=None, dx=dt)
