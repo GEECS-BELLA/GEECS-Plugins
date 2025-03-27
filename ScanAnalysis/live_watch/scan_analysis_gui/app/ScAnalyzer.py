@@ -24,7 +24,15 @@ from live_watch.scan_analysis_gui.app.gui.ScAnalyzer_ui import Ui_MainWindow
 from live_watch.scan_analysis_gui.app.AnalysisActivator import AnalysisDialog, ActivatorTuple
 from live_watch.scan_watch import ScanWatch
 from live_watch.scan_analysis_gui.utils.exceptions import exception_hook
+
+# TODO should have a smarter way to import these, perhaps outside of this gui code
 from scan_analysis.mapping.map_Undulator import undulator_analyzers
+from scan_analysis.mapping.map_Thomson import thomson_analyzers
+
+EXPERIMENT_TO_MAPPING = {
+    'Undulator': undulator_analyzers,
+    'Thomson': thomson_analyzers,
+}
 # =============================================================================
 # %% global variables
 DEBUG_MODE = False
@@ -75,9 +83,6 @@ class ScAnalyzerWindow(QMainWindow):
         # set up gui log to display output
         self.setup_log_display()
 
-        # set up analyzer list
-        self.analyzer_items = undulator_analyzers.copy()
-
         # initialize worker information
         self.worker: Optional[Worker] = None
         self.worker_thread: Optional[QThread] = None
@@ -94,6 +99,9 @@ class ScAnalyzerWindow(QMainWindow):
         self.experiment_name: Optional[str] = None
         self.load_experiment_name_from_config()
         self.ui.buttonReset.clicked.connect(self.write_experiment_name_to_config)
+
+        # set up analyzer list
+        self.analyzer_items = EXPERIMENT_TO_MAPPING.get(self.experiment_name, []).copy()
 
     def start_analysis(self) -> None:
         '''
@@ -152,7 +160,7 @@ class ScAnalyzerWindow(QMainWindow):
                 raise DateCheckError("Cannot perform analysis on previous date without DocumentID")
 
             # initialize scan watcher
-            scan_watcher = ScanWatch('Undulator',
+            scan_watcher = ScanWatch(self.experiment_name,
                                      int(self.ui.inputYear.text()),
                                      int(self.ui.inputMonth.text()),
                                      int(self.ui.inputDay.text()),
