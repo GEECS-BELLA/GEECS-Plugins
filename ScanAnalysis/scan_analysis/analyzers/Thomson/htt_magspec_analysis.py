@@ -19,6 +19,8 @@ from scan_analysis.base import ScanAnalysis
 from image_analysis.utils import read_imaq_png_image
 from image_analysis.analyzers.online_analysis_modules.image_processing_funcs import threshold_reduction
 
+from geecs_python_api.analysis.scans.scan_data import ScanData
+
 
 # %% classes
 class HTTMagSpecAnalysis(ScanAnalysis):
@@ -61,7 +63,6 @@ class HTTMagSpecAnalysis(ScanAnalysis):
         # For each shot, stitch together the three images and project it onto the x-axis.  Save the final lineout
         all_projections = []
         for shot_num in self.auxiliary_data['Shotnumber'].values:
-            print(f"{shot_num}")
             stitched_projection = None
             for device in self.device_list:
                 # For more complex analysis, the actual `image analysis` code within this `for` block could be moved
@@ -110,6 +111,9 @@ class HTTMagSpecAnalysis(ScanAnalysis):
 
         # Could from here do additional analysis and append scalars to the sfile using:
         # self.append_to_sfile(self, dict_to_append={'key': list_of_data}):
+
+        self.display_contents.append(str(save_path))
+        return self.display_contents
 
 
 if __name__ == "__main__":
