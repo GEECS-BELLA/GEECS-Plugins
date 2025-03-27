@@ -28,7 +28,7 @@ class HTTMagSpecAnalysis(ScanAnalysis):
         super().__init__(scan_tag, device_name=None, skip_plt_show=skip_plt_show)
 
         self.device_list = ['HTT-C23_1_MagSpec1', 'HTT-C23_2_MagSpec2', 'HTT-C23_3_MagSpec3', 'HTT-C23_4_MagSpec4']
-        self.background_tag = ScanData.get_scan_tag(year=2025, month=3, day=21, number=11, experiment='Thomson')
+        self.background_tag = ScanData.get_scan_tag(year=2025, month=3, day=26, number=7, experiment='Thomson')
         self.backgrounds = {}
 
         # Check if data directory exists and is not empty
