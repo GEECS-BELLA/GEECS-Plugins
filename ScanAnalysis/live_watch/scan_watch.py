@@ -252,8 +252,8 @@ class ScanWatch:
 
                 except FileNotFoundError:  # Race condition or network issue
                     logging.warning(f"Could not read {self.processed_list_filename}: temporarily unavailable.")
-                    attempts += 1
                     time.sleep(secs=1)
+            attempts += 1
         logging.warning(f"Max attempts reached, did not write to '{self.processed_list_filename}'.")
         if attempts > 3:
             raise FileNotFoundError(f"Max attempts reached, did not write to '{self.processed_list_filename}'.")
