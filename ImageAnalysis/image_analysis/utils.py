@@ -218,6 +218,7 @@ def extract_timestamp_from_file(device_file: Path, device_type: str) -> float:
         "FROG": get_custom_imaq_timestamp,
         "HASO4_3": get_himg_timestamp,
         "Thorlabs CCS175 Spectrometer": get_picoscopeV2_timestamp,
+        "RohdeSchwarz_RTA4000": get_picoscopeV2_timestamp,
     }
 
     if device_type in device_map:

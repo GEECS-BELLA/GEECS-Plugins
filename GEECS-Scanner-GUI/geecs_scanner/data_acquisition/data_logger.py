@@ -104,7 +104,7 @@ class FileMover:
             variant_dirs = [d for d in home_dir.iterdir() if d.is_dir() and d.name.startswith(device_name)]
 
         # Determine expected file count.
-        if device_type in ['PicoscopeV2', 'FROG', 'Thorlabs CCS175 Spectrometer']:
+        if device_type in ['PicoscopeV2', 'FROG', 'Thorlabs CCS175 Spectrometer','RohdeSchwarz_RTA4000']:
             expected_file_count = 2
         elif device_type in ['MagSpecStitcher', 'MagSpecCamera']:
             expected_file_count = 1
