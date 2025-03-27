@@ -13,8 +13,11 @@ import sys
 import time
 import traceback
 from datetime import date
+import configparser
+import importlib
+from pathlib import Path
 
-from PyQt5.QtWidgets import QMainWindow, QApplication, QLineEdit, QDialog
+from PyQt5.QtWidgets import QMainWindow, QApplication, QLineEdit, QDialog, QInputDialog, QMessageBox
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 from live_watch.scan_analysis_gui.app.gui.ScAnalyzer_ui import Ui_MainWindow
@@ -86,6 +89,11 @@ class ScAnalyzerWindow(QMainWindow):
         # set up line edit to specify document id
         self.documentID: Optional[str] = None
         self.ui.lineDocumentID.editingFinished.connect(self.updateDocumentID)
+
+        # set up line edit to show experiment name and button to change the experiment name
+        self.experiment_name: Optional[str] = None
+        self.load_experiment_name_from_config()
+        self.ui.buttonReset.clicked.connect(self.write_experiment_name_to_config)
 
     def start_analysis(self) -> None:
         '''
@@ -204,6 +212,40 @@ class ScAnalyzerWindow(QMainWindow):
         to_enable = self.findChildren(QLineEdit) + [self.ui.checkBoxOverwrite, self.ui.buttonStart]
         for input_field in to_enable:
             input_field.setEnabled(True)
+
+    def load_experiment_name_from_config(self):
+        """ Upon launch, attempts to read the config file to see what the experiment name should be """
+        try:
+            module = importlib.import_module('geecs_python_api.controls.interface')
+            load_config = getattr(module, 'load_config')
+            config = load_config()
+            self.experiment_name = config['Experiment']['expt']
+            self.log_info_message(f"Loaded experiment name '{self.experiment_name}' from config.ini")
+        except (TypeError, NameError) as e:
+            self.log_error_message(f"{type(e)}: Could not locate configuration file")
+        except KeyError as e:
+            self.log_error_message(f"{type(e)}: No field `Experiment/expt` in config.ini")
+        finally:
+            display_text = "-- Not Found --" if self.experiment_name is None else self.experiment_name
+            self.ui.lineExperimentName.setText(display_text)
+
+    def write_experiment_name_to_config(self):
+        """ If ScAnalyzer is not running, asks the user if they would like a new experiment.  If so, writes the new
+         name to the config file and quits the program.  Upon restart, the new experiment will be selected. """
+        if self.ui.buttonStop.isEnabled() is True:
+            return  # Should not reset the experiment name if a scan is currently running
+
+        text, ok = QInputDialog.getText(self, 'Change Experiment Name', 'Change Experiment Name:', text="")
+        if ok:
+            config = configparser.ConfigParser()
+            config_file_path = Path('~/.config/geecs_python_api/config.ini').expanduser()
+            config.read(config_file_path)
+            config.set('Experiment', 'expt', text)
+            with open(config_file_path, 'w') as file:
+                config.write(file)
+            QMessageBox.information(self, "Change Experiment Name",
+                                    f"Wrote new experiment name '{text}', must restart window to reload.")
+            self.close()
 
     def initialize_worker(self) -> None:
         '''
