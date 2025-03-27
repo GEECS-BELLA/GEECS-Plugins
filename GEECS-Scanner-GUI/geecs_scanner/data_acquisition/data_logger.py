@@ -51,6 +51,10 @@ class FileMover:
         self.file_check_counts = {}
         # Files checked more than twice without moving will be marked as orphaned.
         self.orphaned_files = set()
+        self.orphan_tasks = []
+        self.processed_files = set()
+        self.scan_is_live = True
+        self.save_local = True
 
         self.scan_number: Optional[int] = None
         logging.info("FileMover worker started.")
@@ -107,7 +111,21 @@ class FileMover:
         else:
             expected_file_count = 1
 
+
+
+        # there is some time overhead in saving to the netapp rather than local. It's possible
+        # that the FileMoveTask for a given event is created and queued before the file is
+        # successfully written to the network drive. In that case, no match is found but then
+        # the file is written shortly after. As it stands, each new time stamp is checked
+        # against existing files once, so it's quite possible that a files build up without
+        # getting moved/renamed. In the future, could consider re-queueing a task a fixed number
+        # of times rather than adding a sleep here.
+        if not self.save_local:
+            time.sleep(.1)
+
+        task_success = False
         for variant in variant_dirs:
+            task_success = False
             adjusted_target_dir = target_dir.parent / variant.name
             adjusted_target_dir.mkdir(parents=True, exist_ok=True)
             logging.info(f"Processing variant '{variant.name}' with target '{adjusted_target_dir}'")
@@ -116,18 +134,30 @@ class FileMover:
             for file in variant.glob("*"):
                 if not file.is_file():
                     continue
+
+                # if the file has been checked already e.g. orphaned, skip when the scan is live.
+                # If scan is not live, allow cleanup tasks.
                 if file in self.orphaned_files:
+                    if self.scan_is_live:
+                        continue
+
+                if file in self.processed_files:
                     continue
+
+                # is scan is live, make sure you don't get stuck in a loop iterating through the
+                # same files over and over by adding it to the orphaned files. iF scan is not live
+                # allow the task processing to continue one more time
+                if self.scan_is_live:
+                    self.file_check_counts[file] = self.file_check_counts.get(file, 0) + 1
+                    if self.file_check_counts[file] > 1:
+                        logging.info(f"File {file} checked >1 times; marking as orphaned.")
+                        self.orphaned_files.add(file)
+                        continue
 
                 file_ts = extract_timestamp_from_file(file, device_type)
                 logging.info(f"Checking {file} with timestamp {file_ts} against expected {expected_timestamp}")
                 if abs(file_ts - expected_timestamp) < 0.0011:
                     found_files_count += 1
-                    self.file_check_counts[file] = self.file_check_counts.get(file, 0) + 1
-                    if self.file_check_counts[file] > 1:
-                        logging.info(f"File {file} checked >2 times; marking as orphaned.")
-                        self.orphaned_files.add(file)
-                        continue
 
                     # Extract the unique random part from the primary file.
                     # Expects filename format: "{device_name}_{random}.png"
@@ -150,7 +180,13 @@ class FileMover:
                         self._process_variant_file(task)
 
                     if found_files_count == expected_file_count:
+                        task_success = True
                         break
+
+        if not task_success:
+            #task failed to find a match, log it as an orpahned task
+            logging.info(f'failed to find a file for {task.device_name} with timestamp {task.expected_timestamp}')
+            self.orphan_tasks.append(task)
 
     def _move_file(self, task: FileMoveTask, source_file: Path, new_device_name: str) -> bool:
         """
@@ -173,6 +209,7 @@ class FileMover:
         try:
             shutil.move(str(source_file), str(dest_file))
             logging.info(f"Moved {source_file} to {dest_file}")
+            self.processed_files.add(dest_file)
             return True
         except Exception as e:
             logging.error(f"Error moving {source_file} to {dest_file}: {e}")
@@ -245,7 +282,6 @@ class FileMover:
         """
         logging.info(f'looking to handle orphaned data files')
         tolerance = 0.0011  # Adjust as needed
-
         for device_name, device_info in device_save_paths_mapping.items():
             source_dir = Path(device_info['source_dir'])
             target_dir = Path(device_info['target_dir'])
@@ -293,6 +329,10 @@ class FileMover:
                     self.move_files_by_timestamp(task)
                 else:
                     logging.warning(f"No matching shot number found for orphan file {file} (timestamp {file_ts})")
+
+    def post_process_orphan_taks(self):
+        for task in self.orphan_tasks:
+            self.move_files_by_timestamp(task)
 
     def shutdown(self, wait: bool = True) -> None:
         """
@@ -407,6 +447,7 @@ class DataLogger:
 
         #scan number in datalogger updates in scan_manager
         self.file_mover.scan_number = self.scan_number
+        self.file_mover.save_local = self.save_local
 
         # Access event-driven and async observables from DeviceManager
         self.event_driven_observables = self.device_manager.event_driven_observables
@@ -729,19 +770,19 @@ class DataLogger:
             self.log_entries[elapsed_time].update({
                 f"{device.get_name()}:{key}": value for key, value in observables_data.items()
             })
-            if self.save_local:
-                if device.get_name() in self.device_save_paths_mapping:
-                    device_name = device.get_name()
-                    cfg = self.device_save_paths_mapping[device_name]
-                    task = FileMoveTask(
-                        source_dir=cfg['source_dir'],
-                        target_dir=cfg['target_dir'],
-                        device_name=device_name,
-                        device_type=cfg['device_type'],
-                        expected_timestamp=observables_data['timestamp'],
-                        shot_index=self.shot_index
-                    )
-                    self.file_mover.move_files_by_timestamp(task)
+
+            if device.get_name() in self.device_save_paths_mapping:
+                device_name = device.get_name()
+                cfg = self.device_save_paths_mapping[device_name]
+                task = FileMoveTask(
+                    source_dir=cfg['source_dir'],
+                    target_dir=cfg['target_dir'],
+                    device_name=device_name,
+                    device_type=cfg['device_type'],
+                    expected_timestamp=observables_data['timestamp'],
+                    shot_index=self.shot_index
+                )
+                self.file_mover.move_files_by_timestamp(task)
 
     def stop_logging(self) -> None:
         """

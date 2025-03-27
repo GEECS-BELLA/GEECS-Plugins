@@ -385,7 +385,12 @@ class ScanManager:
             log_df = self.scan_data_manager.process_results(self.results)
 
             # pass log_df to the post process cleanup method in the file mover of data logger
-            self.data_logger.file_mover.post_process_orphaned_files(log_df=log_df, device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping)
+            if self.save_local:
+                self.data_logger.file_mover.post_process_orphaned_files(log_df=log_df, device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping)
+            else:
+                self.data_logger.file_mover.scan_is_live = False
+                self.data_logger.file_mover.post_process_orphan_taks()
+
             self.data_logger.file_mover.shutdown(wait=True)
 
             # Step 8: create sfile in analysis folder
