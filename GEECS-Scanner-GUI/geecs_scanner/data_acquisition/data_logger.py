@@ -374,6 +374,7 @@ class DataLogger:
         # Boolean flags
         self.all_devices_in_standby: bool = False
         self.devices_synchronized: bool = False
+        self.save_local = True
 
     def set_device_save_paths_mapping(self, mapping: DeviceSavePaths) -> None:
         """Set the device_save_paths_mapping externally."""
@@ -728,19 +729,19 @@ class DataLogger:
             self.log_entries[elapsed_time].update({
                 f"{device.get_name()}:{key}": value for key, value in observables_data.items()
             })
-
-            if device.get_name() in self.device_save_paths_mapping:
-                device_name = device.get_name()
-                cfg = self.device_save_paths_mapping[device_name]
-                task = FileMoveTask(
-                    source_dir=cfg['source_dir'],
-                    target_dir=cfg['target_dir'],
-                    device_name=device_name,
-                    device_type=cfg['device_type'],
-                    expected_timestamp=observables_data['timestamp'],
-                    shot_index=self.shot_index
-                )
-                self.file_mover.move_files_by_timestamp(task)
+            if self.save_local:
+                if device.get_name() in self.device_save_paths_mapping:
+                    device_name = device.get_name()
+                    cfg = self.device_save_paths_mapping[device_name]
+                    task = FileMoveTask(
+                        source_dir=cfg['source_dir'],
+                        target_dir=cfg['target_dir'],
+                        device_name=device_name,
+                        device_type=cfg['device_type'],
+                        expected_timestamp=observables_data['timestamp'],
+                        shot_index=self.shot_index
+                    )
+                    self.file_mover.move_files_by_timestamp(task)
 
     def stop_logging(self) -> None:
         """

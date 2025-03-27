@@ -474,6 +474,7 @@ class ScanManager:
 
         if self.save_data:
             self.scan_data_manager.create_and_set_data_paths(save_local=self.save_local)
+            self.data_logger.save_local = self.save_local
             # map information produced in ScanDataManager to the DataLogger to facilitate
             # moving of files etc.
             # self.data_logger.device_save_paths_mapping = self.scan_data_manager.device_save_paths_mapping
