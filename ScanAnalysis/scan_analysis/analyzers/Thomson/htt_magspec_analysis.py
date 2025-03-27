@@ -64,6 +64,9 @@ class HTTMagSpecAnalysis(ScanAnalysis):
             print(f"{shot_num}")
             stitched_projection = None
             for device in self.device_list:
+                # For more complex analysis, the actual `image analysis` code within this `for` block could be moved
+                #  to a dedicated ImageAnalysis class, and one could multithread the analysis so that each thread gets
+                #  a single image to analyze.  But for this simple example I am opting to keep it all within this file
                 image_file = ScanData.get_device_shot_path(tag=self.tag, device_name=device,
                                                            shot_number=int(float(shot_num)))
                 image = read_imaq_png_image(image_file)*1.0
