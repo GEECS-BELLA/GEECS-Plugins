@@ -59,7 +59,7 @@ def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], upload_to_scan
                 # if index_of_files:  # TODO And if a Google doc procedure is defined for the given experiment
                 #     # TODO Append the images to the appropriate location in the daily experiment log on Google
                 #     pass
-                if index_of_files:
+                if index_of_files is not None:
                     all_display_files.append(index_of_files)
             except Exception as err:
                 logging.error(f"Error in analyze_scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}): {err}")
