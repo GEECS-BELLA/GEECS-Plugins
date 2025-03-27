@@ -270,7 +270,7 @@ class FileMover:
                 # Find the matching shot number using the pairs from the DataFrame.
                 for shot_number, ts in shot_timestamp_pairs:
                     if abs(file_ts - ts) < tolerance:
-                        matched_shot = shot_number
+                        matched_shot = int(shot_number)
                         break
 
                 if matched_shot is not None:
