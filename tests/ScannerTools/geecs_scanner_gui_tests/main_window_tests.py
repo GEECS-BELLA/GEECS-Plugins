@@ -368,7 +368,41 @@ def test_shot_calculation(app, qtbot: QtBot):
     app.delete_selected_preset()
 
 
-# Test generating list of steps
+def test_list_of_steps(app, qtbot: QtBot):
+    app.save_current_preset(filename="blank")
+
+    # Tooltip button is visible when entering Scan mode
+    assert app.ui.toolbuttonStepList.isVisible() is False
+    qtbot.mouseClick(app.ui.scanRadioButton, Qt.LeftButton)
+    assert app.ui.toolbuttonStepList.isVisible() is True
+    assert app.ui.toolbuttonStepList.toolTip().strip() == ""
+
+    # Test that it returns the correct list of steps when choosing a basic 1D scan
+    app.ui.lineScanVariable.setText(app.scan_variable_list[0])
+    app.ui.lineStartValue.setText("1")
+    app.ui.lineStopValue.setText("2")
+    app.ui.lineStepSize.setText("0.5")
+    app.ui.lineShotStep.setText("20")
+    app.calculate_num_shots()
+    tooltip_string = app.ui.toolbuttonStepList.toolTip().strip()
+    assert tooltip_string != ""
+
+    # If we change the number of shots, then the tool tip string should not change
+    app.ui.lineShotStep.setText("10")
+    app.calculate_num_shots()
+    assert app.ui.toolbuttonStepList.toolTip().strip() == tooltip_string
+
+    # Test 'relative' composite variables, though we are just seeing that the code executes without error
+    app.ui.lineScanVariable.setText("test_comp_1")
+    app.calculate_num_shots()
+    assert tooltip_string != ""
+
+    # TODO could consider making something to test 'absolute', but this requires a `get` command to a GEECS Device
+
+    app.ui.listScanPresets.setCurrentRow(0)
+    app.apply_preset()
+    app.ui.listScanPresets.setCurrentRow(0)
+    app.delete_selected_preset()
 
 
 def test_dictionary_combining(app, qtbot: QtBot):

@@ -2,10 +2,10 @@ composite_variables:
   test_comp_1:
     components:
     - device: dev1
-      relation: test1
+      relation: composite_var + 1
       variable: var1
     - device: dev2
-      relation: test2
+      relation: composite_var - 1
       variable: var1
     mode: relative
   test_comp_2:
