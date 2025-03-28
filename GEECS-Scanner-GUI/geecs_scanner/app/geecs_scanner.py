@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from geecs_scanner.app.lib.action_control import ActionControl
 
 import sys
+import os
 from pathlib import Path
 import threading
 import importlib
@@ -44,9 +45,9 @@ STRING_OPTIONS = ["Master Control IP", "Save Hiatus Period (s)"]
 
 
 class GEECSScannerWindow(QMainWindow):
-    def __init__(self, unit_test_mode: bool = False):
+    def __init__(self):
         super().__init__()
-        self.unit_test_mode = unit_test_mode
+        self.unit_test_mode = 'PYTEST_CURRENT_TEST' in os.environ
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)

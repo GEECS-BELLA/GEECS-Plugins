@@ -25,7 +25,7 @@ from geecs_scanner.utils.exceptions import ConflictingScanElements
 @pytest.fixture
 def app(qtbot: QtBot):
     """ Initializes the GEECS Scanner window in debug mode, manually setting the Exp Name and App Paths """
-    window = GEECSScannerWindow(unit_test_mode=True)
+    window = GEECSScannerWindow()
     qtbot.addWidget(window)
     window.show()
     window.activateWindow()
