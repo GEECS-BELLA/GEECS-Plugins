@@ -5,7 +5,7 @@ from scan_analysis.mapping.map_Undulator import undulator_analyzers
 from scan_analysis.execute_scan_analysis import analyze_scan
 
 from scan_analysis.base import AnalyzerInfo as Info
-from scan_analysis.analyzers.Undulator.array2D_scan_analysis import Array2DScanAnalysis
+from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis
 from image_analysis.analyzers.basic_image_analysis import BasicImageAnalyzer
 
 
