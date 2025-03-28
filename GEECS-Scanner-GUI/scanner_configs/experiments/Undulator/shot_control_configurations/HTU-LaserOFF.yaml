@@ -5,6 +5,6 @@ variables:
     SCAN: '4.0'
     STANDBY: '0.5'
   Trigger.Source:
-    'OFF': Single shot external rising edges
+    'OFF': Single shot
     SCAN: Internal
     STANDBY: External rising edges

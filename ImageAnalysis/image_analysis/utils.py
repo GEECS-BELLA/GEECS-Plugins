@@ -191,10 +191,40 @@ def get_haso_timestamp(file_path):
     
 def get_himg_timestamp(image_file_path: Path)-> float:
     image_file_path_str = str(image_file_path)
-    haso_image = wkpy.Image(image_file_path =image_file_path_str)
-    meta_data = haso_image.get_info_from_file(image_file_path_str)[1]
+
+    # haso_image = wkpy.Image(image_file_path =image_file_path_str)
+    # meta_data = haso_image.get_info_from_file(image_file_path_str)[1]
+    meta_data = wkpy.Image.get_info_from_file(image_file_path_str)[1]
+
     timestamp = meta_data[2]
     return timestamp
+
+def extract_timestamp_from_file(device_file: Path, device_type: str) -> float:
+    """
+    Extract timestamp from a device file based on its type.
+
+    Args:
+        device_file (Path): Path to the device file.
+        device_type (str): Type of the device.
+
+    Returns:
+        float: Extracted timestamp.
+    """
+    device_map = {
+        "Point Grey Camera": get_imaq_timestamp_from_png,
+        "MagSpecCamera": get_imaq_timestamp_from_png,
+        "PicoscopeV2": get_picoscopeV2_timestamp,
+        "MagSpecStitcher": get_custom_imaq_timestamp,
+        "FROG": get_custom_imaq_timestamp,
+        "HASO4_3": get_himg_timestamp,
+        "Thorlabs CCS175 Spectrometer": get_picoscopeV2_timestamp,
+        "RohdeSchwarz_RTA4000": get_picoscopeV2_timestamp,
+    }
+
+    if device_type in device_map:
+        return device_map[device_type](device_file)
+    else:
+        raise ValueError(f"Unsupported device type: {device_type}")
 
 def extract_shot_number(filename):
     """
@@ -211,7 +241,7 @@ def extract_shot_number(filename):
     if match:
         return int(match.group(1))
     return None
-    
+
 class ROI:
     """ Specify a region of interest for an ImageAnalyzer to crop with.
     
