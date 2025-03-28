@@ -481,14 +481,21 @@ class CameraImageAnalysis(ScanAnalysis):
         """
         # load images
         data = {'shot_num': [], 'images': []}
+        total_counts = []
         for shot_num in self.auxiliary_data['Shotnumber'].values:
             image_file = next(self.path_dict['data_img'].glob(f'*_{shot_num:03d}.png'), None)
             if image_file:
                 data['shot_num'].append(shot_num)
-                data['images'].append(read_imaq_png_image(image_file))
+                image = read_imaq_png_image(image_file)*1.0
+                data['images'].append(image)
+                if self.device_name == 'UC_DiagnosticsPhosphor':
+                    image_process = np.copy(image)
+                    image_process[np.where(image_process > 200)] = 0
+                    total_counts.append(np.sum(image_process))
             else:
                 if self.flag_logging:
                     logging.warning(f"Missing data for shot {shot_num}.")
+                total_counts.append(0)
 
         # perform image analysis
         for i in range(len(data['images'])):
@@ -514,6 +521,8 @@ class CameraImageAnalysis(ScanAnalysis):
                             titles=[f"Shot {num}" for num in data['shot_num']])
                             
             self.display_contents.append(str(filepath))
+
+        self.append_to_sfile({f'{self.device_name} Total Counts': total_counts})
 
     def run_scan_analysis(self):
         """
