@@ -66,6 +66,12 @@ class ShotControlEditor(QDialog):
         else:
             self.config_folder_path = Path(config_folder_path)
 
+        # Line edits to enter in values for the given variable in the three scan states
+        self.state_line_edits = [self.ui.lineOffState, self.ui.lineScanState,
+                                 self.ui.lineStandbyState, self.ui.lineSingleShotState]
+        for state in self.state_line_edits:
+            state.editingFinished.connect(self.update_variable_dictionary)
+
         # Top half of the GUI for selecting the configuration and some file operations
         self.ui.lineConfigurationSelect.setReadOnly(True)
         self.ui.lineConfigurationSelect.installEventFilter(self)
@@ -87,11 +93,6 @@ class ShotControlEditor(QDialog):
         self.ui.buttonAddVariable.clicked.connect(self.add_variable)
         self.ui.buttonRemoveVariable.clicked.connect(self.remove_variable)
         self.ui.listShotControlVariables.itemSelectionChanged.connect(self.show_states_info)
-
-        # Line edits to enter in values for the given variable in the three scan states
-        self.ui.lineOffState.editingFinished.connect(self.update_variable_dictionary)
-        self.ui.lineScanState.editingFinished.connect(self.update_variable_dictionary)
-        self.ui.lineStandbyState.editingFinished.connect(self.update_variable_dictionary)
 
         # Buttons to save and close the dialog
         self.ui.buttonSaveConfiguration.clicked.connect(self.save_configuration)
@@ -234,7 +235,7 @@ class ShotControlEditor(QDialog):
         if new_variable is None or new_variable.strip() == '':
             return
         if new_variable not in self.variable_dictionary.keys():
-            new_states = {'OFF': '', 'SCAN': '', 'STANDBY': ''}
+            new_states = {'OFF': '', 'SCAN': '', 'STANDBY': '', 'SINGLESHOT': ''}
             self.variable_dictionary[new_variable] = new_states
 
             self._update_variable_list()
@@ -255,19 +256,18 @@ class ShotControlEditor(QDialog):
         """ Updates the GUI to either disable the line edits for the 3 states or displays their current values """
         selected_variable = self.ui.listShotControlVariables.selectedItems()
         has_selection = bool(selected_variable)
-        self.ui.lineOffState.setEnabled(has_selection)
-        self.ui.lineScanState.setEnabled(has_selection)
-        self.ui.lineStandbyState.setEnabled(has_selection)
+        for state in self.state_line_edits:
+            state.setEnabled(has_selection)
 
         if has_selection:
             variable = self.variable_dictionary[selected_variable[0].text()]
-            self.ui.lineOffState.setText(variable['OFF'])
-            self.ui.lineScanState.setText(variable['SCAN'])
-            self.ui.lineStandbyState.setText(variable['STANDBY'])
+            self.ui.lineOffState.setText(variable.get('OFF', ''))
+            self.ui.lineScanState.setText(variable.get('SCAN', ''))
+            self.ui.lineStandbyState.setText(variable.get('STANDBY', ''))
+            self.ui.lineSingleShotState.setText(variable.get('SINGLESHOT', ''))
         else:
-            self.ui.lineOffState.setText('')
-            self.ui.lineScanState.setText('')
-            self.ui.lineStandbyState.setText('')
+            for state in self.state_line_edits:
+                state.setText('')
 
     def update_variable_dictionary(self):
         """ Updates the variable dictionary to reflect new changes in the GUI """
@@ -277,6 +277,7 @@ class ShotControlEditor(QDialog):
             variable['OFF'] = self.ui.lineOffState.text()
             variable['SCAN'] = self.ui.lineScanState.text()
             variable['STANDBY'] = self.ui.lineStandbyState.text()
+            variable['SINGLESHOT'] = self.ui.lineSingleShotState.text()
 
     # # # # Methods for saving current configuration and closing the window # # # #
 
@@ -286,12 +287,6 @@ class ShotControlEditor(QDialog):
         if configuration_name is None or configuration_name.strip() == '':
             logging.error("Could not save timing configuration: no configuration specified")
             return
-        for variable_name in self.variable_dictionary.keys():
-            keys_to_check = ['OFF', 'SCAN', 'STANDBY']
-            variable = self.variable_dictionary[variable_name]
-            if not all(key in variable and variable[key] is not None and variable[key] != '' for key in keys_to_check):
-                logging.error("Could not save timing configuration: missing information for variables")
-                return
 
         self._write_configuration_file(configuration_name=configuration_name)
 
