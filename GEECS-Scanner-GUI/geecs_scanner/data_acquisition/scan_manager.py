@@ -157,7 +157,8 @@ class ScanManager:
             logging.info(f"No shot control device, skipping 'set state {state}'")
             return
 
-        valid_states = ['OFF', 'SCAN', 'STANDBY']
+        valid_states = ['OFF', 'SCAN', 'STANDBY', 'SINGLESHOT']
+        results = []
 
         if state in valid_states:
             for variable in self.shot_control_variables.keys():
@@ -167,6 +168,7 @@ class ScanManager:
             logging.info(f"Trigger turned to state {state}.")
         else:
             logging.error(f"Invalid trigger state: {state}")
+        return results
 
     def trigger_off(self):
         """Turns off the trigger and sets the amplitude to 0.5."""
@@ -326,8 +328,7 @@ class ScanManager:
             if self.data_logger.all_devices_in_standby:
                 logging.info("Sending single-shot trigger to synchronize devices.")
 
-                # TODO: this is hardcoded to fire single shot on a DG645
-                res = self.shot_control.set('Trigger.ExecuteSingleShot', 'on')
+                res = self._set_trigger('SINGLESHOT')
                 logging.info(f"Result of single shot command: {res}")
                 #wait 2 seconds after the test fire to allow time for shot to execute and for devices to respond
                 time.sleep(2)
