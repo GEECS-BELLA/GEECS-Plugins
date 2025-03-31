@@ -4,6 +4,11 @@ variables:
     'OFF': '0.5'
     SCAN: '4.0'
     STANDBY: '0.5'
+  Trigger.ExecuteSingleShot:
+    'OFF': ''
+    SCAN: ''
+    SINGLESHOT: 'on'
+    STANDBY: ''
   Trigger.Source:
     'OFF': Single shot external rising edges
     SCAN: Internal
