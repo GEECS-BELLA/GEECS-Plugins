@@ -275,7 +275,8 @@ class ScanManager:
                 log_df = self.stop_scan()
                 return log_df
 
-            self.synchronize_devices()
+            if self.shot_control is not None:  # TODO Otherwise, can still run scan and save images but will not rename
+                self.synchronize_devices()
 
             # start the acquisition loop
             self.scan_execution_loop()
