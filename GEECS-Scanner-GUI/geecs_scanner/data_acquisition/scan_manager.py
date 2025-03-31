@@ -163,8 +163,9 @@ class ScanManager:
         if state in valid_states:
             for variable in self.shot_control_variables.keys():
                 variable_settings = self.shot_control_variables[variable]
-                self.shot_control.set(variable, variable_settings[state])
-                logging.info(f"Setting {variable} to {variable_settings[state]}")
+                if set_value := variable_settings.get(state, ''):
+                    results.append(self.shot_control.set(variable, set_value))
+                    logging.info(f"Setting {variable} to {set_value}")
             logging.info(f"Trigger turned to state {state}.")
         else:
             logging.error(f"Invalid trigger state: {state}")
