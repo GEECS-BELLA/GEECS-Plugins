@@ -160,7 +160,7 @@ class GEECSScannerWindow(QMainWindow):
         # Buttons to save the current scan as a preset, delete selected preset, and double-clicking loads the preset
         self.populate_preset_list()
         self.ui.listScanPresets.itemDoubleClicked.connect(self.apply_preset)
-        self.ui.presetSaveButton.clicked.connect(self.save_current_preset)
+        self.ui.presetSaveButton.clicked.connect(lambda: self.save_current_preset())
         self.ui.presetDeleteButton.clicked.connect(self.delete_selected_preset)
 
         # Buttons to start and stop the current scan
