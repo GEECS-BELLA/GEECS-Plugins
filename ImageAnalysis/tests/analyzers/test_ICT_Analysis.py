@@ -16,6 +16,7 @@ from nptdms import TdmsFile
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
+from scipy.fft import fft, ifft, fftfreq
 
 DO_PLOT = False
 TEST_TIME = False
@@ -72,6 +73,31 @@ def copy_of_Undulator_Exit_ICT(data, dt, crit_f):
     calib = 0.2 / 2.78
     charge_pC = copy_of_analysis(data, dt, crit_f, calib)
     return charge_pC
+
+
+"""
+def apply_highpass_filter(data):
+    data_fft = fft(data)
+
+    def highpass_filter(fft_data, cutoff, fs):
+        N = len(fft_data)
+        freqs = fftfreq(N, 1 / fs)
+        filtered_fft = fft_data.copy()
+        filtered_fft[np.abs(freqs) < cutoff] = 0
+        return filtered_fft
+
+    cutoff_frequency = 2
+    sampling_rate = 500
+    filtered_fft = highpass_filter(data_fft, cutoff_frequency, sampling_rate)
+    filtered_fft = ifft(filtered_fft)
+
+    plt.plot(data)
+    plt.plot(filtered_fft)
+    plt.show()
+
+    return filtered_fft
+"""
+
 
 class TestUC_BeamSpot(unittest.TestCase):
     scan_day = 24  # 28  # 7  # 6
