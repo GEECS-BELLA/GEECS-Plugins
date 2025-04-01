@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Optional
+from typing import Optional, Tuple
 from scipy import signal
 from scipy.optimize import least_squares
 
@@ -53,7 +53,7 @@ def identify_primary_valley(data):
     return valley_ind
 
 
-def get_sinusoidal_noise(data, signal_region: tuple[Optional[int], Optional[int]]):
+def get_sinusoidal_noise(data, signal_region: Tuple[Optional[int], Optional[int]]):
     """
     Fits a sinusoidal function to the given region of "noise"
 
