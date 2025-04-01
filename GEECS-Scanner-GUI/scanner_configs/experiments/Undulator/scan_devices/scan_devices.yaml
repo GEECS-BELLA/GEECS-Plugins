@@ -1,4 +1,5 @@
 single_scan_devices:
+  Centtronic DUT position: U_ASSERT_Stages:Position.Ch2
   EMQ1 Current: U_EMQTripletBipolar:Current_Limit.Ch1
   EMQ2 Current: U_EMQTripletBipolar:Current_Limit.Ch2
   EMQ3 Current: U_EMQTripletBipolar:Current_Limit.Ch3
@@ -37,3 +38,4 @@ single_scan_devices:
   haso stage: U_Zaber:Position.Ch1
   jet opening time: U_DG645_ShotControl:Delay.Ch B
   probe cam stage: U_ProbeCamStage:Position
+  thorlabs dut position: U_ASSERT_Stages:Position.Ch1
