@@ -1,6 +1,7 @@
 Devices:
   UC_Amp2_IR_input:
-    save_nonscalar_data: true
+    add_all_variables: false
+    save_nonscalar_data: false
     synchronous: true
     variable_list:
     - MeanCounts
@@ -9,7 +10,8 @@ Devices:
     - centroidx
     - centroidy
   UC_Amp3_IR_input:
-    save_nonscalar_data: true
+    add_all_variables: false
+    save_nonscalar_data: false
     synchronous: true
     variable_list:
     - MeanCounts
@@ -18,7 +20,8 @@ Devices:
     - centroidx
     - centroidy
   UC_Amp4_IR_input:
-    save_nonscalar_data: true
+    add_all_variables: false
+    save_nonscalar_data: false
     synchronous: true
     variable_list:
     - MeanCounts
@@ -36,7 +39,8 @@ Devices:
     - centroidx
     - centroidy
   UC_GhostFocus:
-    save_nonscalar_data: true
+    add_all_variables: false
+    save_nonscalar_data: false
     synchronous: true
     variable_list:
     - MeanCounts
@@ -45,7 +49,8 @@ Devices:
     - centroidx
     - centroidy
   UC_GhostUpstream:
-    save_nonscalar_data: true
+    add_all_variables: false
+    save_nonscalar_data: false
     synchronous: true
     variable_list:
     - MeanCounts

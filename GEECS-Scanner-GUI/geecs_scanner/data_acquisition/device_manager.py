@@ -1,7 +1,7 @@
 import logging
 import yaml
 import threading
-
+from pathlib import Path
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
@@ -51,13 +51,13 @@ class DeviceManager:
             except FileNotFoundError:
                 logging.warning(f"Composite variables file not found.")
 
-    def load_composite_variables(self, composite_file):
+    def load_composite_variables(self, composite_file: Path):
 
         """
         Load composite variables from the given YAML file.
 
         Args:
-            composite_file (str): Path to the YAML file containing composite variables.
+            composite_file (Path): Path to the YAML file containing composite variables.
 
         Returns:
             dict: Dictionary of composite variables.

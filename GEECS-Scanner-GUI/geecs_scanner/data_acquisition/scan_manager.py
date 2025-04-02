@@ -131,6 +131,7 @@ class ScanManager:
 
         if config_dictionary is not None and 'options' in config_dictionary:
             self.options_dict = config_dictionary['options']
+            self.save_local = self.options_dict.get('Save Local', True)
 
         new_mc_ip = self.options_dict.get("Master Control IP", "")
         if self.shot_control and new_mc_ip and self.MC_ip != new_mc_ip:
@@ -277,6 +278,9 @@ class ScanManager:
 
             self.synchronize_devices()
 
+            #clear source directories of synchronization shots
+            self.scan_data_manager.purge_all_local_save_dir()
+
             # start the acquisition loop
             self.scan_execution_loop()
 
@@ -296,7 +300,7 @@ class ScanManager:
         Returns:
             bool: True if all devices are in standby mode within the timeout; otherwise, False.
         """
-        timeout = 6  # timeout in seconds
+        timeout = 8  # timeout in seconds
         start_time = time.time()
         while not self.data_logger.all_devices_in_standby:
             if time.time() - start_time > timeout:
@@ -314,7 +318,7 @@ class ScanManager:
         satisified, we can fire another test shot to see if all devices exit standby mode.
         This process repeats until successful or a timeout is reached.
         """
-        timeout = 17.5  # seconds
+        timeout = 25.5  # seconds
         start_time = time.time()
         while not self.data_logger.devices_synchronized:
             if time.time() - start_time > timeout:
@@ -378,11 +382,17 @@ class ScanManager:
 
         if self.save_data:
             # Step 6: Process results, save to disk, and log data
-            log_df = self.scan_data_manager._process_results(self.results)
-            
-            # Step 7: Process and rename data files
-            self.scan_data_manager.process_and_rename()
-            
+            log_df = self.scan_data_manager.process_results(self.results)
+
+            # pass log_df to the post process cleanup method in the file mover of data logger
+            if self.save_local:
+                self.data_logger.file_mover.post_process_orphaned_files(log_df=log_df, device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping)
+            else:
+                self.data_logger.file_mover.scan_is_live = False
+                self.data_logger.file_mover.post_process_orphan_taks()
+
+            self.data_logger.file_mover.shutdown(wait=True)
+
             # Step 8: create sfile in analysis folder
             self.scan_data_manager._make_sFile(log_df)
 
@@ -468,7 +478,14 @@ class ScanManager:
         time.sleep(2)
 
         if self.save_data:
-            self.scan_data_manager.create_and_set_data_paths()
+            self.scan_data_manager.create_and_set_data_paths(save_local=self.save_local)
+            self.data_logger.save_local = self.save_local
+            # map information produced in ScanDataManager to the DataLogger to facilitate
+            # moving of files etc.
+            # self.data_logger.device_save_paths_mapping = self.scan_data_manager.device_save_paths_mapping
+            self.data_logger.set_device_save_paths_mapping(self.scan_data_manager.device_save_paths_mapping)
+            self.data_logger.scan_number = self.scan_data_manager.scan_number_int
+
             self.scan_data_manager.write_scan_info_ini(scan_config)
 
         # Handle scan variables and ensure devices are initialized in DeviceManager
@@ -510,11 +527,13 @@ class ScanManager:
 
         steps = [
             "enable remote scan ECS dumps",
+            "Main: Check scans path>>None"
         ]
         
         for step in steps:
             success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
-            time.sleep(.5)
+            time.sleep(3.5)
+            logging.info(f'enable live ecs dumps step {step} complete')
             if not success:
                 logging.warning(f"Failed to enable live ECS dumps on MC on computer: {client_ip}")
                 break
@@ -523,9 +542,10 @@ class ScanManager:
         if self.shot_control is None:
             logging.error("Cannot enable live ECS dump without shot control device")
             return
+        logging.info('sending comands to MC to generate ECS live dump')
 
         steps = [
-            "Main: Check scans path>>None",
+            # "Main: Check scans path>>None",
             "Save Live Expt Devices Configuration>>ScanStart"
         ]
         
