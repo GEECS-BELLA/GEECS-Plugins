@@ -15,10 +15,14 @@ import time
 from nptdms import TdmsFile
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
 
 DO_PLOT = False
+TEST_TIME = False
 MAX_TIME = 0.2
 FIND_SHOT = None
+SKIP_ACAVE = True
+SKIP_BCAVE = False
 
 
 def copy_of_analysis(data, dt, crit_f, calib):
@@ -70,8 +74,8 @@ def copy_of_Undulator_Exit_ICT(data, dt, crit_f):
     return charge_pC
 
 class TestUC_BeamSpot(unittest.TestCase):
-    scan_day = 24  # 7  # 6
-    scan_number = 1  # 56  # 24
+    scan_day = 28  # 7  # 6
+    scan_number = 6  # 56  # 24
 
     def get_acave_tdms_file(self, shot_number: int):
         device = 'U_UndulatorExitICT'
@@ -86,46 +90,48 @@ class TestUC_BeamSpot(unittest.TestCase):
         return data_folder + shot_prefix + f'_{shot_number:03d}' + '.tdms'
 
     def test_analyze_image(self):
-        total = 100
+        folder = Path(self.get_bcave_tdms_file(shot_number=0)).parent
+        total = len(list(folder.glob('*.tdms')))
         acave_charge = np.zeros(total)
         bcave_charge = np.zeros(total)
 
         do_bcave_comparison = True
         global DO_PLOT
 
-        for i in range(100):
+        for i in range(total):
             print(f"Shot {i:03d}")
             if FIND_SHOT is not None:
                 DO_PLOT = bool(i == FIND_SHOT-1)
 
-            try:
-                print(f"  A Cave ICT:")
-                filename = self.get_acave_tdms_file(shot_number=i)
-                tdms_file = TdmsFile.read(filename)
+            if not SKIP_ACAVE:
+                try:
+                    print(f"  A Cave ICT:")
+                    filename = self.get_acave_tdms_file(shot_number=i)
+                    tdms_file = TdmsFile.read(filename)
 
-                if print_tdms_stats := False:
-                    print(tdms_file.properties)
-                    for group in tdms_file.groups():
-                        print(group.name, ":")
-                        for channel in group.channels():
-                            print("-", channel.name)
+                    if print_tdms_stats := False:
+                        print(tdms_file.properties)
+                        for group in tdms_file.groups():
+                            print(group.name, ":")
+                            for channel in group.channels():
+                                print("-", channel.name)
 
-                data = tdms_file['Picoscope']['ChB'][:]
+                    data = tdms_file['Picoscope']['ChB'][:]
 
-                start_time = time.time()
-                charge_return = copy_of_Undulator_Exit_ICT(data, dt=4e-9, crit_f=0.125)
-                if DO_PLOT is False:
-                    print("    Computation time:", time.time() - start_time, "s")
-                    assert time.time()-start_time < MAX_TIME
-                assert charge_return == ict_analysis.Undulator_Exit_ICT(data, dt=4e-9, crit_f=0.125)
-                print("    Charge:", charge_return, "pC")
+                    start_time = time.time()
+                    charge_return = copy_of_Undulator_Exit_ICT(data, dt=4e-9, crit_f=0.125)
+                    if DO_PLOT is False and TEST_TIME is True:
+                        print("    Computation time:", time.time() - start_time, "s")
+                        assert time.time()-start_time < MAX_TIME
+                    assert charge_return == ict_analysis.Undulator_Exit_ICT(data, dt=4e-9, crit_f=0.125)
+                    print("    Charge:", charge_return, "pC")
 
-                acave_charge[i] = charge_return
+                    acave_charge[i] = charge_return
 
-            except FileNotFoundError:
-                acave_charge[i] = 0
+                except FileNotFoundError:
+                    acave_charge[i] = 0
 
-            if do_bcave_comparison:
+            if not SKIP_BCAVE:
                 try:
                     print(f"  B Cave ICT:")
                     filename = self.get_bcave_tdms_file(shot_number=i)
@@ -142,7 +148,7 @@ class TestUC_BeamSpot(unittest.TestCase):
 
                     start_time = time.time()
                     charge_return = copy_of_B_Cave_ICT(data, dt=4e-9, crit_f=0.125)
-                    if DO_PLOT is False:
+                    if DO_PLOT is False and TEST_TIME is True:
                         print("    Computation time:", time.time() - start_time, "s")
                         assert time.time() - start_time < MAX_TIME
                     assert charge_return == ict_analysis.B_Cave_ICT(data, dt=4e-9, crit_f=0.125)
@@ -153,13 +159,21 @@ class TestUC_BeamSpot(unittest.TestCase):
                 except FileNotFoundError:
                     bcave_charge[i] = 0
 
-        if do_bcave_comparison:
+        if do_bcave_comparison and not SKIP_ACAVE and not SKIP_BCAVE:
             plt.scatter(bcave_charge, acave_charge, c='b', label='all shots')
             max_range = max(np.max(bcave_charge), np.max(acave_charge))*1.2
             if self.scan_day != 24:
                 plt.plot([0, max_range], [0, max_range], c='k', ls='--', label='slope = 1')
             for i in range(len(bcave_charge)):
                 plt.text(x=bcave_charge[i], y=acave_charge[i], s=f"{i+1}")
+            plt.legend()
+            plt.xlabel("BCaveICT Charge (pC)")
+            plt.ylabel("UndulatorExitICT Charge (pC)")
+            plt.show()
+
+        elif not SKIP_BCAVE:
+            shot_arr = np.arange(len(bcave_charge)) + 1
+            plt.scatter(shot_arr, bcave_charge, c='b', label='all shots')
             plt.legend()
             plt.xlabel("BCaveICT Charge (pC)")
             plt.ylabel("UndulatorExitICT Charge (pC)")
