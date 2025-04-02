@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 from pathlib import Path
 import logging
 
-from scan_analysis.analyzers.Undulator.array2D_scan_analysis import Array2DScanAnalysis
+from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis
 
 import traceback
 PRINT_TRACEBACK = True
