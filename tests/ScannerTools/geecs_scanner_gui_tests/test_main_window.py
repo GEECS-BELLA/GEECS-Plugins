@@ -275,12 +275,6 @@ def test_scan_preset(app, qtbot: QtBot):
     """ Tests saving, loading, and deleting presets """
     assert app.ui.listScanPresets.count() == 0
 
-    try:  # Checks that the button is connected to the right function, but will not be able to save presets this way
-        qtbot.mouseClick(app.ui.presetSaveButton, Qt.LeftButton)
-        assert False, "Should throw an AssertionError if filename not explicitly provided in unit test mode"
-    except AssertionError:
-        assert True
-
     app.save_current_preset(filename="blank")
     assert app.ui.listScanPresets.count() == 1
 

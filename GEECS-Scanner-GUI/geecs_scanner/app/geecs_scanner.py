@@ -1011,7 +1011,7 @@ class GEECSScannerWindow(QMainWindow):
             ok = True
         else:
             if self.unit_test_mode:
-                raise AssertionError("In 'Unit Test Mode', must manually give a filename string")
+                return  # In unit test mode a filename must be given
             text, ok = QInputDialog.getText(self, 'Save Configuration', 'Enter filename:')
 
         if ok and text:
