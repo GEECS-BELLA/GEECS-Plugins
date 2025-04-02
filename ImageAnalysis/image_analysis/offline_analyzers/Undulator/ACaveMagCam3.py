@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union
+from typing import Union, Optional
 from pathlib import Path
 
-if TYPE_CHECKING:
-    from numpy.typing import NDArray
-    from image_analysis.types import Array2D
-
 import numpy as np
-from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
+from image_analysis.base import ImageAnalyzer
 
-class ACaveMagCam3ImageAnalyzer(BasicImageAnalyzer):
+class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
 
     def __init__(self):
         """
@@ -32,20 +28,18 @@ class ACaveMagCam3ImageAnalyzer(BasicImageAnalyzer):
         max_count = np.max(roi_image)
         return avg_count, total_count, max_count, roi_image
 
-    def analyze_image(
-            self,
-            image: Array2D = None,
-            file_path: Path = None
-    ) -> dict[str, Union[float | NDArray, dict[str, float]]]:
+
+    def analyze_image_file(self, image_filepath: Path, auxiliary_data: Optional[dict] = None) -> dict[
+            str, Union[float, int, str, np.ndarray]]:
+
         """
         Analyze an image by simply loading it (if not already loaded) and returning it as the processed image.
 
         Parameters
         ----------
-        image : Array2D, optional
-            The image array to process. If not provided, it is loaded from file_path.
-        file_path : Path, optional
+        image_filepath : Path, optional
             The path to the image file to load if image is None.
+        auxiliary_data: dict, containing any additional imformation needed for analysis
 
         Returns
         -------
@@ -53,10 +47,7 @@ class ACaveMagCam3ImageAnalyzer(BasicImageAnalyzer):
             A dictionary with the processed image and placeholder for analysis results.
         """
 
-        if image is None:
-            if file_path is None:
-                raise ValueError("Either an image or file_path must be provided.")
-            image = self.load_image(file_path)
+        image = self.load_image(file_path)
 
         # Define the ROIs (x, y, width, height) as a dictionary
         rois = {
@@ -67,6 +58,7 @@ class ACaveMagCam3ImageAnalyzer(BasicImageAnalyzer):
 
         # Start with a dictionary that includes the shot number
         roi_analysis_result = {}
+        roi_image = None
 
         # Loop over each ROI and analyze it, then flatten the results into one dictionary
         for roi_name, roi in rois.items():
@@ -76,12 +68,16 @@ class ACaveMagCam3ImageAnalyzer(BasicImageAnalyzer):
             roi_analysis_result[f'{roi_name}:max'] = max_val
 
         # Append the flattened result dictionary to your list
-        return_dictionary = self.build_return_dictionary(return_image=roi_image, return_scalars=roi_analysis_result)
+        if roi_image is None:
+            return_dictionary = self.build_return_dictionary(return_scalars=roi_analysis_result)
+        else:
+            return_dictionary = self.build_return_dictionary(return_image=roi_image, return_scalars=roi_analysis_result)
+
         return return_dictionary
 
 if __name__ == "__main__":
     image_analyzer  = ACaveMagCam3ImageAnalyzer()
     file_path = Path('/Volumes/hdna2/data/Undulator/Y2025/03-Mar/25_0306/scans/Scan039/UC_ACaveMagCam3/Scan039_UC_ACaveMagCam3_001.png')
     print(file_path.exists())
-    results = image_analyzer.analyze_image(file_path=file_path)
-    print(results['processed_image'])
+    results = image_analyzer.analyze_image_file(image_filepath=file_path)
+    print(results)

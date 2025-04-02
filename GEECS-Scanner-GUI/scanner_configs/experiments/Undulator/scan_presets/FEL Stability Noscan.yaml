@@ -1,0 +1,10 @@
+Devices:
+- Frog_stuff
+- HASO_Lift
+- HP_Ghost_WFS
+- U_UndulatorExitICT
+- visa9_spectrometer_setup
+- Base_Monitoring_Devices
+Info: Longterm FEL stability scan
+Num Shots: 200
+Scan Mode: No Scan

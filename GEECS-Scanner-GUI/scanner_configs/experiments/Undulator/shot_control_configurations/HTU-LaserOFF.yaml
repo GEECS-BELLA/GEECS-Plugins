@@ -10,6 +10,6 @@ variables:
     SINGLESHOT: 'on'
     STANDBY: ''
   Trigger.Source:
-    'OFF': Single shot external rising edges
+    'OFF': Single shot
     SCAN: Internal
     STANDBY: External rising edges
