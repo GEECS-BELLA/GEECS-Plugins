@@ -101,8 +101,9 @@ def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], upload_to_scan
                 analyzer = instantiate_analyzer(tag, analyzer_info)
                 index_of_files = analyzer.run_analysis(config_options=analyzer_info.config_file)
                 print(f'index of files: {index_of_files}')
+
                 # If analysis produces files, add them to the list.
-                if index_of_files:
+                if index_of_files is not None:
                     all_display_files.append(index_of_files)
             except Exception as err:
                 logging.error(f"Error in analyze_scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}): {err}")

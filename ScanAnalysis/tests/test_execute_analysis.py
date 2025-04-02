@@ -6,7 +6,7 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 from scan_analysis.execute_scan_analysis import analyze_scan
 
 from scan_analysis.base import AnalyzerInfo as Info
-from scan_analysis.analyzers.Undulator.array2D_scan_analysis import Array2DScanAnalysis
+from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis
 from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
 
 from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer

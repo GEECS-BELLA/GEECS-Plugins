@@ -2,19 +2,16 @@ from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from scan_analysis.base import AnalyzerInfo as Info
+from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis
 
 from scan_analysis.analyzers.Undulator.hi_res_mag_cam_analysis import HiResMagCamAnalysis
 from scan_analysis.analyzers.Undulator.mag_spec_stitcher_analysis import MagSpecStitcherAnalysis
 from scan_analysis.analyzers.Undulator.rad2_spec_analysis import Rad2SpecAnalysis
 from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
 from scan_analysis.analyzers.Undulator.hamaspectro_analysis import FiberSpectrometerAnalysis
 from scan_analysis.analyzers.Undulator.frog_analysis import FrogAnalysis
-
-from scan_analysis.analyzers.Undulator.array2D_scan_analysis import Array2DScanAnalysis
-from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
-
-
 
 from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
 from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
@@ -45,7 +42,7 @@ undulator_analyzers = [
          requirements={'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
                               'UC_VisaEBeam5', 'UC_VisaEBeam6', 'UC_VisaEBeam7', 'UC_VisaEBeam8']}),
     Info(analyzer_class=Rad2SpecAnalysis,
-         requirements={'AND': ['U_BCaveICT', 'UC_UndulatorRad2']}),
+         requirements={'AND': ['UC_UndulatorRad2', {'OR': ['U_BCaveICT', 'U_UndulatorExitICT']}]}),
     Info(analyzer_class=CameraImageAnalysis,
          requirements={'UC_ALineEbeam1'},
          device_name='UC_ALineEbeam1'),
