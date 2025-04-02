@@ -1,0 +1,237 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>wavekit_py.io_wavekit_computepupil &#8212; Wavekit Python 2020 documentation</title>
+    <link rel="stylesheet" href="../../_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="../../_static/language_data.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Wavekit Python 2020 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for wavekit_py.io_wavekit_computepupil</h1><div class="highlight"><pre>
+<span></span><span class="ch">#!/usr/bin/python</span>
+
+<span class="kn">import</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">sys</span> 
+<span class="kn">import</span> <span class="nn">ctypes</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+
+<span class="kn">import</span> <span class="nn">io_thirdparty_load_library</span> <span class="k">as</span> <span class="nn">imop_library</span>
+
+<span class="kn">import</span> <span class="nn">io_wavekit_structure</span> <span class="k">as</span> <span class="nn">imop_struct</span>
+<span class="kn">import</span> <span class="nn">io_wavekit_pupil</span> <span class="k">as</span> <span class="nn">imop_pupil</span>
+
+
+<div class="viewcode-block" id="ComputePupil"><a class="viewcode-back" href="../../ComputePupil.html#wavekit_py.io_wavekit_computepupil.ComputePupil">[docs]</a><span class="k">class</span> <span class="nc">ComputePupil</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;Class ComputePupil</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ComputePupil.apply_neighbor_extension"><a class="viewcode-back" href="../../ComputePupil.html#wavekit_py.io_wavekit_computepupil.ComputePupil.apply_neighbor_extension">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">apply_neighbor_extension</span><span class="p">(</span>
+        <span class="n">pupil_in</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Apply a &quot;NeighborExtension&quot; (Fill) to a Pupil object.</span>
+<span class="sd">        </span>
+<span class="sd">        :param pupil_in: Pupil object</span>
+<span class="sd">        :type pupil_in: Pupil</span>
+<span class="sd">        :return: processed Pupil object</span>
+<span class="sd">        :rtype: Pupil</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">dll</span>   <span class="o">=</span> <span class="n">imop_library</span><span class="o">.</span><span class="n">load_dll</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">pupil_out</span> <span class="o">=</span> <span class="n">imop_pupil</span><span class="o">.</span><span class="n">Pupil</span><span class="p">(</span>
+                <span class="n">dimensions</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">dimensions</span><span class="p">(</span>
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span>
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span><span class="mf">1.0</span><span class="p">)</span>
+                    <span class="p">),</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="p">)</span>
+            <span class="n">dll</span><span class="o">.</span><span class="n">Imop_PupilCompute_ApplyNeighborExtension</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">pupil_in</span><span class="o">.</span><span class="n">pupil</span><span class="p">,</span>
+                <span class="n">pupil_out</span><span class="o">.</span><span class="n">pupil</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">pupil_out</span>            
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : apply_neighbor_extension&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="ComputePupil.apply_shut_of_boundaries"><a class="viewcode-back" href="../../ComputePupil.html#wavekit_py.io_wavekit_computepupil.ComputePupil.apply_shut_of_boundaries">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">apply_shut_of_boundaries</span><span class="p">(</span>
+        <span class="n">pupil_in</span><span class="p">,</span>
+        <span class="n">shutoff_radius</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Apply a &quot;ShutOfBoundaries&quot; (Erosion) to a Pupil object.</span>
+<span class="sd">        </span>
+<span class="sd">        :param pupil_in: Pupil object</span>
+<span class="sd">        :type pupil_in: Pupil</span>
+<span class="sd">        :param shutoff_radius: Radius of the boundary neighbourood where sub-pupils must be shut off</span>
+<span class="sd">        :type shutoff_radius: uint</span>
+<span class="sd">        :return: processed Pupil object</span>
+<span class="sd">        :rtype: Pupil</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">dll</span>   <span class="o">=</span> <span class="n">imop_library</span><span class="o">.</span><span class="n">load_dll</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">pupil_out</span> <span class="o">=</span> <span class="n">imop_pupil</span><span class="o">.</span><span class="n">Pupil</span><span class="p">(</span>
+                <span class="n">dimensions</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">dimensions</span><span class="p">(</span>
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span>
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span><span class="mf">1.0</span><span class="p">)</span>
+                    <span class="p">),</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="p">)</span>
+            <span class="n">dll</span><span class="o">.</span><span class="n">Imop_PupilCompute_ApplyShutOfBoundaries</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">pupil_in</span><span class="o">.</span><span class="n">pupil</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_uint</span><span class="p">(</span><span class="n">shutoff_radius</span><span class="p">),</span>
+                <span class="n">pupil_out</span><span class="o">.</span><span class="n">pupil</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">pupil_out</span>            
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : apply_shut_of_boundaries&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="ComputePupil.fit_zernike_pupil"><a class="viewcode-back" href="../../ComputePupil.html#wavekit_py.io_wavekit_computepupil.ComputePupil.fit_zernike_pupil">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">fit_zernike_pupil</span><span class="p">(</span>
+        <span class="n">pupil_in</span><span class="p">,</span>
+        <span class="n">detection_mode</span><span class="p">,</span>
+        <span class="n">covering</span><span class="p">,</span>
+        <span class="n">has_central_occultation</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compute the geometric parameters of the Zernike pupil from a pupil input.</span>
+<span class="sd"> </span>
+<span class="sd">        :param pupil_in: Pupil object</span>
+<span class="sd">        :type pupil_in: Pupil</span>
+<span class="sd">        :param detection_mode: Circular pupil detection mode</span>
+<span class="sd">        :type detection_mode: E_PUPIL_DETECTION</span>
+<span class="sd">        :param covering: Circular pupil covering mode</span>
+<span class="sd">        :type covering: E_PUPIL_COVERING</span>
+<span class="sd">        :param has_central_occultation: If pupil has a central occultation, this boolean must be set to true</span>
+<span class="sd">        :type has_central_occultation: bool</span>
+<span class="sd">        :return: Computed Zernike Pupil parameters</span>
+<span class="sd">        :rtype: ZernikePupil_t</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">dll</span>   <span class="o">=</span> <span class="n">imop_library</span><span class="o">.</span><span class="n">load_dll</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">center</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+            <span class="n">radius</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">()</span>
+            <span class="n">dll</span><span class="o">.</span><span class="n">Imop_PupilCompute_FitZernikePupil</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">pupil_in</span><span class="o">.</span><span class="n">pupil</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_uint</span><span class="p">(</span><span class="n">detection_mode</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_uint</span><span class="p">(</span><span class="n">covering</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_bool</span><span class="p">(</span><span class="n">has_central_occultation</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">center</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">radius</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">ZernikePupil_t</span><span class="p">(</span>
+                <span class="n">center</span><span class="p">,</span>
+                <span class="n">radius</span><span class="o">.</span><span class="n">value</span>
+                <span class="p">)</span>            
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : fit_zernike_pupil&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="ComputePupil.fit_legendre_pupil"><a class="viewcode-back" href="../../ComputePupil.html#wavekit_py.io_wavekit_computepupil.ComputePupil.fit_legendre_pupil">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">fit_legendre_pupil</span><span class="p">(</span>
+        <span class="n">pupil_in</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compute the geometric parameters of the Legendre pupil from a pupil input.</span>
+<span class="sd">        This function is not configurable. It takes a user pupil as input and</span>
+<span class="sd">        detects a square pupil that is as large as possible and entirely inside it.</span>
+<span class="sd">        If several pupils with the same size suit, one of them is chosen arbitrarily.</span>
+<span class="sd">        </span>
+<span class="sd">        :param pupil_in: Pupil object</span>
+<span class="sd">        :type pupil_in: Pupil</span>
+<span class="sd">        :return: Computed Legendre Pupil parameters</span>
+<span class="sd">        :rtype: LegendrePupil_t</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">dll</span>   <span class="o">=</span> <span class="n">imop_library</span><span class="o">.</span><span class="n">load_dll</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">center</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+            <span class="n">halfsize</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+            <span class="n">dll</span><span class="o">.</span><span class="n">Imop_PupilCompute_FitLegendrePupil</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">pupil_in</span><span class="o">.</span><span class="n">pupil</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">center</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">halfsize</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">LegendrePupil_t</span><span class="p">(</span>
+                <span class="n">center</span><span class="p">,</span> 
+                <span class="n">halfsize</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : fit_legendre_pupil&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Wavekit Python 2020 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" >Module code</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2020, Imagine Optic.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.8.5.
+    </div>
+  </body>
+</html>
