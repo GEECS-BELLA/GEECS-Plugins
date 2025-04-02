@@ -16,12 +16,13 @@ from nptdms import TdmsFile
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
+from scipy.fft import fft, ifft, fftfreq
 
 DO_PLOT = False
 TEST_TIME = False
 MAX_TIME = 0.2
-FIND_SHOT = None
-SKIP_ACAVE = True
+FIND_SHOT = 23
+SKIP_ACAVE = False
 SKIP_BCAVE = False
 
 
@@ -73,9 +74,34 @@ def copy_of_Undulator_Exit_ICT(data, dt, crit_f):
     charge_pC = copy_of_analysis(data, dt, crit_f, calib)
     return charge_pC
 
+
+"""
+def apply_highpass_filter(data):
+    data_fft = fft(data)
+
+    def highpass_filter(fft_data, cutoff, fs):
+        N = len(fft_data)
+        freqs = fftfreq(N, 1 / fs)
+        filtered_fft = fft_data.copy()
+        filtered_fft[np.abs(freqs) < cutoff] = 0
+        return filtered_fft
+
+    cutoff_frequency = 2
+    sampling_rate = 500
+    filtered_fft = highpass_filter(data_fft, cutoff_frequency, sampling_rate)
+    filtered_fft = ifft(filtered_fft)
+
+    plt.plot(data)
+    plt.plot(filtered_fft)
+    plt.show()
+
+    return filtered_fft
+"""
+
+
 class TestUC_BeamSpot(unittest.TestCase):
-    scan_day = 28  # 7  # 6
-    scan_number = 6  # 56  # 24
+    scan_day = 24  # 28  # 7  # 6
+    scan_number = 1  # 6  # 56  # 24
 
     def get_acave_tdms_file(self, shot_number: int):
         device = 'U_UndulatorExitICT'
@@ -99,9 +125,11 @@ class TestUC_BeamSpot(unittest.TestCase):
         global DO_PLOT
 
         for i in range(total):
-            print(f"Shot {i:03d}")
             if FIND_SHOT is not None:
                 DO_PLOT = bool(i == FIND_SHOT-1)
+                if not DO_PLOT:
+                    continue
+            print(f"Shot {i:03d}")
 
             if not SKIP_ACAVE:
                 try:
@@ -158,6 +186,9 @@ class TestUC_BeamSpot(unittest.TestCase):
 
                 except FileNotFoundError:
                     bcave_charge[i] = 0
+
+            if FIND_SHOT is not None and DO_PLOT:
+                return  # Exit here, we are done
 
         if do_bcave_comparison and not SKIP_ACAVE and not SKIP_BCAVE:
             plt.scatter(bcave_charge, acave_charge, c='b', label='all shots')

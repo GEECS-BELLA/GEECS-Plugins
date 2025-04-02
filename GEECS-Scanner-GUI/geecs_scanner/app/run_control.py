@@ -6,6 +6,8 @@ from geecs_scanner.data_acquisition.scan_manager import ScanManager, get_databas
 from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
 from geecs_scanner.app.lib.action_control import ActionControl
 
+from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
+
 
 class RunControl:
     """
@@ -25,10 +27,14 @@ class RunControl:
             raise ValueError
         else:
             settings = read_yaml_file_to_dict(shot_control_configuration)
-            self.scan_manager = ScanManager(experiment_dir=experiment_name,
+            try:
+                self.scan_manager = ScanManager(experiment_dir=experiment_name,
                                             shot_control_information=settings)
 
-            self.action_control = ActionControl(experiment_name=experiment_name)
+                self.action_control = ActionControl(experiment_name=experiment_name)
+            except GeecsDeviceInstantiationError as e:
+                logging.error(f"GeecsDeviceInstantiationError: {e.message}")
+                raise ConnectionError(e.message)
 
         self.is_in_setup = False
         self.is_in_stopping = False

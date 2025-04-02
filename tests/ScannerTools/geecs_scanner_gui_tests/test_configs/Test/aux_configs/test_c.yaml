@@ -1,0 +1,11 @@
+Devices:
+  device_2:
+    save_nonscalar_data: true
+    synchronous: false
+    variable_list:
+    - variable_2
+  device_1:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - variable_1

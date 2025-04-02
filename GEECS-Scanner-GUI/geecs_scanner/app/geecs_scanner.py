@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from geecs_scanner.app.lib.action_control import ActionControl
 
 import sys
+import os
 from pathlib import Path
 import threading
 import importlib
@@ -46,6 +47,7 @@ STRING_OPTIONS = ["Master Control IP", "Save Hiatus Period (s)"]
 class GEECSScannerWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.unit_test_mode = 'PYTEST_CURRENT_TEST' in os.environ
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
@@ -61,7 +63,8 @@ class GEECSScannerWindow(QMainWindow):
         self.experiment = ""
         self.repetition_rate = 0
         self.timing_configuration_name = ""
-        self.load_config_settings()
+        if not self.unit_test_mode:
+            self.load_config_settings()
 
         # Initializes run control if possible, this serves as the interface to scan_manager and data_acquisition
         self.RunControl: Optional[RunControl] = None
@@ -157,7 +160,7 @@ class GEECSScannerWindow(QMainWindow):
         # Buttons to save the current scan as a preset, delete selected preset, and double-clicking loads the preset
         self.populate_preset_list()
         self.ui.listScanPresets.itemDoubleClicked.connect(self.apply_preset)
-        self.ui.presetSaveButton.clicked.connect(self.save_current_preset)
+        self.ui.presetSaveButton.clicked.connect(lambda: self.save_current_preset())
         self.ui.presetDeleteButton.clicked.connect(self.delete_selected_preset)
 
         # Buttons to start and stop the current scan
@@ -204,11 +207,11 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.actionDarkMode.toggled.connect(self.toggle_light_dark)
 
         # Initial state of side-gui's
-        self.element_editor = None
-        self.multiscanner_window = None
-        self.action_library_window = None
-        self.timing_editor = None
-        self.variable_editor = None
+        self.element_editor: Optional[SaveElementEditor] = None
+        self.multiscanner_window: Optional[MultiScanner] = None
+        self.action_library_window: Optional[ActionLibrary] = None
+        self.timing_editor: Optional[ShotControlEditor] = None
+        self.variable_editor: Optional[ScanVariableEditor] = None
 
         # Set current GUI mode
         self.toggle_light_dark()
@@ -303,27 +306,30 @@ class GEECSScannerWindow(QMainWindow):
             return
 
         logging.info("Reinitialization of Run Control")
-        self.app_paths = AppPaths(experiment=self.experiment)
 
-        # Before initializing, rewrite config file if experiment name or timing configuration name has changed
-        config = configparser.ConfigParser()
-        config.read(AppPaths.config_file())
+        # Do not change application paths or write to config if window is in unit test mode
+        if not self.unit_test_mode:
+            self.app_paths = AppPaths(experiment=self.experiment)
 
-        do_write = False
-        if config['Experiment']['expt'] != self.experiment:
-            logging.info("Experiment name changed, rewriting config file")
-            config.set('Experiment', 'expt', self.experiment)
-            do_write = True
+            # Before initializing, rewrite config file if experiment name or timing configuration name has changed
+            config = configparser.ConfigParser()
+            config.read(AppPaths.config_file())
 
-        if ((not config.has_option('Experiment', 'timing_configuration')) or
-                config['Experiment']['timing_configuration'] != self.timing_configuration_name):
-            logging.info("Timing configuration changed, rewriting config file")
-            config.set('Experiment', 'timing_configuration', self.timing_configuration_name)
-            do_write = True
+            do_write = False
+            if config['Experiment']['expt'] != self.experiment:
+                logging.info("Experiment name changed, rewriting config file")
+                config.set('Experiment', 'expt', self.experiment)
+                do_write = True
 
-        if do_write:
-            with open(AppPaths.config_file(), 'w') as file:
-                config.write(file)
+            if ((not config.has_option('Experiment', 'timing_configuration')) or
+                    config['Experiment']['timing_configuration'] != self.timing_configuration_name):
+                logging.info("Timing configuration changed, rewriting config file")
+                config.set('Experiment', 'timing_configuration', self.timing_configuration_name)
+                do_write = True
+
+            if do_write:
+                with open(AppPaths.config_file(), 'w') as file:
+                    config.write(file)
 
         shot_control_path = self.app_paths.shot_control() / (self.timing_configuration_name + ".yaml")
         if not shot_control_path.exists():
@@ -345,8 +351,8 @@ class GEECSScannerWindow(QMainWindow):
         except ValueError:
             logging.error("ValueError at RunControl: presumably because no experiment name or shot control given")
             self.RunControl = None
-        except ConnectionRefusedError as e:
-            logging.error(f"ConnectionRefusedError at RunControl: {e}")
+        except (ConnectionError, ConnectionRefusedError) as e:
+            logging.error(f"{type(e)} at RunControl: {e}")
             self.RunControl = None
 
         sys.path.pop(0)
@@ -853,6 +859,8 @@ class GEECSScannerWindow(QMainWindow):
             raise ValueError("Shots per step must be greater than zero")
         elif abs((self.scan_stop - self.scan_start) / self.scan_step_size) * self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
             raise ValueError("Number of shots exceeds maximum scan size")
+        elif self.scan_shot_per_step > MAXIMUM_SCAN_SIZE:
+            raise ValueError("Number of shots exceeds maximum scan size")
         else:
             array = []
             current = self.scan_start
@@ -988,14 +996,24 @@ class GEECSScannerWindow(QMainWindow):
             logging.error("No defined path for scan presets")
         return preset_list
 
-    def save_current_preset(self):
+    def save_current_preset(self, filename: Optional[str] = None):
         """Takes the current scan configuration and prompts the user if they would like to save it as a preset.  If so,
-        the user give a filename to save under and the information is compiled into a yaml that "apply_preset" uses"""
+        the user give a filename to save under and the information is compiled into a yaml that "apply_preset" uses
+
+        :param filename: Can optionally provide the filename as an argument, primarily used for unit tests
+        """
         if self.app_paths is None:
             logging.error("No defined paths for scan presets")
             return
 
-        text, ok = QInputDialog.getText(self, 'Save Configuration', 'Enter filename:')
+        if filename is not None:
+            text = filename
+            ok = True
+        else:
+            if self.unit_test_mode:
+                return  # In unit test mode a filename must be given
+            text, ok = QInputDialog.getText(self, 'Save Configuration', 'Enter filename:')
+
         if ok and text:
             save_device_list = []
             for i in range(self.ui.selectedDevices.count()):

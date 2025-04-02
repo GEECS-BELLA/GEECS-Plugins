@@ -1,7 +1,8 @@
 import numpy as np
-from typing import Optional
+from typing import Optional, Tuple
 from scipy import signal
 from scipy.optimize import least_squares
+#from scipy.optimize import curve_fit
 
 
 def apply_butterworth_filter(data, order=int(1), crit_f=0.025, filt_type='low'):
@@ -53,7 +54,7 @@ def identify_primary_valley(data):
     return valley_ind
 
 
-def get_sinusoidal_noise(data, signal_region: tuple[Optional[int], Optional[int]]):
+def get_sinusoidal_noise(data, signal_region: Tuple[Optional[int], Optional[int]]):
     """
     Fits a sinusoidal function to the given region of "noise"
 
@@ -114,6 +115,7 @@ def get_sinusoidal_noise(data, signal_region: tuple[Optional[int], Optional[int]
     try:
         result = least_squares(residuals, p0, args=(bg_axis[::4], bg_data[::4]), loss='soft_l1')
         params = result.x
+        #params, pcov = curve_fit(sin_model, bg_axis, bg_data, p0=p0)
     except RuntimeError:
         params = p0
 

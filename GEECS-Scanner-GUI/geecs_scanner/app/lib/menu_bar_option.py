@@ -37,6 +37,8 @@ class MenuBarOption(QAction):
         """
         super().__init__(main_window)
 
+        self.unit_test_mode = main_window.unit_test_mode
+
         self.setCheckable(True)
         self.setChecked(False)
         self.setObjectName(name)
@@ -48,6 +50,9 @@ class MenuBarOption(QAction):
 
     def update_default(self):
         """ Writes the current result of "get_value()" to the config file under `[CONFIG_SECTION][self.get_name()]` """
+        if self.unit_test_mode:
+            return
+
         config = configparser.ConfigParser()
         config.read(AppPaths.config_file())
 
@@ -89,6 +94,9 @@ class MenuBarOptionBool(MenuBarOption):
 
     def load_default(self):
         """ Loads the boolean value of the given option from the user config .ini file """
+        if self.unit_test_mode:
+            return
+
         config = configparser.ConfigParser()
         config.read(AppPaths.config_file())
         if config.has_section(CONFIG_SECTION) and config.has_option(CONFIG_SECTION, self.get_name()):
@@ -115,6 +123,9 @@ class MenuBarOptionStr(MenuBarOption):
 
     def load_default(self):
         """ Loads the str value of the given option from the user config .ini file """
+        if self.unit_test_mode:
+            return
+
         config = configparser.ConfigParser()
         config.read(AppPaths.config_file())
         if config.has_section(CONFIG_SECTION) and config.has_option(CONFIG_SECTION, self.get_name()):
@@ -133,8 +144,12 @@ class MenuBarOptionStr(MenuBarOption):
 
     def prompt_new_value(self):
         """ Opens a dialog box to prompt the user for a new value """
-        text, ok = QInputDialog.getText(self.main_window, 'Update Optional Parameter', self.get_name(), text=self.value)
-        if ok:
-            self.value = text.strip()
+        if self.unit_test_mode:
+            self.value = 'test' if not self.value else ''
+
+        else:
+            text, ok = QInputDialog.getText(self.main_window, 'Update Optional Parameter', self.get_name(), text=self.value)
+            if ok:
+                self.value = text.strip()
 
         self.setChecked(not self.value == "")
