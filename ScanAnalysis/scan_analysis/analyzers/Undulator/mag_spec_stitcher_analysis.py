@@ -21,7 +21,7 @@ from scan_analysis.base import ScanAnalysis
 
 # %% classes
 class MagSpecStitcherAnalysis(ScanAnalysis):
-    def __init__(self, scan_tag: ScanTag, device_name: str, skip_plt_show: bool = True):
+    def __init__(self, scan_tag: ScanTag, device_name: str, skip_plt_show: bool = True, image_analyzer=None):
         super().__init__(scan_tag, device_name=device_name, skip_plt_show=skip_plt_show)
         # self.data_subdirectory = Path(scan_directory) / data_subdirectory
         self.data_subdirectory = self.scan_directory / f"{device_name}-interpSpec"

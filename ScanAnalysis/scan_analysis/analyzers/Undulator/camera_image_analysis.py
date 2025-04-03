@@ -33,7 +33,8 @@ class CameraImageAnalysis(ScanAnalysis):
     def __init__(self, scan_tag: ScanTag, device_name: str,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
-                 flag_save_images: bool = True):
+                 flag_save_images: bool = True,
+                 image_analyzer=None):
         """
         Initialize the CameraImageAnalysis class.
 
