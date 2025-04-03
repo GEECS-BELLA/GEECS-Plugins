@@ -12,11 +12,11 @@ QPushButton:disabled {
     color: darkgray;
 }
 
-QLineEdit:enabled (
+QLineEdit:enabled {
     background-color: white;
     color: black;
 }
-QLineEdit:disabled (
-    background-color: gray;
+QLineEdit:disabled {
+    background-color: rgb(232, 232, 232);
     color: darkgray;
 }
