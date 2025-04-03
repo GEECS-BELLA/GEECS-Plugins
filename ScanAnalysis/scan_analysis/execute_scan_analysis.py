@@ -64,7 +64,7 @@ def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnaly
                 image_analyzer = analyzer_info.image_analyzer_class(config)
         else:
             image_analyzer = analyzer_info.image_analyzer_class()
-    logging.info(f'the image analyzer config is {image_analyzer.config}')
+        logging.info(f'the image analyzer config is {image_analyzer.config}')
     analyzer_instance = analyzer_info.analyzer_class(
         scan_tag=tag,
         device_name=analyzer_info.device_name,
