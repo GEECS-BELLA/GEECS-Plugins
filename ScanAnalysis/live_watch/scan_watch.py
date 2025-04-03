@@ -76,9 +76,8 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
 
 class ScanWatch:
     def __init__(self, experiment_name: str, year: int, month: Union[int, str], day: int,
-                 ignore_list: list[int] = None, overwrite_previous: bool = False, perform_initial_search: bool = True,
-                 analyzer_list: Optional[list[AnalyzerInfo]] = None,
-                 upload_to_scanlog: bool = True, documentID: Optional[str] = None):
+                 analyzer_list: list[AnalyzerInfo], ignore_list: list[int] = None, overwrite_previous: bool = False,
+                 perform_initial_search: bool = True, upload_to_scanlog: bool = True, documentID: Optional[str] = None):
         """
         Parameters
         ----------
@@ -216,9 +215,7 @@ class ScanWatch:
         """ If there is a match for an analysis routine, perform the respective analysis(es) """
         logger.info(
             f"Starting analysis on scan {tag.month}/{tag.day}/{tag.year}:Scan{tag.number:03d}")
-        valid_analyzers = check_for_analysis_match(scan_folder=scan_folder,
-                                                   experiment_name=tag.experiment,
-                                                   analyzer_list=self.analyzer_list)
+        valid_analyzers = check_for_analysis_match(scan_folder=scan_folder, analyzer_list=self.analyzer_list)
 
         analyze_scan(tag, valid_analyzers, debug_mode=False,
                      upload_to_scanlog=self.upload_to_scanlog, documentID=self.documentID)
@@ -307,13 +304,15 @@ if __name__ == '__main__':
                           "'raise': raise FileNotFoundError; "
                           )
                     )"""
+    from scan_analysis.mapping.map_Undulator import undulator_analyzers
 
     exp = 'Undulator'
     test_year = 2025
     test_month = 2
     test_day = 13
 
-    scan_watch = ScanWatch(experiment_name=exp, year=test_year, month=test_month, day=test_day, overwrite_previous=True)
+    scan_watch = ScanWatch(experiment_name=exp, year=test_year, month=test_month, day=test_day,
+                           analyzer_list=undulator_analyzers, overwrite_previous=True)
     print("Starting...")
     scan_watch.start(watch_folder_not_exist='wait')
 

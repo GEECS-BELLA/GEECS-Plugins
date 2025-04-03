@@ -1,32 +1,18 @@
-from typing import Optional, Union
+from typing import Union
 from pathlib import Path
-from scan_analysis.mapping.map_Undulator import undulator_analyzers
 from scan_analysis.base import AnalyzerInfo
 
-experiment_to_analyzer_list = {
-    'Undulator': undulator_analyzers,
-}
 
-
-def check_for_analysis_match(scan_folder: Union[Path, str], experiment_name: Optional[str] = None,
-                             analyzer_list: Optional[list[AnalyzerInfo]] = None) -> list[AnalyzerInfo]:
+def check_for_analysis_match(scan_folder: Union[Path, str], analyzer_list: list[AnalyzerInfo]) -> list[AnalyzerInfo]:
     """
     Checks list of potential analyzers against what is actually saved for a given scan
 
     :param scan_folder: scan data folder
-    :param experiment_name: experiment name, to match with a list of analyzers with experiment_to_analyzer_list
     :param analyzer_list: list of analyzers, as defined in
     :return: List of all analyses that can be performed
     """
-
-    if analyzer_list is None:
-        if experiment_name is None:
-            raise ValueError("Need to provide list of analyzers or give an experiment name to map to.")
-        if experiment_name not in experiment_to_analyzer_list:
-            raise ValueError(f"'{experiment_name}' not implemented with analyzer list.")
-        analyzer_list = experiment_to_analyzer_list[experiment_name]
-
     scan_folder = Path(scan_folder)
+
     saved_devices = get_available_directories(scan_folder)
     valid_analyzers = []
     for analyzer_info in analyzer_list:
