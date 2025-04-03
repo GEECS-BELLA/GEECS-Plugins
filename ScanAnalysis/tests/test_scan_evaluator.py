@@ -11,7 +11,7 @@ class TestScanEvaluator(unittest.TestCase):
         if do_print:
             print("Scan 21 should just be the VISA, Rad2")
         folder = "Z:\\data\\Undulator\\Y2024\\11-Nov\\24_1105\\scans\\Scan021"
-        results = check_for_analysis_match(folder, exp)
+        results = check_for_analysis_match(folder, undulator_analyzers)
         self.assertEqual(len(results), 2)
         for a in results:
             self.assertIsNone(a.device_name)
@@ -21,7 +21,7 @@ class TestScanEvaluator(unittest.TestCase):
         if do_print:
             print("Scan 7 should just be the Mag Spec and HiRes")
         folder = "Z:\\data\\Undulator\\Y2024\\11-Nov\\24_1105\\scans\\Scan007"
-        results = check_for_analysis_match(folder, exp)
+        results = check_for_analysis_match(folder, undulator_analyzers)
         self.assertEqual(len(results), 2)
         for a in results:
             if do_print:
@@ -30,7 +30,7 @@ class TestScanEvaluator(unittest.TestCase):
         if do_print:
             print("Scan 12 should just be the ALine3")
         folder = "Z:\\data\\Undulator\\Y2024\\11-Nov\\24_1105\\scans\\Scan012"
-        results = check_for_analysis_match(folder, exp)
+        results = check_for_analysis_match(folder, undulator_analyzers)
         self.assertEqual(len(results), 1)
         for a in results:
             self.assertEqual(a.analyzer_class.__name__, 'CameraImageAnalysis')
@@ -41,7 +41,7 @@ class TestScanEvaluator(unittest.TestCase):
         if do_print:
             print("Previously using Master Control, nearly all would be flagged every time")
         folder = "Z:\\data\\Undulator\\Y2024\\06-Jun\\24_0606\\scans\\Scan003"
-        results = check_for_analysis_match(folder, exp)
+        results = check_for_analysis_match(folder, undulator_analyzers)
         for a in results:
             if do_print:
                 print(a.analyzer_class.__name__, a.device_name)

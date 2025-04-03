@@ -29,7 +29,8 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
     def __init__(self, scan_tag: ScanTag, device_name: str,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
-                 flag_save_images: bool = True) -> None:
+                 flag_save_images: bool = True,
+                 image_analyzer=None) -> None:
 
         super().__init__(scan_tag, device_name=device_name, skip_plt_show=skip_plt_show)
 

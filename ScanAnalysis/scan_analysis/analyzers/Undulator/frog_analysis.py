@@ -31,7 +31,8 @@ class FrogAnalysis(ScanAnalysis):
                  device_name: str,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
-                 flag_save_images: bool = True) -> None:
+                 flag_save_images: bool = True,
+                 image_analyzer=None) -> None:
         """
         Initialize FrogAnalysis class for analyzing FROG images.
 

@@ -164,9 +164,9 @@ class ScAnalyzerWindow(QMainWindow):
                                      int(self.ui.inputYear.text()),
                                      int(self.ui.inputMonth.text()),
                                      int(self.ui.inputDay.text()),
+                                     analyzer_list=self.analyzer_items,
                                      ignore_list=self.ignore_list,
                                      overwrite_previous=self.overwrite_processed_scans,
-                                     analyzer_list=self.analyzer_items,
                                      upload_to_scanlog=self.ui.checkBoxScanlog.isChecked(),
                                      documentID=self.documentID)
 

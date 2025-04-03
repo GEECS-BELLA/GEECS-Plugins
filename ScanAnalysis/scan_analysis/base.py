@@ -63,7 +63,7 @@ class ScanAnalysis:
         auxiliary_data (pd.DataFrame): DataFrame containing auxiliary scan data.
     """
 
-    def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True):
+    def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True, image_analyzer=None):
         """
         Initialize the ScanAnalysis class.
 
