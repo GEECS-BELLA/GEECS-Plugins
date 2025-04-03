@@ -24,6 +24,7 @@ from scan_analysis.base import ScanAnalysis
 from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig  # import your config class
 from image_analysis.offline_analyzers.HASO_himg_has_processor import HasoHimgHasConfig  # import your config class
 
+
 def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnalysis:
     """
     Instantiate an analyzer from an AnalyzerInfo object.
@@ -76,6 +77,7 @@ def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnaly
         analyzer_instance.file_pattern = analyzer_info.file_pattern or default_pattern
 
     return analyzer_instance
+
 
 def analyze_scan(tag: ScanTag, analyzer_list: list[AnalyzerInfo], upload_to_scanlog: bool = True,
                  documentID: Optional[str] = None, debug_mode: bool = False):
@@ -205,3 +207,12 @@ def insert_display_content_to_doc(scan_tag: ScanTag, path_list: list[str], docum
 
     except Exception as display_err:
         logging.error(f"Error processing display content for scan {scan_tag.number}: {display_err}")
+
+
+if __name__ == '__main__':
+    from geecs_python_api.analysis.scans.scan_data import ScanData
+    from scan_analysis.mapping.map_Undulator import undulator_analyzers
+    test_tag = ScanData.get_scan_tag(2025, 4, 3, number=2, experiment='Undulator')
+    test_analyzer = undulator_analyzers[0]
+
+    analyze_scan(test_tag, analyzer_list=[test_analyzer], upload_to_scanlog=False)
