@@ -165,21 +165,27 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 print(charge_end[sample], "pC")
                 plt.show()
 
-    def process_shot(self, shot: int, energy_spectrum: np.ndarray, cropped_image_num: list, cropped_image_list: list,
-                     photons_arr: np.ndarray, photon_lineouts: list, visa_intensity_arr):
-        i = shot
+    def process_shot(self, i: int, energy_spectrum: np.ndarray, cropped_image_num: list, cropped_image_list: list,
+                     photons_arr: np.ndarray, photon_lineouts: list, visa_intensity_arr, shot: Optional[int] = None):
+        """ Main analysis loop for each shot
+
+        Note on 'i' vs 'shot':  'i' is the element in arrays and lists.  'shot' is the actual filename shotnumber.  If
+        'shot' is not explicitly given, the code will automatically assume that 'shot' should line up with 'i':  i+1
+        """
+        if shot is None:
+            shot = i + 1
         if self.update_undulator_exit_ict and not self.use_bcave:
             try:
                 ict_filename = ScanData.get_device_shot_path(self.tag, device_name="U_UndulatorExitICT",
-                                                             shot_number=i + 1, file_extension="tdms")
+                                                             shot_number=shot, file_extension="tdms")
                 tdms_file = TdmsFile.read(ict_filename)
                 ict_lineout = tdms_file['Picoscope']['ChB'][:]
                 self.charge[i] = Undulator_Exit_ICT(data=ict_lineout, dt=4e-9, crit_f=0.125)
             except FileNotFoundError:
-                logging.warning(f"No ICT data for shot {i + 1}")
+                logging.warning(f"No ICT data for shot {shot}")
                 self.charge[i] = 0
 
-        shot_filename = ScanData.get_device_shot_path(self.tag, self.device_name, i + 1)
+        shot_filename = ScanData.get_device_shot_path(self.tag, self.device_name, shot)
         try:
             raw_image = read_imaq_png_image(Path(shot_filename)) * 1.0
             if energy_spectrum is None and self.zeroth_order_location and self.wavelength_calibration:
@@ -196,7 +202,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             image = self.filter_image(image)
 
             cropped_image_list.append(image)
-            cropped_image_num.append(i + 1)
+            cropped_image_num.append(shot)
 
             projection_arr = np.sum(image, axis=0)
 
@@ -218,25 +224,25 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                     plt.show()
 
         except FileNotFoundError:
-            logging.warning(f"{self.device_name} shot {i + 1} not found")
+            logging.warning(f"{self.device_name} shot {shot} not found")
             photons_arr[i] = 0
             photon_lineouts.append(np.zeros(self.crop_width - 2))
         except OSError:
-            logging.warning(f"OSError at {self.device_name} shot {i + 1}??")
+            logging.warning(f"OSError at {self.device_name} shot {shot}??")
             photons_arr[i] = 0
             photon_lineouts.append(np.zeros(self.crop_width - 2))
 
         if self.visa_device:
-            visa_camera_shot = ScanData.get_device_shot_path(self.tag, self.visa_device, i + 1)
+            visa_camera_shot = ScanData.get_device_shot_path(self.tag, self.visa_device, shot)
             try:
                 visa_image = read_imaq_png_image(Path(visa_camera_shot)) * 1.0
                 visa_intensity_arr[i] = np.sum(visa_image)
 
             except FileNotFoundError:
-                logging.warning(f"{self.visa_device} shot {i + 1} not found")
+                logging.warning(f"{self.visa_device} shot {shot} not found")
                 visa_intensity_arr[i] = 0
             except OSError:
-                logging.warning(f"OSError at {self.visa_device} shot {i + 1}??")
+                logging.warning(f"OSError at {self.visa_device} shot {shot}??")
                 visa_intensity_arr[i] = 0
 
     def get_incoherent_fit(self, photons_arr: np.ndarray):
