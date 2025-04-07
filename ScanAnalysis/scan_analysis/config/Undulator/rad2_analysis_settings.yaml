@@ -19,7 +19,7 @@ visa3:
   center_yx: [1450, 1150]
   incoherent_fit: [35.33062492, -992.32697961]
   calibration_dates:
-    crop_region: '03/06/2025'
+    crop_region: '03/06/2025 - 04/03/2025'
     incoherent: '03/06/2025'
     wavelength: 'NA'
 
