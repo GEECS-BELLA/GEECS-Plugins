@@ -24,7 +24,7 @@ from scan_analysis.base import ScanAnalysis
 from image_analysis.utils import read_imaq_png_image
 
 import traceback
-PRINT_TRACEBACK = False
+PRINT_TRACEBACK = True
 
 
 # %% classes
