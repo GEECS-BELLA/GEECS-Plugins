@@ -1,6 +1,8 @@
 QWidget {
     background-color: rgb(245, 245, 245);
     color: black;
+    font-size: 8pt;
+    font-family: Arial;
 }
 
 QPushButton:enabled {
@@ -10,6 +12,10 @@ QPushButton:enabled {
 QPushButton:disabled {
     background-color: gray;
     color: darkgray;
+}
+QPushButton#stopScanButton, QPushButton#startScanButton, QPushButton#buttonStartMultiscan, QPushButton#buttonStopMultiscan {
+    font-size: 12pt;
+    font-weight: bold;
 }
 
 QLineEdit:enabled {

@@ -293,15 +293,15 @@
   <widget class="QPushButton" name="buttonStartMultiscan">
    <property name="geometry">
     <rect>
-     <x>220</x>
+     <x>190</x>
      <y>340</y>
-     <width>141</width>
+     <width>171</width>
      <height>41</height>
     </rect>
    </property>
    <property name="font">
     <font>
-     <pointsize>10</pointsize>
+     <pointsize>12</pointsize>
      <weight>75</weight>
      <bold>true</bold>
     </font>
@@ -313,15 +313,15 @@
   <widget class="QPushButton" name="buttonStopMultiscan">
    <property name="geometry">
     <rect>
-     <x>220</x>
+     <x>190</x>
      <y>390</y>
-     <width>141</width>
+     <width>171</width>
      <height>41</height>
     </rect>
    </property>
    <property name="font">
     <font>
-     <pointsize>10</pointsize>
+     <pointsize>12</pointsize>
      <weight>75</weight>
      <bold>true</bold>
     </font>
