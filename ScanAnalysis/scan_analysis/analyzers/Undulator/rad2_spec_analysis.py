@@ -99,7 +99,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                               photons_arr, photon_lineouts, visa_intensity_arr)
 
         # # # #  If on 'background' mode, make a linear fit of the data on shots with ~100% charge transmission  # # # #
-        if self.background_mode and self.valid is not None:
+        if self.background_mode:
             self.incoherent_signal_fit = self.get_incoherent_fit(photons_arr)
 
         raw_photons_arr = np.copy(photons_arr)
@@ -240,8 +240,12 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 visa_intensity_arr[i] = 0
 
     def get_incoherent_fit(self, photons_arr: np.ndarray):
-        x_axis = self.charge[self.valid]
-        y_axis = photons_arr[self.valid]
+        if self.valid is not None:
+            x_axis = self.charge[self.valid]
+            y_axis = photons_arr[self.valid]
+        else:
+            x_axis = self.charge
+            y_axis = photons_arr
         fit = np.polyfit(x_axis[(x_axis > 20) & (x_axis < 250)], y_axis[(x_axis > 20) & (x_axis < 250)], 1)
         print("--Background Mode:  Linear Fit of Light vs Charge--")
         print(fit)
