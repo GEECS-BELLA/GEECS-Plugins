@@ -100,21 +100,21 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 
         # # # #  If on 'background' mode, make a linear fit of the data on shots with ~100% charge transmission  # # # #
         if self.background_mode:
-            self.incoherent_signal_fit = self.get_incoherent_fit(photons_arr)
+            self.incoherent_signal_fit = self.get_incoherent_fit(photons_arr, self.charge)
 
         raw_photons_arr = np.copy(photons_arr)
         p = None
         x = np.linspace(np.min(self.charge), np.max(self.charge))
         if self.background_mode is False and self.incoherent_signal_fit is not None:
-            p = self.apply_post_analysis_correction(photons_arr)
+            p = self.apply_post_analysis_correction(photons_arr, self.charge)
 
         # # # # #  Generate and save the main plot of counts vs charge, with added info for Estimated Gain   # # # # #
-        self.generate_light_vs_charge_plot(photons_arr=photons_arr, charge_axis=x, fit=p,
+        self.generate_light_vs_charge_plot(photons_arr=photons_arr, charge_arr=self.charge, charge_axis=x, fit=p,
                                            visa_intensity_arr=visa_intensity_arr)
 
         # # # # #  Save other post analysis work  and append data to the sfile   # # # # #
         self.save_lineouts_to_analysis_folder(energy_spectrum=energy_spectrum, photon_lineouts=photon_lineouts)
-        self.save_scalars_to_sfile(raw_photons_arr=raw_photons_arr, corrected_photons_arr=photons_arr, fit=p)
+        self.save_scalars_to_sfile(raw_photons_arr=raw_photons_arr, corrected_photons_arr=photons_arr, charge_arr=self.charge, fit=p)
         self.save_gif_to_analysis_folder(cropped_image_list=cropped_image_list, cropped_image_num=cropped_image_num)
 
     def load_charge_array(self):
@@ -245,35 +245,33 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 logging.warning(f"OSError at {self.visa_device} shot {shot}??")
                 visa_intensity_arr[i] = 0
 
-    def get_incoherent_fit(self, photons_arr: np.ndarray):
+    def get_incoherent_fit(self, photons_arr: np.ndarray, charge_arr: np.ndarray):
         if self.valid is not None:
-            x_axis = self.charge[self.valid]
+            x_axis = charge_arr[self.valid]
             y_axis = photons_arr[self.valid]
         else:
-            x_axis = self.charge
+            x_axis = charge_arr
             y_axis = photons_arr
         fit = np.polyfit(x_axis[(x_axis > 20) & (x_axis < 250)], y_axis[(x_axis > 20) & (x_axis < 250)], 1)
         print("--Background Mode:  Linear Fit of Light vs Charge--")
         print(fit)
         return fit
 
-    def apply_post_analysis_correction(self, photons_arr):
+    def apply_post_analysis_correction(self, photons_arr: np.ndarray, charge_arr: np.ndarray):
         # First, correct the signal by shifting the zero signals to correspond to 0 on the linear fit's intercept
         x_intercept = -self.incoherent_signal_fit[1] / self.incoherent_signal_fit[0]
-        for i in range(len(self.charge)):
-            if self.charge[i] < x_intercept:
-                photons_arr[i] += self.charge[i] * self.incoherent_signal_fit[0]
+        for i in range(len(charge_arr)):
+            if charge_arr[i] < x_intercept:
+                photons_arr[i] += charge_arr[i] * self.incoherent_signal_fit[0]
             else:
                 photons_arr[i] -= self.incoherent_signal_fit[1]
 
-        # Next, build the linear slope to represent the incoherent signal and organize the shots by brightness
-
         return np.poly1d([self.incoherent_signal_fit[0], 0])
 
-    def get_top_shots_string(self, photons_arr, fit):
+    def get_top_shots_string(self, photons_arr: np.ndarray, charge_arr: np.ndarray, fit):
         top_shots_string = ""
         if fit is not None and self.background_mode is False:
-            combined = list(zip(range(len(self.charge)), self.charge, photons_arr))
+            combined = list(zip(range(len(charge_arr)), charge_arr, photons_arr))
             sorted_combined = sorted(combined, key=lambda info: info[2])
 
             # Print out the statistics for the brightest shots, TODO print to file
@@ -285,7 +283,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 
         return top_shots_string
 
-    def generate_light_vs_charge_plot(self, photons_arr, charge_axis, fit, visa_intensity_arr):
+    def generate_light_vs_charge_plot(self, photons_arr, charge_arr, charge_axis, fit, visa_intensity_arr):
         # # # # #  If on a visa screen, make the color scheme the intensity on the visa camera   # # # # #
         if np.min(visa_intensity_arr) == np.max(visa_intensity_arr):
             color_scheme = 'b'
@@ -296,14 +294,14 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             color_label = "Intensity on VISA Screen"
             cmap_type = 'viridis'
 
-        top_shots_string = self.get_top_shots_string(photons_arr=photons_arr, fit=fit)
+        top_shots_string = self.get_top_shots_string(photons_arr=photons_arr, charge_arr=charge_arr, fit=fit)
 
         plt.close('all')
         plt.figure(figsize=(5.5, 4))
 
-        plt.scatter(self.charge, photons_arr, label="1st Order", marker="+", c=color_scheme, cmap=cmap_type)
+        plt.scatter(charge_arr, photons_arr, label="1st Order", marker="+", c=color_scheme, cmap=cmap_type)
         if self.background_mode and self.valid is not None:
-            plt.scatter(self.charge[self.valid], photons_arr[self.valid], label="Valid Shots", marker="+", c='r')
+            plt.scatter(charge_arr[self.valid], photons_arr[self.valid], label="Valid Shots", marker="+", c='r')
         # plt.yscale('log')
 
         if self.incoherent_signal_fit is not None:
@@ -344,17 +342,17 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             if self.flag_logging:
                 logging.info(f"Lineouts saved at '{lineout_save_path}'")
 
-    def save_scalars_to_sfile(self, raw_photons_arr, corrected_photons_arr, fit):
+    def save_scalars_to_sfile(self, raw_photons_arr, corrected_photons_arr, charge_arr, fit):
         if not self.background_mode:
             self.append_to_sfile({'UC_Rad2_CameraCounts': raw_photons_arr})
             logging.info("Wrote camera counts to sfile")
             if fit is not None:
-                estimated_gain = np.where(self.charge > 5, corrected_photons_arr / fit(self.charge), 0)
+                estimated_gain = np.where(charge_arr > 5, corrected_photons_arr / fit(charge_arr), 0)
                 self.append_to_sfile({'UC_Rad2_EstimatedGain': estimated_gain})
                 logging.info("Wrote estimated gain to sfile")
 
         if self.update_undulator_exit_ict and self.use_bcave is False:
-            self.append_to_sfile({'U_UndulatorExitICT Updated Charge pC': self.charge})
+            self.append_to_sfile({'U_UndulatorExitICT Updated Charge pC': charge_arr})
             logging.info("Wrote updated UndulatorExitICT charge values")
 
     def save_gif_to_analysis_folder(self, cropped_image_list, cropped_image_num):
