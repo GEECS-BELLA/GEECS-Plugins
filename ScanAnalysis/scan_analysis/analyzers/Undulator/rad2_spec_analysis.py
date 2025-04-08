@@ -326,6 +326,9 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         plt.legend()
         plt.tight_layout()
 
+        self.save_plot_to_analysis_folder()
+
+    def save_plot_to_analysis_folder(self):
         save_path = Path(self.path_dict['save']) / "photon_vs_charge.png"
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
