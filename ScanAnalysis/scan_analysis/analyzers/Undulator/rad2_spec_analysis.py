@@ -434,7 +434,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=4, day=3, number=16, experiment_name='Undulator')
+    tag = ScanData.get_scan_tag(year=2025, month=4, day=3, number=16, experiment='Undulator')
     analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False,
                                 force_background_mode=False, update_undulator_exit_ict=False)
     analyzer.run_analysis()
