@@ -284,7 +284,8 @@ class ActionLibrary(QWidget):
         self.ui.lineActionOption2.setEnabled(False)
         self.ui.lineActionOption3.setEnabled(False)
 
-        if index := self.get_selected_step_index():
+        index = self.get_selected_step_index()
+        if index is not None:
             name = self.get_selected_name()
             if index >= 0 and name:
                 action = self.actions_data['actions'][name]['steps'][index]
