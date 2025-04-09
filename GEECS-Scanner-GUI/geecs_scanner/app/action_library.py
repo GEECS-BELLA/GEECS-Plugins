@@ -264,7 +264,8 @@ class ActionLibrary(QWidget):
 
     def remove_action(self):
         """ Removes the currently-selected action from the list of actions """
-        if index := self.get_selected_step_index():
+        index = self.get_selected_step_index()
+        if index is not None:
             name = self.get_selected_name()
             if index >= 0 and name:
                 del self.actions_data['actions'][name]['steps'][index]
@@ -324,7 +325,8 @@ class ActionLibrary(QWidget):
 
     def update_action_info(self):
         """Updates the backend action dictionary when one of the line edits for options is changed"""
-        if index := self.get_selected_step_index():
+        index = self.get_selected_step_index()
+        if index is not None:
             name = self.get_selected_name()
             if index >= 0 and name:
                 action = self.actions_data['actions'][name]['steps'][index]
@@ -361,7 +363,8 @@ class ActionLibrary(QWidget):
 
     def move_action_sooner(self):
         """Moves the selected action to an earlier position in the same list"""
-        if i := self.get_selected_step_index():
+        i = self.get_selected_step_index()
+        if i is not None:
             if name := self.get_selected_name():
                 action_list = self.actions_data['actions'][name]['steps']
                 if 0 < i < len(action_list):
@@ -371,7 +374,8 @@ class ActionLibrary(QWidget):
 
     def move_action_later(self):
         """Moves the selected action to a later position in the same list"""
-        if i := self.get_selected_step_index():
+        i = self.get_selected_step_index()
+        if i is not None:
             if name := self.get_selected_name():
                 action_list = self.actions_data['actions'][name]['steps']
                 if 0 <= i < len(action_list) - 1:
