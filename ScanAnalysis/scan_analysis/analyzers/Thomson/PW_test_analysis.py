@@ -24,6 +24,8 @@ sys.path.insert(0, 'C:\\GEECS\\Developers Version\\source\\GEECS-Plugins\\GEECS-
 
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
+from pathlib import Path
+
 # %% classes
 class PWTestAnalysis(ScanAnalysis):
     def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True):
@@ -170,6 +172,7 @@ class PWTestAnalysis(ScanAnalysis):
 
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
+    ScanData.reload_paths_config(config_path=Path(r'C:\Users\loasis\.config\geecs_python_api\config.ini')) #Added config path manually otherwise it can't find the config file - 4/3/2025 Eugene
     tag = ScanData.get_scan_tag(year=2025, month=3, day=4, number=5, experiment='ControlRoom')
     analyzer = PWTestAnalysis(scan_tag=tag, skip_plt_show=False)
     analyzer.run_analysis()

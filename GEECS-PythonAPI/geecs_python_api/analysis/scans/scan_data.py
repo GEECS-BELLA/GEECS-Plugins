@@ -521,4 +521,4 @@ class ScanData:
 
         return indexes, setpoints, parameter_avgs_match_setpoints
 
-ScanData.reload_paths_config(config_path=Path(r'C:\Users\loasis\.config\geecs_python_api\config.ini')) #Added config path manually otherwise it can't find the config file - 4/3/2025 Eugene
+# ScanData.reload_paths_config(config_path=Path(r'C:\Users\loasis\.config\geecs_python_api\config.ini')) #Added config path manually otherwise it can't find the config file - 4/3/2025 Eugene
