@@ -7,8 +7,8 @@ from typing import Optional, Union
 from geecs_python_api.controls.interface import ConfigurationError
 
 EXPERIMENT_TO_SERVER_DICT: dict[str, Path] = {
-    'Undulator': Path('Z:/data'),
-    'Thomson': Path('Z:/data'),
+    'Bella': Path(r'N:'),
+    'ControlRoom': Path(r'N:\data'),
     'DataLogging': Path('N:/data/PWlaserData')
 }
 
@@ -73,19 +73,19 @@ class GeecsPathsConfig:
             if config_path.exists():
                 try:
                     config.read(config_path)
-
                     # Get the experiment name if it is not provided
                     if experiment is None:
                         experiment = config['Experiment'].get('expt')
-
                     # Then, if no base path specified first try the default server path for the given experiment
                     if base_path is None:
+                        # print(self.get_default_server_address(experiment).exists())
                         base_path = self._validate_and_set_base_path(self.get_default_server_address(experiment))
-
+                    # print(experiment, base_path)
                     # If not connected to server path, then default to the local base path defined in the config file
                     if base_path is None:
                         local_path = Path(config['Paths'].get('GEECS_DATA_LOCAL_BASE_PATH', None))
                         base_path = self._validate_and_set_base_path(local_path)
+
 
                 except Exception as e:
                     logger.error(f"Error reading config file {config_path}: {e}")

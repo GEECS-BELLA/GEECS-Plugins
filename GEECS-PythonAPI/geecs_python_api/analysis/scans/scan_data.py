@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 if not logging.getLogger().hasHandlers():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-
 class ScanData:
     """ Represents a GEECS experiment scan """
 
@@ -94,7 +93,6 @@ class ScanData:
         except ConfigurationError as e:
             logger.error(f"Configuration Error in ScanData: {e}")
             cls.paths_config = None
-
     def _initialize_folders(self, folder: Path, read_mode: bool):
         """
         Initialize and validate folder paths for the scan.
@@ -270,7 +268,6 @@ class ScanData:
         if i == 1:
             return None  # No scans exist for the given day
         return ScanData.get_scan_tag(year, month, day, i - 1, experiment=experiment)
-
     @staticmethod
     def get_latest_scan_data(experiment: Optional[str] = None, year: Optional[int] = None,
                              month: Optional[int] = None, day: Optional[int] = None,
@@ -412,7 +409,6 @@ class ScanData:
         if config.has_section('Scan Info') and config.has_option('Scan Info', 'Background'):
             return config.get('Scan Info', 'Background').strip().lower() == '"true"'
         return False
-
     def get_folder(self) -> Optional[Path]:
         return self.__folder
 
@@ -525,5 +521,4 @@ class ScanData:
 
         return indexes, setpoints, parameter_avgs_match_setpoints
 
-
-ScanData.reload_paths_config()
+ScanData.reload_paths_config(config_path=Path(r'C:\Users\loasis\.config\geecs_python_api\config.ini')) #Added config path manually otherwise it can't find the config file - 4/3/2025 Eugene

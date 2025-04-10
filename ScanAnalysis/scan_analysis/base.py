@@ -25,7 +25,13 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
+
+sys.path.insert(0, 'C:\\GEECS\\Developers Version\\source\\GEECS-Plugins\\GEECS-PythonAPI') # Without this path the code outputs ModuleNotFoundError: No module named geecs_python_api
+
 from geecs_python_api.analysis.scans.scan_data import ScanData
+
+sys.path.insert(0, 'C:\\GEECS\\Developers Version\\source\\GEECS-Plugins\\ImageAnalysis') # Similarly need path for below import
 
 from image_analysis.base import ImageAnalyzer  # explicit import for the base image analyzer
 
