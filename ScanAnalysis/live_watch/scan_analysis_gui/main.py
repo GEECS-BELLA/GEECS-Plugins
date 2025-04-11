@@ -2,6 +2,8 @@
 import sys
 from PyQt5.QtWidgets import QApplication
 
+sys.path.insert(0, 'C:\\GEECS\\Developers Version\\source\\GEECS-Plugins\\ScanAnalysis')
+
 from live_watch.scan_analysis_gui.utils.exceptions import exception_hook
 from live_watch.scan_analysis_gui.app.ScAnalyzer import ScAnalyzerWindow
 
