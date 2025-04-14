@@ -14,7 +14,7 @@ from . import DeviceManager
 from geecs_scanner.utils import SoundPlayer
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from image_analysis.utils import extract_timestamp_from_file
+from geecs_python_api.tools.files.timestamping import extract_timestamp_from_file
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
 import geecs_python_api.controls.interface.message_handling as mh
 
