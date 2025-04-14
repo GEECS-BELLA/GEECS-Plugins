@@ -34,6 +34,7 @@ def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
         significant_bits = ord(significant_bits)
         return np.right_shift(image, bitdepth - significant_bits)
 
+
 def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
     """ Read BELLA camera image, in particular handle NI PNG files correctly.
     """
@@ -84,12 +85,14 @@ class ROI:
         image[i0:i1, i2:i3]
 
     """
-    def __init__(self, top: Optional[int] = None, 
-                       bottom: Optional[int] = None, 
-                       left: Optional[int] = None, 
-                       right: Optional[int] = None,
-                       bad_index_order = 'raise',
-                ):
+
+    def __init__(self,
+                 top: Optional[int] = None,
+                 bottom: Optional[int] = None,
+                 left: Optional[int] = None,
+                 right: Optional[int] = None,
+                 bad_index_order='raise',
+                 ):
 
         """
         Parameters
@@ -126,7 +129,7 @@ class ROI:
                 return low_index, high_index
 
             if low_index > high_index:
-                if bad_index_order == 'raise': 
+                if bad_index_order == 'raise':
                     raise ValueError(f"{low_index} should be less than {high_index} ((0, 0) is at the top left corner)")
                 elif bad_index_order == 'invert':
                     low_index, high_index = high_index, low_index
@@ -154,10 +157,12 @@ class ROI:
 
     def __repr__(self):
         return f"ROI({self.top}, {self.bottom}, {self.left}, {self.right})"
-    
+
+
 class NotAPath(Path().__class__):
     """ A Path instance that evaluates to false in, for example, if statements.
     """
+
     def __bool__(self):
         return False
 
