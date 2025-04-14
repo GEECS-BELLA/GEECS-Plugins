@@ -19,9 +19,9 @@ from pathlib import Path
 from scipy.fft import fft, ifft, fftfreq
 
 DO_PLOT = False
-TEST_TIME = False
-MAX_TIME = 0.2
-FIND_SHOT = 23
+TEST_TIME = True
+MAX_TIME = 0.1
+FIND_SHOT = None
 SKIP_ACAVE = False
 SKIP_BCAVE = False
 
@@ -100,18 +100,20 @@ def apply_highpass_filter(data):
 
 
 class TestUC_BeamSpot(unittest.TestCase):
-    scan_day = 24  # 28  # 7  # 6
-    scan_number = 1  # 6  # 56  # 24
+    scan_day = 3  ## 24  # 28  # 7  # 6
+    scan_number = 12  ## 1  # 6  # 56  # 24
+    scan_month = 4  ## 3
+    month_str = "Apr"  ## "Mar"
 
     def get_acave_tdms_file(self, shot_number: int):
         device = 'U_UndulatorExitICT'
-        data_folder = f'Z:\\data\\Undulator\\Y2025\\03-Mar\\25_03{self.scan_day:02d}\\scans\\Scan{self.scan_number:03d}\\{device}\\'
+        data_folder = f'Z:\\data\\Undulator\\Y2025\\{self.scan_month:02d}-{self.month_str}\\25_{self.scan_month:02d}{self.scan_day:02d}\\scans\\Scan{self.scan_number:03d}\\{device}\\'
         shot_prefix = f'Scan{self.scan_number:03d}_{device}'
         return data_folder + shot_prefix + f'_{shot_number:03d}' + '.tdms'
 
     def get_bcave_tdms_file(self, shot_number: int):
         device = 'U_BCaveICT'
-        data_folder = f'Z:\\data\\Undulator\\Y2025\\03-Mar\\25_03{self.scan_day:02d}\\scans\\Scan{self.scan_number:03d}\\{device}\\'
+        data_folder = f'Z:\\data\\Undulator\\Y2025\\{self.scan_month:02d}-{self.month_str}\\25_{self.scan_month:02d}{self.scan_day:02d}\\scans\\Scan{self.scan_number:03d}\\{device}\\'
         shot_prefix = f'Scan{self.scan_number:03d}_{device}'
         return data_folder + shot_prefix + f'_{shot_number:03d}' + '.tdms'
 

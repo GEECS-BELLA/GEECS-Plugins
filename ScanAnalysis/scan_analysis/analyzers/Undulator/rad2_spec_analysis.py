@@ -72,14 +72,53 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         self.set_visa_settings()
         # self.background_roi = self.crop_rad2(background_full)
 
+        self.charge = None
+        self.charge_label = ''
+        self.valid = None
+        self.use_bcave: Optional[bool] = None
+
     def run_noscan_analysis(self, config_options: Optional[str] = None):
         """
         Analyze all UC_Rad2 shots in a given scan to generate a light vs charge plot.  The charge is determined based
         on what is available in the auxiliary data and what visa station we are currently at.  By design, Visa 1-8
         uses the BCave ICT, while Visa 9 uses the UndulatorExit ICT.
         """
+
+        self.load_charge_array()
+
+        photons_arr = np.zeros(len(self.charge))
+        visa_intensity_arr = np.zeros(len(self.charge))
+        cropped_image_list = []
+        cropped_image_num = []
+        photon_lineouts = []
+        energy_spectrum: Optional[np.ndarray] = None
+
+        # # # # #  Loop through every shot in the scan   # # # # #
+        for i in range(len(self.charge)):
+            self.process_shot(i, energy_spectrum, cropped_image_num, cropped_image_list,
+                              photons_arr, photon_lineouts, visa_intensity_arr)
+
+        # # # #  If on 'background' mode, make a linear fit of the data on shots with ~100% charge transmission  # # # #
+        if self.background_mode:
+            self.incoherent_signal_fit = self.get_incoherent_fit(photons_arr, self.charge)
+
+        raw_photons_arr = np.copy(photons_arr)
+        p = None
+        x = np.linspace(np.min(self.charge), np.max(self.charge))
+        if self.background_mode is False and self.incoherent_signal_fit is not None:
+            p = self.apply_post_analysis_correction(photons_arr, self.charge)
+
+        # # # # #  Generate and save the main plot of counts vs charge, with added info for Estimated Gain   # # # # #
+        self.generate_light_vs_charge_plot(photons_arr=photons_arr, charge_arr=self.charge, charge_axis=x, fit=p,
+                                           visa_intensity_arr=visa_intensity_arr)
+
+        # # # # #  Save other post analysis work  and append data to the sfile   # # # # #
+        self.save_lineouts_to_analysis_folder(energy_spectrum=energy_spectrum, photon_lineouts=photon_lineouts)
+        self.save_scalars_to_sfile(raw_photons_arr=raw_photons_arr, corrected_photons_arr=photons_arr, charge_arr=self.charge, fit=p)
+        self.save_gif_to_analysis_folder(cropped_image_list=cropped_image_list, cropped_image_num=cropped_image_num)
+
+    def load_charge_array(self):
         df = self.auxiliary_data
-        use_bcave = None
         charge_start = None
         charge_end = None
 
@@ -90,132 +129,161 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
                 charge_end = np.array(df['U_UndulatorExitICT Python Results.ChB'])
 
             if self.visa_station == 9:
-                use_bcave = False
+                self.use_bcave = False
         if 'U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC' in df:
             charge_start = np.array(df['U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC'])
 
             if self.visa_station != 9:
-                use_bcave = True
+                self.use_bcave = True
 
-        if use_bcave is True and charge_start is not None:
-            charge = charge_start
-            charge_label = "BCaveICT (pC)"
-        elif use_bcave is False and charge_end is not None:
-            charge = charge_end
-            charge_label = "Und.ExitICT (pC)"
+        if self.use_bcave is True and charge_start is not None:
+            self.charge = charge_start
+            self.charge_label = "BCaveICT (pC)"
+            charge_end = None
+        elif self.use_bcave is False and charge_end is not None:
+            self.charge = charge_end
+            self.charge_label = "Und.ExitICT (pC)"
         else:
             raise RuntimeError("Need Visa9+ExitICT or Visa1-8+BCaveICT")
 
         if charge_start is not None and charge_end is not None:
-            valid = np.where(np.abs((charge_end - charge_start) / charge_start) < 0.25)[0]
+            self.valid = np.where(np.abs((charge_end - charge_start) / charge_start) < 0.25)[0]
             if self.debug_mode:
                 plt.scatter(charge_start, charge_end, c='b', label='all shots')
-                plt.scatter(charge_start[valid], charge_end[valid], c='r', label='within 15%')
+                plt.scatter(charge_start[self.valid], charge_end[self.valid], c='r', label='within 15%')
                 plt.plot([0, 200], [0, 200], c='k', ls='--', label='slope = 1')
                 plt.legend()
                 plt.xlabel("BCaveICT Charge (pC)")
                 plt.ylabel("UndulatorExitICT Charge (pC)")
                 print("Valid Indices:")
-                print(valid)
+                print(self.valid)
                 print("Worst offender shot")
-                print(np.argmax(charge_end)+1, charge_end[np.argmax(charge_end)])
+                print(np.argmax(charge_end) + 1, charge_end[np.argmax(charge_end)])
                 sample = 32
-                print("Sample Shot", sample+1)
+                print("Sample Shot", sample + 1)
                 print(charge_start[sample], "pC")
                 print(charge_end[sample], "pC")
                 plt.show()
-        else:
-            valid = None
 
-        photons_arr = np.zeros(len(charge))
-        visa_intensity_arr = np.zeros(len(charge))
-        cropped_image_list = []
-        cropped_image_num = []
-        photon_lineouts = []
-        energy_spectrum: Optional[np.ndarray] = None
+    def process_shot(self, i: int, energy_spectrum: np.ndarray, cropped_image_num: list, cropped_image_list: list,
+                     photons_arr: np.ndarray, photon_lineouts: list, visa_intensity_arr, shot: Optional[int] = None):
+        """ Main analysis loop for each shot
 
-        # # # # #  Loop through every shot in the scan   # # # # #
-
-        for i in range(len(charge)):
-            if self.update_undulator_exit_ict and not use_bcave:
-                try:
-                    ict_filename = ScanData.get_device_shot_path(self.tag, device_name="U_UndulatorExitICT",
-                                                                 shot_number=i+1, file_extension="tdms")
-                    tdms_file = TdmsFile.read(ict_filename)
-                    ict_lineout = tdms_file['Picoscope']['ChB'][:]
-                    charge[i] = Undulator_Exit_ICT(data=ict_lineout, dt=4e-9, crit_f=0.125)
-                except FileNotFoundError:
-                    logging.warning(f"No ICT data for shot {i+1}")
-                    charge[i] = 0
-
-            shot_filename = ScanData.get_device_shot_path(self.tag, self.device_name, i+1)
+        Note on 'i' vs 'shot':  'i' is the element in arrays and lists.  'shot' is the actual filename shotnumber.  If
+        'shot' is not explicitly given, the code will automatically assume that 'shot' should line up with 'i':  i+1
+        """
+        if shot is None:
+            shot = i + 1
+        if self.update_undulator_exit_ict and not self.use_bcave:
             try:
-                raw_image = read_imaq_png_image(Path(shot_filename))*1.0
-                if energy_spectrum is None and self.zeroth_order_location and self.wavelength_calibration:
-                    pixel_axis = np.arange(0, np.shape(raw_image)[1])
-                    wavelength_axis = (pixel_axis - self.zeroth_order_location) * self.wavelength_calibration
-                    energy_spectrum = wavelength_axis[self.crop_region[2]+1: self.crop_region[3]-1]
+                ict_filename = ScanData.get_device_shot_path(self.tag, device_name="U_UndulatorExitICT",
+                                                             shot_number=shot, file_extension="tdms")
+                tdms_file = TdmsFile.read(ict_filename)
+                ict_lineout = tdms_file['Picoscope']['ChB'][:]
+                self.charge[i] = Undulator_Exit_ICT(data=ict_lineout, dt=4e-9, crit_f=0.125)
+            except FileNotFoundError:
+                logging.warning(f"No ICT data for shot {shot}")
+                self.charge[i] = 0
 
-                if self.debug_mode:
-                    plt.imshow(np.log(raw_image+1))
-                    plt.show()
+        shot_filename = ScanData.get_device_shot_path(self.tag, self.device_name, shot)
+        try:
+            raw_image = read_imaq_png_image(Path(shot_filename)) * 1.0
+            if energy_spectrum is None and self.zeroth_order_location and self.wavelength_calibration:
+                pixel_axis = np.arange(0, np.shape(raw_image)[1])
+                wavelength_axis = (pixel_axis - self.zeroth_order_location) * self.wavelength_calibration
+                energy_spectrum = wavelength_axis[self.crop_region[2] + 1: self.crop_region[3] - 1]
 
-                image = self.crop_rad2(raw_image)
-                image = image_processing_funcs.threshold_reduction(image, self.background_threshold)
-                image = self.filter_image(image)
+            if self.debug_mode:
+                plt.imshow(np.log(raw_image + 1))
+                plt.show()
 
-                cropped_image_list.append(image)
-                cropped_image_num.append(i+1)
+            image = self.crop_rad2(raw_image)
+            image = image_processing_funcs.threshold_reduction(image, self.background_threshold)
+            image = self.filter_image(image)
 
-                projection_arr = np.sum(image, axis=0)
+            cropped_image_list.append(image)
+            cropped_image_num.append(shot)
 
-                fs = 200.0
-                cutoff = 4.5
-                filtered_data = self.lowpass_filter(projection_arr[1:-1], cutoff, fs)
+            projection_arr = np.sum(image, axis=0)
 
-                photons_arr[i] = np.sum(filtered_data)
-                photon_lineouts.append(filtered_data)
+            fs = 200.0
+            cutoff = 4.5
+            filtered_data = self.lowpass_filter(projection_arr[1:-1], cutoff, fs)
 
-                if self.debug_mode:
-                    plt.imshow(image)
-                    plt.show()
+            photons_arr[i] = np.sum(filtered_data)
+            photon_lineouts.append(filtered_data)
 
+            if self.debug_mode:
+                plt.imshow(image)
+                plt.show()
+
+                if energy_spectrum is not None:
                     projection_minimum = np.min(filtered_data)
                     plt.plot(energy_spectrum, projection_arr[1:-1] - projection_minimum)
                     plt.plot(energy_spectrum, filtered_data - projection_minimum)
                     plt.show()
 
+        except FileNotFoundError:
+            logging.warning(f"{self.device_name} shot {shot} not found")
+            photons_arr[i] = 0
+            photon_lineouts.append(np.zeros(self.crop_width - 2))
+        except OSError:
+            logging.warning(f"OSError at {self.device_name} shot {shot}??")
+            photons_arr[i] = 0
+            photon_lineouts.append(np.zeros(self.crop_width - 2))
+
+        if self.visa_device:
+            visa_camera_shot = ScanData.get_device_shot_path(self.tag, self.visa_device, shot)
+            try:
+                visa_image = read_imaq_png_image(Path(visa_camera_shot)) * 1.0
+                visa_intensity_arr[i] = np.sum(visa_image)
+
             except FileNotFoundError:
-                logging.warning(f"{self.device_name} shot {i+1} not found")
-                photons_arr[i] = 0
-                photon_lineouts.append(np.zeros(self.crop_width - 2))
+                logging.warning(f"{self.visa_device} shot {shot} not found")
+                visa_intensity_arr[i] = 0
             except OSError:
-                logging.warning(f"OSError at {self.device_name} shot {i+1}??")
-                photons_arr[i] = 0
-                photon_lineouts.append(np.zeros(self.crop_width - 2))
+                logging.warning(f"OSError at {self.visa_device} shot {shot}??")
+                visa_intensity_arr[i] = 0
 
-            if self.visa_device:
-                visa_camera_shot = ScanData.get_device_shot_path(self.tag, self.visa_device, i+1)
-                try:
-                    visa_image = read_imaq_png_image(Path(visa_camera_shot)) * 1.0
-                    visa_intensity_arr[i] = np.sum(visa_image)
+    def get_incoherent_fit(self, photons_arr: np.ndarray, charge_arr: np.ndarray):
+        if self.valid is not None:
+            x_axis = charge_arr[self.valid]
+            y_axis = photons_arr[self.valid]
+        else:
+            x_axis = charge_arr
+            y_axis = photons_arr
+        fit = np.polyfit(x_axis[(x_axis > 20) & (x_axis < 250)], y_axis[(x_axis > 20) & (x_axis < 250)], 1)
+        print("--Background Mode:  Linear Fit of Light vs Charge--")
+        print(fit)
+        return fit
 
-                except FileNotFoundError:
-                    logging.warning(f"{self.visa_device} shot {i+1} not found")
-                    visa_intensity_arr[i] = 0
-                except OSError:
-                    logging.warning(f"OSError at {self.visa_device} shot {i+1}??")
-                    visa_intensity_arr[i] = 0
+    def apply_post_analysis_correction(self, photons_arr: np.ndarray, charge_arr: np.ndarray):
+        # First, correct the signal by shifting the zero signals to correspond to 0 on the linear fit's intercept
+        x_intercept = -self.incoherent_signal_fit[1] / self.incoherent_signal_fit[0]
+        for i in range(len(charge_arr)):
+            if charge_arr[i] < x_intercept:
+                photons_arr[i] += charge_arr[i] * self.incoherent_signal_fit[0]
+            else:
+                photons_arr[i] -= self.incoherent_signal_fit[1]
 
-        # # # #  If on 'background' mode, make a linear fit of the data on shots with ~100% charge transmission  # # # #
-        if self.background_mode and valid is not None:
-            x_axis = charge[valid]
-            y_axis = photons_arr[valid]
-            fit = np.polyfit(x_axis[(x_axis > 20) & (x_axis < 250)], y_axis[(x_axis > 20) & (x_axis < 250)], 1)
-            print("--Background Mode:  Linear Fit of Light vs Charge--")
-            print(fit)
-            self.incoherent_signal_fit = fit
+        return np.poly1d([self.incoherent_signal_fit[0], 0])
 
+    def get_top_shots_string(self, photons_arr: np.ndarray, charge_arr: np.ndarray, fit):
+        top_shots_string = ""
+        if fit is not None and self.background_mode is False:
+            combined = list(zip(range(len(charge_arr)), charge_arr, photons_arr))
+            sorted_combined = sorted(combined, key=lambda info: info[2])
+
+            # Print out the statistics for the brightest shots, TODO print to file
+            # for item in sorted_combined:
+            #    print(f"{item[0] + 1}:   {item[1]:.2f} pC,   {item[2]:.3E},   Gain = {item[2] / p(item[1]):.2f}")
+            for i in [-5, -4, -3, -2, -1]:
+                item = sorted_combined[i]
+                top_shots_string += f"{item[0] + 1}:  {item[1]:.2f} pC,  G={item[2] / fit(item[1]):.2f}\n"
+
+        return top_shots_string
+
+    def generate_light_vs_charge_plot(self, photons_arr, charge_arr, charge_axis, fit, visa_intensity_arr):
         # # # # #  If on a visa screen, make the color scheme the intensity on the visa camera   # # # # #
         if np.min(visa_intensity_arr) == np.max(visa_intensity_arr):
             color_scheme = 'b'
@@ -226,52 +294,25 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             color_label = "Intensity on VISA Screen"
             cmap_type = 'viridis'
 
-        # # # # #  Generate the main plot of counts vs charge, with added info for Estimated Gain   # # # # #
-        raw_photons_arr = np.copy(photons_arr)
-        top_shots_string = ""
-        p = None
-        x = np.linspace(np.min(charge), np.max(charge))
-        if self.background_mode is False and self.incoherent_signal_fit is not None:
-            # First, correct the signal by shifting the zero signals to correspond to 0 on the linear fit's intercept
-            x_intercept = -self.incoherent_signal_fit[1] / self.incoherent_signal_fit[0]
-            for i in range(len(charge)):
-                if charge[i] < x_intercept:
-                    photons_arr[i] += charge[i] * self.incoherent_signal_fit[0]
-                else:
-                    photons_arr[i] -= self.incoherent_signal_fit[1]
-
-            # Next, build the linear slope to represent the incoherent signal and organize the shots by brightness
-
-            p = np.poly1d([self.incoherent_signal_fit[0], 0])
-            if not self.background_mode:
-                combined = list(zip(range(len(charge)), charge, photons_arr))
-                sorted_combined = sorted(combined, key=lambda info: info[2])
-
-                # Print out the statistics for the brightest shots, TODO print to file
-                #for item in sorted_combined:
-                #    print(f"{item[0] + 1}:   {item[1]:.2f} pC,   {item[2]:.3E},   Gain = {item[2] / p(item[1]):.2f}")
-
-                for i in [-5, -4, -3, -2, -1]:
-                    item = sorted_combined[i]
-                    top_shots_string += f"{item[0] + 1}:  {item[1]:.2f} pC,  G={item[2] / p(item[1]):.2f}\n"
+        top_shots_string = self.get_top_shots_string(photons_arr=photons_arr, charge_arr=charge_arr, fit=fit)
 
         plt.close('all')
         plt.figure(figsize=(5.5, 4))
 
-        plt.scatter(charge, photons_arr, label="1st Order", marker="+", c=color_scheme, cmap=cmap_type)
-        if self.background_mode and valid is not None:
-            plt.scatter(charge[valid], photons_arr[valid], label="Valid Shots", marker="+", c='r')
+        plt.scatter(charge_arr, photons_arr, label="1st Order", marker="+", c=color_scheme, cmap=cmap_type)
+        if self.background_mode and self.valid is not None:
+            plt.scatter(charge_arr[self.valid], photons_arr[self.valid], label="Valid Shots", marker="+", c='r')
         # plt.yscale('log')
 
         if self.incoherent_signal_fit is not None:
             # Lastly, actually add this to the plot
             if self.background_mode:
-                p = np.poly1d(self.incoherent_signal_fit)
-            plt.plot(x, p(x), label="Incoherent Signal", c='k', ls='--')
+                fit = np.poly1d(self.incoherent_signal_fit)
+            plt.plot(charge_axis, fit(charge_axis), label="Incoherent Signal", c='k', ls='--')
 
         plt.title(f'Photon Yield VS Charge VISA{self.visa_station}: '
                   f'{self.tag.month}/{self.tag.day}/{self.tag.year} Scan {self.tag.number}')
-        plt.xlabel(charge_label)
+        plt.xlabel(self.charge_label)
         plt.ylabel("UC_Rad2 Camera Counts of 1st Order")
         if top_shots_string:
             plt.text(0.05, 0.95, top_shots_string, transform=plt.gca().transAxes,
@@ -285,8 +326,9 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
         plt.legend()
         plt.tight_layout()
 
-        # # # # #  Save plots and append data to the sfile   # # # # #
+        self.save_plot_to_analysis_folder()
 
+    def save_plot_to_analysis_folder(self):
         save_path = Path(self.path_dict['save']) / "photon_vs_charge.png"
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
@@ -295,25 +337,28 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
             logging.info(f"Image saved at {save_path}")
         self.display_contents.append(str(save_path))
 
+    def save_lineouts_to_analysis_folder(self, energy_spectrum, photon_lineouts):
         if energy_spectrum is not None:
             scan_spectrum = np.vstack([energy_spectrum, photon_lineouts])
-            lineout_save_path = save_path.parent / 'scan_spectrum.npy'
+            lineout_save_path = Path(self.path_dict['save']) / 'scan_spectrum.npy'
             np.save(lineout_save_path, scan_spectrum)
             if self.flag_logging:
                 logging.info(f"Lineouts saved at '{lineout_save_path}'")
 
+    def save_scalars_to_sfile(self, raw_photons_arr, corrected_photons_arr, charge_arr, fit):
         if not self.background_mode:
             self.append_to_sfile({'UC_Rad2_CameraCounts': raw_photons_arr})
             logging.info("Wrote camera counts to sfile")
-            if p is not None:
-                estimated_gain = np.where(charge > 5, photons_arr / p(charge), 0)
+            if fit is not None:
+                estimated_gain = np.where(charge_arr > 5, corrected_photons_arr / fit(charge_arr), 0)
                 self.append_to_sfile({'UC_Rad2_EstimatedGain': estimated_gain})
                 logging.info("Wrote estimated gain to sfile")
 
-        if self.update_undulator_exit_ict and use_bcave is False:
-            self.append_to_sfile({'U_UndulatorExitICT Updated Charge pC': charge})
+        if self.update_undulator_exit_ict and self.use_bcave is False:
+            self.append_to_sfile({'U_UndulatorExitICT Updated Charge pC': charge_arr})
             logging.info("Wrote updated UndulatorExitICT charge values")
 
+    def save_gif_to_analysis_folder(self, cropped_image_list, cropped_image_num):
         if self.flag_save_images:
             filepath = self.path_dict['save'] / 'noscan.gif'
             self.create_gif(cropped_image_list, filepath,
@@ -389,7 +434,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=25, experiment_name='Undulator')
+    tag = ScanData.get_scan_tag(year=2025, month=4, day=3, number=16, experiment='Undulator')
     analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False,
-                                force_background_mode=False, update_undulator_exit_ict=True)
+                                force_background_mode=False, update_undulator_exit_ict=False)
     analyzer.run_analysis()

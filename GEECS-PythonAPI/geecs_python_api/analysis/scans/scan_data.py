@@ -200,6 +200,17 @@ class ScanData:
         return folder
 
     @staticmethod
+    def get_scan_analysis_folder_path(tag: ScanTag, base_directory: Optional[Union[Path, str]] = None) -> Path:
+        """
+        Builds analysis folder path using the scan folder path as a baseline
+        """
+        scan_folder_path = ScanData.get_scan_folder_path(tag=tag, base_directory=base_directory)
+
+        parts = list(scan_folder_path.parts)
+        parts[-2] = 'analysis'
+        return Path(*parts)
+
+    @staticmethod
     def get_device_shot_path(tag: ScanTag, device_name: str, shot_number: int, file_extension: str = 'png',
                              base_directory: Optional[Union[Path, str]] = None) -> Path:
         """
