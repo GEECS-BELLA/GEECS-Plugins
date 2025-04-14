@@ -2,11 +2,10 @@ import png
 from nptdms import TdmsFile
 import logging
 from pathlib import Path
-
+import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from zoneinfo import ZoneInfo  # Available in Python 3.9+
-
 
 try:
     import scan_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
@@ -23,23 +22,38 @@ def extract_timestamp_from_file(device_file: Path, device_type: str) -> float:
         device_type (str): Type of the device.
 
     Returns:
-        float: Extracted timestamp.
+        float: Extracted timestamp.  (in epoch seconds)
     """
-    device_map = {
-        "Point Grey Camera": get_imaq_timestamp_from_png,
-        "MagSpecCamera": get_imaq_timestamp_from_png,
-        "PicoscopeV2": get_picoscopeV2_timestamp,
-        "MagSpecStitcher": get_custom_imaq_timestamp,
-        "FROG": get_custom_imaq_timestamp,
-        "HASO4_3": get_himg_timestamp,
-        "Thorlabs CCS175 Spectrometer": get_picoscopeV2_timestamp,
-        "RohdeSchwarz_RTA4000": get_picoscopeV2_timestamp,
+    device_exceptions = {  # TODO investigate if these devices need an exception function defined anymore
+        #"Point Grey Camera": get_imaq_timestamp_from_png,
+        #"MagSpecCamera": get_imaq_timestamp_from_png,
+        #"PicoscopeV2": get_picoscopeV2_timestamp,
+        #"MagSpecStitcher": get_custom_imaq_timestamp,
+        #"FROG": get_custom_imaq_timestamp,
+        #"HASO4_3": get_himg_timestamp,
+        #"Thorlabs CCS175 Spectrometer": get_picoscopeV2_timestamp,
+        #"RohdeSchwarz_RTA4000": get_picoscopeV2_timestamp,
     }
 
-    if device_type in device_map:
-        return device_map[device_type](device_file)
+    if device_type in device_exceptions:
+        return device_exceptions[device_type](device_file)
     else:
-        raise ValueError(f"Unsupported device type: {device_type}")
+        return timestamp_from_filename(device_file)
+
+
+def timestamp_from_filename(file: Path) -> float:
+    """
+    Extract timestamp from the file's filename, as of 04/14/2025 this has been changed to be saved in epoch seconds.
+
+    :param file: Path object for given file
+    :return: Extracted timestamp.  (in epoch seconds)
+    """
+    pattern = r'_(\d+\.\d{3}\.[^.]+$'
+    match = re.search(pattern, file.name)
+    if match:
+        return float(match.group(1))
+    else:
+        raise ValueError(f"Could not extract timestamp from '{file}'")
 
 
 def make_text_chunk_dict(text_chunks):
