@@ -43,6 +43,10 @@ poetry install
 poetry run main.py
 ```
 
+The first time you run this GUI on a given PC, a dialog box will appear asking you to "repair/generate" a config.ini file.  Do this and follow the steps, this will generate a file that lets GEECS-Plugins applications know what experiment name and user data information it is working with.
+
+For the `GEECS user data location` information, you will need to copy the existing user data folder from the server into the local path that you defined in the config.ini above.  For example, if you set your GEECS user data path to be in `C:\GEECS\user data`, then you will need to make the `GEECS` folder in `C:` and copy the user data from the server.  (For example, HTU's server data was located in `Z:\software\control-all-loasis\HTU\user data`)
+
 Alternatively, you can use the included bash script `GEECS_Scanner.sh` to launch the version of the GUI on the Z drive.  This can be modified if needed.
 
 Note:  this may not work if your default python version is not 3.10.  You can see what python version your system defaults to by typing `python --verison`.  If you are experiencing troubles with poetry here, might need to manually specify which python version to use in these two commands.
@@ -72,6 +76,15 @@ Note:  If you want to add a package to the poetry file, there is an easy command
 ```commandline
 poetry add <<python package>>
 ```
+
+### Editing the gui files
+
+The gui's themselves are developed using `pyqt5`, which is a python package for gui development.  To launch the designer tool:
+
+1. Be in an active terminal within the poetry virtual environment
+2. `pyqt5-tools designer`
+3. Do whatever you want, saving and closing the designer after you are done.  (GUI files are located in `geecs_scanner\app\gui\`)
+4. For any changed file, you'll need to update the python backend code.  To do so, first `cd` into the `gui\` directory.  Then, for anything you changed execute the following:  `pyuic5 -o .\<GUIFile>_ui.py .\<GUIFile>.ui`  (replacing `<GUIFile>` with the `.ui` file you created/edited)
 
 ## Tutorial
 
