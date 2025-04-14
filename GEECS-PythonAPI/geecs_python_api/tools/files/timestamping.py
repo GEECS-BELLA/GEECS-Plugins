@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from zoneinfo import ZoneInfo  # Available in Python 3.9+
 
-try:
+try:  # TODO this makes this module awkward.  Could perhaps this be moved outside of scan_analysis?
     import scan_analysis.third_party_sdks.wavekit_43.wavekit_py as wkpy
 except:
     logging.warning(f'wavekit not installed properly')
