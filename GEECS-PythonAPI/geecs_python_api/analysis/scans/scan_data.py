@@ -483,6 +483,12 @@ class ScanData:
 
         return tdms_path.is_file()
 
+    def get_sfile_data(self) -> pd.DataFrame:
+        analysis_sfile = self.get_analysis_folder().parent / f"s{self.__tag.number}.txt"
+        if not analysis_sfile.exists():
+            raise FileNotFoundError(f"'{analysis_sfile}' not found!  No sfile for scan {self.__tag}")
+        return pd.read_csv(analysis_sfile, delimiter='\t')
+
     def copy_fresh_sfile_to_analysis(self):
         """ Deletes the existing sfile in the `analysis` folder and makes a new copy from the `scans` folder """
         analysis_sfile = self.get_analysis_folder().parent / f"s{self.__tag.number}.txt"
