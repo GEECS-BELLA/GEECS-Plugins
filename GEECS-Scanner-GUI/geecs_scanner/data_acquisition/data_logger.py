@@ -752,6 +752,8 @@ class DataLogger:
                 # Log configuration variables (such as 'bin') only when a new entry is created
                 # bin number is updated in scan_manager
                 self.log_entries[elapsed_time]['Bin #'] = self.bin_num
+                self.log_entries[elapsed_time]['scan'] = self.scan_number
+
                 if self.virtual_variable_name is not None:
                     self.log_entries[elapsed_time][self.virtual_variable_name] = self.virtual_variable_value
 
