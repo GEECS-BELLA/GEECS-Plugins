@@ -211,8 +211,8 @@ class SaveElementEditor(QDialog):
         text = self.ui.lineDeviceName.text().strip()
         if text and text not in self.devices_dict:
             self.devices_dict[text] = get_default_device_dictionary()
-            if text in self.database_dict and 'timestamp' in self.database_dict[text]:
-                self.devices_dict[text]['variable_list'].append('timestamp')
+            if text in self.database_dict and 'SysTimestamp' in self.database_dict[text]:
+                self.devices_dict[text]['variable_list'].append('SysTimestamp')
             self.update_device_list()
 
     def remove_device(self):
