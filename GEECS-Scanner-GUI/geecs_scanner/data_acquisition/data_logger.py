@@ -535,6 +535,8 @@ class DataLogger:
             return False
 
     def check_all_exited_standby_status(self) -> bool:
+        # TODO THIS WONT WORK ANYMORE
+        return True
         device_names = set(self.synchronous_device_names)
         standby_keys = self.standby_mode_device_status.keys()
 
@@ -588,6 +590,11 @@ class DataLogger:
         # is equal to the timestamp in the dict, that means we've received two
         # TCP events from the device without the device timestamp updating, which
         # means the device has timed out and can be considered to be in standby mode
+
+        # TODO THIS IS NOW BROKEN WITH THE NEW SYSTIMESTAMP.  SKIPPING THIS LAST CHECK
+        self.standby_mode_device_status[device.get_name()] = True
+        return
+
         if t0 == timestamp:
             self.standby_mode_device_status[device.get_name()] = True
             logging.info(f'{device.get_name()} is in standby')
