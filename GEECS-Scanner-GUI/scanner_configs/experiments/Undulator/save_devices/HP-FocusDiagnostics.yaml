@@ -3,13 +3,13 @@ Devices:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
-    - timestamp
+    - SysTimestamp
     - centroidx
     - centroidy
   UC_GhostUpstream:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
-    - timestamp
+    - SysTimestamp
     - centroidx
     - centroidy

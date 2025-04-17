@@ -3,7 +3,7 @@ Devices:
     save_nonscalar_data: false
     synchronous: false
     variable_list:
-    - timestamp
+    - SysTimestamp
     - BeamCentroidX
     - BeamCentroidY
     - RadiusOfCurvature

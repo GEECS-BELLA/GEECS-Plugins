@@ -8,20 +8,20 @@ Devices:
     synchronous: true
     variable_list:
     - MeanCounts
-    - timestamp
+    - SysTimestamp
   UC_VisaEBeam2:
     post_analysis_class: CameraImageAnalysis
     save_nonscalar_data: true
     synchronous: true
     variable_list:
-    - timestamp
+    - SysTimestamp
   U_BCaveICT:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
     - Python Results.ChA
     - Python Results.ChB
-    - timestamp
+    - SysTimestamp
 setup_action:
   steps:
   - action: execute

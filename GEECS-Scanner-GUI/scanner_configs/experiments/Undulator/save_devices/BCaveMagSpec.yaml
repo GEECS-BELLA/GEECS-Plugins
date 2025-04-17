@@ -8,7 +8,7 @@ Devices:
     synchronous: true
     variable_list:
     - Charge
-    - timestamp
+    - SysTimestamp
   UC_BCaveMagSpecCam2:
     save_nonscalar_data: true
     scan_setup:
@@ -18,7 +18,7 @@ Devices:
     synchronous: true
     variable_list:
     - Charge
-    - timestamp
+    - SysTimestamp
   UC_BCaveMagSpecCam3:
     save_nonscalar_data: true
     scan_setup:
@@ -28,7 +28,7 @@ Devices:
     synchronous: true
     variable_list:
     - Charge
-    - timestamp
+    - SysTimestamp
   UC_HiResMagCam:
     save_nonscalar_data: true
     scan_setup:
@@ -55,7 +55,7 @@ Devices:
     - Python Result 13
     - Python Result 14
     - Python Result 15
-    - timestamp
+    - SysTimestamp
   U_BCaveHallProbe:
     save_nonscalar_data: false
     synchronous: false
@@ -67,7 +67,7 @@ Devices:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
-    - timestamp
+    - SysTimestamp
   U_BCaveMagSpecPS:
     save_nonscalar_data: false
     synchronous: false

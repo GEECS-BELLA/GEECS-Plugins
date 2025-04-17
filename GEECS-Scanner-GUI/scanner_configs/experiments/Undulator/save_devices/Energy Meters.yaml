@@ -5,4 +5,4 @@ Devices:
     variable_list:
     - Python Results.ChA
     - Python Results.ChB
-    - timestamp
+    - SysTimestamp

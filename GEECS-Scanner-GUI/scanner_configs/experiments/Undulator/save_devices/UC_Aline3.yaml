@@ -4,7 +4,7 @@ Devices:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
-    - timestamp
+    - SysTimestamp
 setup_action:
   steps:
   - action: set

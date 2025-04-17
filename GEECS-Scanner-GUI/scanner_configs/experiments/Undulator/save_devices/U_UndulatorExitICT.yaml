@@ -3,6 +3,6 @@ Devices:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
-    - timestamp
+    - SysTimestamp
     - Python Results.ChA
     - Python Results.ChB

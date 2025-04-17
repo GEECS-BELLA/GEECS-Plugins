@@ -6,7 +6,7 @@ Devices:
     variable_list:
     - MeanCounts
     - MaxCounts
-    - timestamp
+    - SysTimestamp
     - centroidx
     - centroidy
   UC_Amp3_IR_input:
@@ -16,7 +16,7 @@ Devices:
     variable_list:
     - MeanCounts
     - MaxCounts
-    - timestamp
+    - SysTimestamp
     - centroidx
     - centroidy
   UC_Amp4_IR_input:
@@ -26,7 +26,7 @@ Devices:
     variable_list:
     - MeanCounts
     - MaxCounts
-    - timestamp
+    - SysTimestamp
     - centroidx
     - centroidy
   UC_GaiaMode:
@@ -35,7 +35,7 @@ Devices:
     variable_list:
     - MeanCounts
     - MaxCounts
-    - timestamp
+    - SysTimestamp
     - centroidx
     - centroidy
   UC_GhostFocus:
@@ -45,7 +45,7 @@ Devices:
     variable_list:
     - MeanCounts
     - MaxCounts
-    - timestamp
+    - SysTimestamp
     - centroidx
     - centroidy
   UC_GhostUpstream:
@@ -55,7 +55,7 @@ Devices:
     variable_list:
     - MeanCounts
     - MaxCounts
-    - timestamp
+    - SysTimestamp
     - centroidx
     - centroidy
   U_LaserEnergyMLinkPicoscope:
@@ -64,7 +64,7 @@ Devices:
     variable_list:
     - Python Results.ChA
     - Python Results.ChB
-    - timestamp
+    - SysTimestamp
   U_VacuumGauge:
     save_nonscalar_data: false
     synchronous: false
