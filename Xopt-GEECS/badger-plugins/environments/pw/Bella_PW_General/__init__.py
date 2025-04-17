@@ -11,7 +11,7 @@ class Environment(geecs_Environment):
         'HEX-PL1-1:zpos': [-5,0],
         'HEX-PL1-1:vangle': [0,1],
         'STAGE-2BL-Compressor:position.axis 1': [-4.5,6],
-        'STAGE-HPD-Tel:position': [180,600],
+        'STAGE-HPD-Tel:position': [100,600],
         'STAGE-1BL-Compression:position.axis 1': [-5,6],
         'MCD-1BL-ESP302M4M5:position.axis 1': [-1.2,-1.15],
         'MCD-1BL-ESP302M4M5:position.axis 2': [-0.93,-0.89],
@@ -26,6 +26,7 @@ class Environment(geecs_Environment):
     }
     observables = ['CAM-PL1-1-SideView:meancounts',
                    'CAM-HPD-CCD:maxcounts',
+                   'CAM-HPD-CCD:meancounts',
                    'CAM-HPD-M3Near:meancounts',
                    'CAM-HPD-M3Near:maxcounts',
                    'CAM-PL1-SideviewNorth:MeanCounts']
