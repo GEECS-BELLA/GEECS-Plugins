@@ -277,7 +277,7 @@ class FileMover:
 
         Args:
             log_df (pd.DataFrame): DataFrame containing a 'shotnumber' column and a column for each device's timestamp,
-                                   e.g. "DeviceA timestamp".
+                                   e.g. "DeviceA SysTimestamp".
             device_save_paths_mapping (dict): Mapping of device names to their save path information.
         """
         logging.info(f'looking to handle orphaned data files')
@@ -290,9 +290,9 @@ class FileMover:
             # Create a list of (shotnumber, timestamp) pairs from the df.
             # Ensure the df columns are named appropriately.
             shot_timestamp_pairs = [
-                (row['Shotnumber'], row[f'{device_name} timestamp'])
+                (row['Shotnumber'], row[f'{device_name} SysTimestamp'])
                 for _, row in log_df.iterrows()
-                if pd.notnull(row[f'{device_name} timestamp'])
+                if pd.notnull(row[f'{device_name} SysTimestamp'])
             ]
 
             # Recursively find orphaned files that include the device name.
@@ -618,7 +618,7 @@ class DataLogger:
         err = ErrorAPI()
         net_msg = mh.NetworkMessage(tag=device.get_name(), stamp=stamp, msg=message, err=err)
         parsed_data = device.handle_subscription(net_msg)
-        current_timestamp = parsed_data[2].get('timestamp')
+        current_timestamp = parsed_data[2].get('SysTimestamp')
         if current_timestamp is None:
             logging.warning(f"No timestamp found for {device.get_name()}. Using system time instead.")
             current_timestamp = float(stamp)
@@ -781,7 +781,7 @@ class DataLogger:
                     target_dir=cfg['target_dir'],
                     device_name=device_name,
                     device_type=cfg['device_type'],
-                    expected_timestamp=observables_data['timestamp'],
+                    expected_timestamp=observables_data['SysTimestamp'],
                     shot_index=self.shot_index
                 )
                 self.file_mover.move_files_by_timestamp(task)
