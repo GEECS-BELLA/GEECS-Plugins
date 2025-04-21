@@ -287,8 +287,8 @@ class FileMover:
             target_dir = Path(device_info['target_dir'])
             device_type = device_info['device_type']
 
-            # Create a list of (shotnumber, timestamp) pairs from the df.
-            # Ensure the df columns are named appropriately.
+            # Create a list of (shotnumber, timestamp) pairs from the df. Ensure the df columns are named appropriately.
+            # *NOTE* Using `SysTimestamp` for data that was logged
             shot_timestamp_pairs = [
                 (row['Shotnumber'], row[f'{device_name} SysTimestamp'])
                 for _, row in log_df.iterrows()
@@ -535,8 +535,6 @@ class DataLogger:
             return False
 
     def check_all_exited_standby_status(self) -> bool:
-        # TODO THIS WONT WORK ANYMORE
-        return True
         device_names = set(self.synchronous_device_names)
         standby_keys = self.standby_mode_device_status.keys()
 
@@ -591,10 +589,7 @@ class DataLogger:
         # TCP events from the device without the device timestamp updating, which
         # means the device has timed out and can be considered to be in standby mode
 
-        # TODO THIS IS NOW BROKEN WITH THE NEW SYSTIMESTAMP.  SKIPPING THIS LAST CHECK
-        self.standby_mode_device_status[device.get_name()] = True
-        return
-
+        # *NOTE* This uses `timestamp` from `_extract_timestamp_from_tcp_message` for synchronization check
         if t0 == timestamp:
             self.standby_mode_device_status[device.get_name()] = True
             logging.info(f'{device.get_name()} is in standby')
@@ -625,7 +620,7 @@ class DataLogger:
         err = ErrorAPI()
         net_msg = mh.NetworkMessage(tag=device.get_name(), stamp=stamp, msg=message, err=err)
         parsed_data = device.handle_subscription(net_msg)
-        current_timestamp = parsed_data[2].get('SysTimestamp')
+        current_timestamp = parsed_data[2].get('timestamp')  # *NOTE* `timestamp` for synchronizing
         if current_timestamp is None:
             logging.warning(f"No timestamp found for {device.get_name()}. Using system time instead.")
             current_timestamp = float(stamp)
@@ -788,7 +783,7 @@ class DataLogger:
                     target_dir=cfg['target_dir'],
                     device_name=device_name,
                     device_type=cfg['device_type'],
-                    expected_timestamp=observables_data['SysTimestamp'],
+                    expected_timestamp=observables_data['SysTimestamp'],  # *NOTE* `SysTimestamp` for data logging
                     shot_index=self.shot_index
                 )
                 self.file_mover.move_files_by_timestamp(task)
