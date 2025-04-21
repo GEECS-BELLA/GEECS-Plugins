@@ -143,11 +143,15 @@ class DeviceManager:
             logging.info(f"{device_name}: Synchronous = {synchronous}, Save_Non_Scalar = {save_non_scalar}")
 
             # Add to non-scalar saving devices if applicable
-            if save_non_scalar:
+            if save_non_scalar:  # *NOTE* `SysTimestamp allows for file renaming of nonscalar data
+                if 'SysTimestamp' not in variable_list:
+                    variable_list.append('SysTimestamp')
                 self.non_scalar_saving_devices.append(device_name)
 
             # Categorize as synchronous or asynchronous
-            if synchronous:
+            if synchronous:  # *NOTE* `timestamp` allows for checking synchronicity
+                if 'timestamp' not in variable_list:
+                    variable_list.append('timestamp')
                 self.event_driven_observables.extend([f"{device_name}:{var}" for var in variable_list])
             else:
                 self.async_observables.extend([f"{device_name}:{var}" for var in variable_list])
@@ -363,7 +367,7 @@ class DeviceManager:
             device_map[device_name].append(var_name)
         return device_map
 
-    def add_scan_device(self, device_name, variable_list = None):
+    def add_scan_device(self, device_name, variable_list=None):
         """
         Add a new device or append variables to an existing device for scan operations and
         recording their data.
