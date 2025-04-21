@@ -25,7 +25,6 @@ class DeviceManager:
             experiment_dir (str, optional): Path to the directory where experiment configurations are stored.
         """
         self.devices = {}
-        self.device_analysis = {}
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
         self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
@@ -137,9 +136,7 @@ class DeviceManager:
             variable_list = device_config.get('variable_list', [])
             synchronous = device_config.get('synchronous', False)
             save_non_scalar = device_config.get('save_nonscalar_data', False)
-            post_analysis_class_name = device_config.get('post_analysis_class', None)
             scan_setup = device_config.get('scan_setup', None)
-            logging.info(f"{device_name}: Post Analysis = {post_analysis_class_name}")
             logging.info(f"{device_name}: Synchronous = {synchronous}, Save_Non_Scalar = {save_non_scalar}")
 
             # Add to non-scalar saving devices if applicable
@@ -166,12 +163,6 @@ class DeviceManager:
             # Append scan setup actions if they exist
             if scan_setup:
                 self.append_device_setup_closeout_actions(device_name, scan_setup)
-
-            # Store post_analysis_class in device_analysis dictionary
-            if post_analysis_class_name:
-                self.device_analysis[device_name] = {
-                    'post_analysis_class': post_analysis_class_name
-                }
 
         logging.info(f"Devices loaded: {self.devices.keys()}")
 
@@ -314,7 +305,6 @@ class DeviceManager:
         self.event_driven_observables.clear()
         self.async_observables.clear()
         self.non_scalar_saving_devices.clear()
-        self.device_analysis.clear()
 
         logging.info(f'synchronous variables after reset: {self.event_driven_observables}')
         logging.info(f'asynchronous variables after reset: {self.async_observables}')
