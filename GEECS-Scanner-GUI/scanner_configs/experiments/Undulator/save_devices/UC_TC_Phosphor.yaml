@@ -1,5 +1,6 @@
 Devices:
   UC_TC_Phosphor:
+    add_all_variables: false
     save_nonscalar_data: true
     synchronous: true
     variable_list:
@@ -7,4 +8,3 @@ Devices:
     - MaxCounts
     - centroidx
     - centroidy
-    - SysTimestamp

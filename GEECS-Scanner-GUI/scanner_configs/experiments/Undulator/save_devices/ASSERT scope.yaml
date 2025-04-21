@@ -3,5 +3,4 @@ Devices:
     add_all_variables: false
     save_nonscalar_data: true
     synchronous: true
-    variable_list:
-    - SysTimestamp
+    variable_list: []

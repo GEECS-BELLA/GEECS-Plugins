@@ -2,8 +2,7 @@ Devices:
   UC_ACaveMagCam3:
     save_nonscalar_data: true
     synchronous: true
-    variable_list:
-    - SysTimestamp
+    variable_list: []
   UC_UndulatorRad2:
     save_nonscalar_data: true
     scan_setup:
@@ -13,14 +12,12 @@ Devices:
     synchronous: true
     variable_list:
     - MeanCounts
-    - SysTimestamp
   U_BCaveICT:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
     - Python Results.ChA
     - Python Results.ChB
-    - SysTimestamp
 setup_action:
   steps:
   - action: execute

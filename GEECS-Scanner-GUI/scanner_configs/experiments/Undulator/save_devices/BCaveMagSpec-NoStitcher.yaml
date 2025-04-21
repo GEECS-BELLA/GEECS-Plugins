@@ -8,7 +8,6 @@ Devices:
     synchronous: true
     variable_list:
     - Charge
-    - SysTimestamp
   UC_BCaveMagSpecCam2:
     save_nonscalar_data: true
     scan_setup:
@@ -18,7 +17,6 @@ Devices:
     synchronous: true
     variable_list:
     - Charge
-    - SysTimestamp
   UC_BCaveMagSpecCam3:
     save_nonscalar_data: true
     scan_setup:
@@ -28,7 +26,6 @@ Devices:
     synchronous: true
     variable_list:
     - Charge
-    - SysTimestamp
   U_BCaveHallProbe:
     save_nonscalar_data: false
     synchronous: false

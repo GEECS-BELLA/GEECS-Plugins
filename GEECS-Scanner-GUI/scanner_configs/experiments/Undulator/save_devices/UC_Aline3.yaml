@@ -3,8 +3,7 @@ Devices:
     post_analysis_class: CameraImageAnalysis
     save_nonscalar_data: true
     synchronous: true
-    variable_list:
-    - SysTimestamp
+    variable_list: []
 setup_action:
   steps:
   - action: set

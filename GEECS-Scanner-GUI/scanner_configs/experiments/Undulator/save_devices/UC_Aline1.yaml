@@ -2,8 +2,7 @@ Devices:
   UC_ALineEbeam1:
     save_nonscalar_data: true
     synchronous: true
-    variable_list:
-    - SysTimestamp
+    variable_list: []
 setup_action:
   steps:
   - action: set

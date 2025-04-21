@@ -5,11 +5,9 @@ Devices:
     synchronous: true
     variable_list:
     - exposure
-    - SysTimestamp
   U_FROG_Grenouille:
     add_all_variables: false
     save_nonscalar_data: true
     synchronous: true
     variable_list:
     - timeout
-    - SysTimestamp
