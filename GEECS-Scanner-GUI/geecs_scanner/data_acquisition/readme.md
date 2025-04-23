@@ -36,14 +36,14 @@ Currently fully supported GEECS device types:
 - PicoscopeV2
 - MagSpecStitcher
 - MagSpecCamera
+- Haso4_3
+- Thorlabs Spectrometer
+- FROG
 
 Currently partially supported GEECS device types:
 - ThorlabsWFS, need to addtime stamp to saved images
-- Haso4_3, timestamp add in GEECS
 
 Devices to add:
-- Thorlabs Spectrometer
-- FROG
 - Other scopes.
 - etc.
 
