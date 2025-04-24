@@ -211,7 +211,3 @@ def get_himg_timestamp(image_file_path: Path) -> float:
 
     timestamp = meta_data[2]
     return timestamp
-
-if __name__ == "__main__":
-    file = Path("Z:\\data\\Undulator\\Y2025\\04-Apr\\25_0417\\scans\\Scan013\\UC_TC_Phosphor\\UC_TC_Phosphor_3827756096.897.png")
-    print(timestamp_from_filename(file))
