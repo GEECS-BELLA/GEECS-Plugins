@@ -141,14 +141,14 @@ class DeviceManager:
 
             # Add to non-scalar saving devices if applicable
             if save_non_scalar:  # *NOTE* `SysTimestamp allows for file renaming of nonscalar data
-                if 'SysTimestamp' not in variable_list:
-                    variable_list.append('SysTimestamp')
+                if 'acq_timestamp' not in variable_list:
+                    variable_list.append('acq_timestamp')
                 self.non_scalar_saving_devices.append(device_name)
 
             # Categorize as synchronous or asynchronous
             if synchronous:  # *NOTE* `timestamp` allows for checking synchronicity
-                if 'timestamp' not in variable_list:
-                    variable_list.append('timestamp')
+                if 'acq_timestamp' not in variable_list:
+                    variable_list.append('acq_timestamp')
                 self.event_driven_observables.extend([f"{device_name}:{var}" for var in variable_list])
             else:
                 self.async_observables.extend([f"{device_name}:{var}" for var in variable_list])

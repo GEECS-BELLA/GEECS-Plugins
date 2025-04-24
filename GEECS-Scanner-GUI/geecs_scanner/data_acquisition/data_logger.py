@@ -290,9 +290,9 @@ class FileMover:
             # Create a list of (shotnumber, timestamp) pairs from the df. Ensure the df columns are named appropriately.
             # *NOTE* Using `SysTimestamp` for data that was logged
             shot_timestamp_pairs = [
-                (row['Shotnumber'], row[f'{device_name} SysTimestamp'])
+                (row['Shotnumber'], row[f'{device_name} acq_timestamp'])
                 for _, row in log_df.iterrows()
-                if pd.notnull(row[f'{device_name} SysTimestamp'])
+                if pd.notnull(row[f'{device_name} acq_timestamp'])
             ]
 
             # Recursively find orphaned files that include the device name.
@@ -620,7 +620,7 @@ class DataLogger:
         err = ErrorAPI()
         net_msg = mh.NetworkMessage(tag=device.get_name(), stamp=stamp, msg=message, err=err)
         parsed_data = device.handle_subscription(net_msg)
-        current_timestamp = parsed_data[2].get('timestamp')  # *NOTE* `timestamp` for synchronizing
+        current_timestamp = parsed_data[2].get('acq_timestamp')  # *NOTE* `timestamp` for synchronizing
         if current_timestamp is None:
             logging.warning(f"No timestamp found for {device.get_name()}. Using system time instead.")
             current_timestamp = float(stamp)
@@ -783,7 +783,7 @@ class DataLogger:
                     target_dir=cfg['target_dir'],
                     device_name=device_name,
                     device_type=cfg['device_type'],
-                    expected_timestamp=observables_data['SysTimestamp'],  # *NOTE* `SysTimestamp` for data logging
+                    expected_timestamp=observables_data['acq_timestamp'],  # *NOTE* `SysTimestamp` for data logging
                     shot_index=self.shot_index
                 )
                 self.file_mover.move_files_by_timestamp(task)
