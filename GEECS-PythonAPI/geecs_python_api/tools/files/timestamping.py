@@ -48,12 +48,21 @@ def timestamp_from_filename(file: Path) -> float:
     :param file: Path object for given file
     :return: Extracted timestamp.  (in epoch seconds)
     """
-    pattern = r'_(\d+.\d{3}).[^.]+$'
-    match = re.search(pattern, file.name)
+    return timestamp_from_string(file.name)
+
+def timestamp_from_string(string: str) -> float:
+    """
+    Extract timestamp from a given string.  Attempts to match it to a regular expression for epoch seconds (3 decimals)
+
+    :param string: Input string
+    :return: Extracted timestamp
+    """
+    pattern = r'_(\d+\.\d{3})\.[^.]+$'
+    match = re.search(pattern, string)
     if match:
         return float(match.group(1))
     else:
-        raise ValueError(f"Could not extract timestamp from '{file}'")
+        raise ValueError(f"Could not extract timestamp from '{string}'")
 
 
 def make_text_chunk_dict(text_chunks):
