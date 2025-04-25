@@ -71,7 +71,9 @@ SCRIPT_ID = scriptconfig['DEFAULT']['script']
 
 # DATE & TIME
 today = datetime.now()
-date = today.strftime("%m-%d-%y")
+# date = today.strftime("%m-%d-%y")
+date = today.strftime("%y-%m-%d")
+
 time = today.strftime("%H:%M")
 
 
