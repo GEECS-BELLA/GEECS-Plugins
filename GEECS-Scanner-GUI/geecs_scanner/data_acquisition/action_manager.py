@@ -89,6 +89,8 @@ class ActionManager:
         action = self.actions[action_name]
         steps = action['steps']
 
+        self.ping_devices_in_action_list(action_steps=steps)
+
         for step in steps:
             if 'wait' in step:
                 self._wait(step['wait'])
@@ -116,6 +118,19 @@ class ActionManager:
                     self._set_device(device, variable, value, sync = wait_for_execution)
                 elif action_type == 'get':
                     self._get_device(device, variable, expected_value)
+
+    def ping_devices_in_action_list(self, action_steps: list):
+        """
+        For each unique device in given list of steps, ping for the system timestamp.  Raises a
+        GeecsDeviceInstantiationError if a device is not turned on
+        """
+        devices = []
+        for step in action_steps:
+            if device_name := step.get('device', None):
+                if device_name not in devices:
+                    devices.append(device_name)
+        for device_name in devices:
+            self.return_value(device_name, 'SysTimestamp')
 
     def clear_action(self, action_name: str):
         """
@@ -168,7 +183,7 @@ class ActionManager:
 
     def return_value(self, device_name: str, variable: str):
         """
-        Get the current value of a device variable and compare it to the expected value.
+        Get the current value of a device variable
 
         Args:
             device_name (str): The device to query.
