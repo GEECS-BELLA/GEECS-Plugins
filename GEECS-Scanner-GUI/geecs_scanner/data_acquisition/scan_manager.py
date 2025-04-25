@@ -89,6 +89,7 @@ class ScanManager:
         self.pause_time = 0
 
         self.options_dict: dict = {} if options_dict is None else options_dict
+        self.save_local = True  # If true, will save locally on device PC before being queued to transfer to network
 
     def pause_scan(self):
         """Pause the scanning process by clearing the pause event."""
@@ -131,7 +132,7 @@ class ScanManager:
 
         if config_dictionary is not None and 'options' in config_dictionary:
             self.options_dict = config_dictionary['options']
-            self.save_local = self.options_dict.get('Save Local', True)
+            self.save_local = not self.options_dict.get('Save Direct on Network', False)
 
         new_mc_ip = self.options_dict.get("Master Control IP", "")
         if self.shot_control and new_mc_ip and self.MC_ip != new_mc_ip:
