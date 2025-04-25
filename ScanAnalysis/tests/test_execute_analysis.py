@@ -2,20 +2,15 @@ import unittest
 
 from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.analysis.scans.scan_data import ScanData
-from scan_analysis.mapping.map_Undulator import undulator_analyzers
 from scan_analysis.execute_scan_analysis import analyze_scan
 
 from scan_analysis.base import AnalyzerInfo as Info
-
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis
-from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
-
-from image_analysis.base import ImageAnalyzer
-from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
-from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, PhaseDownrampProcessor
 
 class TestExecuteAnalysis(unittest.TestCase):
     def test_init(self):
+        from scan_analysis.mapping.map_Undulator import undulator_analyzers
+
         perform_analysis = False
 
         # Given scan tag and string for analysis:
@@ -37,23 +32,26 @@ class TestExecuteAnalysis(unittest.TestCase):
 
 
     def test_ACaveMagCam3(self):
-        perform_analysis = False
+        from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
+        perform_analysis = True
         analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
              requirements={'UC_ACaveMagCam3'},
              device_name='UC_ACaveMagCam3',
-             image_analyzer_class=ImageAnalyzer)
+             image_analyzer_class=ACaveMagCam3ImageAnalyzer)
         test_tag = ScanTag(year=2025, month=3, day=6, number=39, experiment='Undulator')
         test_analyzer = analyzer_info
         analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
 
     def test_HasoLift(self):
-
+        from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
         from image_analysis.offline_analyzers.HASO_himg_has_processor import SlopesMask, HasoHimgHasConfig
+        from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
         mask = SlopesMask(top=75, bottom=246, left=10, right=670)
         analysis_config = HasoHimgHasConfig()
         analysis_config.mask = mask
 
         # haso_processor = HASOHimgHasProcessor(config = analysis_config)
+
         analyzer_info = Info(analyzer_class=HIMGWithAveraging,
             requirements={'U_HasoLift'},
             device_name='U_HasoLift',
@@ -65,6 +63,8 @@ class TestExecuteAnalysis(unittest.TestCase):
         analyze_scan(test_tag, [analyzer_info])
 
     def test_DensityDownRampPhase(self):
+        from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, \
+            PhaseDownrampProcessor
 
         def get_path_to_bkg_file():
             st = ScanTag(2025, 3, 6, 15, experiment='Undulator')
