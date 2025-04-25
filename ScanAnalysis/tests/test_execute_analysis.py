@@ -2,19 +2,17 @@ import unittest
 
 from geecs_python_api.controls.api_defs import ScanTag
 from geecs_python_api.analysis.scans.scan_data import ScanData
-# from scan_analysis.mapping.map_Undulator import undulator_analyzers
+from scan_analysis.mapping.map_Undulator import undulator_analyzers
 from scan_analysis.execute_scan_analysis import analyze_scan
 
 from scan_analysis.base import AnalyzerInfo as Info
+
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis
 from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
 
-from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
+from image_analysis.base import ImageAnalyzer
 from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
 from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, PhaseDownrampProcessor
-
-from pathlib import Path
-
 
 class TestExecuteAnalysis(unittest.TestCase):
     def test_init(self):
@@ -43,7 +41,7 @@ class TestExecuteAnalysis(unittest.TestCase):
         analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
              requirements={'UC_ACaveMagCam3'},
              device_name='UC_ACaveMagCam3',
-             image_analyzer_class=BasicImageAnalyzer)
+             image_analyzer_class=ImageAnalyzer)
         test_tag = ScanTag(year=2025, month=3, day=6, number=39, experiment='Undulator')
         test_analyzer = analyzer_info
         analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
