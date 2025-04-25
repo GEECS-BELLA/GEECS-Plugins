@@ -14,6 +14,8 @@ numpy = "^1.21"
 scipy = "^1.7"
 Pint = ">=0.18,<=0.22"
 pyabel = ">=0.9,<1.0"
+nptdms = "^1.7.0"
+
 
 # image libraries
 pypng = "^0.20220715.0"
@@ -25,7 +27,6 @@ boto3 = "^1.28"
 opencv-python = "^4.9.0.80"
 
 [tool.poetry.group.dev.dependencies]
-spyder-kernels = ">=2.4.0,<2.5.0"
 matplotlib = "^3.0"
 
 [build-system]
