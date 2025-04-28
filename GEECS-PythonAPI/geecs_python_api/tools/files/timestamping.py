@@ -24,19 +24,10 @@ def extract_timestamp_from_file(device_file: Path, device_type: str) -> float:
     Returns:
         float: Extracted timestamp.  (in epoch seconds)
     """
-    device_exceptions = {  # TODO investigate if these devices need an exception function defined anymore
-        #"Point Grey Camera": get_imaq_timestamp_from_png,
-        #"MagSpecCamera": get_imaq_timestamp_from_png,
-        #"PicoscopeV2": get_picoscopeV2_timestamp,
-        #"MagSpecStitcher": get_custom_imaq_timestamp,
-        #"FROG": get_custom_imaq_timestamp,
-        #"HASO4_3": get_himg_timestamp,
-        #"Thorlabs CCS175 Spectrometer": get_picoscopeV2_timestamp,
-        #"RohdeSchwarz_RTA4000": get_picoscopeV2_timestamp,
-    }
+    device_exceptions = {}  # See `extract_timestamp_from_metadata()` for device types to use if filename does not work
 
     if device_type in device_exceptions:
-        return device_exceptions[device_type](device_file)
+        return extract_timestamp_from_metadata(device_file, device_type)
     else:
         return timestamp_from_filename(device_file)
 
@@ -49,6 +40,7 @@ def timestamp_from_filename(file: Path) -> float:
     :return: Extracted timestamp.  (in epoch seconds)
     """
     return timestamp_from_string(file.name)
+
 
 def timestamp_from_string(string: str) -> float:
     """
@@ -63,6 +55,31 @@ def timestamp_from_string(string: str) -> float:
         return float(match.group(1))
     else:
         raise ValueError(f"Could not extract timestamp from '{string}'")
+
+
+def extract_timestamp_from_metadata(device_file: Path, device_type: str) -> float:
+    """
+        Extract timestamp from a device file based on its type.
+        Args:
+            device_file (Path): Path to the device file.
+            device_type (str): Type of the device.
+        Returns:
+            float: Extracted timestamp.
+    """
+    device_map = {
+        "Point Grey Camera": get_imaq_timestamp_from_png,
+        "MagSpecCamera": get_imaq_timestamp_from_png,
+        "PicoscopeV2": get_picoscopeV2_timestamp,
+        "MagSpecStitcher": get_custom_imaq_timestamp,
+        "FROG": get_custom_imaq_timestamp,
+        "HASO4_3": get_himg_timestamp,
+        "Thorlabs CCS175 Spectrometer": get_picoscopeV2_timestamp,
+        "RohdeSchwarz_RTA4000": get_picoscopeV2_timestamp,
+    }
+    if device_type in device_map:
+        return device_map[device_type](device_file)
+    else:
+        raise ValueError(f"Unsupported device type: {device_type}")
 
 
 def make_text_chunk_dict(text_chunks):
