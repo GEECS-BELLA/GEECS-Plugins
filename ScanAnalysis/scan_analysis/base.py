@@ -29,8 +29,6 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from image_analysis.base import ImageAnalyzer  # explicit import for the base image analyzer
 
-
-
 # %% classes
 class AnalyzerInfo(NamedTuple):
     analyzer_class: Type[ScanAnalysis]
@@ -72,41 +70,43 @@ class ScanAnalysis:
             device_name (Optional[str]): An optional string to specify which device the analyzer should analyze
             skip_plt_show (bool): Flag to ultimately try plt.show() or not.
         """
-        self.tag = scan_tag
-        self.scan_data = ScanData(tag=self.tag, load_scalars=True, read_mode=True)
-        self.scan_directory = self.scan_data.get_folder()  # ScanData.get_scan_folder_path(tag=scan_tag)
-        self.experiment_dir = scan_tag.experiment
-        self.auxiliary_file_path = self.scan_data.get_analysis_folder().parent / f"s{self.tag.number}.txt"
-        self.ini_file_path = self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
-        self.noscan = False
+        # settings
+        self.skip_plt_show: bool = skip_plt_show
 
-        self.device_name = device_name
+        # basic scan information and tools
+        self.tag: ScanTag = scan_tag
+        self.scan_data: ScanData = ScanData(tag=self.tag, load_scalars=True, read_mode=True)
+        self.device_name: str = device_name
+        self.experiment_dir: str = scan_tag.experiment
+        self.display_contents: list = []
 
-        self.skip_plt_show = skip_plt_show
-
-        self.bins = None
-        self.auxiliary_data: Optional[pd.DataFrame] = None
-        self.binned_param_values = None
-        # scan_path = self.scan_directory.parent.parent / 'analysis' / self.scan_directory.name
-        #
-        # self.scan_path: Path = Path(scan_path)
+        # paths and directories
+        self.scan_directory: Path = self.scan_data.get_folder()  # ScanData.get_scan_folder_path(tag=scan_tag)
+        self.auxiliary_file_path: Path = self.scan_data.get_analysis_folder().parent / f"s{self.tag.number}.txt"
+        self.ini_file_path: Path = self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
         self.scan_path: Path = self.scan_data.get_analysis_folder()
         logging.info(f'analysis path is : {self.scan_path}')
-        self.display_contents = []
 
+        # get scan information and data
+        self.noscan: bool = False
+        self.auxiliary_data: Optional[pd.DataFrame] = None
+        self.bins: Optional[list] = None
+        self.binned_param_values: Optional[list] = None
+        self.scan_parameter: Optional[str] = None
+        self.total_shots: Optional[int] = None
         try:
             # Extract the scan parameter
             self.scan_parameter = self.extract_scan_parameter_from_ini()
-
             logging.info(f"Scan parameter is: {self.scan_parameter}.")
-            s_param = self.scan_parameter.lower()
 
+            # determine if scan or no scan
+            s_param = self.scan_parameter.lower()
             if s_param == 'noscan' or s_param == 'shotnumber':
                 logging.warning("No parameter varied during the scan, setting noscan flag.")
                 self.noscan = True
 
+            # get auxiliary data (s file); get scan bins
             self.load_auxiliary_data()
-
             if self.auxiliary_data is None:
                 logging.warning("Scan parameter not found in auxiliary data. Possible aborted scan. Skipping analysis.")
                 return  # Stop further execution cleanly
@@ -116,7 +116,6 @@ class ScanAnalysis:
         except FileNotFoundError as e:
             logging.warning(f"{e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis.")
             return
-
 
     def run_analysis(self, config_options: Optional[Union[Path, str]] = None) -> Optional[list[Union[Path, str]]]:
         """
@@ -252,8 +251,12 @@ class ScanAnalysis:
 
 # %% executable
 def testing_routine():
-    pass
+    from geecs_python_api.controls.api_defs import ScanTag
 
+    scan_tag = ScanTag(year=2025, month=4, day=24, number=20, experiment='Undulator')
+    analyzer = ScanAnalysis(scan_tag=scan_tag)
+
+    pass
 
 if __name__ == "__main__":
     testing_routine()
