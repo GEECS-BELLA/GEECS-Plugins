@@ -6,11 +6,14 @@ Contains a simpler version of a full "RunControl" that is only capable of perfor
 from typing import Any
 from geecs_scanner.data_acquisition import ActionManager
 import logging
+import sys
 
 from ...utils.exceptions import ActionError
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
 from ...utils.sound_player import action_finish_jingle, action_failed_jingle
+
+from PyQt5.QtWidgets import QMessageBox, QApplication
 
 
 class ActionControl:
@@ -35,9 +38,10 @@ class ActionControl:
                 self.action_manager.execute_action(name)
                 self.action_manager.clear_action(name)
                 action_finish_jingle()
-            except ActionError as e:
+            except (ActionError, GeecsDeviceInstantiationError) as e:
                 logging.error(e.message)
                 action_failed_jingle()
+                self._display_error_message(e.message)
 
     def return_device_value(self, device_name: str, variable: str) -> Any:
         """ Calls TCP get command to a given device for the value of the given variable
@@ -53,3 +57,22 @@ class ActionControl:
             return self.action_manager.return_value(device_name, variable)
         except GeecsDeviceInstantiationError as e:
             raise ActionError(message=e.message)
+
+    @staticmethod
+    def _display_error_message(message: str):
+        """
+        Display a message when an action fails.
+
+        :param message: str Message that displays in text box
+        :return: bool True if an error should be raised, false otherwise
+        """
+        if not QApplication.instance():
+            QApplication(sys.argv)
+
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setText(f"Execute Action Failed:\n{message}")
+        msg_box.setWindowTitle("Action Error")
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.setDefaultButton(QMessageBox.Ok)
+        msg_box.exec_()

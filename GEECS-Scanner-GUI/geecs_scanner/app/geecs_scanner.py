@@ -40,7 +40,7 @@ CURRENT_VERSION = "v" + version("geecs-scanner-gui")  # Pulled from `pyproject.t
 MAXIMUM_SCAN_SIZE = 1e6  # A simple check to not start a scan if it exceeds this number of shots.
 
 # Lists of options to appear in the menu bar.  Automatically connects these to options in the user's .ini file
-BOOLEAN_OPTIONS = ["On-Shot TDMS","Save Local"]
+BOOLEAN_OPTIONS = ["On-Shot TDMS", "Save Direct on Network"]
 STRING_OPTIONS = ["Master Control IP", "Save Hiatus Period (s)"]
 
 

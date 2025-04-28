@@ -1,5 +1,10 @@
 Devices:
   UC_TC_Phosphor:
-    variable_list: ["MeanCounts", "MaxCounts","timestamp","centroidx","centroidy"]
-    synchronous: True
-    save_nonscalar_data: True
+    add_all_variables: false
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - MeanCounts
+    - MaxCounts
+    - centroidx
+    - centroidy

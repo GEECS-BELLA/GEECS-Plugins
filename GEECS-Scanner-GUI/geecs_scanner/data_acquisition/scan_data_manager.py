@@ -20,7 +20,7 @@ from . import DeviceManager, DatabaseDictLookup
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.analysis.scans.scan_data import ScanData
 
-from image_analysis.utils import extract_timestamp_from_file
+from geecs_python_api.tools.files.timestamping import extract_timestamp_from_file
 
 class ScanDataManager:
     """

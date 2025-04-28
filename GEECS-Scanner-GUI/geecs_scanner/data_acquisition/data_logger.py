@@ -14,7 +14,7 @@ from . import DeviceManager
 from geecs_scanner.utils import SoundPlayer
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from image_analysis.utils import extract_timestamp_from_file
+from geecs_python_api.tools.files.timestamping import extract_timestamp_from_file
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
 import geecs_python_api.controls.interface.message_handling as mh
 
@@ -277,7 +277,7 @@ class FileMover:
 
         Args:
             log_df (pd.DataFrame): DataFrame containing a 'shotnumber' column and a column for each device's timestamp,
-                                   e.g. "DeviceA timestamp".
+                                   e.g. "DeviceA acq_timestamp".
             device_save_paths_mapping (dict): Mapping of device names to their save path information.
         """
         logging.info(f'looking to handle orphaned data files')
@@ -287,12 +287,12 @@ class FileMover:
             target_dir = Path(device_info['target_dir'])
             device_type = device_info['device_type']
 
-            # Create a list of (shotnumber, timestamp) pairs from the df.
-            # Ensure the df columns are named appropriately.
+            # Create a list of (shotnumber, timestamp) pairs from the df. Ensure the df columns are named appropriately.
+            # *NOTE* Using `acq_timestamp` for data that was logged
             shot_timestamp_pairs = [
-                (row['Shotnumber'], row[f'{device_name} timestamp'])
+                (row['Shotnumber'], row[f'{device_name} acq_timestamp'])
                 for _, row in log_df.iterrows()
-                if pd.notnull(row[f'{device_name} timestamp'])
+                if pd.notnull(row[f'{device_name} acq_timestamp'])
             ]
 
             # Recursively find orphaned files that include the device name.
@@ -588,6 +588,8 @@ class DataLogger:
         # is equal to the timestamp in the dict, that means we've received two
         # TCP events from the device without the device timestamp updating, which
         # means the device has timed out and can be considered to be in standby mode
+
+        # *NOTE* This uses `timestamp` from `_extract_timestamp_from_tcp_message` for synchronization check
         if t0 == timestamp:
             self.standby_mode_device_status[device.get_name()] = True
             logging.info(f'{device.get_name()} is in standby')
@@ -618,7 +620,7 @@ class DataLogger:
         err = ErrorAPI()
         net_msg = mh.NetworkMessage(tag=device.get_name(), stamp=stamp, msg=message, err=err)
         parsed_data = device.handle_subscription(net_msg)
-        current_timestamp = parsed_data[2].get('timestamp')
+        current_timestamp = parsed_data[2].get('acq_timestamp')  # *NOTE* `timestamp` for synchronizing
         if current_timestamp is None:
             logging.warning(f"No timestamp found for {device.get_name()}. Using system time instead.")
             current_timestamp = float(stamp)
@@ -752,6 +754,8 @@ class DataLogger:
                 # Log configuration variables (such as 'bin') only when a new entry is created
                 # bin number is updated in scan_manager
                 self.log_entries[elapsed_time]['Bin #'] = self.bin_num
+                self.log_entries[elapsed_time]['scan'] = self.scan_number
+
                 if self.virtual_variable_name is not None:
                     self.log_entries[elapsed_time][self.virtual_variable_name] = self.virtual_variable_value
 
@@ -779,7 +783,7 @@ class DataLogger:
                     target_dir=cfg['target_dir'],
                     device_name=device_name,
                     device_type=cfg['device_type'],
-                    expected_timestamp=observables_data['timestamp'],
+                    expected_timestamp=observables_data['acq_timestamp'],  # *NOTE* `acq_timestamp` for data logging
                     shot_index=self.shot_index
                 )
                 self.file_mover.move_files_by_timestamp(task)
