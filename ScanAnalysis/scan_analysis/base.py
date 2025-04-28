@@ -248,7 +248,6 @@ class ScanAnalysis:
         else:
             return None, None
 
-
 # %% executable
 def testing_routine():
     from geecs_python_api.controls.api_defs import ScanTag

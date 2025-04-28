@@ -91,7 +91,7 @@ class Array2DScanAnalysis(ScanAnalysis):
             flag_save_images (bool): Flag that sets if images are saved to disk
         """
         if not device_name:
-            raise ValueError("CameraImageAnalysis requires a device_name.")
+            raise ValueError(f"{self.__class__.__name__} requires a device_name.")
 
         super().__init__(scan_tag, device_name=device_name,
                          skip_plt_show=skip_plt_show)
@@ -686,7 +686,8 @@ class Array2DScanAnalysis(ScanAnalysis):
         # Create GIF
         io.mimsave(output_file, images, duration=duration, loop=0)
 
-if __name__ == "__main__":
+# %% executable
+def testing_routine():
     from scan_analysis.base import AnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan
     from geecs_python_api.controls.api_defs import ScanTag
@@ -710,3 +711,6 @@ if __name__ == "__main__":
     analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
     t1 = time.monotonic()
     print(t1-t0)
+
+if __name__ == "__main__":
+    testing_routine()
