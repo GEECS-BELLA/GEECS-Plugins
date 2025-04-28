@@ -1,0 +1,11 @@
+HTT-C14_1_ebeamprofile:
+  Background Level: 10
+  Left ROI: 1
+  Right ROI: -1
+  Top ROI: 1
+  Bottom ROI: -1
+  Filter: Median
+  Filter Size: 3
+  Threshold: 0
+  Rotate: False
+  Calibration: 0.0001673

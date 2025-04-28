@@ -304,15 +304,15 @@ if __name__ == '__main__':
                           "'raise': raise FileNotFoundError; "
                           )
                     )"""
-    from scan_analysis.mapping.map_Undulator import undulator_analyzers
+    from scan_analysis.mapping.map_Thomson import thomson_analyzers
 
-    exp = 'Undulator'
+    exp = 'Thomson'
     test_year = 2025
-    test_month = 2
-    test_day = 13
+    test_month = 4
+    test_day = 18
 
     scan_watch = ScanWatch(experiment_name=exp, year=test_year, month=test_month, day=test_day,
-                           analyzer_list=undulator_analyzers, overwrite_previous=True)
+                           analyzer_list=thomson_analyzers, overwrite_previous=True)
     print("Starting...")
     scan_watch.start(watch_folder_not_exist='wait')
 

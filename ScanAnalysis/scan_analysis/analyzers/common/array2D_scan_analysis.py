@@ -146,6 +146,9 @@ class Array2DScanAnalysis(ScanAnalysis):
                         self._postprocess_scan_parallel()
 
             self.auxiliary_data.to_csv(self.auxiliary_file_path, sep='\t', index=False)
+            
+            self.additional_analysis()
+            
             return self.display_contents
 
         except Exception as e:
@@ -154,7 +157,10 @@ class Array2DScanAnalysis(ScanAnalysis):
             if self.flag_logging:
                 logging.warning(f"Warning: Image analysis failed due to: {e}")
             return
-
+        
+    def additional_analysis(self):
+        pass
+    
     @staticmethod
     def process_shot_parallel(
             shot_num: int, file_path: Path, image_analyzer: ImageAnalyzer
@@ -252,7 +258,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         # Gather tasks: each shot number paired with its file path.
         tasks = []
         for shot_num in self.auxiliary_data['Shotnumber'].values:
-            pattern = self.file_pattern.format(shot_num=shot_num)
+            pattern = self.file_pattern.format(shot_num=int(shot_num))
             file_path = next(self.path_dict['data_img'].glob(pattern), None)
             logging.info(f'file path found is {file_path}')
             if file_path is not None:

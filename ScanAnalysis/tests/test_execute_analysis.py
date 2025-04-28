@@ -9,9 +9,9 @@ from scan_analysis.base import AnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis
 from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
 
-from image_analysis.offline_analyzers.basic_image_analysis import BasicImageAnalyzer
 from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
 from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, PhaseDownrampProcessor
+from image_analysis.offline_analyzers.Thomson.HTT_C44_1_Analysis import HTT_C44_1
 
 from pathlib import Path
 
@@ -94,6 +94,21 @@ class TestExecuteAnalysis(unittest.TestCase):
         test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
 
+    def test_HTT_C44_1(self):
+        perform_analysis = True
+        analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
+             requirements={'HTT-C44_1_dr_out'},
+             device_name='HTT-C44_1_dr_out',
+             image_analyzer_class=HTT_C44_1)
+        test_tag = ScanTag(year=2025, month=4, day=18, number=3, experiment='Thomson')
+        test_analyzer = analyzer_info
+        analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
 
+
+def routine():
+    analysis = TestExecuteAnalysis()
+    
+    analysis.test_HTT_C44_1()
+    
 if __name__ == "__main__":
-    unittest.main()
+    routine()
