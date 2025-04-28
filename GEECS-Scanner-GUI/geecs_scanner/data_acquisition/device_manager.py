@@ -140,13 +140,13 @@ class DeviceManager:
             logging.info(f"{device_name}: Synchronous = {synchronous}, Save_Non_Scalar = {save_non_scalar}")
 
             # Add to non-scalar saving devices if applicable
-            if save_non_scalar:  # *NOTE* `SysTimestamp allows for file renaming of nonscalar data
+            if save_non_scalar:  # *NOTE* `acq_timestamp allows for file renaming of nonscalar data
                 if 'acq_timestamp' not in variable_list:
                     variable_list.append('acq_timestamp')
                 self.non_scalar_saving_devices.append(device_name)
 
             # Categorize as synchronous or asynchronous
-            if synchronous:  # *NOTE* `timestamp` allows for checking synchronicity
+            if synchronous:  # *NOTE* `acq_timestamp` allows for checking synchronicity
                 if 'acq_timestamp' not in variable_list:
                     variable_list.append('acq_timestamp')
                 self.event_driven_observables.extend([f"{device_name}:{var}" for var in variable_list])

@@ -277,7 +277,7 @@ class FileMover:
 
         Args:
             log_df (pd.DataFrame): DataFrame containing a 'shotnumber' column and a column for each device's timestamp,
-                                   e.g. "DeviceA SysTimestamp".
+                                   e.g. "DeviceA acq_timestamp".
             device_save_paths_mapping (dict): Mapping of device names to their save path information.
         """
         logging.info(f'looking to handle orphaned data files')
@@ -288,7 +288,7 @@ class FileMover:
             device_type = device_info['device_type']
 
             # Create a list of (shotnumber, timestamp) pairs from the df. Ensure the df columns are named appropriately.
-            # *NOTE* Using `SysTimestamp` for data that was logged
+            # *NOTE* Using `acq_timestamp` for data that was logged
             shot_timestamp_pairs = [
                 (row['Shotnumber'], row[f'{device_name} acq_timestamp'])
                 for _, row in log_df.iterrows()
@@ -783,7 +783,7 @@ class DataLogger:
                     target_dir=cfg['target_dir'],
                     device_name=device_name,
                     device_type=cfg['device_type'],
-                    expected_timestamp=observables_data['acq_timestamp'],  # *NOTE* `SysTimestamp` for data logging
+                    expected_timestamp=observables_data['acq_timestamp'],  # *NOTE* `acq_timestamp` for data logging
                     shot_index=self.shot_index
                 )
                 self.file_mover.move_files_by_timestamp(task)
