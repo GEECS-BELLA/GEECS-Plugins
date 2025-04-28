@@ -25,7 +25,6 @@ Devices:
     - Python Result 13
     - Python Result 14
     - Python Result 15
-    - timestamp
   U_BCaveHallProbe:
     save_nonscalar_data: false
     synchronous: false
