@@ -208,11 +208,17 @@ def insert_display_content_to_doc(scan_tag: ScanTag, path_list: list[str], docum
     except Exception as display_err:
         logging.error(f"Error processing display content for scan {scan_tag.number}: {display_err}")
 
+# %% executable
 
-if __name__ == '__main__':
+def test_run_analysis():
     from geecs_python_api.analysis.scans.scan_data import ScanData
     from scan_analysis.mapping.map_Undulator import undulator_analyzers
     test_tag = ScanData.get_scan_tag(2025, 4, 3, number=2, experiment='Undulator')
     test_analyzer = undulator_analyzers[0]
 
     analyze_scan(test_tag, analyzer_list=[test_analyzer], upload_to_scanlog=False)
+
+    pass
+
+if __name__ == '__main__':
+    test_run_analysis()
