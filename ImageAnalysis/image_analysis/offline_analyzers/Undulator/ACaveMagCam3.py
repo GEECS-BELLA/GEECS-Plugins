@@ -47,7 +47,7 @@ class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
             A dictionary with the processed image and placeholder for analysis results.
         """
 
-        image = self.load_image(file_path)
+        image = self.load_image(image_filepath)
 
         # Define the ROIs (x, y, width, height) as a dictionary
         rois = {

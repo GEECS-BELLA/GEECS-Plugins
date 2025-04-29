@@ -252,7 +252,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         # Gather tasks: each shot number paired with its file path.
         tasks = []
         for shot_num in self.auxiliary_data['Shotnumber'].values:
-            pattern = self.file_pattern.format(shot_num=shot_num)
+            pattern = self.file_pattern.format(shot_num=int(shot_num))
             file_path = next(self.path_dict['data_img'].glob(pattern), None)
             logging.info(f'file path found is {file_path}')
             if file_path is not None:
