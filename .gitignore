@@ -32,3 +32,4 @@ ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244
 ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/dlls/x64/log_dll_load.txt
 ImageAnalysis/image_analysis/analyzers/log_dll_load.txt
 ImageAnalysis/image_analysis/analyzers/single_shot_estimated_legendre.txt
+GEECS-Scanner-GUI/xopt optimizer tests.ipynb
