@@ -24,24 +24,38 @@ class VarAlias(str):
     pass
 
 
-class ScanTag(NamedTuple):
-    year: int
-    month: int
-    day: int
-    number: int
-    experiment: Optional[str] = None
+import warnings
+from geecs_paths_utils.geecs_paths import ScanTag as _ScanTag
 
+warnings.warn(
+    "geecs_python_api.controls.api_defs.ScanTag has moved to "
+    "geecs_paths_utils.geecs_paths; please update your imports.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-def month_to_int(month: Union[str, int]) -> int:
-    """ :return: an integer representing the given month """
-    try:
-        month_int = int(month)
-        if 1 <= month_int <= 12:
-            return month_int
-    except ValueError:
-        pass
+class ScanTag(_ScanTag):
+    """Stub for backward compatibility."""
+    pass
 
-    if isinstance(month, str):
-        return dateparse(month).month
-    else:
-        raise ValueError(f"'{month}' is not a valid month")
+# class ScanTag(NamedTuple):
+#     year: int
+#     month: int
+#     day: int
+#     number: int
+#     experiment: Optional[str] = None
+#
+#
+# def month_to_int(month: Union[str, int]) -> int:
+#     """ :return: an integer representing the given month """
+#     try:
+#         month_int = int(month)
+#         if 1 <= month_int <= 12:
+#             return month_int
+#     except ValueError:
+#         pass
+#
+#     if isinstance(month, str):
+#         return dateparse(month).month
+#     else:
+#         raise ValueError(f"'{month}' is not a valid month")
