@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Union, Optional
+from typing import Union, Optional, Any
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +8,7 @@ from image_analysis.base import ImageAnalyzer
 
 class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
 
-    def __init__(self):
+    def __init__(self, config: Optional[Any] = None):
         """
         Parameters
         ----------
@@ -17,7 +17,7 @@ class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
         self.run_analyze_image_asynchronously = True
         self.flag_logging = True
 
-        super().__init__()
+        super().__init__(config=config)
 
     @staticmethod
     def analyze_roi(image, roi):
