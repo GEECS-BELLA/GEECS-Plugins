@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 from image_analysis.base import ImageAnalyzer
+from geecs_paths_utils.geecs_paths import ScanPaths,ScanTag
 
 class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
 
@@ -77,7 +78,8 @@ class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
 
 if __name__ == "__main__":
     image_analyzer  = ACaveMagCam3ImageAnalyzer()
-    file_path = Path('/Volumes/hdna2/data/Undulator/Y2025/03-Mar/25_0306/scans/Scan039/UC_ACaveMagCam3/Scan039_UC_ACaveMagCam3_001.png')
-    print(file_path.exists())
+    scan_tag = ScanTag(year=2025, month=3, day=6, number=39, experiment='Undulator')
+    scans_path = ScanPaths(tag=scan_tag)
+    file_path = scans_path.get_device_shot_path(tag=scan_tag,device_name='UC_ACaveMagCam3',shot_number=1,file_extension='.png')
     results = image_analyzer.analyze_image_file(image_filepath=file_path)
     print(results)
