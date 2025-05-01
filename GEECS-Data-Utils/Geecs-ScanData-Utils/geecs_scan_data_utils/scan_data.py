@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import nptdms as tdms
 
-from geecs_paths_utils.geecs_paths import ScanPaths
+from geecs_paths_utils.scan_paths import ScanPaths
 
 # Module-level logger
 logger = logging.getLogger(__name__)

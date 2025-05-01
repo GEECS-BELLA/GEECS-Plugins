@@ -25,7 +25,7 @@ class VarAlias(str):
 
 
 import warnings
-from geecs_paths_utils.geecs_paths import ScanTag as _ScanTag
+from geecs_paths_utils.scan_paths import ScanTag as _ScanTag
 
 warnings.warn(
     "geecs_python_api.controls.api_defs.ScanTag has moved to "
