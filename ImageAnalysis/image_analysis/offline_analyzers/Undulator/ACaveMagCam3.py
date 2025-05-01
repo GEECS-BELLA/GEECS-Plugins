@@ -5,7 +5,9 @@ from pathlib import Path
 
 import numpy as np
 from image_analysis.base import ImageAnalyzer
-from geecs_paths_utils.geecs_paths import ScanPaths,ScanTag
+from geecs_paths_utils.scan_paths import ScanPaths
+from geecs_paths_utils.utils import ScanTag
+
 
 class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
 
