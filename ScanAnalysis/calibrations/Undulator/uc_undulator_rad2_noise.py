@@ -5,7 +5,7 @@ level changes across the Rad2 image.  Saves a npy file that can be loaded by an 
 -Chris
 """
 
-from geecs_python_api.analysis.scans.scan_data import ScanData
+from geecs_scan_data_utils.scan_data import ScanData
 from image_analysis.utils import read_imaq_png_image
 import matplotlib.pyplot as plt
 from pathlib import Path

@@ -8,7 +8,8 @@ import pytest
 
 from pathlib import Path
 
-from geecs_python_api.analysis.scans.scan_data import ScanData, ScanTag
+from geecs_scan_data_utils.scan_data import ScanData
+from geecs_paths_utils.utils import ScanTag
 from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, PhasePreprocessor, PhaseDownrampProcessor
 
 def get_path_to_phase_file():

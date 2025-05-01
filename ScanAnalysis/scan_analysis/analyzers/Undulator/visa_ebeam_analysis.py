@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, Union
 if TYPE_CHECKING:
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_paths_utils.scan_paths import ScanTag
 import numpy as np
 import cv2
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
-from geecs_python_api.analysis.scans.scan_data import ScanData
+from geecs_scan_data_utils.scan_data import ScanData
 
 
 # %% classes

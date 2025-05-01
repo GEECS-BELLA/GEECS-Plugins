@@ -19,17 +19,15 @@ from __future__ import annotations
 from numpy.typing import NDArray
 from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple, Dict, List
 if TYPE_CHECKING:
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_paths_utils.utils import ScanTag
 from pathlib import Path
 import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from geecs_python_api.analysis.scans.scan_data import ScanData
+from geecs_scan_data_utils.scan_data import ScanData
 
 from image_analysis.base import ImageAnalyzer  # explicit import for the base image analyzer
-
-
 
 # %% classes
 class AnalyzerInfo(NamedTuple):
@@ -252,6 +250,7 @@ class ScanAnalysis:
 
 # %% executable
 def testing_routine():
+    print(ScanData)
     pass
 
 

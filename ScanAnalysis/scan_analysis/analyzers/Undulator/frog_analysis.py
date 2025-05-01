@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional, Dict, List
 from numpy.typing import NDArray
 if TYPE_CHECKING:
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_paths_utils.scan_paths import ScanTag
 
 from pathlib import Path
 import logging
@@ -268,9 +268,7 @@ class FrogAnalysis(ScanAnalysis):
 
 
 def testing():
-
-    from geecs_python_api.analysis.scans.scan_data import ScanData
-
+    from geecs_scan_data_utils.scan_data import ScanData
     kwargs = {'year': 2025, 'month': 3, 'day': 6, 'number': 15, 'experiment': 'Undulator'}
     tag = ScanData.get_scan_tag(**kwargs)
 

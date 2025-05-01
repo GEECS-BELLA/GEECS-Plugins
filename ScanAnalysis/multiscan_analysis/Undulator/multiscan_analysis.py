@@ -11,7 +11,7 @@ Kyle Jensen, kjensen@lbl.gov
 from __future__ import annotations
 from typing import Union, TYPE_CHECKING
 if TYPE_CHECKING:
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_paths_utils.scan_paths import ScanTag
 
 import os
 import glob
@@ -20,7 +20,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from geecs_python_api.analysis.scans.scan_data import ScanData
+from geecs_scan_data_utils.scan_data import ScanData
 from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
 from image_analysis.utils import read_imaq_image
 
