@@ -1,15 +1,3 @@
-UC_Phosphor1:
-  Background Level: 10
-  Left ROI: 200
-  Right ROI: 1250
-  Top ROI: 300
-  Bottom ROI: 700
-  Filter: Median
-  Filter Size: 3
-  Threshold: 0
-  Rotate: False
-  Calibration: 0.0000165
-
 UC_ALineEbeam1:
   Background Level: 60
   Left ROI: 1

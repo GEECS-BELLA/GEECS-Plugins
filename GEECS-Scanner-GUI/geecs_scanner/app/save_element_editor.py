@@ -94,7 +94,10 @@ class SaveElementEditor(QDialog):
         # Update the device flags when either of the checkboxes are clicked
         self.ui.checkboxSynchronous.clicked.connect(self.update_device_checkboxes)
         self.ui.checkboxSaveNonscalar.clicked.connect(self.update_device_checkboxes)
-        self.ui.checkboxAddAllVariables.clicked.connect(self.update_device_checkboxes)
+
+        # TODO this is currently not implemented, once implemented can enable this button (and change `update_variable_list`)
+        self.ui.checkboxAddAllVariables.setEnabled(False)
+        #self.ui.checkboxAddAllVariables.clicked.connect(self.update_device_checkboxes)
 
         # Make the action line edit only editable from the dropdown completer list of available actions
         self.ui.lineActionName.setReadOnly(True)
@@ -211,8 +214,6 @@ class SaveElementEditor(QDialog):
         text = self.ui.lineDeviceName.text().strip()
         if text and text not in self.devices_dict:
             self.devices_dict[text] = get_default_device_dictionary()
-            if text in self.database_dict and 'timestamp' in self.database_dict[text]:
-                self.devices_dict[text]['variable_list'].append('timestamp')
             self.update_device_list()
 
     def remove_device(self):
@@ -251,7 +252,7 @@ class SaveElementEditor(QDialog):
 
         self.ui.checkboxSynchronous.setEnabled(enable_variables)
         self.ui.checkboxSaveNonscalar.setEnabled(enable_variables)
-        self.ui.checkboxAddAllVariables.setEnabled(enable_variables)
+        #self.ui.checkboxAddAllVariables.setEnabled(enable_variables)
         self.ui.buttonAddVariable.setEnabled(enable_variables)
         self.ui.buttonRemoveVariable.setEnabled(enable_variables)
         self.ui.lineVariableName.setEnabled(enable_variables)
@@ -261,7 +262,7 @@ class SaveElementEditor(QDialog):
 
         self.ui.checkboxSynchronous.setChecked(device['synchronous'])
         self.ui.checkboxSaveNonscalar.setChecked(device['save_nonscalar_data'])
-        self.ui.checkboxAddAllVariables.setChecked(device.get('add_all_variables', False))
+        #self.ui.checkboxAddAllVariables.setChecked(device.get('add_all_variables', False))
 
         if not self.ui.checkboxAddAllVariables.isChecked():
             self.ui.listVariables.setEnabled(True)

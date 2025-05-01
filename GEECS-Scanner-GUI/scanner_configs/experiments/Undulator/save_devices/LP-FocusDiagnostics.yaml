@@ -3,14 +3,12 @@ Devices:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
-    - timestamp
     - centroidx
     - centroidy
   UC_GhostUpstream:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
-    - timestamp
     - centroidx
     - centroidy
     - 2ndmomW0x
@@ -23,7 +21,6 @@ Devices:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
-    - timestamp
     - centroidx
     - centroidy
     - 2ndmomW0x
