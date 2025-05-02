@@ -18,7 +18,7 @@ from scipy.signal import butter, filtfilt
 from pathlib import Path
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
 from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
-from geecs_paths_utils.scan_paths import ScanTagg
+from geecs_paths_utils.scan_paths import ScanTag
 from geecs_scan_data_utils.scan_data import ScanData
 
 from image_analysis.utils import read_imaq_png_image
