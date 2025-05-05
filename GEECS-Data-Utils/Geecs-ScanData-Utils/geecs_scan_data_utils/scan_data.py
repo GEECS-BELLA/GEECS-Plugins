@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import nptdms as tdms
 
-from geecs_paths_utils.scan_paths import ScanPaths
+from geecs_paths_utils import ScanPaths
 
 # Module-level logger
 logger = logging.getLogger(__name__)
@@ -109,11 +109,10 @@ class ScanData(ScanPaths):
             analysis_sfile.unlink()
         shutil.copy2(src=scan_sfile, dst=analysis_sfile)
 
-# Initialize paths config
-ScanData.reload_paths_config()
+
 
 if __name__ == "__main__":
-    tag = ScanData.get_scan_tag(2025, 4, 3, number=2, experiment="Undulator")
+    tag = ScanData.get_scan_tag(2025, 5, 1, number=10, experiment="Undulator")
     sd = ScanData(tag=tag)
-    latest = sd.get_latest_scan_data()
-    print(latest.data_frame)
+    sd.load_scalar_data()
+    print(sd.data_frame)
