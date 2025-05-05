@@ -28,10 +28,12 @@ from live_watch.scan_analysis_gui.utils.exceptions import exception_hook
 # TODO should have a smarter way to import these, perhaps outside of this gui code
 from scan_analysis.mapping.map_Undulator import undulator_analyzers
 from scan_analysis.mapping.map_Thomson import thomson_analyzers
+from scan_analysis.mapping.map_ControlRoom import controlroom_analyzers
 
 EXPERIMENT_TO_MAPPING = {
     'Undulator': undulator_analyzers,
     'Thomson': thomson_analyzers,
+    'ControlRoom': controlroom_analyzers,
 }
 # =============================================================================
 # %% global variables

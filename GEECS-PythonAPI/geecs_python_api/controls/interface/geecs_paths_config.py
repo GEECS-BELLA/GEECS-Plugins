@@ -66,6 +66,7 @@ class GeecsPathsConfig:
         # See if the server address can be extracted from the experiment name without loading config file
         if experiment is not None and base_path is None:
             base_path = self._validate_and_set_base_path(self.get_default_server_address(experiment))
+            print("Line 70, geecs_paths_config.py", base_path, base_path.exists())
 
         # If either was not set in arguments, then open up the config file and read its contents
         if experiment is None or base_path is None:
@@ -84,6 +85,7 @@ class GeecsPathsConfig:
                     # If not connected to server path, then default to the local base path defined in the config file
                     if base_path is None:
                         local_path = Path(config['Paths'].get('GEECS_DATA_LOCAL_BASE_PATH', None))
+                        print("Line 87, geecs_paths_config.py", local_path, local_path.exists())
                         base_path = self._validate_and_set_base_path(local_path)
 
 

@@ -14,17 +14,25 @@ import logging
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import median_filter
-sys.path.insert(0, 'C:\\GEECS\\Developers Version\\source\\GEECS-Plugins\\ScanAnalysis') # Without this path the code outputs ModuleNotFoundError: No module named scan_analysis
-print("PW_test_analysis.py line 18")
-from scan_analysis.base import ScanAnalysis
-print("PW_test_analysis.py line 20")
-from image_analysis.utils import read_imaq_png_image
-from image_analysis.analyzers.online_analysis_modules.image_processing_funcs import threshold_reduction
-sys.path.insert(0, 'C:\\GEECS\\Developers Version\\source\\GEECS-Plugins\\GEECS-PythonAPI')
-
-from geecs_python_api.analysis.scans.scan_data import ScanData
 
 from pathlib import Path
+# Dynamically add the relative path to the sys.path
+current_file = Path(__file__).resolve()
+scan_analysis_path = current_file.parents[3]
+sys.path.insert(0, str(scan_analysis_path))
+# print(str(scan_analysis_path))
+print("PW_test_analysis.py line 18")
+from scan_analysis.base import ScanAnalysis
+
+from image_analysis.utils import read_imaq_png_image
+from image_analysis.analyzers.online_analysis_modules.image_processing_funcs import threshold_reduction
+# sys.path.insert(0, 'C:\\GEECS\\Developers Version\\source\\GEECS-Plugins\\GEECS-PythonAPI')
+
+current_file = Path(__file__).resolve()
+scan_analysis_path = current_file.parents[3] / 'GEECS-PythonAPI'
+sys.path.insert(0, str(scan_analysis_path))
+print(str(scan_analysis_path))
+from geecs_python_api.analysis.scans.scan_data import ScanData
 
 # %% classes
 class PWTestAnalysis(ScanAnalysis):
@@ -172,7 +180,9 @@ class PWTestAnalysis(ScanAnalysis):
 
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
-    ScanData.reload_paths_config(config_path=Path(r'C:\Users\loasis\.config\geecs_python_api\config.ini')) #Added config path manually otherwise it can't find the config file - 4/3/2025 Eugene
+    # Default config path is set to the user's home directory e.g. C:\Users\<username>\.config\geecs_python_api\config.ini
+    # ScanData.reload_paths_config(config_path=Path(r'C:\Users\loasis\.config\geecs_python_api\config.ini')) #Added config path manually otherwise it can't find the config file - 4/3/2025 Eugene
+    ScanData.reload_paths_config(config_path=Path(r'C:\Users\egpark\.config\geecs_python_api\config.ini')) #Added config path manually otherwise it can't find the config file - 4/3/2025 Eugene
     tag = ScanData.get_scan_tag(year=2025, month=3, day=4, number=5, experiment='ControlRoom')
     analyzer = PWTestAnalysis(scan_tag=tag, skip_plt_show=False)
     analyzer.run_analysis()
