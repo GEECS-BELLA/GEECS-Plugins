@@ -10,7 +10,8 @@ from pathlib import Path
 from datetime import datetime, date
 from configparser import ConfigParser, NoSectionError
 from typing import Optional, Union
-from geecs_paths_utils.utils import ScanTag,SysPath,ConfigurationError, GeecsPathsConfig, month_to_int
+from geecs_paths_utils.utils import ScanTag,SysPath,ConfigurationError, month_to_int
+from geecs_paths_utils.geecs_paths_config import GeecsPathsConfig
 
 # module‐level logger
 logger = logging.getLogger(__name__)
@@ -458,6 +459,5 @@ class ScanPaths:
 ScanPaths.reload_paths_config()
 
 if __name__ == '__main__':
-
     test_tag = ScanPaths.get_scan_tag(2025, 4, 3, number=2, experiment='Undulator')
     print(ScanPaths.get_scan_folder_path(test_tag))
