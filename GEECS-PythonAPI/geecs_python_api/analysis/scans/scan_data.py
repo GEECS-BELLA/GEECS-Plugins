@@ -18,7 +18,8 @@ from geecs_python_api.controls.interface.geecs_paths_config import GeecsPathsCon
 from geecs_python_api.controls.interface.geecs_errors import ConfigurationError, api_error
 from geecs_python_api.controls.api_defs import SysPath, ScanTag, month_to_int
 from geecs_python_api.tools.distributions.binning import unsupervised_binning, BinningResults
-
+import tkinter as tk
+from tkinter import filedialog
 # Create a module-level logger
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,51 @@ class ScanData:
         # Load scalar data if requested
         if load_scalars:
             self.load_scalar_data()
+
+
+
+    # @classmethod
+    # def reload_paths_config(cls, config_path: Optional[Path] = None,
+    #                         default_experiment: Optional[str] = None,
+    #                         set_base_path: Optional[Union[Path, str]] = None):
+    #     """
+    #     Reloads the paths configuration. If the config file is not found, prompts the user to locate it.
+
+    #     Parameters:
+    #     ----------
+    #     config_path : Optional[Path]
+    #         Path to the configuration file. If None, the default location is used.
+    #     default_experiment : Optional[str]
+    #         Default experiment name to set in the configuration.
+    #     set_base_path : Optional[Union[Path, str]]
+    #         Base path to override the configuration's base path.
+    #     """
+    #     try:
+    #         if config_path is None:
+    #             # Default location for the config file
+    #             default_config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
+    #             if default_config_path.exists():
+    #                 config_path = default_config_path
+    #             else:
+    #                 # Prompt the user to locate the config file
+    #                 root = tk.Tk()
+    #                 root.withdraw()  # Hide the main tkinter window
+    #                 config_file = filedialog.askopenfilename(
+    #                     title="Locate config.ini",
+    #                     filetypes=[("INI files", "*.ini"), ("All files", "*.*")]
+    #                 )
+    #                 if config_file:
+    #                     config_path = Path(config_file)
+    #                 else:
+    #                     raise FileNotFoundError("Configuration file not found. Please provide a valid config.ini file.")
+
+    #         # Load the configuration
+    #         cls.paths_config = GeecsPathsConfig(config_path=config_path,
+    #                                             default_experiment=default_experiment,
+    #                                             set_base_path=set_base_path)
+    #     except ConfigurationError as e:
+    #         logger.error(f"Configuration Error in ScanData: {e}")
+    #         cls.paths_config = None
 
     @classmethod
     def reload_paths_config(cls, config_path: Optional[Path] = None,
