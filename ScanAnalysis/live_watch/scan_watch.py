@@ -6,13 +6,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union
 if TYPE_CHECKING:
     from scan_analysis.base import AnalyzerInfo
-
+import sys
 import time
 from pathlib import Path
 from time import sleep
 import re
 from queue import Queue
-
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'GEECS-PythonAPI'))
+print(str(Path(__file__).resolve().parents[2] / 'GEECS-PythonAPI'))
 from geecs_python_api.analysis.scans.scan_data import ScanData
 from scan_analysis.execute_scan_analysis import analyze_scan
 from scan_analysis.mapping.scan_evaluator import check_for_analysis_match
