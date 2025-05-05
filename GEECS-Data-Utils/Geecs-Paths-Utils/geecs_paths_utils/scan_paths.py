@@ -271,34 +271,6 @@ class ScanPaths:
             return None  # No scans exist for the given day
         return ScanPaths.get_scan_tag(year, month, day, i - 1, experiment=experiment)
 
-    # @staticmethod
-    # def get_latest_scan_data(experiment: Optional[str] = None, year: Optional[int] = None,
-    #                          month: Optional[int] = None, day: Optional[int] = None,
-    #                          base_directory: Union[str, Path, None] = None) -> ScanPaths:
-    #     """
-    #     Retrieves the ScanData object for the latest scan on the given day or today if no date is provided.
-    #
-    #     Parameters:
-    #     ----------
-    #     experiment : Optional[str], optional
-    #         Experiment name (default: CONFIG.experiment).
-    #     year : Optional[int], optional
-    #         Year of the scan (4-digit, default: current year if not provided).
-    #     month : Optional[int], optional
-    #         Month of the scan (1-12, default: current month if not provided).
-    #     day : Optional[int], optional
-    #         Day of the scan (1-31, default: current day if not provided).
-    #
-    #     Returns:
-    #     -------
-    #     ScanData
-    #         The ScanData object for the latest scan.
-    #     """
-    #     latest_tag = ScanPaths.get_latest_scan_tag(experiment, year, month, day, base_directory=base_directory)
-    #     if not latest_tag:
-    #         raise ValueError("No scans found for the specified date.")
-    #     return ScanPaths(tag=latest_tag, load_scalars=True, read_mode=True, base_directory=base_directory)
-
     @staticmethod
     def get_next_scan_tag(experiment: Optional[str] = None, year: Optional[int] = None,
                           month: Optional[int] = None, day: Optional[int] = None,
