@@ -24,7 +24,7 @@ if not logging.getLogger().hasHandlers():
 class ScanPaths:
     """ Represents a GEECS experiment scan """
 
-    paths_config = None
+    paths_config: Optional[GeecsPathsConfig] = None
 
     def __init__(self, folder: Optional[SysPath] = None,
                  tag: Optional[ScanTag] = None,
