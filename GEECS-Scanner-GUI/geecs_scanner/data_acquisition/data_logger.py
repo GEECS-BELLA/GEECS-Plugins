@@ -27,7 +27,7 @@ class FileMoveTask:
     source_dir: Path
     target_dir: Path
     device_name: str
-    device_type: str
+    device_type: str  # TODO Device type is not required, consider making an Optional[str]
     expected_timestamp: float
     shot_index: int
     random_part: Optional[str] = None  # Unique identifier extracted from primary file.
@@ -54,7 +54,7 @@ class FileMover:
         self.scan_is_live = True
         self.save_local = True
 
-        self.scan_number: Optional[int] = None
+        self.scan_number: Optional[int] = None  # TODO Should have a `set` function instead of editing externally
         logging.info("FileMover worker started.")
 
     def _worker_func(self) -> None:
@@ -248,7 +248,7 @@ class FileMover:
         Generate a new file stem based on scan number, device name, and shot index.
 
         Args:
-            scan_number (int): Scan number (zero-padded to 3 digits).
+            scan_number (int): Scan number (zero-padded to 3 digits).  # TODO update type hinting, could be a `None`
             device_name (str): Device name.
             shot_index (int): Shot number (zero-padded to 3 digits).
 
