@@ -65,9 +65,9 @@ class DeviceManager:
 
         try:
             with open(composite_file, 'r') as file:
-                composite_variables = yaml.safe_load(file).get('composite_variables', {})
+                self.composite_variables = yaml.safe_load(file).get('composite_variables', {})
             logging.info(f"Loaded composite variables from {composite_file}")
-            return composite_variables
+            return self.composite_variables
         except FileNotFoundError:
             logging.warning(f"Composite variables file not found: {composite_file}.")
             return {}
