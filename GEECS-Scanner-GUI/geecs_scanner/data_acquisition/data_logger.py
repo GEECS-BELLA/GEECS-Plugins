@@ -1,14 +1,15 @@
 from __future__ import annotations
-from pathlib import Path
 from typing import Optional, Dict, Any, Callable, List, Union
-
-DeviceSavePaths = Dict[str, Dict[str, Union[Path,str]]]
 
 import time
 import threading
 from datetime import datetime
 import logging
 import pandas as pd
+import queue
+import shutil
+from pathlib import Path
+from dataclasses import dataclass
 
 from . import DeviceManager
 from geecs_scanner.utils import SoundPlayer
@@ -18,10 +19,7 @@ from geecs_python_api.tools.files.timestamping import extract_timestamp_from_fil
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
 import geecs_python_api.controls.interface.message_handling as mh
 
-import queue
-import shutil
-
-from dataclasses import dataclass
+DeviceSavePaths = Dict[str, Dict[str, Union[Path, str]]]
 
 
 @dataclass
@@ -104,14 +102,12 @@ class FileMover:
             variant_dirs = [d for d in home_dir.iterdir() if d.is_dir() and d.name.startswith(device_name)]
 
         # Determine expected file count.
-        if device_type in ['PicoscopeV2', 'FROG', 'Thorlabs CCS175 Spectrometer','RohdeSchwarz_RTA4000']:
+        if device_type in ['PicoscopeV2', 'FROG', 'Thorlabs CCS175 Spectrometer', 'RohdeSchwarz_RTA4000']:
             expected_file_count = 2
         elif device_type in ['MagSpecStitcher', 'MagSpecCamera']:
             expected_file_count = 1
         else:
             expected_file_count = 1
-
-
 
         # there is some time overhead in saving to the netapp rather than local. It's possible
         # that the FileMoveTask for a given event is created and queued before the file is
@@ -184,7 +180,7 @@ class FileMover:
                         break
 
         if not task_success:
-            #task failed to find a match, log it as an orpahned task
+            # Task failed to find a match, log it as an orphaned task
             logging.info(f'failed to find a file for {task.device_name} with timestamp {task.expected_timestamp}')
             self.orphan_tasks.append(task)
 
@@ -221,7 +217,7 @@ class FileMover:
 
         The variant directory is constructed as: f"{device_name}{task.suffix}".
         Searches for a file whose name contains task.random_part,
-        renames it using task.new_name (with task.suffix appended),
+        renames it using task.new_name (with `task.suffix` appended),
         and moves it to the corresponding target directory.
         """
         if task.suffix is None or task.random_part is None:
@@ -330,7 +326,7 @@ class FileMover:
                 else:
                     logging.warning(f"No matching shot number found for orphan file {file} (timestamp {file_ts})")
 
-    def post_process_orphan_taks(self):
+    def post_process_orphan_task(self):
         for task in self.orphan_tasks:
             self.move_files_by_timestamp(task)
 
@@ -348,6 +344,7 @@ class FileMover:
             worker.join()
         logging.info("FileMover has been shut down gracefully.")
 
+
 class DataLogger:
     """
     Handles the logging of data from devices during a scan, supporting both event-driven
@@ -355,7 +352,7 @@ class DataLogger:
     for various devices in the experimental setup.
     """
 
-    def __init__(self, experiment_dir:str, device_manager: DeviceManager = None):
+    def __init__(self, experiment_dir: str, device_manager: DeviceManager = None):
 
         """
         Initialize the DataLogger with the experiment directory and a device manager.
@@ -400,7 +397,7 @@ class DataLogger:
 
         # Dictionaries for tracking timestamps and statuses
         self.last_timestamps: Dict[str, float] = {}  # Maps device names to timestamps
-        self.initial_timestamps: Dict[str, float] = {}
+        self.initial_timestamps: Dict[str, Optional[float]] = {}
         self.synced_timestamps: Dict[str, float] = {}
         self.standby_mode_device_status: Dict[str, Optional[bool]] = {}
         self.device_save_paths_mapping: DeviceSavePaths = {}
@@ -445,7 +442,7 @@ class DataLogger:
         # Start the sound player
         self.sound_player.start_queue()
 
-        #scan number in datalogger updates in scan_manager
+        # Scan number in datalogger updates in scan_manager
         self.file_mover.scan_number = self.scan_number
         self.file_mover.save_local = self.save_local
 
@@ -461,7 +458,8 @@ class DataLogger:
         self._register_event_logging(self._handle_TCP_message_from_device)
 
         logging.info(
-            'waiting for all devices to go to standby mode. Note, device standby status not checked, just waiting 4 seconds for all devices to timeout')
+            'waiting for all devices to go to standby mode. Note, device standby status not checked, '
+            'just waiting 4 seconds for all devices to timeout')
         time.sleep(1)
 
         logging.info("Logging has started for all event-driven devices.")
@@ -490,7 +488,7 @@ class DataLogger:
 
         timestamp_from_device = self._extract_timestamp_from_tcp_message(message, device)
 
-        #TODO: I think this needs to be changed to raise some kind of error, as not getting a timestamp
+        # TODO: I think this needs to be changed to raise some kind of error, as not getting a timestamp
         # is a pretty fatal error
         if timestamp_from_device is None:
             return
@@ -512,8 +510,8 @@ class DataLogger:
 
         elapsed_time = self._calculate_elapsed_time(device, timestamp_from_device)
 
-        #ensure that the synchronization shot is not included in the logging
-        if elapsed_time>0:
+        # Ensure that the synchronization shot is not included in the logging
+        if elapsed_time > 0:
             if self._check_duplicate_timestamp(device, timestamp_from_device):
                 return
 
@@ -524,7 +522,7 @@ class DataLogger:
         standby_keys = self.standby_mode_device_status.keys()
 
         all_in_dict = device_names.issubset(standby_keys)
-        all_on = all(self.standby_mode_device_status.get(device,False) for device in self.synchronous_device_names)
+        all_on = all(self.standby_mode_device_status.get(device, False) for device in self.synchronous_device_names)
 
         if all_in_dict and all_on:
             logging.info("All device names are present in standby_mode_device_status dict and all have True status.")
@@ -539,7 +537,7 @@ class DataLogger:
         standby_keys = self.standby_mode_device_status.keys()
 
         all_in_dict = device_names.issubset(standby_keys)
-        all_off = all(not self.standby_mode_device_status.get(device,True) for device in self.synchronous_device_names)
+        all_off = all(not self.standby_mode_device_status.get(device, True) for device in self.synchronous_device_names)
 
         if all_in_dict and all_off:
             logging.info("All device names are present in standby_mode_device_status dict and all "
@@ -563,11 +561,11 @@ class DataLogger:
             self.standby_mode_device_status[device.get_name()] = None
             self.initial_timestamps[device.get_name()] = None
 
-        if self.standby_mode_device_status[device.get_name()] == False:
+        if not self.standby_mode_device_status[device.get_name()]:
             return
 
         # check if there has been a timestamp added to the dict for a given device
-        t0 = self.initial_timestamps.get(device.get_name(),None)
+        t0 = self.initial_timestamps.get(device.get_name(), None)
 
         # if this is the first logged timestamp, return None because we can't say for
         # certain if the device is in standby mode
@@ -677,7 +675,7 @@ class DataLogger:
         self.last_timestamps[device.get_name()] = current_timestamp
         return False
 
-    def update_async_observables(self, async_observables: list, elapsed_time: float)-> None:
+    def update_async_observables(self, async_observables: list, elapsed_time: float) -> None:
         """
         Update log entries with the latest values for asynchronous observables.
 
@@ -701,7 +699,8 @@ class DataLogger:
                     composite_value = device.state.get("composite_var", "N/A")
                     self.log_entries[elapsed_time][f"{device_name}:composite_var"] = composite_value
                     logging.info(
-                        f"Updated composite var {device_name}:composite_var to {composite_value} for elapsed time {elapsed_time}.")
+                        f"Updated composite var {device_name}:composite_var to {composite_value} "
+                        f"for elapsed time {elapsed_time}.")
 
                     # Log sub-component states
                     for comp in device.components:
@@ -713,7 +712,8 @@ class DataLogger:
                             sub_value = sub_device.state.get(sub_var_name, "N/A")
                             self.log_entries[elapsed_time][f"{sub_device_name}:{sub_var_name}"] = sub_value
                             logging.info(
-                                f"Updated sub-component {sub_device_name}:{sub_var_name} to {sub_value} for elapsed time {elapsed_time}.")
+                                f"Updated sub-component {sub_device_name}:{sub_var_name} to {sub_value} "
+                                f"for elapsed time {elapsed_time}.")
                         else:
                             logging.warning(f"Sub-device {sub_device_name} not found for {device_name}.")
                 else:
@@ -729,7 +729,7 @@ class DataLogger:
             else:
                 logging.warning(f"Device {device_name} not found in DeviceManager. Skipping {observable}.")
 
-    def _log_device_data(self, device:GeecsDevice, elapsed_time:float) -> None:
+    def _log_device_data(self, device: GeecsDevice, elapsed_time: float) -> None:
 
         """
         Log the data for a device during an event-driven observation.

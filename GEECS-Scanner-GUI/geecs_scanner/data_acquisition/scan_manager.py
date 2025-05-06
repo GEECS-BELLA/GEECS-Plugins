@@ -393,7 +393,7 @@ class ScanManager:
                 self.data_logger.file_mover.post_process_orphaned_files(log_df=log_df, device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping)
             else:
                 self.data_logger.file_mover.scan_is_live = False
-                self.data_logger.file_mover.post_process_orphan_taks()
+                self.data_logger.file_mover.post_process_orphan_task()
 
             self.data_logger.file_mover.shutdown(wait=True)
 
