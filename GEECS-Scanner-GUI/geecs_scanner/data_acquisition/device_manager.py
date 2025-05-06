@@ -6,7 +6,7 @@ from pathlib import Path
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
-from .utils import get_full_config_path  # Import the utility function
+from .utils import get_full_config_path  # Import utility function to build paths to config files
 
 
 class DeviceManager:
@@ -17,13 +17,13 @@ class DeviceManager:
     """
 
     def __init__(self, experiment_dir: str = None):
-
         """
         Initialize the DeviceManager with optional experiment directory.
 
         Args:
             experiment_dir (str, optional): Path to the directory where experiment configurations are stored.
         """
+
         self.devices = {}
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
@@ -52,7 +52,6 @@ class DeviceManager:
                 logging.warning(f"Composite variables file not found.")
 
     def load_composite_variables(self, composite_file: Path):
-
         """
         Load composite variables from the given YAML file.
 
@@ -92,10 +91,9 @@ class DeviceManager:
         self.load_from_dictionary(config)
 
     def load_from_dictionary(self, config_dictionary):
-
         """
         Load configuration from a preloaded dictionary, bypassing the need to read a YAML file. Primarily
-        used by the GUI, but can enable loading conffigs in a different manner.
+        used by the GUI, but can enable loading configs in a different manner.
 
         Args:
             config_dictionary (dict): A dictionary containing the experiment configuration.
@@ -175,12 +173,14 @@ class DeviceManager:
             device_name (str): The name of the device.
             scan_setup (dict): Dictionary containing scan setup actions and their corresponding setup/closeout values.
         """
+
         # Iterate over each key in the 'scan_setup' dictionary
         for analysis_type, values in scan_setup.items():
             # Ensure the setup and closeout values exist in the 'scan_setup'
             if len(values) != 2:
                 logging.warning(
-                    f"Invalid scan setup actions for {device_name}: {analysis_type} (Expected 2 values, got {len(values)})")
+                    f"Invalid scan setup actions for {device_name}: {analysis_type} "
+                    f"(Expected 2 values, got {len(values)})")
                 continue
 
             setup_value, closeout_value = values
@@ -205,9 +205,11 @@ class DeviceManager:
             })
 
             logging.info(
-                f"Added setup and closeout actions for {device_name}: {analysis_type} (setup={setup_value}, closeout={closeout_value})")
+                f"Added setup and closeout actions for {device_name}: {analysis_type} "
+                f"(setup={setup_value}, closeout={closeout_value})")
 
-    def is_statistic_noscan(self, variable_name):
+    @staticmethod
+    def is_statistic_noscan(variable_name):
         """
         Check if the variable is a 'noscan' or 'statistics' placeholder.
 
@@ -230,6 +232,7 @@ class DeviceManager:
         Returns:
             bool: True if the variable is a composite variable, False otherwise.
         """
+        
         return self.composite_variables is not None and variable_name in self.composite_variables
 
     def initialize_subscribers(self, variables, clear_devices=True):
@@ -339,7 +342,8 @@ class DeviceManager:
 
         logging.info("DeviceManager instance has been reinitialized.")
 
-    def preprocess_observables(self, observables):
+    @staticmethod
+    def preprocess_observables(observables):
         """
         Preprocess a list of observables by organizing them into device-variable mappings.
 
