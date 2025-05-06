@@ -71,6 +71,42 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 import traceback
 PRINT_TRACEBACK = True
 
+
+# below, some module level static functions that can't be members of the class so that the multi processing
+# works as expected
+def load_image_wrapper_static(shot_num: int, path: Path, analyzer_class: type) -> tuple[int, Optional[np.ndarray]]:
+    """
+    Module-level wrapper for multiprocessing-safe image loading.
+
+    Args:
+        shot_num (int): Shot number.
+        path (Path): Path to image file.
+        analyzer_class (type): A class (not instance) of ImageAnalyzer to instantiate in the subprocess.
+
+    Returns:
+        Tuple[int, Optional[np.ndarray]]: Shot number and loaded image.
+    """
+    try:
+        analyzer = analyzer_class()
+        image = analyzer.load_image(path)
+        return shot_num, image
+    except Exception as e:
+        logging.warning(f"Failed to load image for shot {shot_num}: {e}")
+        return shot_num, None
+
+def analyze_preloaded_image_static(
+    shot_num: int, image: np.ndarray, analyzer_class: type
+) -> tuple[int, Optional[np.ndarray], dict]:
+    try:
+        analyzer = analyzer_class()
+        result = analyzer.analyze_image(image)
+
+        image_out = result.get("processed_image_uint16")
+        scalars = result.get("analyzer_return_dictionary", {})
+        return shot_num, image_out, scalars
+    except Exception as e:
+        logging.error(f"Error analyzing image for shot {shot_num}: {e}")
+        return shot_num, None, {}
 # %% classes
 class Array2DScanAnalysis(ScanAnalysis):
 
@@ -157,7 +193,7 @@ class Array2DScanAnalysis(ScanAnalysis):
 
     @staticmethod
     def process_shot_parallel(
-            shot_num: int, file_path: Path, image_analyzer: ImageAnalyzer
+            shot_num: int, image: np.array, image_analyzer: ImageAnalyzer
     ) -> tuple[int, Optional[np.ndarray], dict]:
         """
         Helper function for parallel processing in a separate process.
@@ -169,7 +205,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         """
         try:
             analyzer = image_analyzer
-            results_dict = analyzer.analyze_image_file(image_filepath=file_path)
+            results_dict = analyzer.analyze_image(image=image)
         except Exception as e:
             logging.error(f"Error during analysis for shot {shot_num}: {e}")
             return shot_num, None, {}
@@ -196,101 +232,186 @@ class Array2DScanAnalysis(ScanAnalysis):
 
         return shot_num, image, analysis
 
-    def _process_all_shots_parallel(self) -> None:
-        """
-        Run the image analyzer on every shot in parallel and update self.data.
-        This method uses both a ProcessPoolExecutor and a ThreadPoolExecutor
-        (depending on whether the analyzer should run asynchronously) and mirrors
-        the error handling and logging from your sample code.
-        """
-        # Clear existing data
-        self.data = {'shot_num': [], 'images': []}
+    def _process_all_shots_parallel(self):
+        self._load_all_images_parallel()
+        self._run_batch_analysis()
+        self._run_image_analysis_parallel()
 
-        # Define success and error handlers:
-        def process_success(shot_number: int, analysis_result: dict) -> None:
-            """
-            On successful analysis of a shot, update self.data and auxiliary_data.
-            If no processed image is returned but analysis results are available,
-            update the auxiliary data and log the outcome, but do not add to self.data.
-            """
-            image = analysis_result.get("processed_image_uint16")
-            analysis = analysis_result.get("analyzer_return_dictionary", {})
+    def _build_image_file_map(self) -> None:
+        """
+        Efficiently builds a mapping from shot number to image file path by scanning
+        the directory once and matching filenames against the pattern in self.file_pattern.
+        """
+        import re
 
-            # Always update auxiliary data if analysis exists.
-            if analysis:
-                for key, value in analysis.items():
-                    if not isinstance(value, numbers.Number):
-                        logging.warning(
-                            f"[{self.__class__.__name__} using {self.image_analyzer.__class__.__name__}] "
-                            f"Analysis result for shot {shot_number} key '{key}' is not numeric (got {type(value).__name__}). Skipping."
-                        )
+        self._image_file_map = {}
+
+        # Convert self.file_pattern into a regex for extracting shot number
+        # E.g. "*_{shot_num:03d}.png" => r"_(\d{3})\.png$"
+        pattern_str = self.file_pattern.replace("*", ".*")
+        match = re.search(r"{shot_num:0(\d+)d}", pattern_str)
+        if not match:
+            raise ValueError("file_pattern must contain '{shot_num:0Nd}' with a valid width")
+        width = int(match.group(1))
+        shot_re = re.compile(rf"_(\d{{{width}}})\.png$")
+
+        all_files = list(self.path_dict['data_img'].glob("*.png"))
+
+        for file in all_files:
+            match = shot_re.search(file.name)
+            if match:
+                try:
+                    shot_num = int(match.group(1))
+                    if shot_num in self.auxiliary_data['Shotnumber'].values:
+                        self._image_file_map[shot_num] = file
+                        logging.info(f"Mapped file for shot {shot_num}: {file}")
+                except ValueError:
+                    logging.warning(f"Unable to parse shot number from {file.name}")
+            else:
+                logging.debug(f"Filename {file.name} does not match pattern regex.")
+
+        # Warn about missing expected shots
+        expected_shots = set(self.auxiliary_data['Shotnumber'].values)
+        found_shots = set(self._image_file_map.keys())
+        for m in sorted(expected_shots - found_shots):
+            logging.warning(f"No file found for shot {m}")
+
+    def _load_all_images_parallel(self) -> None:
+        """
+        Load all images in parallel (threaded or multi-processed) and store them in self.raw_images.
+
+        This method identifies the correct image file path for each shot number using the defined
+        file pattern, and loads the corresponding images using the ImageAnalyzer's `load_image` method.
+        Threading or multiprocessing is used based on the value of `self.image_analyzer.run_analyze_image_asynchronously`.
+
+        Results are stored in:
+            - self._image_file_map: {shot_number: Path}
+            - self.raw_images: {shot_number: np.ndarray}
+        """
+        self.raw_images = {}
+        self._build_image_file_map()
+
+        use_threads = self.image_analyzer.run_analyze_image_asynchronously
+        Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
+
+        analyzer_class = type(self.image_analyzer)
+
+        with Executor() as executor:
+            if use_threads:
+                # Use instance method for threading
+                futures = {
+                    executor.submit(self.image_analyzer.load_image, path): shot_num
+                    for shot_num, path in self._image_file_map.items()
+                }
+            else:
+                # Use static method for multiprocessing
+                futures = {
+                    executor.submit(load_image_wrapper_static, shot_num, path, analyzer_class): shot_num
+                    for shot_num, path in self._image_file_map.items()
+                }
+
+            for future in as_completed(futures):
+                shot_num = futures[future]
+                try:
+                    if use_threads:
+                        image = future.result()
                     else:
-                        self.auxiliary_data.loc[self.auxiliary_data['Shotnumber'] == shot_number, key] = value
-                logging.info(f"Finished processing analysis for shot {shot_number}.")
+                        _, image = future.result()
+
+                    if image is not None:
+                        self.raw_images[shot_num] = image
+                except Exception as e:
+                    logging.error(f"Error loading image for shot {shot_num}: {e}")
+
+    def _run_batch_analysis(self) -> None:
+        """
+        Perform optional batch-level analysis across all loaded images.
+
+        If the analyzer's `analyze_image_batch()` returns a dict, it will be merged into `self.image_analyzer.config`.
+        If the analyzer does not implement batch logic, this method does nothing.
+
+        Raises:
+            RuntimeError: If no images have been loaded yet.
+        """
+        if not hasattr(self, 'raw_images'):
+            raise RuntimeError("No images loaded. Run _load_all_images_parallel first.")
+
+        try:
+            config_update = self.image_analyzer.analyze_image_batch(list(self.raw_images.values())) or {}
+            if isinstance(config_update, dict):
+                if self.image_analyzer.config is None:
+                    self.image_analyzer.config = {}
+                self.image_analyzer.config.update(config_update)
+                logging.info("Batch analysis completed and config updated.")
             else:
-                logging.warning(f"No analysis results returned for shot {shot_number}.")
+                logging.info("Batch analysis returned nothing. No config update.")
+        except Exception as e:
+            logging.warning(f"Batch analysis skipped or failed: {e}")
 
-            # If a processed image is available, update self.data.
-            if image is not None:
-                # try:
-                #     image = image.astype(np.uint16)
-                # except Exception as e:
-                #     logging.error(f"Error converting image for shot {shot_number} to uint16: {e}")
-                #     image = None
-                if image is not None:
-                    self.data['shot_num'].append(shot_number)
-                    self.data['images'].append(image)
+    def _run_image_analysis_parallel(self) -> None:
+        """
+        Analyze each image in parallel (threaded or multi-processed), using previously defined batch config.
+
+        This method analyzes each image in `self.raw_images`, applying the `analyze_image()` method
+        with the current analyzer config (which may be populated by `_run_batch_analysis()`).
+
+        The analyzer is applied using either threads or processes based on the `run_analyze_image_asynchronously` flag.
+        Results (processed images and scalar analysis values) are stored in `self.data` and `self.auxiliary_data`.
+        """
+        logging.info('Starting the individual image analysis')
+        self.data: dict[str, list] = {'shot_num': [], 'images': []}
+        Executor = ThreadPoolExecutor if self.image_analyzer.run_analyze_image_asynchronously else ProcessPoolExecutor
+        logging.info(f'Using {"ThreadPoolExecutor" if Executor is ThreadPoolExecutor else "ProcessPoolExecutor"}')
+
+        analyzer_class = type(self.image_analyzer)
+
+        with Executor() as executor:
+            if self.image_analyzer.run_analyze_image_asynchronously:
+                futures = {
+                    executor.submit(self.image_analyzer.analyze_image, img): sn
+                    for sn, img in self.raw_images.items()
+                }
             else:
-                logging.info(f"Shot {shot_number} returned no processed image; only auxiliary data was updated.")
+                futures = {
+                    executor.submit(analyze_preloaded_image_static, sn, self.raw_images[sn], analyzer_class): sn
+                    for sn in self.raw_images
+                }
 
-        def process_error(shot_number: int, exception: Exception) -> None:
-            """
-            Log an error if processing a shot fails.
-            """
-            logging.error(f"Error while analyzing shot {shot_number}: {exception}")
+            logging.info('Submitted image analysis tasks.')
 
-        # Gather tasks: each shot number paired with its file path.
-        tasks = []
-        for shot_num in self.auxiliary_data['Shotnumber'].values:
-            pattern = self.file_pattern.format(shot_num=int(shot_num))
-            file_path = next(self.path_dict['data_img'].glob(pattern), None)
-            logging.info(f'file path found is {file_path}')
-            if file_path is not None:
-                tasks.append((shot_num, file_path))
-
-        # Dictionary to map futures to shot numbers.
-        image_analysis_futures = {}
-
-        # Submit image analysis jobs.
-        # Use ProcessPoolExecutor if the analyzer is CPU-bound,
-        # or ThreadPoolExecutor if run_analyze_image_asynchronously is True.
-
-        with ProcessPoolExecutor(max_workers=4) as process_pool, ThreadPoolExecutor(max_workers=4) as thread_pool:
-            for shot_num, file_path in tasks:
-                if self.image_analyzer.run_analyze_image_asynchronously:
-                    # For asynchronous (likely I/O-bound) processing, use the thread pool.
-                    future = thread_pool.submit(self.image_analyzer.analyze_image_file, image_filepath=file_path)
-                else:
-                    # For CPU-bound tasks, use the process pool.
-                    # Pass the analyzer's class so each process can create its own instance.
-                    future = process_pool.submit(self.process_shot_parallel, shot_num, file_path,
-                                                 self.image_analyzer)
-                image_analysis_futures[future] = shot_num
-
-            # Process completed futures.
-            for future in as_completed(image_analysis_futures):
-                shot_num = image_analysis_futures[future]
-                if (exception := future.exception()) is not None:
-                    process_error(shot_num, exception)
-                else:
+            for future in as_completed(futures):
+                shot_num = futures[future]
+                try:
                     result = future.result()
-                    # If using the process pool, result is a tuple: (shot_num, image, analysis).
-                    if isinstance(result, tuple):
-                        _, image, analysis = result
-                        analysis_result = {"processed_image_uint16": image, "analyzer_return_dictionary": analysis}
+
+                    # Handle result depending on return format (process vs thread)
+                    if isinstance(result, tuple) and len(result) == 3:
+                        _, image, scalars = result
+                        result = {"processed_image_uint16": image, "analyzer_return_dictionary": scalars}
                     else:
-                        analysis_result = result
-                    process_success(shot_num, analysis_result)
+                        image = result.get("processed_image_uint16")
+                        scalars = result.get("analyzer_return_dictionary", {})
+
+                    if image is not None:
+                        self.data['shot_num'].append(shot_num)
+                        self.data['images'].append(image)
+                        logging.info(f"Shot {shot_num}: processed image stored.")
+                        logging.info(f'analyzed shot {shot_num} and got {scalars}')
+
+                    else:
+                        logging.info(f"Shot {shot_num}: no image returned from analysis.")
+
+                    for key, value in scalars.items():
+                        if not isinstance(value, (int, float, np.number)):
+                            logging.warning(
+                                f"[{self.__class__.__name__} using {self.image_analyzer.__class__.__name__}] "
+                                f"Analysis result for shot {shot_num} key '{key}' is not numeric (got {type(value).__name__}). Skipping."
+                            )
+                        else:
+                            self.auxiliary_data.loc[self.auxiliary_data['Shotnumber'] == shot_num, key] = value
+
+                except Exception as e:
+                    logging.error(f"Analysis failed for shot {shot_num}: {e}")
 
     def _postprocess_noscan(self) -> None:
         """Perform post-processing for a no-scan: average images and create a GIF."""
