@@ -161,7 +161,7 @@ class FileMover:
                     task.random_part = random_part
 
                     # Generate the new standardized file stem.
-                    task.new_name = self.rename_file(self.scan_number, device_name, shot_index)
+                    task.new_name = self.generate_device_shot_filename(self.scan_number, device_name, shot_index)
 
                     # Move the primary file.
                     self._move_file(task, file, variant.name)
@@ -198,8 +198,8 @@ class FileMover:
         """
         target_dir = task.target_dir.parent / new_device_name
         target_dir.mkdir(parents=True, exist_ok=True)
-        new_file_stem = task.new_name if task.new_name else self.rename_file(self.scan_number, new_device_name,
-                                                                             task.shot_index)
+        new_file_stem = task.new_name if task.new_name \
+            else self.generate_device_shot_filename(self.scan_number, new_device_name, task.shot_index)
         new_filename = new_file_stem + source_file.suffix
         dest_file = target_dir / new_filename
         try:
@@ -243,7 +243,7 @@ class FileMover:
         self._move_file(task, candidate, new_device_name)
 
     @staticmethod
-    def rename_file(scan_number: int, device_name: str, shot_index: int) -> str:
+    def generate_device_shot_filename(scan_number: int, device_name: str, shot_index: int) -> str:
         """
         Generate a new file stem based on scan number, device name, and shot index.
 
