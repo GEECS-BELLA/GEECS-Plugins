@@ -363,6 +363,8 @@ class DeviceManager:
         Add a new device or append variables to an existing device for scan operations and
         recording their data.
 
+        # TODO is there ever an instance where variable_list is a list?  Can we make it just a single string?
+
         Args:
             device_name (str or dict): The name of the device to add or update, or dict for composite var
             variable_list (list): A list of variables to add for the device.
@@ -372,6 +374,7 @@ class DeviceManager:
             logging.info(f"Adding new scan device: {device_name} with default settings.")
             self._subscribe_device(device_name, var_list=variable_list)
 
+            # TODO can we delete these lines of code for `self.nonscalar_saving_devices`?
             # Default attributes for scan-specific devices (e.g., from scan_config)
             default_device_config = {
                 'save_non_scalar_data': False,
