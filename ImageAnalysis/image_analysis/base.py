@@ -139,6 +139,22 @@ class ImageAnalyzer:
 
         return image
 
+    def analyze_image_batch(self, images: list[Array2D]) -> dict:
+        """
+        Perform optional batch-level analysis on a list of images.
+        By default, this does nothing and returns an empty dict.
+
+        Child classes may override this method to compute config values
+        such as backgrounds, masks, etc.
+
+        Args:
+            images (list of Array2D): All images loaded for the scan.
+
+        Returns:
+            dict: Config values to be passed to analyze_image() later.
+        """
+        return {}
+
 
     def build_return_dictionary(self, return_image: Optional[NDArray] = None,
                                 return_scalars: Optional[dict[str, Union[int, float]]] = None,
