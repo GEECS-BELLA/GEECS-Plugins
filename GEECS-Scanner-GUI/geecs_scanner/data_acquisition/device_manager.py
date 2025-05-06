@@ -31,6 +31,7 @@ class DeviceManager:
         self.composite_variables = {}
         self.scan_setup_action = {'steps': []}
         self.scan_closeout_action = {'steps': []}
+        self.scan_base_description = ''
 
         self.fatal_error_event = threading.Event()  # Used to signal a fatal error
 
