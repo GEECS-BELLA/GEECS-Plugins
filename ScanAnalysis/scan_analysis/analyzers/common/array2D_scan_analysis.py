@@ -246,16 +246,25 @@ class Array2DScanAnalysis(ScanAnalysis):
 
         self._image_file_map = {}
 
-        # Convert self.file_pattern into a regex for extracting shot number
-        # E.g. "*_{shot_num:03d}.png" => r"_(\d{3})\.png$"
-        pattern_str = self.file_pattern.replace("*", ".*")
+        # Convert file pattern to a regex pattern
+        pattern_str = self.file_pattern
         match = re.search(r"{shot_num:0(\d+)d}", pattern_str)
         if not match:
             raise ValueError("file_pattern must contain '{shot_num:0Nd}' with a valid width")
         width = int(match.group(1))
-        shot_re = re.compile(rf"_(\d{{{width}}})\.png$")
 
-        all_files = list(self.path_dict['data_img'].glob("*.png"))
+        # Extract suffix from the pattern (e.g. ".png", ".himg", etc.)
+        suffix_match = re.search(r"\.(\w+)$", pattern_str)
+        if not suffix_match:
+            raise ValueError("file_pattern must include a file extension like '.png'")
+        suffix = suffix_match.group(0)  # includes the dot, e.g. '.png'
+
+        # Build regex to extract shot number
+        shot_re = re.compile(rf"_(\d{{{width}}}){re.escape(suffix)}$")
+
+        # Convert file pattern into a glob pattern (replace format string with *)
+        glob_pattern = self.file_pattern.replace(f"{{shot_num:0{width}d}}", "*")
+        all_files = list(self.path_dict['data_img'].glob(glob_pattern))
 
         for file in all_files:
             match = shot_re.search(file.name)
