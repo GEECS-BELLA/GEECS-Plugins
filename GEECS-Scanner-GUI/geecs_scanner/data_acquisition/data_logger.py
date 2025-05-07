@@ -352,13 +352,13 @@ class DataLogger:
     for various devices in the experimental setup.
     """
 
-    def __init__(self, experiment_dir: str, device_manager: DeviceManager = None):
+    def __init__(self, experiment_dir: Optional[str], device_manager: DeviceManager = None):
 
         """
         Initialize the DataLogger with the experiment directory and a device manager.
 
         Args:
-            experiment_dir (str): Directory where the experiment's data is stored.
+            experiment_dir (str, optional): Directory where the experiment's data is stored, typically experiment name
             device_manager (DeviceManager, optional): The manager responsible for handling devices.
                                                       If not provided, a new one is initialized.
         """
