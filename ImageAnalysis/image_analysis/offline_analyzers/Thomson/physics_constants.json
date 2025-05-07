@@ -1,0 +1,47 @@
+{
+    "vacuum_permittivity": {
+        "value": 8.854187817e-12,
+        "unit": "F/m",
+        "description": "Vacuum permittivity"
+    },
+    "vacuum_permeability": {
+        "value": 1.2566370614e-06,
+        "unit": "N/A^2",
+        "description": "Vacuum permeability"
+    },
+    "speed_of_light": {
+        "value": 299792458,
+        "unit": "m/s",
+        "description": "Speed of light in vacuum"
+    },
+    "electron_charge": {
+        "value": 1.602176634e-19,
+        "unit": "C",
+        "description": "Magnitude of charge of electron"
+    },
+    "planck_constant": {
+        "value": 6.62607015e-34,
+        "unit": "J\u00b7s",
+        "description": "Planck's constant"
+    },
+    "reduced_planck_constant": {
+        "value": 1.054571817e-34,
+        "unit": "J\u00b7s",
+        "description": "Reduced Planck's constant"
+    },
+    "boltzmann_constant": {
+        "value": 1.380649e-23,
+        "unit": "J/K",
+        "description": "Boltzmann's constant"
+    },
+    "electron_mass": {
+        "value": 9.10938356e-31,
+        "unit": "kg",
+        "description": "Mass of electron"
+    },
+    "proton_mass": {
+        "value": 1.67262192369e-27,
+        "unit": "kg",
+        "description": "Mass of proton"
+    }
+}

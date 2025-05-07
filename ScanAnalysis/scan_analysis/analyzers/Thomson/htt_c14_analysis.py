@@ -34,6 +34,7 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 import glob
 import re
 from PIL import Image
+
 class HttC14EbeamProfiler(CameraImageAnalysis):
     def __init__(self, scan_tag: ScanTag, device_name=None, skip_plt_show: bool = True, rerun_analysis: bool = False, image_analyzer=None):
 
