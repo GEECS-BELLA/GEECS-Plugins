@@ -69,7 +69,17 @@ def test_file_mover_functionality():
     file_mover.shutdown()
 
 
-#def test_data_logger_functionality():
+def test_data_logger_initialization():
+    """
+    Much of Data Logger is intertwined with the actual process of running a scan, so this test is just a quick check
+    if the instance of DataLogger can be initialized, started, and stopped.  TODO expand upon this?
+    """
+
+    data_logger = DataLogger(experiment_dir=None)
+    data_logger.sound_player.stop()  # Stop the sound player so no sounds are playing
+
+    data_logger.start_logging()
+    data_logger.stop_logging()
 
 
 if __name__ == "__main__":
