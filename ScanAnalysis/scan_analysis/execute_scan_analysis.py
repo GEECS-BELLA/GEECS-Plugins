@@ -21,8 +21,13 @@ except:
     loaded_docgen = False
 
 from scan_analysis.base import ScanAnalysis
-from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig  # import your config class
-from image_analysis.offline_analyzers.HASO_himg_has_processor import HasoHimgHasConfig  # import your config class
+
+try:
+    from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig  # import your config class
+    from image_analysis.offline_analyzers.HASO_himg_has_processor import HasoHimgHasConfig  # import your config class
+except:
+    logging.warning(f'from execute_analysis: could not load haso components')
+
 
 
 def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnalysis:
