@@ -38,6 +38,7 @@ class HTTC14(HTTC14Functions):
         self.flag_logging = True
         self.analyzed_image = None # class attribute will be the the image after any filtering, roi-ing, etc. 
         self.image_filepath = None
+        self.post_processed_image_save_dirr = None
         self.analysis_dict = {}
     def imshow_analyzed_image(self, cmap, units):
         """
@@ -169,6 +170,7 @@ class HTTC14(HTTC14Functions):
             ax.set_xlabel("X (mm)", fontsize=14)
             ax.set_ylabel("Y (mm)", fontsize=14)
             # Add grid
+            ax.set_title(self.image_filepath.parts[-1])
             ax.grid(True, linestyle='--', alpha=0.3)
 
     def analyze_image_file(self, image_filepath: Path, auxiliary_data: Optional[dict] = None) -> dict[
@@ -192,13 +194,21 @@ class HTTC14(HTTC14Functions):
         self.initialize_instance_image() # this creates the self.image variable based on the file path passed
         self.process_lineout()
         self.imshow_analyzed_image(cmap="jet", units="mm")
+        print(self.image_filepath.parts[0:8])
+        
+        parent_dirr = self.image_filepath.parents[3]
+        self.post_processed_image_save_dirr = parent_dirr/'analysis'/self.image_filepath.parts[7]/self.image_filepath.parts[9]
+        # print(self.post_processed_image_save_dirr)
+        self.post_processed_image_save_dirr.parent.mkdir(exist_ok=True,parents=True)
+        plt.savefig(self.post_processed_image_save_dirr)
+        
         # do some analysis on an image, save the results in a dict
         # some_dict = {'Max value of image':np.max(self.analyzed_image)}
         # put all of your results in this dict
         # return_dictionary = self.build_return_dictionary(return_scalars=some_dict, return_image=self.analyzed_image)
         
-        
-        
+        # print("Image file path: ",self.image_filepath.name)        
+        # print(self.image_filepath.parts[-1])
         # return return_dictionary
 
 if __name__ == "__main__":
