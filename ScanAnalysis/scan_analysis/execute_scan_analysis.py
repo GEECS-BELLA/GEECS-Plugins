@@ -77,9 +77,9 @@ def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnaly
         image_analyzer=image_analyzer
     )
 
-    if hasattr(analyzer_instance, "file_pattern"):
-        default_pattern = "*_{shot_num:03d}.png"
-        analyzer_instance.file_pattern = analyzer_info.file_pattern or default_pattern
+    if hasattr(analyzer_instance, "file_tail"):
+        default_tail = ".png"
+        analyzer_instance.file_tail = analyzer_info.file_tail or default_tail
 
     return analyzer_instance
 

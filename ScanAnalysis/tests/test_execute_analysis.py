@@ -56,7 +56,7 @@ class TestExecuteAnalysis(unittest.TestCase):
             requirements={'U_HasoLift'},
             device_name='U_HasoLift',
             image_analyzer_class=HASOHimgHasProcessor,
-            file_pattern = "*_{shot_num:03d}.himg",
+            file_tail = ".himg",
             image_analysis_config= analysis_config)
 
         test_tag = ScanTag(year=2025, month=2, day=19, number=2, experiment='Undulator')
@@ -86,7 +86,7 @@ class TestExecuteAnalysis(unittest.TestCase):
                 requirements={'U_HasoLift'},
                 device_name='U_HasoLift',
                 image_analyzer_class=PhaseDownrampProcessor,
-                file_pattern = "*_{shot_num:03d}_postprocessed.tsv",
+                file_tail = "_postprocessed.tsv",
                 image_analysis_config = config)
 
         test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')

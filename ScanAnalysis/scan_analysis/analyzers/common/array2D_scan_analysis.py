@@ -266,7 +266,6 @@ class Array2DScanAnalysis(ScanAnalysis):
                 suffix = m.group('suffix') or ''
                 file_format = m.group('format')
                 tail = f"{suffix}.{file_format}"
-
                 if tail != self.file_tail:
                     continue  # skip if it doesn't match the requested tail
 
@@ -835,7 +834,8 @@ if __name__ == "__main__":
     analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
                          requirements={'UC_ALineEBeam3'},
                          device_name='UC_ALineEBeam3',
-                         image_analyzer_class=Aline3Analyzer)
+                         image_analyzer_class=Aline3Analyzer,
+                         file_tail = '.png')
 
     test_tag = ScanTag(year=2025, month=5, day=7, number=29, experiment='Undulator')
 
