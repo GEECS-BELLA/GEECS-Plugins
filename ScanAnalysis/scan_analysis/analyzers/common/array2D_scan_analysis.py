@@ -335,25 +335,37 @@ class Array2DScanAnalysis(ScanAnalysis):
     def _run_batch_analysis(self) -> None:
         """
         Perform optional batch-level analysis across all loaded images.
-
-        If the analyzer's `analyze_image_batch()` returns a dict, it will be merged into `self.image_analyzer.config`.
-        If the analyzer does not implement batch logic, this method does nothing.
+        This uses the analyze_image_batch() method of ImageAnalysis, which expects a list of images.
+        An example use case: dynamically determine the background from a set of images
+        and subtract it.
 
         Raises:
-            RuntimeError: If no images have been loaded yet.
+            RuntimeError: If no images have been loaded yet or if output length is invalid.
         """
-        if not hasattr(self, 'raw_images'):
+
+        if not hasattr(self, 'raw_images') or not self.raw_images:
             raise RuntimeError("No images loaded. Run _load_all_images_parallel first.")
 
         try:
-            config_update = self.image_analyzer.analyze_image_batch(list(self.raw_images.values())) or {}
-            if isinstance(config_update, dict):
-                if self.image_analyzer.config is None:
-                    self.image_analyzer.config = {}
-                self.image_analyzer.config.update(config_update)
-                logging.info("Batch analysis completed and config updated.")
-            else:
-                logging.info("Batch analysis returned nothing. No config update.")
+            # Extract keys and values from the dict
+            shot_nums = list(self.raw_images.keys())
+            image_list = list(self.raw_images.values())
+
+            # Run batch analysis on the list of images
+            processed_images = self.image_analyzer.analyze_image_batch(image_list)
+
+            if processed_images is None:
+                logging.warning("analyze_image_batch() returned None. Skipping.")
+                self.raw_images = {}
+                return
+
+            if len(processed_images) != len(shot_nums):
+                raise ValueError(f"analyze_image_batch() returned {len(processed_images)} images, "
+                                 f"but {len(shot_nums)} were expected.")
+
+            # Reconstruct raw_images using the original keys
+            self.raw_images = dict(zip(shot_nums, processed_images))
+
         except Exception as e:
             logging.warning(f"Batch analysis skipped or failed: {e}")
 
@@ -820,23 +832,18 @@ if __name__ == "__main__":
     from scan_analysis.base import AnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan
     from geecs_python_api.controls.api_defs import ScanTag
-    from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
+    from image_analysis.offline_analyzers.Undulator.ALine3 import Aline3Analyzer
 
     perform_analysis = True
     analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
-                         requirements={'UC_ACaveMagCam3'},
-                         device_name='UC_ACaveMagCam3',
-                         image_analyzer_class=ACaveMagCam3ImageAnalyzer)
+                         requirements={'UC_ALineEBeam3'},
+                         device_name='UC_ALineEBeam3',
+                         image_analyzer_class=Aline3Analyzer)
 
-    # no scan example
-    test_tag = ScanTag(year=2025, month=3, day=6, number=39, experiment='Undulator')
-
-    # emq2 scan example
-    test_tag = ScanTag(year=2025, month=3, day=7, number=22, experiment='Undulator')
+    test_tag = ScanTag(year=2025, month=5, day=7, number=29, experiment='Undulator')
 
     test_analyzer = analyzer_info
     import time
     t0 = time.monotonic()
     analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
     t1 = time.monotonic()
-    print(t1-t0)
