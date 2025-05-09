@@ -137,7 +137,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         self.flag_logging = flag_logging
         self.flag_save_images = flag_save_images
 
-        self.file_pattern: str = "*_{shot_num:03d}.png"
+        self.file_tail: str = "png"
 
         # organize various paths
         self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
@@ -237,49 +237,47 @@ class Array2DScanAnalysis(ScanAnalysis):
         self._run_batch_analysis()
         self._run_image_analysis_parallel()
 
-    def _build_image_file_map(self) -> None:
+    def _build_image_file_map(self,) -> None:
         """
-        Efficiently builds a mapping from shot number to image file path by scanning
-        the directory once and matching filenames against the pattern in self.file_pattern.
+        Build a mapping from shot number to image file path using a flexible filename regex.
+        Only includes files whose suffix + format matches `file_tail` exactly.
+
+        Args:
+            file_tail (str): String like '_raw.png' or '.png' to match against (must include leading dot).
         """
         import re
 
         self._image_file_map = {}
 
-        # Convert file pattern to a regex pattern
-        pattern_str = self.file_pattern
-        match = re.search(r"{shot_num:0(\d+)d}", pattern_str)
-        if not match:
-            raise ValueError("file_pattern must contain '{shot_num:0Nd}' with a valid width")
-        width = int(match.group(1))
+        scan_number_str = f"{self.scan_tag.number:03d}"
+        image_filename_regex = re.compile(
+            rf"Scan{scan_number_str}_"  # strict scan number match
+            r"(?P<device_subject>.*)_"  # device or device-subject
+            r"(?P<shot_number>\d{3,})"  # 3+ digit shot number
+            r"(?P<suffix>_[^.]*)?"  # optional suffix (e.g. _raw)
+            r"\.(?P<format>\w+)$"  # file extension
+        )
 
-        # Extract suffix from the pattern (e.g. ".png", ".himg", etc.)
-        suffix_match = re.search(r"\.(\w+)$", pattern_str)
-        if not suffix_match:
-            raise ValueError("file_pattern must include a file extension like '.png'")
-        suffix = suffix_match.group(0)  # includes the dot, e.g. '.png'
+        for file in self.path_dict['data_img'].iterdir():
+            if not file.is_file():
+                continue
 
-        # Build regex to extract shot number
-        shot_re = re.compile(rf"_(\d{{{width}}}){re.escape(suffix)}$")
+            m = image_filename_regex.match(file.name)
+            if m:
+                suffix = m.group('suffix') or ''
+                file_format = m.group('format')
+                tail = f"{suffix}.{file_format}"
 
-        # Convert file pattern into a glob pattern (replace format string with *)
-        glob_pattern = self.file_pattern.replace(f"{{shot_num:0{width}d}}", "*")
-        all_files = list(self.path_dict['data_img'].glob(glob_pattern))
+                if tail != self.file_tail:
+                    continue  # skip if it doesn't match the requested tail
 
-        for file in all_files:
-            match = shot_re.search(file.name)
-            if match:
-                try:
-                    shot_num = int(match.group(1))
-                    if shot_num in self.auxiliary_data['Shotnumber'].values:
-                        self._image_file_map[shot_num] = file
-                        logging.info(f"Mapped file for shot {shot_num}: {file}")
-                except ValueError:
-                    logging.warning(f"Unable to parse shot number from {file.name}")
+                shot_num = int(m.group('shot_number'))
+                if shot_num in self.auxiliary_data['Shotnumber'].values:
+                    self._image_file_map[shot_num] = file
+                    logging.info(f"Mapped file for shot {shot_num}: {file}")
             else:
-                logging.debug(f"Filename {file.name} does not match pattern regex.")
+                logging.debug(f"Filename {file.name} does not match expected pattern.")
 
-        # Warn about missing expected shots
         expected_shots = set(self.auxiliary_data['Shotnumber'].values)
         found_shots = set(self._image_file_map.keys())
         for m in sorted(expected_shots - found_shots):

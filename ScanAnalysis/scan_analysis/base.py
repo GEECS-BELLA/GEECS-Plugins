@@ -40,7 +40,8 @@ class AnalyzerInfo(NamedTuple):
     is_active: bool = True
     # New optional field for explicit image analyzer import
     image_analyzer_class: Optional[Type[ImageAnalyzer]] = None
-    file_pattern: Optional[str] = "*_{shot_num:03d}.png"
+    # file_pattern: Optional[str] = "*_{shot_num:03d}.png"
+    file_tail: Optional[str] = "png",  # required file extension (no dot)
     image_analysis_config: Optional[any] = None
 
 
