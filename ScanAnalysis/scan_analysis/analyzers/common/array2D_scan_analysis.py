@@ -137,7 +137,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         self.flag_logging = flag_logging
         self.flag_save_images = flag_save_images
 
-        self.file_tail: str = "png"
+        self.file_tail: str = ".png"
 
         # organize various paths
         self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
@@ -237,7 +237,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         self._run_batch_analysis()
         self._run_image_analysis_parallel()
 
-    def _build_image_file_map(self,) -> None:
+    def _build_image_file_map(self) -> None:
         """
         Build a mapping from shot number to image file path using a flexible filename regex.
         Only includes files whose suffix + format matches `file_tail` exactly.
@@ -249,13 +249,12 @@ class Array2DScanAnalysis(ScanAnalysis):
 
         self._image_file_map = {}
 
-        scan_number_str = f"{self.scan_tag.number:03d}"
         image_filename_regex = re.compile(
-            rf"Scan{scan_number_str}_"  # strict scan number match
-            r"(?P<device_subject>.*)_"  # device or device-subject
-            r"(?P<shot_number>\d{3,})"  # 3+ digit shot number
-            r"(?P<suffix>_[^.]*)?"  # optional suffix (e.g. _raw)
-            r"\.(?P<format>\w+)$"  # file extension
+            r"Scan(?P<scan_number>\d{3,})_"  # capture scan number
+            r"(?P<device_subject>.*?)_"  # non-greedy device/subject
+            r"(?P<shot_number>\d{3,})"  # capture shot number
+            r"(?P<suffix>_[^.]*)?"  # optional suffix
+            r"\.(?P<format>\w+)$"  # file format
         )
 
         for file in self.path_dict['data_img'].iterdir():
