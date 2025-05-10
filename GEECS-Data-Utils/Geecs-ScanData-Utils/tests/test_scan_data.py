@@ -1,19 +1,8 @@
-import unittest 
+import unittest
 
-from geecs_python_api.analysis.scans.scan_analysis import ScanAnalysis
-from geecs_python_api.analysis.scans.scan_data import ScanData
-from geecs_python_api.analysis.scans.scan_images import ScanImages
-
+from geecs_scan_data_utils import ScanData
 
 class ScanDataTestCase(unittest.TestCase):
-    pass
-
-
-class ScanImagesTestCase(unittest.TestCase):
-    pass
-
-
-class ScanAnalysisTestCase(unittest.TestCase):
     def test_init(self):
         experiment_name = 'Undulator'
         scan_tag = ScanData.get_scan_tag(23, '8', 9, 4)
@@ -51,9 +40,7 @@ class ScanAnalysisTestCase(unittest.TestCase):
         scan_data = ScanData.get_latest_scan_data(experiment=experiment_name, year=2024, month=11, day=21)
         print(scan_data.get_folder())
 
-        scan = ScanData(folder="Z:/data/Undulator/Y2023/05-May/23_0501/scans/Scan002")
-        scan_images = ScanImages(scan, "UC_VisaEBeam3")
-        scan_analysis = ScanAnalysis(scan, scan_images, key_device="U_S1H")
+        scan = ScanData(folder=f"{scan_data.paths_config.base_path}/Undulator/Y2023/05-May/23_0501/scans/Scan002")
 
     def test_background_check(self):
         experiment_name = 'Undulator'

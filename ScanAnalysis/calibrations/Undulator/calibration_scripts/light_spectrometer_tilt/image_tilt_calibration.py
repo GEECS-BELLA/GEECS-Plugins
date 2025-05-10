@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 from image_analysis.utils import read_imaq_png_image
-from geecs_python_api.analysis.scans.scan_data import ScanData
+from geecs_scan_data_utils.scan_data import ScanData
 
 def find_two_peaks(input_image):
     left_image = input_image[:, 0:int(np.shape(input_image)[1] / 2)]

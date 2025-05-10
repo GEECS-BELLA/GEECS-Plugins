@@ -19,29 +19,19 @@ def exec_async(fct, args=(), kwargs=None) -> AsyncResult:
         kwargs = {}
     return fct(*args, **kwargs, sync=False)
 
-
 class VarAlias(str):
     pass
 
+import warnings
+from geecs_paths_utils.scan_paths import ScanTag as _ScanTag
 
-class ScanTag(NamedTuple):
-    year: int
-    month: int
-    day: int
-    number: int
-    experiment: Optional[str] = None
+warnings.warn(
+    "geecs_python_api.controls.api_defs.ScanTag has moved to "
+    "geecs_paths_utils.geecs_paths; please update your imports.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-
-def month_to_int(month: Union[str, int]) -> int:
-    """ :return: an integer representing the given month """
-    try:
-        month_int = int(month)
-        if 1 <= month_int <= 12:
-            return month_int
-    except ValueError:
-        pass
-
-    if isinstance(month, str):
-        return dateparse(month).month
-    else:
-        raise ValueError(f"'{month}' is not a valid month")
+class ScanTag(_ScanTag):
+    """Stub for backward compatibility."""
+    pass

@@ -100,7 +100,7 @@ At the very least, will need the following:
 ```python
 from scan_analysis.base import ScanAnalysis
 from image_analysis.utils import read_imaq_png_image
-from geecs_python_api.analysis.scans.scan_data import ScanData
+from geecs_scan_data_utils.scan_data import ScanData
 
 class MyCustomAnalyzer(ScanAnalysis):
     def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True, image_analyzer=None):
@@ -127,7 +127,7 @@ Another useful tip is to make a quick block of code at the bottom of this file t
 
 ```python
 if __name__ == "__main__":
-    from geecs_python_api.analysis.scans.scan_data import ScanData
+    from geecs_scan_data_utils.scan_data import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=12, day=25, number=1, experiment='MyExperimentName')
     analyzer = MyCustomAnalyzer(scan_tag=tag, skip_plt_show=False)
     analyzer.run_analysis()

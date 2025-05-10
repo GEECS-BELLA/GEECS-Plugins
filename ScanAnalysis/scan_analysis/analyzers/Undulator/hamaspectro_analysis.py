@@ -20,7 +20,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from scan_analysis.base import ScanAnalysis
-from geecs_python_api.analysis.scans.scan_data import ScanTag
+from geecs_python_api.controls.api_defs import ScanTag
 
 # %% classes
 
