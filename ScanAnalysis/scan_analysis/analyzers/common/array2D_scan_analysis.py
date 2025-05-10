@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
     from numpy.typing import NDArray
 
+import re
 from pathlib import Path
 import logging
 import numpy as np
@@ -191,47 +192,6 @@ class Array2DScanAnalysis(ScanAnalysis):
                 logging.warning(f"Warning: Image analysis failed due to: {e}")
             return
 
-    @staticmethod
-    def process_shot_parallel(
-            shot_num: int, image: np.array, image_analyzer: ImageAnalyzer
-    ) -> tuple[int, Optional[np.ndarray], dict]:
-        """
-        Helper function for parallel processing in a separate process.
-        Creates a new analyzer instance from analyzer_class, processes the image,
-        and returns the shot number, processed image, and analysis results.
-
-        If the analyzer's return value is not as expected (e.g., not a dict, missing
-        keys, or values are None), it logs a warning and returns safe defaults.
-        """
-        try:
-            analyzer = image_analyzer
-            results_dict = analyzer.analyze_image(image=image)
-        except Exception as e:
-            logging.error(f"Error during analysis for shot {shot_num}: {e}")
-            return shot_num, None, {}
-
-        if not isinstance(results_dict, dict):
-            logging.warning(f"Analyzer returned non-dict result for shot {shot_num}.")
-            return shot_num, None, {}
-
-        if "processed_image_uint16" not in results_dict:
-            logging.warning(f"Shot {shot_num}: 'processed_image_uint16' key not found in analyzer result.")
-            image = None
-        else:
-            image = results_dict.get("processed_image_uint16")
-
-        analysis = results_dict.get("analyzer_return_dictionary", {})
-        if not isinstance(analysis, dict):
-            logging.warning(f"Shot {shot_num} analysis returned non-dict 'analyzer_return_dictionary'.")
-            analysis = {}
-
-        if image is None and analysis:
-            logging.info(f"Shot {shot_num} returned no processed image, but analysis results are available.")
-        elif image is None:
-            logging.warning(f"Shot {shot_num} returned no processed image or analysis results.")
-
-        return shot_num, image, analysis
-
     def _process_all_shots_parallel(self):
         self._load_all_images_parallel()
         self._run_batch_analysis()
@@ -245,8 +205,6 @@ class Array2DScanAnalysis(ScanAnalysis):
         Args:
             file_tail (str): String like '_raw.png' or '.png' to match against (must include leading dot).
         """
-        import re
-
         self._image_file_map = {}
 
         image_filename_regex = re.compile(
