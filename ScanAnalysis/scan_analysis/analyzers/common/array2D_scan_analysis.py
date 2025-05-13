@@ -37,40 +37,45 @@ methods. An example is the HIMG_with_average_saving file. Creating a child class
 use of the other key parts of this framework (e.g. parallel processing, appending scalar data)
 
 """
-# %% imports
+# %% Imports
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union, Optional, List
+# --- Standard Library ---
+import logging
+import re
+import traceback
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import TYPE_CHECKING, Union, Optional, List, TypedDict
 
+# --- Third-Party Libraries ---
+import numpy as np
+import cv2
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
+import imageio as io
 
+# --- Local / Project Imports ---
+from scan_analysis.base import ScanAnalysis
+from image_analysis.base import ImageAnalyzer
+
+# --- Type-Checking Imports ---
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
     from numpy.typing import NDArray
 
-import re
-from pathlib import Path
-import logging
-import numpy as np
-import numbers
-import cv2
-import matplotlib
-
+# --- Global Config ---
 use_interactive = False
 if not use_interactive:
     matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
-
-import imageio as io
-
-from scan_analysis.base import ScanAnalysis
-from image_analysis.base import ImageAnalyzer
-
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-
-import traceback
 PRINT_TRACEBACK = True
+
+# --- TypedDict Definitions ---
+class BinImageEntry(TypedDict):
+    value: float
+    image: Optional[np.ndarray]  # or remove Optional if you want to guarantee it
 
 
 # below, some module level static functions that can't be members of the class so that the multi processing
@@ -108,6 +113,7 @@ def analyze_preloaded_image_static(
     except Exception as e:
         logging.error(f"Error analyzing image for shot {shot_num}: {e}")
         return shot_num, None, {}
+
 # %% classes
 class Array2DScanAnalysis(ScanAnalysis):
 
@@ -202,8 +208,6 @@ class Array2DScanAnalysis(ScanAnalysis):
         Build a mapping from shot number to image file path using a flexible filename regex.
         Only includes files whose suffix + format matches `file_tail` exactly.
 
-        Args:
-            file_tail (str): String like '_raw.png' or '.png' to match against (must include leading dot).
         """
         self._image_file_map = {}
 
@@ -343,7 +347,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         with Executor() as executor:
             if self.image_analyzer.run_analyze_image_asynchronously:
                 futures = {
-                    executor.submit(self.image_analyzer.analyze_image, img): sn
+                    executor.submit(self.image_analyzer.analyze_image, img): sn # type: ignore[arg-type]
                     for sn, img in self.raw_images.items()
                 }
             else:
@@ -475,7 +479,7 @@ class Array2DScanAnalysis(ScanAnalysis):
 
         self.binned_data = binned_data
 
-    def bin_images_from_data(self, flag_save: Optional[bool] = None) -> dict:
+    def bin_images_from_data(self, flag_save: Optional[bool] = None) -> dict[int, BinImageEntry]:
         """
         Groups the already processed images (stored in self.data) by their bin value
         (as defined in self.auxiliary_data) and averages the images for each bin.
@@ -493,11 +497,12 @@ class Array2DScanAnalysis(ScanAnalysis):
         # Assume that self.auxiliary_data contains a column "Bin #" and that each shot number in self.data['shot_num']
         # corresponds to an entry in self.auxiliary_data. Also, assume self.scan_parameter holds the name of the parameter
         # used for binning.
-        unique_bins = np.unique(self.auxiliary_data["Bin #"].values)
+
+        unique_bins = [int(b) for b in np.unique(self.auxiliary_data["Bin #"].values)]
         if self.flag_logging:
             logging.info(f"Unique bins from auxiliary data: {unique_bins}")
 
-        binned_data = {}
+        binned_data: dict[int, BinImageEntry] = {}
         # Loop over each bin value
         for bin_val in unique_bins:
             # Get the shot numbers that belong to this bin.
@@ -513,15 +518,16 @@ class Array2DScanAnalysis(ScanAnalysis):
             images = [self.data["images"][i] for i in indices]
             # Average the images (using your average_images method)
             avg_image = self.average_images(images)
+
+            if avg_image is None:
+                continue  # or handle
+
             # Get a representative parameter value for the bin.
             # Here we assume the auxiliary data contains a column with self.scan_parameter.
-
-
             column_full_name, column_alias = self.find_scan_param_column()
-
             param_value = self.auxiliary_data.loc[self.auxiliary_data["Bin #"] == bin_val, column_full_name].mean()
 
-            binned_data[bin_val] = {"value": param_value, "image": avg_image}
+            binned_data[bin_val] = {"value": float(param_value), "image": avg_image}
 
             if flag_save:
                 save_name = f"{self.device_name}_{bin_val}.png"
@@ -602,14 +608,14 @@ class Array2DScanAnalysis(ScanAnalysis):
         if self.flag_logging:
             logging.info(f"Image saved at {save_path}")
 
-    def create_image_array(self, binned_data: dict[dict], ref_coords: Optional[tuple] = None,
+    def create_image_array(self, binned_data: dict[int,BinImageEntry], ref_coords: Optional[tuple] = None,
                            plot_scale: Optional[float] = None, save_path: Optional[Path] = None):
         """
         Arrange the averaged images into a sensibly sized grid and display them with scan parameter labels.
         For visualization purposes, images will be normalized to 8-bit.
 
         Args:
-            binned_data (dict[dict]): List of averaged images. TODO for faster speed consider making a numpy array
+            binned_data (list[np.array]): List of averaged images. TODO for faster speed consider making a numpy array
             ref_coords (tuple): The x and y data to be plotted as a reference, as element 0 and 1, respectively
             plot_scale (float): A float value for the maximum color
         """
@@ -668,43 +674,6 @@ class Array2DScanAnalysis(ScanAnalysis):
             logging.info(f"Saved final image grid as {filename}.")
         self.close_or_show_plot()
 
-    def get_image_analysis_result(self, shot_num: int, file_path: Optional[Path]) -> Optional[np.ndarray]:
-        if file_path is None:
-            logging.warning(f"No file path provided for shot {shot_num}.")
-            return None
-
-        try:
-            # Use the injected image analyzer
-            logging.info(f'attempting to process {file_path}')
-            results_dict = self.image_analyzer.analyze_image_file(image_filepath=file_path)
-            # Expecting results_dict to have keys: 'processed_image_uint16' and 'analyzer_return_dictionary'
-            image = results_dict.get("processed_image_uint16")
-            if image is not None:
-                image = image.astype(np.uint16)
-                self.data['shot_num'].append(shot_num)
-                self.data['images'].append(image)
-
-                # Update auxiliary data if analysis results are provided
-                analysis_dict = results_dict.get("analyzer_return_dictionary", {})
-                if analysis_dict:
-                    for key, value in analysis_dict.items():
-                        if not isinstance(value, numbers.Number):
-                            logging.warning(
-                                f"[{self.__class__.__name__} using {self.image_analyzer.__class__.__name__}] "
-                                f"analysis result for shot {shot_num} key '{key}' is not a number (got {type(value).__name__}). Skipping."
-                            )
-                        else:
-                            self.auxiliary_data.loc[self.auxiliary_data['Shotnumber'] == shot_num, key] = value
-
-            return image
-
-        except FileNotFoundError:
-            logging.info(f"Image file not found for shot {shot_num}: {file_path}")
-            return None
-        except Exception as e:
-            logging.error(f"Error processing shot {shot_num}: {e}")
-            return None
-
     @staticmethod
     def average_images(images: list[np.ndarray]) -> Optional[np.ndarray]:
         """
@@ -719,7 +688,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         if len(images) == 0:
             return None
 
-        return np.mean(images, axis=0).astype(np.uint16)  # Keep 16-bit format for the averaged image
+        return np.mean(images, axis=0)
 
     @staticmethod
     def create_gif(image_arrays: List[np.ndarray], output_file: str,
