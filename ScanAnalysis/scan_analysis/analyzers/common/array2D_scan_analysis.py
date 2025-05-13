@@ -75,7 +75,7 @@ PRINT_TRACEBACK = True
 # --- TypedDict Definitions ---
 class BinImageEntry(TypedDict):
     value: float
-    image: Optional[np.ndarray]  # or remove Optional if you want to guarantee it
+    image: Optional[np.ndarray]
 
 
 # below, some module level static functions that can't be members of the class so that the multi processing
