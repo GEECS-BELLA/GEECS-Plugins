@@ -4,7 +4,6 @@ from pathlib import Path
 from dateutil.parser import parse as dateparse
 from threading import Thread, Event
 from typing import Optional, Any, Union, NamedTuple
-import ScanPaths
 # if TYPE_CHECKING:
 VarDict = dict[str, dict[str, Any]]
 ExpDict = dict[str, dict[str, dict[str, Any]]]
