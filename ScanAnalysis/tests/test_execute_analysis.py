@@ -1,7 +1,6 @@
 import unittest
 
-from geecs_paths_utils.scan_paths import ScanTag
-from geecs_scan_data_utils.scan_data import ScanData
+from geecs_data_utils import ScanData, ScanTag
 from scan_analysis.execute_scan_analysis import analyze_scan
 
 from scan_analysis.base import AnalyzerInfo as Info

@@ -18,8 +18,8 @@ from scipy.signal import butter, filtfilt
 from pathlib import Path
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
 from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
-from geecs_paths_utils.scan_paths import ScanTag
-from geecs_scan_data_utils.scan_data import ScanData
+from geecs_data_utils import ScanTag, ScanData
+
 
 from image_analysis.utils import read_imaq_png_image
 from image_analysis.analyzers.online_analysis_modules import image_processing_funcs
@@ -432,7 +432,7 @@ class Rad2SpecAnalysis(CameraImageAnalysis):
 
 
 if __name__ == "__main__":
-    from geecs_scan_data_utils.scan_data import ScanData
+    from geecs_data_utils import ScanData
 
     tag = ScanData.get_scan_tag(year=2025, month=4, day=3, number=16, experiment='Undulator')
     analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False,

@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 
 if TYPE_CHECKING:
-    from geecs_paths_utils.scan_paths import ScanTag
+    from geecs_data_utils import ScanTag
     from numpy.typing import NDArray
 
 from pathlib import Path

@@ -18,7 +18,7 @@ from nptdms import TdmsWriter, ChannelObject
 from . import DeviceManager, DatabaseDictLookup
 
 from geecs_python_api.controls.interface import GeecsDatabase
-from geecs_scan_data_utils.scan_data import ScanData
+from geecs_data_utils import ScanData
 
 from geecs_python_api.tools.files.timestamping import extract_timestamp_from_file
 

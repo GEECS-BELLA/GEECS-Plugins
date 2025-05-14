@@ -19,13 +19,13 @@ from __future__ import annotations
 from numpy.typing import NDArray
 from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple, Dict, List
 if TYPE_CHECKING:
-    from geecs_paths_utils import ScanTag
+    from geecs_data_utils import ScanTag
 from pathlib import Path
 import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from geecs_scan_data_utils import ScanData
+from geecs_data_utils import ScanData
 
 from image_analysis.base import ImageAnalyzer  # explicit import for the base image analyzer
 

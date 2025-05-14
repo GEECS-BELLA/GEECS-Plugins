@@ -78,19 +78,6 @@ unicode = ["unicodedata2 (>=14.0.0)"]
 woff = ["brotli (>=1.0.1)", "brotlicffi (>=0.8.0)", "zopfli (>=0.1.4)"]
 
 [[package]]
-name = "geecs-paths-utils"
-version = "0.0.1"
-description = ""
-optional = false
-python-versions = ">=3.7,<3.11"
-files = []
-develop = true
-
-[package.source]
-type = "directory"
-url = "../GEECS-Data-Utils/GEECS-Paths-Utils"
-
-[[package]]
 name = "imageio"
 version = "2.31.2"
 description = "Library for reading and writing a wide range of image, video, scientific, and volumetric data formats."
@@ -846,4 +833,4 @@ testing = ["big-O", "flake8 (<5)", "jaraco.functools", "jaraco.itertools", "more
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.7,<3.11"
-content-hash = "655721e0bb4c339c040fc04ef4913b3d7bfed136830866acb440017256fcdfc9"
+content-hash = "9a4ec6ec0e174b02028689021b331bba2eb1cbd49afb365979ae27c5b42d8d36"

@@ -4,8 +4,7 @@ from pathlib import Path
 from dateutil.parser import parse as dateparse
 from threading import Thread, Event
 from typing import Optional, Any, Union, NamedTuple
-
-
+import ScanPaths
 # if TYPE_CHECKING:
 VarDict = dict[str, dict[str, Any]]
 ExpDict = dict[str, dict[str, dict[str, Any]]]
@@ -23,11 +22,11 @@ class VarAlias(str):
     pass
 
 import warnings
-from geecs_paths_utils.scan_paths import ScanTag as _ScanTag
+from geecs_data_utils import ScanTag as _ScanTag
 
 warnings.warn(
     "geecs_python_api.controls.api_defs.ScanTag has moved to "
-    "geecs_paths_utils.geecs_paths; please update your imports.",
+    "geecs_data_utils.utils; please update your imports.",
     DeprecationWarning,
     stacklevel=2,
 )

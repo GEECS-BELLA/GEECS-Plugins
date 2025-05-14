@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
 from image_analysis.tools.general import find_beam_properties, image_signal_thresholding
-from geecs_scan_data_utils.scan_data import ScanData
+from geecs_data_utils import ScanData
 from calibrations.Undulator.calibration_data.experimental_config import get_experimental_config_distance
 from calibrations.Undulator.utils import get_calibration_location
 

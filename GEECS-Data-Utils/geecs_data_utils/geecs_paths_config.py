@@ -5,7 +5,7 @@ from typing import Optional, Union
 import logging
 from configparser import ConfigParser
 from pathlib import Path
-from geecs_paths_utils.utils import ConfigurationError
+from geecs_data_utils.utils import ConfigurationError
 
 # Module-level logger
 logger = logging.getLogger(__name__)

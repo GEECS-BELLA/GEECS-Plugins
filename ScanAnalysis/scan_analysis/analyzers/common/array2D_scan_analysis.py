@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Union, Optional, List
 
 
 if TYPE_CHECKING:
-    from geecs_paths_utils import ScanTag
+    from geecs_data_utils import ScanTag
     from numpy.typing import NDArray
 
 from pathlib import Path
@@ -689,7 +689,7 @@ class Array2DScanAnalysis(ScanAnalysis):
 if __name__ == "__main__":
     from scan_analysis.base import AnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan
-    from geecs_paths_utils import ScanTag
+    from geecs_data_utils import ScanTag
     from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
 
     perform_analysis = True

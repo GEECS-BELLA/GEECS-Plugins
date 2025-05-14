@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from scan_analysis.base import AnalyzerInfo
-    from geecs_paths_utils.scan_paths import ScanTag
+    from geecs_data_utils import ScanTag
 
 from pathlib import Path
 import logging
@@ -215,7 +215,7 @@ def insert_display_content_to_doc(scan_tag: ScanTag, path_list: list[str], docum
 
 
 if __name__ == '__main__':
-    from geecs_scan_data_utils.scan_data import ScanData
+    from geecs_data_utils import ScanData
     from scan_analysis.mapping.map_Undulator import undulator_analyzers
     test_tag = ScanData.get_scan_tag(2025, 4, 3, number=2, experiment='Undulator')
     test_analyzer = undulator_analyzers[0]

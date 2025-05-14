@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Any, Union, Optional
-from geecs_paths_utils.scan_paths import ScanTag
+from geecs_data_utils import ScanTag
 from geecs_python_api.controls.experiment.experiment import Experiment
 from geecs_python_api.analysis.images.scans.scan_images import ScanImages
 from geecs_python_api.analysis.images.scans.scan_data import ScanData

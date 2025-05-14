@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
-from geecs_paths_utils.scan_paths import ScanTag
+from geecs_data_utils import ScanTag
 from image_analysis import labview_adapters
 import matplotlib.pyplot as plt
 import numpy as np
@@ -201,7 +201,7 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
 
 
 if __name__ == "__main__":
-    from geecs_scan_data_utils.scan_data import ScanData
+    from geecs_data_utils import ScanData
 
     tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=6, experiment_name='Undulator')
     analyzer = HiResMagCamAnalysis(scan_tag=tag, skip_plt_show=False, rerun_analysis=True)

@@ -8,7 +8,7 @@ Child to ScanAnalysis (./scan_analysis/base.py)
 from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional, List
 if TYPE_CHECKING:
-    from geecs_paths_utils.scan_paths import ScanTag
+    from geecs_data_utils import ScanTag
 
 from pathlib import Path
 import logging
@@ -557,7 +557,7 @@ class CameraImageAnalysis(ScanAnalysis):
         self.binned_data = binned_data
 
 if __name__ == "__main__":
-    from geecs_scan_data_utils.scan_data import ScanData
+    from geecs_data_utils import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=2, day=13, number=29, experiment_name='Undulator')
     analyzer = CameraImageAnalysis(scan_tag=tag, device_name="UC_ACaveMagCam3", skip_plt_show=True)
     analyzer.run_analysis()

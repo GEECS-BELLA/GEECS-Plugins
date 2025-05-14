@@ -20,7 +20,7 @@ from pathlib import Path
 from image_analysis.utils import read_imaq_png_image
 import calibrations.Undulator.shot_charge_reader as charge_reader
 from image_analysis.analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer
-from geecs_scan_data_utils.scan_data import ScanData
+from geecs_data_utils import ScanData
 
 def linear(x, a):
     return a * x
