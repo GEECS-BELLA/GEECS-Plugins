@@ -170,7 +170,7 @@ class ImageAnalyzer:
                 Dictionary with the correctly formatted returns that labview adapters is expecting.
                 "analyzer_input_parameters": input_parameters
                 "analyzer_return_dictionary": return_scalars
-                "processed_image_uint16": uint_image
+                "processed_image": return_image (with identical type as input argument)
                 "analyzer_return_lineouts": return_lineouts
             """
 
