@@ -4,7 +4,7 @@ import configparser
 import numpy as np
 from numpy.typing import NDArray
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union, Type, Any
+from typing import TYPE_CHECKING, Optional, Union, Any
 if TYPE_CHECKING:
     from .types import Array2D
 
@@ -70,7 +70,6 @@ class ImageAnalyzer:
         # Subclasses can process config as needed.
         self.config = config
 
-
     def analyze_image(self,
                       image: Array2D,
                       auxiliary_data: Optional[dict] = None
@@ -100,13 +99,16 @@ class ImageAnalyzer:
     def analyze_image_file(self,
                            image_filepath: Path,
                            auxiliary_data: Optional[dict] = None
-                           )-> dict[str, Union[float, int, str, np.ndarray]]:
+                           ) -> dict[str, Union[float, int, str, np.ndarray]]:
         """
         Method to enable the use of a file path rather than Array2D.
 
          Parameters
          ----------
          image_filepath : Path
+         auxiliary_data : dict
+            Additional data used by the image analyzer for this image, such as
+            image range.
 
         Returns
         -------
@@ -119,7 +121,7 @@ class ImageAnalyzer:
 
         return self.analyze_image(image, auxiliary_data)
 
-    def load_image(self, file_path:Path)->Array2D:
+    def load_image(self, file_path: Path) -> Array2D:
         """
         load an image from a path. By default, the read_imaq_png function is used.
         For file types not directly supported by this method, e.g. .himg files from a
@@ -138,7 +140,6 @@ class ImageAnalyzer:
         image = read_imaq_image(file_path)
 
         return image
-
 
     def build_return_dictionary(self, return_image: Optional[NDArray] = None,
                                 return_scalars: Optional[dict[str, Union[int, float]]] = None,
@@ -212,7 +213,6 @@ class ImageAnalyzer:
             "analyzer_return_lineouts": return_lineouts,
         }
         return return_dictionary
-
 
     def build_input_parameter_dictionary(self) -> dict:
         """Compiles list of class variables into a dictionary
