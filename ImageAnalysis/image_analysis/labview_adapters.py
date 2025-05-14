@@ -108,19 +108,11 @@ def parse_results_to_labview(return_dictionary, key_list_name):
         - 2D uint16 array
         - 1D double array
         - 2D double array
-
-    Raises:
-    --------
-    TypeError:  if the return image cannot be cast as an unsigned uint16 array
-
     """
+
     return_image = return_dictionary['processed_image']
     if return_image is not None:
-        if np.min(return_image) < 0:
-            raise TypeError("Return image cannot be cast as np.uint16.  Some pixels are < 0")
-        if np.max(return_image) > 2e16-1:
-            raise TypeError("Return image cannot be cast as np.uint16.  Some pixels are > 2e16-1")
-
+        validate_uint16_castable(return_image)
         return_image = return_image.astype(np.uint16)
 
     scalar_dict = return_dictionary['analyzer_return_dictionary']
@@ -131,6 +123,24 @@ def parse_results_to_labview(return_dictionary, key_list_name):
 
     labview_return = (return_image, return_scalars, return_lineouts)
     return labview_return
+
+
+def validate_uint16_castable(array):
+    """
+    Checks if a given array could be converted to an unsigned 16 bit array.  Raises a Type Error if not
+
+    Parameters
+    ----------
+    array:
+        An image that may or may not be formatted to accommodate uint16 conversion
+    """
+    if array is not None:
+        if np.iscomplexobj(array):
+            raise TypeError("Image cannot contain complex values")
+        if not np.isfinite(array).all():
+            raise TypeError("Array contains NaNs or infinite values.")
+        if np.any((array < 0) | (array > np.iinfo(np.uint16).max)):
+            raise TypeError("Array values out of uint16 range")
 
 
 def read_keys_of_interest(key_list_name):
