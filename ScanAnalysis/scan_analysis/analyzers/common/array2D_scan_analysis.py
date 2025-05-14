@@ -54,6 +54,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import imageio as io
+import h5py
 
 # --- Local / Project Imports ---
 from scan_analysis.base import ScanAnalysis
@@ -106,7 +107,7 @@ def analyze_preloaded_image_static(
         analyzer = analyzer_class()
         result = analyzer.analyze_image(image)
 
-        image_out = result.get("processed_image_uint16")
+        image_out = result.get("processed_image")
         scalars = result.get("analyzer_return_dictionary", {})
         return shot_num, image_out, scalars
     except Exception as e:
@@ -364,7 +365,7 @@ class Array2DScanAnalysis(ScanAnalysis):
                         _, image, analysis = result
                         analysis_result = {"processed_image": image, "analyzer_return_dictionary": analysis}
                     else:
-                        image = result.get("processed_image_uint16")
+                        image = result.get("processed_image")
                         scalars = result.get("analyzer_return_dictionary", {})
 
                     if image is not None:
@@ -392,8 +393,8 @@ class Array2DScanAnalysis(ScanAnalysis):
         """Perform post-processing for a no-scan: average images and create a GIF."""
         avg_image = self.average_images(self.data['images'])
         if self.flag_save_images:
-            self.save_geecs_scaled_image(avg_image, save_dir=self.path_dict['save'],
-                                         save_name=f'{self.device_name}_average_processed.png')
+            self.save_image_as_h5(avg_image, save_dir=self.path_dict['save'],
+                                         save_name=f'{self.device_name}_average_processed.h5')
             save_name = f'{self.device_name}_average_processed_visual.png'
             self.save_normalized_image(avg_image, save_dir=self.path_dict['save'],
                                        save_name=save_name, label=save_name)
@@ -410,9 +411,9 @@ class Array2DScanAnalysis(ScanAnalysis):
         Helper method to save images for a single bin.
         This saves both the scaled and normalized images.
         """
-        save_name_scaled = f"{self.device_name}_{bin_key}_processed.png"
+        save_name_scaled = f"{self.device_name}_{bin_key}_processed.h5"
         save_name_normalized = f"{self.device_name}_{bin_key}_processed_visual.png"
-        self.save_geecs_scaled_image(processed_image,
+        self.save_image_as_h5(processed_image,
                                      save_dir=self.path_dict["save"],
                                      save_name=save_name_scaled)
         self.save_normalized_image(processed_image,
@@ -524,8 +525,8 @@ class Array2DScanAnalysis(ScanAnalysis):
             binned_data[bin_val] = {"value": float(param_value), "image": avg_image}
 
             if flag_save:
-                save_name = f"{self.device_name}_{bin_val}.png"
-                self.save_geecs_scaled_image(avg_image,
+                save_name = f"{self.device_name}_{bin_val}.h5"
+                self.save_image_as_h5(avg_image,
                                              save_dir=self.path_dict["save"],
                                              save_name=save_name)
                 if self.flag_logging:
@@ -576,6 +577,29 @@ class Array2DScanAnalysis(ScanAnalysis):
         cv2.imwrite(str(save_path), image)
         if self.flag_logging:
             logging.info(f"Image saved at {save_path}")
+
+    def save_image_as_h5(self, image: NDArray, save_dir: Union[str, Path], save_name: str):
+        """
+        Saves the image as an HDF5 file using compression.
+
+        Args:
+            image (np.ndarray): Image to be saved.
+            save_dir (str or Path): Directory where the image will be saved.
+            save_name (str): The name of the saved HDF5 file (should end in .h5).
+        """
+        save_path = Path(save_dir) / save_name
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with h5py.File(save_path, 'w') as f:
+            f.create_dataset(
+                'image',
+                data=image,
+                compression='gzip',  # Use GZIP compression
+                compression_opts=4  # Compression level: 0 (none) to 9 (max)
+            )
+
+        if self.flag_logging:
+            logging.info(f"HDF5 image saved with compression at {save_path}")
 
     def save_normalized_image(self, image: np.ndarray, save_dir: Union[str, Path], save_name: str,
                               label: Optional[str] = None):
