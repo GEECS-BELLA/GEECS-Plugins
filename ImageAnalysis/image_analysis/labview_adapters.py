@@ -109,8 +109,20 @@ def parse_results_to_labview(return_dictionary, key_list_name):
         - 1D double array
         - 2D double array
 
+    Raises:
+    --------
+    TypeError:  if the return image cannot be cast as an unsigned uint16 array
+
     """
-    return_image = return_dictionary['processed_image_uint16']
+    return_image = return_dictionary['processed_image']
+    if return_image is not None:
+        if np.min(return_image) < 0:
+            raise TypeError("Return image cannot be cast as np.uint16.  Some pixels are < 0")
+        if np.max(return_image) > 2e16-1:
+            raise TypeError("Return image cannot be cast as np.uint16.  Some pixels are > 2e16-1")
+
+        return_image = return_image.astype(np.uint16)
+
     scalar_dict = return_dictionary['analyzer_return_dictionary']
     return_lineouts = return_dictionary['analyzer_return_lineouts']
 

@@ -21,10 +21,10 @@ method of the base ImageAnalysis. This dict looks like this:
         return_dictionary = {
             "analyzer_input_parameters": input_parameters,
             "analyzer_return_dictionary": return_scalars,
-            "processed_image_uint16": uint_image,
+            "processed_image": image of the type in the analyzer's return,
             "analyzer_return_lineouts": return_lineouts,
         }
-The 'processed_image_uint16' item is the on that will be used to generate the visualized data.
+The 'processed_image' item is the on that will be used to generate the visualized data.
 The "analyzer_return_dictionary" contains a dict[str, float] that is used to write scalar
 data to the 'sxxx.txt' file.
 There is a rudimentary way to handle other types of return data using "analyzer_return_lineouts".
@@ -359,10 +359,10 @@ class Array2DScanAnalysis(ScanAnalysis):
                 try:
                     result = future.result()
 
-                    # Handle result depending on return format (process vs thread)
-                    if isinstance(result, tuple) and len(result) == 3:
-                        _, image, scalars = result
-                        result = {"processed_image_uint16": image, "analyzer_return_dictionary": scalars}
+                    # If using the process pool, result is a tuple: (shot_num, image, analysis).
+                    if isinstance(result, tuple):
+                        _, image, analysis = result
+                        analysis_result = {"processed_image": image, "analyzer_return_dictionary": analysis}
                     else:
                         image = result.get("processed_image_uint16")
                         scalars = result.get("analyzer_return_dictionary", {})
