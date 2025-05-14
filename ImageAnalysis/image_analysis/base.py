@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from .types import Array2D
 
 from image_analysis.utils import read_imaq_image
+from image_analysis.tools.background import Background
 
 
 class ImageAnalyzer:
@@ -24,7 +25,7 @@ class ImageAnalyzer:
     # asynchronously, for example if it waits for an external process
     run_analyze_image_asynchronously = False
 
-    def __init__(self, config: Optional[Any] = None):
+    def __init__(self, config: Optional[Any] = None, background_obj: Optional[Background]=None):
         """ Initializes this ImageAnalyzer, with Analyzer parameters as kwargs
 
             As the same ImageAnalyzer instance can be applied to many images,
@@ -58,17 +59,19 @@ class ImageAnalyzer:
 
                 super().__init__()
 
-        New:
-            config: Optional[Any]
-                Optional configuration data (e.g., a dictionary, file path, or configuration object)
-                that can be used by derived classes to initialize additional parameters. If not provided,
-                defaults will be used.
-
-        """
+            Parameters
+            ----------
+            config : Optional[Any]
+                Optional configuration object (e.g., dict, Path, custom class) that can be
+                used by subclasses to initialize additional parameters.
+            background_obj : Optional[Background]
+                An optional Background instance. If not provided, a new one will be created.
+            """
 
         # Default implementation does nothing with config.
         # Subclasses can process config as needed.
         self.config = config
+        self.background_obj = background_obj or Background()
 
 
     def analyze_image(self,
