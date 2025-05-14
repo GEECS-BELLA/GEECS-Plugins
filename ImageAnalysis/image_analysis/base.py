@@ -174,11 +174,6 @@ class ImageAnalyzer:
                 "analyzer_return_lineouts": return_lineouts
             """
 
-        if return_image is not None:
-            uint_image = return_image.astype(np.uint16)
-        else:
-            uint_image = None
-
         if return_scalars is None:
             return_scalars = dict()
         elif not isinstance(return_scalars, dict):
@@ -213,7 +208,7 @@ class ImageAnalyzer:
         return_dictionary = {
             "analyzer_input_parameters": input_parameters,
             "analyzer_return_dictionary": return_scalars,
-            "processed_image_uint16": uint_image,
+            "processed_image": return_image,
             "analyzer_return_lineouts": return_lineouts,
         }
         return return_dictionary
