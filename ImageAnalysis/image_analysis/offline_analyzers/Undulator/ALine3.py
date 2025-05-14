@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 from scipy.ndimage import label, gaussian_filter
 from image_analysis.base import ImageAnalyzer
+import logging
 
 class Aline3Analyzer(ImageAnalyzer):
 
@@ -26,61 +27,32 @@ class Aline3Analyzer(ImageAnalyzer):
         Subtracts a dynamically determined background and returns the processed images.
 
         Args:
-            images (list[np.ndarray]):
+            images (list[np.ndarray]): A list of input images.
 
         Returns:
-            list[np.ndarray]: Background-subtracted images.
+            list[np.ndarray]: A list of processed images.
         """
 
-        # Stack images for batch processing
-        stack = np.stack(list(images), axis=0)
-        background = np.min(stack, axis=0).astype(np.float64)
-        background_subtracted = stack - background  # shape: (N, H, W)
-        stack_2 = background_subtracted
-        background_2 = np.percentile(stack_2, 2.5, axis=0)
-        background_subtracted_2 = background_subtracted - background_2  # shape: (N, H, W)
+        # Stack images for batch-level processing
+        stack = np.stack(images, axis=0)
+        stack = stack[:, 175:775, 175:775]
 
-        final_images = background_subtracted_2 - np.median(background_subtracted_2, axis=(1, 2), keepdims=True)
-        final_images_cropped = final_images[:, 175:775, 175:775]
+        # Step 1: Learn background from percentile projection
+        self.background_obj.set_percentile_background_from_stack(stack=stack, percentile=2.5)
+        stack = self.background_obj.subtract(data=stack)
 
-        avg_image = np.mean(final_images_cropped, axis=0)
+        # Step 2: Subtract per-image medians
+        stack = self.background_obj.subtract_imagewise_median(data=stack)
 
-        threshold = np.percentile(avg_image, 91)  # or a fixed threshold like 0.1
-        pupil_mask = avg_image > threshold
+        # Step 3: Generate and apply apodization
+        self.background_obj.generate_apodization_mask(stack=stack, percentile=91, sigma=5)
+        stack = self.background_obj.apply_apodization(data=stack)
 
-        # pupil_mask is your binary mask after thresholding the average image
-        # e.g. pupil_mask = avg_image > threshold
+        # Optionally record min value for later use
+        self.min_val = np.min(stack)
+        logging.info(f'min value from the stack: {self.min_val}')
 
-        # Label connected components
-        labeled_mask, num_features = label(pupil_mask)
-
-        # Count the size of each region
-        region_sizes = np.bincount(labeled_mask.ravel())
-
-        # region 0 is background → ignore it
-        region_sizes[0] = 0
-
-        # Find the largest region
-        largest_label = region_sizes.argmax()
-
-        # Create a new mask with only the largest region
-        largest_region_mask = labeled_mask == largest_label
-
-        # Convert boolean to float, then smooth
-        apodization = gaussian_filter(largest_region_mask.astype(float), sigma=5)
-
-        # Normalize to [0, 1] range
-        apodization /= apodization.max()
-
-        tapered_images = final_images_cropped * apodization  # shape: (N, H, W)
-
-        self.min_val = np.min(tapered_images)
-        tapered_images = tapered_images - self.min_val
-
-        # Reconstruct the dictionary with original keys
-        processed_images = tapered_images
-
-        return processed_images
+        return list(stack)  # maintain list format for downstream compatibility
 
     @staticmethod
     def compute_fwhm(profile: np.ndarray) -> float:
@@ -119,8 +91,7 @@ class Aline3Analyzer(ImageAnalyzer):
 
         return right_edge - left_edge
 
-
-    def beam_profile_stats(self,img: np.ndarray):
+    def beam_profile_stats(self, img: np.ndarray):
         img = np.clip(img.astype(float), 0, None)
         total = img.sum()
         if total == 0:
@@ -135,18 +106,22 @@ class Aline3Analyzer(ImageAnalyzer):
         x_mean = np.sum(x * x_proj) / x_proj.sum()
         x_rms = np.sqrt(np.sum((x - x_mean) ** 2 * x_proj) / x_proj.sum())
         x_fwhm = self.compute_fwhm(x_proj)
+        x_peak = np.argmax(x_proj)
 
         y_mean = np.sum(y * y_proj) / y_proj.sum()
         y_rms = np.sqrt(np.sum((y - y_mean) ** 2 * y_proj) / y_proj.sum())
         y_fwhm = self.compute_fwhm(y_proj)
+        y_peak = np.argmax(y_proj)
 
         return {
             "ALine3_x_mean": x_mean,
             "ALine3_x_rms": x_rms,
             "ALine3_x_fwhm": x_fwhm,
+            "ALine3_x_peak": x_peak,
             "ALine3_y_mean": y_mean,
             "ALine3_y_rms": y_rms,
-            "ALine3_y_fwhm": y_fwhm
+            "ALine3_y_fwhm": y_fwhm,
+            "ALine3_y_peak": y_peak
         }
 
     def analyze_image(self, image: np.ndarray, auxiliary_data: Optional[dict] = None) -> dict[
