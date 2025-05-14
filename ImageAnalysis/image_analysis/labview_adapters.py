@@ -110,7 +110,7 @@ def parse_results_to_labview(return_dictionary, key_list_name):
         - 2D double array
 
     """
-    return_image = return_dictionary['processed_image_uint16']
+    return_image = return_dictionary['processed_image_uint16'].astype(np.uint16)
     scalar_dict = return_dictionary['analyzer_return_dictionary']
     return_lineouts = return_dictionary['analyzer_return_lineouts']
 

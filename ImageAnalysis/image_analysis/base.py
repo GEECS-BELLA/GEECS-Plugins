@@ -196,7 +196,8 @@ class ImageAnalyzer:
             """
 
         if return_image is not None:
-            uint_image = return_image.astype(np.uint16)
+            uint_image = return_image   # NOTE, deleted .astype(uint16) but naming is not changed
+                                        # Coerciion to uint16, needed by Labview, is done in labview_adpaters.py
         else:
             uint_image = None
 
