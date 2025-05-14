@@ -13,7 +13,7 @@ from time import sleep
 import re
 from queue import Queue
 
-from geecs_python_api.analysis.scans.scan_data import ScanData
+from geecs_data_utils import ScanData
 from scan_analysis.execute_scan_analysis import analyze_scan
 from scan_analysis.mapping.scan_evaluator import check_for_analysis_match
 
@@ -22,7 +22,7 @@ from watchdog.events import FileSystemEventHandler
 
 if TYPE_CHECKING:
     from watchdog.events import DirCreatedEvent, FileCreatedEvent
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_data_utils import ScanTag
 
 import logging.config
 import json

@@ -1,5 +1,4 @@
-from geecs_python_api.controls.api_defs import ScanTag
-from geecs_python_api.analysis.scans.scan_data import ScanData
+from geecs_data_utils import ScanData, ScanTag
 
 from scan_analysis.base import AnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis

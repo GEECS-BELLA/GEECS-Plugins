@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Union, Optional
 if TYPE_CHECKING:
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_data_utils import ScanTag
 import logging
 from pathlib import Path
 import pandas as pd
@@ -209,7 +209,7 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
 
 
 if __name__ == "__main__":
-    from geecs_python_api.analysis.scans.scan_data import ScanData
+    from geecs_data_utils import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=2, day=27, number=4, experiment_name='Undulator')
     analyzer = MagSpecStitcherAnalysis(scan_tag=tag, device_name="U_BCaveMagSpec", skip_plt_show=True)
     analyzer.run_analysis()

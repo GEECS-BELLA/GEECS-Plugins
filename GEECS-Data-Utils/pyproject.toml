@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "geecs_data_utils"
+version = "0.0.1"
+description = ""
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+readme = "README.md"
+packages = [{include = "geecs_data_utils"}]
+
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.11"
+
+pandas = "^2.0"
+nptdms = "^1.7.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
