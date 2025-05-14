@@ -114,30 +114,33 @@ class HASOHimgHasProcessor(ImageAnalyzer):
             config_file_path (Path): Path to the config file.
 
         """
+        logging.info(f'self.wavekit_resources_instantiated {self.wavekit_resources_instantiated}')
+        if not self.wavekit_resources_instantiated:
+            self._log_info(f"instantiating wavekit resources: HasoEngine etc.")
 
-        self._log_info(f"instantiating wavekit resources: HasoEngine etc.")
+            try:
+                # Create the necessary Wavekit objects.
+                self.hasoengine = wkpy.HasoEngine(config_file_path=str(config_file_path))
+                self.hasoengine.set_lift_enabled(True, self.laser_wavelength)
+                self.hasoengine.set_lift_option(True, self.laser_wavelength)
 
-        try:
-            # Create the necessary Wavekit objects.
-            self.hasoengine = wkpy.HasoEngine(config_file_path=str(config_file_path))
-            self.hasoengine.set_lift_enabled(True, self.laser_wavelength)
-            self.hasoengine.set_lift_option(True, self.laser_wavelength)
+                # Set preferences with an arbitrary subpupil and denoising strength.
+                start_subpupil = wkpy.uint2D(87, 64)
+                denoising_strength = 0.0
 
-            # Set preferences with an arbitrary subpupil and denoising strength.
-            start_subpupil = wkpy.uint2D(87, 64)
-            denoising_strength = 0.0
+                self.hasoengine.set_preferences(start_subpupil, denoising_strength, False)
 
-            self.hasoengine.set_preferences(start_subpupil, denoising_strength, False)
+                self.compute_phase_set = wkpy.ComputePhaseSet(type_phase=wkpy.E_COMPUTEPHASESET.ZONAL)
+                self.compute_phase_set.set_zonal_prefs(100, 500, 1e-6)
 
-            self.compute_phase_set = wkpy.ComputePhaseSet(type_phase=wkpy.E_COMPUTEPHASESET.ZONAL)
-            self.compute_phase_set.set_zonal_prefs(100, 500, 1e-6)
+                self.post_processor = wkpy.SlopesPostProcessor()
 
-            self.post_processor = wkpy.SlopesPostProcessor()
-
-        except Exception:
-            self._log_warning(
-                f"Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file")
-            raise
+                self.wavekit_resources_instantiated = True
+                logging.info(f'setting wavekit_resources_instantiated to True')
+            except Exception:
+                self._log_warning(
+                    f"Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file")
+                raise
 
     def load_image(self, file_path:Path) -> Array2D:
         """
