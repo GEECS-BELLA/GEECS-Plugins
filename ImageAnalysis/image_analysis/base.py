@@ -4,7 +4,7 @@ import configparser
 import numpy as np
 from numpy.typing import NDArray
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union, Type, Any
+from typing import TYPE_CHECKING, Optional, Union, Any
 if TYPE_CHECKING:
     from .types import Array2D
 
@@ -73,7 +73,6 @@ class ImageAnalyzer:
         self.config = config
         self.background_obj = background_obj or Background()
 
-
     def analyze_image(self,
                       image: Array2D,
                       auxiliary_data: Optional[dict] = None
@@ -103,13 +102,16 @@ class ImageAnalyzer:
     def analyze_image_file(self,
                            image_filepath: Path,
                            auxiliary_data: Optional[dict] = None
-                           )-> dict[str, Union[float, int, str, np.ndarray]]:
+                           ) -> dict[str, Union[float, int, str, np.ndarray]]:
         """
         Method to enable the use of a file path rather than Array2D.
 
          Parameters
          ----------
          image_filepath : Path
+         auxiliary_data : dict
+            Additional data used by the image analyzer for this image, such as
+            image range.
 
         Returns
         -------
@@ -122,7 +124,7 @@ class ImageAnalyzer:
 
         return self.analyze_image(image, auxiliary_data)
 
-    def load_image(self, file_path:Path)->Array2D:
+    def load_image(self, file_path: Path) -> Array2D:
         """
         load an image from a path. By default, the read_imaq_png function is used.
         For file types not directly supported by this method, e.g. .himg files from a
@@ -164,6 +166,7 @@ class ImageAnalyzer:
         return images
 
 
+
     def build_return_dictionary(self, return_image: Optional[NDArray] = None,
                                 return_scalars: Optional[dict[str, Union[int, float]]] = None,
                                 return_lineouts: Optional[Union[NDArray, list[NDArray]]] = None,
@@ -194,15 +197,10 @@ class ImageAnalyzer:
                 Dictionary with the correctly formatted returns that labview adapters is expecting.
                 "analyzer_input_parameters": input_parameters
                 "analyzer_return_dictionary": return_scalars
-                "processed_image_uint16": uint_image
+                "processed_image": return_image (with identical type as input argument)
                 "analyzer_return_lineouts": return_lineouts
             """
 
-        if return_image is not None:
-            uint_image = return_image   # NOTE, deleted .astype(uint16) but naming is not changed
-                                        # Coerciion to uint16, needed by Labview, is done in labview_adpaters.py
-        else:
-            uint_image = None
 
         if return_scalars is None:
             return_scalars = dict()
@@ -238,11 +236,10 @@ class ImageAnalyzer:
         return_dictionary = {
             "analyzer_input_parameters": input_parameters,
             "analyzer_return_dictionary": return_scalars,
-            "processed_image_uint16": uint_image,
+            "processed_image": return_image,
             "analyzer_return_lineouts": return_lineouts,
         }
         return return_dictionary
-
 
     def build_input_parameter_dictionary(self) -> dict:
         """Compiles list of class variables into a dictionary

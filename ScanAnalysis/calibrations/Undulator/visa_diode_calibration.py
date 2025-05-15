@@ -9,9 +9,9 @@ Created on Fri Nov  1 11:46:43 2024
 from __future__ import annotations
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_data_utils import ScanTag
 
-from geecs_python_api.analysis.scans.scan_data import ScanData
+from geecs_data_utils import ScanData
 from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
 from image_analysis.utils import read_imaq_image
 from image_analysis.tools.general import image_signal_thresholding, find_beam_properties

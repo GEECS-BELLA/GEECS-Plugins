@@ -6,8 +6,7 @@ import re
 import subprocess
 import configparser
 from pathlib import Path
-from geecs_python_api.analysis.scans.scan_data import ScanData
-
+from geecs_data_utils import ScanData
 
 def open_folder(path_to_folder: Path):
     """ Opens Windows file explorer to the specified location """

@@ -1,4 +1,4 @@
-from geecs_python_api.analysis.scans.scan_data import ScanData
+from geecs_data_utils import ScanData
 from scan_analysis.analyzers.Undulator.rad2_spec_analysis import Rad2SpecAnalysis
 
 import numpy as np

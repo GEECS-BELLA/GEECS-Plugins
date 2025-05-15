@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-pythonapi"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python interface to GEECS control system"
 authors = ["Guillaume Plateau <guillaume.plateau@tausystems.com>"]
 readme = "README.md"
@@ -27,14 +27,11 @@ screeninfo = "^0.8.1"
 # other
 python-dotenv = "^1.0.0"
 progressbar2 = "^4.2.0"
+mysql-connector-python = "^8.2.0"
 
 # internal libraries
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }
-ScanAnalysis = { path = "../ScanAnalysis", develop = true }
-mysql-connector-python = "^8.2.0"
-
-[tool.poetry.group.dev.dependencies]
-spyder-kernels = ">=2.4.0,<2.5.0"
+geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
 
 [build-system]
 requires = ["poetry-core"]
