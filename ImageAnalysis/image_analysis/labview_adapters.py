@@ -108,9 +108,13 @@ def parse_results_to_labview(return_dictionary, key_list_name):
         - 2D uint16 array
         - 1D double array
         - 2D double array
-
     """
-    return_image = return_dictionary['processed_image_uint16']
+
+    return_image = return_dictionary['processed_image']
+    if return_image is not None:
+        validate_uint16_castable(return_image)
+        return_image = return_image.astype(np.uint16)
+
     scalar_dict = return_dictionary['analyzer_return_dictionary']
     return_lineouts = return_dictionary['analyzer_return_lineouts']
 
@@ -119,6 +123,24 @@ def parse_results_to_labview(return_dictionary, key_list_name):
 
     labview_return = (return_image, return_scalars, return_lineouts)
     return labview_return
+
+
+def validate_uint16_castable(array):
+    """
+    Checks if a given array could be converted to an unsigned 16 bit array.  Raises a Type Error if not
+
+    Parameters
+    ----------
+    array:
+        An image that may or may not be formatted to accommodate uint16 conversion
+    """
+    if array is not None:
+        if np.iscomplexobj(array):
+            raise TypeError("Image cannot contain complex values")
+        if not np.isfinite(array).all():
+            raise TypeError("Array contains NaNs or infinite values.")
+        if np.any((array < 0) | (array > np.iinfo(np.uint16).max)):
+            raise TypeError("Array values out of uint16 range")
 
 
 def read_keys_of_interest(key_list_name):

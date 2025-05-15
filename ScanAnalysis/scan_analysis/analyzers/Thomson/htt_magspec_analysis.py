@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_data_utils import ScanTag
 import logging
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,8 +19,7 @@ from scan_analysis.base import ScanAnalysis
 from image_analysis.utils import read_imaq_png_image
 from image_analysis.analyzers.online_analysis_modules.image_processing_funcs import threshold_reduction
 
-from geecs_python_api.analysis.scans.scan_data import ScanData
-
+from geecs_data_utils import ScanData
 
 # %% classes
 class HTTMagSpecAnalysis(ScanAnalysis):
@@ -117,7 +116,7 @@ class HTTMagSpecAnalysis(ScanAnalysis):
 
 
 if __name__ == "__main__":
-    from geecs_python_api.analysis.scans.scan_data import ScanData
+    from geecs_data_utils import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=3, day=21, number=10, experiment='Thomson')
     analyzer = HTTMagSpecAnalysis(scan_tag=tag, skip_plt_show=False)
     analyzer.run_analysis()

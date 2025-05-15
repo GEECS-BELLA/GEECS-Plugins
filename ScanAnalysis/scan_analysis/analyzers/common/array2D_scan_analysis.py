@@ -22,10 +22,10 @@ method of the base ImageAnalysis. This dict looks like this:
         return_dictionary = {
             "analyzer_input_parameters": input_parameters,
             "analyzer_return_dictionary": return_scalars,
-            "processed_image_uint16": uint_image,
+            "processed_image": image of the type in the analyzer's return,
             "analyzer_return_lineouts": return_lineouts,
         }
-The 'processed_image_uint16' item is the on that will be used to generate the visualized data.
+The 'processed_image' item is the on that will be used to generate the visualized data.
 The "analyzer_return_dictionary" contains a dict[str, float] that is used to write scalar
 data to the 'sxxx.txt' file.
 There is a rudimentary way to handle other types of return data using "analyzer_return_lineouts".
@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Union, Optional, List
 
 
 if TYPE_CHECKING:
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_data_utils import ScanTag
     from numpy.typing import NDArray
 
 from pathlib import Path
@@ -178,11 +178,11 @@ class Array2DScanAnalysis(ScanAnalysis):
             logging.warning(f"Analyzer returned non-dict result for shot {shot_num}.")
             return shot_num, None, {}
 
-        if "processed_image_uint16" not in results_dict:
-            logging.warning(f"Shot {shot_num}: 'processed_image_uint16' key not found in analyzer result.")
+        if "processed_image" not in results_dict:
+            logging.warning(f"Shot {shot_num}: 'processed_image' key not found in analyzer result.")
             image = None
         else:
-            image = results_dict.get("processed_image_uint16")
+            image = results_dict.get("processed_image")
 
         analysis = results_dict.get("analyzer_return_dictionary", {})
         if not isinstance(analysis, dict):
@@ -213,7 +213,7 @@ class Array2DScanAnalysis(ScanAnalysis):
             If no processed image is returned but analysis results are available,
             update the auxiliary data and log the outcome, but do not add to self.data.
             """
-            image = analysis_result.get("processed_image_uint16")
+            image = analysis_result.get("processed_image")
             analysis = analysis_result.get("analyzer_return_dictionary", {})
 
             # Always update auxiliary data if analysis exists.
@@ -287,7 +287,7 @@ class Array2DScanAnalysis(ScanAnalysis):
                     # If using the process pool, result is a tuple: (shot_num, image, analysis).
                     if isinstance(result, tuple):
                         _, image, analysis = result
-                        analysis_result = {"processed_image_uint16": image, "analyzer_return_dictionary": analysis}
+                        analysis_result = {"processed_image": image, "analyzer_return_dictionary": analysis}
                     else:
                         analysis_result = result
                     process_success(shot_num, analysis_result)
@@ -581,8 +581,8 @@ class Array2DScanAnalysis(ScanAnalysis):
             # Use the injected image analyzer
             logging.info(f'attempting to process {file_path}')
             results_dict = self.image_analyzer.analyze_image_file(image_filepath=file_path)
-            # Expecting results_dict to have keys: 'processed_image_uint16' and 'analyzer_return_dictionary'
-            image = results_dict.get("processed_image_uint16")
+            # Expecting results_dict to have keys: 'processed_image' and 'analyzer_return_dictionary'
+            image = results_dict.get("processed_image")
             if image is not None:
                 image = image.astype(np.uint16)
                 self.data['shot_num'].append(shot_num)
@@ -689,7 +689,7 @@ class Array2DScanAnalysis(ScanAnalysis):
 if __name__ == "__main__":
     from scan_analysis.base import AnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_data_utils import ScanTag
     from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
 
     perform_analysis = True
