@@ -62,7 +62,7 @@ from image_analysis.base import ImageAnalyzer
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_data_utils import ScanTag
     from numpy.typing import NDArray
 
 # --- Global Config ---
@@ -774,6 +774,7 @@ if __name__ == "__main__":
     from scan_analysis.execute_scan_analysis import analyze_scan
     from geecs_python_api.controls.api_defs import ScanTag
     from image_analysis.offline_analyzers.Undulator.ALine3 import Aline3Analyzer
+
 
     perform_analysis = True
     analyzer_info = Info(analyzer_class=Array2DScanAnalysis,

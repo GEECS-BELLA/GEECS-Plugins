@@ -1,24 +1,25 @@
 from __future__ import annotations
 
-import logging
-from pathlib import Path
-from configparser import ConfigParser
 from typing import Optional, Union
-from geecs_python_api.controls.interface import ConfigurationError
+
+import logging
+from configparser import ConfigParser
+from pathlib import Path
+from geecs_data_utils.utils import ConfigurationError
+
+# Module-level logger
+logger = logging.getLogger(__name__)
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
 EXPERIMENT_TO_SERVER_DICT: dict[str, Path] = {
     'Undulator': Path('Z:/data'),
     'Thomson': Path('Z:/data'),
     'DataLogging': Path('N:/data/PWlaserData')
 }
-
-# Create a module-level logger
-logger = logging.getLogger(__name__)
-
-# Set up default logging only if no handlers are present
-if not logging.getLogger().hasHandlers():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
 
 class GeecsPathsConfig:
     """
@@ -114,3 +115,6 @@ class GeecsPathsConfig:
         if input_path is not None and input_path.exists():
             return input_path
         return None
+
+if __name__ == '__main__':
+    pass
