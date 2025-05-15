@@ -5,6 +5,10 @@ from pathlib import Path
 
 import numpy as np
 from scipy.ndimage import label, gaussian_filter
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import Normalize
+from matplotlib.patches import Ellipse
+
 from image_analysis.base import ImageAnalyzer
 import logging
 
@@ -146,12 +150,54 @@ class Aline3Analyzer(ImageAnalyzer):
         uint16_image = (image-self.min_val).astype(np.uint16)
 
         return_dictionary = self.build_return_dictionary(return_image=uint16_image, return_scalars=beam_stats)
+        # self.render_image(image=uint16_image, scalars_dict=beam_stats)
 
         return return_dictionary
 
+    @staticmethod
+    def render_image(
+            image: np.ndarray,
+            scalars_dict: dict[str, Union[float, int]],
+            vmin: Optional[float] = None,
+            vmax: Optional[float] = None,
+            cmap: str = 'plasma',
+            ax: Optional[plt.Axes] = None
+    ) -> None:
+        if ax is None:
+            use_color_bar = True
+            fig, ax = plt.subplots()
+        else:
+            use_color_bar = False
+
+        im = ax.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax)
+
+        # Example below of how to use parameters generated from the analysis to add overlays
+        use_overlay = False
+        if use_overlay:
+            cent_x = scalars_dict.get('ALine3_x_mean', 0)
+            cent_y = scalars_dict.get('ALine3_y_mean', 0)
+            rms_x = scalars_dict.get('ALine3_x_rms', 10)
+            rms_y = scalars_dict.get('ALine3_y_rms', 10)
+            ax.plot(cent_x, cent_y, 'ro', markersize=5)
+            ellipse = Ellipse((cent_x, cent_y), width=2 * rms_x, height=2 * rms_y,
+                              edgecolor='cyan', facecolor='none', lw=2)
+            ax.add_patch(ellipse)
+
+        ax.set_xlabel('X Pixels')
+        ax.set_ylabel('Y Pixels')
+
+        if use_color_bar:  # Only add colorbar if we're in standalone mode
+            plt.colorbar(im, ax=ax)
+            plt.show()
+
+
 if __name__ == "__main__":
     image_analyzer  = Aline3Analyzer()
-    file_path = Path('Z:\\data\\Undulator\\Y2025\\05-May\\25_0507\\scans\\Scan029\\UC_ALineEBeam3\\Scan029_UC_ALineEBeam3_001.png')
+    # file_path = Path('Z:\\data\\Undulator\\Y2025\\05-May\\25_0507\\scans\\Scan029\\UC_ALineEBeam3\\Scan029_UC_ALineEBeam3_001.png')
+    # file_path = Path('\Volumes\hdna2\data\Undulator\Y2025\05-May\25_0507\scans\Scan029\UC_ALineEBeam3\Scan029_UC_ALineEBeam3_001.png')
+    file_path = Path('/Volumes/hdna2/data/Undulator/Y2025/05-May/25_0507/scans/Scan029/UC_ALineEBeam3/Scan029_UC_ALineEBeam3_001.png')
+
+
     print(file_path.exists())
     results = image_analyzer.analyze_image_file(image_filepath=file_path)
     print(results)
