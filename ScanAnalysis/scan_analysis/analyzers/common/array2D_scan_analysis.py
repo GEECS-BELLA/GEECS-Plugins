@@ -76,6 +76,7 @@ PRINT_TRACEBACK = True
 class BinImageEntry(TypedDict):
     value: float
     image: Optional[np.ndarray]
+    scalar_results: Optional[dict[str,Union[float,int]]]
 
 
 # below, some module level static functions that can't be members of the class so that the multi processing
@@ -102,17 +103,17 @@ def load_image_wrapper_static(shot_num: int, path: Path, analyzer_class: type) -
 
 def analyze_preloaded_image_static(
     shot_num: int, image: np.ndarray, analyzer_class: type
-) -> tuple[int, Optional[np.ndarray], dict]:
+) -> dict[str, Any]:
     try:
         analyzer = analyzer_class()
         result = analyzer.analyze_image(image)
 
         image_out = result.get("processed_image")
         scalars = result.get("analyzer_return_dictionary", {})
-        return shot_num, image_out, scalars
+        return result
     except Exception as e:
         logging.error(f"Error analyzing image for shot {shot_num}: {e}")
-        return shot_num, None, {}
+        return {}
 
 # %% classes
 class Array2DScanAnalysis(ScanAnalysis):
@@ -140,6 +141,7 @@ class Array2DScanAnalysis(ScanAnalysis):
                          skip_plt_show=skip_plt_show)
 
         self.image_analyzer = image_analyzer or ImageAnalyzer()
+
         # define flags
         self.flag_logging = flag_logging
         self.flag_save_images = flag_save_images
@@ -336,6 +338,9 @@ class Array2DScanAnalysis(ScanAnalysis):
         """
         logging.info('Starting the individual image analysis')
         self.data: dict[str, list] = {'shot_num': [], 'images': []}
+        self.scalar_results: dict[str, list] = {'shot_num': [], 'scalar_results': []}
+
+
         Executor = ThreadPoolExecutor if self.image_analyzer.run_analyze_image_asynchronously else ProcessPoolExecutor
         logging.info(f'Using {"ThreadPoolExecutor" if Executor is ThreadPoolExecutor else "ProcessPoolExecutor"}')
 
@@ -361,6 +366,7 @@ class Array2DScanAnalysis(ScanAnalysis):
                     result = future.result()
 
                     # If using the process pool, result is a tuple: (shot_num, image, analysis).
+                    # note, above seems deprecated, both just return the full dict
                     if isinstance(result, tuple):
                         _, image, analysis = result
                         analysis_result = {"processed_image": image, "analyzer_return_dictionary": analysis}
@@ -371,6 +377,10 @@ class Array2DScanAnalysis(ScanAnalysis):
                     if image is not None:
                         self.data['shot_num'].append(shot_num)
                         self.data['images'].append(image)
+
+                        self.scalar_results['shot_num'].append(shot_num)
+                        self.scalar_results['scalar_results'].append(scalars)
+
                         logging.info(f"Shot {shot_num}: processed image stored.")
                         logging.info(f'analyzed shot {shot_num} and got {scalars}')
 
@@ -511,8 +521,17 @@ class Array2DScanAnalysis(ScanAnalysis):
 
             # Gather the images for this bin.
             images = [self.data["images"][i] for i in indices]
-            # Average the images (using your average_images method)
             avg_image = self.average_images(images)
+
+            from collections import defaultdict
+            scalar_results = [self.scalar_results["scalar_results"][i] for i in indices]
+            # Group values by key
+            sums = defaultdict(list)
+            for d in scalar_results:
+                for k, v in d.items():
+                    sums[k].append(v)
+            # Take the mean
+            avg_vals = {k: np.mean(v, axis=0) for k, v in sums.items()}
 
             if avg_image is None:
                 continue  # or handle
@@ -522,7 +541,7 @@ class Array2DScanAnalysis(ScanAnalysis):
             column_full_name, column_alias = self.find_scan_param_column()
             param_value = self.auxiliary_data.loc[self.auxiliary_data["Bin #"] == bin_val, column_full_name].mean()
 
-            binned_data[bin_val] = {"value": float(param_value), "image": avg_image}
+            binned_data[bin_val] = {"value": float(param_value), "image": avg_image, "scalar_results":avg_vals}
 
             if flag_save:
                 save_name = f"{self.device_name}_{bin_val}.h5"
@@ -626,71 +645,96 @@ class Array2DScanAnalysis(ScanAnalysis):
         if self.flag_logging:
             logging.info(f"Image saved at {save_path}")
 
-    def create_image_array(self, binned_data: dict[int,BinImageEntry], ref_coords: Optional[tuple] = None,
-                           plot_scale: Optional[float] = None, save_path: Optional[Path] = None):
+    def create_image_array(
+            self,
+            binned_data: dict[int, BinImageEntry],
+            plot_scale: Optional[float] = None,
+            save_path: Optional[Path] = None
+    ):
         """
         Arrange the averaged images into a sensibly sized grid and display them with scan parameter labels.
-        For visualization purposes, images will be normalized to 8-bit.
+        For visualization purposes, individual image rendering is delegated to `render_image`.
 
         Args:
-            binned_data (list[np.array]): List of averaged images. TODO for faster speed consider making a numpy array
-            ref_coords (tuple): The x and y data to be plotted as a reference, as element 0 and 1, respectively
-            plot_scale (float): A float value for the maximum color
+            binned_data (dict[int, BinImageEntry]): Mapping from bin number to image and parameter value.
+            plot_scale (float, optional): Maximum color scale value; defaults to global image max.
+            save_path (Path, optional): Optional path to save the figure.
         """
-        if len(binned_data) == 0:
+        if not binned_data:
             if self.flag_logging:
                 logging.warning("No averaged images to arrange into an array.")
             return
 
-        # Calculate grid size for arranging images in a square-like layout
         num_images = len(binned_data)
         grid_cols = int(np.ceil(np.sqrt(num_images)))
         grid_rows = int(np.ceil(num_images / grid_cols))
 
-        # get global color scale
-        all_pixels = np.concatenate([binned_data[bnum]['image'].ravel()
-                                     for bnum in list(binned_data.keys())
-                                     if binned_data[bnum]['image'] is not None])
-        low, high = 0, all_pixels.max()
-        if plot_scale is not None:
-            high = plot_scale
+        images = [entry["image"] for entry in binned_data.values() if entry["image"] is not None]
+        vmin, vmax = 0, plot_scale if plot_scale is not None else np.max([img.max() for img in images])
 
-        # Create a figure with the appropriate number of subplots
-        fig, axs = plt.subplots(grid_rows, grid_cols, figsize=(grid_cols * 3, grid_rows * 3))
+        # Get custom or fallback render function
+        render_fn = getattr(self.image_analyzer, "render_image_off", self.render_image)
+        # render_fn =self.image_analyzer.render_image
 
-        # Flatten axes array for easy indexing (if there's only one row/col, axs won't be a 2D array)
+        fig, axs = plt.subplots(
+            grid_rows,
+            grid_cols,
+            figsize=(grid_cols * 3.5, grid_rows * 3.5),
+            constrained_layout=True  # <- replace tight_layout
+        )
+
         axs = axs.flatten()
+        # Add grid-level label here
+        fig.suptitle(f'Scan parameter: {self.scan_parameter}', fontsize=12)
 
-        bin_ind = None
-        for bin_num, bin_item in binned_data.items():
-            bin_ind = bin_num - 1
-            img = bin_item['image']
-            param_value = bin_item['value']
+        img_handle = None  # to hold one image for the colorbar
+        for idx, (bin_val, entry) in enumerate(binned_data.items()):
+            if idx >= len(axs):
+                break
+            img = entry["image"]
+            scalars = entry["scalar_results"]
+            param_val = entry["value"]
+            render_fn(image=img, scalars_dict=scalars, vmin=vmin, vmax=vmax, ax=axs[idx])
 
-            # display with adjusted scale
-            axs[bin_ind].imshow(img, cmap='plasma', vmin=low, vmax=high)
-            axs[bin_ind].set_title(f'{self.scan_parameter}: {param_value:.2f}',
-                                   fontsize=10)  # Use scan parameter for label
-            axs[bin_ind].axis('off')  # Turn off axes for cleaner display
+            axs[idx].set_title(f'{param_val:.2f}', fontsize=10)
 
-            if ref_coords is not None:
-                axs[bin_ind].plot(ref_coords[0], ref_coords[1], color='g', marker='o')
+            # Save the handle from one image (for the colorbar)
+            if img_handle is None:
+                img_handle = axs[idx].images[0]  # get the mappable image object
 
-        for j in range(bin_ind + 1, len(axs)):
-            axs[j].axis('off')
+        cbar = fig.colorbar(
+            img_handle,
+            ax=axs,
+            orientation='horizontal',
+            label='Intensity',
+            shrink=0.8,  # optional: shrink to not span entire width
+            pad=0.01, # space between subplots and colorbar
+            aspect=40,  # ← make it thinner (default is ~20)
 
-        plt.tight_layout()
+        )
 
-        # Save the final image grid for visualization
-        if save_path:
-            filename = save_path.name
-        else:
+        if save_path is None:
             filename = f'{self.device_name}_averaged_image_grid.png'
             save_path = Path(self.path_dict['save']) / filename
-        plt.savefig(save_path, bbox_inches='tight')
+
+        fig.savefig(save_path, bbox_inches='tight')
+        plt.close(fig)
+
         if self.flag_logging:
-            logging.info(f"Saved final image grid as {filename}.")
-        self.close_or_show_plot()
+            logging.info(f"Saved final image grid as {save_path.name}.")
+        self.display_contents.append(str(save_path))
+
+    @staticmethod
+    def render_image(
+            image: np.ndarray,
+            scalars_dict: dict[str, Union[float, int]],
+            vmin: Optional[float] = None,
+            vmax: Optional[float] = None,
+            cmap: str = 'plasma',
+            ax: Optional[plt.Axes] = None
+    ) -> None:
+        ax.axis('off')
+        ax.imshow(image, cmap=cmap, vmin=vmin, vmax=vmax)
 
     @staticmethod
     def average_images(images: list[np.ndarray]) -> Optional[np.ndarray]:
@@ -774,7 +818,6 @@ if __name__ == "__main__":
     from scan_analysis.execute_scan_analysis import analyze_scan
     from geecs_python_api.controls.api_defs import ScanTag
     from image_analysis.offline_analyzers.Undulator.ALine3 import Aline3Analyzer
-
 
     perform_analysis = True
     analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
