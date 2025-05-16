@@ -141,6 +141,29 @@ class ImageAnalyzer:
 
         return image
 
+    def analyze_image_batch(self, images: list[Array2D]) -> list[Array2D]:
+
+        """
+        Perform optional batch-level analysis on a list of images
+        By default, this does nothing and returns the passed image list.
+
+        As an example. this method can be
+             used to dynamically find the background and subtract it from the images.
+             Any additional information that is intended to be used in the
+             subsequent individual analyze_image method should be added as
+             attributes of the instance and accessed that way
+
+        Args:
+            images (list of Array2D): All images loaded for the scan.
+
+        Returns:
+            images (list of Array2D):
+        """
+
+        return images
+
+
+
     def build_return_dictionary(self, return_image: Optional[NDArray] = None,
                                 return_scalars: Optional[dict[str, Union[int, float]]] = None,
                                 return_lineouts: Optional[Union[NDArray, list[NDArray]]] = None,
