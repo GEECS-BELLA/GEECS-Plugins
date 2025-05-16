@@ -115,6 +115,7 @@ def parse_results_to_labview(return_dictionary, key_list_name):
         validate_uint16_castable(return_image)
         return_image = return_image.astype(np.uint16)
 
+
     scalar_dict = return_dictionary['analyzer_return_dictionary']
     return_lineouts = return_dictionary['analyzer_return_lineouts']
 
