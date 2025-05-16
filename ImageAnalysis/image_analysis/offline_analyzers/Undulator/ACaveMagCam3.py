@@ -29,17 +29,16 @@ class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
         max_count = np.max(roi_image)
         return avg_count, total_count, max_count, roi_image
 
-
-    def analyze_image_file(self, image_filepath: Path, auxiliary_data: Optional[dict] = None) -> dict[
-            str, Union[float, int, str, np.ndarray]]:
+    def analyze_image(self, image: np.ndarray, auxiliary_data: Optional[dict] = None) -> dict[
+        str, Union[float, int, str, np.ndarray]]:
 
         """
-        Analyze an image by simply loading it (if not already loaded) and returning it as the processed image.
+        Analyze an image from acave mag cam3.
 
         Parameters
         ----------
-        image_filepath : Path, optional
-            The path to the image file to load if image is None.
+        image : np.array,
+            the image.
         auxiliary_data: dict, containing any additional imformation needed for analysis
 
         Returns
@@ -47,8 +46,6 @@ class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
         dict
             A dictionary with the processed image and placeholder for analysis results.
         """
-
-        image = self.load_image(image_filepath)
 
         # Define the ROIs (x, y, width, height) as a dictionary
         rois = {
