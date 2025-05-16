@@ -4,12 +4,6 @@ from typing import Optional
 # Set up a module-level logger
 logger = logging.getLogger(__name__)
 
-class ConfigurationError(Exception):
-    """Exception raised for errors in the configuration file."""
-    def __init__(self, message: str):
-        self.message = message
-        super().__init__(self.message)
-
 class GeecsDeviceInstantiationError(Exception):
     """Exception raised when a GEecs device fails to instantiate."""
     def __init__(self, message: str):
