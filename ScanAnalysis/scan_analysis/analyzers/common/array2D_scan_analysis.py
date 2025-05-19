@@ -64,6 +64,7 @@ from image_analysis.base import ImageAnalyzer
 if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
     from numpy.typing import NDArray
+    from image_analysis.types import AnalyzerResultDict
 
 # --- Global Config ---
 use_interactive = False
@@ -106,10 +107,7 @@ def analyze_preloaded_image_static(
 ) -> dict[str, Any]:
     try:
         analyzer = analyzer_class()
-        result = analyzer.analyze_image(image)
-
-        image_out = result.get("processed_image")
-        scalars = result.get("analyzer_return_dictionary", {})
+        result: AnalyzerResultDict = analyzer.analyze_image(image)
         return result
     except Exception as e:
         logging.error(f"Error analyzing image for shot {shot_num}: {e}")
@@ -363,16 +361,9 @@ class Array2DScanAnalysis(ScanAnalysis):
             for future in as_completed(futures):
                 shot_num = futures[future]
                 try:
-                    result = future.result()
-
-                    # If using the process pool, result is a tuple: (shot_num, image, analysis).
-                    # note, above seems deprecated, both just return the full dict
-                    if isinstance(result, tuple):
-                        _, image, analysis = result
-                        analysis_result = {"processed_image": image, "analyzer_return_dictionary": analysis}
-                    else:
-                        image = result.get("processed_image")
-                        scalars = result.get("analyzer_return_dictionary", {})
+                    result: AnalyzerResultDict =  future.result()
+                    image = result.get("processed_image")
+                    scalars = result.get("analyzer_return_dictionary", {})
 
                     if image is not None:
                         self.data['shot_num'].append(shot_num)
@@ -816,7 +807,7 @@ class Array2DScanAnalysis(ScanAnalysis):
 if __name__ == "__main__":
     from scan_analysis.base import AnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan
-    from geecs_python_api.controls.api_defs import ScanTag
+    from geecs_data_utils import ScanTag
     from image_analysis.offline_analyzers.Undulator.ALine3 import Aline3Analyzer
 
     perform_analysis = True
