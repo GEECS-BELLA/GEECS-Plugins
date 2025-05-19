@@ -6,7 +6,7 @@ from numpy.typing import NDArray
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union, Any
 if TYPE_CHECKING:
-    from .types import Array2D
+    from .types import Array2D, AnalyzerResultDict
 
 from image_analysis.utils import read_imaq_image
 from image_analysis.tools.background import Background
@@ -171,7 +171,7 @@ class ImageAnalyzer:
                                 return_scalars: Optional[dict[str, Union[int, float]]] = None,
                                 return_lineouts: Optional[Union[NDArray, list[NDArray]]] = None,
                                 input_parameters: Optional[dict[str, Any]] = None
-                                ) -> dict[str, Union[NDArray, dict, None]]:
+                                ) -> AnalyzerResultDict:
         """ Builds a return dictionary compatible with labview_adapters.py
 
             Parameters
@@ -201,12 +201,14 @@ class ImageAnalyzer:
                 "analyzer_return_lineouts": return_lineouts
             """
 
+        return_dictionary: AnalyzerResultDict = {}
 
         if return_scalars is None:
             return_scalars = dict()
         elif not isinstance(return_scalars, dict):
             print("return_scalars must be passed as a dict!")
             return_scalars = dict()
+        return_dictionary["analyzer_return_dictionary"] = return_scalars
 
         if isinstance(return_lineouts, np.ndarray) and return_lineouts.ndim == 2:
             return_lineouts = return_lineouts.astype(np.float64)
@@ -229,16 +231,14 @@ class ImageAnalyzer:
                 return_lineouts = [np.pad(lineout, (0, max_length - len(lineout)), mode='constant')
                                    for lineout in return_lineouts]
                 return_lineouts = np.vstack(return_lineouts).astype(np.float64)
+        return_dictionary["analyzer_return_lineouts"] = return_lineouts
 
         if input_parameters is None:
             input_parameters = self.build_input_parameter_dictionary()
+        return_dictionary["analyzer_input_parameters"] = input_parameters
 
-        return_dictionary = {
-            "analyzer_input_parameters": input_parameters,
-            "analyzer_return_dictionary": return_scalars,
-            "processed_image": return_image,
-            "analyzer_return_lineouts": return_lineouts,
-        }
+        return_dictionary["processed_image"] = return_image
+
         return return_dictionary
 
     def build_input_parameter_dictionary(self) -> dict:
