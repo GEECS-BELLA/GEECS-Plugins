@@ -3,6 +3,7 @@ from pathlib import Path
 from scipy.ndimage import gaussian_filter, label, binary_opening
 from skimage.morphology import remove_small_objects
 from typing import Optional, Union, Literal
+from image_analysis.utils import read_imaq_image
 
 class Background:
     """
