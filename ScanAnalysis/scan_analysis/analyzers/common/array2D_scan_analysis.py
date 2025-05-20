@@ -208,12 +208,12 @@ class Array2DScanAnalysis(ScanAnalysis):
         """
         self._image_file_map = {}
 
+        logging.info(f'self.file_tail: {self.file_tail}')
         image_filename_regex = re.compile(
-            r"Scan(?P<scan_number>\d{3,})_"  # capture scan number
-            r"(?P<device_subject>.*?)_"  # non-greedy device/subject
-            r"(?P<shot_number>\d{3,})"  # capture shot number
-            r"(?P<suffix>_[^.]*)?"  # optional suffix
-            r"\.(?P<format>\w+)$"  # file format
+            r"Scan(?P<scan_number>\d{3,})_"  # scan number
+            r"(?P<device_subject>.*?)_"  # non-greedy subject
+            r"(?P<shot_number>\d{3,})"  # shot number
+            + re.escape(self.file_tail) + r"$"  # literal suffix+format
         )
 
         for file in self.path_dict['data_img'].iterdir():
@@ -222,12 +222,6 @@ class Array2DScanAnalysis(ScanAnalysis):
 
             m = image_filename_regex.match(file.name)
             if m:
-                suffix = m.group('suffix') or ''
-                file_format = m.group('format')
-                tail = f"{suffix}.{file_format}"
-                if tail != self.file_tail:
-                    continue  # skip if it doesn't match the requested tail
-
                 shot_num = int(m.group('shot_number'))
                 if shot_num in self.auxiliary_data['Shotnumber'].values:
                     self._image_file_map[shot_num] = file
