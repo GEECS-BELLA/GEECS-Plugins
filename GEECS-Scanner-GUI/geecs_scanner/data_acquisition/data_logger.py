@@ -561,8 +561,8 @@ class DataLogger:
             self.standby_mode_device_status[device.get_name()] = None
             self.initial_timestamps[device.get_name()] = None
 
-        if not self.standby_mode_device_status[device.get_name()]:
-            return
+        if self.standby_mode_device_status[device.get_name()] is False:
+            return  # TODO may be worth to instead have a custom variable than can be one of three states
 
         # check if there has been a timestamp added to the dict for a given device
         t0 = self.initial_timestamps.get(device.get_name(), None)
