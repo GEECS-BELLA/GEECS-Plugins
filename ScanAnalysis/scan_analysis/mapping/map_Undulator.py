@@ -79,11 +79,11 @@ undulator_analyzers = [
          requirements={'U_HasoLift'},
          device_name='U_HasoLift',
          image_analyzer_class=HASOHimgHasProcessor,
-         file_pattern = "*_{shot_num:03d}.himg"),
+         file_tail = ".himg"),
     Info(analyzer_class=Array2DScanAnalysis,
          requirements={'U_HasoLift'},
          device_name='U_HasoLift',
          image_analyzer_class=PhaseDownrampProcessor,
-         file_pattern="*_{shot_num:03d}_postprocessed.tsv",
+         file_tail="_postprocessed.tsv",
          image_analysis_config=phase_analysis_config)
 ]

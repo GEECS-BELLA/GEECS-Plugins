@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from .types import Array2D
 
 from image_analysis.utils import read_imaq_image
+from image_analysis.tools.background import Background
 
 
 class ImageAnalyzer:
@@ -24,7 +25,7 @@ class ImageAnalyzer:
     # asynchronously, for example if it waits for an external process
     run_analyze_image_asynchronously = False
 
-    def __init__(self, config: Optional[Any] = None):
+    def __init__(self, config: Optional[Any] = None, background_obj: Optional[Background]=None):
         """ Initializes this ImageAnalyzer, with Analyzer parameters as kwargs
 
             As the same ImageAnalyzer instance can be applied to many images,
@@ -58,17 +59,19 @@ class ImageAnalyzer:
 
                 super().__init__()
 
-        New:
-            config: Optional[Any]
-                Optional configuration data (e.g., a dictionary, file path, or configuration object)
-                that can be used by derived classes to initialize additional parameters. If not provided,
-                defaults will be used.
-
-        """
+            Parameters
+            ----------
+            config : Optional[Any]
+                Optional configuration object (e.g., dict, Path, custom class) that can be
+                used by subclasses to initialize additional parameters.
+            background_obj : Optional[Background]
+                An optional Background instance. If not provided, a new one will be created.
+            """
 
         # Default implementation does nothing with config.
         # Subclasses can process config as needed.
         self.config = config
+        self.background_obj = background_obj or Background()
 
     def analyze_image(self,
                       image: Array2D,
@@ -141,6 +144,29 @@ class ImageAnalyzer:
 
         return image
 
+    def analyze_image_batch(self, images: list[Array2D]) -> list[Array2D]:
+
+        """
+        Perform optional batch-level analysis on a list of images
+        By default, this does nothing and returns the passed image list.
+
+        As an example. this method can be
+             used to dynamically find the background and subtract it from the images.
+             Any additional information that is intended to be used in the
+             subsequent individual analyze_image method should be added as
+             attributes of the instance and accessed that way
+
+        Args:
+            images (list of Array2D): All images loaded for the scan.
+
+        Returns:
+            images (list of Array2D):
+        """
+
+        return images
+
+
+
     def build_return_dictionary(self, return_image: Optional[NDArray] = None,
                                 return_scalars: Optional[dict[str, Union[int, float]]] = None,
                                 return_lineouts: Optional[Union[NDArray, list[NDArray]]] = None,
@@ -174,6 +200,7 @@ class ImageAnalyzer:
                 "processed_image": return_image (with identical type as input argument)
                 "analyzer_return_lineouts": return_lineouts
             """
+
 
         if return_scalars is None:
             return_scalars = dict()
