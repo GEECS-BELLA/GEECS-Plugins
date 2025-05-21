@@ -335,9 +335,10 @@ class Array2DScanAnalysis(ScanAnalysis):
         Results (processed images and scalar analysis values) are stored in `self.data` and `self.auxiliary_data`.
         """
         logging.info('Starting the individual image analysis')
-        self.data: dict[str, list] = {'shot_num': [], 'images': []}
-        self.scalar_results: dict[str, list] = {'shot_num': [], 'scalar_results': []}
-
+        # self.data: dict[str, list] = {'shot_num': [], 'images': []}
+        # self.scalar_results: dict[str, list[dict]] = {'shot_num': [], 'scalar_results': []}
+        # self.input_params: dict[str, list[dict]] = {'shot_num': [], 'input_params': []}
+        self.results: dict[int, AnalyzerResultDict] = {}
 
         Executor = ThreadPoolExecutor if self.image_analyzer.run_analyze_image_asynchronously else ProcessPoolExecutor
         logging.info(f'Using {"ThreadPoolExecutor" if Executor is ThreadPoolExecutor else "ProcessPoolExecutor"}')
@@ -366,12 +367,7 @@ class Array2DScanAnalysis(ScanAnalysis):
                     scalars = result.get("analyzer_return_dictionary", {})
 
                     if image is not None:
-                        self.data['shot_num'].append(shot_num)
-                        self.data['images'].append(image)
-
-                        self.scalar_results['shot_num'].append(shot_num)
-                        self.scalar_results['scalar_results'].append(scalars)
-
+                        self.results[shot_num] = result
                         logging.info(f"Shot {shot_num}: processed image stored.")
                         logging.info(f'analyzed shot {shot_num} and got {scalars}')
 
@@ -664,7 +660,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         vmin, vmax = 0, plot_scale if plot_scale is not None else np.max([img.max() for img in images])
 
         # Get custom or fallback render function
-        render_fn = getattr(self.image_analyzer, "render_image_off", self.render_image)
+        render_fn = getattr(self.image_analyzer, "render_image", self.render_image)
         # render_fn =self.image_analyzer.render_image
 
         fig, axs = plt.subplots(
@@ -805,19 +801,39 @@ class Array2DScanAnalysis(ScanAnalysis):
         io.mimsave(output_file, images, duration=duration, loop=0)
 
 if __name__ == "__main__":
+    # from scan_analysis.base import AnalyzerInfo as Info
+    # from scan_analysis.execute_scan_analysis import analyze_scan
+    # from geecs_data_utils import ScanTag
+    # from image_analysis.offline_analyzers.Undulator.ALine3 import Aline3Analyzer
+    #
+    # perform_analysis = True
+    # analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
+    #                      requirements={'UC_ALineEBeam3'},
+    #                      device_name='UC_ALineEBeam3',
+    #                      image_analyzer_class=Aline3Analyzer,
+    #                      file_tail = '.png')
+    #
+    # test_tag = ScanTag(year=2025, month=5, day=7, number=29, experiment='Undulator')
+    #
+    # test_analyzer = analyzer_info
+    # import time
+    # t0 = time.monotonic()
+    # analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
+    # t1 = time.monotonic()
+
     from scan_analysis.base import AnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan
     from geecs_data_utils import ScanTag
-    from image_analysis.offline_analyzers.Undulator.ALine3 import Aline3Analyzer
+    from image_analysis.offline_analyzers.Undulator.VisaEBeam import VisaEBeam
 
     perform_analysis = True
     analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
-                         requirements={'UC_ALineEBeam3'},
-                         device_name='UC_ALineEBeam3',
-                         image_analyzer_class=Aline3Analyzer,
+                         requirements={'UC_VisaEBeam1'},
+                         device_name='UC_VisaEBeam1',
+                         image_analyzer_class=VisaEBeam,
                          file_tail = '.png')
 
-    test_tag = ScanTag(year=2025, month=5, day=7, number=29, experiment='Undulator')
+    test_tag = ScanTag(year=2024, month=12, day=5, number=20, experiment='Undulator')
 
     test_analyzer = analyzer_info
     import time
