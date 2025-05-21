@@ -32,7 +32,7 @@ def app(qtbot: QtBot):
     window.setFocus()
 
     # Hard-code application paths to test experiment in this package
-    AppPaths.BASE_PATH = Path(__file__).parent / "test_configs"
+    AppPaths.BASE_PATH = Path(__file__).parents[1] / "test_configs"
     window.app_paths = AppPaths(experiment="Test", create_new=False)
 
     # Set experiment name to "Test" and update the GUI accordingly

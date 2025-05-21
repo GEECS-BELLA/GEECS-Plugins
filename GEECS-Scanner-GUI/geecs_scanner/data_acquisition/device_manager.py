@@ -1,3 +1,6 @@
+from __future__ import annotations
+from typing import Union
+
 import logging
 import yaml
 import threading
@@ -6,7 +9,7 @@ from pathlib import Path
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
-from .utils import get_full_config_path  # Import the utility function
+from .utils import get_full_config_path  # Import utility function to build paths to config files
 
 
 class DeviceManager:
@@ -17,13 +20,13 @@ class DeviceManager:
     """
 
     def __init__(self, experiment_dir: str = None):
-
         """
         Initialize the DeviceManager with optional experiment directory.
 
         Args:
             experiment_dir (str, optional): Path to the directory where experiment configurations are stored.
         """
+
         self.devices = {}
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
@@ -31,6 +34,7 @@ class DeviceManager:
         self.composite_variables = {}
         self.scan_setup_action = {'steps': []}
         self.scan_closeout_action = {'steps': []}
+        self.scan_base_description = ''
 
         self.fatal_error_event = threading.Event()  # Used to signal a fatal error
 
@@ -51,7 +55,6 @@ class DeviceManager:
                 logging.warning(f"Composite variables file not found.")
 
     def load_composite_variables(self, composite_file: Path):
-
         """
         Load composite variables from the given YAML file.
 
@@ -64,37 +67,40 @@ class DeviceManager:
 
         try:
             with open(composite_file, 'r') as file:
-                composite_variables = yaml.safe_load(file).get('composite_variables', {})
+                self.composite_variables = yaml.safe_load(file).get('composite_variables', {})
             logging.info(f"Loaded composite variables from {composite_file}")
-            return composite_variables
+            return self.composite_variables
         except FileNotFoundError:
             logging.warning(f"Composite variables file not found: {composite_file}.")
             return {}
 
-    def load_from_config(self, config_filename):
+    def load_from_config(self, config_filename: Union[str, Path]):
         """
         Load configuration from a YAML file, including scan info, parameters, and device observables.
         Also loads the base configuration if necessary.
 
         Args:
-            config_filename (str): The name of the YAML configuration file to load.
+            config_filename (str, Path): Either the name of the YAML configuration file to load or it's complete Path.
         """
 
         # Load base configuration first
         # self.load_base_config()
 
         # Load the specific config for the experiment
-        config_path = get_full_config_path(self.experiment_dir, 'save_devices', config_filename)
+        if isinstance(config_filename, Path) and config_filename.exists():
+            config_path = config_filename
+        else:
+            config_path = get_full_config_path(self.experiment_dir, 'save_devices', config_filename)
+
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
         logging.info(f"Loaded configuration from {config_path}")
         self.load_from_dictionary(config)
 
     def load_from_dictionary(self, config_dictionary):
-
         """
         Load configuration from a preloaded dictionary, bypassing the need to read a YAML file. Primarily
-        used by the GUI, but can enable loading conffigs in a different manner.
+        used by the GUI, but can enable loading configs in a different manner.
 
         Args:
             config_dictionary (dict): A dictionary containing the experiment configuration.
@@ -174,12 +180,14 @@ class DeviceManager:
             device_name (str): The name of the device.
             scan_setup (dict): Dictionary containing scan setup actions and their corresponding setup/closeout values.
         """
+
         # Iterate over each key in the 'scan_setup' dictionary
         for analysis_type, values in scan_setup.items():
             # Ensure the setup and closeout values exist in the 'scan_setup'
             if len(values) != 2:
                 logging.warning(
-                    f"Invalid scan setup actions for {device_name}: {analysis_type} (Expected 2 values, got {len(values)})")
+                    f"Invalid scan setup actions for {device_name}: {analysis_type} "
+                    f"(Expected 2 values, got {len(values)})")
                 continue
 
             setup_value, closeout_value = values
@@ -204,9 +212,11 @@ class DeviceManager:
             })
 
             logging.info(
-                f"Added setup and closeout actions for {device_name}: {analysis_type} (setup={setup_value}, closeout={closeout_value})")
+                f"Added setup and closeout actions for {device_name}: {analysis_type} "
+                f"(setup={setup_value}, closeout={closeout_value})")
 
-    def is_statistic_noscan(self, variable_name):
+    @staticmethod
+    def is_statistic_noscan(variable_name):
         """
         Check if the variable is a 'noscan' or 'statistics' placeholder.
 
@@ -229,6 +239,7 @@ class DeviceManager:
         Returns:
             bool: True if the variable is a composite variable, False otherwise.
         """
+
         return self.composite_variables is not None and variable_name in self.composite_variables
 
     def initialize_subscribers(self, variables, clear_devices=True):
@@ -338,7 +349,8 @@ class DeviceManager:
 
         logging.info("DeviceManager instance has been reinitialized.")
 
-    def preprocess_observables(self, observables):
+    @staticmethod
+    def preprocess_observables(observables):
         """
         Preprocess a list of observables by organizing them into device-variable mappings.
 
@@ -362,6 +374,8 @@ class DeviceManager:
         Add a new device or append variables to an existing device for scan operations and
         recording their data.
 
+        # TODO is there ever an instance where variable_list is a list?  Can we make it just a single string?
+
         Args:
             device_name (str or dict): The name of the device to add or update, or dict for composite var
             variable_list (list): A list of variables to add for the device.
@@ -371,6 +385,7 @@ class DeviceManager:
             logging.info(f"Adding new scan device: {device_name} with default settings.")
             self._subscribe_device(device_name, var_list=variable_list)
 
+            # TODO can we delete these lines of code for `self.nonscalar_saving_devices`?
             # Default attributes for scan-specific devices (e.g., from scan_config)
             default_device_config = {
                 'save_non_scalar_data': False,
