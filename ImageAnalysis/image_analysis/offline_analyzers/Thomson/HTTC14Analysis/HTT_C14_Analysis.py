@@ -13,6 +13,10 @@ Analysis performed:
     2D Analysis: Gif
     1D Analysis: fwhm_x,y / max counts / mean counts / sum counts
 
+
+
+To do: Add another set of saved images that are not ROId and create gif. I think array 2d scan analysis does this already. 
+Save scalars to the s file (max counts, fwhm, centroid) for easy access.
 -Curtis Ervin Berger
 """
 from __future__ import annotations
@@ -25,6 +29,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from HTT_C14_Analysis_Parent import HTTC14Functions
 from matplotlib import pyplot as plt
+# from matplotlib.colors import LogNorm
 from skimage.filters import median
 class HTTC14(HTTC14Functions):
     def __init__(self):
@@ -34,7 +39,7 @@ class HTTC14(HTTC14Functions):
 
         """
         super().__init__()
-        self.run_analyze_image_asynchronously = True
+        self.run_analyze_image_asynchronously = False
         self.flag_logging = True
         self.analyzed_image = None # class attribute will be the the image after any filtering, roi-ing, etc. 
         self.image_filepath = None
@@ -70,8 +75,8 @@ class HTTC14(HTTC14Functions):
             xcen = centers[0]
             ycen = centers[1]
             scale = 3.5
-            print(f"printing analysis dict: {self.analysis_dict}")
-            print(f"fwhm from class attr: {self.analysis_dict['fwhm_x']}")
+            # print(f"printing analysis dict: {self.analysis_dict}")
+            # print(f"fwhm from class attr: {self.analysis_dict['fwhm_x']}")
             
             # Calculate ROI boundaries in pixel coordinates
             x1_px, x2_px = int(xcen-scale*self.analysis_dict["fwhm_x"]), int(xcen+scale*self.analysis_dict["fwhm_x"])
@@ -83,7 +88,7 @@ class HTTC14(HTTC14Functions):
             y1_px = max(0, y1_px)
             y2_px = min(self.image.shape[0]-1, y2_px)
             
-            print(f"ROI pixel coordinates: {x1_px, x2_px, y1_px, y2_px}")
+            # print(f"ROI pixel coordinates: {x1_px, x2_px, y1_px, y2_px}")
             
             # Extract the ROI using pixel coordinates
             self.analyzed_image = self.analyzed_image[y1_px:y2_px, x1_px:x2_px]
@@ -94,7 +99,7 @@ class HTTC14(HTTC14Functions):
             y1_mm = y1_px * self.calb
             y2_mm = y2_px * self.calb
             
-            print(f"ROI mm coordinates: {x1_mm, x2_mm, y1_mm, y2_mm}")
+            # print(f"ROI mm coordinates: {x1_mm, x2_mm, y1_mm, y2_mm}")
 
             # Calculate new center coordinates within ROI
             # Ensure they're within bounds of the ROI
@@ -172,7 +177,6 @@ class HTTC14(HTTC14Functions):
             # Add grid
             ax.set_title(self.image_filepath.parts[-1])
             ax.grid(True, linestyle='--', alpha=0.3)
-
     def analyze_image_file(self, image_filepath: Path, auxiliary_data: Optional[dict] = None) -> dict[
             str, Union[float, int, str, np.ndarray]]:
 
@@ -194,13 +198,16 @@ class HTTC14(HTTC14Functions):
         self.initialize_instance_image() # this creates the self.image variable based on the file path passed
         self.process_lineout()
         self.imshow_analyzed_image(cmap="jet", units="mm")
-        print(self.image_filepath.parts[0:8])
+        # print(self.image_filepath.parts[0:8])
         
         parent_dirr = self.image_filepath.parents[3]
-        self.post_processed_image_save_dirr = parent_dirr/'analysis'/self.image_filepath.parts[7]/self.image_filepath.parts[9]
-        # print(self.post_processed_image_save_dirr)
+        self.post_processed_image_save_dirr = parent_dirr/'analysis'/self.image_filepath.parts[7]/'HTT_C14'/self.image_filepath.parts[9]
+        print("======Printing Save Directory======")
+        print(self.post_processed_image_save_dirr)
+        print("===================================")
         self.post_processed_image_save_dirr.parent.mkdir(exist_ok=True,parents=True)
         plt.savefig(self.post_processed_image_save_dirr)
+        plt.close("all")
         
         # do some analysis on an image, save the results in a dict
         # some_dict = {'Max value of image':np.max(self.analyzed_image)}

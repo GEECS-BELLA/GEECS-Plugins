@@ -190,6 +190,8 @@ class ScanWatch:
             return
 
         tag: ScanTag = self.analysis_queue.get()
+        if tag.number == 27:
+            pass
         self.processed_list.append(tag.number)
         scan_folder = ScanData.get_scan_folder_path(tag=tag)
         self._evaluate_folder(tag, scan_folder)
@@ -308,8 +310,8 @@ if __name__ == '__main__':
 
     exp = 'Thomson'
     test_year = 2025
-    test_month = 4
-    test_day = 18
+    test_month = 5
+    test_day = 12
 
     scan_watch = ScanWatch(experiment_name=exp, year=test_year, month=test_month, day=test_day,
                            analyzer_list=thomson_analyzers, overwrite_previous=True)
