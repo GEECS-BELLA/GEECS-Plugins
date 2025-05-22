@@ -25,7 +25,7 @@ class ImageAnalyzer:
     # asynchronously, for example if it waits for an external process
     run_analyze_image_asynchronously = False
 
-    def __init__(self, config: Optional[Any] = None, background_obj: Optional[Background]=None):
+    def __init__(self, background: Background = None, **config) :
         """ Initializes this ImageAnalyzer, with Analyzer parameters as kwargs
 
             As the same ImageAnalyzer instance can be applied to many images,
@@ -61,17 +61,14 @@ class ImageAnalyzer:
 
             Parameters
             ----------
-            config : Optional[Any]
-                Optional configuration object (e.g., dict, Path, custom class) that can be
-                used by subclasses to initialize additional parameters.
-            background_obj : Optional[Background]
-                An optional Background instance. If not provided, a new one will be created.
+            **config :
+                Optional configuration kwargs.
+            background : Optional[Background]
+                An Background instance. If not provided, a new one will be created.
             """
 
-        # Default implementation does nothing with config.
-        # Subclasses can process config as needed.
-        self.config = config
-        self.background_obj = background_obj or Background()
+        self.background = background or Background()
+
 
     def analyze_image(self,
                       image: Array2D,
@@ -144,7 +141,7 @@ class ImageAnalyzer:
 
         return image
 
-    def analyze_image_batch(self, images: list[Array2D]) -> list[Array2D]:
+    def analyze_image_batch(self, images: list[Array2D]) -> Tuple[list[Array2D], dict[str, Union[int, float, bool, str]]]:
 
         """
         Perform optional batch-level analysis on a list of images
@@ -163,7 +160,7 @@ class ImageAnalyzer:
             images (list of Array2D):
         """
 
-        return images
+        return images, {}
 
 
 
