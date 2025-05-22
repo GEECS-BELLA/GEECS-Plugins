@@ -246,7 +246,7 @@ class Array2DScanAnalysis(ScanAnalysis):
                 shot_num = int(m.group('shot_number'))
                 if shot_num in self.auxiliary_data['Shotnumber'].values:
                     self._image_file_map[shot_num] = file
-                    # logging.info(f"Mapped file for shot {shot_num}: {file}")
+                    logging.info(f"Mapped file for shot {shot_num}: {file}")
             else:
                 logging.debug(f"Filename {file.name} does not match expected pattern.")
 
@@ -870,28 +870,28 @@ class Array2DScanAnalysis(ScanAnalysis):
 
 if __name__ == "__main__":
 
-    from scan_analysis.base import AnalyzerInfo as Info
-    from scan_analysis.execute_scan_analysis import analyze_scan
-    from geecs_data_utils import ScanTag
-    from image_analysis.offline_analyzers.Undulator.ALine3 import Aline3Analyzer
-    from image_analysis.offline_analyzers.Undulator.VisaEBeam import VisaEBeam
-
-
-    perform_analysis = True
-    analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
-                         requirements={'UC_ALineEBeam3'},
-                         device_name='UC_ALineEBeam3',
-                         image_analyzer_class=VisaEBeam,
-                         file_tail = '.png',
-                         image_analysis_config = {'camera_name':'UC_ALineEBeam3'})
-
-    test_tag = ScanTag(year=2025, month=5, day=7, number=29, experiment='Undulator')
-
-    test_analyzer = analyzer_info
-    import time
-    t0 = time.monotonic()
-    analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
-    t1 = time.monotonic()
+    # from scan_analysis.base import AnalyzerInfo as Info
+    # from scan_analysis.execute_scan_analysis import analyze_scan
+    # from geecs_data_utils import ScanTag
+    # from image_analysis.offline_analyzers.Undulator.ALine3 import Aline3Analyzer
+    # from image_analysis.offline_analyzers.Undulator.VisaEBeam import VisaEBeam
+    #
+    #
+    # perform_analysis = True
+    # analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
+    #                      requirements={'UC_ALineEBeam3'},
+    #                      device_name='UC_ALineEBeam3',
+    #                      image_analyzer_class=VisaEBeam,
+    #                      file_tail = '.png',
+    #                      image_analysis_config = {'camera_name':'UC_ALineEBeam3'})
+    #
+    # test_tag = ScanTag(year=2025, month=5, day=7, number=29, experiment='Undulator')
+    #
+    # test_analyzer = analyzer_info
+    # import time
+    # t0 = time.monotonic()
+    # analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
+    # t1 = time.monotonic()
 
     # from scan_analysis.base import AnalyzerInfo as Info
     # from scan_analysis.execute_scan_analysis import analyze_scan
@@ -948,3 +948,35 @@ if __name__ == "__main__":
     # test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
     # analyze_scan(test_tag, [analyzer_info])
 
+    from scan_analysis.base import AnalyzerInfo as Info
+    from scan_analysis.execute_scan_analysis import analyze_scan
+    from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, \
+            PhaseDownrampProcessor
+    from geecs_data_utils import ScanTag, ScanData
+
+
+    def get_path_to_bkg_file():
+        st = ScanTag(2025, 3, 6, 15, experiment='Undulator')
+        s_data = ScanData(tag=st)
+        path_to_file = s_data.get_folder() / 'U_HasoLift' / 'average_phase.tsv'
+
+        return path_to_file
+
+    bkg_file_path = get_path_to_bkg_file()
+    config: PhaseAnalysisConfig = PhaseAnalysisConfig(
+        pixel_scale=10.1,  # um per pixel (vertical)
+        wavelength_nm=800,  # Probe laser wavelength in nm
+        threshold_fraction=0.05,  # Threshold fraction for pre-processing
+        roi=(10, -10, 75, -250),  # Example ROI: (x_min, x_max, y_min, y_max)
+        background_path=bkg_file_path  # Background is now a Path
+    )
+    config_dict = asdict(config)
+    analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
+            requirements={'U_HasoLift'},
+            device_name='U_HasoLift',
+            image_analyzer_class=PhaseDownrampProcessor,
+            file_tail = "_postprocessed.tsv",
+            image_analysis_config = config_dict)
+
+    test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
+    analyze_scan(test_tag, [analyzer_info])
