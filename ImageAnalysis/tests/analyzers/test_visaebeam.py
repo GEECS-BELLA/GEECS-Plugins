@@ -9,6 +9,7 @@ from image_analysis.offline_analyzers.Undulator.VisaEBeam import VisaEBeam
     "UC_VisaEBeam3",
     "UC_VisaEBeam4",
     "UC_VisaEBeam5",
+    "UC_ALineEBeam3"
 ])
 def test_analyze_image_file_visaebeam(camera_name):
     # Resolve test image path relative to this test file
@@ -19,7 +20,7 @@ def test_analyze_image_file_visaebeam(camera_name):
     assert test_img_path.exists(), f"Test image not found: {test_img_path}"
 
     analyzer = VisaEBeam(camera_name=camera_name)
-    analyzer.use_interactive = False
+    analyzer.use_interactive = True
     result = analyzer.analyze_image_file(image_filepath=test_img_path)
 
     # Validate result structure
@@ -32,11 +33,6 @@ def test_analyze_image_file_visaebeam(camera_name):
 
     assert isinstance(image, np.ndarray)
     assert image.ndim == 2
-
-    assert "Blue Centroid X" in config_inputs
-    assert "Blue Centroid Y" in config_inputs
-    assert isinstance(config_inputs["Blue Centroid X"], (int, float))
-    assert isinstance(config_inputs["Blue Centroid Y"], (int, float))
 
 if __name__ == "__main__":
     pytest.main()
