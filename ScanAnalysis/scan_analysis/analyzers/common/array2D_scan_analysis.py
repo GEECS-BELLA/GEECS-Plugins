@@ -45,7 +45,7 @@ import re
 import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Union, Optional, List, TypedDict
+from typing import TYPE_CHECKING, Union, Optional, List, TypedDict, Any, Tuple
 
 # --- Third-Party Libraries ---
 import numpy as np
@@ -103,6 +103,7 @@ def load_image_wrapper_static(shot_num: int, path: Path, analyzer_class: type,
     try:
         analyzer = analyzer_class(**image_analysis_config)
         image = analyzer.load_image(path)
+        logging.info(f'loaded: {path}')
         return shot_num, image
     except Exception as e:
         logging.warning(f"Failed to load image for shot {shot_num}: {e}")
@@ -152,6 +153,8 @@ class Array2DScanAnalysis(ScanAnalysis):
                          skip_plt_show=skip_plt_show)
         self.image_analyzer_config = image_analyzer_config
         self.image_analyzer = image_analyzer or ImageAnalyzer()
+
+        self.max_workers = 16
 
         # define flags
         self.flag_logging = flag_logging
@@ -275,7 +278,7 @@ class Array2DScanAnalysis(ScanAnalysis):
 
         analyzer_class = type(self.image_analyzer)
 
-        with Executor() as executor:
+        with Executor(max_workers = self.max_workers) as executor:
             if use_threads:
                 # Use instance method for threading
                 futures = {
@@ -371,7 +374,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         # attributes of the ImageAnalyzer may need to be updated after the batch_analysis
         # which uses the 'threaded' version of the instance. These attributes need to be
         # passed to the instance constructor for multiprocessing
-        with Executor() as executor:
+        with Executor(max_workers = self.max_workers) as executor:
             if self.image_analyzer.run_analyze_image_asynchronously:
                 futures = {
                     executor.submit(
@@ -977,6 +980,9 @@ if __name__ == "__main__":
             image_analyzer_class=PhaseDownrampProcessor,
             file_tail = "_postprocessed.tsv",
             image_analysis_config = config_dict)
-
+    import time
+    t0 = time.monotonic()
     test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
     analyze_scan(test_tag, [analyzer_info])
+    t1 = time.monotonic()
+    logging.info(f'execution time: {t1-t0}')
