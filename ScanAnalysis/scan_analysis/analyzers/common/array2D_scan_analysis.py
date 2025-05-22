@@ -86,6 +86,10 @@ class BinImageEntry(TypedDict):
 
 # below, some module level static functions that can't be members of the class so that the multi processing
 # works as expected
+
+# Module-level cache to keep track of instantiated classes allow them to be perisistent
+_analyzer_instance_cache: dict[type, Any] = {}
+
 def load_image_wrapper_static(shot_num: int, path: Path, analyzer_class: type,
                               image_analysis_config: Optional[dict[Any]] = None
                               ) -> tuple[int, Optional[np.ndarray]]:
@@ -100,8 +104,12 @@ def load_image_wrapper_static(shot_num: int, path: Path, analyzer_class: type,
     Returns:
         Tuple[int, Optional[np.ndarray]]: Shot number and loaded image.
     """
+    global _analyzer_instance_cache
     try:
-        analyzer = analyzer_class(**image_analysis_config)
+        if analyzer_class not in _analyzer_instance_cache:
+            logging.info('creating a new analyzer instance for loading')
+            _analyzer_instance_cache[analyzer_class] = analyzer_class(**image_analysis_config)
+        analyzer = _analyzer_instance_cache[analyzer_class]
         image = analyzer.load_image(path)
         logging.info(f'loaded: {path}')
         return shot_num, image
@@ -116,8 +124,12 @@ def analyze_preloaded_image_static(
     image_analysis_config: Optional[dict[Any]] = None,
     auxiliary_data: Optional[dict] = None
 ) -> dict[str, Any]:
+    global _analyzer_instance_cache
     try:
-        analyzer = analyzer_class(**image_analysis_config)
+        if analyzer_class not in _analyzer_instance_cache:
+            logging.info('creating a new analyzer instance for analyze image')
+            _analyzer_instance_cache[analyzer_class] = analyzer_class(**image_analysis_config)
+        analyzer = _analyzer_instance_cache[analyzer_class]
         result: AnalyzerResultDict = analyzer.analyze_image(image=image, auxiliary_data=auxiliary_data)
         return result
     except Exception as e:
