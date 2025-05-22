@@ -87,6 +87,7 @@ import logging
 
 from image_analysis import ureg, Q_
 from image_analysis.base import ImageAnalyzer
+from image_analysis.utils import read_imaq_image
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -116,7 +117,7 @@ class PhaseAnalysisConfig:
     wavelength_nm: float
     threshold_fraction: float = 0.5
     roi: Optional[Tuple[int, int, int, int]] = None
-    background: Optional[Path] = None
+    background_path: Optional[Path] = None
 
 def threshold_data(data: np.ndarray, threshold_frac: float) -> np.ndarray:
     """
@@ -135,27 +136,6 @@ def threshold_data(data: np.ndarray, threshold_frac: float) -> np.ndarray:
 
     return thresh
 
-class PhaseDataLoader:
-    """
-    Loads phase data from a file.
-    If the file extension is '.tsv', the file is read as tab‐separated values.
-    Otherwise, it is assumed to be an image file.
-    """
-    def __init__(self, file_path: Path) -> None:
-        self.file_path: Path = file_path
-
-    def load_data(self) -> np.ndarray:
-        ext: str = self.file_path.suffix.lower()
-        if ext == '.tsv':
-            data: np.ndarray = np.genfromtxt(self.file_path, delimiter='\t')
-            return data.astype(np.float64)
-        else:
-            image: Optional[np.ndarray] = cv2.imread(str(self.file_path), cv2.IMREAD_GRAYSCALE)
-            if image is None:
-                raise ValueError(f"Could not load file: {self.file_path}")
-            info = np.iinfo(image.dtype)
-            return image.astype(np.float64) / info.max
-
 class PhasePreprocessor:
     """
     Handles some basic pre-processing like cropping and background subtraction for phase data.
@@ -164,6 +144,7 @@ class PhasePreprocessor:
         self.config = config
         self.phase_array = None
         self.debug_mode = debug_mode
+
 
     @staticmethod
     def subtract_background(phase_data:NDArray, background: np.ndarray) -> NDArray:
@@ -437,19 +418,26 @@ class PhaseDownrampProcessor(ImageAnalyzer):
     Handles cropping and background subtraction for phase data.
     """
 
-    def __init__(self, config: PhaseAnalysisConfig, debug_mode:bool = False) -> None:
-        self.config = config
+    def __init__(self, debug_mode: bool = False, **config):
+        # Validate or document with the dataclass
+        try:
+            # This will raise TypeError if required fields are missing or types don't match
+            self.config = PhaseAnalysisConfig(**config)
+        except TypeError as e:
+            logging.error("Failed to create PhaseAnalysisConfig from provided config dict.")
+            logging.error(f"Provided config: {config}")
+            raise ValueError(f"Invalid config for PhaseAnalysisConfig: {e}") from e
 
+        self.debug_mode = debug_mode
         self.processor  = PhasePreprocessor(config)
 
         # If background is provided, treat it as a Path.
         # Assumption here is that background is loaded only at
         # initialization.
-        if self.config.background is not None:
-            bg_loader = PhaseDataLoader(self.config.background)
-            self.bg_data = bg_loader.load_data()
+        if self.config.background_path is not None:
+            self.bg_data  = read_imaq_image(self.config.background_path)
 
-        super().__init__(config=self.config)
+        super().__init__(**config)
 
         self.run_analyze_image_asynchronously = False
 
@@ -469,13 +457,13 @@ class PhaseDownrampProcessor(ImageAnalyzer):
         state['delta_plateau_fig'] = None
         return state
 
-    def process_phase(self, file_path: Path) -> NDArray:
+    def process_phase(self, phase_array: NDArray) -> NDArray:
         """
         Parameters: file_path
         """
-        logging.info(f'loader file path: {file_path}')
-        loader: PhaseDataLoader = PhaseDataLoader(file_path)
-        phase_array = loader.load_data()
+        # logging.info(f'loader file path: {file_path}')
+        # loader: PhaseDataLoader = PhaseDataLoader(file_path)
+        # phase_array = loader.load_data()
         if self.use_interactive:
             plt.imshow(phase_array, cmap='plasma', origin='lower')
             plt.title("first phase")
@@ -514,20 +502,21 @@ class PhaseDownrampProcessor(ImageAnalyzer):
 
         return phase_array
 
-    def analyze_image_file(self, image_filepath: Path, auxiliary_data: Optional[dict] = None) -> dict[str, Union[float, int, str, np.ndarray]]:
+    def analyze_image(self, image: np.array, auxiliary_data: Optional[dict] = None) -> dict[
+        str, Union[float, int, str, np.ndarray]]:
 
         """
         Apply some HTU specific processing of a phase map showing a density down ramp feature.
 
         Parameters:
-            image_filepath (Path): Path to the image file.
+            image (np.array): image
 
         Returns:
             A dictionary containing results (e.g., phase map and/or related parameters).
         """
-        self.file_path = image_filepath
+        self.file_path = Path(auxiliary_data['file_path']) if auxiliary_data and 'file_path' in auxiliary_data else None
         try:
-            processed_phase = self.process_phase(self.file_path)
+            processed_phase = self.process_phase(image)
             logging.info(f'processed {self.file_path}')
 
         except Exception as e:
@@ -537,11 +526,12 @@ class PhaseDownrampProcessor(ImageAnalyzer):
         scalar_results_dict = self.compile_shock_analysis(processed_phase)
 
         phase_converted = processed_phase
-        phase_scale_16bit_scale = (2**16-1)/(2*np.pi)
+        phase_scale_16bit_scale = (2 ** 16 - 1) / (2 * np.pi)
         phase_converted = phase_scale_16bit_scale * phase_converted
         phase_converted = phase_converted.astype(np.uint16)
 
-        return_dictionary = self.build_return_dictionary(return_image=phase_converted, return_scalars=scalar_results_dict)
+        return_dictionary = self.build_return_dictionary(return_image=phase_converted,
+                                                         return_scalars=scalar_results_dict)
 
         return return_dictionary
 
@@ -637,12 +627,13 @@ class PhaseDownrampProcessor(ImageAnalyzer):
         axs[2].axis('off')
 
         plt.tight_layout()
-        combined_save_path = self.file_path.parent / f'{self.file_path.stem}_combined_shock_analysis.pdf'
-        # combined_save_path = "combined_shock_analysis.pdf"
+        if self.file_path is not None:
+            combined_save_path = self.file_path.parent / f'{self.file_path.stem}_combined_shock_analysis.pdf'
+            # combined_save_path = "combined_shock_analysis.pdf"
 
-        combined_fig.savefig(combined_save_path)
-        plt.close(combined_fig)  # Correct way to close the figure.
-        logging.info("Combined shock analysis figure saved to %s", combined_save_path)
+            combined_fig.savefig(combined_save_path)
+            plt.close(combined_fig)  # Correct way to close the figure.
+            logging.info("Combined shock analysis figure saved to %s", combined_save_path)
 
         results["combined_fig"] = combined_fig
 
@@ -1032,20 +1023,24 @@ class PyabelInversion(InversionTechnique):
 #         plt.tight_layout()
 #         plt.show()
 #
-# if __name__ == '__main__':
-#     phase_file_path: Path = Path('../Scan003_U_HasoLift_001_postprocessed.tsv')  # or an image file path
-#
-#     config: PhaseAnalysisConfig = PhaseAnalysisConfig(
-#         pixel_scale=10.1,            # um per pixel (vertical)
-#         wavelength_nm=800,           # Probe laser wavelength in nm
-#         threshold_fraction=0.2,      # Threshold fraction for pre-processing
-#         roi=(10, -10, 10, -100),      # Example ROI: (x_min, x_max, y_min, y_max)
-#         background=Path('../average_phase.tsv')  # Background is now a Path
-#
-#     )
-#
-#     analyzer: DensityAnalysis = DensityAnalysis(phase_file_path, config)
-#
-#     # --- Using the PyAbel inversion technique ---
-#     pyabel_lineout, pyabel_density = analyzer.get_density(technique='pyabel')
-#     analyzer.plot_density(pyabel_density, pyabel_lineout)
+if __name__ == '__main__':
+    bkg_path: Path = Path('/Volumes/hdna2/data/Undulator/Y2025/03-Mar/25_0306/scans/Scan015/U_HasoLift/average_phase.tsv')
+    phase_file_path=Path('/Volumes/hdna2/data/Undulator/Y2025/03-Mar/25_0306/scans/Scan016/U_HasoLift/Scan016_U_HasoLift_002_postprocessed.tsv')
+
+    config: PhaseAnalysisConfig = PhaseAnalysisConfig(
+        pixel_scale=10.1,            # um per pixel (vertical)
+        wavelength_nm=800,           # Probe laser wavelength in nm
+        threshold_fraction=0.2,      # Threshold fraction for pre-processing
+        roi=(10, -10, 10, -100),      # Example ROI: (x_min, x_max, y_min, y_max)
+        background_path=bkg_path,  # Background is now a Path
+    )
+    from dataclasses import asdict
+    config_dict = asdict(config)
+    print(phase_file_path)
+    analyzer: PhaseDownrampProcessor = PhaseDownrampProcessor(**config_dict)
+    analyzer.use_interactive = True
+    analyzer.analyze_image_file(phase_file_path)
+
+    # # --- Using the PyAbel inversion technique ---
+    # pyabel_lineout, pyabel_density = analyzer.get_density(technique='pyabel')
+    # analyzer.plot_density(pyabel_density, pyabel_lineout)
