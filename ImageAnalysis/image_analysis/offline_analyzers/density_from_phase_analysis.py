@@ -429,7 +429,7 @@ class PhaseDownrampProcessor(ImageAnalyzer):
             raise ValueError(f"Invalid config for PhaseAnalysisConfig: {e}") from e
 
         self.debug_mode = debug_mode
-        self.processor  = PhasePreprocessor(config)
+        self.processor  = PhasePreprocessor(self.config)
 
         # If background is provided, treat it as a Path.
         # Assumption here is that background is loaded only at
@@ -437,7 +437,8 @@ class PhaseDownrampProcessor(ImageAnalyzer):
         if self.config.background_path is not None:
             self.bg_data  = read_imaq_image(self.config.background_path)
 
-        super().__init__(**config)
+        super().__init__()
+
 
         self.run_analyze_image_asynchronously = False
 
