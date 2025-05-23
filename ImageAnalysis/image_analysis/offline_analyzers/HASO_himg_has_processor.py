@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, NamedTuple
 from pathlib import Path
 
+from dataclasses import dataclass, asdict
+
+import logging
+import numpy as np
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
     from image_analysis.types import Array2D
@@ -14,9 +19,6 @@ except ModuleNotFoundError as e:
     e.args += (errmsg,)
     raise
 
-import logging
-import numpy as np
-
 from image_analysis.base import ImageAnalyzer
 
 class SlopesMask(NamedTuple):
@@ -25,7 +27,7 @@ class SlopesMask(NamedTuple):
     left: Optional[int]
     right: Optional[int]
 
-from dataclasses import dataclass
+
 
 @dataclass
 class FilterParameters:
@@ -56,39 +58,45 @@ class HasoHimgHasConfig:
     wakekit_config_file_path: Path = Path('C:/GEECS/Developers Version/source/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
 
 class HASOHimgHasProcessor(ImageAnalyzer):
+    """
+    Analyzer for .himg and .has files using HASO-specific tools.
+    Accepts a dictionary-style config for compatibility with multiprocessing.
+    """
 
     # Default filter parameters as a class attribute
     default_filter_params = FilterParameters()
 
-    def __init__(self, config: HasoHimgHasConfig = HasoHimgHasConfig()):
+    def __init__(self, **config):
         """
         Parameters
         ----------
-        config : HasoHimgHasConfig
-            configuration for processing the .himg and .has files. contains mask, bkg and laser wavelength
-            information
+        **config : dict
+            Configuration dictionary for HasoHimgHasConfig dataclass. Keys must match dataclass fields.
         """
+        try:
+            self.config = HasoHimgHasConfig(**config)
+        except TypeError as e:
+            logging.error("Failed to create HasoHimgHasConfig from provided config dict.")
+            logging.error(f"Provided config: {config}")
+            raise ValueError(f"Invalid config for HasoHimgHasConfig: {e}") from e
 
-        self.mask = config.mask
+        # Assign fields from parsed config
+        self.mask = self.config.mask
+        self.background_path = self.config.background_path
+        self.laser_wavelength = self.config.laser_wavelength
+        self.wakekit_config_file_path = self.config.wakekit_config_file_path
 
-        # for loading backgrounds on the fly. 
-        self.background_path = config.background_path
-
-        self.laser_wavelength = config.laser_wavelength
-
-        # Use default filter parameters from class attribute
+        # Use default filter parameters
         self.filter_params = HASOHimgHasProcessor.default_filter_params
 
         self.flag_logging = True
 
-        self.raw_slopes: wkpy.HasoSlopes = None
-        self.processed_slopes: wkpy.HasoSlopes = None
+        # Slopes state
+        self.raw_slopes: Optional[wkpy.HasoSlopes] = None
+        self.processed_slopes: Optional[wkpy.HasoSlopes] = None
 
-        super().__init__(config = config)
-
-        self.wakekit_config_file_path = config.wakekit_config_file_path
-
-        # self.instantiate_wavekit_resources(config_file_path=self.wakekit_config_file_path)
+        # Pass the original config to the parent class
+        super().__init__()
 
         self.run_analyze_image_asynchronously = False
 
@@ -203,7 +211,7 @@ class HASOHimgHasProcessor(ImageAnalyzer):
             ValueError: If the file type is not supported.
         """
 
-        return  self.build_return_dictionary(return_lineouts=image)
+        return  self.build_return_dictionary(return_image=image)
 
     def create_slopes_object_from_himg(self, image_file_path: Path) -> wkpy.HasoSlopes:
         """
@@ -364,15 +372,14 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         np.savetxt(save_path, arr, delimiter="\t", fmt="%s")
 
 if __name__ == "__main__":
-    has  = HASOHimgHasProcessor()
+
     path_to_himg = Path('Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001.himg')
-    # path_to_himg = Path('Z:/data/Undulator/Y2025/03-Mar/25_0306/scans/Scan055/U_HasoLift/Scan055_U_HasoLift_061.himg')
     path_to_has = Path('Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001_raw.has')
 
     mask = SlopesMask(top=75, bottom=246, left=10, right=670)
-    analysis_config = HasoHimgHasConfig()
-    analysis_config.mask = mask
-    # haso_processor = HASOHimgHasProcessor(config = analysis_config)
-    haso_processor = HASOHimgHasProcessor()
+    analysis_config = HasoHimgHasConfig(mask=mask)
+    analysis_config.wakekit_config_file_path: Path = Path('C:/Users/Loasis.loasis/Documents/GitHub/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
 
-    haso_processor.analyze_image_file(image_filepath = path_to_himg)
+    haso_processor = HASOHimgHasProcessor(**asdict(analysis_config))
+
+    haso_processor.analyze_image_file(image_filepath=path_to_himg)

@@ -142,7 +142,7 @@ class Array2DScanAnalysis(ScanAnalysis):
     def __init__(self, scan_tag: ScanTag,
                  device_name: str,
                  image_analyzer: Optional[ImageAnalyzer] = None,
-                 image_analyzer_config: Optional[dict[any]] = None,
+                 image_analyzer_config: Optional[dict[Any]] = None,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
                  flag_save_images: bool = True):
@@ -789,8 +789,6 @@ class Array2DScanAnalysis(ScanAnalysis):
             figsize_inches: Width/height of each frame in inches.
         """
         output_file = Path(output_file)
-        logging.info(f'image_analyzer is {self.image_analyzer}')
-        logging.info(f'with  {self.image_analyzer.render_image}')
 
         render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
 
