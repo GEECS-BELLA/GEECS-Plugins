@@ -176,7 +176,7 @@ class VisaEBeamConfig:
         return VisaEBeamConfig(camera_name=name, **overrides)
 
 class VisaEBeam(ImageAnalyzer):
-    def __init__(self, camera_name: str, preprocessed: bool = False, background: Background = None):
+    def __init__(self, background: Background = None, camera_name: str = None, preprocessed: bool = False,):
         """
         Initialize VisaEBeam analyzer for a specific camera.
 
@@ -214,7 +214,8 @@ class VisaEBeam(ImageAnalyzer):
 
         self.use_interactive = False
 
-        super().__init__(background=background, **self.kwargs_dict)
+        super().__init__(background=background)
+
 
     def apply_roi(self, data: np.ndarray) -> np.ndarray:
         """
@@ -457,7 +458,6 @@ if __name__ == "__main__":
     dev_name = 'UC_VisaEBeam1'
     # dev_name = 'UC_ALineEBeam3'
     test_dict = {'camera_name':dev_name}
-    # image_analyzer  = VisaEBeam(camera_name=dev_name)
     image_analyzer  = VisaEBeam(**test_dict)
 
     image_analyzer.use_interactive = True
