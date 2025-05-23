@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import asdict
 
 from geecs_data_utils import ScanData, ScanTag
 from scan_analysis.execute_scan_analysis import analyze_scan
@@ -78,15 +79,15 @@ class TestExecuteAnalysis(unittest.TestCase):
             wavelength_nm=800,  # Probe laser wavelength in nm
             threshold_fraction=0.05,  # Threshold fraction for pre-processing
             roi=(10, -10, 75, -250),  # Example ROI: (x_min, x_max, y_min, y_max)
-            background=bkg_file_path  # Background is now a Path
+            background_path=bkg_file_path  # Background is now a Path
         )
-
+        config_dict = asdict(config)
         analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
                 requirements={'U_HasoLift'},
                 device_name='U_HasoLift',
                 image_analyzer_class=PhaseDownrampProcessor,
                 file_tail = "_postprocessed.tsv",
-                image_analysis_config = config)
+                image_analysis_config = config_dict)
 
         test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
