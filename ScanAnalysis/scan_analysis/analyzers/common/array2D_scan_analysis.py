@@ -142,7 +142,7 @@ class Array2DScanAnalysis(ScanAnalysis):
     def __init__(self, scan_tag: ScanTag,
                  device_name: str,
                  image_analyzer: Optional[ImageAnalyzer] = None,
-                 image_analyzer_config: Optional[dict[any]] = None,
+                 image_analyzer_config: Optional[dict[Any]] = None,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
                  flag_save_images: bool = True):
