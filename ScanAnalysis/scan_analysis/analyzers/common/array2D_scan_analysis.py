@@ -789,8 +789,6 @@ class Array2DScanAnalysis(ScanAnalysis):
             figsize_inches: Width/height of each frame in inches.
         """
         output_file = Path(output_file)
-        logging.info(f'image_analyzer is {self.image_analyzer}')
-        logging.info(f'with  {self.image_analyzer.render_image}')
 
         render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
 
