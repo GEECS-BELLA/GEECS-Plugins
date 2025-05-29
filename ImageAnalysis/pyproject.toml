@@ -25,6 +25,7 @@ scikit-image = ">=0.19,<1.0"
 # other
 boto3 = "^1.28"
 opencv-python = "^4.9.0.80"
+pytest = "^7.4"
 
 [tool.poetry.group.dev.dependencies]
 matplotlib = "^3.0"
