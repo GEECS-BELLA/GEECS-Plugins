@@ -378,7 +378,9 @@ if __name__ == "__main__":
 
     mask = SlopesMask(top=75, bottom=246, left=10, right=670)
     analysis_config = HasoHimgHasConfig(mask=mask)
-    analysis_config.wakekit_config_file_path: Path = Path('C:/Users/Loasis.loasis/Documents/GitHub/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
+    #analysis_config.wakekit_config_file_path: Path = Path('C:/Users/Loasis.loasis/Documents/GitHub/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
+    analysis_config.wakekit_config_file_path: Path = Path('Z:/software/control-all-loasis/HTU/Active Version/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
+
 
     haso_processor = HASOHimgHasProcessor(**asdict(analysis_config))
 
