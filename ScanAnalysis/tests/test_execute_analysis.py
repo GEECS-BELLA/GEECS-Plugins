@@ -53,6 +53,9 @@ class TestExecuteAnalysis(unittest.TestCase):
         analysis_config.mask = mask
         analysis_config.wakekit_config_file_path = Path(
             'C:/Users/Loasis.loasis/Documents/GitHub/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
+        analysis_config.wakekit_config_file_path: Path = Path(
+            'Z:/software/control-all-loasis/HTU/Active Version/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
+
         analysis_config_dict = asdict(analysis_config)
 
         analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
@@ -93,6 +96,20 @@ class TestExecuteAnalysis(unittest.TestCase):
                 image_analysis_config = config_dict)
 
         test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
+        analyze_scan(test_tag, [analyzer_info])
+
+    def test_VisaEBeamAnalyzer(self):
+        from image_analysis.offline_analyzers.Undulator.VisaEBeam import VisaEBeam
+
+        config_dict = {'camera_name':'UC_VisaEBeam1'}
+        analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
+                             requirements={'UC_VisaEBeam1'},
+                             device_name='UC_VisaEBeam1',
+                             image_analyzer_class=VisaEBeam,
+                             file_tail = '.png',
+                             image_analysis_config = config_dict)
+
+        test_tag = ScanTag(year=2024, month=12, day=5, number=11, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
 
 
