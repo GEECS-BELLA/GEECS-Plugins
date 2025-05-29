@@ -26,25 +26,28 @@ class ImageAnalyzer:
     run_analyze_image_asynchronously = False
 
     def __init__(self, background: Background = None, **config) :
-        """ Initializes this ImageAnalyzer, with Analyzer parameters as kwargs
+        """ Initializes this ImageAnalyzer with optional background and keyword configuration parameters.
 
             As the same ImageAnalyzer instance can be applied to many images,
             the image is not passed in the constructor but in analyze_image. The
-            background path, image, or value should be passed as a parameter, however.
+            image, or value should be passed as a parameter, however.
 
             The __init__() method of derived classes should define all the
             parameters for that derived class, including type annotations,
             defaults, and documentation. These are all used for LivePostProcessing
             for example.
 
+            If background subtraction is required, a `Background` instance can be provided here.
+            If none is given, a default-initialized one will be created.
+
             It should also call super().__init__()
 
-            For example:
+            Example subclass constructor:
 
-            def __init__(self,
+            def __init__(self, background: Background = None,
                          highpass_cutoff: float = 0.12,
                          roi: ROI = ROI(top=120, bottom=700, left=None, right=1200),
-                         background: Path = background_folder / "cam1_background.png",
+                         background_path: Path = background_folder / "cam1_background.png",
                         ):
                 "" "
                 Parameters
@@ -55,9 +58,9 @@ class ImageAnalyzer:
 
                 self.highpass_cutoff = highpass_cutoff
                 self.roi = roi
-                self.background = background
-
-                super().__init__()
+                background = Background()
+                background.load_background_from_file(background_path)
+                super().__init__(background=background)
 
             Parameters
             ----------
