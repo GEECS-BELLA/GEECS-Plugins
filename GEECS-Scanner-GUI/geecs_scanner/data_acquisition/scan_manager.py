@@ -393,7 +393,7 @@ class ScanManager:
                 self.data_logger.file_mover.post_process_orphaned_files(log_df=log_df, device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping)
             else:
                 self.data_logger.file_mover.scan_is_live = False
-                self.data_logger.file_mover.post_process_orphan_taks()
+                self.data_logger.file_mover.post_process_orphan_task()
 
             self.data_logger.file_mover.shutdown(wait=True)
 
@@ -488,7 +488,7 @@ class ScanManager:
             # moving of files etc.
             # self.data_logger.device_save_paths_mapping = self.scan_data_manager.device_save_paths_mapping
             self.data_logger.set_device_save_paths_mapping(self.scan_data_manager.device_save_paths_mapping)
-            self.data_logger.scan_number = self.scan_data_manager.scan_number_int
+            self.data_logger.scan_number = self.scan_data_manager.scan_number_int  # TODO replace with a `set` func.
 
             self.scan_data_manager.write_scan_info_ini(scan_config)
 
