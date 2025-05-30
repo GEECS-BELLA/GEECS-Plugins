@@ -1,3 +1,12 @@
+from __future__ import annotations
+
+# Standard library imports
+from typing import Optional, List, Dict, Any
+
+import pandas as pd
+import logging
+import time
+
 class ScanStepExecutor:
     def __init__(self, device_manager, data_logger, scan_data_manager, shot_control, options_dict,
                  stop_scanning_thread_event, pause_scan_event):
@@ -56,18 +65,16 @@ class ScanStepExecutor:
         Args:
             step (Dict[str, Any]): A dictionary containing the scan step configuration.
         """
-        self.prepare_for_step(step)
+        self.prepare_for_step()
         self.move_devices(step['variables'], step['is_composite'])
         self.wait_for_acquisition(step['wait_time'])
         self.finalize_step()
 
-    def prepare_for_step(self, step: Dict[str, Any]) -> None:
+    def prepare_for_step(self) -> None:
         """
         Prepare for a scan step by updating the virtual variable value (if set),
         incrementing the bin number in the data logger, and turning off the trigger.
 
-        Args:
-            step (Dict[str, Any]): A dictionary representing the current scan step.
         """
         logging.info("Pausing logging. Turning trigger off before moving devices.")
 

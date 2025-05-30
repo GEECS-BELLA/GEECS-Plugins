@@ -13,8 +13,7 @@ import warnings
 import pandas as pd
 
 # Internal project imports
-from . import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup, ScanDataManager
-from scan_executor import ScanStepExecutor
+from . import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup, ScanDataManager, ScanStepExecutor
 from .utils import ConsoleLogger
 from .types import ScanConfig  # Adjust the path as needed
 from dataclasses import dataclass, fields
