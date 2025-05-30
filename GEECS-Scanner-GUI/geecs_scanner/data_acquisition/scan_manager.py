@@ -14,6 +14,7 @@ import pandas as pd
 
 # Internal project imports
 from . import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup, ScanDataManager
+from scan_executor import ScanStepExecutor
 from .utils import ConsoleLogger
 from .types import ScanConfig  # Adjust the path as needed
 from dataclasses import dataclass, fields
@@ -96,6 +97,18 @@ class ScanManager:
         self.save_local = True  # If true, will save locally on device PC before being queued to transfer to network
 
         self.scan_config: ScanConfig
+
+        self.executor = ScanStepExecutor(
+            device_manager=self.device_manager,
+            data_logger=self.data_logger,
+            scan_data_manager=self.scan_data_manager,
+            shot_control=self.shot_control,
+            options_dict=self.options_dict,
+            stop_scanning_thread_event=self.stop_scanning_thread_event,
+            pause_scan_event=self.pause_scan_event
+        )
+        self.executor.trigger_on_fn = self.trigger_on
+        self.executor.trigger_off_fn = self.trigger_off
 
     def pause_scan(self):
         """Pause the scanning process by clearing the pause event."""
@@ -307,7 +320,8 @@ class ScanManager:
             self.scan_data_manager.purge_all_local_save_dir()
 
             # start the acquisition loop
-            self.scan_execution_loop()
+            # self.scan_execution_loop()
+            self.executor.execute_scan_loop(self.scan_steps)
 
         except Exception as e:
             logging.error(f"Error during scanning: {e}")
@@ -618,166 +632,166 @@ class ScanManager:
 
         return steps
 
-    def scan_execution_loop(self):
-
-        """
-        Execute the precomputed scan steps in a loop, stopping if the stop event is triggered.
-
-        Returns:
-            pandas.DataFrame: A DataFrame containing the logged data from the scan.
-        """
-
-        log_df = pd.DataFrame()  # Initialize in case of early exit
-
-        counter = 0
-        while self.scan_steps:
-            # Check if the stop event is set, and exit if so
-            if self.stop_scanning_thread_event.is_set():
-                logging.info("Scanning has been stopped externally.")
-                break
-            scan_step = self.scan_steps.pop(0)
-            self._execute_step(scan_step['variables'], scan_step['wait_time'], scan_step['is_composite'])
-            counter+=1
-
-        logging.info("Stopping logging.")
-
-        return log_df
-
-    def _execute_step(self, component_vars, wait_time, is_composite, max_retries=3, retry_delay=0.5):
-        """
-        Execute a single step of the scan, handling both composite and normal variables.
-
-        Args:
-            component_vars (dict): Dictionary of variables and their values for the scan step.
-            wait_time (float): The time to wait after devices have been changed. This is the acquisition time effectively.
-            is_composite (bool): Flag indicating whether the step involves composite variables.
-            max_retries (int): Maximum number of retries if setting the value is outside the tolerance.
-            retry_delay (float): Delay in seconds between retries.
-        """
-        logging.info("Pausing logging. Turning trigger off before moving devices.")
-        if self.data_logger.virtual_variable_name is not None:
-            self.data_logger.virtual_variable_value = self.virtual_variable_list[self.data_logger.bin_num]
-            logging.info(f"updating virtual value in data_logger from scan_manager to: {self.data_logger.virtual_variable_value}.")
-
-        self.data_logger.bin_num += 1
-
-        self.trigger_off()
-
-        if self.shot_control is not None:
-            logging.info(f"shot control state: {self.shot_control.state}")
-
-        if not self.device_manager.is_statistic_noscan(component_vars):
-            for device_var, set_val in component_vars.items():
-                # Check if the observable has a variable specified (e.g., 'Dev1:var1')
-                if ':' in device_var:
-                    device_name, var_name = device_var.split(':')
-                else:
-                    device_name = device_var
-                    var_name = 'composite_var'
-
-                device = self.device_manager.devices.get(device_name)
-
-                if device:
-                    # Retrieve the tolerance for the variable
-                    # TODO Better error handling when tolerance not defined in database editor
-                    if device.is_composite:
-                        tol=10000 # set for composite vars just returns the set value
-                    else:
-                        tol = float(ScanDevice.exp_info['devices'][device_name][var_name]['tolerance'])
-
-                    # Retry logic for setting device value
-                    success = False
-                    attempt = 0
-
-                    while attempt < max_retries:
-                        ret_val = device.set(var_name, set_val)  # Send the command to set the value
-                        logging.info(f"Attempt {attempt + 1}: Setting {var_name} to {set_val} on {device_name}, returned {ret_val}")
-
-                        # Check if the return value is within tolerance
-                        if ret_val - tol <= set_val <= ret_val + tol:
-                            logging.info(f"Success: {var_name} set to {ret_val} (within tolerance {tol}) on {device_name}")
-                            success = True
-                            break
-                        else:
-                            logging.warning(f"Attempt {attempt + 1}: {var_name} on {device_name} not within tolerance ({ret_val} != {set_val})")
-                            attempt += 1
-                            time.sleep(retry_delay)  # Wait before retrying
-
-                    if not success:
-                        logging.error(f"Failed to set {var_name} on {device_name} after {max_retries} attempts")
-                else:
-                    logging.warning(f"Device {device_name} not found in device manager.")
-
-        logging.info("Resuming logging. Turning trigger on after all devices have been moved.")
-
-        self.trigger_on()
-
-        #code below used with data_logger to determine if a device is non responsive
-        self.scan_step_start_time = time.time()
-        self.data_logger.data_recording = True
-
-        # first step of the scan, self.scan_step_end_time is equal to zero.
-        # after that, it gets updated. As does the self.scan_step_start_time.
-        # idle time should be the time between then end of the "previous" step
-        # and the start of the next step.
-        if self.scan_step_end_time > 0:
-            self.data_logger.idle_time = self.scan_step_start_time - self.scan_step_end_time + self.pause_time
-            logging.info(f'idle time between scan steps: {self.data_logger.idle_time}')
-
-        if self.shot_control is not None:
-            logging.info(f"shot control state: {self.shot_control.state}")
-
-        # Wait for acquisition time (or until scanning is externally stopped)
-        current_time = 0
-        start_time = time.time()
-        interval_time = 0.1
-        self.pause_time = 0
-        while current_time < wait_time:
-            if self.stop_scanning_thread_event.is_set():
-                logging.info("Scanning has been stopped externally.")
-                break
-
-            # Check if the scan is paused, and wait until it’s resumed
-            if not self.pause_scan_event.is_set():
-                self.trigger_off()
-                self.data_logger.data_recording = False
-                t0 = time.time()
-                logging.info("Scan is paused, waiting to resume...")
-                self.pause_scan_event.wait()  # Blocks until the event is set (i.e., resumed)
-                self.pause_time = time.time() - t0
-                self.trigger_on()
-                self.data_logger.data_recording = True
-
-
-            time.sleep(interval_time)
-            current_time = time.time() - start_time
-
-            # TODO move this to DataLogger's `_log_device_data` function instead...
-
-            save_on_shot = self.options_dict.get('On-Shot TDMS', False)
-            if save_on_shot:
-                if current_time % 1 < interval_time:
-                    log_df = self.scan_data_manager.convert_to_dataframe(self.results)
-                    self.scan_data_manager.dataframe_to_tdms(log_df)
-
-            try:
-                hiatus = float(self.options_dict.get("Save Hiatus Period (s)", ""))
-            except ValueError:
-                hiatus = ""
-
-            if hiatus:
-                if self.data_logger.shot_save_event.is_set():
-                    self.save_hiatus(hiatus)
-                    self.data_logger.shot_save_event.clear()
-
-        # Turn trigger off after waiting
-        self.trigger_off()
-
-        self.scan_step_end_time = time.time()
-        self.data_logger.data_recording = False
-
-        if self.shot_control is not None:
-            logging.info(f"shot control state: {self.shot_control.state}")
+    # def scan_execution_loop(self):
+    #
+    #     """
+    #     Execute the precomputed scan steps in a loop, stopping if the stop event is triggered.
+    #
+    #     Returns:
+    #         pandas.DataFrame: A DataFrame containing the logged data from the scan.
+    #     """
+    #
+    #     log_df = pd.DataFrame()  # Initialize in case of early exit
+    #
+    #     counter = 0
+    #     while self.scan_steps:
+    #         # Check if the stop event is set, and exit if so
+    #         if self.stop_scanning_thread_event.is_set():
+    #             logging.info("Scanning has been stopped externally.")
+    #             break
+    #         scan_step = self.scan_steps.pop(0)
+    #         self._execute_step(scan_step['variables'], scan_step['wait_time'], scan_step['is_composite'])
+    #         counter+=1
+    #
+    #     logging.info("Stopping logging.")
+    #
+    #     return log_df
+    #
+    # def _execute_step(self, component_vars, wait_time, is_composite, max_retries=3, retry_delay=0.5):
+    #     """
+    #     Execute a single step of the scan, handling both composite and normal variables.
+    #
+    #     Args:
+    #         component_vars (dict): Dictionary of variables and their values for the scan step.
+    #         wait_time (float): The time to wait after devices have been changed. This is the acquisition time effectively.
+    #         is_composite (bool): Flag indicating whether the step involves composite variables.
+    #         max_retries (int): Maximum number of retries if setting the value is outside the tolerance.
+    #         retry_delay (float): Delay in seconds between retries.
+    #     """
+    #     logging.info("Pausing logging. Turning trigger off before moving devices.")
+    #     if self.data_logger.virtual_variable_name is not None:
+    #         self.data_logger.virtual_variable_value = self.virtual_variable_list[self.data_logger.bin_num]
+    #         logging.info(f"updating virtual value in data_logger from scan_manager to: {self.data_logger.virtual_variable_value}.")
+    #
+    #     self.data_logger.bin_num += 1
+    #
+    #     self.trigger_off()
+    #
+    #     if self.shot_control is not None:
+    #         logging.info(f"shot control state: {self.shot_control.state}")
+    #
+    #     if not self.device_manager.is_statistic_noscan(component_vars):
+    #         for device_var, set_val in component_vars.items():
+    #             # Check if the observable has a variable specified (e.g., 'Dev1:var1')
+    #             if ':' in device_var:
+    #                 device_name, var_name = device_var.split(':')
+    #             else:
+    #                 device_name = device_var
+    #                 var_name = 'composite_var'
+    #
+    #             device = self.device_manager.devices.get(device_name)
+    #
+    #             if device:
+    #                 # Retrieve the tolerance for the variable
+    #                 # TODO Better error handling when tolerance not defined in database editor
+    #                 if device.is_composite:
+    #                     tol=10000 # set for composite vars just returns the set value
+    #                 else:
+    #                     tol = float(ScanDevice.exp_info['devices'][device_name][var_name]['tolerance'])
+    #
+    #                 # Retry logic for setting device value
+    #                 success = False
+    #                 attempt = 0
+    #
+    #                 while attempt < max_retries:
+    #                     ret_val = device.set(var_name, set_val)  # Send the command to set the value
+    #                     logging.info(f"Attempt {attempt + 1}: Setting {var_name} to {set_val} on {device_name}, returned {ret_val}")
+    #
+    #                     # Check if the return value is within tolerance
+    #                     if ret_val - tol <= set_val <= ret_val + tol:
+    #                         logging.info(f"Success: {var_name} set to {ret_val} (within tolerance {tol}) on {device_name}")
+    #                         success = True
+    #                         break
+    #                     else:
+    #                         logging.warning(f"Attempt {attempt + 1}: {var_name} on {device_name} not within tolerance ({ret_val} != {set_val})")
+    #                         attempt += 1
+    #                         time.sleep(retry_delay)  # Wait before retrying
+    #
+    #                 if not success:
+    #                     logging.error(f"Failed to set {var_name} on {device_name} after {max_retries} attempts")
+    #             else:
+    #                 logging.warning(f"Device {device_name} not found in device manager.")
+    #
+    #     logging.info("Resuming logging. Turning trigger on after all devices have been moved.")
+    #
+    #     self.trigger_on()
+    #
+    #     #code below used with data_logger to determine if a device is non responsive
+    #     self.scan_step_start_time = time.time()
+    #     self.data_logger.data_recording = True
+    #
+    #     # first step of the scan, self.scan_step_end_time is equal to zero.
+    #     # after that, it gets updated. As does the self.scan_step_start_time.
+    #     # idle time should be the time between then end of the "previous" step
+    #     # and the start of the next step.
+    #     if self.scan_step_end_time > 0:
+    #         self.data_logger.idle_time = self.scan_step_start_time - self.scan_step_end_time + self.pause_time
+    #         logging.info(f'idle time between scan steps: {self.data_logger.idle_time}')
+    #
+    #     if self.shot_control is not None:
+    #         logging.info(f"shot control state: {self.shot_control.state}")
+    #
+    #     # Wait for acquisition time (or until scanning is externally stopped)
+    #     current_time = 0
+    #     start_time = time.time()
+    #     interval_time = 0.1
+    #     self.pause_time = 0
+    #     while current_time < wait_time:
+    #         if self.stop_scanning_thread_event.is_set():
+    #             logging.info("Scanning has been stopped externally.")
+    #             break
+    #
+    #         # Check if the scan is paused, and wait until it’s resumed
+    #         if not self.pause_scan_event.is_set():
+    #             self.trigger_off()
+    #             self.data_logger.data_recording = False
+    #             t0 = time.time()
+    #             logging.info("Scan is paused, waiting to resume...")
+    #             self.pause_scan_event.wait()  # Blocks until the event is set (i.e., resumed)
+    #             self.pause_time = time.time() - t0
+    #             self.trigger_on()
+    #             self.data_logger.data_recording = True
+    #
+    #
+    #         time.sleep(interval_time)
+    #         current_time = time.time() - start_time
+    #
+    #         # TODO move this to DataLogger's `_log_device_data` function instead...
+    #
+    #         save_on_shot = self.options_dict.get('On-Shot TDMS', False)
+    #         if save_on_shot:
+    #             if current_time % 1 < interval_time:
+    #                 log_df = self.scan_data_manager.convert_to_dataframe(self.results)
+    #                 self.scan_data_manager.dataframe_to_tdms(log_df)
+    #
+    #         try:
+    #             hiatus = float(self.options_dict.get("Save Hiatus Period (s)", ""))
+    #         except ValueError:
+    #             hiatus = ""
+    #
+    #         if hiatus:
+    #             if self.data_logger.shot_save_event.is_set():
+    #                 self.save_hiatus(hiatus)
+    #                 self.data_logger.shot_save_event.clear()
+    #
+    #     # Turn trigger off after waiting
+    #     self.trigger_off()
+    #
+    #     self.scan_step_end_time = time.time()
+    #     self.data_logger.data_recording = False
+    #
+    #     if self.shot_control is not None:
+    #         logging.info(f"shot control state: {self.shot_control.state}")
 
     def estimate_acquisition_time(self):
 
