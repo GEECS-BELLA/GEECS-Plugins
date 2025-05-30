@@ -16,6 +16,7 @@ pyinstaller = "^6.12.0"
 pillow = "^11.1.0"
 numexpr = "*"
 xopt = '^2.6'
+simpleaudio = { version = "*", markers = "sys_platform == 'darwin'" }
 
 [build-system]
 requires = ["poetry-core"]
