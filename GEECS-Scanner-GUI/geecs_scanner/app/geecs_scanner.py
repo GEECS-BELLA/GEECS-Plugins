@@ -32,7 +32,7 @@ from .lib.gui_utilities import display_completer_list, read_yaml_file_to_dict, w
 from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor, ActionLibrary
 from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
 from ..utils.exceptions import ConflictingScanElements, ActionError
-from ...data_acquisition.types import ScanConfig
+from geecs_scanner.data_acquisition.types import ScanConfig
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
