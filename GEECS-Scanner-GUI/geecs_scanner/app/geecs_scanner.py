@@ -32,6 +32,7 @@ from .lib.gui_utilities import display_completer_list, read_yaml_file_to_dict, w
 from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor, ActionLibrary
 from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
 from ..utils.exceptions import ConflictingScanElements, ActionError
+from ...data_acquisition.types import ScanConfig
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
@@ -1181,21 +1182,32 @@ class GEECSScannerWindow(QMainWindow):
 
             if self.ui.scanRadioButton.isChecked():
                 scan_variable_tag = self.read_device_tag_from_nickname(self.scan_variable)
-                scan_config = {
-                    'device_var': scan_variable_tag,
-                    'start': self.scan_start,
-                    'end': self.scan_stop,
-                    'step': self.scan_step_size,
-                    'wait_time': (self.scan_shot_per_step + 0.5)/self.repetition_rate
-                }
+                # scan_config = {
+                #     'device_var': scan_variable_tag,
+                #     'start': self.scan_start,
+                #     'end': self.scan_stop,
+                #     'step': self.scan_step_size,
+                #     'wait_time': (self.scan_shot_per_step + 0.5)/self.repetition_rate
+                # }
+                scan_config = ScanConfig(
+                    device_var = scan_variable_tag,
+                    start = self.scan_start,
+                    end = self.scan_stop,
+                    step = self.scan_step_size,
+                    wait_time = (self.scan_shot_per_step + 0.5) / self.repetition_rate
+                )
             elif self.ui.noscanRadioButton.isChecked() or self.ui.backgroundRadioButton.isChecked():
-                scan_config = {
-                    'device_var': 'noscan',
-                    'wait_time': (self.noscan_num + 0.5)/self.repetition_rate
-                }
+                # scan_config = {
+                #     'device_var': 'noscan',
+                #     'wait_time': (self.noscan_num + 0.5)/self.repetition_rate
+                # }
+                scan_config = ScanConfig(
+                    device_var = 'noscan',
+                    wait_time = (self.noscan_num + 0.5)/self.repetition_rate
+                )
             else:
                 scan_config = None
-            scan_config['background'] = str(self.ui.backgroundRadioButton.isChecked())
+            scan_config.background = str(self.ui.backgroundRadioButton.isChecked())
 
             option_dict = {
                 "rep_rate_hz": self.repetition_rate,

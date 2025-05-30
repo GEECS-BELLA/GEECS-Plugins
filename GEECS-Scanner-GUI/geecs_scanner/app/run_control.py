@@ -5,8 +5,10 @@ from geecs_scanner.data_acquisition.scan_manager import ScanManager, get_databas
 
 from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
 from geecs_scanner.app.lib.action_control import ActionControl
+from geecs_scanner.data_acquisition.types import ScanConfig
 
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
+
 
 
 class RunControl:
@@ -52,11 +54,11 @@ class RunControl:
             self.action_control = ActionControl(experiment_name=experiment_name_refresh)
         return self.action_control
 
-    def submit_run(self, config_dictionary: dict, scan_config: dict) -> bool:
+    def submit_run(self, config_dictionary: dict, scan_config: ScanConfig) -> bool:
         """Submits a scan request to Scan Manager after reinitializing it
 
         :param config_dictionary: Dictionary of devices to be saved and actions to take
-        :param scan_config: Dictionary of parameters used in a 1d scan
+        :param scan_config: ScanConfig of parameters used in a 1d scan
         """
         success = False
         if self.scan_manager is not None:

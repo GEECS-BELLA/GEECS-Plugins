@@ -7,6 +7,7 @@ import threading
 import logging
 import importlib
 from pathlib import Path
+import warnings
 
 # Third-party library imports
 import pandas as pd
@@ -15,6 +16,7 @@ import pandas as pd
 from . import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup, ScanDataManager
 from .utils import ConsoleLogger
 from .types import ScanConfig  # Adjust the path as needed
+from dataclasses import dataclass, fields
 
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
