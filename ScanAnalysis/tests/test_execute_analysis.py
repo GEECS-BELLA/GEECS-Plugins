@@ -1,7 +1,10 @@
 import unittest
+from dataclasses import asdict
 
 from geecs_data_utils import ScanData, ScanTag
 from scan_analysis.execute_scan_analysis import analyze_scan
+from pathlib import Path
+from dataclasses import dataclass,asdict
 
 from scan_analysis.base import AnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis
@@ -48,15 +51,19 @@ class TestExecuteAnalysis(unittest.TestCase):
         mask = SlopesMask(top=75, bottom=246, left=10, right=670)
         analysis_config = HasoHimgHasConfig()
         analysis_config.mask = mask
+        analysis_config.wakekit_config_file_path = Path(
+            'C:/Users/Loasis.loasis/Documents/GitHub/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
+        analysis_config.wakekit_config_file_path: Path = Path(
+            'Z:/software/control-all-loasis/HTU/Active Version/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
 
-        # haso_processor = HASOHimgHasProcessor(config = analysis_config)
+        analysis_config_dict = asdict(analysis_config)
 
-        analyzer_info = Info(analyzer_class=HIMGWithAveraging,
+        analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
             requirements={'U_HasoLift'},
             device_name='U_HasoLift',
             image_analyzer_class=HASOHimgHasProcessor,
             file_tail = ".himg",
-            image_analysis_config= analysis_config)
+            image_analysis_config= analysis_config_dict)
 
         test_tag = ScanTag(year=2025, month=2, day=19, number=2, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
@@ -78,17 +85,31 @@ class TestExecuteAnalysis(unittest.TestCase):
             wavelength_nm=800,  # Probe laser wavelength in nm
             threshold_fraction=0.05,  # Threshold fraction for pre-processing
             roi=(10, -10, 75, -250),  # Example ROI: (x_min, x_max, y_min, y_max)
-            background=bkg_file_path  # Background is now a Path
+            background_path=bkg_file_path  # Background is now a Path
         )
-
+        config_dict = asdict(config)
         analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
                 requirements={'U_HasoLift'},
                 device_name='U_HasoLift',
                 image_analyzer_class=PhaseDownrampProcessor,
                 file_tail = "_postprocessed.tsv",
-                image_analysis_config = config)
+                image_analysis_config = config_dict)
 
         test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
+        analyze_scan(test_tag, [analyzer_info])
+
+    def test_VisaEBeamAnalyzer(self):
+        from image_analysis.offline_analyzers.Undulator.VisaEBeam import VisaEBeam
+
+        config_dict = {'camera_name':'UC_VisaEBeam1'}
+        analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
+                             requirements={'UC_VisaEBeam1'},
+                             device_name='UC_VisaEBeam1',
+                             image_analyzer_class=VisaEBeam,
+                             file_tail = '.png',
+                             image_analysis_config = config_dict)
+
+        test_tag = ScanTag(year=2024, month=12, day=5, number=11, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
 
 

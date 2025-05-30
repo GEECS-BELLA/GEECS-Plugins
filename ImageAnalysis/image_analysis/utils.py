@@ -35,6 +35,24 @@ def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
         return np.right_shift(image, bitdepth - significant_bits)
 
 
+def read_tsv_file(file_path: Union[str, Path]) -> np.ndarray:
+    """
+    Load a .tsv file as a 2D NumPy array of floats.
+
+    Parameters:
+        file_path (str or Path): Path to the .tsv file.
+
+    Returns:
+        np.ndarray: 2D float64 array with phase data.
+    """
+    file_path = Path(file_path)
+    try:
+        data = np.genfromtxt(file_path, delimiter='\t')
+    except Exception as e:
+        raise RuntimeError(f"Failed to load .tsv file {file_path}: {e}")
+
+    return data.astype(np.float64)
+
 def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
     """ Read BELLA camera image, in particular handle NI PNG files correctly.
     """
@@ -44,6 +62,8 @@ def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
         return read_imaq_png_image(file_path)
     elif file_path.suffix.lower() == '.npy':
         return np.load(file_path)
+    elif file_path.suffix.lower() == '.tsv':
+        return read_tsv_file(file_path)
     else:
         return imread(file_path)
 

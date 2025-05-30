@@ -47,34 +47,15 @@ def instantiate_analyzer(tag: ScanTag, analyzer_info: AnalyzerInfo) -> ScanAnaly
         logging.info(f'image analyzer class recongnized, search for config')
 
         if config is not None:
-            logging.info(f'image analyzer class recongnized, there is a config')
-            logging.info(f'config type is {type(config)}')
-            # If it's a string or Path, assume it's a path to a config file.
-            if isinstance(config, (str, Path)):
-                # You could load the configuration from file here.
-                # For example: config_obj = load_config(Path(config))
-                # For now, we'll simply pass the path.
-                image_analyzer = analyzer_info.image_analyzer_class(config=config)
-            # Otherwise, if it's an instance of PhaseAnalysisConfig (or similar), pass it directly.
-            elif isinstance(config, PhaseAnalysisConfig):
-                logging.info(f'config type matched the PhaseAnalysisConfig')
-                image_analyzer = analyzer_info.image_analyzer_class(config=config)
-                logging.info(f'config in the image analyzer set to {image_analyzer.config}')
-            elif isinstance(config, HasoHimgHasConfig):
-                logging.info(f'config type matched the HasoHimgHasConfig')
-                image_analyzer = analyzer_info.image_analyzer_class(config=config)
-                logging.info(f'config in the image analyzer set to {image_analyzer.config}')
-            else:
-                # Fallback: pass it as-is.
-                image_analyzer = analyzer_info.image_analyzer_class(config)
+            image_analyzer = analyzer_info.image_analyzer_class(**config)
         else:
             image_analyzer = analyzer_info.image_analyzer_class()
-        logging.info(f'the image analyzer config is {image_analyzer.config}')
     analyzer_instance = analyzer_info.analyzer_class(
         scan_tag=tag,
         device_name=analyzer_info.device_name,
         skip_plt_show=True,
-        image_analyzer=image_analyzer
+        image_analyzer=image_analyzer,
+        image_analyzer_config=config
     )
 
     if hasattr(analyzer_instance, "file_tail"):
