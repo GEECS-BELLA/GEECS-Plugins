@@ -7,6 +7,7 @@ import threading
 import logging
 import importlib
 from pathlib import Path
+import warnings
 
 # Third-party library imports
 import pandas as pd
@@ -14,6 +15,9 @@ import pandas as pd
 # Internal project imports
 from . import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup, ScanDataManager
 from .utils import ConsoleLogger
+from .types import ScanConfig  # Adjust the path as needed
+from dataclasses import dataclass, fields
+
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
@@ -90,6 +94,8 @@ class ScanManager:
 
         self.options_dict: dict = {} if options_dict is None else options_dict
         self.save_local = True  # If true, will save locally on device PC before being queued to transfer to network
+
+        self.scan_config: ScanConfig
 
     def pause_scan(self):
         """Pause the scanning process by clearing the pause event."""
@@ -191,13 +197,14 @@ class ScanManager:
 
         return self.scanning_thread and self.scanning_thread.is_alive()
 
-    def start_scan_thread(self, scan_config=None):
+    def start_scan_thread(self, scan_config: Union[ScanConfig | dict] = None)-> None:
         """
         Start a new scan in a separate thread. Having it in a separate thread allows it to be interupted
         externally using the stop_scan_thread method
 
         Args:
-            scan_config (dict, optional): Configuration settings for the scan, including variables, start, end, step, and wait times.
+            scan_config (ScanConfig): Configuration settings for the scan,
+            including variables, start, end, step, and wait times. See types.py
         """
         if not self.initialization_success:
             logging.error("initialization unsuccessful, cannot start a new scan session")
@@ -207,12 +214,28 @@ class ScanManager:
             logging.warning("scanning is already active, cannot start a new scan session.")
             return
 
+        # Backward compatibility: allow dict input, with warning. This code should be deleted after
+        # all other callers of this method are updated to use ScanConfig
+        if isinstance(scan_config, dict):
+            valid_keys = {f.name for f in fields(ScanConfig)}
+            unknown_keys = set(scan_config) - valid_keys
+            if unknown_keys:
+                logging.warning(f"Unexpected keys in scan_config dict: {unknown_keys} — they will be ignored.")
+
+            warnings.warn(
+                "Passing scan_config as a dict is deprecated. Please migrate to using ScanConfig dataclass.",
+                DeprecationWarning
+            )
+            scan_config = ScanConfig(**{k: v for k, v in scan_config.items() if k in valid_keys})
+
+        self.scan_config = scan_config
+
         # Ensure the stop event is cleared before starting a new session
         self.stop_scanning_thread_event.clear()
 
         # Start a new thread for logging
-        logging.info(f'scan config is this: {scan_config}')
-        self.scanning_thread = threading.Thread(target=self.start_scan, args=(scan_config,))
+        logging.info(f'scan config is this: {self.scan_config}')
+        self.scanning_thread = threading.Thread(target=self._start_scan)
         self.scanning_thread.start()
         logging.info("Scan thread started.")
 
@@ -236,14 +259,11 @@ class ScanManager:
         self.scanning_thread = None  # Clean up the thread
         logging.info("scanning thread stopped and disposed.")
 
-    def start_scan(self, scan_config):
+    def _start_scan(self)->pd.DataFrame:
 
         """
         Start a scan while dynamically performing actions
-        or handling 'noscan' (or 'statistics') scans during the acquisition process.
-
-        Args:
-            scan_config (dict): Configuration for the scan, including device variables, start, end, step, and wait times.
+        Uses `self.scan_config`, which should be set before calling this method.
 
         Returns:
             pandas.DataFrame: A DataFrame containing the results of the scan.
@@ -256,13 +276,13 @@ class ScanManager:
 
         try:
             # Pre-logging setup: Trigger devices off, initialize data paths, etc.
-            logging.info(f'scan config getting sent to pre logging is this: {scan_config}')
+            logging.info(f'scan config getting sent to pre logging is this: {self.scan_config}')
 
-            self.pre_logging_setup(scan_config)
+            self.pre_logging_setup()
 
             # Estimate acquisition time if necessary
-            if scan_config:
-                self.estimate_acquisition_time(scan_config)
+            if self.scan_config:
+                self.estimate_acquisition_time()
                 logging.info(f"Estimated acquisition time based on scan config: {self.acquisition_time} seconds.")
 
             # Start data logging
@@ -466,14 +486,13 @@ class ScanManager:
             else:
                 logging.warning(f"Device {device_name} not found in DeviceManager.")
 
-    def pre_logging_setup(self, scan_config):
+    def pre_logging_setup(self):
         """
         Precompute all scan steps (including composite and normal variables),
         add scan devices to async_observables, and store the scan steps.
         Execute pre scan setup actions passed through
 
-        Args:
-            scan_config (dict): Configuration for the scan, including device variables and steps.
+        Uses `self.scan_config`, which should be set before calling this method.
         """
 
         logging.info("Turning off the trigger.")
@@ -490,24 +509,24 @@ class ScanManager:
             self.data_logger.set_device_save_paths_mapping(self.scan_data_manager.device_save_paths_mapping)
             self.data_logger.scan_number = self.scan_data_manager.scan_number_int  # TODO replace with a `set` func.
 
-            self.scan_data_manager.write_scan_info_ini(scan_config)
+            self.scan_data_manager.write_scan_info_ini(self.scan_config)
 
         # Handle scan variables and ensure devices are initialized in DeviceManager
-        logging.info(f'scan config in pre logging is this: {scan_config}')
+        logging.info(f'scan config in pre logging is this: {self.scan_config}')
         try:
-            self.device_manager.handle_scan_variables(scan_config)
+            self.device_manager.handle_scan_variables(self.scan_config)
         except GeecsDeviceInstantiationError as e:
             logging.error(f"Device instantiation failed during handling of scan devices   {e}")
             raise
 
         time.sleep(1.5)
 
-        device_var = scan_config['device_var']
+        device_var = self.scan_config.device_var
         if not self.device_manager.is_statistic_noscan(device_var):
-            self.initial_state = self.get_initial_state(scan_config)
+            self.initial_state = self.get_initial_state()
 
         # Generate the scan steps
-        self.scan_steps = self._generate_scan_steps(scan_config)
+        self.scan_steps = self._generate_scan_steps()
 
         if self.device_manager.scan_setup_action is not None:
             logging.info("Attempting to execute pre-scan actions.")
@@ -560,12 +579,11 @@ class ScanManager:
                 logging.warning(f"Failed to generate an ECS live dump")
                 break
 
-    def _generate_scan_steps(self, scan_config):
+    def _generate_scan_steps(self):
         """
         Generate the scan steps ahead of time, handling both normal and composite variables.
 
-        Args:
-            scan_config (dict): Configuration for the scan, including variables, start, end, step, and wait times.
+        uses self.scan_config which should be set before executing this method
 
         Returns:
             list: A list of scan steps, each containing the variables and their corresponding values.
@@ -574,29 +592,29 @@ class ScanManager:
         self.data_logger.bin_num = 0
         steps = []
 
-        device_var = scan_config['device_var']
+        device_var = self.scan_config.device_var
 
         if self.device_manager.is_statistic_noscan(device_var):
             steps.append({
                 'variables': device_var,
-                'wait_time': scan_config.get('wait_time', 1),
+                'wait_time': self.scan_config.wait_time,
                 'is_composite': False
             })
 
         else:
-            current_value = scan_config['start']
-            positive_direction = scan_config['start'] < scan_config['end']
-            while (positive_direction and current_value <= scan_config['end'])\
-                    or (not positive_direction and current_value >= scan_config['end']):
+            current_value = self.scan_config.start
+            positive_direction = self.scan_config.start < self.scan_config.end
+            while (positive_direction and current_value <= self.scan_config.start)\
+                    or (not positive_direction and current_value >= self.scan_config.start):
                 steps.append({
                     'variables': {device_var: current_value},
-                    'wait_time': scan_config.get('wait_time', 1),
+                    'wait_time': self.scan_config.wait_time,
                     'is_composite': False
                 })
                 if positive_direction:
-                    current_value += abs(scan_config['step'])
+                    current_value += abs(self.scan_config.step)
                 else:
-                    current_value -= abs(scan_config['step'])
+                    current_value -= abs(self.scan_config.step)
 
         return steps
 
@@ -761,24 +779,24 @@ class ScanManager:
         if self.shot_control is not None:
             logging.info(f"shot control state: {self.shot_control.state}")
 
-    def estimate_acquisition_time(self, scan_config):
+    def estimate_acquisition_time(self):
 
         """
         Estimate the total acquisition time based on the scan configuration.
 
-        Args:
-            scan_config (dict): Configuration for the scan, including start, end, step, and wait times.
+        uses self.scan_config which should be set before using this method
+
         """
 
         total_time = 0
 
-        if self.device_manager.is_statistic_noscan(scan_config['device_var']):
-            total_time += scan_config.get('wait_time', 1) - 0.5  # Default to 1 seconds if not provided
+        if self.device_manager.is_statistic_noscan(self.scan_config.device_var):
+            total_time += self.scan_config.wait_time - 0.5  # Default to 1 seconds if not provided
         else:
-            start = scan_config['start']
-            end = scan_config['end']
-            step = scan_config['step']
-            wait_time = scan_config.get('wait_time', 1)# - 0.5  # Default wait time between steps is 1 second
+            start = self.scan_config.start
+            end = self.scan_config.end
+            step = self.scan_config.step
+            wait_time = self.scan_config.wait_time# - 0.5  # Default wait time between steps is 1 second
 
             # Calculate the number of steps and the total time for this device
             steps = abs((end - start) / step) + 1
@@ -801,19 +819,17 @@ class ScanManager:
         completion = self.data_logger.get_current_shot()/self.acquisition_time
         return 1 if completion > 1 else completion
 
-    def get_initial_state(self, scan_config):
+    def get_initial_state(self):
 
         """
         Retrieve the initial state of the devices involved in the scan.
-
-        Args:
-            scan_config (dict): Configuration for the scan, specifying the devices and variables.
+        uses self.scan_config which should be set before exectuing this method
 
         Returns:
             dict: A dictionary mapping each device variable to its initial state.
         """
 
-        device_var = scan_config['device_var']
+        device_var = self.scan_config.device_var
 
         if self.device_manager.is_composite_variable(device_var):
             initial_state = {f'{device_var}:composite_var':self.device_manager.devices[device_var].state.get('composite_var')}

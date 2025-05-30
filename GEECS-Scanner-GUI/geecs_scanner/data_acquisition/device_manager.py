@@ -10,6 +10,7 @@ from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
 from .utils import get_full_config_path  # Import utility function to build paths to config files
+from .types import ScanConfig
 
 
 class DeviceManager:
@@ -414,15 +415,15 @@ class DeviceManager:
                                            f"{device_name}:{var}" not in self.async_observables])
             logging.info(f"Updated async_observables with new variables for {device_name}: {variable_list}")
 
-    def handle_scan_variables(self, scan_config):
+    def handle_scan_variables(self, scan_config: ScanConfig):
         """
         Handle the initialization and setup of scan variables, including composite variables.
 
         Args:
-            scan_config (dict): The configuration for the scan, including device and variable information.
+            scan_config (ScanConfig): The configuration for the scan, including device and variable information.
         """
 
-        device_var = scan_config['device_var']
+        device_var = scan_config.device_var
         logging.info(f"Processing scan device_var: {device_var}")
 
         # Handle composite variables
