@@ -3,9 +3,10 @@ from typing import Optional, Union
 
 @dataclass
 class ScanConfig:
-    device_var: str
+    device_var: str = 'noscan'
     start: Union[int, float] = 0
     end: Union[int, float] = 1
     step: Union[int, float] = 1
     wait_time: float = 1.0
     additional_description: str = ''
+    background: bool = False
