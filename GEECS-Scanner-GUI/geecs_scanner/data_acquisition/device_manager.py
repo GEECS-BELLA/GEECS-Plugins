@@ -423,7 +423,7 @@ class DeviceManager:
             scan_config (ScanConfig): The configuration for the scan, including device and variable information.
         """
 
-        logging.info(f"Handling scan variables with mode: {scan_config.mode}")
+        logging.info(f"Handling scan variables with mode: {scan_config.scan_mode}")
 
         if scan_config.scan_mode == ScanMode.NOSCAN:
             logging.info("NOSCAN mode: no scan variables to set.")

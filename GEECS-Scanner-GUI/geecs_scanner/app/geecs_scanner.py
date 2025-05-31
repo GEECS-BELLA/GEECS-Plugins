@@ -1195,7 +1195,7 @@ class GEECSScannerWindow(QMainWindow):
                     end = self.scan_stop,
                     step = self.scan_step_size,
                     wait_time = (self.scan_shot_per_step + 0.5) / self.repetition_rate,
-                    scan_mode = 'STANDARD'
+                    scan_mode = ScanMode.STANDARD
                 )
             elif self.ui.noscanRadioButton.isChecked() or self.ui.backgroundRadioButton.isChecked():
                 # scan_config = {
@@ -1205,7 +1205,7 @@ class GEECSScannerWindow(QMainWindow):
                 scan_config = ScanConfig(
                     # device_var = 'noscan',
                     wait_time = (self.noscan_num + 0.5)/self.repetition_rate,
-                    scan_mode='NOSCAN'
+                    scan_mode = ScanMode.STANDARD
 
                 )
             else:

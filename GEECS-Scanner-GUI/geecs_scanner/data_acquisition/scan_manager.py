@@ -601,12 +601,11 @@ class ScanManager:
         Returns:
             List[Dict[str, Any]]: A list of scan steps, each containing the variables and their corresponding values.
         """
-        from types_module import ScanMode  # adjust import path as needed
 
         self.data_logger.bin_num = 0
         steps = []
 
-        mode = self.scan_config.mode
+        mode = self.scan_config.scan_mode
         wait_time = self.scan_config.wait_time
 
         if mode == ScanMode.NOSCAN:
