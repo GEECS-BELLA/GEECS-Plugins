@@ -3,6 +3,8 @@ from __future__ import annotations
 # Standard library imports
 from typing import Optional, List, Dict, Any
 
+from geecs_python_api.controls.devices.scan_device import ScanDevice
+
 import pandas as pd
 import logging
 import time
@@ -24,6 +26,8 @@ class ScanStepExecutor:
         self.results = None
         self.scan_steps = []
 
+        self.optimizer = None
+
 
     def execute_scan_loop(self, scan_steps: List[Dict[str, Any]]) -> pd.DataFrame:
         """
@@ -43,32 +47,47 @@ class ScanStepExecutor:
         self.scan_steps = scan_steps
 
         log_df = pd.DataFrame()
-        counter = 0
+        step_index = 0
 
-        while self.scan_steps:
+        while step_index < len(self.scan_steps):
             if self.stop_scanning_thread_event.is_set():
                 logging.info("Scanning has been stopped externally.")
                 break
 
-            scan_step = self.scan_steps.pop(0)
-            self.execute_step(scan_step)
-            counter += 1
+            scan_step = self.scan_steps[step_index]
+            self.execute_step(scan_step, step_index)
+            step_index += 1
 
         logging.info("Stopping logging.")
         return log_df
 
-    def execute_step(self, step: Dict[str, Any]) -> None:
+    def execute_step(self, step: Dict[str, Any], index: int) -> None:
         """
         Execute a single scan step by preparing the system, moving the devices,
-        waiting for acquisition, and finalizing the step.
+        waiting for acquisition, and finalizing the step. Allows for updating the
+        next step based on acquired data (useful for optimization).
 
         Args:
             step (Dict[str, Any]): A dictionary containing the scan step configuration.
+            index (int): Index of the current step in the scan_steps list.
         """
         self.prepare_for_step()
         self.move_devices(step['variables'], step['is_composite'])
         self.wait_for_acquisition(step['wait_time'])
+        self.update_next_step(index)
         self.finalize_step()
+
+    def update_next_step(self, index: int) -> None:
+        """
+        Update the next scan step based on current data and results. This method is
+        useful for dynamic or optimization-driven scan sequences.
+
+        Args:
+            index (int): Index of the current step. The next step at index + 1 will be updated.
+        """
+        if index + 1 < len(self.scan_steps):
+            next_step = self.compute_next_step()
+            self.scan_steps[index + 1] = next_step
 
     def prepare_for_step(self) -> None:
         """
@@ -177,6 +196,38 @@ class ScanStepExecutor:
             if hiatus and self.data_logger.shot_save_event.is_set():
                 self.save_hiatus(hiatus)
                 self.data_logger.shot_save_event.clear()
+
+    def compute_next_step(self, next_index: int) -> None:
+        """
+        Update the next scan step using an optimizer if available.
+        This simulates an optimization process where the next point is determined
+        dynamically based on previously logged data.
+
+        Args:
+            next_index (int): Index of the scan step to update.
+        """
+        if not hasattr(self, 'optimizer') or self.optimizer is None:
+            return
+
+        try:
+            # Fetch the latest logged data to inform the optimizer
+            log_df = self.scan_data_manager.get_current_dataframe()
+            last_row = log_df.iloc[-1]
+
+            # Pass some results to the optimizer
+            next_variables = self.optimizer.suggest_next_point(last_row)
+
+            # Overwrite the next step with updated variables
+            self.scan_steps[next_index].update({
+                'variables': next_variables,
+                'is_composite': False,   # or True depending on optimizer setup
+                'wait_time': self.scan_steps[next_index].get('wait_time', 1.0)
+            })
+
+            logging.info(f"Next step updated using optimizer: {self.scan_steps[next_index]}")
+
+        except Exception as e:
+            logging.warning(f"Failed to update next step via optimizer: {e}")
 
     def finalize_step(self) -> None:
         self.trigger_off()
