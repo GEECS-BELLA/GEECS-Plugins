@@ -79,11 +79,10 @@ class ScanStepExecutor:
         """
         logging.info(f'preparing step: {step}')
         self.prepare_for_step()
-
-        # self.move_devices(step['variables'], step['is_composite'])
+        self.move_devices(step['variables'], step['is_composite'])
         logging.info(f'waiting for acquisition: {step}')
         self.wait_for_acquisition(step['wait_time'])
-        # self.update_next_step(index)
+        self.update_next_step(index)
         logging.info(f'finalizing step: {step}')
         self.finalize_step()
 
@@ -96,8 +95,7 @@ class ScanStepExecutor:
             index (int): Index of the current step. The next step at index + 1 will be updated.
         """
         if index + 1 < len(self.scan_steps):
-            next_step = self.compute_next_step()
-            self.scan_steps[index + 1] = next_step
+            self.compute_next_step(index+1)
 
     def prepare_for_step(self) -> None:
         """
@@ -220,12 +218,8 @@ class ScanStepExecutor:
             return
 
         try:
-            # Fetch the latest logged data to inform the optimizer
-            log_df = self.scan_data_manager.get_current_dataframe()
-            last_row = log_df.iloc[-1]
-
             # Pass some results to the optimizer
-            next_variables = self.optimizer.suggest_next_point(last_row)
+            next_variables = self.optimizer.suggest_next_point()
 
             # Overwrite the next step with updated variables
             self.scan_steps[next_index].update({
