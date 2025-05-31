@@ -10,7 +10,7 @@ from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
 from .utils import get_full_config_path  # Import utility function to build paths to config files
-from .types import ScanConfig
+from .types import ScanConfig, ScanMode
 
 
 class DeviceManager:
@@ -423,21 +423,27 @@ class DeviceManager:
             scan_config (ScanConfig): The configuration for the scan, including device and variable information.
         """
 
+        logging.info(f"Handling scan variables with mode: {scan_config.mode}")
+
+        if scan_config.scan_mode == ScanMode.NOSCAN:
+            logging.info("NOSCAN mode: no scan variables to set.")
+            return
+
+        if scan_config.scan_mode == ScanMode.OPTIMIZATION:
+            logging.info("OPTIMIZATION mode: assume devices will be set dynamically.")
+            return
+
         device_var = scan_config.device_var
         logging.info(f"Processing scan device_var: {device_var}")
 
-        # Handle composite variables
-        if self.is_statistic_noscan(device_var):
-            logging.info("Statistical noscan selected, adding no scan devices.")
-        elif self.is_composite_variable(device_var):
+        if self.is_composite_variable(device_var):
             logging.info(f"{device_var} is a composite variable.")
             device_name = device_var
             logging.info(f"Trying to add composite device variable {device_var} to self.devices.")
-            self.add_scan_device(device_name)  # Add or append the normal variable
-
+            self.add_scan_device(device_name)
         else:
-            # Normal variables
+            # Normal variable case
             logging.info(f"{device_var} is a normal variable.")
             device_name, var_name = device_var.split(':', 1)
             logging.info(f"Trying to add {device_name}:{var_name} to self.devices.")
-            self.add_scan_device(device_name, [var_name])  # Add or append the normal variable
+            self.add_scan_device(device_name, [var_name])

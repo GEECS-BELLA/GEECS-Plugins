@@ -535,7 +535,8 @@ class ScanManager:
         time.sleep(1.5)
 
         device_var = self.scan_config.device_var
-        if not self.device_manager.is_statistic_noscan(device_var):
+        if device_var:
+        # if not self.device_manager.is_statistic_noscan(device_var):
             self.initial_state = self.get_initial_state()
 
         # Generate the scan steps
