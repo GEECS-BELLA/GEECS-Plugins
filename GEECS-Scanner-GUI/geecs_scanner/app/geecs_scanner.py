@@ -32,7 +32,7 @@ from .lib.gui_utilities import display_completer_list, read_yaml_file_to_dict, w
 from . import SaveElementEditor, MultiScanner, ShotControlEditor, ScanVariableEditor, ActionLibrary
 from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
 from ..utils.exceptions import ConflictingScanElements, ActionError
-from geecs_scanner.data_acquisition.types import ScanConfig
+from geecs_scanner.data_acquisition.types import ScanConfig, ScanMode
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
 
@@ -1194,7 +1194,8 @@ class GEECSScannerWindow(QMainWindow):
                     start = self.scan_start,
                     end = self.scan_stop,
                     step = self.scan_step_size,
-                    wait_time = (self.scan_shot_per_step + 0.5) / self.repetition_rate
+                    wait_time = (self.scan_shot_per_step + 0.5) / self.repetition_rate,
+                    scan_mode = 'STANDARD'
                 )
             elif self.ui.noscanRadioButton.isChecked() or self.ui.backgroundRadioButton.isChecked():
                 # scan_config = {
@@ -1202,8 +1203,10 @@ class GEECSScannerWindow(QMainWindow):
                 #     'wait_time': (self.noscan_num + 0.5)/self.repetition_rate
                 # }
                 scan_config = ScanConfig(
-                    device_var = 'noscan',
-                    wait_time = (self.noscan_num + 0.5)/self.repetition_rate
+                    # device_var = 'noscan',
+                    wait_time = (self.noscan_num + 0.5)/self.repetition_rate,
+                    scan_mode='NOSCAN'
+
                 )
             else:
                 scan_config = None
