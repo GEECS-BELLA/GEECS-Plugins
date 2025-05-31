@@ -541,6 +541,7 @@ class ScanManager:
 
         # Generate the scan steps
         self.scan_steps = self._generate_scan_steps()
+        logging.info(f'steps fro the scan are : {self.scan_steps}')
 
         if self.device_manager.scan_setup_action is not None:
             logging.info("Attempting to execute pre-scan actions.")
@@ -638,7 +639,7 @@ class ScanManager:
                     'is_composite': False
                 })
                 current_value += step if positive else -step
-
+        logging.info(f'scan steps generate: {steps}')
         return steps
 
     # def _generate_scan_steps(self):

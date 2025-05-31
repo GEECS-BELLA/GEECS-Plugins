@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import Optional, List, Dict, Any
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+
 
 import pandas as pd
 import logging
@@ -28,6 +30,8 @@ class ScanStepExecutor:
 
         self.optimizer = None
 
+        logging.info(f'constructing the scan step executor')
+
 
     def execute_scan_loop(self, scan_steps: List[Dict[str, Any]]) -> pd.DataFrame:
         """
@@ -45,6 +49,7 @@ class ScanStepExecutor:
 
         # make the scan steps an instance variable so that they can be updated later as needed
         self.scan_steps = scan_steps
+        logging.info(f'attempting to start loop with : {scan_steps}')
 
         log_df = pd.DataFrame()
         step_index = 0
@@ -55,6 +60,7 @@ class ScanStepExecutor:
                 break
 
             scan_step = self.scan_steps[step_index]
+            logging.info(f'attempting step: {scan_step}')
             self.execute_step(scan_step, step_index)
             step_index += 1
 
@@ -71,10 +77,14 @@ class ScanStepExecutor:
             step (Dict[str, Any]): A dictionary containing the scan step configuration.
             index (int): Index of the current step in the scan_steps list.
         """
+        logging.info(f'preparing step: {step}')
         self.prepare_for_step()
-        self.move_devices(step['variables'], step['is_composite'])
+
+        # self.move_devices(step['variables'], step['is_composite'])
+        logging.info(f'waiting for acquisition: {step}')
         self.wait_for_acquisition(step['wait_time'])
-        self.update_next_step(index)
+        # self.update_next_step(index)
+        logging.info(f'finalizing step: {step}')
         self.finalize_step()
 
     def update_next_step(self, index: int) -> None:
@@ -122,7 +132,7 @@ class ScanStepExecutor:
                 device = self.device_manager.devices.get(device_name)
 
                 if device:
-                    tol = 10000 if device.is_composite else float(ScanDevice.exp_info['devices'][device_name][var_name]['tolerance'])
+                    tol = 10000 if device.is_composite else float(GeecsDevice.exp_info['devices'][device_name][var_name]['tolerance'])
                     success = False
 
                     for attempt in range(max_retries):
