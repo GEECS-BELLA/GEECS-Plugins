@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # Standard library imports
-from typing import Optional
+from typing import Optional, Dict, Any
 import time
 import threading
 import logging
@@ -695,11 +695,13 @@ class ScanManager:
             raise ValueError("optimizer_config_path must be set in ScanConfig for optimization scans")
 
         self.optimizer = BaseOptimizer.from_config_file(
-            config_path=self.scan_config.optimizer_config_path,
-            overrides=getattr(self.scan_config, 'optimizer_overrides', {}) or {},
-            evaluator_kwargs=getattr(self.scan_config, 'evaluator_kwargs', {}) or {}
+            config_path=self.scan_config.optimizer_config_path
         )
 
+        self.device_manager.load_from_dictionary(self.optimizer.device_requirements)
+
+        for var in self.optimizer.vocs.variables.keys():
+            self.device_manager.check_then_add_variable(var)
 
     def estimate_acquisition_time(self):
 
