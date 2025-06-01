@@ -1,0 +1,13 @@
+vocs:
+  variables:
+    U_S1H:Current: [0.0, 1.0]
+  objectives:
+    f: MINIMIZE
+  constraints: {}
+
+evaluator:
+  module: optimization.evaluators.HTU_test
+  class: TestEvaluator
+
+generator:
+  name: random
