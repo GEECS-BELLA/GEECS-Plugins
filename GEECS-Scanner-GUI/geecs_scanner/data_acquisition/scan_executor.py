@@ -12,11 +12,12 @@ import logging
 import time
 
 class ScanStepExecutor:
-    def __init__(self, device_manager, data_logger, scan_data_manager, shot_control, options_dict,
+    def __init__(self, device_manager, data_logger, scan_data_manager, optimizer, shot_control, options_dict,
                  stop_scanning_thread_event, pause_scan_event):
         self.device_manager = device_manager
         self.data_logger = data_logger
         self.scan_data_manager = scan_data_manager
+        self.optimizer = optimizer
         self.shot_control = shot_control
         self.options_dict = options_dict
         self.stop_scanning_thread_event = stop_scanning_thread_event
@@ -28,10 +29,7 @@ class ScanStepExecutor:
         self.results = None
         self.scan_steps = []
 
-        self.optimizer = None
-
         logging.info(f'constructing the scan step executor')
-
 
     def execute_scan_loop(self, scan_steps: List[Dict[str, Any]]) -> pd.DataFrame:
         """
@@ -217,6 +215,16 @@ class ScanStepExecutor:
         if not hasattr(self, 'optimizer') or self.optimizer is None:
             logging.info(f'no optimizer found')
             return
+
+        # todo: the first step has an empty variables dict, whcih can't be used
+        # to update xopt. Need to add something to update the variables entry
+        # in self.scan_steps from values in self.data_logger.log_entries. Right now
+        # this just ignores data taken during the first step
+        if next_index > 1:
+            # update xopt with the evaluation of the objective function after the
+            # previous move. In terms of order of operations, this probablyh could
+            # be improved to speed things up
+            self.optimizer.evaluate(inputs=self.scan_steps[next_index-1]['variables'])
 
         num_initialization_steps = 1
         try:
