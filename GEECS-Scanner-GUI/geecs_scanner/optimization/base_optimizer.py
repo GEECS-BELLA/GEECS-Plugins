@@ -1,45 +1,53 @@
 # optimization/base_optimizer.py
 
 from xopt import Xopt, VOCS
-from typing import Callable, Optional, List
+from typing import Callable, Optional, List, Any, Dict
 import yaml
+
+from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
 
 class BaseOptimizer:
     def __init__(
-        self,
-        vocs: VOCS,
-        evaluate_function: Callable[[dict], dict],
-        generator_name: str = "random",
-        xopt_config_overrides: Optional[dict] = None,
+            self,
+            vocs: VOCS,
+            evaluate_function: Callable[[Dict[str, Any]], Dict[str, Any]],
+            generator_name: str,
+            xopt_config_overrides: Optional[dict] = None,
+            evaluator: Optional[BaseEvaluator] = None,
+            device_requirements: Optional[Dict[str, Any]] = None
     ):
         """
-        Wrapper around Xopt to expose a generate/evaluate interface without coupling control motion.
+        Wrapper around Xopt to expose a generate/evaluate interface without coupling to control system logic.
 
         Args:
-            vocs: A VOCS object defining the search space.
-            evaluate_function: A callable accepting a dict of inputs, returning a dict of results.
-            generator_name: Name of the Xopt generator (e.g., 'random', 'cnsga').
-            xopt_config_overrides: Optional extra config dict for Xopt.
+            vocs: A VOCS object defining the variables, objectives, and constraints.
+            evaluate_function: A callable that takes a dictionary of variable values and returns a dictionary of results.
+            generator_name: The name of the Xopt generator to use (e.g., 'random', 'cnsga').
+            xopt_config_overrides: Optional dictionary to override fields in the default Xopt configuration.
+            evaluator: Optional reference to the evaluator object providing the evaluate_function.
+            device_requirements: Optional dictionary defining required devices and variables for the optimization.
         """
         self.vocs = vocs
         self.evaluate_function = evaluate_function
         self.generator_name = generator_name
+        self.evaluator = evaluator
+        self.device_requirements = device_requirements or {}
         self.xopt: Optional[Xopt] = None
         self._setup_xopt(xopt_config_overrides or {})
 
-    def _setup_xopt(self, overrides: dict):
+    def _setup_xopt(self, overrides: dict[str, Any]):
         config = {
-            "evaluator": {
-                "function": self.evaluate_function
-            },
-            "generator": {
-                "name": self.generator_name
-            },
-            "vocs": self.vocs.dict()
+            "generator": {"name": self.generator_name},
+            "vocs": self.vocs.model_dump()
         }
         config.update(overrides)
-        self.xopt = Xopt.from_yaml(yaml.dump(config))
+
+        self.xopt = Xopt(
+            evaluator={"function": self.evaluate_function},
+            generator=config["generator"],
+            vocs=self.vocs
+        )
 
     def initialize(self, num_initial: int = 1):
         """
@@ -76,3 +84,47 @@ class BaseOptimizer:
         Return the best observed point according to the defined objective(s).
         """
         return self.xopt.data.sort_values(by=list(self.vocs.objectives.keys()))[:1]
+
+    @classmethod
+    def from_config_file(cls, config_path: str) -> "BaseOptimizer":
+        """
+        Load optimizer and evaluator from a YAML config file.
+
+        Args:
+            config_path (str): Path to the YAML config.
+
+        Returns:
+            BaseOptimizer: Initialized optimizer instance.
+        """
+        import importlib
+        import yaml
+        from xopt import VOCS
+
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+        vocs = VOCS(**config['vocs'])
+
+        evaluator_cfg = config['evaluator']
+        evaluator_module = evaluator_cfg['module']
+        evaluator_class_name = evaluator_cfg['class']
+        evaluator_init_kwargs = evaluator_cfg.get('kwargs', {})
+        device_requirements = config.get('device_requirements', {})
+        evaluator_init_kwargs['device_requirements'] = device_requirements  # inject here
+
+        module = importlib.import_module(evaluator_module)
+        evaluator_class = getattr(module, evaluator_class_name)
+        evaluator = evaluator_class(**evaluator_init_kwargs)
+
+        generator_name = config['generator']['name']
+        xopt_config_overrides = config.get('xopt_config_overrides', {})
+
+
+        return cls(
+            vocs=vocs,
+            evaluate_function=evaluator.get_value,
+            generator_name=generator_name,
+            xopt_config_overrides=xopt_config_overrides,
+            evaluator = evaluator,
+            device_requirements = device_requirements
+        )
