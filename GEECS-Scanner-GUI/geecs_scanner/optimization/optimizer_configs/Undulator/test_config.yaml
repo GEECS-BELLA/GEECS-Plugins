@@ -1,13 +1,37 @@
 vocs:
   variables:
-    U_S1H:Current: [0.0, 1.0]
+    U_S1H:Current: [ 0.0, 1.0 ]
+    U_S2H:Current: [ 0.0, 1.0 ]
   objectives:
     f: MINIMIZE
   constraints: {}
 
 evaluator:
-  module: optimization.evaluators.HTU_test
+  module: geecs_scanner.optimization.evaluators.HTU_test
   class: TestEvaluator
 
 generator:
   name: random
+
+device_requirements:
+  Devices:
+    UC_TC_Phosphor:
+      add_all_variables: false
+      save_nonscalar_data: true
+      synchronous: true
+      variable_list:
+        - MeanCounts
+        - MaxCounts
+        - centroidx
+        - centroidy
+        - acq_timestamp
+    UC_ALineEBeam3:
+      add_all_variables: false
+      save_nonscalar_data: true
+      synchronous: true
+      variable_list:
+        - MeanCounts
+        - MaxCounts
+        - centroidx
+        - centroidy
+        - acq_timestamp

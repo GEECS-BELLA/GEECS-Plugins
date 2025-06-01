@@ -1,7 +1,10 @@
-from optimization.base_evaluator import BaseEvaluator
+from __future__ import annotations
 
-# Devices that must be recorded for this evaluator to function
-DEVICE_REQUIREMENTS = ['UC_TC_Phosphor:acq_timestamp']  # Replace with your actual device/variable names
+import logging
+from typing import TYPE_CHECKING, Dict, Any, Optional
+import yaml
+
+from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
 class TestEvaluator(BaseEvaluator):
     """
@@ -9,20 +12,24 @@ class TestEvaluator(BaseEvaluator):
     Assumes 'beam_size' is recorded in the DataLogger and represents the objective to minimize.
     """
 
-    def __init__(self):
-        super().__init__()
-        self.device_requirements = DEVICE_REQUIREMENTS
-        self.output_key = 'f'  # Consistent with VOCS objective key
+    def __init__(self, device_requirements=None):
+        required_keys = {
+            'var1': 'UC_TC_Phosphor:acq_timestamp',
+            'var2': 'UC_TC_Phosphor:MeanCounts',
+            'var3': 'UC_ALineEBeam3:acq_timestamp',
+        }
+        super().__init__(device_requirements=device_requirements, required_keys=required_keys)
+        self.output_key = 'f'
 
     def get_value(self, log_entries: Dict[float, Dict[str, Any]]) -> Dict[str, Any]:
         # Assuming scan_manager sets current_bin externally
         bin_num = max(entry['Bin #'] for entry in log_entries.values())  # or passed in explicitly
 
         entries = self.filter_log_entries_by_bin(log_entries, bin_num)
-        beam_sizes = [entry['UC_TC_Phosphor:acq_timestamp'] for entry in entries if 'UC_TC_Phosphor:acq_timestamp' in entry]
+        acq_times = [entry[required_keys['var1']] for entry in entries if required_keys['var1'] in entry]
 
-        if not beam_sizes:
-            raise ValueError("No beam size data found in current bin")
+        if not acq_times:
+            raise ValueError("No acq_times data found in current bin")
 
-        mean_beam_size = sum(beam_sizes) / len(beam_sizes)
-        return {'f': mean_beam_size}
+        mean_acq_times = sum(acq_times) / len(acq_times)
+        return {'f': mean_acq_times}
