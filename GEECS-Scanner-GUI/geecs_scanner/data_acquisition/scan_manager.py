@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # Standard library imports
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union, List
 import time
 import threading
 import logging
@@ -707,6 +707,7 @@ class ScanManager:
         # Ensure the executor sees the updated optimizer. Maybe it's better to contstruct the executor
         # after this method...
         self.executor.optimizer = self.optimizer
+        self.executor.data_logger = self.data_logger
 
     def estimate_acquisition_time(self):
 

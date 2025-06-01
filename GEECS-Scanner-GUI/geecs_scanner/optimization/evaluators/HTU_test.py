@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, Any, Optional, Union
+from typing import TYPE_CHECKING, Dict, Any, Optional, Union, List
 import yaml
 import pandas as pd
 
@@ -14,12 +14,12 @@ class TestEvaluator(BaseEvaluator):
     """
 
     def __init__(self, device_requirements=None):
-        required_keys = {
+        self.required_keys = {
             'var1': 'UC_TC_Phosphor:acq_timestamp',
             'var2': 'UC_TC_Phosphor:MeanCounts',
             'var3': 'UC_ALineEBeam3:acq_timestamp',
         }
-        super().__init__(device_requirements=device_requirements, required_keys=required_keys)
+        super().__init__(device_requirements=device_requirements, required_keys=self.required_keys)
         self.output_key = 'f'
         self.log_entries: Optional[Dict[float, Dict[str, Any]]] = None
 
@@ -39,7 +39,7 @@ class TestEvaluator(BaseEvaluator):
         bin_num = max(entry['Bin #'] for entry in self.log_entries.values())  # or passed in explicitly
 
         entries = self.filter_log_entries_by_bin(self.log_entries, bin_num)
-        acq_times = [entry[required_keys['var1']] for entry in entries if required_keys['var1'] in entry]
+        acq_times = [entry[self.required_keys['var1']] for entry in entries if self.required_keys['var1'] in entry]
 
         if not acq_times:
             raise ValueError("No acq_times data found in current bin")
