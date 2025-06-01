@@ -436,6 +436,10 @@ class DeviceManager:
         device_var = scan_config.device_var
         logging.info(f"Processing scan device_var: {device_var}")
 
+        self.check_then_add_variable(device_var=device_var)
+
+    def check_then_add_variable(self,device_var: str):
+
         if self.is_composite_variable(device_var):
             logging.info(f"{device_var} is a composite variable.")
             device_name = device_var
