@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Dict, TYPE_CHECKING
 from enum import Enum, auto
 
 class ScanMode(Enum):
