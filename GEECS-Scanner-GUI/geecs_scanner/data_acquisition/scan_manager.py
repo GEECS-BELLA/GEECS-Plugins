@@ -14,6 +14,7 @@ import pandas as pd
 
 # Internal project imports
 from . import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup, ScanDataManager, ScanStepExecutor
+from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 from .utils import ConsoleLogger
 from .types import ScanConfig, ScanMode  # Adjust the path as needed
 from dataclasses import dataclass, fields
@@ -50,6 +51,7 @@ class ScanManager:
         database_dict.reload(experiment_name=experiment_dir)
         self.device_manager = device_manager or DeviceManager(experiment_dir=experiment_dir)
         self.action_manager = ActionManager(experiment_dir=experiment_dir)
+        self.optimizer: Optional[BaseOptimizer] = None
         self.initialization_success = False
 
         self.MC_ip = ""
@@ -617,6 +619,9 @@ class ScanManager:
             })
 
         elif mode == ScanMode.OPTIMIZATION:
+
+            self._setup_optimizer_from_config()
+
             num_steps = int(abs((self.scan_config.end - self.scan_config.start) / self.scan_config.step)) + 1
             for _ in range(num_steps):
                 steps.append({
@@ -680,6 +685,21 @@ class ScanManager:
     #                 current_value -= abs(self.scan_config.step)
     #
     #     return steps
+
+    def _setup_optimizer_from_config(self):
+        """
+        Instantiate and configure the optimizer using the optimizer_config_path
+        defined in scan_config.
+        """
+        if not self.scan_config.optimizer_config_path:
+            raise ValueError("optimizer_config_path must be set in ScanConfig for optimization scans")
+
+        self.optimizer = BaseOptimizer.from_config_file(
+            config_path=self.scan_config.optimizer_config_path,
+            overrides=getattr(self.scan_config, 'optimizer_overrides', {}) or {},
+            evaluator_kwargs=getattr(self.scan_config, 'evaluator_kwargs', {}) or {}
+        )
+
 
     def estimate_acquisition_time(self):
 
