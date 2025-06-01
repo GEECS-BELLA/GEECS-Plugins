@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional, Union
 from enum import Enum, auto
 
@@ -17,3 +18,6 @@ class ScanConfig:
     wait_time: float = 1.0
     additional_description: Optional[str] = None
     background: bool = False
+    optimizer_config_path: Optional[Union[str,Path]] = None
+    optimizer_overrides: Optional[Dict[str, Any]] = field(default_factory=dict)
+    evaluator_kwargs: Optional[Dict[str, Any]] = field(default_factory=dict)
