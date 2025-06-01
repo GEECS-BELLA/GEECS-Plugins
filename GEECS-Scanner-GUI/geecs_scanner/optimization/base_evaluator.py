@@ -1,17 +1,54 @@
 # optimization/base_evaluator.py
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
-
+from typing import List, Dict, Any, Optional
+import logging
 
 class BaseEvaluator(ABC):
     """
     Base class for evaluator logic. Each evaluator must implement `get_value(inputs)`
-    and provide a list of required devices.
+    and provide device requirements in dictionary format.
     """
 
-    def __init__(self):
-        self.device_requirements: List[str] = []
+    def __init__(
+        self,
+        device_requirements: Optional[Dict[str, Any]] = None,
+        required_keys: Optional[Dict[str, str]] = None,
+    ):
+        self.device_requirements = device_requirements or {}
+        self.required_keys = required_keys or {}
+
+        # Validate required keys if provided
+        if self.required_keys:
+            try:
+                self.validate_variable_keys_against_requirements(self.required_keys)
+            except ValueError as e:
+                logging.warning(f'Key validation failed: {e}')
+
+    def validate_variable_keys_against_requirements(self, variable_map: dict[str, str]) -> None:
+        """
+        Validates that each 'device:variable' in the map exists in device_requirements.
+
+        Args:
+            variable_map: Dict mapping aliases to 'device:variable' strings.
+
+        Raises:
+            ValueError if any variable is not in device_requirements.
+        """
+        device_reqs = self.device_requirements.get('Devices', {})
+
+        logging.info(f'device reqs pass to evaluator: {device_reqs}')
+
+        declared_vars = {
+            f"{device}:{var}"
+            for device, req in device_reqs.items()
+            for var in req.get('variable_list', [])
+        }
+        logging.info(f'declared variables in evaluator: {declared_vars}')
+        logging.info(f'looking for matches in variable_map.values() {variable_map.values()}')
+        missing = [key for key in variable_map.values() if key not in declared_vars]
+        if missing:
+            raise ValueError(f"The following keys are not in device_requirements: {missing}")
 
     @staticmethod
     def filter_log_entries_by_bin(
