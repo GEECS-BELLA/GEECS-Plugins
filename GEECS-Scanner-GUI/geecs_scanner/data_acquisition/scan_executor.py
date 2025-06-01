@@ -223,7 +223,9 @@ class ScanStepExecutor:
         if next_index > 1:
             # update xopt with the evaluation of the objective function after the
             # previous move. In terms of order of operations, this probablyh could
-            # be improved to speed things up
+            # be improved to speed things up. This first line makes the log_entries
+            # available to evaluator
+            self.optimizer.evaluator.log_entries = self.data_logger.log_entries
             self.optimizer.evaluate(inputs=self.scan_steps[next_index-1]['variables'])
 
         num_initialization_steps = 1

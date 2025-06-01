@@ -1,8 +1,9 @@
 # optimization/base_evaluator.py
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import logging
+import pandas as pd
 
 class BaseEvaluator(ABC):
     """
@@ -17,6 +18,7 @@ class BaseEvaluator(ABC):
     ):
         self.device_requirements = device_requirements or {}
         self.required_keys = required_keys or {}
+        self.log_entries: Optional[Dict[float, Dict[str, Any]]] = None
 
         # Validate required keys if provided
         if self.required_keys:
@@ -58,17 +60,32 @@ class BaseEvaluator(ABC):
         return [entry for entry in log_entries.values() if entry.get('Bin #') == bin_num]
 
     @abstractmethod
-    def get_value(self, log_entries: Dict[float, Dict[str, Any]]) -> Dict[str, Any]:
+    def get_value(self, input_data: Union[
+            pd.DataFrame,
+            List[Dict[str, float]],
+            Dict[str, List[float]],
+            Dict[str, float],
+        ],
+        ) -> pd.DataFrame:
+
         """
         Evaluate the objective function.
 
         Args:
-            log_entries: Dict data recorded by DataLogger
+            input_data: data representing the set values for the control variables
 
         Returns:
             Dict of measured objectives and constraints.
         """
+
         pass
 
-    def __call__(self, log_entries:  Dict[float, Dict[str, Any]]) -> Dict[str, Any]:
-        return self.get_value(log_entries)
+    def __call__(self, input_data: Union[
+            pd.DataFrame,
+            List[Dict[str, float]],
+            Dict[str, List[float]],
+            Dict[str, float],
+        ],
+        ) -> pd.DataFrame:
+
+        return self.get_value(input_data)

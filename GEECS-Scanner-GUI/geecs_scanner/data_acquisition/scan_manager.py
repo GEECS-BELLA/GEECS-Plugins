@@ -704,6 +704,10 @@ class ScanManager:
         for var in self.optimizer.vocs.variables.keys():
             self.device_manager.check_then_add_variable(var)
 
+        # Ensure the executor sees the updated optimizer. Maybe it's better to contstruct the executor
+        # after this method...
+        self.executor.optimizer = self.optimizer
+
     def estimate_acquisition_time(self):
 
         """
