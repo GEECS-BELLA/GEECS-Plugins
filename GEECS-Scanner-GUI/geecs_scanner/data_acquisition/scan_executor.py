@@ -208,30 +208,38 @@ class ScanStepExecutor:
     def compute_next_step(self, next_index: int) -> None:
         """
         Update the next scan step using an optimizer if available.
-        This simulates an optimization process where the next point is determined
+        This executes an optimization process where the next point is determined
         dynamically based on previously logged data.
 
         Args:
             next_index (int): Index of the scan step to update.
         """
         if not hasattr(self, 'optimizer') or self.optimizer is None:
+            logging.info(f'no optimizer found')
             return
 
+        num_initialization_steps = 1
         try:
-            # Pass some results to the optimizer
-            next_variables = self.optimizer.suggest_next_point()
+            if next_index <= num_initialization_steps:
+                # Use generator during initialization as well
+                logging.info(f'running optimizer intialzation')
+                next_variables = self.optimizer.vocs.random_inputs(1)[0]
+                logging.info(f'intializer gave: {next_variables}')
+            else:
+                logging.info(f'running optimizer for real')
+                next_variables = self.optimizer.generate(1)[0]
+                logging.info(f'optimizer gave: {next_variables}')
 
-            # Overwrite the next step with updated variables
-            self.scan_steps[next_index].update({
-                'variables': next_variables,
-                'is_composite': False,   # or True depending on optimizer setup
-                'wait_time': self.scan_steps[next_index].get('wait_time', 1.0)
-            })
-
-            logging.info(f"Next step updated using optimizer: {self.scan_steps[next_index]}")
-
+            logging.info(f"Next step generated using optimizer: {next_variables}")
         except Exception as e:
             logging.warning(f"Failed to update next step via optimizer: {e}")
+            return
+
+        # Overwrite only the 'variables' key
+        self.scan_steps[next_index].update({
+            'variables': next_variables
+        })
+        logging.info(f"Next step after update: {self.scan_steps[next_index]}")
 
     def finalize_step(self) -> None:
         self.trigger_off()
