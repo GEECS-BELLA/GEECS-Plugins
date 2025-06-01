@@ -103,6 +103,7 @@ class ScanManager:
             device_manager=self.device_manager,
             data_logger=self.data_logger,
             scan_data_manager=self.scan_data_manager,
+            optimizer=self.optimizer,
             shot_control=self.shot_control,
             options_dict=self.options_dict,
             stop_scanning_thread_event=self.stop_scanning_thread_event,
