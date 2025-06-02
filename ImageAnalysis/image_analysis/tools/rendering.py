@@ -1,9 +1,12 @@
 # image_analysis/tools/rendering.py
 
-from typing import Optional, Union, Tuple
+from typing import Optional, Union, Tuple, TYPE_CHECKING
 import numpy as np
 import matplotlib.pyplot as plt
 
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+    from matplotlib.axes import Axes
 def base_render_image(
     image: np.ndarray,
     analysis_results_dict: Optional[dict[str, Union[float, int]]] = None,
