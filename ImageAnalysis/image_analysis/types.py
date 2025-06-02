@@ -6,6 +6,8 @@ except ImportError:
     from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
+    from typing import Any, Union, Optional
+
     from numpy.typing import NDArray
     from pint import Quantity
 
