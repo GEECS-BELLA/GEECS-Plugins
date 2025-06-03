@@ -43,6 +43,7 @@ from __future__ import annotations
 import logging
 import re
 import traceback
+import pickle
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, Union, Optional, TypedDict, Any, Tuple
@@ -81,58 +82,6 @@ class BinImageEntry(TypedDict):
     value: float
     result: Optional[AnalyzerResultDict]
 
-# below, some module level static functions that can't be members of the class so that the multi processing
-# works as expected
-
-# Module-level cache to keep track of instantiated classes allow them to be perisistent
-_analyzer_instance_cache: dict[type, Any] = {}
-
-def load_image_wrapper_static(shot_num: int, path: Path, analyzer_class: type,
-                              image_analysis_config: Optional[dict[Any]] = None
-                              ) -> tuple[int, Optional[np.ndarray]]:
-    """
-    Module-level wrapper for multiprocessing-safe image loading.
-
-    Args:
-        shot_num (int): Shot number.
-        path (Path): Path to image file.
-        analyzer_class (type): A class (not instance) of ImageAnalyzer to instantiate in the subprocess.
-
-    Returns:
-        Tuple[int, Optional[np.ndarray]]: Shot number and loaded image.
-    """
-    global _analyzer_instance_cache
-    try:
-        if analyzer_class not in _analyzer_instance_cache:
-            logging.info('creating a new analyzer instance for loading')
-            _analyzer_instance_cache[analyzer_class] = analyzer_class(**image_analysis_config)
-        analyzer = _analyzer_instance_cache[analyzer_class]
-        image = analyzer.load_image(path)
-        logging.info(f'loaded: {path}')
-        return shot_num, image
-    except Exception as e:
-        logging.warning(f"Failed to load image for shot {shot_num}: {e}")
-        return shot_num, None
-
-def analyze_preloaded_image_static(
-    shot_num: int,
-    analyzer_class: type,
-    image: np.ndarray,
-    image_analysis_config: Optional[dict[Any]] = None,
-    auxiliary_data: Optional[dict] = None
-) -> dict[str, Any]:
-    global _analyzer_instance_cache
-    try:
-        if analyzer_class not in _analyzer_instance_cache:
-            logging.info('creating a new analyzer instance for analyze image')
-            _analyzer_instance_cache[analyzer_class] = analyzer_class(**image_analysis_config)
-        analyzer = _analyzer_instance_cache[analyzer_class]
-        result: AnalyzerResultDict = analyzer.analyze_image(image=image, auxiliary_data=auxiliary_data)
-        return result
-    except Exception as e:
-        logging.error(f"Error analyzing image for shot {shot_num}: {e}")
-        return {}
-
 # %% classes
 class Array2DScanAnalysis(ScanAnalysis):
 
@@ -168,6 +117,16 @@ class Array2DScanAnalysis(ScanAnalysis):
         self.flag_save_images = flag_save_images
 
         self.file_tail: str = ".png"
+
+        try:
+            pickle.dumps(self.image_analyzer)
+        except Exception as e:
+            self.image_analyzer.run_analyze_image_asynchronously = True
+            if self.flag_logging:
+                logging.warning(
+                    f"[Array2DScanAnalysis] ImageAnalyzer instance is not pickleable "
+                    f"(reason: {e}). Falling back to threaded analysis."
+                )
 
         # organize various paths
         self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
@@ -274,35 +233,19 @@ class Array2DScanAnalysis(ScanAnalysis):
         use_threads = self.image_analyzer.run_analyze_image_asynchronously
         Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
 
-        analyzer_class = type(self.image_analyzer)
-
-        with Executor(max_workers = self.max_workers) as executor:
-            if use_threads:
-                # Use instance method for threading
-                futures = {
-                    executor.submit(self.image_analyzer.load_image, path): shot_num
-                    for shot_num, path in self._image_file_map.items()
-                }
-            else:
-                # Use static method for multiprocessing
-                futures = {
-                    executor.submit(load_image_wrapper_static, shot_num, path,
-                                    analyzer_class, self.image_analyzer_config): shot_num
-                    for shot_num, path in self._image_file_map.items()
-                }
+        with Executor(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(self.image_analyzer.load_image, path): shot_num
+                for shot_num, path in self._image_file_map.items()
+            }
 
             for future in as_completed(futures):
                 shot_num = futures[future]
                 try:
-                    if use_threads:
-                        image = future.result()
-                    else:
-                        _, image = future.result()
-
+                    image = future.result()
                     if image is not None:
-                        # self.raw_images[shot_num] = image
                         file_path = self._image_file_map[shot_num]
-                        self.raw_images[shot_num] = (image, file_path)  # <- save both
+                        self.raw_images[shot_num] = (image, file_path)
                 except Exception as e:
                     logging.error(f"Error loading image for shot {shot_num}: {e}")
 
@@ -351,49 +294,27 @@ class Array2DScanAnalysis(ScanAnalysis):
         Analyze each image in parallel (threaded or multi-processed).
 
         This method analyzes each image in `self.raw_images`, applying the `analyze_image()` method
-        with the current analyzer config.
+        of the ImageAnalyzer instance.
 
-        The analyzer is applied using either threads (true) or processes (false) based on the `run_analyze_image_asynchronously` flag.
-        Results (processed images, scalar analysis values etc.) are stored in `self.results`.
+        The analyzer is applied using either threads (True) or processes (False) based on the
+        `run_analyze_image_asynchronously` flag. Results are stored in `self.results`.
         """
         logging.info('Starting the individual image analysis')
         self.results: dict[int, AnalyzerResultDict] = {}
 
-        Executor = ThreadPoolExecutor if self.image_analyzer.run_analyze_image_asynchronously else ProcessPoolExecutor
-        logging.info(f'Using {"ThreadPoolExecutor" if Executor is ThreadPoolExecutor else "ProcessPoolExecutor"}')
+        use_threads = self.image_analyzer.run_analyze_image_asynchronously
+        Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
+        logging.info(f'Using {"ThreadPoolExecutor" if use_threads else "ProcessPoolExecutor"}')
 
-        analyzer_class = type(self.image_analyzer)
-
-        # setting up of exector to perform image analysis. if async='true', uses threading,
-        # else it uses multi processing. For the threading case, the ImageAnalyzer is
-        # fully instantiated, so only the aux_data needs to be passed, e.g. {'file_path'}
-        # For multiprocessing, the analyzers need to be instantiated externally, so they
-        # need both **config constructor args as well as the aux_data. On top of that, some
-        # attributes of the ImageAnalyzer may need to be updated after the batch_analysis
-        # which uses the 'threaded' version of the instance. These attributes need to be
-        # passed to the instance constructor for multiprocessing
-        with Executor(max_workers = self.max_workers) as executor:
-            if self.image_analyzer.run_analyze_image_asynchronously:
-                futures = {
-                    executor.submit(
-                        self.image_analyzer.analyze_image,
-                        img,
-                        {"file_path": path}
-                    ): sn
-                    for sn, (img, path) in self.raw_images.items()
-                }
-            else:
-                futures = {
-                    executor.submit(
-                        analyze_preloaded_image_static,
-                        sn,
-                        analyzer_class,
-                        self.raw_images[sn][0],  # extracting the image from the tuple in the dict
-                        {**self.image_analyzer_config, **self.stateful_results},  # construction config
-                        {"file_path": self.raw_images[sn][1]}  # extracting auxiliary_data
-                    ): sn
-                    for sn in self.raw_images
-                }
+        with Executor(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(
+                    self.image_analyzer.analyze_image,
+                    img,
+                    {"file_path": path, **self.stateful_results}
+                ): shot_num
+                for shot_num, (img, path) in self.raw_images.items()
+            }
 
             logging.info('Submitted image analysis tasks.')
 
