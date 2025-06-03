@@ -514,6 +514,10 @@ class ScanManager:
         logging.info("Turning off the trigger.")
         self.trigger_off()
 
+        # Generate the scan steps
+        self.scan_steps = self._generate_scan_steps()
+        logging.info(f'steps fro the scan are : {self.scan_steps}')
+
         time.sleep(2)
 
         if self.save_data:
@@ -541,10 +545,6 @@ class ScanManager:
         if device_var:
         # if not self.device_manager.is_statistic_noscan(device_var):
             self.initial_state = self.get_initial_state()
-
-        # Generate the scan steps
-        self.scan_steps = self._generate_scan_steps()
-        logging.info(f'steps fro the scan are : {self.scan_steps}')
 
         if self.device_manager.scan_setup_action is not None:
             logging.info("Attempting to execute pre-scan actions.")
