@@ -88,6 +88,7 @@ class Array2DScanAnalysis(ScanAnalysis):
     def __init__(self, scan_tag: ScanTag,
                  device_name: str,
                  image_analyzer: Optional[ImageAnalyzer] = None,
+                 file_tail: Optional[str] = '.png',
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
                  flag_save_images: bool = True):
@@ -116,7 +117,7 @@ class Array2DScanAnalysis(ScanAnalysis):
         self.flag_logging = flag_logging
         self.flag_save_images = flag_save_images
 
-        self.file_tail: str = ".png"
+        self.file_tail = file_tail
 
         try:
             pickle.dumps(self.image_analyzer)
