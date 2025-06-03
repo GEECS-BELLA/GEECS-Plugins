@@ -696,7 +696,8 @@ class ScanManager:
             raise ValueError("optimizer_config_path must be set in ScanConfig for optimization scans")
 
         self.optimizer = BaseOptimizer.from_config_file(
-            config_path=self.scan_config.optimizer_config_path
+            config_path=self.scan_config.optimizer_config_path,
+            scan_data_manager = self.scan_data_manager
         )
 
         self.device_manager.load_from_dictionary(self.optimizer.device_requirements)

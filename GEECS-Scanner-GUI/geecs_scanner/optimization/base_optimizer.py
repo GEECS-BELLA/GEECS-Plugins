@@ -1,10 +1,12 @@
 # optimization/base_optimizer.py
+from __future__ import annotations
 
 from xopt import Xopt, VOCS
 from typing import Callable, Optional, List, Any, Dict
 import yaml
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
+from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
 
 
 class BaseOptimizer:
@@ -15,7 +17,9 @@ class BaseOptimizer:
             generator_name: str,
             xopt_config_overrides: Optional[dict] = None,
             evaluator: Optional[BaseEvaluator] = None,
-            device_requirements: Optional[Dict[str, Any]] = None
+            device_requirements: Optional[Dict[str, Any]] = None,
+            scan_data_manager: Optional[ScanDataManager] = None
+
     ):
         """
         Wrapper around Xopt to expose a generate/evaluate interface without coupling to control system logic.
@@ -27,6 +31,7 @@ class BaseOptimizer:
             xopt_config_overrides: Optional dictionary to override fields in the default Xopt configuration.
             evaluator: Optional reference to the evaluator object providing the evaluate_function.
             device_requirements: Optional dictionary defining required devices and variables for the optimization.
+            scan_data_manager: Optional instance of ScanDataManager that can be use to access saved non scalar data
         """
         self.vocs = vocs
         self.evaluate_function = evaluate_function
@@ -34,6 +39,8 @@ class BaseOptimizer:
         self.evaluator = evaluator
         self.device_requirements = device_requirements or {}
         self.xopt: Optional[Xopt] = None
+        self.scan_data_manager = scan_data_manager
+
         self._setup_xopt(xopt_config_overrides or {})
 
     def _setup_xopt(self, overrides: dict[str, Any]):
@@ -86,12 +93,15 @@ class BaseOptimizer:
         return self.xopt.data.sort_values(by=list(self.vocs.objectives.keys()))[:1]
 
     @classmethod
-    def from_config_file(cls, config_path: str) -> "BaseOptimizer":
+    def from_config_file(cls, config_path: str,
+                         scan_data_manager: Optional["ScanDataManager"] = None) -> "BaseOptimizer":
         """
         Load optimizer and evaluator from a YAML config file.
 
         Args:
             config_path (str): Path to the YAML config.
+            scan_data_manager (ScanDataManager): the instance of ScanDataManager that can be used to access
+                                                data as it is acquired
 
         Returns:
             BaseOptimizer: Initialized optimizer instance.
@@ -110,7 +120,9 @@ class BaseOptimizer:
         evaluator_class_name = evaluator_cfg['class']
         evaluator_init_kwargs = evaluator_cfg.get('kwargs', {})
         device_requirements = config.get('device_requirements', {})
-        evaluator_init_kwargs['device_requirements'] = device_requirements  # inject here
+        evaluator_init_kwargs['device_requirements'] = device_requirements
+        if scan_data_manager:
+            evaluator_init_kwargs['scan_data_manager'] = scan_data_manager
 
         module = importlib.import_module(evaluator_module)
         evaluator_class = getattr(module, evaluator_class_name)
@@ -126,5 +138,7 @@ class BaseOptimizer:
             generator_name=generator_name,
             xopt_config_overrides=xopt_config_overrides,
             evaluator = evaluator,
-            device_requirements = device_requirements
+            device_requirements = device_requirements,
+            scan_data_manager=scan_data_manager
+
         )

@@ -4,22 +4,25 @@ import logging
 from typing import TYPE_CHECKING, Dict, Any, Optional, Union, List
 import yaml
 import pandas as pd
+from calibrations.Undulator.calibration_scripts.magspec_charge_calibration.single_scan_charge_calibration_acavemagcam3 import \
+    shot_number
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
+from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
 
 class TestEvaluator(BaseEvaluator):
-    """
-    Evaluator that extracts the beam size value from logged scalar data.
-    Assumes 'beam_size' is recorded in the DataLogger and represents the objective to minimize.
-    """
-
-    def __init__(self, device_requirements=None):
-        self.required_keys = {
+    def __init__(self, device_requirements=None, scan_data_manager=None):
+        required_keys = {
             'var1': 'UC_TC_Phosphor:acq_timestamp',
             'var2': 'UC_TC_Phosphor:MeanCounts',
             'var3': 'UC_ALineEBeam3:acq_timestamp',
         }
-        super().__init__(device_requirements=device_requirements, required_keys=self.required_keys)
+        super().__init__(
+            device_requirements=device_requirements,
+            required_keys=required_keys,
+            scan_data_manager=scan_data_manager
+        )
+
         self.output_key = 'f'
         self.log_entries: Optional[Dict[float, Dict[str, Any]]] = None
 
@@ -40,6 +43,8 @@ class TestEvaluator(BaseEvaluator):
 
         entries = self.filter_log_entries_by_bin(self.log_entries, bin_num)
         acq_times = [entry[self.required_keys['var1']] for entry in entries if self.required_keys['var1'] in entry]
+
+        self.get_device_shot_path(device_name = "test", shot_number = 1, file_extension = '.png')
 
         if not acq_times:
             raise ValueError("No acq_times data found in current bin")
