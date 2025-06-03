@@ -45,15 +45,12 @@ import re
 import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Union, Optional, List, TypedDict, Any, Tuple
+from typing import TYPE_CHECKING, Union, Optional, TypedDict, Any, Tuple
 
 # --- Third-Party Libraries ---
 import numpy as np
-import cv2
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 import imageio as io
 import h5py
 from collections import defaultdict
@@ -142,7 +139,6 @@ class Array2DScanAnalysis(ScanAnalysis):
     def __init__(self, scan_tag: ScanTag,
                  device_name: str,
                  image_analyzer: Optional[ImageAnalyzer] = None,
-                 image_analyzer_config: Optional[dict[str, Any]] = None,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
                  flag_save_images: bool = True):
@@ -153,7 +149,6 @@ class Array2DScanAnalysis(ScanAnalysis):
             scan_tag (ScanTag): tag used to identify the scan directory containing data.
             device_name (str): Name of the device to construct the subdirectory path.
             image_analyzer: ImageAnalyzer, instantiated ImageAnalyzer
-            image_analyzer_config: dict[any] used as **kwargs for ImageAnalysis constructor
             skip_plt_show (bool): Flag that sets if matplotlib is tried to use for plotting
             flag_logging (bool): Flag that sets if error and warning messages are displayed
             flag_save_images (bool): Flag that sets if images are saved to disk
@@ -163,7 +158,7 @@ class Array2DScanAnalysis(ScanAnalysis):
 
         super().__init__(scan_tag, device_name=device_name,
                          skip_plt_show=skip_plt_show)
-        self.image_analyzer_config = image_analyzer_config
+
         self.image_analyzer = image_analyzer or ImageAnalyzer()
 
         self.max_workers = 16
@@ -185,14 +180,11 @@ class Array2DScanAnalysis(ScanAnalysis):
             if self.flag_logging:
                 logging.warning(f"Data directory '{self.path_dict['data_img']}' does not exist or is empty. Skipping")
 
-    def run_analysis(self, config_options: Optional[str] = None):
+    def run_analysis(self):
         if self.path_dict['data_img'] is None or self.auxiliary_data is None:
             if self.flag_logging:
                 logging.info("Skipping analysis due to missing data or auxiliary file.")
             return
-
-        if config_options is not None:
-            raise NotImplementedError
 
         if self.flag_save_images and not self.path_dict['save'].exists():
             self.path_dict['save'].mkdir(parents=True)
@@ -877,84 +869,6 @@ class Array2DScanAnalysis(ScanAnalysis):
 
 if __name__ == "__main__":
 
-    # from scan_analysis.base import AnalyzerInfo as Info
-    # from scan_analysis.execute_scan_analysis import analyze_scan
-    # from geecs_data_utils import ScanTag
-    # from image_analysis.offline_analyzers.Undulator.ALine3 import Aline3Analyzer
-    # from image_analysis.offline_analyzers.Undulator.VisaEBeam import VisaEBeam
-    #
-    #
-    # perform_analysis = True
-    # analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
-    #                      requirements={'UC_ALineEBeam3'},
-    #                      device_name='UC_ALineEBeam3',
-    #                      image_analyzer_class=VisaEBeam,
-    #                      file_tail = '.png',
-    #                      image_analysis_config = {'camera_name':'UC_ALineEBeam3'})
-    #
-    # test_tag = ScanTag(year=2025, month=5, day=7, number=29, experiment='Undulator')
-    #
-    # test_analyzer = analyzer_info
-    # import time
-    # t0 = time.monotonic()
-    # analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
-    # t1 = time.monotonic()
-
-    # from scan_analysis.base import AnalyzerInfo as Info
-    # from scan_analysis.execute_scan_analysis import analyze_scan
-    # from geecs_data_utils import ScanTag
-    # from image_analysis.offline_analyzers.Undulator.VisaEBeam import VisaEBeam
-    #
-    # perform_analysis = True
-    # analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
-    #                      requirements={'UC_VisaEBeam1'},
-    #                      device_name='UC_VisaEBeam1',
-    #                      image_analyzer_class=VisaEBeam,
-    #                      file_tail = '.png',
-    #                      image_analysis_config = {'camera_name':'UC_VisaEBeam1'})
-    #
-    # # test_tag = ScanTag(year=2024, month=12, day=5, number=20, experiment='Undulator')
-    # test_tag = ScanTag(year=2024, month=12, day=5, number=11, experiment='Undulator')
-    #
-    #
-    # test_analyzer = analyzer_info
-    # import time
-    # t0 = time.monotonic()
-    # analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
-    # t1 = time.monotonic()
-
-    # from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, \
-    #     PhaseDownrampProcessor
-    #
-    #
-    # def get_path_to_bkg_file():
-    #     st = ScanTag(2025, 3, 6, 15, experiment='Undulator')
-    #     s_data = ScanData(tag=st)
-    #     path_to_file = s_data.get_folder() / 'U_HasoLift' / 'average_phase.tsv'
-    #
-    #     return path_to_file
-    #
-    #
-    # bkg_file_path = get_path_to_bkg_file()
-    # config: PhaseAnalysisConfig = PhaseAnalysisConfig(
-    #     pixel_scale=10.1,  # um per pixel (vertical)
-    #     wavelength_nm=800,  # Probe laser wavelength in nm
-    #     threshold_fraction=0.05,  # Threshold fraction for pre-processing
-    #     roi=(10, -10, 75, -250),  # Example ROI: (x_min, x_max, y_min, y_max)
-    #     background=bkg_file_path  # Background is now a Path
-    # )
-    #
-    # config_dict = asdict(config)
-    # analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
-    #                      requirements={'U_HasoLift'},
-    #                      device_name='U_HasoLift',
-    #                      image_analyzer_class=PhaseDownrampProcessor,
-    #                      file_tail="_postprocessed.tsv",
-    #                      image_analysis_config=config_dict)
-    #
-    # test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
-    # analyze_scan(test_tag, [analyzer_info])
-
     from scan_analysis.base import AnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan
     from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, \
@@ -981,9 +895,10 @@ if __name__ == "__main__":
     analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
             requirements={'U_HasoLift'},
             device_name='U_HasoLift',
-            image_analyzer_class=PhaseDownrampProcessor,
-            file_tail = "_postprocessed.tsv",
-            image_analysis_config = config_dict)
+            extra_kwargs={'image_analyzer':PhaseDownrampProcessor(**config_dict),
+                          'file_tail':"_postprocessed.tsv"}
+                         )
+
     import time
     t0 = time.monotonic()
     test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
