@@ -1,9 +1,13 @@
 # optimization/base_evaluator.py
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Union
 import logging
 import pandas as pd
+from pathlib import Path
+
+from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
 
 class BaseEvaluator(ABC):
     """
@@ -15,10 +19,15 @@ class BaseEvaluator(ABC):
         self,
         device_requirements: Optional[Dict[str, Any]] = None,
         required_keys: Optional[Dict[str, str]] = None,
+        scan_data_manager: Optional[ScanDataManager] = None
+
     ):
         self.device_requirements = device_requirements or {}
         self.required_keys = required_keys or {}
+        self.scan_data_manager = scan_data_manager
         self.log_entries: Optional[Dict[float, Dict[str, Any]]] = None
+
+        self.scan_tag = self.scan_data_manager.scan_data.get_tag()
 
         # Validate required keys if provided
         if self.required_keys:
@@ -26,6 +35,26 @@ class BaseEvaluator(ABC):
                 self.validate_variable_keys_against_requirements(self.required_keys)
             except ValueError as e:
                 logging.warning(f'Key validation failed: {e}')
+
+    def get_device_shot_path(self, device_name: str, shot_number: int, file_extension: str = '.png') -> Path:
+        """
+        Helper to get full path to a device shot file using the evaluator's scan_data_manager.
+
+        Args:
+            device_name (str): Device name whose file you want.
+            shot_number (int): Shot number for the file.
+            file_extension (str): File extension or suffix.
+
+        Returns:
+            Path: Full path to the image or data file.
+        """
+
+        return self.scan_data_manager.scan_data.get_device_shot_path(
+            device_name=device_name,
+            shot_number=shot_number,
+            tag=self.scan_tag,
+            file_extension=file_extension
+        )
 
     def validate_variable_keys_against_requirements(self, variable_map: dict[str, str]) -> None:
         """
