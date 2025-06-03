@@ -1,10 +1,9 @@
 import unittest
-from dataclasses import asdict
 
 from geecs_data_utils import ScanData, ScanTag
 from scan_analysis.execute_scan_analysis import analyze_scan
 from pathlib import Path
-from dataclasses import dataclass,asdict
+from dataclasses import asdict
 
 from scan_analysis.base import AnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis
@@ -39,7 +38,7 @@ class TestExecuteAnalysis(unittest.TestCase):
         analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
              requirements={'UC_ACaveMagCam3'},
              device_name='UC_ACaveMagCam3',
-             image_analyzer_class=ACaveMagCam3ImageAnalyzer)
+             extra_kwargs={'image_analyzer':ACaveMagCam3ImageAnalyzer()})
         test_tag = ScanTag(year=2025, month=3, day=6, number=39, experiment='Undulator')
         test_analyzer = analyzer_info
         analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
@@ -47,7 +46,6 @@ class TestExecuteAnalysis(unittest.TestCase):
     def test_HasoLift(self):
         from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
         from image_analysis.offline_analyzers.HASO_himg_has_processor import SlopesMask, HasoHimgHasConfig
-        from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
         mask = SlopesMask(top=75, bottom=246, left=10, right=670)
         analysis_config = HasoHimgHasConfig()
         analysis_config.mask = mask
@@ -61,9 +59,9 @@ class TestExecuteAnalysis(unittest.TestCase):
         analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
             requirements={'U_HasoLift'},
             device_name='U_HasoLift',
-            image_analyzer_class=HASOHimgHasProcessor,
-            file_tail = ".himg",
-            image_analysis_config= analysis_config_dict)
+            extra_kwargs={'image_analyzer':HASOHimgHasProcessor(**analysis_config_dict),
+                          'file_tail':".himg"}
+                             )
 
         test_tag = ScanTag(year=2025, month=2, day=19, number=2, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
@@ -91,9 +89,8 @@ class TestExecuteAnalysis(unittest.TestCase):
         analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
                 requirements={'U_HasoLift'},
                 device_name='U_HasoLift',
-                image_analyzer_class=PhaseDownrampProcessor,
-                file_tail = "_postprocessed.tsv",
-                image_analysis_config = config_dict)
+                extra_kwargs={'image_analyzer': PhaseDownrampProcessor(**config_dict),
+                            'file_tail': "_postprocessed.tsv"})
 
         test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
@@ -105,9 +102,7 @@ class TestExecuteAnalysis(unittest.TestCase):
         analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
                              requirements={'UC_VisaEBeam1'},
                              device_name='UC_VisaEBeam1',
-                             image_analyzer_class=VisaEBeam,
-                             file_tail = '.png',
-                             image_analysis_config = config_dict)
+                             extra_kwargs={'image_analyzer': VisaEBeam(**config_dict)})
 
         test_tag = ScanTag(year=2024, month=12, day=5, number=11, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
