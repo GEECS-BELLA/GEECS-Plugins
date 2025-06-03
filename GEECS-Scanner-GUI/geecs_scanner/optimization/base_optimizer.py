@@ -8,7 +8,7 @@ import yaml
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
 from geecs_scanner.data_acquisition.data_logger import DataLogger
-
+from geecs_scanner.optimization.generators.generator_factory import build_generator_from_config
 
 class BaseOptimizer:
     def __init__(
@@ -48,15 +48,14 @@ class BaseOptimizer:
         self._setup_xopt(xopt_config_overrides or {})
 
     def _setup_xopt(self, overrides: dict[str, Any]):
-        config = {
-            "generator": {"name": self.generator_name},
-            "vocs": self.vocs.model_dump()
-        }
-        config.update(overrides)
+        generator = build_generator_from_config(
+            config={"name": self.generator_name},
+            vocs=self.vocs
+        )
 
         self.xopt = Xopt(
             evaluator={"function": self.evaluate_function},
-            generator=config["generator"],
+            generator=generator,
             vocs=self.vocs
         )
 

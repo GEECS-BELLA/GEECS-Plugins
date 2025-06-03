@@ -29,7 +29,6 @@ class TestEvaluator(BaseEvaluator):
         )
 
         self.output_key = 'f'
-        self.log_entries: Optional[Dict[float, Dict[str, Any]]] = None
 
     def _get_value(self, input_data: Union[
             pd.DataFrame,
@@ -40,7 +39,6 @@ class TestEvaluator(BaseEvaluator):
         ) -> pd.DataFrame:
 
         logging.info(f'input data passed to evaluator method: {input_data}')
-
         objective = self.current_data_bin[self.required_keys['var1']]
 
         logging.info(f'objective value for bin {self.bin_number} is {objective}')
