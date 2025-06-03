@@ -22,7 +22,7 @@ from image_analysis.utils import read_imaq_png_image
 
 
 class HiResMagCamAnalysis(CameraImageAnalysis):
-    def __init__(self, scan_tag: ScanTag, device_name=None, skip_plt_show: bool = True, rerun_analysis: bool = False, image_analyzer=None):
+    def __init__(self, scan_tag: ScanTag, device_name=None, skip_plt_show: bool = True, rerun_analysis: bool = False):
 
 
         super().__init__(scan_tag=scan_tag, device_name='UC_HiResMagCam', skip_plt_show=skip_plt_show)

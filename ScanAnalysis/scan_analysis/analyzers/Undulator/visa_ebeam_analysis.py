@@ -21,7 +21,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
 
     def __init__(self, scan_tag: ScanTag,
                  device_name: Optional[str] = None, skip_plt_show: bool = True,
-                 flag_logging: bool = True, flag_save_images: bool = True, image_analyzer=None) -> None:
+                 flag_logging: bool = True, flag_save_images: bool = True) -> None:
         """
         Initialize the VisaEBeamAnalysis class.
 

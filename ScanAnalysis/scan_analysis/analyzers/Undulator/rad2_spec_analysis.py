@@ -29,7 +29,7 @@ from online_analysis.HTU.picoscope_ICT_analysis import Undulator_Exit_ICT
 class Rad2SpecAnalysis(CameraImageAnalysis):
     def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True,
                  visa_station: Optional[int] = None, debug_mode: bool = False, force_background_mode: bool = False,
-                 update_undulator_exit_ict: bool = True, image_analyzer=None):
+                 update_undulator_exit_ict: bool = True):
         super().__init__(scan_tag=scan_tag, device_name='UC_UndulatorRad2', skip_plt_show=skip_plt_show)
 
         # Ensure configuration file exists
