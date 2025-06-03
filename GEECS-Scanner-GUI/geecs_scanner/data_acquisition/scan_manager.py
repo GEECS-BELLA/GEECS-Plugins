@@ -504,7 +504,7 @@ class ScanManager:
 
     def pre_logging_setup(self):
         """
-        Precompute all scan steps (including composite and normal variables),
+        Precompute all scan steps (including composite and normal varibles),
         add scan devices to async_observables, and store the scan steps.
         Execute pre scan setup actions passed through
 
@@ -514,6 +514,9 @@ class ScanManager:
         logging.info("Turning off the trigger.")
         self.trigger_off()
 
+        # initialize a ScanData objet and create basic scan files
+        self.scan_data_manager.initialize_scan_data_and_output_files()
+
         # Generate the scan steps
         self.scan_steps = self._generate_scan_steps()
         logging.info(f'steps fro the scan are : {self.scan_steps}')
@@ -521,7 +524,7 @@ class ScanManager:
         time.sleep(2)
 
         if self.save_data:
-            self.scan_data_manager.create_and_set_data_paths(save_local=self.save_local)
+            self.scan_data_manager.configure_device_save_paths(save_local=self.save_local)
             self.data_logger.save_local = self.save_local
             # map information produced in ScanDataManager to the DataLogger to facilitate
             # moving of files etc.
