@@ -4,11 +4,8 @@ import logging
 from typing import TYPE_CHECKING, Dict, Any, Optional, Union, List
 import yaml
 import pandas as pd
-from calibrations.Undulator.calibration_scripts.magspec_charge_calibration.single_scan_charge_calibration_acavemagcam3 import \
-    shot_number
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
-from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
 
 class TestEvaluator(BaseEvaluator):
     def __init__(self, device_requirements=None, scan_data_manager=None):
