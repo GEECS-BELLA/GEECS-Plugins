@@ -7,6 +7,7 @@ import yaml
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
+from geecs_scanner.data_acquisition.data_logger import DataLogger
 
 
 class BaseOptimizer:
@@ -18,7 +19,8 @@ class BaseOptimizer:
             xopt_config_overrides: Optional[dict] = None,
             evaluator: Optional[BaseEvaluator] = None,
             device_requirements: Optional[Dict[str, Any]] = None,
-            scan_data_manager: Optional[ScanDataManager] = None
+            scan_data_manager: Optional[ScanDataManager] = None,
+            data_logger: Optional[DataLogger] = None
 
     ):
         """
@@ -32,6 +34,7 @@ class BaseOptimizer:
             evaluator: Optional reference to the evaluator object providing the evaluate_function.
             device_requirements: Optional dictionary defining required devices and variables for the optimization.
             scan_data_manager: Optional instance of ScanDataManager that can be use to access saved non scalar data
+            data_logger: Optinal instance of DataLogger to pass additional information about logged data
         """
         self.vocs = vocs
         self.evaluate_function = evaluate_function
@@ -40,6 +43,7 @@ class BaseOptimizer:
         self.device_requirements = device_requirements or {}
         self.xopt: Optional[Xopt] = None
         self.scan_data_manager = scan_data_manager
+        self.data_logger = data_logger
 
         self._setup_xopt(xopt_config_overrides or {})
 
@@ -94,7 +98,8 @@ class BaseOptimizer:
 
     @classmethod
     def from_config_file(cls, config_path: str,
-                         scan_data_manager: Optional["ScanDataManager"] = None) -> "BaseOptimizer":
+                         scan_data_manager: Optional["ScanDataManager"] = None,
+                         data_logger: Optional["DataLogger"] = None) -> "BaseOptimizer":
         """
         Load optimizer and evaluator from a YAML config file.
 
@@ -102,6 +107,7 @@ class BaseOptimizer:
             config_path (str): Path to the YAML config.
             scan_data_manager (ScanDataManager): the instance of ScanDataManager that can be used to access
                                                 data as it is acquired
+            data_logger (DataLogger): the instance of DataLogger that can be used to directly access things like Bin#
 
         Returns:
             BaseOptimizer: Initialized optimizer instance.
@@ -123,6 +129,8 @@ class BaseOptimizer:
         evaluator_init_kwargs['device_requirements'] = device_requirements
         if scan_data_manager:
             evaluator_init_kwargs['scan_data_manager'] = scan_data_manager
+        if data_logger:
+            evaluator_init_kwargs['data_logger'] = data_logger
 
         module = importlib.import_module(evaluator_module)
         evaluator_class = getattr(module, evaluator_class_name)
@@ -134,11 +142,11 @@ class BaseOptimizer:
 
         return cls(
             vocs=vocs,
-            evaluate_function=evaluator.get_value,
-            generator_name=generator_name,
-            xopt_config_overrides=xopt_config_overrides,
+            evaluate_function = evaluator.get_value,
+            generator_name = generator_name,
+            xopt_config_overrides = xopt_config_overrides,
             evaluator = evaluator,
             device_requirements = device_requirements,
-            scan_data_manager=scan_data_manager
-
+            scan_data_manager = scan_data_manager,
+            data_logger = data_logger
         )

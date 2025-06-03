@@ -700,7 +700,8 @@ class ScanManager:
 
         self.optimizer = BaseOptimizer.from_config_file(
             config_path=self.scan_config.optimizer_config_path,
-            scan_data_manager = self.scan_data_manager
+            scan_data_manager = self.scan_data_manager,
+            data_logger = self.data_logger
         )
 
         self.device_manager.load_from_dictionary(self.optimizer.device_requirements)
