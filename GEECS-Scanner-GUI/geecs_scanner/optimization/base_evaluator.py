@@ -28,7 +28,7 @@ class BaseEvaluator(ABC):
         self.required_keys = required_keys or {}
         self.scan_data_manager = scan_data_manager
         self.data_logger = data_logger
-        self.bin_number = data_logger.bin_num
+        self.bin_number: int = 0
         self.log_entries: Optional[Dict[float, Dict[str, Any]]] = None
         self.log_df: Optional[pd.DataFrame] = None  # initialize a dataframe version of the log_entries
         self.current_data_bin: Optional[pd.DataFrame] = None
@@ -71,19 +71,21 @@ class BaseEvaluator(ABC):
         to a dataframe from the beginning in data_logger
 
         """
+        self.log_entries = self.data_logger.log_entries
         self.log_df = pd.DataFrame.from_dict(self.log_entries, orient='index')
         self.log_df = self.log_df.sort_values(by='Elapsed Time').reset_index(drop=True)
         self.log_df['Shotnumber'] = self.log_df.index + 1
 
-    def get_shotnumbers_for_bin(self, bin_number: int) -> List:
+    def get_shotnumbers_for_bin(self, bin_number: int) -> None:
         self.current_shot_numbers = self.log_df[self.log_df["Bin #"] == bin_number]["Shotnumber"].values
 
-    def get_current_data(self) -> List:
+    def get_current_data(self)->None:
         """
          simple method to update the current_data_bin dataframe to isolate just the data from
          the current data. Also, extract the corresponding shot_numbers and return those
          """
         self.convert_log_entries_to_df()
+        self.bin_number = self.data_logger.bin_num
         self.get_shotnumbers_for_bin(self.bin_number)
         self.current_data_bin = self.log_df[self.log_df["Bin #"] == self.bin_number]
 
