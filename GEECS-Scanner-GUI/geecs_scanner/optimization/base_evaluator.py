@@ -8,6 +8,7 @@ import pandas as pd
 from pathlib import Path
 
 from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
+from geecs_scanner.data_acquisition.data_logger import DataLogger
 
 class BaseEvaluator(ABC):
     """
@@ -19,13 +20,19 @@ class BaseEvaluator(ABC):
         self,
         device_requirements: Optional[Dict[str, Any]] = None,
         required_keys: Optional[Dict[str, str]] = None,
-        scan_data_manager: Optional[ScanDataManager] = None
+        scan_data_manager: Optional[ScanDataManager] = None,
+        data_logger: Optional[DataLogger] = None
 
     ):
         self.device_requirements = device_requirements or {}
         self.required_keys = required_keys or {}
         self.scan_data_manager = scan_data_manager
+        self.data_logger = data_logger
+        self.bin_number = data_logger.bin_num
         self.log_entries: Optional[Dict[float, Dict[str, Any]]] = None
+        self.log_df: Optional[pd.DataFrame] = None  # initialize a dataframe version of the log_entries
+        self.current_data_bin: Optional[pd.DataFrame] = None
+        self.current_shot_numbers: Optional[List] = None
 
         self.scan_tag = self.scan_data_manager.scan_data.get_tag()
 
@@ -55,6 +62,30 @@ class BaseEvaluator(ABC):
             tag=self.scan_tag,
             file_extension=file_extension
         )
+
+    def convert_log_entries_to_df(self):
+        """
+        Helper to get convert the log_entries dict into df for easier manipulation
+        Note: a similar conversion happens to log_entries at teh end of a scan. this
+        is a bit of a redundant step. log_entries should probably eventually be converted
+        to a dataframe from the beginning in data_logger
+
+        """
+        self.log_df = pd.DataFrame.from_dict(self.log_entries, orient='index')
+        self.log_df = self.log_df.sort_values(by='Elapsed Time').reset_index(drop=True)
+        self.log_df['Shotnumber'] = self.log_df.index + 1
+
+    def get_shotnumbers_for_bin(self, bin_number: int) -> List:
+        self.current_shot_numbers = self.log_df[self.log_df["Bin #"] == bin_number]["Shotnumber"].values
+
+    def get_current_data(self) -> List:
+        """
+         simple method to update the current_data_bin dataframe to isolate just the data from
+         the current data. Also, extract the corresponding shot_numbers and return those
+         """
+        self.convert_log_entries_to_df()
+        self.get_shotnumbers_for_bin(self.bin_number)
+        self.current_data_bin = self.log_df[self.log_df["Bin #"] == self.bin_number]
 
     def validate_variable_keys_against_requirements(self, variable_map: dict[str, str]) -> None:
         """
@@ -88,7 +119,6 @@ class BaseEvaluator(ABC):
     ) -> List[Dict[str, Any]]:
         return [entry for entry in log_entries.values() if entry.get('Bin #') == bin_num]
 
-    @abstractmethod
     def get_value(self, input_data: Union[
             pd.DataFrame,
             List[Dict[str, float]],
@@ -100,11 +130,45 @@ class BaseEvaluator(ABC):
         """
         Evaluate the objective function.
 
+        This method first retrieves the most recent data from the DataLogger
+        and then delegates the actual evaluation logic to the subclass-defined
+        `_get_value()` method.
+
         Args:
-            input_data: data representing the set values for the control variables
+            input_data: A specification of control variable settings. Can be one of:
+                - A pandas DataFrame of input rows,
+                - A list of dictionaries mapping variable names to values,
+                - A dictionary of variable names to lists of values,
+                - A dictionary of variable names to single float values.
 
         Returns:
-            Dict of measured objectives and constraints.
+            pd.DataFrame: A DataFrame containing evaluated objective(s) and constraint(s).
+        """
+
+        self.get_current_data()
+        return self._get_value(input_data = input_data)
+
+    @abstractmethod
+    def _get_value(self, input_data: Union[
+            pd.DataFrame,
+            List[Dict[str, float]],
+            Dict[str, List[float]],
+            Dict[str, float],
+        ],
+        ) -> pd.DataFrame:
+
+        """
+        Abstract method for computing objectives and constraints.
+
+        This method must be implemented by subclasses and contains the core logic
+        for evaluating the objective function, assuming current data has already
+        been updated via `get_current_data()`.
+
+        Args:
+            input_data: A specification of control variable settings. Format same as in `get_value`.
+
+        Returns:
+            pd.DataFrame: A DataFrame with objective and/or constraint results.
         """
 
         pass
@@ -116,5 +180,16 @@ class BaseEvaluator(ABC):
             Dict[str, float],
         ],
         ) -> pd.DataFrame:
+        """
+        Makes the evaluator instance callable.
+
+        This is equivalent to calling `get_value(input_data)`.
+
+        Args:
+            input_data: Control variable settings in one of the accepted formats.
+
+        Returns:
+            pd.DataFrame: Evaluation results.
+        """
 
         return self.get_value(input_data)
