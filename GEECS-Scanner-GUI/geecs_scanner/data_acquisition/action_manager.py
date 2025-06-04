@@ -3,7 +3,7 @@ import logging
 import yaml
 import sys
 
-from PyQt5.QtWidgets import QMessageBox, QApplication
+# from PyQt5.QtWidgets import QMessageBox, QApplication
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from .utils import get_full_config_path  # Import the utility function
@@ -216,6 +216,9 @@ class ActionManager:
         :param message: str Message that displays in text box
         :return: bool True if an error should be raised, false otherwise
         """
+
+        from PyQt5.QtWidgets import QMessageBox, QApplication
+
         if not QApplication.instance():
             QApplication(sys.argv)
 
