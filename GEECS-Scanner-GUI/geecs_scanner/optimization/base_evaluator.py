@@ -85,7 +85,10 @@ class BaseEvaluator(ABC):
          the current data. Also, extract the corresponding shot_numbers and return those
          """
         self.convert_log_entries_to_df()
-        self.bin_number = self.data_logger.bin_num
+        self.bin_number = self.data_logger.bin_num - 1  # note: subtracting one is only because the data-logger.bin_num
+                                                        # gets updated before this method gets called on for the previously
+                                                        # data bin. Order of operations for the optimization is still
+                                                        # getting fine tuned
         self.get_shotnumbers_for_bin(self.bin_number)
         self.current_data_bin = self.log_df[self.log_df["Bin #"] == self.bin_number]
 
@@ -100,16 +103,12 @@ class BaseEvaluator(ABC):
 
         Args:
             shot_numbers (list[int]): List of shot numbers to process.
-            scalar_variables (dict[str, str]): Mapping from short variable names to data keys in current_data_bin.
-            non_scalar_variables (list[str]): Device names to associate with image paths.
+            scalar_variables (dict[str, str]): Mapping from short names to column names in current_data_bin.
+            non_scalar_variables (list[str]): Devices to associate with image paths.
 
         Returns:
-            List[dict]: Each dict has the form:
-                {
-                    'shot_number': int,
-                    'scalars': {short_var_name: value, ...},
-                    'image_paths': {device_name: Path, ...}
-                }
+            List[dict]: Each dict has keys:
+                'shot_number', 'scalars', 'image_paths'
         """
         entries = []
 
@@ -120,15 +119,20 @@ class BaseEvaluator(ABC):
                 'image_paths': {}
             }
 
-            # Scalars
-            for short_name, full_key in scalar_variables.items():
-                value = self.current_data_bin.get(full_key, {}).get(shot)
-                if value is not None:
-                    entry['scalars'][short_name] = value
-                else:
-                    logging.warning(f"No scalar for key '{full_key}' (alias '{short_name}') on shot {shot}")
+            # Extract scalars based on exact match of 'Shotnumber'
+            shot_row = self.current_data_bin[self.current_data_bin['Shotnumber'] == shot]
+            if shot_row.empty:
+                logging.warning(f"No row found for shot number {shot}")
+            else:
+                for short_name, full_key in scalar_variables.items():
+                    if full_key in shot_row.columns:
+                        value = shot_row[full_key].values[0]
+                        entry['scalars'][short_name] = value
+                        logging.info(f"Scalar for '{short_name}' from '{full_key}' on shot {shot}: {value}")
+                    else:
+                        logging.warning(f"Key '{full_key}' not found in current_data_bin columns")
 
-            # Image paths only
+            # Image paths
             for device in non_scalar_variables:
                 path = self.get_device_shot_path(device_name=device, shot_number=shot, file_extension=".png")
                 entry['image_paths'][device] = path
