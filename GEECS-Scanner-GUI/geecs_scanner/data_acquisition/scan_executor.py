@@ -91,8 +91,6 @@ class ScanStepExecutor:
             index (int): Index of the current step. The next step at index + 1 will be updated.
         """
         if index + 1 < len(self.scan_steps):
-            logging.info(f'waiting to update for 2 seconds')
-            time.sleep(2)
             self.compute_next_step(index+1)
 
     def prepare_for_step(self) -> None:
