@@ -81,8 +81,6 @@ class ScanStepExecutor:
         logging.info(f'waiting for acquisition: {step}')
         self.wait_for_acquisition(step['wait_time'])
         self.update_next_step(index)
-        logging.info(f'finalizing step: {step}')
-        self.finalize_step()
 
     def update_next_step(self, index: int) -> None:
         """
@@ -93,7 +91,8 @@ class ScanStepExecutor:
             index (int): Index of the current step. The next step at index + 1 will be updated.
         """
         if index + 1 < len(self.scan_steps):
-            time.sleep(1)
+            logging.info(f'waiting to update for 2 seconds')
+            time.sleep(2)
             self.compute_next_step(index+1)
 
     def prepare_for_step(self) -> None:
@@ -148,8 +147,6 @@ class ScanStepExecutor:
                 else:
                     logging.warning(f"Device {device_name} not found in device manager.")
 
-        self.trigger_on()
-
     def wait_for_acquisition(self, wait_time: float) -> None:
         """
         Wait for the duration of acquisition time during a scan step.
@@ -159,6 +156,8 @@ class ScanStepExecutor:
         Args:
             wait_time (float): Total time to wait during acquisition in seconds.
         """
+
+        self.trigger_on()
 
         self.scan_step_start_time = time.time()
         self.data_logger.data_recording = True
@@ -203,6 +202,11 @@ class ScanStepExecutor:
             if hiatus and self.data_logger.shot_save_event.is_set():
                 self.save_hiatus(hiatus)
                 self.data_logger.shot_save_event.clear()
+
+        self.trigger_off()
+
+        self.scan_step_end_time = time.time()
+        self.data_logger.data_recording = False
 
     def compute_next_step(self, next_index: int) -> None:
         """
@@ -249,11 +253,6 @@ class ScanStepExecutor:
             'variables': next_variables
         })
         logging.info(f"Next step after update: {self.scan_steps[next_index]}")
-
-    def finalize_step(self) -> None:
-        self.trigger_off()
-        self.scan_step_end_time = time.time()
-        self.data_logger.data_recording = False
 
     def trigger_on(self) -> None:
         if hasattr(self, 'trigger_on_fn'):
