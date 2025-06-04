@@ -208,6 +208,7 @@ class HTTC14(HTTC14Functions):
         self.post_processed_image_save_dirr.parent.mkdir(exist_ok=True,parents=True)
         plt.savefig(self.post_processed_image_save_dirr)
         plt.close("all")
+        return_dictionary = self.build_return_dictionary(return_scalars=self.analysis_dict)
         
         # do some analysis on an image, save the results in a dict
         # some_dict = {'Max value of image':np.max(self.analyzed_image)}
@@ -216,7 +217,19 @@ class HTTC14(HTTC14Functions):
         
         # print("Image file path: ",self.image_filepath.name)        
         # print(self.image_filepath.parts[-1])
-        # return return_dictionary
+        
+        
+        print("printing orginal analysis dictionary")
+        print("------------------------------------")
+        print(self.analysis_dict)
+        print("------------------------------------")
+        print("------------------------------------")
+        print("printing return dictionary")
+        print("--------------------------")
+        print(return_dictionary)
+        print("--------------------------")
+        print("--------------------------")
+        return return_dictionary
 
 if __name__ == "__main__":
     image_analyzer = HTTC14()

@@ -1,0 +1,17 @@
+device: HTT-DG645_3_SHOT
+variables:
+  Amplitude.Ch CD:
+    'OFF': '0.5'
+    SCAN: '4.0'
+    SINGLESHOT: ''
+    STANDBY: '4.0'
+  Amplitude.Ch EF:
+    'OFF': '0.5'
+    SCAN: '4.0'
+    SINGLESHOT: ''
+    STANDBY: '4.0'
+  Amplitude.Ch T0:
+    'OFF': '0.5'
+    SCAN: '4.0'
+    SINGLESHOT: ''
+    STANDBY: '0.5'
