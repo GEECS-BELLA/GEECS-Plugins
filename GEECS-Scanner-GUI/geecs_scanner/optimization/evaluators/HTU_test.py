@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, Any, Optional, Union, List
-import yaml
-import pandas as pd
+from typing import TYPE_CHECKING, Dict, Optional
+import numpy as np
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
@@ -21,6 +20,7 @@ class TestEvaluator(BaseEvaluator):
             'var2': 'UC_TC_Phosphor:MeanCounts',
             'var3': 'UC_ALineEBeam3:acq_timestamp',
         }
+
         super().__init__(
             device_requirements = device_requirements,
             required_keys = required_keys,
@@ -30,26 +30,64 @@ class TestEvaluator(BaseEvaluator):
 
         self.output_key = 'f'
 
-    def _get_value(self, input_data: Union[
-            pd.DataFrame,
-            List[Dict[str, float]],
-            Dict[str, List[float]],
-            Dict[str, float],
-        ],
-        ) -> pd.DataFrame:
+    @staticmethod
+    def evaluate_objective_fn_per_shot(shot_entry: dict) -> float:
+        """
+        Compute a scalar result for a single shot by summing all scalar values.
+        Images are loaded to verify their availability but not used in the computation.
 
-        logging.info(f'input data passed to evaluator method: {input_data}')
-        objective = self.current_data_bin[self.required_keys['var1']]
+        Args:
+            shot_entry (dict): A dictionary with keys:
+                - 'shot_number' (int)
+                - 'scalars' (dict[str, float])
+                - 'image_paths' (dict[str, Path])
 
-        logging.info(f'objective value for bin {self.bin_number} is {objective}')
-        logging.info(f'shot numbers for bin {self.bin_number} are {self.current_shot_numbers}')
+        Returns:
+            float: The sum of scalar values for the shot,
+                   or NaN if an error occurs.
+        """
+        try:
+            # Load all images (just to verify that they are accessible)
+            images = {}
+            for device, path in shot_entry.get('image_paths', {}).items():
+                try:
+                    images[device] = read_imaq_image(path)
+                except Exception as e:
+                    logging.warning(f"Failed to load image for {device}, shot {shot_entry['shot_number']}: {e}")
 
-        for i in self.current_shot_numbers:
-            file_path = self.get_device_shot_path(device_name = "UC_ALineEBeam3", shot_number = i, file_extension = '.png')
-            try:
-                read_imaq_image(file_path)
-                logging.info(f'loaded image: {file_path}')
-            except:
-                logging.warning(f'no image found for {file_path}')
+            shot_entry['images'] = images  # Store for downstream logic if needed
 
-        return {self.output_key: objective}
+            # Sum all scalar values
+            scalar_sum = sum(shot_entry.get('scalars', {}).values())
+            return scalar_sum
+
+        except Exception as e:
+            logging.error(f"Error evaluating objective for shot {shot_entry.get('shot_number')}: {e}")
+            return float("nan")
+
+    def evaluate_all_shots(self, shot_entries: list[dict]) -> list[float]:
+        """
+        Evaluate the objective function for a list of shots.
+
+        Args:
+            shot_entries (list[dict]): List of shot_entry dicts as produced by _gather_shot_entries.
+
+        Returns:
+            list[float]: List of scalar objective values, one per shot.
+        """
+        results = []
+        for shot_entry in shot_entries:
+            result = self.evaluate_objective_fn_per_shot(shot_entry)
+            results.append(result)
+
+        return results
+
+    def _get_value(self, input_data: Dict) -> Dict:
+
+        shot_entries = self._gather_shot_entries(   shot_numbers=self.current_shot_numbers,
+                                                    scalar_variables=self.required_keys,
+                                                    non_scalar_variables=['UC_ALineEBeam3'])
+
+        results = self.evaluate_all_shots(shot_entries)
+
+        return {self.output_key: np.mean(results)}
