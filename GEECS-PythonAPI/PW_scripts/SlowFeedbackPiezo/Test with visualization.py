@@ -194,9 +194,12 @@ async def main():
     motor = GeecsDevice('KHz_Splitter_Piezo')
     piezo = TLMDT69_Controller(motor)
 
+
+
     # Define target values and update shared data
-    targetx = 170  # Replace with your actual target value
-    targety = 245  # Replace with your actual target value
+    targetx = 252.0  # Replace with your actual target value
+    targety = 243.0  # Replace with your actual target value
+    calib_factor = 68/150 #This is the number of pixels moved/voltage
 
     with shared_data.lock:
         shared_data.target = [targetx, targety]
@@ -215,13 +218,13 @@ async def main():
 
             print(f"Current Mean: {mean}")
 
-            if abs(mean[0] - targetx) > 3:
-                movex = piezo.get_current_voltage(axis="x") - (mean[0] - targetx)*(20/150)
+            if abs(mean[0] - targetx) > 2:
+                movex = piezo.get_current_voltage(axis="x") - (mean[0] - targetx)*calib_factor
                 piezo.move_axis(movex, axis="x")
                 print("Moving the x axis of mirror to a certain position")
 
-            if abs(mean[1] - targety) > 3:
-                movey = piezo.get_current_voltage(axis="y") - (mean[0] - targetx) * (20 / 150)
+            if abs(mean[1] - targety) > 2:
+                movey = piezo.get_current_voltage(axis="y") - (mean[0] - targetx) * calib_factor
                 piezo.move_axis(movey, axis="y")
                 print("Moving the y axis of mirror to a certain position")
 
