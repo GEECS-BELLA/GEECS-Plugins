@@ -89,6 +89,54 @@ class BaseEvaluator(ABC):
         self.get_shotnumbers_for_bin(self.bin_number)
         self.current_data_bin = self.log_df[self.log_df["Bin #"] == self.bin_number]
 
+    def _gather_shot_entries(
+            self,
+            shot_numbers: list[int],
+            scalar_variables: dict[str, str],
+            non_scalar_variables: list[str]
+    ) -> list[dict]:
+        """
+        Parse each shot into a dictionary of scalars and image file paths.
+
+        Args:
+            shot_numbers (list[int]): List of shot numbers to process.
+            scalar_variables (dict[str, str]): Mapping from short variable names to data keys in current_data_bin.
+            non_scalar_variables (list[str]): Device names to associate with image paths.
+
+        Returns:
+            List[dict]: Each dict has the form:
+                {
+                    'shot_number': int,
+                    'scalars': {short_var_name: value, ...},
+                    'image_paths': {device_name: Path, ...}
+                }
+        """
+        entries = []
+
+        for shot in shot_numbers:
+            entry = {
+                'shot_number': shot,
+                'scalars': {},
+                'image_paths': {}
+            }
+
+            # Scalars
+            for short_name, full_key in scalar_variables.items():
+                value = self.current_data_bin.get(full_key, {}).get(shot)
+                if value is not None:
+                    entry['scalars'][short_name] = value
+                else:
+                    logging.warning(f"No scalar for key '{full_key}' (alias '{short_name}') on shot {shot}")
+
+            # Image paths only
+            for device in non_scalar_variables:
+                path = self.get_device_shot_path(device_name=device, shot_number=shot, file_extension=".png")
+                entry['image_paths'][device] = path
+
+            entries.append(entry)
+
+        return entries
+
     def validate_variable_keys_against_requirements(self, variable_map: dict[str, str]) -> None:
         """
         Validates that each 'device:variable' in the map exists in device_requirements.
@@ -121,13 +169,7 @@ class BaseEvaluator(ABC):
     ) -> List[Dict[str, Any]]:
         return [entry for entry in log_entries.values() if entry.get('Bin #') == bin_num]
 
-    def get_value(self, input_data: Union[
-            pd.DataFrame,
-            List[Dict[str, float]],
-            Dict[str, List[float]],
-            Dict[str, float],
-        ],
-        ) -> pd.DataFrame:
+    def get_value(self, input_data: Dict) -> Dict:
 
         """
         Evaluate the objective function.
@@ -151,14 +193,7 @@ class BaseEvaluator(ABC):
         return self._get_value(input_data = input_data)
 
     @abstractmethod
-    def _get_value(self, input_data: Union[
-            pd.DataFrame,
-            List[Dict[str, float]],
-            Dict[str, List[float]],
-            Dict[str, float],
-        ],
-        ) -> pd.DataFrame:
-
+    def _get_value(self, input_data: Dict) -> Dict:
         """
         Abstract method for computing objectives and constraints.
 
@@ -167,31 +202,25 @@ class BaseEvaluator(ABC):
         been updated via `get_current_data()`.
 
         Args:
-            input_data: A specification of control variable settings. Format same as in `get_value`.
+            input_data (Dict): A specification of control variable settings. Format same as in `get_value`.
 
         Returns:
-            pd.DataFrame: A DataFrame with objective and/or constraint results.
+            Dict: containing results of objective function calculation.
         """
 
         pass
 
-    def __call__(self, input_data: Union[
-            pd.DataFrame,
-            List[Dict[str, float]],
-            Dict[str, List[float]],
-            Dict[str, float],
-        ],
-        ) -> pd.DataFrame:
+    def __call__(self, input_data: Dict) -> Dict:
         """
         Makes the evaluator instance callable.
 
         This is equivalent to calling `get_value(input_data)`.
 
         Args:
-            input_data: Control variable settings in one of the accepted formats.
+            input_data (Dict): A specification of control variable settings. Format same as in `get_value`.
 
         Returns:
-            pd.DataFrame: Evaluation results.
+            Dict: containing results of objective function calculation.
         """
 
         return self.get_value(input_data)
