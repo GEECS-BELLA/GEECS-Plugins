@@ -33,6 +33,7 @@ class BaseEvaluator(ABC):
         self.log_df: Optional[pd.DataFrame] = None  # initialize a dataframe version of the log_entries
         self.current_data_bin: Optional[pd.DataFrame] = None
         self.current_shot_numbers: Optional[List] = None
+        self.objective_tag: str = 'default'
 
         self.scan_tag = self.scan_data_manager.scan_data.get_tag()
 
@@ -195,6 +196,29 @@ class BaseEvaluator(ABC):
 
         self.get_current_data()
         return self._get_value(input_data = input_data)
+
+    def log_objective_result(self, shot_num: int, scalar_value: float):
+        """
+        Add the computed scalar value to the log_entries under the appropriate elapsed time.
+
+        Args:
+            shot_num (int): The shot number being processed.
+            scalar_value (float): The scalar result to log.
+        """
+        try:
+            elapsed_time = self.current_data_bin.loc[
+                self.current_data_bin['Shotnumber'] == shot_num, 'Elapsed Time'
+            ].values[0]
+        except Exception as e:
+            logging.warning(f"Could not extract Elapsed Time for shot {shot_num}: {e}")
+            return
+
+        if elapsed_time:
+            key = f"Objective:{self.objective_tag}"
+            self.data_logger.log_entries[elapsed_time][key] = scalar_value
+            logging.info(f"Logged {key} = {scalar_value} for shot {shot_num}")
+        else:
+            logging.warning(f"Cannot log result: no valid data_logger or elapsed_time={elapsed_time}")
 
     @abstractmethod
     def _get_value(self, input_data: Dict) -> Dict:

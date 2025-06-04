@@ -29,9 +29,9 @@ class TestEvaluator(BaseEvaluator):
         )
 
         self.output_key = 'f'
+        self.objective_tag: str = 'TestVal'
 
-    @staticmethod
-    def evaluate_objective_fn_per_shot(shot_entry: dict) -> float:
+    def evaluate_objective_fn_per_shot(self, shot_entry: dict) -> float:
         """
         Compute a scalar result for a single shot by summing all scalar values.
         Images are loaded to verify their availability but not used in the computation.
@@ -59,6 +59,7 @@ class TestEvaluator(BaseEvaluator):
 
             # Sum all scalar values
             scalar_sum = sum(shot_entry.get('scalars', {}).values())
+            self.log_objective_result(shot_num=shot_entry['shot_number'],scalar_value=scalar_sum)
             return scalar_sum
 
         except Exception as e:
