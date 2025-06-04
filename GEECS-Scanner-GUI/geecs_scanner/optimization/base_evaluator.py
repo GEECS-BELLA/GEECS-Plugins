@@ -86,7 +86,7 @@ class BaseEvaluator(ABC):
          the current data. Also, extract the corresponding shot_numbers and return those
          """
         self.convert_log_entries_to_df()
-        self.bin_number = self.data_logger.bin_num - 1  # note: subtracting one is only because the data-logger.bin_num
+        self.bin_number = self.data_logger.bin_num  # note: subtracting one is only because the data-logger.bin_num
                                                         # gets updated before this method gets called on for the previously
                                                         # data bin. Order of operations for the optimization is still
                                                         # getting fine tuned
