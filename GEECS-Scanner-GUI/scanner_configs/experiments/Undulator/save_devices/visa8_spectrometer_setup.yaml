@@ -1,0 +1,41 @@
+Devices:
+  UC_UndulatorRad2:
+    save_nonscalar_data: true
+    scan_setup:
+      Analysis:
+      - 'on'
+      - 'off'
+    synchronous: true
+    variable_list:
+    - MeanCounts
+  UC_VisaEBeam8:
+    post_analysis_class: CameraImageAnalysis
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list: []
+  U_BCaveICT:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - Python Results.ChA
+    - Python Results.ChB
+setup_action:
+  steps:
+  - action: execute
+    action_name: remove_visa_plungers
+  - action: set
+    device: U_VisaPlungers
+    value: 'on'
+    variable: DigitalOutput.Channel 0
+  - action: set
+    device: U_Velmex
+    value: 445
+    variable: Position
+  - action: set
+    device: U_UndulatorSpecStage
+    value: 19.5
+    variable: Position.Ch1
+  - action: set
+    device: U_UndulatorSpecStage
+    value: 23.4
+    variable: Position.Ch2

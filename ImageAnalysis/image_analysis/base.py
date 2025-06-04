@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import configparser
 import numpy as np
-from typing import TYPE_CHECKING, Optional, Union, Type, Any
+from numpy.typing import NDArray
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional, Union, Any
 if TYPE_CHECKING:
     from .types import Array2D
+
+from image_analysis.utils import read_imaq_image
+from image_analysis.tools.background import Background
 
 
 class ImageAnalyzer:
@@ -20,7 +25,7 @@ class ImageAnalyzer:
     # asynchronously, for example if it waits for an external process
     run_analyze_image_asynchronously = False
 
-    def __init__(self):
+    def __init__(self, config: Optional[Any] = None, background_obj: Optional[Background]=None):
         """ Initializes this ImageAnalyzer, with Analyzer parameters as kwargs
 
             As the same ImageAnalyzer instance can be applied to many images,
@@ -54,8 +59,19 @@ class ImageAnalyzer:
 
                 super().__init__()
 
-        """
-        pass
+            Parameters
+            ----------
+            config : Optional[Any]
+                Optional configuration object (e.g., dict, Path, custom class) that can be
+                used by subclasses to initialize additional parameters.
+            background_obj : Optional[Background]
+                An optional Background instance. If not provided, a new one will be created.
+            """
+
+        # Default implementation does nothing with config.
+        # Subclasses can process config as needed.
+        self.config = config
+        self.background_obj = background_obj or Background()
 
     def analyze_image(self,
                       image: Array2D,
@@ -82,6 +98,161 @@ class ImageAnalyzer:
 
         """
         raise NotImplementedError()
+
+    def analyze_image_file(self,
+                           image_filepath: Path,
+                           auxiliary_data: Optional[dict] = None
+                           ) -> dict[str, Union[float, int, str, np.ndarray]]:
+        """
+        Method to enable the use of a file path rather than Array2D.
+
+         Parameters
+         ----------
+         image_filepath : Path
+         auxiliary_data : dict
+            Additional data used by the image analyzer for this image, such as
+            image range.
+
+        Returns
+        -------
+        analysis : dict[str, Union[float, np.ndarray]]
+            metric name as key. value can be a float, int, str, 1d array, 2d array, etc.
+
+        """
+
+        image = self.load_image(image_filepath)
+
+        return self.analyze_image(image, auxiliary_data)
+
+    def load_image(self, file_path: Path) -> Array2D:
+        """
+        load an image from a path. By default, the read_imaq_png function is used.
+        For file types not directly supported by this method, e.g. .himg files from a
+        Haso device type, this method be implemented in that device's ImageAnalyzer
+        subclass.
+
+         Parameters
+         ----------
+         file_path : Path
+
+         Returns
+         -------
+         image : Array2D
+        """
+
+        image = read_imaq_image(file_path)
+
+        return image
+
+    def analyze_image_batch(self, images: list[Array2D]) -> list[Array2D]:
+
+        """
+        Perform optional batch-level analysis on a list of images
+        By default, this does nothing and returns the passed image list.
+
+        As an example. this method can be
+             used to dynamically find the background and subtract it from the images.
+             Any additional information that is intended to be used in the
+             subsequent individual analyze_image method should be added as
+             attributes of the instance and accessed that way
+
+        Args:
+            images (list of Array2D): All images loaded for the scan.
+
+        Returns:
+            images (list of Array2D):
+        """
+
+        return images
+
+
+
+    def build_return_dictionary(self, return_image: Optional[NDArray] = None,
+                                return_scalars: Optional[dict[str, Union[int, float]]] = None,
+                                return_lineouts: Optional[Union[NDArray, list[NDArray]]] = None,
+                                input_parameters: Optional[dict[str, Any]] = None
+                                ) -> dict[str, Union[NDArray, dict, None]]:
+        """ Builds a return dictionary compatible with labview_adapters.py
+
+            Parameters
+            ----------
+            return_image : NDArray
+                Image to be returned to labview.  Will be converted to UInt16
+            return_scalars : dict
+                Dictionary of scalars from python analysis.  To be passed back to labview correctly, the keys for each
+                entry need to match those given in labview_adapters.json for this analyzer class
+            return_lineouts : list(np.ndarray)
+                Lineouts to be returned to labview.  Need to be given as a list of 1d arrays (numpy or otherwise)
+                If not given, will return a 1x1 array of zeros.  If in an incorrect format, will return a 1x1 array of
+                zeros and print a reminder message.  If the arrays in the list are of unequal length, all arrays get
+                padded with zeros to the size of the largest array.  Also, will be returned as a 'float64'
+            input_parameters : dict
+                Dictionary of the input parameters given to the analyzer.  If none is given, will call the class's
+                self.build_input_parameter_dictionary() function to generate one from the class variables.  This is not
+                returned to Labview, so it can contain anything one might find useful in post-analysis
+
+            Returns
+            -------
+            return_dictionary : dict
+                Dictionary with the correctly formatted returns that labview adapters is expecting.
+                "analyzer_input_parameters": input_parameters
+                "analyzer_return_dictionary": return_scalars
+                "processed_image": return_image (with identical type as input argument)
+                "analyzer_return_lineouts": return_lineouts
+            """
+
+
+        if return_scalars is None:
+            return_scalars = dict()
+        elif not isinstance(return_scalars, dict):
+            print("return_scalars must be passed as a dict!")
+            return_scalars = dict()
+
+        if isinstance(return_lineouts, np.ndarray) and return_lineouts.ndim == 2:
+            return_lineouts = return_lineouts.astype(np.float64)
+        else:
+            if return_lineouts is not None:
+                if not isinstance(return_lineouts, list):
+                    print("return_lineouts must be passed as a list of 1d arrays!")
+                    return_lineouts = None
+                else:
+                    for lineout in return_lineouts:
+                        shape = np.shape(lineout)
+                        if len(shape) != 1 or shape[0] < 2:
+                            print("return_lineouts must be passed as a list of 1d arrays!")
+                            return_lineouts = None
+                            break
+            if return_lineouts is None:
+                return_lineouts = np.zeros((1, 1), dtype=np.float64)
+            else:
+                max_length = max(map(len, return_lineouts))
+                return_lineouts = [np.pad(lineout, (0, max_length - len(lineout)), mode='constant')
+                                   for lineout in return_lineouts]
+                return_lineouts = np.vstack(return_lineouts).astype(np.float64)
+
+        if input_parameters is None:
+            input_parameters = self.build_input_parameter_dictionary()
+
+        return_dictionary = {
+            "analyzer_input_parameters": input_parameters,
+            "analyzer_return_dictionary": return_scalars,
+            "processed_image": return_image,
+            "analyzer_return_lineouts": return_lineouts,
+        }
+        return return_dictionary
+
+    def build_input_parameter_dictionary(self) -> dict:
+        """Compiles list of class variables into a dictionary
+
+        Can be overwritten by implementing classes if you prefer more control over the return dictionary.
+        For example, adding units into the key names.
+
+        Returns
+        -------
+        dict
+            A compiled dictionary containing all class variables
+        """
+        return self.__dict__
 
 
 class LabviewImageAnalyzer(ImageAnalyzer):
@@ -120,77 +291,6 @@ class LabviewImageAnalyzer(ImageAnalyzer):
         config = dict(parser["settings"])
         self.configure(**config)
         return self
-
-    def build_return_dictionary(self, return_image, return_scalars=None, return_lineouts=None, input_parameters=None):
-        """ Builds a return dictionary compatible with labview_adapters.py
-
-            Parameters
-            ----------
-            return_image : 2d array
-                Image to be returned to labview.  Will be converted to UInt16
-            return_scalars : dict
-                Dictionary of scalars from python analysis.  To be passed back to labview correctly, the keys for each
-                entry need to match those given in labview_adapters.json for this analyzer class
-            return_lineouts : list(np.ndarray)
-                Lineouts to be returned to labview.  Need to be given as a list of 1d arrays (numpy or otherwise)
-                If not given, will return a 1x1 array of zeros.  If in an incorrect format, will return a 1x1 array of
-                zeros and print a reminder message.  If the arrays in the list are of unequal length, all arrays get
-                padded with zeros to the size of the largest array.  Also, will be returned as a 'float64'
-            input_parameters : dict
-                Dictionary of the input parameters given to the analyzer.  If none is given, will call the class's
-                self.build_input_parameter_dictionary() function to generate one from the class variables.  This is not
-                returned to Labview, so it can contain anything one might find useful in post-analysis
-
-            Returns
-            -------
-            return_dictionary : dict
-                Dictionary with the correctly formatted returns that labview adapters is expecting.
-                "analyzer_input_parameters": input_parameters
-                "analyzer_return_dictionary": return_scalars
-                "processed_image_uint16": uint_image
-                "analyzer_return_lineouts": return_lineouts
-
-            """
-        uint_image = return_image.astype(np.uint16)
-
-        if return_scalars is None:
-            return_scalars = dict()
-        elif not isinstance(return_scalars, dict):
-            print("return_scalars must be passed as a dict!")
-            return_scalars = dict()
-
-        if isinstance(return_lineouts, np.ndarray) and return_lineouts.ndim == 2:
-            return_lineouts = return_lineouts.astype(np.float64)
-        else:
-            if return_lineouts is not None:
-                if not isinstance(return_lineouts, list):
-                    print("return_lineouts must be passed as a list of 1d arrays!")
-                    return_lineouts = None
-                else:
-                    for lineout in return_lineouts:
-                        shape = np.shape(lineout)
-                        if len(shape) != 1 or shape[0] < 2:
-                            print("return_lineouts must be passed as a list of 1d arrays!")
-                            return_lineouts = None
-                            break
-            if return_lineouts is None:
-                return_lineouts = np.zeros((1, 1), dtype=np.float64)
-            else:
-                max_length = max(map(len, return_lineouts))
-                return_lineouts = [np.pad(lineout, (0, max_length - len(lineout)), mode='constant')
-                                   for lineout in return_lineouts]
-                return_lineouts = np.vstack(return_lineouts).astype(np.float64)
-
-        if input_parameters is None:
-            input_parameters = self.build_input_parameter_dictionary()
-
-        return_dictionary = {
-            "analyzer_input_parameters": input_parameters,
-            "analyzer_return_dictionary": return_scalars,
-            "processed_image_uint16": uint_image,
-            "analyzer_return_lineouts": return_lineouts,
-        }
-        return return_dictionary
 
     @staticmethod
     def read_roi(parser):
@@ -276,16 +376,3 @@ class LabviewImageAnalyzer(ImageAnalyzer):
                 else:
                     setattr(self, key, None)
         return self
-
-    def build_input_parameter_dictionary(self) -> dict:
-        """Compiles list of class variables into a dictionary
-
-        Can be overwritten by implementing classes if you prefer more control over the return dictionary.
-        For example, adding units into the key names.
-
-        Returns
-        -------
-        dict
-            A compiled dictionary containing all class variables
-        """
-        return self.__dict__

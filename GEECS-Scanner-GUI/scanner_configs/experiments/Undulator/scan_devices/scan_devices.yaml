@@ -1,0 +1,41 @@
+single_scan_devices:
+  Centtronic DUT position: U_ASSERT_Stages:Position.Ch2
+  EMQ1 Current: U_EMQTripletBipolar:Current_Limit.Ch1
+  EMQ2 Current: U_EMQTripletBipolar:Current_Limit.Ch2
+  EMQ3 Current: U_EMQTripletBipolar:Current_Limit.Ch3
+  Gaia Lamp timing: U_1HzShiftedBox:delay.Channel_C
+  Gas Pressure: U_HP_Daq:AnalogOutput.Channel 1
+  Ghost Focus: U_Zaber:Position.Ch2
+  Grating Separation (um): U_CompAerotech:Position.Axis1
+  Hexapod Angle U: U_Hexapod:uangle
+  Hexapod Angle V: U_Hexapod:vangle
+  Hexapod Angle W: U_Hexapod:wangle
+  Hexapod X: U_Hexapod:xpos
+  Hexapod Y: U_Hexapod:ypos
+  Hexapod Z: U_Hexapod:zpos
+  Jet Blade: U_ModeImagerESP:Position.Axis 2
+  JetX (mm): U_ESP_JetXYZ:Position.Axis 1
+  JetY (mm): U_ESP_JetXYZ:Position.Axis 2
+  JetZ (mm): U_ESP_JetXYZ:Position.Axis 3
+  Mode Imager Stage: U_ModeImagerESP:Position.Axis 1
+  S1H: U_S1H:Current
+  S1V: U_S1V:Current
+  S2H: U_S2H:Current
+  S2V: U_S2V:Current
+  S3H: U_S3H:Current
+  S3V: U_S3V:Current
+  S4H: U_S4H:Current
+  S4V: U_S4V:Current
+  VS1H: U_VS1H:Current
+  VS1V: U_VS1V:Current
+  VS2H: U_VS2H:Current
+  VS2V: U_VS2V:Current
+  VS3H: U_VS3H:Current
+  VS3V: U_VS3V:Current
+  VS4H: U_VS4H:Current
+  VS4V: U_VS4V:Current
+  gas jet start time: U_DG645_ShotControl:Delay.Ch A
+  haso stage: U_Zaber:Position.Ch1
+  jet opening time: U_DG645_ShotControl:Delay.Ch B
+  probe cam stage: U_ProbeCamStage:Position
+  thorlabs dut position: U_ASSERT_Stages:Position.Ch1

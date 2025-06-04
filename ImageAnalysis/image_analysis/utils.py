@@ -8,7 +8,9 @@ import numpy as np
 import png
 from imageio.v3 import imread
 
+import re
 
+    
 def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
     """ Read PNG file as output by NI IMAQ, which uses an uncommon format.
     """
@@ -46,6 +48,22 @@ def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
         return imread(file_path)
 
 
+def extract_shot_number(filename):
+    """
+    Extract the shot number from the filename.
+
+    Args:
+        filename (str): The filename from which to extract the shot number.
+
+    Returns:
+        int: The extracted shot number, or None if the format is incorrect.
+    """
+    # Match the last number before the .png extension
+    match = re.search(r'_(\d+)\.png$', filename)
+    if match:
+        return int(match.group(1))
+    return None
+
 class ROI:
     """ Specify a region of interest for an ImageAnalyzer to crop with.
     
@@ -67,12 +85,14 @@ class ROI:
         image[i0:i1, i2:i3]
 
     """
-    def __init__(self, top: Optional[int] = None, 
-                       bottom: Optional[int] = None, 
-                       left: Optional[int] = None, 
-                       right: Optional[int] = None,
-                       bad_index_order = 'raise',
-                ):
+
+    def __init__(self,
+                 top: Optional[int] = None,
+                 bottom: Optional[int] = None,
+                 left: Optional[int] = None,
+                 right: Optional[int] = None,
+                 bad_index_order='raise',
+                 ):
 
         """
         Parameters
@@ -109,7 +129,7 @@ class ROI:
                 return low_index, high_index
 
             if low_index > high_index:
-                if bad_index_order == 'raise': 
+                if bad_index_order == 'raise':
                     raise ValueError(f"{low_index} should be less than {high_index} ((0, 0) is at the top left corner)")
                 elif bad_index_order == 'invert':
                     low_index, high_index = high_index, low_index
@@ -137,11 +157,12 @@ class ROI:
 
     def __repr__(self):
         return f"ROI({self.top}, {self.bottom}, {self.left}, {self.right})"
-    
+
 
 class NotAPath(Path().__class__):
     """ A Path instance that evaluates to false in, for example, if statements.
     """
+
     def __bool__(self):
         return False
 

@@ -1,0 +1,15 @@
+Devices:
+  UC_ALineEbeam1:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list: []
+setup_action:
+  steps:
+  - action: set
+    device: U_PLC
+    value: 'off'
+    variable: DO.Ch8
+  - action: set
+    device: U_PLC
+    value: 'on'
+    variable: DO.Ch18

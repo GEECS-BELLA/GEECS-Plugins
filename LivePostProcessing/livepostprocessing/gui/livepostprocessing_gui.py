@@ -12,7 +12,7 @@ from docstring_parser import DocstringStyle
 # to be the same object as used in the `ImageAnalyzer`s
 from image_analysis import ureg, Q_, Quantity
 
-from .frame import MainFrame
+from livepostprocessing.gui.frame import MainFrame
 
 from image_analysis.utils import ROI
 
@@ -23,8 +23,8 @@ if TYPE_CHECKING:
     import wx
     import wx.grid
 
-from ..scan_watch import ScanWatch
-from ..scan_analyzer import ScanAnalyzer
+from livepostprocessing.scan_watch import ScanWatch
+from livepostprocessing.scan_analyzer import ScanAnalyzer
 
 class LivePostProcessingGUI(MainFrame):
     def __init__(self, *args, **kwargs):

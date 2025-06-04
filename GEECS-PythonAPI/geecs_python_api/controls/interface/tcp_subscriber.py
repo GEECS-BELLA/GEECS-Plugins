@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from geecs_python_api.controls.devices import GeecsDevice
 import geecs_python_api.controls.interface.message_handling as mh
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI, api_error
-
+import logging
 
 class TcpSubscriber:
     def __init__(self, owner: GeecsDevice):
@@ -23,6 +23,14 @@ class TcpSubscriber:
         self.port = -1
         self.connected = False
 
+        # Optional: store a callback function
+        self.message_callback = None
+        self.api_shotnumber = 0
+
+    def set_message_callback(self, callback):
+        """ Set the callback function that will be called when a new message is received. """
+        self.message_callback = callback
+
     def close(self):
         try:
             self.unsubscribe()
@@ -32,7 +40,6 @@ class TcpSubscriber:
 
     def connect(self) -> bool:
         """ Connects to "host/IP" on port "port". """
-
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.connect((self.owner.dev_ip, self.owner.dev_port))
@@ -40,9 +47,21 @@ class TcpSubscriber:
             self.port = self.owner.dev_port
             self.connected = True
 
-        except Exception:
-            api_error.error(f'Failed to connect TCP client ({self.owner.get_name()})',
-                            'TcpSubscriber class, method "connect"')
+        except ConnectionRefusedError as e:
+            api_error.error(
+                f'Device not on (ConnectionRefusedError): {e}',
+                'TcpSubscriber class, method "connect"'
+            )
+            self.sock = None
+            self.host = ''
+            self.port = -1
+            self.connected = False
+
+        except (TimeoutError, InterruptedError) as e:
+            api_error.error(
+                f'Error while connecting TCP client ({self.owner.get_name()}): {e}',
+                'TcpSubscriber class, method "connect"'
+            )
             self.sock = None
             self.host = ''
             self.port = -1
@@ -106,79 +125,66 @@ class TcpSubscriber:
         self.unsubscribe_event.set()
 
     def async_listener(self):
-        """ Listens for and parses messages. """
+        """
+        Listens for TCP messages asynchronously.
+        Notifies registered subscribers using the EventHandler on each message received.
+        """
+        self.sock.settimeout(0.5)  # Set socket timeout to 0.5 seconds
 
-        self.sock.settimeout(0.5)
-
-        # read messages
-        err = ErrorAPI()  # no error object
         while True:
-            err.clear()
-            ready = False
-            msg_len = 0
-
             try:
+                # Wait for the socket to be ready (using select)
                 ready = select.select([self.sock], [], [], 0.05)
-            except socket.timeout:
-                continue
-            except Exception as ex:
-                api_error.error(str(ex), 'TcpSubscriber class, method "async_listener"')
-                return
-            finally:
-                if self.unsubscribe_event.wait(0.):
-                    self.unsubscribe_event.clear()
-                    api_error.merge(err.error_msg, err.error_src, err.is_warning)
-                    return
 
-            if ready[0]:
-                try:
-                    msg_len: int = struct.unpack('>i', self.sock.recv(4))[0]
-                except socket.timeout:
-                    continue
-                except Exception:
-                    api_error.error('Failed to read TCP header bytes', 'TcpSubscriber class, method "async_listener"')
-                    return
-                finally:
-                    if self.unsubscribe_event.wait(0.):
-                        self.unsubscribe_event.clear()
-                        api_error.merge(err.error_msg, err.error_src, err.is_warning)
-                        return
+                if ready[0]:  # If the socket is ready for reading
+                    # Read the length of the incoming message (first 4 bytes)
+                    msg_len = struct.unpack('>i', self.sock.recv(4))[0]
 
-                if msg_len > 0:
-                    this_msg = ''
-                    while True:
-                        try:
-                            chunk = self.sock.recv(msg_len)
+                    if msg_len > 0:  # If the message length is valid
+                        this_msg = ''
+
+                        # Read the actual message data
+                        while len(this_msg) < msg_len:
+                            chunk = self.sock.recv(msg_len - len(this_msg))
                             if chunk:
                                 this_msg += chunk.decode('ascii')
-                        except socket.timeout:
-                            pass
-                        except Exception:
-                            api_error.error('Failed to read TCP message bytes',
-                                            'TcpSubscriber class, method "async_listener"')
-                            return
 
-                        received = (len(this_msg) == msg_len)
-                        if received:
-                            break
-                        if self.unsubscribe_event.wait(0.):
-                            self.unsubscribe_event.clear()
-                            api_error.merge(err.error_msg, err.error_src, err.is_warning)
-                            return
-
-                    if received:
-                        stamp = dtime.now().__str__()
-                        if self.subscribed:
+                        # Notify event handler on receiving a new message (general update)
+                        if self.message_callback:
                             try:
-                                net_msg = mh.NetworkMessage(tag=self.owner.get_name(),
-                                                            stamp=stamp, msg=this_msg, err=err)
-                                self.owner.handle_subscription(net_msg)
-                            except Exception:
-                                api_error.error('Failed to handle TCP subscription',
-                                                'TcpSubscriber class, method "async_listener"')
-                                return
+                                self.message_callback(this_msg)
+                            except Exception as e:
+                                error_message = (f'Handling of TCP Callback failed for '
+                                              f'{self.owner.get_name()}: {e}')
+                                logging.error(error_message, exc_info=True)  # Logs stack trace
 
-            if self.unsubscribe_event.wait(0.):
-                self.unsubscribe_event.clear()
-                api_error.merge(err.error_msg, err.error_src, err.is_warning)
+                        # Handle the message if subscribed
+                        if self.subscribed:
+                            stamp = dtime.now().__str__()
+
+                            # Properly initialize an empty error object
+                            err = ErrorAPI()  # Initialize the error object properly
+
+                            # Create a NetworkMessage object
+                            net_msg = mh.NetworkMessage(tag=self.owner.get_name(),
+                                                        stamp=stamp, msg=this_msg, err=err)
+
+                            # Call handle_subscription with the proper NetworkMessage object
+                            try:
+                                self.owner.handle_subscription(net_msg)
+                            except Exception as e:
+                                logging.error('device Failed to handle TCP subscription, TcpSubscriber class, method "async_listener"')
+                                logging.error(f"Exception in handle_subscription: {e}")
+
+                # Check for unsubscribe event (to stop the listener)
+                if self.unsubscribe_event.wait(0.):
+                    self.unsubscribe_event.clear()
+                    return  # Exit the listener loop when unsubscribed
+
+            except socket.timeout:
+                # Timeout simply continues the loop to check again
+                continue
+
+            except Exception as ex:
+                api_error.error(str(ex), 'TcpSubscriber class, method "async_listener"')
                 return

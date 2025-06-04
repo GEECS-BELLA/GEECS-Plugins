@@ -11,8 +11,8 @@ from geecs_python_api.controls.experiment import HtuExp
 from geecs_python_api.tools.interfaces.prompts import text_input
 from geecs_python_api.tools.interfaces.exports import save_py
 from geecs_python_api.tools.distributions.fit_utility import fit_distribution
-from geecs_python_api.analysis.images.scans.scan_data import ScanData
-from geecs_python_api.analysis.images.scans.scan_images import ScanImages
+from geecs_data_utils import ScanData
+from geecs_python_api.analysis.scans.scan_images import ScanImages
 from htu_scripts.analysis.quad_scan_analysis import quad_scan_analysis
 
 

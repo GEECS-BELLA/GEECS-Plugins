@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "scananalysis"
+version = "0.2.0"
+description = "Modules for performing analyses routines on full scans"
+authors = ["Christopher Doss <CEDoss@lbl.gov>"]
+readme = "README.md"
+packages = [{include = "scan_analysis"},
+            {include = "live_watch"},
+            {include = "calibrations"},
+            {include = "multiscan_analysis"}]
+
+[tool.poetry.dependencies]
+python = ">=3.9 <3.11"
+PyQt5 = {version = "^5.15.9", markers = "sys_platform == 'win32'" }
+pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == 'win32'" }
+ImageAnalysis = { path = "../ImageAnalysis", develop = true }
+geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
+LogMaker4GoogleDocs = {path = "../LogMaker4GoogleDocs", develop = true}
+
+pyyaml = "^6.0.2"
+matplotlib = "^3.9.2"
+pandas = "^2.2.3"
+h5py = "*"
+watchdog = "^6.0.0"
+spyder-kernels = "==3.0.*"
+
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

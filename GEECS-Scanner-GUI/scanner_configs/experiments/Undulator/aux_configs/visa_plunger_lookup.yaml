@@ -1,0 +1,81 @@
+visa1: 
+  device: 'U_VisaPlungers'
+  variable: 'DigitalOutput.Channel 7'
+  energy_meter_position: 3968
+  spectrometer_position: 3888
+  zaber_1: 21.0
+  zaber_2: 25.4
+  e-beam-camera: "UC_VisaEBeam1"
+
+visa2: 
+  device: 'U_VisaPlungers'
+  variable: 'DigitalOutput.Channel 6'
+  energy_meter_position: 3473.7
+  spectrometer_position: 3406
+  zaber_1: 17.3
+  zaber_2: 22.8
+  e-beam-camera: "UC_VisaEBeam2"
+
+visa3: 
+  device: 'U_VisaPlungers'
+  variable: 'DigitalOutput.Channel 5'
+  energy_meter_position: 2977
+  spectrometer_position: 2918
+  zaber_1: 19.3
+  zaber_2: 19.1
+  e-beam-camera: "UC_VisaEBeam3"
+
+visa4: 
+  device: 'U_VisaPlungers'
+  variable: 'DigitalOutput.Channel 4'
+  energy_meter_position: 2481.3
+  spectrometer_position: 2410
+  zaber_1: 17.2
+  zaber_2: 23.4
+  e-beam-camera: "UC_VisaEBeam4"
+
+visa5: 
+  device: 'U_VisaPlungers'
+  variable: 'DigitalOutput.Channel 3'
+  energy_meter_position: 1988.3
+  spectrometer_position: 1931
+  zaber_1: 17.8
+  zaber_2: 19.1
+  e-beam-camera: "UC_VisaEBeam5"
+
+visa6: 
+  device: 'U_VisaPlungers'
+  variable: 'DigitalOutput.Channel 2'
+  energy_meter_position: 1493.3
+  spectrometer_position: 1435
+  zaber_1: 17.6
+  zaber_2: 19.1
+  e-beam-camera: "UC_VisaEBeam6"
+
+visa7: 
+  device: 'U_VisaPlungers'
+  variable: 'DigitalOutput.Channel 1'
+  energy_meter_position: 995.4
+  spectrometer_position: 931
+  zaber_1: 20.8
+  zaber_2: 22.4
+  e-beam-camera: "UC_VisaEBeam7"
+
+visa8: 
+  device: 'U_VisaPlungers'
+  variable: 'DigitalOutput.Channel 0'
+  energy_meter_position: 502.4
+  spectrometer_position: 445
+  zaber_1: 19.5
+  zaber_2: 23.4
+  e-beam-camera: "UC_VisaEBeam8"
+
+visa9: 
+  device: 'U_PLC'
+  variable: 'DO.Ch19'
+  energy_meter_position: 82
+  spectrometer_position: 25
+  zaber_1: 20.7
+  zaber_2: 17.0
+  e-beam-camera: "UC_VisaEBeam8"
+

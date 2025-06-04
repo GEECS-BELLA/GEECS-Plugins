@@ -1,0 +1,5 @@
+Devices:
+  UC_DiagnosticsPhosphor:
+    variable_list: ["MeanCounts", "MaxCounts","centroidx","centroidy"]
+    synchronous: True
+    save_nonscalar_data: True

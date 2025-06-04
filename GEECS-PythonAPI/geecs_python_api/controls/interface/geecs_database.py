@@ -9,6 +9,8 @@ from geecs_python_api.controls.interface.geecs_errors import api_error
 import tkinter as tk
 from tkinter import filedialog
 
+# TODO change print statements to logging (Previously attempted, but failed at being able to set verbosity...)
+
 def find_user_data_directory_relative(start_path='.'):
     current_path = os.path.abspath(start_path)
     original_path = current_path  # Save the original starting path
@@ -44,9 +46,10 @@ def find_database():
             print(f"GEECS data path is: {default_path}")
         else:
             print("Configuration file not found or the path is not set.")
+            raise FileNotFoundError("Configuration file not found or the path is not set.")
     default_name = 'Configurations.INI'
 
-    db_name = db_ip = db_user = db_pwd = ''
+    db_name = db_ip = db_user = db_pwd = None
     
     if not os.path.isfile(os.path.join(default_path, default_name)):
         path_cfg = filedialog.askopenfilename(filetypes=[('INI Files', '*.INI'), ('All Files', '*.*')],
@@ -68,12 +71,15 @@ def find_database():
 
         except Exception:
             pass
-    print('database name ',db_name)
     return db_name, db_ip, db_user, db_pwd
 
 
 class GeecsDatabase:
-    name, ipv4, username, password = find_database()
+    try:
+        name, ipv4, username, password = find_database()
+    except FileNotFoundError:
+        print("No GEECS User data defined, skipping database initialization")
+        name = ipv4 = username = password = None
 
     @staticmethod
     def _get_db():
@@ -100,6 +106,15 @@ class GeecsDatabase:
     @staticmethod
     def collect_exp_info(exp_name: str = 'Undulator')\
             -> dict[str, Union[ExpDict, dict[str, Path], Path, int]]:
+
+        if GeecsDatabase.name is None:
+            try:
+                GeecsDatabase.name, GeecsDatabase.ipv4, GeecsDatabase.username, GeecsDatabase.password = find_database()
+            except FileNotFoundError:
+                print("No GEECS User data defined, skipping database initialization")
+                GeecsDatabase.name = GeecsDatabase.ipv4 = GeecsDatabase.username = GeecsDatabase.password = None
+                raise AttributeError("Geecs Database not set properly")
+
         db = GeecsDatabase._get_db()
         db_cursor = db.cursor(dictionary=True)
 
@@ -243,6 +258,28 @@ class GeecsDatabase:
 
         GeecsDatabase._close_db(db, db_cursor)
         return dev_ip, dev_port
+        
+    @staticmethod
+    def find_device_type(dev_name=''):
+        db_cursor = db = None
+        dev_ip: str = ''
+        dev_port: int = 0
+
+        try:
+            selectors = [ "devicetype"]
+
+            db = GeecsDatabase._get_db()
+            db_cursor = db.cursor()
+            db_cursor.execute(f'SELECT {",".join(selectors)} FROM {GeecsDatabase.name}.device WHERE name=%s;',
+                              (dev_name,))
+            db_result = db_cursor.fetchone()
+            dev_type = str(db_result[0])
+
+        except Exception as ex:
+            api_error.error(str(ex), f'GeecsDatabase class, static method "find_device({dev_name})"')
+
+        GeecsDatabase._close_db(db, db_cursor)
+        return dev_type
 
     @staticmethod
     def search_dict(haystack: dict, needle: str, path="/") -> list[tuple[str, str]]:

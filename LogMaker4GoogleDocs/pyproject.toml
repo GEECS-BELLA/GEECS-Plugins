@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "LogMaker4GoogleDocs"
+version = "0.1.0"
+description = ""
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+readme = "readme.md"
+packages = [{include = "logmaker_4_googledocs"}]
+
+[tool.poetry.dependencies]
+python = ">=3.9"
+pillow = "*"
+google-api-python-client = "*"
+google-auth-oauthlib = "*"
+google-auth-httplib2 = "*"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

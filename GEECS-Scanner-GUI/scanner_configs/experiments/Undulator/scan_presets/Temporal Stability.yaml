@@ -1,0 +1,11 @@
+Devices:
+- Base_Monitoring_Devices
+- BCaveMagSpec-HiRes
+- frog_only
+- Haso_lift
+- HP-FocusDiagnostics
+- HP_Ghost_WFS
+- U_BCaveICT
+Info: temporal beam stability test, MRC OFF
+Num Shots: 5000
+Scan Mode: No Scan

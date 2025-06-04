@@ -1,10 +1,9 @@
 # from __future__ import annotations
 from os import PathLike
 from pathlib import Path
+from dateutil.parser import parse as dateparse
 from threading import Thread, Event
 from typing import Optional, Any, Union, NamedTuple
-
-
 # if TYPE_CHECKING:
 VarDict = dict[str, dict[str, Any]]
 ExpDict = dict[str, dict[str, dict[str, Any]]]
@@ -18,13 +17,19 @@ def exec_async(fct, args=(), kwargs=None) -> AsyncResult:
         kwargs = {}
     return fct(*args, **kwargs, sync=False)
 
-
 class VarAlias(str):
     pass
 
+import warnings
+from geecs_data_utils import ScanTag as _ScanTag
 
-class ScanTag(NamedTuple):
-    year: int
-    month: int
-    day: int
-    number: int
+warnings.warn(
+    "geecs_python_api.controls.api_defs.ScanTag has moved to "
+    "geecs_data_utils.utils; please update your imports.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+class ScanTag(_ScanTag):
+    """Stub for backward compatibility."""
+    pass

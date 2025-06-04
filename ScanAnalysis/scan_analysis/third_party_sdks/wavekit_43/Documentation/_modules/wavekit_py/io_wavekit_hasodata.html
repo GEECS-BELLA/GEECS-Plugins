@@ -1,0 +1,711 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>wavekit_py.io_wavekit_hasodata &#8212; Wavekit Python 2020 documentation</title>
+    <link rel="stylesheet" href="../../_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="../../_static/language_data.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Wavekit Python 2020 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for wavekit_py.io_wavekit_hasodata</h1><div class="highlight"><pre>
+<span></span><span class="ch">#!/usr/bin/python</span>
+
+<span class="kn">import</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">sys</span> 
+<span class="kn">import</span> <span class="nn">ctypes</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+
+<span class="kn">import</span> <span class="nn">io_thirdparty_load_library</span> <span class="k">as</span> <span class="nn">imop_library</span>
+
+<span class="kn">import</span> <span class="nn">io_wavekit_slopespostprocessorlist</span> <span class="k">as</span> <span class="nn">imop_sppl</span>
+<span class="kn">import</span> <span class="nn">io_wavekit_computephaseset</span> <span class="k">as</span> <span class="nn">imop_computephaseset</span>
+<span class="kn">import</span> <span class="nn">io_wavekit_modalcoef</span> <span class="k">as</span> <span class="nn">imop_modalcoef</span>
+<span class="kn">import</span> <span class="nn">io_wavekit_enum</span> <span class="k">as</span> <span class="nn">imop_enum</span>
+<span class="kn">import</span> <span class="nn">io_wavekit_hasoslopes</span> <span class="k">as</span> <span class="nn">imop_hslp</span>
+<span class="kn">import</span> <span class="nn">io_wavekit_structure</span> <span class="k">as</span> <span class="nn">imop_struct</span>
+
+<div class="viewcode-block" id="HasoData"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData">[docs]</a><span class="k">class</span> <span class="nc">HasoData</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;HasoData Class</span>
+<span class="sd">    </span>
+<span class="sd">    - Default Constructor (Empty HasoData)</span>
+<span class="sd">    </span>
+<span class="sd">    - Constructor from HasoSlopes :</span>
+<span class="sd">        - **hasoslopes** - HasoSlopes : HasoSlopes object</span>
+<span class="sd">    </span>
+<span class="sd">    - Constructor from Copy :</span>
+<span class="sd">        - **hasodata** - HasoData : HasoData object</span>
+<span class="sd">    </span>
+<span class="sd">    - Constructor from Has File :</span>
+<span class="sd">        - **has_file_path** - string : Absolute path (\*.has)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init_</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Empty HasoData constructor.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_NewEmpty</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init empty&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init_from_hasoslopes</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">hasoslopes</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;HasoData constructor from HasoSlopes.</span>
+<span class="sd">        </span>
+<span class="sd">        :param hasoslopes: HasoSlopes object</span>
+<span class="sd">        :type hasoslopes: HasoSlopes</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_New</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">),</span>
+                <span class="n">hasoslopes</span><span class="o">.</span><span class="n">hasoslopes</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init_from_hasoslopes&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init_from_copy</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">hasodata</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;HasoData constructor from copy.</span>
+<span class="sd">        </span>
+<span class="sd">        :param hasodata: HasoData object</span>
+<span class="sd">        :type hasodata: HasoData</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_NewFromCopy</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">hasodata</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init_from_copy&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init_from_file</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">has_file_path</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;HasoData constructor from a .has file. If file opening fails, an exception is thrown.</span>
+<span class="sd">        </span>
+<span class="sd">        :param has_file_path: Absolute path to .has file</span>
+<span class="sd">        :type has_file_path: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_NewFromFile</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">pointer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">has_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init_from_file&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;HasoData constructor</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dll</span>   <span class="o">=</span> <span class="n">imop_library</span><span class="o">.</span><span class="n">load_dll</span><span class="p">()</span>
+        <span class="n">entered</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">arg_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">try</span> <span class="p">:</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">arg_size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">):</span>
+                <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">__init_</span><span class="p">()</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">arg_size</span> <span class="o">==</span> <span class="mi">1</span><span class="p">):</span>
+                <span class="k">if</span><span class="p">(</span><span class="s1">&#39;hasoslopes&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">):</span>
+                    <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__init_from_hasoslopes</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;hasoslopes&#39;</span><span class="p">])</span>
+                <span class="k">if</span><span class="p">(</span><span class="s1">&#39;hasodata&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">):</span>
+                    <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__init_from_copy</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;hasodata&#39;</span><span class="p">])</span>
+                <span class="k">if</span><span class="p">(</span><span class="s1">&#39;has_file_path&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">):</span>
+                    <span class="n">entered</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">__init_from_file</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;has_file_path&#39;</span><span class="p">])</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : init&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span>
+        <span class="k">if</span><span class="p">(</span><span class="n">entered</span> <span class="o">==</span> <span class="mi">0</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="s1">&#39;---CAN NOT CREATE HASODATA OBJECT---&#39;</span><span class="p">)</span>
+                    
+    <span class="k">def</span> <span class="nf">__del_obj__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;HasoData destructor</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_Delete</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="fm">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__del_obj__</span><span class="p">()</span>
+        <span class="n">imop_library</span><span class="o">.</span><span class="n">free_dll</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">_handle</span><span class="p">)</span>
+
+<div class="viewcode-block" id="HasoData.save"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.save">[docs]</a>    <span class="k">def</span> <span class="nf">save</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">has_file_path</span><span class="p">,</span>
+        <span class="n">comments</span><span class="p">,</span>
+        <span class="n">session_name</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Saves a HasoData object to a (\*.has) file.</span>
+<span class="sd">        If file already exists, it is overwritten, provided that opening</span>
+<span class="sd">        succeeds. If file opening fails, an exception is thrown.</span>
+<span class="sd">        </span>
+<span class="sd">        :param has_file_path: Absolute path to the (\*.has) file</span>
+<span class="sd">        :type has_file_path: string</span>
+<span class="sd">        :param comments: Comments</span>
+<span class="sd">        :type comments: string</span>
+<span class="sd">        :param session_name: Session name</span>
+<span class="sd">        :type session_name: string</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_Save</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">has_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">comments</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">session_name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : save&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.set_hasoslopes"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.set_hasoslopes">[docs]</a>    <span class="k">def</span> <span class="nf">set_hasoslopes</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">hasoslopes</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set raw HasoSlopes objects.</span>
+<span class="sd">        </span>
+<span class="sd">        :param hasoslopes: HasoSlopes object</span>
+<span class="sd">        :type hasoslopes: HasoSlopes</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_SetHasoSlopes</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">hasoslopes</span><span class="o">.</span><span class="n">hasoslopes</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : set_hasoslopes&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+    
+    
+<div class="viewcode-block" id="HasoData.get_compute_slopes_parameters"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.get_compute_slopes_parameters">[docs]</a>    <span class="k">def</span> <span class="nf">get_compute_slopes_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get informations from \ref HasoData object.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Wavelength(nm), StartSubPupil, DenoisingStrength, isAutoStartSubPupilDetectionON, isSpotTrackerON, isLiftON, isELSON</span>
+<span class="sd">        :rtype: tuple(float, uint2D, float, bool, bool, bool, bool)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span>       <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">wavelength_nm</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+            <span class="n">start_subpupil_size</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_int</span><span class="p">()</span>
+            <span class="n">denoising_strength</span>  <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+            <span class="n">auto_start</span>   <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ubyte</span><span class="p">()</span>
+            <span class="n">spot_tracker</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ubyte</span><span class="p">()</span>
+            <span class="n">lift_algo</span>    <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ubyte</span><span class="p">()</span>
+            <span class="n">els_algo</span>     <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ubyte</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_GetComputeSlopesParameters_StartMultiPupilsSize</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span> 
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">start_subpupil_size</span><span class="p">)</span>            
+                <span class="p">)</span>
+            <span class="n">x_start_subpupil</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
+                <span class="n">start_subpupil_size</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> 
+                <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">uintc</span>
+                <span class="p">)</span>
+            <span class="n">y_start_subpupil</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
+                <span class="n">start_subpupil_size</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> 
+                <span class="n">dtype</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">uintc</span>
+                <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_GetComputeSlopesParameters</span><span class="o">.</span><span class="n">argtypes</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">uintc</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">)</span> <span class="p">,</span> 
+                <span class="n">numpy</span><span class="o">.</span><span class="n">ctypeslib</span><span class="o">.</span><span class="n">ndpointer</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">uintc</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="s2">&quot;C_CONTIGUOUS&quot;</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_void_p</span>         
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_GetComputeSlopesParameters</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>  
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">wavelength_nm</span><span class="p">),</span> 
+                <span class="n">x_start_subpupil</span><span class="p">,</span>  
+                <span class="n">y_start_subpupil</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">denoising_strength</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">auto_start</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">spot_tracker</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">lift_algo</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">els_algo</span><span class="p">)</span>           
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="n">wavelength_nm</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">x_start_subpupil</span><span class="p">,</span> 
+                <span class="n">y_start_subpupil</span><span class="p">,</span>
+                <span class="n">denoising_strength</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="nb">bool</span><span class="p">(</span><span class="n">denoising_strength</span><span class="p">),</span>
+                <span class="nb">bool</span><span class="p">(</span><span class="n">spot_tracker</span><span class="p">),</span>
+                <span class="nb">bool</span><span class="p">(</span><span class="n">lift_algo</span><span class="p">),</span>
+                <span class="nb">bool</span><span class="p">(</span><span class="n">els_algo</span><span class="p">)</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_compute_slopes_parameters&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.set_wavelength"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.set_wavelength">[docs]</a>    <span class="k">def</span> <span class="nf">set_wavelength</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">wavelength</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set source wavelength.</span>
+<span class="sd">        </span>
+<span class="sd">        :param wavelength: Source wavelength (nm)</span>
+<span class="sd">        :type wavelength: float</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_SetWaveLength</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_float</span><span class="p">(</span><span class="n">wavelength</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : set_wavelength&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.get_dimensions"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.get_dimensions">[docs]</a>    <span class="k">def</span> <span class="nf">get_dimensions</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get HasoData dimensions and steps.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: HasoData dimensions of the pupil</span>
+<span class="sd">        :rtype: dimensions</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">size_out</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">steps_out</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_GetDimensionsAndSteps</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">size_out</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">steps_out</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="n">dim_out</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">dimensions</span><span class="p">(</span><span class="n">size_out</span><span class="p">,</span> <span class="n">steps_out</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">dim_out</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_dimensions&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.get_processor_list"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.get_processor_list">[docs]</a>    <span class="k">def</span> <span class="nf">get_processor_list</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;SlopesPostProcessorList getter.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: SlopesPostProcessorList object</span>
+<span class="sd">        :rtype: SlopesPostProcessorList</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">proclist</span> <span class="o">=</span> <span class="n">imop_sppl</span><span class="o">.</span><span class="n">SlopesPostProcessorList</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_GetProcessorList</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">proclist</span><span class="o">.</span><span class="n">slopespostprocessorlist</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">proclist</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_processor_list&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.get_info_from_has_file"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.get_info_from_has_file">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_info_from_has_file</span><span class="p">(</span><span class="n">has_file_path</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get informations from (\*.has) file.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Haso Config : haso_model, haso_serial_number, revision; Haso Dimensions : size, step; Haso Metadata : time_stamp, comments, session_name; Used Wavelength : wavelength_nm, lower_calibration_wl, upper_calibration_wl; Software List</span>
+<span class="sd">        :rtype: tuple(Config_t, WaveLength_t, dimensions, Metadata_t, str)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        
+        <span class="n">dll</span>   <span class="o">=</span> <span class="n">imop_library</span><span class="o">.</span><span class="n">load_dll</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">haso_model</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">haso_serial_number</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">revision</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_uint</span><span class="p">()</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">step</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+            <span class="n">time_stamp</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+            <span class="n">comments</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">session_name</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">wavelength_nm</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+            <span class="n">lower_calibration_wl</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+            <span class="n">upper_calibration_wl</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+            <span class="n">softwareInfoList</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_GetInfoFromHasFile</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">has_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">haso_model</span><span class="p">,</span>
+                <span class="n">haso_serial_number</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">revision</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">size</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">step</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">time_stamp</span><span class="p">),</span>
+                <span class="n">comments</span><span class="p">,</span>
+                <span class="n">session_name</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">wavelength_nm</span><span class="p">),</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">lower_calibration_wl</span><span class="p">),</span> 
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">upper_calibration_wl</span><span class="p">)</span>              
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_GetSoftwareInfoFromHasFile</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">c_char_p</span><span class="p">(</span><span class="n">has_file_path</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                <span class="n">haso_model</span><span class="p">,</span>
+                <span class="n">haso_serial_number</span><span class="p">,</span>
+                <span class="n">comments</span><span class="p">,</span>
+                <span class="n">session_name</span><span class="p">,</span>
+                <span class="n">softwareInfoList</span>             
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">Config_t</span> <span class="p">(</span>
+                    <span class="nb">str</span><span class="p">(</span><span class="n">haso_model</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="nb">str</span><span class="p">(</span><span class="n">haso_serial_number</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">revision</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="kc">None</span>
+                    <span class="p">),</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">WaveLength_t</span> <span class="p">(</span>
+                    <span class="n">wavelength_nm</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">lower_calibration_wl</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">upper_calibration_wl</span><span class="o">.</span><span class="n">value</span>
+                    <span class="p">),</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">dimensions</span><span class="p">(</span>
+                    <span class="n">size</span><span class="p">,</span>
+                    <span class="n">step</span>
+                    <span class="p">),</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">Metadata_t</span><span class="p">(</span>
+                    <span class="nb">str</span><span class="p">(</span><span class="n">comments</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="nb">str</span><span class="p">(</span><span class="n">session_name</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)),</span>
+                    <span class="n">time_stamp</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="kc">None</span><span class="p">,</span>
+                    <span class="kc">None</span><span class="p">,</span>
+                    <span class="kc">None</span><span class="p">,</span>
+                    <span class="kc">None</span>
+                    <span class="p">),</span>
+                <span class="nb">str</span><span class="p">(</span><span class="n">softwareInfoList</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_info_from_has_file&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.get_hasoslopes"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.get_hasoslopes">[docs]</a>    <span class="k">def</span> <span class="nf">get_hasoslopes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get raw and processed HasoSlopes objects.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: Computed HasoSlopes, Raw HasoSlopes</span>
+<span class="sd">        :rtype: tuple(HasoSlopes, HasoSlopes)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">computed_hasoslopes_out</span> <span class="o">=</span> <span class="n">imop_hslp</span><span class="o">.</span><span class="n">HasoSlopes</span><span class="p">(</span>
+                <span class="n">dimensions</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">dimensions</span><span class="p">(</span>
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> 
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+                    <span class="p">),</span>
+                <span class="n">serial_number</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+                <span class="p">)</span>
+            <span class="n">raw_hasoslopes_out</span> <span class="o">=</span> <span class="n">imop_hslp</span><span class="o">.</span><span class="n">HasoSlopes</span><span class="p">(</span>
+                <span class="n">dimensions</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">dimensions</span><span class="p">(</span>
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> 
+                    <span class="n">imop_struct</span><span class="o">.</span><span class="n">float2D</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+                    <span class="p">),</span>
+                <span class="n">serial_number</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+                <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_GetHasoSlopes</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">computed_hasoslopes_out</span><span class="o">.</span><span class="n">hasoslopes</span><span class="p">,</span>
+                <span class="n">raw_hasoslopes_out</span><span class="o">.</span><span class="n">hasoslopes</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="n">computed_hasoslopes_out</span><span class="p">,</span>
+                <span class="n">raw_hasoslopes_out</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_hasoslopes&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.get_compute_phase_mode"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.get_compute_phase_mode">[docs]</a>    <span class="k">def</span> <span class="nf">get_compute_phase_mode</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get phase reconstruction mode.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: E_COMPUTEPHASESET phase reconstruction mode enumeration.</span>
+<span class="sd">        :rtype: uchar</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">type_phase_out</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ubyte</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_GetComputePhaseMode</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">type_phase_out</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">type_phase_out</span><span class="o">.</span><span class="n">value</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_compute_phase_mode&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.get_info"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.get_info">[docs]</a>    <span class="k">def</span> <span class="nf">get_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get informations from HasoData object.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: haso_model, haso_serial_number, camera_serial_number, revision, lower_calibration_wl, upper_calibration_wl, exposure_time_requested, exposure_time_applied, nb_summed_images, time_stamp, is_background_removed, is_smearing_removed, wavelength_nm, session_name, trigger_type, comments, max_level,  start_subpupil, denoising_strength</span>
+<span class="sd">        :rtype: tuple(Config_t, WaveLength_t, Metadata_t, AcquisitionInfo_t, uint2D, float)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">haso_model</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">haso_serial_number</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">camera_serial_number</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">revision</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_uint</span><span class="p">()</span>
+            <span class="n">lower_calibration_wl</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+            <span class="n">upper_calibration_wl</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+            <span class="n">exposure_time_requested</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_uint</span><span class="p">()</span>
+            <span class="n">exposure_time_applied</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_uint</span><span class="p">()</span>
+            <span class="n">nb_summed_images</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_uint</span><span class="p">()</span>
+            <span class="n">time_stamp</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+            <span class="n">is_background_removed</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ubyte</span><span class="p">()</span>
+            <span class="n">is_smearing_removed</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ubyte</span><span class="p">()</span>
+            <span class="n">wavelength_nm</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>
+            <span class="n">session_name</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">trigger_type</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">comments</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">max_level</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_ulonglong</span><span class="p">()</span>
+            <span class="n">start_subpupil</span> <span class="o">=</span> <span class="n">imop_struct</span><span class="o">.</span><span class="n">uint2D</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">denoising_strength</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">c_double</span><span class="p">()</span>            
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_GetInfo</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">haso_model</span><span class="p">,</span>
+                <span class="n">haso_serial_number</span><span class="p">,</span>
+                <span class="n">camera_serial_number</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">revision</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">lower_calibration_wl</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">upper_calibration_wl</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">exposure_time_requested</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">exposure_time_applied</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">nb_summed_images</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">time_stamp</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">is_background_removed</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">is_smearing_removed</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">wavelength_nm</span><span class="p">),</span>
+                <span class="n">session_name</span><span class="p">,</span>
+                <span class="n">trigger_type</span><span class="p">,</span>
+                <span class="n">comments</span><span class="p">,</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">max_level</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">start_subpupil</span><span class="p">),</span>
+                <span class="n">ctypes</span><span class="o">.</span><span class="n">byref</span><span class="p">(</span><span class="n">denoising_strength</span><span class="p">)</span>                
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">Config_t</span><span class="p">(</span>
+                    <span class="n">haso_model</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">),</span>
+                    <span class="n">haso_serial_number</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">),</span>
+                    <span class="n">revision</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="kc">None</span>
+                    <span class="p">),</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">WaveLength_t</span><span class="p">(</span>
+                    <span class="n">wavelength_nm</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">lower_calibration_wl</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">upper_calibration_wl</span><span class="o">.</span><span class="n">value</span>
+                    <span class="p">),</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">Metadata_t</span><span class="p">(</span>
+                    <span class="n">comments</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">),</span>
+                    <span class="n">session_name</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">),</span>
+                    <span class="n">time_stamp</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="nb">bool</span><span class="p">(</span><span class="n">is_background_removed</span><span class="p">),</span>
+                    <span class="nb">bool</span><span class="p">(</span><span class="n">is_smearing_removed</span><span class="p">),</span>
+                    <span class="n">camera_serial_number</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">),</span>
+                    <span class="n">max_level</span><span class="o">.</span><span class="n">value</span>
+                    <span class="p">),</span>
+                <span class="n">imop_struct</span><span class="o">.</span><span class="n">AcquisitionInfo_t</span><span class="p">(</span>
+                    <span class="n">exposure_time_requested</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">exposure_time_applied</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="kc">None</span><span class="p">,</span>
+                    <span class="n">nb_summed_images</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                    <span class="n">trigger_type</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+                    <span class="p">),</span>
+                <span class="n">start_subpupil</span><span class="p">,</span>
+                <span class="n">denoising_strength</span><span class="o">.</span><span class="n">value</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_info&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.apply_slopes_post_processor_list"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.apply_slopes_post_processor_list">[docs]</a>    <span class="k">def</span> <span class="nf">apply_slopes_post_processor_list</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">slopespostprocessorlist</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set and apply a SlopesPostProcessorList to the raw HasoSlopes stored in the HasoData object. Results is stored in the HasoData object processed slopes.</span>
+<span class="sd">        </span>
+<span class="sd">        :param slopespostprocessorlist: SlopesPostProcessorList object</span>
+<span class="sd">        :type slopespostprocessorlist: SlopesPostProcessorList</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_ApplySlopesPostProcessorList</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">slopespostprocessorlist</span><span class="o">.</span><span class="n">slopespostprocessorlist</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : apply_slopes_post_processor_list&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.reset_to_raw_data"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.reset_to_raw_data">[docs]</a>    <span class="k">def</span> <span class="nf">reset_to_raw_data</span><span class="p">(</span>
+        <span class="bp">self</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Reset slopes to their raw state and clear process history.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_ResetToRawData</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : reset_to_raw_data&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.get_compute_phase_parameters"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.get_compute_phase_parameters">[docs]</a>    <span class="k">def</span> <span class="nf">get_compute_phase_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get ComputePhaseSet object.</span>
+<span class="sd">        </span>
+<span class="sd">        :return: SlopesPostProcessorList object</span>
+<span class="sd">        :rtype: SlopesPostProcessorList</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="n">cps_out</span> <span class="o">=</span> <span class="n">imop_computephaseset</span><span class="o">.</span><span class="n">ComputePhaseSet</span><span class="p">(</span><span class="n">hasodata</span> <span class="o">=</span> <span class="bp">self</span><span class="p">)</span>
+            <span class="n">modal_type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_compute_phase_mode</span><span class="p">()</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">modal_type</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_COMPUTEPHASESET</span><span class="o">.</span><span class="n">MODAL_LEGENDRE</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">modal_type</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_COMPUTEPHASESET</span><span class="o">.</span><span class="n">MODAL_ZONAL_LEGENDRE</span><span class="p">):</span>
+                <span class="n">mc_out</span> <span class="o">=</span> <span class="n">imop_modalcoef</span><span class="o">.</span><span class="n">ModalCoef</span><span class="p">(</span><span class="n">modal_type</span> <span class="o">=</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_MODAL</span><span class="o">.</span><span class="n">LEGENDRE</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">mc_out</span> <span class="o">=</span> <span class="n">imop_modalcoef</span><span class="o">.</span><span class="n">ModalCoef</span><span class="p">(</span><span class="n">modal_type</span> <span class="o">=</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_MODAL</span><span class="o">.</span><span class="n">ZERNIKE</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_GetComputePhaseParameters</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">cps_out</span><span class="o">.</span><span class="n">computephaseset</span><span class="p">,</span>
+                <span class="n">mc_out</span><span class="o">.</span><span class="n">modalcoef</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">if</span><span class="p">(</span><span class="n">modal_type</span> <span class="o">==</span> <span class="n">imop_enum</span><span class="o">.</span><span class="n">E_COMPUTEPHASESET</span><span class="o">.</span><span class="n">ZONAL</span><span class="p">):</span>
+                <span class="k">return</span> <span class="p">(</span>
+                    <span class="n">cps_out</span><span class="p">,</span>
+                    <span class="kc">None</span>
+                    <span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span>
+                <span class="n">cps_out</span><span class="p">,</span>
+                <span class="n">mc_out</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : get_compute_phase_parameters&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="HasoData.set_compute_phase_parameters"><a class="viewcode-back" href="../../HasoData.html#wavekit_py.io_wavekit_hasodata.HasoData.set_compute_phase_parameters">[docs]</a>    <span class="k">def</span> <span class="nf">set_compute_phase_parameters</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">computephaseset</span><span class="p">,</span>
+        <span class="n">modalcoef</span>
+        <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set ComputePhaseSet object.</span>
+
+<span class="sd">        .. warning:: allowed value E_COMPUTEPHASESET</span>
+<span class="sd">        </span>
+<span class="sd">        :param computephaseset: ComputePhaseSet object</span>
+<span class="sd">        :type computephaseset: ComputePhaseSet</span>
+<span class="sd">        :param modalcoef: ModalCoef object</span>
+<span class="sd">        :type modalcoef: ModalCoef</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">create_string_buffer</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dll</span><span class="o">.</span><span class="n">Imop_HasoData_SetComputePhaseParameters</span><span class="p">(</span>
+                <span class="n">message</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">hasodata</span><span class="p">,</span>
+                <span class="n">computephaseset</span><span class="o">.</span><span class="n">computephaseset</span><span class="p">,</span>
+                <span class="n">modalcoef</span><span class="o">.</span><span class="n">modalcoef</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="s1">&#39;&#39;</span> <span class="ow">and</span> <span class="n">message</span><span class="o">.</span><span class="n">value</span> <span class="o">!=</span> <span class="sa">b</span><span class="s1">&#39;&#39;</span> <span class="p">:</span> <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;IO_Error&#39;</span><span class="p">,</span><span class="n">message</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exception</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="vm">__name__</span><span class="o">+</span><span class="s1">&#39; : set_compute_phase_parameters&#39;</span><span class="p">,</span><span class="n">exception</span><span class="p">)</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">Wavekit Python 2020 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" >Module code</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2020, Imagine Optic.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.8.5.
+    </div>
+  </body>
+</html>

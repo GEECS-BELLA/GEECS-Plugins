@@ -20,8 +20,8 @@ import configparser
 from threading import Thread, Condition, Event, Lock
 from datetime import datetime as dtime
 import geecs_python_api.controls.interface.message_handling as mh
-from geecs_python_api.controls.interface import GeecsDatabase, UdpHandler, TcpSubscriber, ErrorAPI, api_error
-
+from geecs_python_api.controls.interface import GeecsDatabase, UdpHandler, TcpSubscriber, EventHandler, ErrorAPI, api_error
+from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
 class GeecsDevice:
     # Static
@@ -44,7 +44,7 @@ class GeecsDevice:
     exp_info: dict[str, Any] = {}
 
     def __init__(self, name: str, virtual: bool = False):
-
+        
         # Static properties
         self.__dev_name: str = name.strip()
         self.__dev_virtual = virtual or not self.__dev_name
@@ -58,7 +58,7 @@ class GeecsDevice:
         self.use_alias_in_TCP_subscription = True
 
         self.setpoints: dict[VarAlias, Any] = {}
-        self.state: dict[VarAlias, Any] = {'fresh': True,"shot number":None,"GEECS device error":False}
+        self.state: dict[VarAlias, Any] = {'fresh': False,"shot number":None,"GEECS device error":False, "Device alive on instantiation":False}
         
         self.generic_vars = ['Device Status', 'device error', 'device preset']
 
@@ -88,13 +88,33 @@ class GeecsDevice:
         self.dev_tcp: Optional[TcpSubscriber] = None
         self.dev_udp: Optional[UdpHandler] = None
 
-        self.init_resources()
+
+        try:
+            self.init_resources()
+        except Exception as e:
+            # If the failure is critical, wrap and raise it as a GeecsDeviceInstantiationError
+            raise GeecsDeviceInstantiationError(f"Failed to initialize device {name}: {e}") from e
 
         # Data
         self.data_root_path: Path = GeecsDevice.exp_info['data_path']
 
         if not GeecsDevice.appdata_path.is_dir():
             os.makedirs(GeecsDevice.appdata_path)
+        
+        # Initialize EventHandler to handle general updates
+        self.event_handler = EventHandler(['update'])
+
+        # Initialize TcpSubscriber and register the callback for updates
+        if self.dev_tcp:
+            self.dev_tcp.set_message_callback(self.handle_tcp_update)
+
+    # Handle updates (new messages) from TcpSubscriber and publish the 'update' event
+    def handle_tcp_update(self, message):
+        # Here we could update the state or do any necessary processing
+        self.state['last_message'] = message
+
+        # Notify all subscribers about the update
+        self.event_handler.publish('update', message)
 
     def init_resources(self):
         if not self.__dev_virtual:
@@ -106,16 +126,37 @@ class GeecsDevice:
                     if self.dev_tcp is None:
                         try:
                             self.dev_tcp = TcpSubscriber(owner=self)
-                        except Exception:
-                            api_error.error('Failed creating TCP subscriber', 'GeecsDevice class, method "__init__"')
+                        except Exception as e:
+                            api_error.error('Failed to connect a TCP subscriber',
+                                            'GeecsDevice class, method "__init__"')
+                            raise GeecsDeviceInstantiationError(
+                                f"TCP subscriber initialization failed for {self.__dev_name}: {e}") from e
                 else:
-                    api_error.warning(f'Device "{self.__dev_name}" not found', 'GeecsDevice class, method "__init__"')
+                    api_error.error(f'Device "{self.__dev_name}" not found in database',
+                                    'GeecsDevice class, method "__init__"')
+                    raise GeecsDeviceInstantiationError(f"Device {self.__dev_name} not found in database")
+
+                if self.dev_tcp:
+                    # Try to connect a TCP subscriber to see if the device is accessible
+                    is_device_on = self.dev_tcp.connect()
+                else:
+                    is_device_on = False
+
+                if not is_device_on:
+                    api_error.error(
+                        f'Failed to establish test TCP connection for {self.__dev_name}. Device not on or does not exist',
+                        'GeecsDevice class, method "init_resources"')
+                    self.close()
+                    raise GeecsDeviceInstantiationError(f"TCP connection test failed for {self.__dev_name}")
+                else:
+                    # Close the test TCP connection and mark device as active
+                    self.dev_tcp.close()
+                    self.state["Device alive on instantiation"] = True
         else:
             try:
                 self.close()
             except Exception:
                 pass
-
             self.dev_udp = None
             self.dev_tcp = None
 
@@ -556,13 +597,15 @@ class GeecsDevice:
         self._cleanup_threads()
 
         with GeecsDevice.threads_lock:
-            # if nothing running and commands in queue
-            if (not self.own_threads) and (not self.queue_cmds.empty()):
+            # Keep processing commands from the queue until it's empty
+            while not self.queue_cmds.empty():
                 try:
                     cmd_str, cmd_label, async_thread, attempts_max = self.queue_cmds.get_nowait()
                     self._process_command(cmd_str, cmd_label, thread_info=async_thread, attempts_max=attempts_max)
+                    time.sleep(0.5)  # Add 0.2 seconds delay between attempts to dequeue the next command
                 except queue.Empty:
-                    pass
+                    break  # Exit if queue is empty
+
 
     def _process_command(self, cmd_str: str, cmd_label: str,
                          thread_info: ThreadInfo = (None, None), attempts_max: int = 5):
@@ -591,7 +634,12 @@ class GeecsDevice:
 
     def handle_response(self, net_msg: mh.NetworkMessage) -> tuple[str, str, str, bool]:
         try:
-            dev_name, cmd_received, dev_val, err_status = GeecsDevice._response_parser(net_msg.msg)
+            response = GeecsDevice._response_parser(net_msg.msg)
+            if len(response) == 4:
+                dev_name, cmd_received, dev_val, err_status = response
+            else:
+                # Handle cases where the return value is not as expected
+                print(f"Unexpected response structure: {response}")
 
             # Queue & notify
             if self.notify_on_udp:
@@ -654,21 +702,22 @@ class GeecsDevice:
 
     def handle_subscription(self, net_msg: mh.NetworkMessage) -> tuple[str, int, dict[str, str]]:
         try:
+            # Extract necessary parts from the NetworkMessage object
             dev_name, shot_nb, dict_vals = GeecsDevice._subscription_parser(net_msg.msg)
-            
+        
             # Queue & notify
             if self.notify_on_tcp:
                 self.queue_tcp_msgs.put((dev_name, shot_nb, dict_vals))
                 self.notifier_tcp_msgs.notify_all()
 
             # Error handling
-            if net_msg.err.is_error or net_msg.err.is_warning:
+            if net_msg.err and net_msg.err.is_error:
                 print(net_msg.err)
 
             # Update dictionaries
             if dev_name == self.get_name() and dict_vals:
                 self.state['shot number'] = shot_nb
-                
+            
                 for var, val in dict_vals.items():
                     if var in self.generic_vars:
                         self.interpret_generic_variables(var, val)
@@ -676,19 +725,18 @@ class GeecsDevice:
                     if var in self.var_aliases_by_name:
                         var_alias: VarAlias = self.var_aliases_by_name[var][0]
                         self.state[var_alias] = self.interpret_value(var_alias, val)
-                        self.state['fresh']=True
-                        
+                        self.state['fresh'] = True
                     else:
                         if self.use_alias_in_TCP_subscription:
                             var_alias = self.find_alias_by_var(var)
                         else:
-                            var_alias = var #SB: don't always like switching from user defined variable to the alias
+                            var_alias = var  # Don't always switch from user-defined variable to alias
                         try:
                             val = float(val)
                         except Exception:
                             pass
                         self.state[var_alias] = val
-                        self.state['fresh']=True
+                        self.state['fresh'] = True
 
             return dev_name, shot_nb, dict_vals
 
@@ -696,6 +744,7 @@ class GeecsDevice:
             err = ErrorAPI(str(ex), f'Class {self.__class_name}, method "{inspect.stack()[0][3]}"')
             print(err)
             return '', 0, {}
+    
 
     @staticmethod
     def _subscription_parser(msg: str = '') -> tuple[str, int, dict[str, str]]:
@@ -720,10 +769,11 @@ class GeecsDevice:
         # Examples:
         # 'U_ESP_JetXYZ>>getJet_X (mm)>>>>error,Error occurred during access CVT -  "jet_x (mm)" variable not found'
         # 'U_ESP_JetXYZ>>getPosition.Axis 1>>7.600390>>no error,'
-
+        
         dev_name, cmd_received, dev_val, err_msg = msg.split('>>')
-        err_status, err_msg = err_msg.split(',')
+        err_status, err_msg = err_msg.split(',', 1)
         err_status = (err_status == 'error')
+
         if err_status:
             api_error.error(err_msg, f'Failed to execute command "{cmd_received}", error originated in control system')
 
