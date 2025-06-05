@@ -16,6 +16,7 @@ class BaseOptimizer:
             vocs: VOCS,
             evaluate_function: Callable[[Dict[str, Any]], Dict[str, Any]],
             generator_name: str,
+            evaluation_mode: str = 'per_shot',
             xopt_config_overrides: Optional[dict] = None,
             evaluator: Optional[BaseEvaluator] = None,
             device_requirements: Optional[Dict[str, Any]] = None,
@@ -30,6 +31,7 @@ class BaseOptimizer:
             vocs: A VOCS object defining the variables, objectives, and constraints.
             evaluate_function: A callable that takes a dictionary of variable values and returns a dictionary of results.
             generator_name: The name of the Xopt generator to use (e.g., 'random', 'cnsga').
+            evaluation_mode: either 'per_shot' or 'aggregate'
             xopt_config_overrides: Optional dictionary to override fields in the default Xopt configuration.
             evaluator: Optional reference to the evaluator object providing the evaluate_function.
             device_requirements: Optional dictionary defining required devices and variables for the optimization.
@@ -38,6 +40,7 @@ class BaseOptimizer:
         """
         self.vocs = vocs
         self.evaluate_function = evaluate_function
+        self.evaluation_mode = evaluation_mode
         self.generator_name = generator_name
         self.evaluator = evaluator
         self.device_requirements = device_requirements or {}
@@ -136,12 +139,16 @@ class BaseOptimizer:
         evaluator = evaluator_class(**evaluator_init_kwargs)
 
         generator_name = config['generator']['name']
+
+        evaluation_mode = config.get('evaluation_mode','per_shot')
+
         xopt_config_overrides = config.get('xopt_config_overrides', {})
 
 
         return cls(
             vocs=vocs,
             evaluate_function = evaluator.get_value,
+            evaluation_mode = evaluation_mode,
             generator_name = generator_name,
             xopt_config_overrides = xopt_config_overrides,
             evaluator = evaluator,

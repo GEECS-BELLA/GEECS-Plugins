@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # Standard library imports
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 
 import logging
 import time
@@ -31,7 +31,7 @@ class ScanStepExecutor:
 
         logging.info(f'constructing the scan step executor')
 
-    def execute_scan_loop(self, scan_steps: List[Dict[str, Any]]) -> pd.DataFrame:
+    def execute_scan_loop(self, scan_steps: List[Dict[str, Any]]) -> None:
         """
         Executes a sequence of scan steps in order. Each step moves devices,
         waits for acquisition, and finalizes logging. The loop can be interrupted
@@ -48,8 +48,6 @@ class ScanStepExecutor:
         # make the scan steps an instance variable so that they can be updated later as needed
         self.scan_steps = scan_steps
         logging.info(f'attempting to start loop with : {scan_steps}')
-
-        log_df = pd.DataFrame()
         step_index = 0
 
         while step_index < len(self.scan_steps):
@@ -63,7 +61,7 @@ class ScanStepExecutor:
             step_index += 1
 
         logging.info("Stopping logging.")
-        return log_df
+
 
     def execute_step(self, step: Dict[str, Any], index: int) -> None:
         """
@@ -84,7 +82,6 @@ class ScanStepExecutor:
             self.evaluate_acquired_data(index)
             if index + 1 < len(self.scan_steps):
                 self.generate_next_step(index+1)
-
 
     def prepare_for_step(self) -> None:
         """
