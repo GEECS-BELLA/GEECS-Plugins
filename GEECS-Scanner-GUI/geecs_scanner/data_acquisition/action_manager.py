@@ -1,14 +1,20 @@
+from __future__ import annotations
+from typing import Dict, Any, List
+
 import time
 import logging
-import yaml
 import sys
+
+import yaml
 
 # from PyQt5.QtWidgets import QMessageBox, QApplication
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from .utils import get_full_config_path  # Import the utility function
 from ..utils.exceptions import ActionError
-
+from geecs_scanner.data_acquisition.schemas.actions import (ActionLibrary, ActionSequence,
+                                                            ActionStep, SetStep, GetStep,
+                                                            ExecuteStep, WaitStep)
 
 class ActionManager:
     """
@@ -24,7 +30,7 @@ class ActionManager:
         """
         # Dictionary to store instantiated GeecsDevices
         self.instantiated_devices = {}
-        self.actions = {}
+        self.actions: Dict[str, ActionSequence] = {}
 
         if experiment_dir is not None:
             # Use the utility function to get the path to the actions.yaml file
@@ -34,21 +40,22 @@ class ActionManager:
             except FileNotFoundError:
                 logging.warning(f"actions.yaml file not found.")
 
-    def load_actions(self):
+    def load_actions(self)-> Dict[str, ActionSequence]:
 
         """
         Load the master actions from the given YAML file.
 
         Returns:
-            dict: A dictionary of actions loaded from the YAML file.
+            dict: A dictionary of NamedActions loaded from the YAML file.
         """
 
         actions_file = str(self.actions_file_path)  # Convert Path object to string
         with open(actions_file, 'r') as file:
-            actions = yaml.safe_load(file)
+            raw_yaml = yaml.safe_load(file)
+        library = ActionLibrary(**raw_yaml)
         logging.info(f"Loaded master actions from {actions_file}")
-        self.actions = actions['actions']
-        return actions['actions']
+        self.actions = library.actions
+        return self.actions
 
     def add_action(self, action_name: str, action_steps: dict[str, list]):
 
@@ -62,14 +69,12 @@ class ActionManager:
         Raises:
             ValueError: If the action steps dictionary does not contain only 'steps'.
         """
-        # Check that the steps are formatted correctly
-        if 'steps' not in action_steps or len(action_steps) != 1:
-            raise ValueError("Action Steps not formatted correctly")
+        try:
+            self.actions[action_name] = ActionSequence(**action_steps)
+        except Exception as e:
+            raise ValueError(f"Failed to add action '{action_name}': {e}")
 
-        # Add the action to the actions dictionary
-        self.actions[action_name] = action_steps
-
-    def execute_action(self, action_name):
+    def execute_action(self, action_name: str):
 
         """
         Execute a single action by its name, handling both device actions and nested actions.
@@ -82,53 +87,43 @@ class ActionManager:
         """
 
         if action_name not in self.actions:
-            message = f"Action '{action_name}' is not defined in the available actions."
-            logging.error(message)
-            raise ActionError(message)
+            raise ActionError(f"Action '{action_name}' is not defined.")
 
         action = self.actions[action_name]
-        steps = action['steps']
-
+        steps = action.steps
         self.ping_devices_in_action_list(action_steps=steps)
 
         for step in steps:
-            if 'wait' in step:
-                self._wait(step['wait'])
-            elif 'action_name' in step:
-                # Nested action: recursively execute the named action
-                nested_action_name = step['action_name']
-                logging.info(f"Executing nested action: {nested_action_name}")
-                self.execute_action(nested_action_name)
-            else:
-                # Regular device action
-                device_name = step['device']
-                variable = step['variable']
-                action_type = step['action']
-                value = step.get('value')
-                expected_value = step.get('expected_value')
-                wait_for_execution = step.get('wait_for_execution', True)
+            match step:
+                case WaitStep():
+                    self._wait(step.wait)
+                case ExecuteStep():
+                    logging.info(f"Executing nested action: {step.action_name}")
+                    self.execute_action(step.action_name)
+                case SetStep():
+                    device = self._get_or_create_device(step.device)
+                    self._set_device(device, step.variable, step.value, sync=step.wait_for_execution)
+                case GetStep():
+                    device = self._get_or_create_device(step.device)
+                    self._get_device(device, step.variable, step.expected_value)
+                case _:
+                    raise ActionError(f"Unrecognized action step type: {type(step)}")
 
-                # Instantiate device if it hasn't been done yet
-                if device_name not in self.instantiated_devices:
-                    self.instantiated_devices[device_name] = ScanDevice(device_name)
+    def _get_or_create_device(self, device_name: str) -> ScanDevice:
+        if device_name not in self.instantiated_devices:
+            self.instantiated_devices[device_name] = ScanDevice(device_name)
+        return self.instantiated_devices[device_name]
 
-                device = self.instantiated_devices[device_name]
-
-                if action_type == 'set':
-                    self._set_device(device, variable, value, sync = wait_for_execution)
-                elif action_type == 'get':
-                    self._get_device(device, variable, expected_value)
-
-    def ping_devices_in_action_list(self, action_steps: list):
+    def ping_devices_in_action_list(self, action_steps: List[ActionStep]):
         """
-        For each unique device in given list of steps, ping for the system timestamp.  Raises a
+        For each unique device in given list of ActionSteps, ping for the system timestamp.  Raises a
         GeecsDeviceInstantiationError if a device is not turned on
         """
-        devices = []
-        for step in action_steps:
-            if device_name := step.get('device', None):
-                if device_name not in devices:
-                    devices.append(device_name)
+        devices = {
+            step.device
+            for step in action_steps
+            if isinstance(step, (SetStep, GetStep))
+        }
         for device_name in devices:
             self.return_value(device_name, 'SysTimestamp')
 
@@ -145,7 +140,8 @@ class ActionManager:
 
         del self.actions[action_name]
 
-    def _set_device(self, device, variable, value, sync = True):
+    @staticmethod
+    def _set_device(device: ScanDevice, variable: str, value: Any, sync: bool = True):
         """
         Set a device variable to a specified value.
 
@@ -158,7 +154,7 @@ class ActionManager:
         result = device.set(variable, value, sync = sync)
         logging.info(f"Set {device.get_name()}:{variable} to {value}. Result: {result}")
 
-    def _get_device(self, device, variable, expected_value):
+    def _get_device(self, device: ScanDevice, variable: str, expected_value: Any):
 
         """
         Get the current value of a device variable and compare it to the expected value.
@@ -196,7 +192,8 @@ class ActionManager:
         device: ScanDevice = self.instantiated_devices[device_name]
         return device.get(variable)
 
-    def _wait(self, seconds):
+    @staticmethod
+    def _wait(seconds):
 
         """
         Wait for a specified number of seconds.

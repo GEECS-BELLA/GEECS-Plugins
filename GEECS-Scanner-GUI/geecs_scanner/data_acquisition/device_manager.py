@@ -6,12 +6,17 @@ import yaml
 import threading
 from pathlib import Path
 
+
+
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
 from .utils import get_full_config_path  # Import utility function to build paths to config files
 from .types import ScanConfig, ScanMode
+from .schemas.save_devices import SaveDeviceConfig, DeviceConfig
+from geecs_scanner.data_acquisition.schemas.actions import ActionSequence, SetStep  # or wherever ActionSequence is defined
 
+from pydantic import ValidationError
 
 class DeviceManager:
     """
@@ -33,8 +38,8 @@ class DeviceManager:
         self.async_observables = []  # Store asynchronous observables
         self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
         self.composite_variables = {}
-        self.scan_setup_action = {'steps': []}
-        self.scan_closeout_action = {'steps': []}
+        self.scan_setup_action = ActionSequence(steps=[])
+        self.scan_closeout_action = ActionSequence(steps=[])
         self.scan_base_description = ''
 
         self.fatal_error_event = threading.Event()  # Used to signal a fatal error
@@ -107,38 +112,29 @@ class DeviceManager:
             config_dictionary (dict): A dictionary containing the experiment configuration.
         """
 
-        # Load scan info
-        self.scan_base_description = config_dictionary.get('scan_info', {}).get('description', '')
-        # self.scan_setup_action = config_dictionary.get('setup_action', None)
-        # self.scan_closeout_action = config_dictionary.get('closeout_action', None)
+        try:
+            validated = SaveDeviceConfig(**config_dictionary)
+        except ValidationError as e:
+            logging.error(f"Invalid save device configuration: {e}")
+            return
 
-        # Append setup action from config
-        setup_actions = config_dictionary.get('setup_action', {}).get('steps', [])
-        if setup_actions:
-            self.scan_setup_action['steps'].extend(setup_actions)
+        self.scan_base_description = validated.scan_info.description if validated.scan_info else ''
+        self.scan_setup_action = validated.setup_action or ActionSequence(steps=[])
+        self.scan_closeout_action = validated.closeout_action or ActionSequence(steps=[])
 
-        # Append closeout action from config
-        closeout_actions = config_dictionary.get('closeout_action', {}).get('steps', [])
-        if closeout_actions:
-            self.scan_closeout_action['steps'].extend(closeout_actions)
-
-        self._load_devices_from_config(config_dictionary)
-
-        # Initialize the subscribers
+        self._load_devices_from_config(validated.devices)
         self.initialize_subscribers(self.event_driven_observables + self.async_observables, clear_devices=False)
-
         logging.info(f"Loaded scan info: {self.scan_base_description}")
 
-    def _load_devices_from_config(self, config):
+    def _load_devices_from_config(self, devices: dict[str, DeviceConfig]):
         """
         Helper method to load devices from the base or custom configuration files.
         Adds devices to the manager and categorizes them as synchronous or asynchronous.
 
         Args:
-            config (dict): A dictionary of devices and their configuration.
+            devices (dict): A dictionary of DeviceConfig.
         """
 
-        devices = config.get('Devices', {})
         for device_name, device_config in devices.items():
             variable_list = device_config.get('variable_list', [])
             synchronous = device_config.get('synchronous', False)
@@ -193,24 +189,21 @@ class DeviceManager:
 
             setup_value, closeout_value = values
 
-            # Append to setup_action
-            self.scan_setup_action['steps'].append({
-                'action': 'set',
-                'device': device_name,
-                'value': setup_value,  # setup value
-                'variable': analysis_type,
-                'wait_for_execution': False
-            })
+            self.scan_setup_action.steps.append(SetStep(
+                action='set',
+                device=device_name,
+                variable=analysis_type,
+                value=setup_value,
+                wait_for_execution=False
+            ))
 
-            # Append to closeout_action
-            self.scan_closeout_action['steps'].append({
-                'action': 'set',
-                'device': device_name,
-                'value': closeout_value,  # closeout value
-                'variable': analysis_type,
-                'wait_for_execution': False
-
-            })
+            self.scan_closeout_action.steps.append(SetStep(
+                action='set',
+                device=device_name,
+                variable=analysis_type,
+                value=closeout_value,
+                wait_for_execution=False
+            ))
 
             logging.info(
                 f"Added setup and closeout actions for {device_name}: {analysis_type} "
@@ -339,8 +332,8 @@ class DeviceManager:
             self.reset()
         self.is_reset = False
 
-        self.scan_setup_action['steps'] = []
-        self.scan_closeout_action['steps'] = []
+        self.scan_setup_action = ActionSequence(steps=[])
+        self.scan_closeout_action = ActionSequence(steps=[])
 
         # Now load the new configuration and reinitialize the instance
         if config_path is not None:
