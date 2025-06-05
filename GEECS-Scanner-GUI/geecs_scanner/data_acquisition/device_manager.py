@@ -1,5 +1,8 @@
 from __future__ import annotations
-from typing import Union
+from typing import Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from geecs_scanner.data_acquisition.schemas.save_devices import SaveDeviceConfig, DeviceConfig
 
 import logging
 import yaml
@@ -111,18 +114,22 @@ class DeviceManager:
         Args:
             config_dictionary (dict): A dictionary containing the experiment configuration.
         """
-
+        logging.info(f'config dict is {config_dictionary}')
         try:
             validated = SaveDeviceConfig(**config_dictionary)
         except ValidationError as e:
             logging.error(f"Invalid save device configuration: {e}")
             return
+        logging.info(f'validated SaveDeviceConfig is {validated}')
 
-        self.scan_base_description = validated.scan_info.description if validated.scan_info else ''
+        # note: there is a bit of mess with all these configs...
+        if config_dictionary.get('scan_info', None):
+            self.scan_base_description = config_dictionary['scan_info'].get('description')
+
         self.scan_setup_action = validated.setup_action or ActionSequence(steps=[])
         self.scan_closeout_action = validated.closeout_action or ActionSequence(steps=[])
 
-        self._load_devices_from_config(validated.devices)
+        self._load_devices_from_config(validated.Devices)
         self.initialize_subscribers(self.event_driven_observables + self.async_observables, clear_devices=False)
         logging.info(f"Loaded scan info: {self.scan_base_description}")
 
@@ -136,36 +143,33 @@ class DeviceManager:
         """
 
         for device_name, device_config in devices.items():
-            variable_list = device_config.get('variable_list', [])
-            synchronous = device_config.get('synchronous', False)
-            save_non_scalar = device_config.get('save_nonscalar_data', False)
-            scan_setup = device_config.get('scan_setup', None)
-            logging.info(f"{device_name}: Synchronous = {synchronous}, Save_Non_Scalar = {save_non_scalar}")
+            logging.info(f"{device_name}: Synchronous = {device_config.synchronous}, "
+                         f"Save_Non_Scalar = {device_config.save_nonscalar_data}")
 
             # Add to non-scalar saving devices if applicable
-            if save_non_scalar:  # *NOTE* `acq_timestamp allows for file renaming of nonscalar data
-                if 'acq_timestamp' not in variable_list:
-                    variable_list.append('acq_timestamp')
+            if device_config.save_nonscalar_data:  # *NOTE* `acq_timestamp allows for file renaming of nonscalar data
+                if 'acq_timestamp' not in device_config.variable_list:
+                    device_config.variable_list.append('acq_timestamp')
                 self.non_scalar_saving_devices.append(device_name)
 
             # Categorize as synchronous or asynchronous
-            if synchronous:  # *NOTE* `acq_timestamp` allows for checking synchronicity
-                if 'acq_timestamp' not in variable_list:
-                    variable_list.append('acq_timestamp')
-                self.event_driven_observables.extend([f"{device_name}:{var}" for var in variable_list])
+            if device_config.synchronous:  # *NOTE* `acq_timestamp` allows for checking synchronicity
+                if 'acq_timestamp' not in device_config.variable_list:
+                    device_config.variable_list.append('acq_timestamp')
+                self.event_driven_observables.extend([f"{device_name}:{var}" for var in device_config.variable_list])
             else:
-                self.async_observables.extend([f"{device_name}:{var}" for var in variable_list])
+                self.async_observables.extend([f"{device_name}:{var}" for var in device_config.variable_list])
 
             # Check if device already exists, if not, instantiate it
             if device_name not in self.devices:
-                self._subscribe_device(device_name, variable_list)
+                self._subscribe_device(device_name, device_config.variable_list)
             else:
                 # If device exists, append new variables to its subscription
-                self.devices[device_name].subscribe_var_values(variable_list)
+                self.devices[device_name].subscribe_var_values(device_config.variable_list)
 
             # Append scan setup actions if they exist
-            if scan_setup:
-                self.append_device_setup_closeout_actions(device_name, scan_setup)
+            if device_config.scan_setup:
+                self.append_device_setup_closeout_actions(device_name, device_config.scan_setup)
 
         logging.info(f"Devices loaded: {self.devices.keys()}")
 

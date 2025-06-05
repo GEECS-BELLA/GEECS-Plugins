@@ -57,20 +57,20 @@ class ActionManager:
         self.actions = library.actions
         return self.actions
 
-    def add_action(self, action_name: str, action_steps: dict[str, list]):
+    def add_action(self, action_name: str, action_seq: ActionSequence):
 
         """
         Add a new action to the default actions list. NOTE, action is not saved
 
         Args:
             action_name (str): Name of the action sequence
-            action_steps (dict): A dictionary containing 'steps':list.
+            action_seq (dict): A dictionary containing 'steps':list.
 
         Raises:
             ValueError: If the action steps dictionary does not contain only 'steps'.
         """
         try:
-            self.actions[action_name] = ActionSequence(**action_steps)
+            self.actions[action_name] = action_seq
         except Exception as e:
             raise ValueError(f"Failed to add action '{action_name}': {e}")
 
