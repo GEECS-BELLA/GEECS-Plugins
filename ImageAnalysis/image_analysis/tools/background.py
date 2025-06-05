@@ -21,6 +21,8 @@ class Background:
         self._background: Optional[np.ndarray] = None
         self._apodization_mask: Optional[np.ndarray] = None
         self._min_subtracted_value: float = 0.0
+    def set_constant_background(self, background: float) -> None:
+        self._background = background
 
     def set_background_from_array(self, background: np.ndarray) -> None:
         self._background = background.astype(np.float64)
