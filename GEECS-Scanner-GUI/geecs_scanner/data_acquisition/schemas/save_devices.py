@@ -33,7 +33,7 @@ class SaveDeviceConfig(BaseModel):
         None,
         description="(Optional) Mapping of device name → device config"
     )
-    scan_info: Optional[str] = Field('additional description')
+    scan_info: Optional[Dict[str,str]] = Field('additional description')
     setup_action: Optional[ActionSequence] = Field(
         None,
         description="(Optional) Steps to perform before a scan"
