@@ -19,6 +19,14 @@ class ExecuteStep(BaseModel):
     action: Literal["execute"]
     action_name: Annotated[str, Field(description="Name of another action defined in the action library")]
 
+class RunStep(BaseModel):
+    """
+    A step that attemps to exeute scripts.
+    """
+    action: Literal["run"]
+    file_name: Annotated[str, Field(description="Name of file to use for run")]
+    class_name: Annotated[str, Field(description="Name of class to to")]
+
 class SetStep(BaseModel):
     """
     A step that sets a variable on a device to a given value.
