@@ -3,13 +3,13 @@ from __future__ import annotations
 # Standard library imports
 from typing import Optional, List, Dict, Any
 
-from geecs_python_api.controls.devices.scan_device import ScanDevice
-from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-
-
-import pandas as pd
 import logging
 import time
+
+import pandas as pd
+import numpy as np
+
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
 class ScanStepExecutor:
     def __init__(self, device_manager, data_logger, scan_data_manager, optimizer, shot_control, options_dict,
@@ -80,18 +80,11 @@ class ScanStepExecutor:
         self.move_devices(step['variables'], step['is_composite'])
         logging.info(f'waiting for acquisition: {step}')
         self.wait_for_acquisition(step['wait_time'])
-        self.update_next_step(index)
+        if self.optimizer:
+            self.evaluate_acquired_data(index)
+            if index + 1 <= len(self.scan_steps):
+                self.generate_next_step(index+1)
 
-    def update_next_step(self, index: int) -> None:
-        """
-        Update the next scan step based on current data and results. This method is
-        useful for dynamic or optimization-driven scan sequences.
-
-        Args:
-            index (int): Index of the current step. The next step at index + 1 will be updated.
-        """
-        if index + 1 < len(self.scan_steps):
-            self.compute_next_step(index+1)
 
     def prepare_for_step(self) -> None:
         """
@@ -101,11 +94,13 @@ class ScanStepExecutor:
         """
         logging.info("Pausing logging. Turning trigger off before moving devices.")
 
+        # update variables in data_logger that are not updated via hardware
         if self.data_logger.virtual_variable_name is not None:
             self.data_logger.virtual_variable_value = self.data_logger.virtual_variable_list[self.data_logger.bin_num]
             logging.info(f"updating virtual value in data_logger from scan_manager to: {self.data_logger.virtual_variable_value}.")
 
         self.data_logger.bin_num += 1
+
         self.trigger_off()
 
     def move_devices(self, component_vars: Dict[str, Any], is_composite: bool, max_retries: int = 3, retry_delay: float = 0.5) -> None:
@@ -206,7 +201,43 @@ class ScanStepExecutor:
         self.scan_step_end_time = time.time()
         self.data_logger.data_recording = False
 
-    def compute_next_step(self, next_index: int) -> None:
+    def evaluate_acquired_data(self, index: int = None):
+        if index == 0:
+            variables = self.get_control_values_from_log()
+            self.scan_steps[index].update({'variables': variables})
+
+        self.optimizer.evaluate(inputs=self.scan_steps[index]['variables'])
+
+    def get_control_values_from_log(self) -> Dict[str, float]:
+        """
+        Extracts the average readback values for each variable in the VOCS
+        from log_entries for the current bin number.
+
+        Returns:
+            Dict[str, float]: Averaged variable values keyed by variable name.
+        """
+        current_bin = self.data_logger.bin_num
+        variables = {var: [] for var in self.optimizer.vocs.variable_names}
+
+        # Filter entries for the current bin
+        for entry in self.data_logger.log_entries.values():
+            if entry.get("Bin #") == current_bin:
+                for var in self.optimizer.vocs.variable_names:
+                    if var in entry:
+                        variables[var].append(entry[var])
+
+        # Compute averages
+        averaged_values = {}
+        for var, values in variables.items():
+            if values:
+                averaged_values[var] = float(np.mean(values))
+            else:
+                logging.warning(f"No readback data found for variable '{var}' in bin {current_bin}")
+                averaged_values[var] = float("nan")
+
+        return averaged_values
+
+    def generate_next_step(self, next_index: int) -> None:
         """
         Update the next scan step using an optimizer if available.
         This executes an optimization process where the next point is determined
@@ -215,19 +246,6 @@ class ScanStepExecutor:
         Args:
             next_index (int): Index of the scan step to update.
         """
-        if not hasattr(self, 'optimizer') or self.optimizer is None:
-            logging.info(f'no optimizer found')
-            return
-
-        # todo: the first step has an empty variables dict, whcih can't be used
-        # to update xopt. Need to add something to update the variables entry
-        # in self.scan_steps from values in self.data_logger.log_entries. Right now
-        # this just ignores data taken during the first step
-        if next_index > 1:
-            # update xopt with the evaluation of the objective function after the
-            # previous move. In terms of order of operations, this probablyh could
-            # be improved to speed things up.
-            self.optimizer.evaluate(inputs=self.scan_steps[next_index-1]['variables'])
 
         num_initialization_steps = 1
         try:
@@ -247,9 +265,7 @@ class ScanStepExecutor:
             return
 
         # Overwrite only the 'variables' key
-        self.scan_steps[next_index].update({
-            'variables': next_variables
-        })
+        self.scan_steps[next_index].update({'variables': next_variables})
         logging.info(f"Next step after update: {self.scan_steps[next_index]}")
 
     def trigger_on(self) -> None:
