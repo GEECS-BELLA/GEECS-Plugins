@@ -21,7 +21,7 @@ from scan_analysis.base import ScanAnalysis
 
 # %% classes
 class MagSpecStitcherAnalysis(ScanAnalysis):
-    def __init__(self, scan_tag: ScanTag, device_name: str, skip_plt_show: bool = True, image_analyzer=None):
+    def __init__(self, scan_tag: ScanTag, device_name: str, skip_plt_show: bool = True):
         super().__init__(scan_tag, device_name=device_name, skip_plt_show=skip_plt_show)
         # self.data_subdirectory = Path(scan_directory) / data_subdirectory
         self.data_subdirectory = self.scan_directory / f"{device_name}-interpSpec"
@@ -33,7 +33,7 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
 
         self.save_path = (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / f"{device_name}")        
 
-    def run_analysis(self, config_options: Optional[str] = None):
+    def run_analysis(self):
         """
         Main function to run the analysis and generate plots.
         """
@@ -43,10 +43,6 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
 
         try:
             energy_values, charge_density_matrix = self.load_charge_data()
-
-            if config_options is not None:
-                # TODO set some values for `interpolate_data`, etc from a config file
-                pass
 
             if energy_values is None or len(charge_density_matrix) == 0:
                 logging.error("No valid charge data found. Skipping analysis.")

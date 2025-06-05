@@ -16,6 +16,7 @@ from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3
 from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
 from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, PhaseDownrampProcessor
 
+from dataclasses import asdict
 
 def get_path_to_bkg_file():
     st = ScanTag(2025, 3, 6, 15, experiment='Undulator')
@@ -30,8 +31,11 @@ phase_analysis_config: PhaseAnalysisConfig = PhaseAnalysisConfig(
     wavelength_nm=800,  # Probe laser wavelength in nm
     threshold_fraction=0.05,  # Threshold fraction for pre-processing
     roi=(10, -10, 75, -250),  # Example ROI: (x_min, x_max, y_min, y_max)
-    background=bkg_file_path  # Background is now a Path
+    background_path=bkg_file_path  # Background is now a Path
 )
+
+phase_analysis_config_dict = asdict(phase_analysis_config)
+
 
 undulator_analyzers = [
     Info(analyzer_class=MagSpecStitcherAnalysis,
@@ -74,16 +78,14 @@ undulator_analyzers = [
     Info(analyzer_class=Array2DScanAnalysis,
          requirements={'UC_ACaveMagCam3'},
          device_name='UC_ACaveMagCam3',
-         image_analyzer_class = ACaveMagCam3ImageAnalyzer),
+         extra_kwargs={'image_analyzer':ACaveMagCam3ImageAnalyzer()}),
     Info(analyzer_class=HIMGWithAveraging,
          requirements={'U_HasoLift'},
          device_name='U_HasoLift',
-         image_analyzer_class=HASOHimgHasProcessor,
-         file_tail = ".himg"),
+         extra_kwargs={'image_analyzer': HASOHimgHasProcessor(), 'file_tail':".himg"}),
     Info(analyzer_class=Array2DScanAnalysis,
          requirements={'U_HasoLift'},
          device_name='U_HasoLift',
-         image_analyzer_class=PhaseDownrampProcessor,
-         file_tail="_postprocessed.tsv",
-         image_analysis_config=phase_analysis_config)
+         extra_kwargs={'image_analyzer': PhaseDownrampProcessor(**phase_analysis_config_dict),
+                       'file_tail':"_postprocessed.tsv"})
 ]

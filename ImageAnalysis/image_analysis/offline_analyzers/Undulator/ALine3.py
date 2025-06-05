@@ -5,7 +5,13 @@ from pathlib import Path
 
 import numpy as np
 from scipy.ndimage import label, gaussian_filter
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import Normalize
+from matplotlib.patches import Ellipse
+
 from image_analysis.base import ImageAnalyzer
+from image_analysis.tools.rendering import base_render_image
+
 import logging
 
 class Aline3Analyzer(ImageAnalyzer):
@@ -14,11 +20,11 @@ class Aline3Analyzer(ImageAnalyzer):
         """
         Parameters
         ----------
-
         """
         self.run_analyze_image_asynchronously = True
         self.flag_logging = True
         self.min_val = 0
+        self.use_interactive = False
 
         super().__init__()
 
@@ -143,15 +149,56 @@ class Aline3Analyzer(ImageAnalyzer):
         """
 
         beam_stats = self.beam_profile_stats(image)
-        uint16_image = (image-self.min_val).astype(np.uint16)
+        analyzed_image = (image-self.min_val).astype(np.uint16)
 
-        return_dictionary = self.build_return_dictionary(return_image=uint16_image, return_scalars=beam_stats)
+        return_dictionary = self.build_return_dictionary(return_image=analyzed_image, return_scalars=beam_stats)
+
+        if self.use_interactive:
+            fig, ax = self.render_image(image=analyzed_image)
+            plt.show()
+            plt.close(fig)
 
         return return_dictionary
 
+    @staticmethod
+    def render_image(
+            image: np.ndarray,
+            analysis_results_dict: Optional[dict[str, Union[float, int]]] = None,
+            input_params_dict: Optional[dict[str, Union[float, int]]] = None,
+            vmin: Optional[float] = None,
+            vmax: Optional[float] = None,
+            cmap: str = 'plasma',
+            figsize: Tuple[float, float] = (4, 4),
+            dpi: int = 150,
+            ax: Optional[plt.Axes] = None
+    ) -> tuple[plt.Figure, plt.Axes]:
+
+        """
+        Overlay-enhanced version of the base renderer for VisaEBeam or similar.
+        """
+        fig, ax = base_render_image(
+            image=image,
+            analysis_results_dict=analysis_results_dict,
+            input_params_dict=input_params_dict,
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
+            figsize=figsize,
+            dpi=dpi,
+            ax=ax
+        )
+
+        return fig, ax
+
+
 if __name__ == "__main__":
     image_analyzer  = Aline3Analyzer()
-    file_path = Path('Z:\\data\\Undulator\\Y2025\\05-May\\25_0507\\scans\\Scan029\\UC_ALineEBeam3\\Scan029_UC_ALineEBeam3_001.png')
+    image_analyzer.use_interactive = True
+    # file_path = Path('Z:\\data\\Undulator\\Y2025\\05-May\\25_0507\\scans\\Scan029\\UC_ALineEBeam3\\Scan029_UC_ALineEBeam3_001.png')
+    # file_path = Path('\Volumes\hdna2\data\Undulator\Y2025\05-May\25_0507\scans\Scan029\UC_ALineEBeam3\Scan029_UC_ALineEBeam3_001.png')
+    file_path = Path('/Volumes/hdna2/data/Undulator/Y2025/05-May/25_0507/scans/Scan029/UC_ALineEBeam3/Scan029_UC_ALineEBeam3_001.png')
+
+
     print(file_path.exists())
     results = image_analyzer.analyze_image_file(image_filepath=file_path)
     print(results)

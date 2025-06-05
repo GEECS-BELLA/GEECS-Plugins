@@ -54,7 +54,7 @@ class HTTMagSpecAnalysis(ScanAnalysis):
             average_image /= 10
             self.backgrounds[device] = average_image
 
-    def run_analysis(self, config_options: Optional[str] = None):
+    def run_analysis(self):
         """ Main function to run the analysis and generate plots. """
         # For HTU we grab these from files
         # energy_values, charge_density_matrix

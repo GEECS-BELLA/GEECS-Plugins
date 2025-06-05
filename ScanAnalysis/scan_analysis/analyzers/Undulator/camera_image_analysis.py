@@ -33,8 +33,8 @@ class CameraImageAnalysis(ScanAnalysis):
     def __init__(self, scan_tag: ScanTag, device_name: str,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
-                 flag_save_images: bool = True,
-                 image_analyzer=None):
+                 flag_save_images: bool = True
+                 ):
         """
         Initialize the CameraImageAnalysis class.
 
@@ -76,17 +76,12 @@ class CameraImageAnalysis(ScanAnalysis):
             if self.flag_logging:
                 logging.warning(f"Data directory '{self.path_dict['data_img']}' does not exist or is empty. Skipping")
 
-    def run_analysis(self, config_options: Optional[str] = None):
+    def run_analysis(self):
         # initialize analysis
         if self.path_dict['data_img'] is None or self.auxiliary_data is None:
             if self.flag_logging:
                 logging.info("Skipping analysis due to missing data or auxiliary file.")
             return
-
-        # initialize various analysis parameters
-        if config_options is not None:
-            # TODO read the given file to `self.camera_analysis_settings`
-            raise NotImplementedError
 
         # if saving, make sure save location exists
         if self.flag_save_images and not self.path_dict['save'].exists():

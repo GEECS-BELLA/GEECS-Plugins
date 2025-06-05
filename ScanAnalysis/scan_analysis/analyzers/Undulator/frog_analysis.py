@@ -31,8 +31,7 @@ class FrogAnalysis(ScanAnalysis):
                  device_name: str,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
-                 flag_save_images: bool = True,
-                 image_analyzer=None) -> None:
+                 flag_save_images: bool = True) -> None:
         """
         Initialize FrogAnalysis class for analyzing FROG images.
 
@@ -74,7 +73,7 @@ class FrogAnalysis(ScanAnalysis):
             if self.flag['logging']:
                 logging.warning(f"Data directory '{self.path_dict['data_img']}' does not exist or is empty.")
 
-    def run_analysis(self, config_options: Optional[Union[Path, str]] = None) -> Optional[list[Union[Path, str]]]:
+    def run_analysis(self) -> Optional[list[Union[Path, str]]]:
         """
         Run the appropriate analysis based on scan type.
 
