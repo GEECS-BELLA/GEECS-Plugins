@@ -82,7 +82,7 @@ class ScanStepExecutor:
         self.wait_for_acquisition(step['wait_time'])
         if self.optimizer:
             self.evaluate_acquired_data(index)
-            if index + 1 <= len(self.scan_steps):
+            if index + 1 < len(self.scan_steps):
                 self.generate_next_step(index+1)
 
 
@@ -200,6 +200,9 @@ class ScanStepExecutor:
 
         self.scan_step_end_time = time.time()
         self.data_logger.data_recording = False
+
+        # adding a sleep, because the trigger_off seems to be asynchronous
+        time.sleep(.5)
 
     def evaluate_acquired_data(self, index: int = None):
         if index == 0:

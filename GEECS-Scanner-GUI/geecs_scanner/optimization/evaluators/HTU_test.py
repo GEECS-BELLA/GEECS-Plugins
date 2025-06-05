@@ -17,8 +17,7 @@ class TestEvaluator(BaseEvaluator):
                  data_logger: Optional[DataLogger] = None):
         required_keys = {
             'var1': 'UC_TC_Phosphor:acq_timestamp',
-            'var2': 'UC_TC_Phosphor:MeanCounts',
-            'var3': 'UC_ALineEBeam3:acq_timestamp',
+            'var2': 'UC_ALineEBeam3:acq_timestamp',
         }
 
         super().__init__(
