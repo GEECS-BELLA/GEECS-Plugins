@@ -1,44 +1,25 @@
 from typing import Union
+from geecs_scanner.data_acquisition.schemas.actions import SetStep, GetStep, WaitStep, ExecuteStep, RunStep
 
-
-def get_new_action(action) -> Union[None, dict[str, str]]:
+def get_new_action(action: str) -> Union[None, dict]:
     """
-    Translates a given action keyword to a default dictionary for that action keyword
+    Generates a default dictionary for a given action keyword using the associated Pydantic model.
 
     :param action: action keyword
-    :return: default dictionary for the associated action
+    :return: default dictionary for that action
     """
-    default = None
     if action == 'set':
-        default = {
-            'action': 'set',
-            'device': '',
-            'variable': '',
-            'value': ''
-        }
+        return SetStep(action='set', device='', variable='', value='').model_dump()
     elif action == 'get':
-        default = {
-            'action': 'get',
-            'device': '',
-            'variable': '',
-            'expected_value': ''
-        }
+        return GetStep(action='get', device='', variable='', expected_value='').model_dump()
     elif action == 'wait':
-        default = {
-            'wait': ''
-        }
+        return WaitStep(action='wait', wait=1.0).model_dump()  # Default wait duration (you can choose your own)
     elif action == 'execute':
-        default = {
-            'action': 'execute',
-            'action_name': ''
-        }
+        return ExecuteStep(action='execute', action_name='').model_dump()
     elif action == 'run':
-        default = {
-            'action': 'run',
-            'file_name': '',
-            'class_name': ''
-        }
-    return default
+        return RunStep(action='run', file_name='', class_name='').model_dump()
+    else:
+        return None
 
 
 # List of available actions, to be used by the completer for the add action line edit
@@ -53,8 +34,8 @@ list_of_actions = [
 def generate_action_description(action: dict[str, list]) -> str:
     """ For each action type, generate a string that displays all the information for that action step """
     description = "???"
-    if action.get("wait") is not None:
-        description = f"wait {action['wait']}"
+    if action.get("action") == "wait":
+        description = f"wait {action.get('wait')}"
     elif action['action'] == 'execute':
         description = f"execute {action['action_name']}"
     elif action['action'] == 'set':
