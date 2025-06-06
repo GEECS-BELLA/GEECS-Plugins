@@ -1,24 +1,21 @@
 import numpy as np
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-
-def compute_centroid(profile: np.ndarray) -> float:
+def compute_center_of_mass(profile: np.ndarray) -> float:
     """
-    Compute centroid (center of mass) of a 1D profile.
+    Compute center of mass of a 1D profile.
 
     Returns 0.0 and logs a warning if profile has non-positive total intensity.
     """
     profile = np.asarray(profile, dtype=float)
     total = profile.sum()
     if total <= 0:
-        logger.warning("compute_centroid: Profile has non-positive total intensity. Returning 0.0.")
+        logger.warning("compute_center_of_mass: Profile has non-positive total intensity. Returning 0.0.")
         return 0.0
     coords = np.arange(profile.size)
     return np.sum(coords * profile) / total
-
 
 def compute_rms(profile: np.ndarray) -> float:
     """
@@ -32,9 +29,8 @@ def compute_rms(profile: np.ndarray) -> float:
         logger.warning("compute_rms: Profile has non-positive total intensity. Returning 0.0.")
         return 0.0
     coords = np.arange(profile.size)
-    centroid = compute_centroid(profile)
-    return np.sqrt(np.sum((coords - centroid) ** 2 * profile) / total)
-
+    com = compute_center_of_mass(profile)
+    return np.sqrt(np.sum((coords - com) ** 2 * profile) / total)
 
 def compute_fwhm(profile: np.ndarray) -> float:
     """
@@ -71,8 +67,6 @@ def compute_fwhm(profile: np.ndarray) -> float:
 
     return right_edge - left_edge
 
-
-
 def compute_peak_location(profile: np.ndarray) -> int:
     """
     Compute index of peak value in a 1D profile.
@@ -85,19 +79,17 @@ def compute_peak_location(profile: np.ndarray) -> int:
         return 0
     return int(np.argmax(profile))
 
-
-def compute_2d_centroids(img: np.ndarray) -> tuple[float, float]:
+def compute_2d_center_of_mass(img: np.ndarray) -> tuple[float, float]:
     """
-    Compute centroids along x and y axes from a 2D image.
+    Compute center of mass along x and y axes from a 2D image.
 
     Returns (0.0, 0.0) and logs a warning if total image intensity is non-positive.
     """
     img = np.asarray(img, dtype=float)
     if img.sum() <= 0:
-        logger.warning("compute_2d_centroids: Image has non-positive total intensity. Returning (0.0, 0.0).")
+        logger.warning("compute_2d_center_of_mass: Image has non-positive total intensity. Returning (0.0, 0.0).")
         return 0.0, 0.0
-    return compute_centroid(img.sum(axis=0)), compute_centroid(img.sum(axis=1))
-
+    return compute_center_of_mass(img.sum(axis=0)), compute_center_of_mass(img.sum(axis=1))
 
 def compute_2d_rms(img: np.ndarray) -> tuple[float, float]:
     """
@@ -111,7 +103,6 @@ def compute_2d_rms(img: np.ndarray) -> tuple[float, float]:
         return 0.0, 0.0
     return compute_rms(img.sum(axis=0)), compute_rms(img.sum(axis=1))
 
-
 def compute_2d_fwhm(img: np.ndarray) -> tuple[float, float]:
     """
     Compute FWHM along x and y axes from a 2D image.
@@ -123,7 +114,6 @@ def compute_2d_fwhm(img: np.ndarray) -> tuple[float, float]:
         logger.warning("compute_2d_fwhm: Image has non-positive total intensity. Returning (0.0, 0.0).")
         return 0.0, 0.0
     return compute_fwhm(img.sum(axis=0)), compute_fwhm(img.sum(axis=1))
-
 
 def compute_2d_peak_locations(img: np.ndarray) -> tuple[int, int]:
     """
@@ -137,10 +127,9 @@ def compute_2d_peak_locations(img: np.ndarray) -> tuple[int, int]:
         return 0, 0
     return compute_peak_location(img.sum(axis=0)), compute_peak_location(img.sum(axis=1))
 
-
 def beam_profile_stats(img: np.ndarray, prefix: str = "") -> dict[str, float]:
     """
-    Compute beam profile statistics (centroid, RMS, FWHM, peak) from 2D image.
+    Compute beam profile statistics (CoM, RMS, FWHM, peak) from 2D image.
 
     Parameters:
         img (np.ndarray): 2D image array.
@@ -154,25 +143,25 @@ def beam_profile_stats(img: np.ndarray, prefix: str = "") -> dict[str, float]:
         logger.warning("beam_profile_stats: Image has non-positive total intensity. Returning all 0.0 values.")
         prefix = f"{prefix}_" if prefix else ""
         return {
-            f"{prefix}x_mean": 0.0,
-            f"{prefix}x_rms": 0.0,
-            f"{prefix}x_fwhm": 0.0,
-            f"{prefix}x_peak": 0.0,
-            f"{prefix}y_mean": 0.0,
-            f"{prefix}y_rms": 0.0,
-            f"{prefix}y_fwhm": 0.0,
-            f"{prefix}y_peak": 0.0,
+            f"{prefix}_x_CoM": 0.0,
+            f"{prefix}_x_rms": 0.0,
+            f"{prefix}_x_fwhm": 0.0,
+            f"{prefix}_x_peak": 0.0,
+            f"{prefix}_y_CoM": 0.0,
+            f"{prefix}_y_rms": 0.0,
+            f"{prefix}_y_fwhm": 0.0,
+            f"{prefix}_y_peak": 0.0,
         }
 
     x_proj = img.sum(axis=0)
     y_proj = img.sum(axis=1)
 
-    x_centroid = compute_centroid(x_proj)
+    x_com = compute_center_of_mass(x_proj)
     x_rms = compute_rms(x_proj)
     x_fwhm = compute_fwhm(x_proj)
     x_peak = compute_peak_location(x_proj)
 
-    y_centroid = compute_centroid(y_proj)
+    y_com = compute_center_of_mass(y_proj)
     y_rms = compute_rms(y_proj)
     y_fwhm = compute_fwhm(y_proj)
     y_peak = compute_peak_location(y_proj)
@@ -180,11 +169,11 @@ def beam_profile_stats(img: np.ndarray, prefix: str = "") -> dict[str, float]:
     prefix = f"{prefix}_" if prefix else ""
 
     return {
-        f"{prefix}x_mean": x_centroid,
+        f"{prefix}x_mean": x_com,
         f"{prefix}x_rms": x_rms,
         f"{prefix}x_fwhm": x_fwhm,
         f"{prefix}x_peak": x_peak,
-        f"{prefix}y_mean": y_centroid,
+        f"{prefix}y_mean": y_com,
         f"{prefix}y_rms": y_rms,
         f"{prefix}y_fwhm": y_fwhm,
         f"{prefix}y_peak": y_peak,

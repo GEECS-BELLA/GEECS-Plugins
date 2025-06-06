@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.WARNING)
 def test_compute_centroid_valid():
     profile = np.array([0, 1, 2, 3, 4])
     expected = (1*1 + 2*2 + 3*3 + 4*4) / (1+2+3+4)
-    assert np.isclose(bbs.compute_centroid(profile), expected)
+    assert np.isclose(bbs.compute_center_of_mass(profile), expected)
 
 
 def test_compute_rms_valid():
@@ -33,7 +33,7 @@ def test_compute_peak_location():
 def test_compute_2d_centroids_and_rms():
     img = np.zeros((5, 5))
     img[2, 3] = 10
-    x_c, y_c = bbs.compute_2d_centroids(img)
+    x_c, y_c = bbs.compute_2d_center_of_mass(img)
     x_rms, y_rms = bbs.compute_2d_rms(img)
     assert np.isclose(x_c, 3.0)
     assert np.isclose(y_c, 2.0)
@@ -72,7 +72,7 @@ def test_zero_intensity_image():
 
 def test_negative_values_handling():
     profile = np.array([-1, -2, -3])
-    centroid = bbs.compute_centroid(profile)
+    centroid = bbs.compute_center_of_mass(profile)
     rms = bbs.compute_rms(profile)
     fwhm = bbs.compute_fwhm(profile)
 
