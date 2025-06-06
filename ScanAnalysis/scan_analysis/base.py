@@ -4,7 +4,7 @@ class for all implementing analyzers and the main requirements are to satisfy th
 
 ------------------------------------------------------------------------------------------------------------------------
 
-For the "requirements" block of AnalyzerInfo to be compatible with `scan_evaluator.py`, follow these guidelines and see
+For the "requirements" block of ScanAnalyzerInfo to be compatible with `scan_evaluator.py`, follow these guidelines and see
 `map_Undulator` as an example.
 
 # Either a dictionary element of 'AND' or 'OR' followed by a list of devices.
@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 from geecs_data_utils import ScanData
 
 # %% classes
-class AnalyzerInfo(NamedTuple):
+class ScanAnalyzerInfo(NamedTuple):
     analyzer_class: Type[ScanAnalyzer]
     requirements: Union[dict[str, list], set, str]
     device_name: Optional[str] = None

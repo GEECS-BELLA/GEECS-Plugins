@@ -5,7 +5,7 @@ ScanAnalyzer.  If this remains the case, then TODO should make a shared version 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union
 if TYPE_CHECKING:
-    from scan_analysis.base import AnalyzerInfo
+    from scan_analysis.base import ScanAnalyzerInfo
 
 import time
 from pathlib import Path
@@ -76,7 +76,7 @@ class AnalysisFolderEventHandler(FileSystemEventHandler):
 
 class ScanWatch:
     def __init__(self, experiment_name: str, year: int, month: Union[int, str], day: int,
-                 analyzer_list: list[AnalyzerInfo], ignore_list: list[int] = None, overwrite_previous: bool = False,
+                 analyzer_list: list[ScanAnalyzerInfo], ignore_list: list[int] = None, overwrite_previous: bool = False,
                  perform_initial_search: bool = True, upload_to_scanlog: bool = True, documentID: Optional[str] = None):
         """
         Parameters

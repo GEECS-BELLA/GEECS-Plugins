@@ -793,7 +793,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
 if __name__ == "__main__":
 
-    from scan_analysis.base import AnalyzerInfo as Info
+    from scan_analysis.base import ScanAnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan
     from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, \
             PhaseDownrampProcessor

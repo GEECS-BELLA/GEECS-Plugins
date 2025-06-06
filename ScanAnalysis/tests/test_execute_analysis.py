@@ -5,7 +5,7 @@ from scan_analysis.execute_scan_analysis import analyze_scan
 from pathlib import Path
 from dataclasses import asdict
 
-from scan_analysis.base import AnalyzerInfo as Info
+from scan_analysis.base import ScanAnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 
 class TestExecuteAnalysis(unittest.TestCase):

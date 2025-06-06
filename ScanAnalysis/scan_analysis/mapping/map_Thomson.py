@@ -1,4 +1,4 @@
-from scan_analysis.base import AnalyzerInfo as Info
+from scan_analysis.base import ScanAnalyzerInfo as Info
 
 from scan_analysis.analyzers.Thomson.htt_magspec_analysis import HTTMagSpecAnalyzer
 

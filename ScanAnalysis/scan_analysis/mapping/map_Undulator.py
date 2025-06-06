@@ -1,6 +1,6 @@
 from geecs_data_utils import ScanData, ScanTag
 
-from scan_analysis.base import AnalyzerInfo as Info
+from scan_analysis.base import ScanAnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 
 from scan_analysis.analyzers.Undulator.hi_res_mag_cam_analysis import HiResMagCamAnalysis
