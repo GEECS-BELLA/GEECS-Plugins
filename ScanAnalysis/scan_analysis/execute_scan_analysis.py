@@ -35,7 +35,7 @@ def instantiate_scan_analyzer(scan_tag: ScanTag, scan_analyzer_info: ScanAnalyze
 
     This function unpacks the analyzer class and keyword arguments from the ScanAnalyzerInfo object
     and constructs an instance, injecting the provided scan_tag, device_name, and any analyzer-specific
-    configuration from extra_kwargs.
+    configuration from scan_analyzer_kwargs.
 
     Args:
         scan_tag (ScanTag): Tag representing the scan's experiment, date, and scan number.
@@ -48,7 +48,7 @@ def instantiate_scan_analyzer(scan_tag: ScanTag, scan_analyzer_info: ScanAnalyze
         scan_tag=scan_tag,
         device_name=scan_analyzer_info.device_name,
         skip_plt_show=True,
-        **scan_analyzer_info.extra_kwargs
+        **scan_analyzer_info.scan_analyzer_kwargs
     )
 
 

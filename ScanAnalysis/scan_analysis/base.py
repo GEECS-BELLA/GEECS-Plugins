@@ -33,7 +33,7 @@ class ScanAnalyzerInfo(NamedTuple):
     requirements: Union[dict[str, list], set, str]
     device_name: Optional[str] = None
     is_active: bool = True
-    extra_kwargs: dict[str, Any] = {}
+    scan_analyzer_kwargs: dict[str, Any] = {}
 
 # error classes
 class DataLengthError(ValueError):
