@@ -33,7 +33,7 @@ class TestScanEvaluator(unittest.TestCase):
         results = check_for_analysis_match(folder, undulator_analyzers)
         self.assertEqual(len(results), 1)
         for a in results:
-            self.assertEqual(a.analyzer_class.__name__, 'CameraImageAnalysis')
+            self.assertEqual(a.analyzer_class.__name__, 'CameraImageAnalyzer')
             self.assertEqual(a.device_name, 'UC_ALineEBeam3')
             if do_print:
                 print(a.analyzer_class.__name__, a.device_name)

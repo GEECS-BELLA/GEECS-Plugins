@@ -19,12 +19,12 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from scan_analysis.base import ScanAnalysis
+from scan_analysis.base import ScanAnalyzer
 from geecs_python_api.controls.api_defs import ScanTag
 
 # %% classes
 
-class FiberSpectrometerAnalysis(ScanAnalysis):
+class FiberSpectrometerAnalyzer(ScanAnalyzer):
 
     def __init__(self, scan_tag: ScanTag, device_name: str,
                  skip_plt_show: bool = True,
@@ -41,7 +41,7 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
         # organize paths
         self.path_dict = {'data': Path(self.scan_directory) / f"{device_name}",
                           'save': (self.scan_directory.parents[1] / 'analysis'
-                                   / self.scan_directory.name / f"{device_name}" / "FiberSpectrometerAnalysis")
+                                   / self.scan_directory.name / f"{device_name}" / "FiberSpectrometerAnalyzer")
                           }
 
         # initialize future variables
@@ -67,7 +67,7 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
 
         except Exception as e:
             raise Exception(f""""
-                            Error: FiberSpectrometerAnalysis for {self.device_name} failed.
+                            Error: FiberSpectrometerAnalyzer for {self.device_name} failed.
                             Error Message: {e}.
                             """)
 
@@ -282,7 +282,7 @@ def testing():
     tag = ScanTag(**kwargs)
 
     # initialize analyzer, run analysis
-    analyzer = FiberSpectrometerAnalysis(scan_tag=tag, device_name="U_HamaSpectro")
+    analyzer = FiberSpectrometerAnalyzer(scan_tag=tag, device_name="U_HamaSpectro")
     analyzer.run_analysis()
 
 # %% execute

@@ -19,12 +19,12 @@ import logging
 import numpy as np
 import matplotlib.pyplot as plt
 
-from scan_analysis.base import ScanAnalysis
+from scan_analysis.base import ScanAnalyzer
 from image_analysis.utils import read_imaq_image
 
 # %% classes
 
-class FrogAnalysis(ScanAnalysis):
+class FrogAnalyzer(ScanAnalyzer):
 
     def __init__(self,
                  scan_tag: ScanTag,
@@ -33,7 +33,7 @@ class FrogAnalysis(ScanAnalysis):
                  flag_logging: bool = True,
                  flag_save_images: bool = True) -> None:
         """
-        Initialize FrogAnalysis class for analyzing FROG images.
+        Initialize FrogAnalyzer class for analyzing FROG images.
 
         Parameters
         ----------
@@ -54,7 +54,7 @@ class FrogAnalysis(ScanAnalysis):
             If device_name is empty
         """
         if not device_name:
-            raise ValueError("FrogAnalysis requires a device name.")
+            raise ValueError("FrogAnalyzer requires a device name.")
 
         super().__init__(scan_tag=scan_tag, device_name=device_name,
                          skip_plt_show=skip_plt_show)
@@ -271,7 +271,7 @@ def testing():
     kwargs = {'year': 2025, 'month': 3, 'day': 6, 'number': 15, 'experiment': 'Undulator'}
     tag = ScanData.get_scan_tag(**kwargs)
 
-    analyzer = FrogAnalysis(scan_tag=tag, device_name="U_FROG_Grenouille-Temporal")
+    analyzer = FrogAnalyzer(scan_tag=tag, device_name="U_FROG_Grenouille-Temporal")
 
     analyzer.run_analysis()
 

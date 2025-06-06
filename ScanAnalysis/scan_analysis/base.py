@@ -1,5 +1,5 @@
 """
-Classes containing common functionality and requirements available for all scan analyzers.  ScanAnalysis is the parent
+Classes containing common functionality and requirements available for all scan analyzers.  ScanAnalyzer is the parent
 class for all implementing analyzers and the main requirements are to satisfy the initialization and `run_analysis()`.
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -29,7 +29,7 @@ from geecs_data_utils import ScanData
 
 # %% classes
 class AnalyzerInfo(NamedTuple):
-    analyzer_class: Type[ScanAnalysis]
+    analyzer_class: Type[ScanAnalyzer]
     requirements: Union[dict[str, list], set, str]
     device_name: Optional[str] = None
     is_active: bool = True
@@ -40,7 +40,7 @@ class DataLengthError(ValueError):
     """Raised when data arrays have inconsistent lengths."""
     pass
 
-class ScanAnalysis:
+class ScanAnalyzer:
     """
     Base class for performing analysis on scan data. Handles loading auxiliary data and extracting
     scan parameters from .ini files.
@@ -56,13 +56,13 @@ class ScanAnalysis:
 
     def __init__(self, scan_tag: ScanTag, skip_plt_show: bool = True, device_name: Optional[str] = None, **kwargs):
         """
-        Initialize the ScanAnalysis class.
+        Initialize the ScanAnalyzer class.
 
         Args:
             scan_tag (ScanTag): NamedTuple containing the scan's experiment, date, and scan number
             device_name (Optional[str]): An optional string to specify which device the analyzer should analyze
             skip_plt_show (bool): Flag to ultimately try plt.show() or not.
-            **kwargs: additional ScanAnalysis related args
+            **kwargs: additional ScanAnalyzer related args
         """
         self.tag = scan_tag
         self.scan_data = ScanData(tag=self.tag, load_scalars=True, read_mode=True)

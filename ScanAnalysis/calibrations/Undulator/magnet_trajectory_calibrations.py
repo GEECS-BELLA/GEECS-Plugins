@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalyzer
 from image_analysis.tools.general import find_beam_properties, image_signal_thresholding
 from geecs_data_utils import ScanData
 from calibrations.Undulator.calibration_data.experimental_config import get_experimental_config_distance
@@ -20,12 +20,12 @@ from calibrations.Undulator.utils import get_calibration_location
 # %% classes
 
 
-class MagnetTrajectoryCalibration(CameraImageAnalysis):
+class MagnetTrajectoryCalibration(CameraImageAnalyzer):
 
     def __init__(self, scan_tag, device_name,
                  use_gui=True, flag_logging=False, flag_save_images=False):
         """
-        Initialize the CameraImageAnalysis class.
+        Initialize the CameraImageAnalyzer class.
 
         Args:
             scan_tag (ScanTag): Path to the scan directory containing data.

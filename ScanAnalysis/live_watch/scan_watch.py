@@ -1,6 +1,6 @@
 """
 This was originally created by Reinier van Mourik LiveImageProcessing, later copied by Chris Doss to test for use with
-ScanAnalysis.  If this remains the case, then TODO should make a shared version in geecs-python-api
+ScanAnalyzer.  If this remains the case, then TODO should make a shared version in geecs-python-api
 """
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union

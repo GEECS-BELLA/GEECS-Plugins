@@ -19,7 +19,7 @@ except:
     logging.warning(f'could not properly load docgen, results will not auto populate scan log')
     loaded_docgen = False
 
-from scan_analysis.base import ScanAnalysis
+from scan_analysis.base import ScanAnalyzer
 
 try:
     from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig  # import your config class
@@ -29,7 +29,7 @@ except:
 
 
 
-def instantiate_scan_analyzer(scan_tag: ScanTag, scan_analyzer_info: AnalyzerInfo) -> ScanAnalysis:
+def instantiate_scan_analyzer(scan_tag: ScanTag, scan_analyzer_info: AnalyzerInfo) -> ScanAnalyzer:
     """
     Instantiate a ScanAnalysis (or subclass) using the provided AnalyzerInfo.
 
@@ -42,7 +42,7 @@ def instantiate_scan_analyzer(scan_tag: ScanTag, scan_analyzer_info: AnalyzerInf
         scan_analyzer_info (AnalyzerInfo): Metadata describing which analyzer to construct and how.
 
     Returns:
-        ScanAnalysis: A fully initialized ScanAnalysis or subclass instance ready for use.
+        ScanAnalyzer: A fully initialized ScanAnalysis or subclass instance ready for use.
     """
     return scan_analyzer_info.analyzer_class(
         scan_tag=scan_tag,

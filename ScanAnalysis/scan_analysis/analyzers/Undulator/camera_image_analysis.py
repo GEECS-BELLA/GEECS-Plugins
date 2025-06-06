@@ -2,7 +2,7 @@
 Camera Image Analysis
 
 General camera image analyzer.
-Child to ScanAnalysis (./scan_analysis/base.py)
+Child to ScanAnalyzer (./scan_analysis/base.py)
 """
 # %% imports
 from __future__ import annotations
@@ -20,7 +20,7 @@ from matplotlib.colors import Normalize
 from scipy.ndimage import median_filter, gaussian_filter
 import imageio as io
 
-from scan_analysis.base import ScanAnalysis
+from scan_analysis.base import ScanAnalyzer
 from image_analysis.utils import read_imaq_png_image
 
 import traceback
@@ -28,7 +28,7 @@ PRINT_TRACEBACK = True
 
 
 # %% classes
-class CameraImageAnalysis(ScanAnalysis):
+class CameraImageAnalyzer(ScanAnalyzer):
 
     def __init__(self, scan_tag: ScanTag, device_name: str,
                  skip_plt_show: bool = True,
@@ -36,7 +36,7 @@ class CameraImageAnalysis(ScanAnalysis):
                  flag_save_images: bool = True
                  ):
         """
-        Initialize the CameraImageAnalysis class.
+        Initialize the CameraImageAnalyzer class.
 
         Args:
             scan_tag (ScanTag): Path to the scan directory containing data.
@@ -46,7 +46,7 @@ class CameraImageAnalysis(ScanAnalysis):
             flag_save_images (bool): Flag that sets if images are saved to disk
         """
         if not device_name:
-            raise ValueError("CameraImageAnalysis requires a device_name.")
+            raise ValueError("CameraImageAnalyzer requires a device_name.")
 
         super().__init__(scan_tag, device_name=device_name,
                          skip_plt_show=skip_plt_show)
@@ -59,7 +59,7 @@ class CameraImageAnalysis(ScanAnalysis):
         config_folder = Path(__file__).parents[2] / 'config' / self.experiment_dir
         self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
                           'save': (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name
-                                   / f"{device_name}" / "CameraImageAnalysis"),
+                                   / f"{device_name}" / "CameraImageAnalyzer"),
                           'cam_configs': config_folder / 'camera_analysis_settings.yaml'
                           }
 
@@ -554,5 +554,5 @@ class CameraImageAnalysis(ScanAnalysis):
 if __name__ == "__main__":
     from geecs_data_utils import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=2, day=13, number=29, experiment_name='Undulator')
-    analyzer = CameraImageAnalysis(scan_tag=tag, device_name="UC_ACaveMagCam3", skip_plt_show=True)
+    analyzer = CameraImageAnalyzer(scan_tag=tag, device_name="UC_ACaveMagCam3", skip_plt_show=True)
     analyzer.run_analysis()
