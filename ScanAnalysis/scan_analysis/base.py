@@ -29,7 +29,7 @@ from geecs_data_utils import ScanData
 
 # %% classes
 class ScanAnalyzerInfo(NamedTuple):
-    analyzer_class: Type[ScanAnalyzer]
+    scan_analyzer_class: Type[ScanAnalyzer]
     requirements: Union[dict[str, list], set, str]
     device_name: Optional[str] = None
     is_active: bool = True

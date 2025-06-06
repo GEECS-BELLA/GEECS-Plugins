@@ -44,7 +44,7 @@ def instantiate_scan_analyzer(scan_tag: ScanTag, scan_analyzer_info: ScanAnalyze
     Returns:
         ScanAnalyzer: A fully initialized ScanAnalysis or subclass instance ready for use.
     """
-    return scan_analyzer_info.analyzer_class(
+    return scan_analyzer_info.scan_analyzer_class(
         scan_tag=scan_tag,
         device_name=scan_analyzer_info.device_name,
         skip_plt_show=True,
@@ -68,7 +68,7 @@ def analyze_scan(tag: ScanTag, scan_analyzer_list: list[ScanAnalyzerInfo], uploa
 
     for analyzer_info in scan_analyzer_list:
         device = analyzer_info.device_name if analyzer_info.device_name else ''
-        print(tag, ":", analyzer_info.analyzer_class.__name__, device)
+        print(tag, ":", analyzer_info.scan_analyzer_class.__name__, device)
         if not debug_mode:
             try:
                 # Use the helper to instantiate the analyzer (with image analyzer and file pattern settings)

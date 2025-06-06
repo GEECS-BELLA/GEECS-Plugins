@@ -16,7 +16,7 @@ class TestScanEvaluator(unittest.TestCase):
         for a in results:
             self.assertIsNone(a.device_name)
             if do_print:
-                print(a.analyzer_class.__name__, a.device_name)
+                print(a.scan_analyzer_class.__name__, a.device_name)
 
         if do_print:
             print("Scan 7 should just be the Mag Spec and HiRes")
@@ -25,7 +25,7 @@ class TestScanEvaluator(unittest.TestCase):
         self.assertEqual(len(results), 2)
         for a in results:
             if do_print:
-                print(a.analyzer_class.__name__, a.device_name)
+                print(a.scan_analyzer_class.__name__, a.device_name)
 
         if do_print:
             print("Scan 12 should just be the ALine3")
@@ -33,10 +33,10 @@ class TestScanEvaluator(unittest.TestCase):
         results = check_for_analysis_match(folder, undulator_analyzers)
         self.assertEqual(len(results), 1)
         for a in results:
-            self.assertEqual(a.analyzer_class.__name__, 'CameraImageAnalyzer')
+            self.assertEqual(a.scan_analyzer_class.__name__, 'CameraImageAnalyzer')
             self.assertEqual(a.device_name, 'UC_ALineEBeam3')
             if do_print:
-                print(a.analyzer_class.__name__, a.device_name)
+                print(a.scan_analyzer_class.__name__, a.device_name)
 
         if do_print:
             print("Previously using Master Control, nearly all would be flagged every time")
@@ -44,7 +44,7 @@ class TestScanEvaluator(unittest.TestCase):
         results = check_for_analysis_match(folder, undulator_analyzers)
         for a in results:
             if do_print:
-                print(a.analyzer_class.__name__, a.device_name)
+                print(a.scan_analyzer_class.__name__, a.device_name)
         self.assertEqual(len(results), len(undulator_analyzers)-2)  # 2 less because no aline2 and tc_phosphor
 
 
