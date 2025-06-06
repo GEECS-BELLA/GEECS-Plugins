@@ -29,6 +29,53 @@ from geecs_data_utils import ScanData
 
 # %% classes
 class ScanAnalyzerInfo(NamedTuple):
+    """
+     Configuration container used to declare and construct scan analyzers.
+
+     This object is intended to be passed to the `analyze_scan()` function defined in 'execute_scan_analysis.py'
+      to specify which analysis class to use, what data is required to run it, which
+      device it's associated with (if any), and any optional constructor arguments.
+
+     Attributes:
+         scan_analyzer_class (Type[ScanAnalyzer]):
+             The class that performs scan analysis. Must inherit from `ScanAnalyzer`.
+
+         requirements (Union[dict[str, list], set, str]):
+             Required data for this analyzer to function. Common formats:
+               - dict: {"tdms": ["Device1"], "image": ["Camera1"]}
+               - set: {"Device1", "Camera1"}
+               - str: "image" or another custom keyword.
+
+         device_name (Optional[str]):
+             The device this analyzer is tied to. Used to locate image or TDMS files.
+             If None, the analyzer is assumed to locate data independently.
+
+         is_active (bool):
+             Whether this scan analyzer is active in the current configuration (default: True).
+
+         scan_analyzer_kwargs (dict[str, Any]):
+             Additional keyword arguments passed to the  scan analyzer constructor.
+             This supports flexible configuration of analyzers without modifying their internal logic.
+
+     Examples:
+         ScanAnalyzerInfo(
+         ...     scan_analyzer_class=Rad2SpecAnalysis,
+         ...     requirements={"tdms": ["U_BCaveICT"], "image": ["UC_UndulatorRad2"]},
+         ...     device_name="UC_UndulatorRad2",
+         ...     scan_analyzer_kwargs={"debug_mode": False, "force_background_mode": True}
+         ... )
+
+         ScanAnalyzerInfo(
+         ...     scan_analyzer_class=Array2DScanAnalyzer,
+         ...     requirements={"image": ["U_HasoLift"]},
+         ...     device_name="U_HasoLift",
+         ...     scan_analyzer_kwargs={"image_analyzer": MyCustomImageAnalyzer()}
+         ... )
+
+     This class allows declarative mapping between devices and their associated scan analyzers,
+     enabling dynamic and modular analysis pipelines.
+     """
+
     scan_analyzer_class: Type[ScanAnalyzer]
     requirements: Union[dict[str, list], set, str]
     device_name: Optional[str] = None
