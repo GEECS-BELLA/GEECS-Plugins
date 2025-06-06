@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union, Dict, TYPE_CHECKING,Any
-from enum import Enum, auto
+from enum import Enum
 
-class ScanMode(Enum):
-    STANDARD = auto()
-    NOSCAN = auto()
-    OPTIMIZATION = auto()
+class ScanMode(str, Enum):
+    STANDARD = 'standard'
+    NOSCAN = 'noscan'
+    OPTIMIZATION = 'optimization'
+    BACKGROUND = 'background'
 
 @dataclass
 class ScanConfig:
