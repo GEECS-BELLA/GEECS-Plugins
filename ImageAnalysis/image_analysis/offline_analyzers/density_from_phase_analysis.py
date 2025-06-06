@@ -46,14 +46,14 @@ Below is an example of how you might use this module:
         background=None             # Optional background array for subtraction
     )
 
-    # Create an analyzer for a given phase data file
-    analyzer = DensityAnalysis("path/to/phase_data.tsv", config)
+    # Create an image_analyzer for a given phase data file
+    image_analyzer = DensityAnalysis("path/to/phase_data.tsv", config)
 
     # Compute the density using the custom inversion technique
-    vertical_lineout, density_map = analyzer.get_density(technique='custom')
+    vertical_lineout, density_map = image_analyzer.get_density(technique='custom')
 
     # Plot the density map and vertical lineout
-    analyzer.plot_density(density_map, vertical_lineout)
+    image_analyzer.plot_density(density_map, vertical_lineout)
 
 Dependencies:
 -------------
@@ -1038,10 +1038,10 @@ if __name__ == '__main__':
     from dataclasses import asdict
     config_dict = asdict(config)
     print(phase_file_path)
-    analyzer: PhaseDownrampProcessor = PhaseDownrampProcessor(**config_dict)
-    analyzer.use_interactive = True
-    analyzer.analyze_image_file(phase_file_path)
+    image_analyzer: PhaseDownrampProcessor = PhaseDownrampProcessor(**config_dict)
+    image_analyzer.use_interactive = True
+    image_analyzer.analyze_image_file(phase_file_path)
 
     # # --- Using the PyAbel inversion technique ---
-    # pyabel_lineout, pyabel_density = analyzer.get_density(technique='pyabel')
-    # analyzer.plot_density(pyabel_density, pyabel_lineout)
+    # pyabel_lineout, pyabel_density = image_analyzer.get_density(technique='pyabel')
+    # image_analyzer.plot_density(pyabel_density, pyabel_lineout)

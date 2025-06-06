@@ -19,9 +19,9 @@ def test_analyze_image_file_visaebeam(camera_name):
 
     assert test_img_path.exists(), f"Test image not found: {test_img_path}"
 
-    analyzer = EBeamProfileAnalyzer(camera_name=camera_name)
-    analyzer.use_interactive = True
-    result = analyzer.analyze_image_file(image_filepath=test_img_path)
+    image_analyzer = EBeamProfileAnalyzer(camera_name=camera_name)
+    image_analyzer.use_interactive = True
+    result = image_analyzer.analyze_image_file(image_filepath=test_img_path)
 
     # Validate result structure
     assert isinstance(result, dict)

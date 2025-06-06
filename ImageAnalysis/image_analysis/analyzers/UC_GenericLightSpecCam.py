@@ -178,7 +178,7 @@ class UC_LightSpectrometerCamAnalyzer(LabviewImageAnalyzer):
         # copy image
         image = image.copy()
 
-        # initialize beam spot analyzer
+        # initialize beam spot image_analyzer
         roi = ROI(top=None, bottom=None, left=None,
                   right=int(self.calibration_0th_order_pixel + abs(self.minimum_wavelength_analysis / self.calibration_wavelength_pixel)),
                   bad_index_order='invert')
