@@ -21,8 +21,6 @@ from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_data_utils import ScanData
 from .types import ScanConfig
 
-from geecs_python_api.tools.files.timestamping import extract_timestamp_from_file
-
 class ScanDataManager:
     """
     Manages data preparation, organization and saving during and after a scan.
@@ -182,10 +180,6 @@ class ScanDataManager:
                                 such as device variable, start, end, and step values.
                                 See types.py
         """
-        # # Check if scan_config is a dictionary
-        # if not isinstance(scan_config, dict):
-        #     logging.error(f"scan_config is not a dictionary: {type(scan_config)}")
-        #     return
 
         # TODO: should probably add some exception handling here. the self.parsed_scan_string and
         # self.scan_number_int are set in create_and_set_data_paths. This method is only called
@@ -212,7 +206,8 @@ class ScanDataManager:
             f"Step size = \"{scan_config.step}\"\n",
             f"Shots per step = \"{scan_config.wait_time}\"\n",
             f"ScanEndInfo = \"\"\n",
-            f"Background = \"{scan_config.background}\""
+            f"Background = \"{scan_config.background}\"",
+            f"ScanMode = \"{scan_config.scan_mode.value}\"\n"
         ]
 
         # Create the full path for the file
