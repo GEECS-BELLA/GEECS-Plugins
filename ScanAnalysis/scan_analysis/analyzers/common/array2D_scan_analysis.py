@@ -121,7 +121,9 @@ class Array2DScanAnalysis(ScanAnalysis):
 
         try:
             pickle.dumps(self.image_analyzer)
-        except Exception as e:
+        except (pickle.PicklingError, TypeError) as e:
+            # Mark that we cannot send the ImageAnalyzer through multiprocessing,
+            # so we’ll fall back to threading instead.
             self.image_analyzer.run_analyze_image_asynchronously = True
             if self.flag_logging:
                 logging.warning(
