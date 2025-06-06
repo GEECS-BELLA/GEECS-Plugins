@@ -2,7 +2,7 @@
 Visa E Beam Image Analysis
 
 Visa YAG screen image analyzer.
-Child to CameraImageAnalysis (./scan_analysis/analyzers/Undulator/CameraImageAnalysis.py)
+Child to CameraImageAnalyzer (./scan_analysis/analyzers/Undulator/CameraImageAnalyzer.py)
 """
 # %% imports
 from __future__ import annotations
@@ -12,12 +12,12 @@ if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
 import numpy as np
 import cv2
-from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalyzer
 from geecs_data_utils import ScanData
 
 
 # %% classes
-class VisaEBeamAnalysis(CameraImageAnalysis):
+class VisaEBeamAnalysis(CameraImageAnalyzer):
 
     def __init__(self, scan_tag: ScanTag,
                  device_name: Optional[str] = None, skip_plt_show: bool = True,
@@ -91,7 +91,7 @@ class VisaEBeamAnalysis(CameraImageAnalysis):
                            plot_scale: Optional[float] = None,
                            use_diode_ref: bool = True) -> None:
         """
-        Wrapper class for CameraImageAnalysis.create_image_array. Pass blue diode coordinates.
+        Wrapper class for CameraImageAnalyzer.create_image_array. Pass blue diode coordinates.
 
         Args:
             binned_data (dict[dict]): List of averaged images.

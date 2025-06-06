@@ -13,7 +13,7 @@ if analyzer.get_visa_station() == 9:
 
     # Get analysis folder and spectrum file
     analysis_folder = ScanData.get_daily_scan_folder(tag=tag).parent / 'analysis' / f"Scan{tag.number:03d}"
-    spectrum_file = analysis_folder / 'UC_UndulatorRad2' / 'CameraImageAnalysis' / 'scan_spectrum.npy'
+    spectrum_file = analysis_folder / 'UC_UndulatorRad2' / 'CameraImageAnalyzer' / 'scan_spectrum.npy'
 
     # Load full file, extract energy from the first row and data from the rest
     lineout_data = np.load(spectrum_file)

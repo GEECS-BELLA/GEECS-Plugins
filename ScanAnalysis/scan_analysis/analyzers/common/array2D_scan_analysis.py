@@ -2,7 +2,7 @@
 Array2DScanAnalyzer
 
 General analyzer for 2D array type data.
-Child to ScanAnalysis (./scan_analysis/base.py)
+Child to ScanAnalyzer (./scan_analysis/base.py)
 
 This provides a general framework for using an ImageAnalyzer to do analysis and post processing
 over a scan.
@@ -30,7 +30,7 @@ data to the 'sxxx.txt' file.
 There is a rudimentary way to handle other types of return data using "analyzer_return_lineouts".
 For example, a camera may be used as a spectrometer which is intended to generate a 1D array of
 wavelength (energy) vs counts. Running this to through the default post_processing methods in
-Array2DScanAnalysis is not appropriate. By default, Array2DScanAnalysis will ignore the lineout
+Array2DScanAnalyzer is not appropriate. By default, Array2DScanAnalyzer will ignore the lineout
 data. But, child classes can be created to make use of the info by overwriting just a couple of
 methods. An example is the HIMG_with_average_saving file. Creating a child class does still make
 use of the other key parts of this framework (e.g. parallel processing, appending scalar data)
@@ -57,7 +57,7 @@ import h5py
 from collections import defaultdict
 
 # --- Local / Project Imports ---
-from scan_analysis.base import ScanAnalysis
+from scan_analysis.base import ScanAnalyzer
 from image_analysis.base import ImageAnalyzer
 from image_analysis.tools.rendering import base_render_image
 
@@ -83,7 +83,7 @@ class BinImageEntry(TypedDict):
     result: Optional[AnalyzerResultDict]
 
 # %% classes
-class Array2DScanAnalysis(ScanAnalysis):
+class Array2DScanAnalyzer(ScanAnalyzer):
 
     def __init__(self, scan_tag: ScanTag,
                  device_name: str,
@@ -93,7 +93,7 @@ class Array2DScanAnalysis(ScanAnalysis):
                  flag_logging: bool = True,
                  flag_save_images: bool = True):
         """
-        Initialize the Array2DScanAnalysis class.
+        Initialize the Array2DScanAnalyzer class.
 
         Args:
             scan_tag (ScanTag): tag used to identify the scan directory containing data.
@@ -104,7 +104,7 @@ class Array2DScanAnalysis(ScanAnalysis):
             flag_save_images (bool): Flag that sets if images are saved to disk
         """
         if not device_name:
-            raise ValueError("Array2DScanAnalysis requires a device_name.")
+            raise ValueError("Array2DScanAnalyzer requires a device_name.")
 
         super().__init__(scan_tag, device_name=device_name,
                          skip_plt_show=skip_plt_show)
@@ -121,18 +121,20 @@ class Array2DScanAnalysis(ScanAnalysis):
 
         try:
             pickle.dumps(self.image_analyzer)
-        except Exception as e:
+        except (pickle.PicklingError, TypeError) as e:
+            # Mark that we cannot send the ImageAnalyzer through multiprocessing,
+            # so we’ll fall back to threading instead.
             self.image_analyzer.run_analyze_image_asynchronously = True
             if self.flag_logging:
                 logging.warning(
-                    f"[Array2DScanAnalysis] ImageAnalyzer instance is not pickleable "
+                    f"[Array2DScanAnalyzer] ImageAnalyzer instance is not pickleable "
                     f"(reason: {e}). Falling back to threaded analysis."
                 )
 
         # organize various paths
         self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
                           'save': (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name
-                                   / f"{device_name}" / "Array2DScanAnalysis")
+                                   / f"{device_name}" / "Array2DScanAnalyzer")
                           }
 
         # Check if data directory exists and is not empty
@@ -791,7 +793,7 @@ class Array2DScanAnalysis(ScanAnalysis):
 
 if __name__ == "__main__":
 
-    from scan_analysis.base import AnalyzerInfo as Info
+    from scan_analysis.base import ScanAnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan
     from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, \
             PhaseDownrampProcessor
@@ -814,10 +816,10 @@ if __name__ == "__main__":
         background_path=bkg_file_path  # Background is now a Path
     )
     config_dict = asdict(config)
-    analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
-            requirements={'U_HasoLift'},
-            device_name='U_HasoLift',
-            extra_kwargs={'image_analyzer':PhaseDownrampProcessor(**config_dict),
+    analyzer_info = Info(scan_analyzer_class=Array2DScanAnalyzer,
+                         requirements={'U_HasoLift'},
+                         device_name='U_HasoLift',
+                         scan_analyzer_kwargs={'image_analyzer':PhaseDownrampProcessor(**config_dict),
                           'file_tail':"_postprocessed.tsv"}
                          )
 

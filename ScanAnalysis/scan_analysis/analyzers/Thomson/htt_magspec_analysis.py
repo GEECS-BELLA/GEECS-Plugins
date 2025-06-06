@@ -2,7 +2,7 @@
 """
 B-cave Magnetic Spectrometer Stitcher Analysis
 
-Child to ScanAnalysis (./scan_analysis/base.py)
+Child to ScanAnalyzer (./scan_analysis/base.py)
 """
 # %% imports
 from __future__ import annotations
@@ -15,14 +15,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import median_filter
 
-from scan_analysis.base import ScanAnalysis
+from scan_analysis.base import ScanAnalyzer
 from image_analysis.utils import read_imaq_png_image
 from image_analysis.analyzers.online_analysis_modules.image_processing_funcs import threshold_reduction
 
 from geecs_data_utils import ScanData
 
 # %% classes
-class HTTMagSpecAnalysis(ScanAnalysis):
+class HTTMagSpecAnalyzer(ScanAnalyzer):
     def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True):
         super().__init__(scan_tag, device_name=None, skip_plt_show=skip_plt_show)
 
@@ -118,5 +118,5 @@ class HTTMagSpecAnalysis(ScanAnalysis):
 if __name__ == "__main__":
     from geecs_data_utils import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=3, day=21, number=10, experiment='Thomson')
-    analyzer = HTTMagSpecAnalysis(scan_tag=tag, skip_plt_show=False)
+    analyzer = HTTMagSpecAnalyzer(scan_tag=tag, skip_plt_show=False)
     analyzer.run_analysis()

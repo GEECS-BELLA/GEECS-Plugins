@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
-    from scan_analysis.base import AnalyzerInfo
+    from scan_analysis.base import ScanAnalyzerInfo
     from geecs_data_utils import ScanTag
 
 import logging
@@ -19,7 +19,7 @@ except:
     logging.warning(f'could not properly load docgen, results will not auto populate scan log')
     loaded_docgen = False
 
-from scan_analysis.base import ScanAnalysis
+from scan_analysis.base import ScanAnalyzer
 
 try:
     from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig  # import your config class
@@ -29,30 +29,30 @@ except:
 
 
 
-def instantiate_scan_analyzer(scan_tag: ScanTag, scan_analyzer_info: AnalyzerInfo) -> ScanAnalysis:
+def instantiate_scan_analyzer(scan_tag: ScanTag, scan_analyzer_info: ScanAnalyzerInfo) -> ScanAnalyzer:
     """
-    Instantiate a ScanAnalysis (or subclass) using the provided AnalyzerInfo.
+    Instantiate a ScanAnalysis (or subclass) using the provided ScanAnalyzerInfo.
 
-    This function unpacks the analyzer class and keyword arguments from the AnalyzerInfo object
+    This function unpacks the analyzer class and keyword arguments from the ScanAnalyzerInfo object
     and constructs an instance, injecting the provided scan_tag, device_name, and any analyzer-specific
-    configuration from extra_kwargs.
+    configuration from scan_analyzer_kwargs.
 
     Args:
         scan_tag (ScanTag): Tag representing the scan's experiment, date, and scan number.
-        scan_analyzer_info (AnalyzerInfo): Metadata describing which analyzer to construct and how.
+        scan_analyzer_info (ScanAnalyzerInfo): Metadata describing which analyzer to construct and how.
 
     Returns:
-        ScanAnalysis: A fully initialized ScanAnalysis or subclass instance ready for use.
+        ScanAnalyzer: A fully initialized ScanAnalysis or subclass instance ready for use.
     """
-    return scan_analyzer_info.analyzer_class(
+    return scan_analyzer_info.scan_analyzer_class(
         scan_tag=scan_tag,
         device_name=scan_analyzer_info.device_name,
         skip_plt_show=True,
-        **scan_analyzer_info.extra_kwargs
+        **scan_analyzer_info.scan_analyzer_kwargs
     )
 
 
-def analyze_scan(tag: ScanTag, scan_analyzer_list: list[AnalyzerInfo], upload_to_scanlog: bool = True,
+def analyze_scan(tag: ScanTag, scan_analyzer_list: list[ScanAnalyzerInfo], upload_to_scanlog: bool = True,
                  documentID: Optional[str] = None, debug_mode: bool = False):
     """
     Performs all given analysis routines on a given scan. Optionally uploads results to google doc scanlog.
@@ -68,7 +68,7 @@ def analyze_scan(tag: ScanTag, scan_analyzer_list: list[AnalyzerInfo], upload_to
 
     for analyzer_info in scan_analyzer_list:
         device = analyzer_info.device_name if analyzer_info.device_name else ''
-        print(tag, ":", analyzer_info.analyzer_class.__name__, device)
+        print(tag, ":", analyzer_info.scan_analyzer_class.__name__, device)
         if not debug_mode:
             try:
                 # Use the helper to instantiate the analyzer (with image analyzer and file pattern settings)

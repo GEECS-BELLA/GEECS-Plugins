@@ -201,7 +201,7 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         Create phase map from a .himg or .has file.
 
         Parameters:
-            image (NDArray): None. This part of the signature for the base class, but this analyzer
+            image (NDArray): None. This part of the signature for the base class, but this image_analyzer
                 requires loading of the image and processing with a third party SDK
 
         Returns:

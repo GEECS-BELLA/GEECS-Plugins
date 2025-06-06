@@ -5,8 +5,8 @@ from scan_analysis.execute_scan_analysis import analyze_scan
 from pathlib import Path
 from dataclasses import asdict
 
-from scan_analysis.base import AnalyzerInfo as Info
-from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis
+from scan_analysis.base import ScanAnalyzerInfo as Info
+from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 
 class TestExecuteAnalysis(unittest.TestCase):
     def test_init(self):
@@ -35,10 +35,10 @@ class TestExecuteAnalysis(unittest.TestCase):
     def test_ACaveMagCam3(self):
         from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
         perform_analysis = True
-        analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
-             requirements={'UC_ACaveMagCam3'},
-             device_name='UC_ACaveMagCam3',
-             extra_kwargs={'image_analyzer':ACaveMagCam3ImageAnalyzer()})
+        analyzer_info = Info(scan_analyzer_class=Array2DScanAnalyzer,
+                             requirements={'UC_ACaveMagCam3'},
+                             device_name='UC_ACaveMagCam3',
+                             scan_analyzer_kwargs={'image_analyzer':ACaveMagCam3ImageAnalyzer()})
         test_tag = ScanTag(year=2025, month=3, day=6, number=39, experiment='Undulator')
         test_analyzer = analyzer_info
         analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
@@ -56,10 +56,10 @@ class TestExecuteAnalysis(unittest.TestCase):
 
         analysis_config_dict = asdict(analysis_config)
 
-        analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
-            requirements={'U_HasoLift'},
-            device_name='U_HasoLift',
-            extra_kwargs={'image_analyzer':HASOHimgHasProcessor(**analysis_config_dict),
+        analyzer_info = Info(scan_analyzer_class=Array2DScanAnalyzer,
+                             requirements={'U_HasoLift'},
+                             device_name='U_HasoLift',
+                             scan_analyzer_kwargs={'image_analyzer':HASOHimgHasProcessor(**analysis_config_dict),
                           'file_tail':".himg"}
                              )
 
@@ -86,23 +86,23 @@ class TestExecuteAnalysis(unittest.TestCase):
             background_path=bkg_file_path  # Background is now a Path
         )
         config_dict = asdict(config)
-        analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
-                requirements={'U_HasoLift'},
-                device_name='U_HasoLift',
-                extra_kwargs={'image_analyzer': PhaseDownrampProcessor(**config_dict),
+        analyzer_info = Info(scan_analyzer_class=Array2DScanAnalyzer,
+                             requirements={'U_HasoLift'},
+                             device_name='U_HasoLift',
+                             scan_analyzer_kwargs={'image_analyzer': PhaseDownrampProcessor(**config_dict),
                             'file_tail': "_postprocessed.tsv"})
 
         test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])
 
     def test_VisaEBeamAnalyzer(self):
-        from image_analysis.offline_analyzers.Undulator.VisaEBeam import VisaEBeam
+        from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
 
         config_dict = {'camera_name':'UC_VisaEBeam1'}
-        analyzer_info = Info(analyzer_class=Array2DScanAnalysis,
+        analyzer_info = Info(scan_analyzer_class=Array2DScanAnalyzer,
                              requirements={'UC_VisaEBeam1'},
                              device_name='UC_VisaEBeam1',
-                             extra_kwargs={'image_analyzer': VisaEBeam(**config_dict)})
+                             scan_analyzer_kwargs={'image_analyzer': EBeamProfileAnalyzer(**config_dict)})
 
         test_tag = ScanTag(year=2024, month=12, day=5, number=11, experiment='Undulator')
         analyze_scan(test_tag, [analyzer_info])

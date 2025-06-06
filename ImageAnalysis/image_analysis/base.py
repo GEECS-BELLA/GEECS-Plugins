@@ -13,7 +13,7 @@ from image_analysis.tools.background import Background
 
 
 class ImageAnalyzer:
-    """ Abstract base class for device-specific image analyzer
+    """ Abstract base class for device-specific image image_analyzer
 
         Derived classes should implement
             analyze_image()
@@ -88,7 +88,7 @@ class ImageAnalyzer:
         ----------
         image : 2d array
         auxiliary_data : dict
-            Additional data used by the image analyzer for this image, such as
+            Additional data used by the image image_analyzer for this image, such as
             image range.
 
         Returns
@@ -110,7 +110,7 @@ class ImageAnalyzer:
          ----------
          image_filepath : Path
          auxiliary_data : dict
-            Additional data used by the image analyzer for this image, such as
+            Additional data used by the image image_analyzer for this image, such as
             image range.
 
         Returns
@@ -180,14 +180,14 @@ class ImageAnalyzer:
                 Image to be returned to labview.  Will be converted to UInt16
             return_scalars : dict
                 Dictionary of scalars from python analysis.  To be passed back to labview correctly, the keys for each
-                entry need to match those given in labview_adapters.json for this analyzer class
+                entry need to match those given in labview_adapters.json for this image_analyzer class
             return_lineouts : list(np.ndarray)
                 Lineouts to be returned to labview.  Need to be given as a list of 1d arrays (numpy or otherwise)
                 If not given, will return a 1x1 array of zeros.  If in an incorrect format, will return a 1x1 array of
                 zeros and print a reminder message.  If the arrays in the list are of unequal length, all arrays get
                 padded with zeros to the size of the largest array.  Also, will be returned as a 'float64'
             input_parameters : dict
-                Dictionary of the input parameters given to the analyzer.  If none is given, will call the class's
+                Dictionary of the input parameters given to the image_analyzer.  If none is given, will call the class's
                 self.build_input_parameter_dictionary() function to generate one from the class variables.  This is not
                 returned to Labview, so it can contain anything one might find useful in post-analysis
 
@@ -317,9 +317,9 @@ class LabviewImageAnalyzer(ImageAnalyzer):
         self.roi = roi
 
     def roi_image(self, image):
-        """ Crops a given image with the analyzer's roi setting
+        """ Crops a given image with the image_analyzer's roi setting
 
-        If roi is defined for the analyzer, this function applied that roi
+        If roi is defined for the image_analyzer, this function applied that roi
 
         Parameters
         ----------
@@ -329,7 +329,7 @@ class LabviewImageAnalyzer(ImageAnalyzer):
         Returns
         -------
         image : 2d array
-            either the input image if there is no roi on this analyzer, or the cropped image if roi is defined
+            either the input image if there is no roi on this image_analyzer, or the cropped image if roi is defined
 
         """
         if (self.roi is None) or (isinstance(self.roi, list) and any(elem is None for elem in self.roi)):
@@ -338,7 +338,7 @@ class LabviewImageAnalyzer(ImageAnalyzer):
             return image[self.roi[0]:self.roi[1], self.roi[2]:self.roi[3]]
 
     def apply_background(self, background):
-        """ Sets the background for the analyzer
+        """ Sets the background for the image_analyzer
 
         labview_adapters expects a background image from Labview, and so all ImageAnalyzers need to be able to accept
         it.  However, it is up to the implementation of analyze_image to use this background.
@@ -353,7 +353,7 @@ class LabviewImageAnalyzer(ImageAnalyzer):
         self.background = background
 
     def configure(self, **kwargs):
-        """ Given a dictionary of keyword arguments, updates environment variables for the analyzer
+        """ Given a dictionary of keyword arguments, updates environment variables for the image_analyzer
 
         This function also requires that the class variables were previously initialized to their proper type.
         Furthermore, passing in a None for a given keyword argument will skip over resetting the variable.
@@ -361,7 +361,7 @@ class LabviewImageAnalyzer(ImageAnalyzer):
         Parameters
         ----------
         kwargs : dict
-            keyword arguments to configure the analyzer with
+            keyword arguments to configure the image_analyzer with
         """
         for key, value in kwargs.items():
             if hasattr(self, key):

@@ -11,7 +11,7 @@ ImageAnalysis for a binned image. (rather than rely on the scalar calculations f
 from __future__ import annotations
 
 from pathlib import Path
-from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalyzer
 from geecs_data_utils import ScanTag
 from image_analysis import labview_adapters
 import matplotlib.pyplot as plt
@@ -21,7 +21,7 @@ from image_analysis.labview_adapters import analyzer_from_device_type
 from image_analysis.utils import read_imaq_png_image
 
 
-class HiResMagCamAnalysis(CameraImageAnalysis):
+class HiResMagCamAnalysis(CameraImageAnalyzer):
     def __init__(self, scan_tag: ScanTag, device_name=None, skip_plt_show: bool = True, rerun_analysis: bool = False):
 
 
