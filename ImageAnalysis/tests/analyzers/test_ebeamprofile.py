@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 import numpy as np
-from image_analysis.offline_analyzers.Undulator.VisaEBeam import VisaEBeam
+from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
 
 @pytest.mark.parametrize("camera_name", [
     "UC_VisaEBeam1",
@@ -19,7 +19,7 @@ def test_analyze_image_file_visaebeam(camera_name):
 
     assert test_img_path.exists(), f"Test image not found: {test_img_path}"
 
-    analyzer = VisaEBeam(camera_name=camera_name)
+    analyzer = EBeamProfileAnalyzer(camera_name=camera_name)
     analyzer.use_interactive = True
     result = analyzer.analyze_image_file(image_filepath=test_img_path)
 
@@ -35,4 +35,6 @@ def test_analyze_image_file_visaebeam(camera_name):
     assert image.ndim == 2
 
 if __name__ == "__main__":
-    pytest.main()
+    import sys
+    # Run only this specific test file
+    pytest.main([sys.argv[0]])
