@@ -1,6 +1,6 @@
 """
 
-GEECS Plugin - Beam analyzer
+GEECS Plugin - Beam image_analyzer
 Kyle Jensen, kjensen@lbl.gov
 
 Adapted from UC_BeamSpot by Guillaume Plateau, grplateau@lbl.gov
@@ -26,7 +26,7 @@ from ..tools.filtering import clip_hot_pixels
 
 
 # =============================================================================
-# %% beam spot analyzer
+# %% beam spot image_analyzer
 
 class BeamSpotAnalyzer(LabviewImageAnalyzer):
     """

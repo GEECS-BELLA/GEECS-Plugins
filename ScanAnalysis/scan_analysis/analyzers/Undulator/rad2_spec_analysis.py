@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 
 from pathlib import Path
-from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalyzer
 from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
 from geecs_data_utils import ScanTag, ScanData
 
@@ -26,10 +26,10 @@ from image_analysis.analyzers.online_analysis_modules import image_processing_fu
 from online_analysis.HTU.picoscope_ICT_analysis import Undulator_Exit_ICT
 
 
-class Rad2SpecAnalysis(CameraImageAnalysis):
+class Rad2SpecAnalysis(CameraImageAnalyzer):
     def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True,
                  visa_station: Optional[int] = None, debug_mode: bool = False, force_background_mode: bool = False,
-                 update_undulator_exit_ict: bool = True, image_analyzer=None):
+                 update_undulator_exit_ict: bool = True):
         super().__init__(scan_tag=scan_tag, device_name='UC_UndulatorRad2', skip_plt_show=skip_plt_show)
 
         # Ensure configuration file exists

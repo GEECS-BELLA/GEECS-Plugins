@@ -1,9 +1,9 @@
 from typing import Union
 from pathlib import Path
-from scan_analysis.base import AnalyzerInfo
+from scan_analysis.base import ScanAnalyzerInfo
 
 
-def check_for_analysis_match(scan_folder: Union[Path, str], analyzer_list: list[AnalyzerInfo]) -> list[AnalyzerInfo]:
+def check_for_analysis_match(scan_folder: Union[Path, str], analyzer_list: list[ScanAnalyzerInfo]) -> list[ScanAnalyzerInfo]:
     """
     Checks list of potential analyzers against what is actually saved for a given scan
 

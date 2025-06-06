@@ -3,7 +3,7 @@ Class definition for mag spec cam
 
 Analyzer can be initialized through either providing the input parameters through __init__, by providing a config file
 that defines the input parameters, or by calling a respective function in default_analyzer_generators to initialize an
-analyzer class through a default config file.
+image_analyzer class through a default config file.
 
 @ Chris
 """

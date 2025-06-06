@@ -8,7 +8,7 @@ camera counts.  Find a fit, and keep that as the camera calibration constant.  M
 Could just use the "AnalyzeImage" function to get everything, but honestly I would rather just quickly calculate
 the info I need.  Mostly because I don't know how to store variables in consoles for pycharm yet.  :(
 
-Thu 12/12/2024 - After ScanAnalysis was created, TODO would be nice to remake this calibration script...
+Thu 12/12/2024 - After ScanAnalyzer was created, TODO would be nice to remake this calibration script...
 
 @Chris
 """

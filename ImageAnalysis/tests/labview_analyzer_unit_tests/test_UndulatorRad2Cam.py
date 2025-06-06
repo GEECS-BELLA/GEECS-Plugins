@@ -1,10 +1,10 @@
 """
-Since this analyzer is functionally the same as UndulatorExitCam, here I am only testing that the labview adapters
-module correctly initializes the right analyzer.  The default ROI settings for this camera makes it difficult to do
+Since this image_analyzer is functionally the same as UndulatorExitCam, here I am only testing that the labview adapters
+module correctly initializes the right image_analyzer.  The default ROI settings for this camera makes it difficult to do
 a typical small image.
 
 Point being, if this test fails and ExitCam fails, it's a class initialization problem.  If this fails while ExitCam
-passes, then it's a labview_adapters problem.  If this test passes and ExitCam fails, it's an analyzer problem.
+passes, then it's a labview_adapters problem.  If this test passes and ExitCam fails, it's an image_analyzer problem.
 
 -Chris
 """

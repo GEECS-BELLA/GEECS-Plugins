@@ -444,7 +444,7 @@ def analyze_image(device_type, image, background):
     -----------
     device_type : str
         Type of the device, e.g., "DeviceA". This is used to 
-        select out the specific device from the analyzer
+        select out the specific device from the image_analyzer
         dictionary
     image : numpy.ndarray
         The image to be analyzed.
