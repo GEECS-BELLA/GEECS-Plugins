@@ -816,10 +816,10 @@ if __name__ == "__main__":
         background_path=bkg_file_path  # Background is now a Path
     )
     config_dict = asdict(config)
-    analyzer_info = Info(analyzer_class=Array2DScanAnalyzer,
+    analyzer_info = Info(scan_analyzer_class=Array2DScanAnalyzer,
                          requirements={'U_HasoLift'},
                          device_name='U_HasoLift',
-                         extra_kwargs={'image_analyzer':PhaseDownrampProcessor(**config_dict),
+                         scan_analyzer_kwargs={'image_analyzer':PhaseDownrampProcessor(**config_dict),
                           'file_tail':"_postprocessed.tsv"}
                          )
 
