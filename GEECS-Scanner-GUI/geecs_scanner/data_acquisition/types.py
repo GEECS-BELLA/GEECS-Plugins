@@ -1,26 +1,18 @@
-from __future__ import annotations
+import warnings
+from geecs_data_utils import ScanConfig as _ScanConfig
+from geecs_data_utils import ScanMode as _ScanMode
 
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional, Union, Dict, TYPE_CHECKING,Any
-from enum import Enum
+warnings.warn(
+    "geecs_scanner.data_acquisition.types.ScanConfg/ScanMode have moved to "
+    "geecs_data_utils.types; please update your imports.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-class ScanMode(str, Enum):
-    STANDARD = 'standard'
-    NOSCAN = 'noscan'
-    OPTIMIZATION = 'optimization'
-    BACKGROUND = 'background'
+class ScanConfig(_ScanConfig):
+    """Stub for backward compatibility."""
+    pass
 
-@dataclass
-class ScanConfig:
-    scan_mode: ScanMode = ScanMode.NOSCAN
-    device_var: Optional[str] = None
-    start: Union[int, float] = 0
-    end: Union[int, float] = 1
-    step: Union[int, float] = 1
-    wait_time: float = 1.0
-    additional_description: Optional[str] = None
-    background: bool = False
-    optimizer_config_path: Optional[Union[str,Path]] = None
-    optimizer_overrides: Optional[Dict[str, Any]] = field(default_factory=dict)
-    evaluator_kwargs: Optional[Dict[str, Any]] = field(default_factory=dict)
+class ScanMode(_ScanMode):
+    """Stub for backward compatibility."""
+    pass

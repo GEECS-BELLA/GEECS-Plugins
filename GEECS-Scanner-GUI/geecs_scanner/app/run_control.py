@@ -5,7 +5,7 @@ from geecs_scanner.data_acquisition.scan_manager import ScanManager, get_databas
 
 from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
 from geecs_scanner.app.lib.action_control import ActionControl
-from geecs_scanner.data_acquisition.types import ScanConfig
+from geecs_data_utils import ScanConfig
 
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
