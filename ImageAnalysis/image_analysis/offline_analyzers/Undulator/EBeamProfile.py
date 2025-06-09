@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Union, Optional, Tuple
+from typing import Union, Optional, Tuple, List
 from pathlib import Path
 
 import numpy as np
@@ -431,6 +431,7 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         image: np.ndarray,
         analysis_results_dict: Optional[dict[str, Union[float, int]]] = None,
         input_params_dict: Optional[dict[str, Union[float, int]]] = None,
+        lineouts: Optional[List[np.array]] = None,
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
         cmap: str = 'plasma',
@@ -445,6 +446,7 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
             image=image,
             analysis_results_dict=analysis_results_dict,
             input_params_dict=input_params_dict,
+            lineouts=lineouts,
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,
