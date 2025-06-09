@@ -208,7 +208,7 @@ class ScanDataManager:
             f"Step size = \"{scan_config.step}\"\n",
             f"Shots per step = \"{scan_config.wait_time}\"\n",
             f"ScanEndInfo = \"\"\n",
-            f"Background = \"{scan_config.background}\"",
+            f"Background = \"{scan_config.background}\"\n",
             f"ScanMode = \"{scan_config.scan_mode.value}\"\n"
         ]
 
