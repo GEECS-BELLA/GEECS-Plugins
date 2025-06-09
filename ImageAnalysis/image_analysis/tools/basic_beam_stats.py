@@ -174,7 +174,7 @@ def beam_profile_stats(img: np.ndarray, prefix: str = "") -> dict[str, float]:
         f"{prefix}_x_fwhm": x_fwhm,
         f"{prefix}_x_peak": x_peak,
         f"{prefix}_y_CoM": y_com,
-        f"{prefix}y_rms": y_rms,
-        f"{prefix}_y_rms": y_fwhm,
+        f"{prefix}_y_rms": y_rms,
+        f"{prefix}_y_fwhm": y_fwhm,
         f"{prefix}_y_peak": y_peak,
     }
