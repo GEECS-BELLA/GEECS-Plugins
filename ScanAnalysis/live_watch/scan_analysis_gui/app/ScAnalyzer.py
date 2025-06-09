@@ -558,7 +558,7 @@ class ScAnalyzerWindow(QMainWindow):
         """
         # get list of analyses
         device_default = ActivatorTuple._field_defaults.get('device')
-        analysis_list = [ActivatorTuple(analyzer=item.analyzer_class.__name__,
+        analysis_list = [ActivatorTuple(analyzer=item.scan_analyzer_class.__name__,
                                         device=item.device_name or device_default,
                                         is_active=item.is_active)
                          for item in self.analyzer_items]
@@ -570,7 +570,7 @@ class ScAnalyzerWindow(QMainWindow):
 
         # update current states to analyzer_items
         for ind, analyzer in enumerate(self.analyzer_items):
-            analysis_name = analyzer.analyzer_class.__name__
+            analysis_name = analyzer.scan_analyzer_class.__name__
             device_name = analyzer.device_name or device_default
             for item in dialog_output:
                 if (item.analyzer == analysis_name and

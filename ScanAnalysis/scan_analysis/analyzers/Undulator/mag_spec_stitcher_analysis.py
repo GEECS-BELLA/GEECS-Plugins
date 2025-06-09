@@ -2,7 +2,7 @@
 """
 B-cave Magnetic Spectrometer Stitcher Analysis
 
-Child to ScanAnalysis (./scan_analysis/base.py)
+Child to ScanAnalyzer (./scan_analysis/base.py)
 """
 # %% imports
 from __future__ import annotations
@@ -16,12 +16,12 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from scan_analysis.base import ScanAnalysis
+from scan_analysis.base import ScanAnalyzer
 
 
 # %% classes
-class MagSpecStitcherAnalysis(ScanAnalysis):
-    def __init__(self, scan_tag: ScanTag, device_name: str, skip_plt_show: bool = True, image_analyzer=None):
+class MagSpecStitcherAnalyzer(ScanAnalyzer):
+    def __init__(self, scan_tag: ScanTag, device_name: str, skip_plt_show: bool = True):
         super().__init__(scan_tag, device_name=device_name, skip_plt_show=skip_plt_show)
         # self.data_subdirectory = Path(scan_directory) / data_subdirectory
         self.data_subdirectory = self.scan_directory / f"{device_name}-interpSpec"
@@ -33,7 +33,7 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
 
         self.save_path = (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / f"{device_name}")        
 
-    def run_analysis(self, config_options: Optional[str] = None):
+    def run_analysis(self):
         """
         Main function to run the analysis and generate plots.
         """
@@ -43,10 +43,6 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
 
         try:
             energy_values, charge_density_matrix = self.load_charge_data()
-
-            if config_options is not None:
-                # TODO set some values for `interpolate_data`, etc from a config file
-                pass
 
             if energy_values is None or len(charge_density_matrix) == 0:
                 logging.error("No valid charge data found. Skipping analysis.")
@@ -211,5 +207,5 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
 if __name__ == "__main__":
     from geecs_data_utils import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=2, day=27, number=4, experiment_name='Undulator')
-    analyzer = MagSpecStitcherAnalysis(scan_tag=tag, device_name="U_BCaveMagSpec", skip_plt_show=True)
+    analyzer = MagSpecStitcherAnalyzer(scan_tag=tag, device_name="U_BCaveMagSpec", skip_plt_show=True)
     analyzer.run_analysis()

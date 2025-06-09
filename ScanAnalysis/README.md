@@ -97,17 +97,24 @@ poetry add <<python package>>
 For organization purposes, create your analyzer in the `ScanAnalysis/scan_analysis/analyzers/MyExperiment/` directory, replacing `MyExperiment` with your experiment.
 
 At the very least, will need the following:
+
 ```python
-from scan_analysis.base import ScanAnalysis
+from scan_analysis.base import ScanAnalyzer
 from image_analysis.utils import read_imaq_png_image
 from geecs_data_utils import ScanData
 
-class MyCustomAnalyzer(ScanAnalysis):
-    def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True, image_analyzer=None):
+
+class MyCustomAnalyzer(ScanAnalyzer):
+    def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True,
+                 image_analyzer=None):
         super().__init__(scan_tag, device_name=device_name, skip_plt_show=skip_plt_show, image_analyzer=None)
 
     def run_analysis(self, config_options: Optional[str] = None):
-        << Insert any analysis code here >>
+        << Insert
+        any
+        analysis
+        code
+        here >>
 ```
 
 You may also want/need to include more stuff in the `__init__()` function of `MyCustomAnalyzer`.  That is completely fine.  Just remember to (a) have the four required arguments in the method signature (more is ok, but they won't be passed by the GUI and will go to their defaults) and (b) called the `super()` initialization.

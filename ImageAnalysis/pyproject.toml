@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "imageanalysis"
-version = "0.2.0"
+version = "0.3.0"
 description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
 authors = ["Reinier van Mourik <reinier.vanmourik@tausystems.com>"]
 readme = "README.md"
@@ -25,6 +25,7 @@ scikit-image = ">=0.19,<1.0"
 # other
 boto3 = "^1.28"
 opencv-python = "^4.9.0.80"
+pytest = "^7.4"
 
 [tool.poetry.group.dev.dependencies]
 matplotlib = "^3.0"

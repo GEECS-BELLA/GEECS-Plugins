@@ -52,7 +52,7 @@ class TestACaveMagCam3Analyze(unittest.TestCase):
         elliptical_gaussian_array = generate_elliptical_gaussian(amplitude, height, width, center_x, center_y, sigma_x,
                                                                  sigma_y, angle_deg)
 
-        # First, try generating an analyzer by explicitly naming all keyword arguments
+        # First, try generating an image_analyzer by explicitly naming all keyword arguments
         test_analyzer = UC_GenericMagSpecCamAnalyzer(
             mag_spec_name='acave3',
             roi=[1, -1, 1, -1],
@@ -67,7 +67,7 @@ class TestACaveMagCam3Analyze(unittest.TestCase):
             optimization_bandwidth_energy=2.0)
         results = test_analyzer.analyze_image(elliptical_gaussian_array)
 
-        # Here I check that the mag spec analyzer is working properly using the constants set above with the sample data
+        # Here I check that the mag spec image_analyzer is working properly using the constants set above with the sample data
         analyze_dict = results['analyzer_return_dictionary']
         self.assertAlmostEqual(analyze_dict["camera_clipping_factor"], 0.42678, delta=1e-4)
         self.assertEqual(analyze_dict["camera_saturation_counts"], 49)
@@ -85,7 +85,7 @@ class TestACaveMagCam3Analyze(unittest.TestCase):
         self.assertAlmostEqual(analyze_dict["optimization_factor"], 40.8544, delta=1e-4)
         self.assertAlmostEqual(analyze_dict["fwhm_percent"], 1.41698, delta=1e-3)
 
-        # Next we test the Labview adapter method of calling this analyzer
+        # Next we test the Labview adapter method of calling this image_analyzer
         camera_name = "UC_ACaveMagCam3"
         test_default_analyzer = labview_function_caller.analyzer_from_device_type(camera_name)
 
