@@ -19,6 +19,7 @@ from . import DeviceManager, DatabaseDictLookup
 
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_data_utils import ScanData
+from .types import ScanConfig
 
 from geecs_python_api.tools.files.timestamping import extract_timestamp_from_file
 
@@ -183,18 +184,19 @@ class ScanDataManager:
         self.tdms_writer = TdmsWriter(tdms_output_path, index_file=True)
         logging.info(f"TDMS writer initialized with path: {tdms_output_path}")
 
-    def write_scan_info_ini(self, scan_config: DeviceSavePaths) -> None:
+    def write_scan_info_ini(self, scan_config: ScanConfig) -> None:
         """
         Write the scan configuration to an .ini file.
 
         Args:
-            scan_config (dict): Configuration dictionary containing details about the scan,
+            scan_config (ScanConfig): Configuration  containing details about the scan,
                                 such as device variable, start, end, and step values.
+                                See types.py
         """
-        # Check if scan_config is a dictionary
-        if not isinstance(scan_config, dict):
-            logging.error(f"scan_config is not a dictionary: {type(scan_config)}")
-            return
+        # # Check if scan_config is a dictionary
+        # if not isinstance(scan_config, dict):
+        #     logging.error(f"scan_config is not a dictionary: {type(scan_config)}")
+        #     return
 
         # TODO: should probably add some exception handling here. the self.parsed_scan_string and
         # self.scan_number_int are set in create_and_set_data_paths. This method is only called
@@ -205,8 +207,8 @@ class ScanDataManager:
 
         filename = f"ScanInfo{scan_folder}.ini"
 
-        scan_var = scan_config.get('device_var', '')
-        additional_description = scan_config.get('additional_description', '')
+        scan_var = scan_config.device_var
+        additional_description = scan_config.additional_description
 
         scan_info = f'{self.device_manager.scan_base_description}. scanning {scan_var}. {additional_description}'
 
@@ -216,12 +218,12 @@ class ScanDataManager:
             f"Scan No = \"{scan_number}\"\n",
             f"ScanStartInfo = \"{scan_info}\"\n",
             f"Scan Parameter = \"{scan_var}\"\n",
-            f"Start = \"{scan_config.get('start', 0)}\"\n",
-            f"End = \"{scan_config.get('end', 0)}\"\n",
-            f"Step size = \"{scan_config.get('step', 1)}\"\n",
-            f"Shots per step = \"{scan_config.get('wait_time', 1)}\"\n",
+            f"Start = \"{scan_config.start}\"\n",
+            f"End = \"{scan_config.end}\"\n",
+            f"Step size = \"{scan_config.step}\"\n",
+            f"Shots per step = \"{scan_config.wait_time}\"\n",
             f"ScanEndInfo = \"\"\n",
-            f"Background = \"{scan_config.get('background', 'False')}\""
+            f"Background = \"{scan_config.background}\""
         ]
 
         # Create the full path for the file
