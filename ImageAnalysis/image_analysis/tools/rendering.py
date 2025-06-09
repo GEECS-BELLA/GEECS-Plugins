@@ -11,6 +11,7 @@ def base_render_image(
     image: np.ndarray,
     analysis_results_dict: Optional[dict[str, Union[float, int]]] = None,
     input_params_dict: Optional[dict[str, Union[float, int, str]]] = None,
+    lineouts: Optional[np.array] = None,
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
     cmap: str = 'plasma',
