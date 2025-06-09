@@ -18,6 +18,15 @@ from image_analysis.tools.background import Background
 import logging
 
 e_beam_camera_configs = {
+    "U_BCaveMagSpec": {
+        "bkg_level": 60,
+        "left_ROI": 200,
+        "top_ROI": 1,
+        "roi_width": 500,
+        "roi_height": 300,
+        "rotate": 0,
+        "spatial_calibration": 0.00002217
+    },
     "UC_ALineEbeam1": {
         "bkg_level": 60,
         "left_ROI": 1,
@@ -27,7 +36,6 @@ e_beam_camera_configs = {
         "rotate": 0,
         "spatial_calibration": 0.00002217
     },
-
     "UC_ALineEBeam2": {
         "bkg_level": 18,
         "left_ROI": 1,
@@ -37,7 +45,6 @@ e_beam_camera_configs = {
         "rotate": 0,
         "spatial_calibration": 0.00002394
     },
-
     "UC_ALineEBeam3": {
         "bkg_level": 10,
         "left_ROI": 175,    #orginal value: 180
@@ -47,7 +54,6 @@ e_beam_camera_configs = {
         "rotate": 0,
         "spatial_calibration": 0.0000244
     },
-
     "UC_VisaEBeam1": {
         "bkg_level": 15,
         "left_ROI": 558,
