@@ -141,7 +141,7 @@ def beam_profile_stats(img: np.ndarray, prefix: str = "") -> dict[str, float]:
     img = np.asarray(img, dtype=float)
     if img.sum() <= 0:
         logger.warning("beam_profile_stats: Image has non-positive total intensity. Returning all 0.0 values.")
-        prefix = f"{prefix}_" if prefix else ""
+        prefix = f"{prefix}" if prefix else ""
         return {
             f"{prefix}_x_CoM": 0.0,
             f"{prefix}_x_rms": 0.0,
@@ -166,15 +166,15 @@ def beam_profile_stats(img: np.ndarray, prefix: str = "") -> dict[str, float]:
     y_fwhm = compute_fwhm(y_proj)
     y_peak = compute_peak_location(y_proj)
 
-    prefix = f"{prefix}_" if prefix else ""
+    prefix = f"{prefix}" if prefix else ""
 
     return {
-        f"{prefix}x_mean": x_com,
-        f"{prefix}x_rms": x_rms,
-        f"{prefix}x_fwhm": x_fwhm,
-        f"{prefix}x_peak": x_peak,
-        f"{prefix}y_mean": y_com,
+        f"{prefix}_x_CoM": x_com,
+        f"{prefix}_x_rms": x_rms,
+        f"{prefix}_x_fwhm": x_fwhm,
+        f"{prefix}_x_peak": x_peak,
+        f"{prefix}_y_CoM": y_com,
         f"{prefix}y_rms": y_rms,
-        f"{prefix}y_fwhm": y_fwhm,
-        f"{prefix}y_peak": y_peak,
+        f"{prefix}_y_rms": y_fwhm,
+        f"{prefix}_y_peak": y_peak,
     }
