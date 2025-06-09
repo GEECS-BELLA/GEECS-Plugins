@@ -653,7 +653,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             img = result.get("processed_image")
             analysis_results = result.get("analyzer_return_dictionary", {})
             input_params = result.get("analyzer_input_parameters", {})
-            lineouts = result.get('analyzer_return_lineouts',{})
+            lineouts = result.get('analyzer_return_lineouts',[])
             param_val = entry.get("value", 0)
 
             render_fn(
@@ -731,6 +731,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 image=frame["image"],
                 analysis_results_dict=frame.get("analysis_results_dict", {}),
                 input_params_dict=frame.get("input_params_dict", {}),
+                lineouts=frame.get("return_lineouts", []),
                 vmin=vmin,
                 vmax=vmax,
                 figsize=(figsize_inches, figsize_inches),
@@ -784,6 +785,8 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 "title": f"{key}",
                 "analysis_results_dict": result.get("analyzer_return_dictionary", {}),
                 "input_params_dict": result.get("analyzer_input_parameters", {}),
+                'return_lineouts': result.get("analyzer_return_lineouts", [])
+
             })
 
         return frames

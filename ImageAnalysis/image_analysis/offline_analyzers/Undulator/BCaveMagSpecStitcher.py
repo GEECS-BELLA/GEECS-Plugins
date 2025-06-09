@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Union, Optional, Tuple
+from typing import Union, Optional, Tuple, List
 from pathlib import Path
 
 import numpy as np
@@ -98,7 +98,7 @@ class BCaveMagSpecStitcherAnalyzer(EBeamProfileAnalyzer):
         image: np.ndarray,
         analysis_results_dict: Optional[dict[str, Union[float, int]]] = None,
         input_params_dict: Optional[dict[str, Union[float, int]]] = None,
-        lineouts: Optional[np.array] = None,
+        lineouts: Optional[List[np.array]] = None,
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
         cmap: str = 'plasma',
