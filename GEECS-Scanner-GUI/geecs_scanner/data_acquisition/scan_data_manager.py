@@ -191,6 +191,9 @@ class ScanDataManager:
         filename = f"ScanInfo{scan_folder}.ini"
 
         scan_var = scan_config.device_var
+        if not scan_var:
+            scan_var = 'Shotnumber'
+
         additional_description = scan_config.additional_description
 
         scan_info = f'{self.device_manager.scan_base_description}. scanning {scan_var}. {additional_description}'
