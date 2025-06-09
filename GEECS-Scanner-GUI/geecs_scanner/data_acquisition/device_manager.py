@@ -15,7 +15,7 @@ from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
 from .utils import get_full_config_path  # Import utility function to build paths to config files
-from .types import ScanConfig, ScanMode
+from geecs_data_utils import ScanConfig, ScanMode
 from .schemas.save_devices import SaveDeviceConfig, DeviceConfig
 from geecs_scanner.data_acquisition.schemas.actions import ActionSequence, SetStep  # or wherever ActionSequence is defined
 

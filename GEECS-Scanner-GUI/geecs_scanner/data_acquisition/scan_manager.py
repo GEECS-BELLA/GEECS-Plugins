@@ -16,7 +16,7 @@ import pandas as pd
 from . import DeviceManager, ActionManager, DataLogger, DatabaseDictLookup, ScanDataManager, ScanStepExecutor
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 from .utils import ConsoleLogger
-from .types import ScanConfig, ScanMode  # Adjust the path as needed
+from geecs_data_utils import ScanConfig, ScanMode  # Adjust the path as needed
 from dataclasses import dataclass, fields
 
 

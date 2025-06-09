@@ -18,8 +18,7 @@ from nptdms import TdmsWriter, ChannelObject
 from . import DeviceManager, DatabaseDictLookup
 
 from geecs_python_api.controls.interface import GeecsDatabase
-from geecs_data_utils import ScanData
-from .types import ScanConfig
+from geecs_data_utils import ScanData, ScanMode, ScanConfig
 
 class ScanDataManager:
     """
