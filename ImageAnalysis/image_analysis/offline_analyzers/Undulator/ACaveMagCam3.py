@@ -5,7 +5,6 @@ from pathlib import Path
 
 import numpy as np
 from image_analysis.base import ImageAnalyzer
-from geecs_data_utils import ScanPaths, ScanTag
 
 class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
 
@@ -15,7 +14,7 @@ class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
         ----------
 
         """
-        self.run_analyze_image_asynchronously = True
+        self.run_analyze_image_asynchronously = False
         self.flag_logging = True
 
         super().__init__()
@@ -75,8 +74,6 @@ class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
 
 if __name__ == "__main__":
     image_analyzer  = ACaveMagCam3ImageAnalyzer()
-    scan_tag = ScanTag(year=2025, month=3, day=6, number=39, experiment='Undulator')
-    scans_path = ScanPaths(tag=scan_tag)
-    file_path = scans_path.get_device_shot_path(tag=scan_tag,device_name='UC_ACaveMagCam3',shot_number=1,file_extension='.png')
+    file_path = Path('Z:/data/Undulator/Y2025/03-Mar/25_0306/scans/Scan039/UC_ACaveMagCam3/Scan039_UC_ACaveMagCam3_001.png')
     results = image_analyzer.analyze_image_file(image_filepath=file_path)
     print(results)

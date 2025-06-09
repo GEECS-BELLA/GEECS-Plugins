@@ -1,5 +1,5 @@
 """
-This tests the full functionality of the ALineEBeam analyzer using the settings for AlineEBeam3.  Later on, if 1 and 2
+This tests the full functionality of the ALineEBeam image_analyzer using the settings for AlineEBeam3.  Later on, if 1 and 2
 are implemented then
 
 @Chris
@@ -32,7 +32,7 @@ class TestUndulatorExitCamAnalyze(unittest.TestCase):
         amplitude = 200
         test_image = generate_gaussian_image(image_size=(image_size, image_size), spot_std=spot_size, amp=amplitude)
 
-        # Make an analyzer using some set parameters
+        # Make an image_analyzer using some set parameters
         analyzer = UC_ALineEBeamCamAnalyzer(
             noise_threshold=10,
             circular_crop_center_x=25,

@@ -24,7 +24,7 @@ class VisaBlueDiodeCalibration(VisaEBeamAnalysis):
 
     def __init__(self, scan_tag: ScanTag):
         """
-        Initialize the CameraImageAnalysis class.
+        Initialize the CameraImageAnalyzer class.
 
         Args:
             scan_directory (str or Path): Path to the scan directory containing data.
