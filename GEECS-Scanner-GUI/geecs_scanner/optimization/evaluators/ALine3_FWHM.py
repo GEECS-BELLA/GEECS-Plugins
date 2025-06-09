@@ -73,8 +73,8 @@ class ALine3SizeEval(BaseEvaluator):
         """
         images = []
         for shot_entry in shot_entries:
-            image = self.evaluate_objective_fn_per_shot(shot_entry)
-            if image:
+            image = self.analyze_image(shot_entry)
+            if isinstance(image, np.ndarray):
                 images.append(image)
 
         average_image = np.mean(images, axis=0)
