@@ -813,19 +813,22 @@ if __name__ == "__main__":
     from scan_analysis.base import ScanAnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import analyze_scan, instantiate_scan_analyzer
     from image_analysis.offline_analyzers.Undulator.BCaveMagSpecStitcher import BCaveMagSpecStitcherAnalyzer
+    from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
+
     from geecs_data_utils import ScanTag, ScanData
 
-    config_dict = {'camera_name': "U_BCaveMagSpec"}
+    dev_name = 'UC_ALineEBeam3'
+    config_dict = {'camera_name': dev_name}
     analyzer_info = Info(scan_analyzer_class=Array2DScanAnalyzer,
-                         requirements={'U_BCaveMagSpec'},
-                         device_name='U_BCaveMagSpec',
-                         scan_analyzer_kwargs={'image_analyzer':BCaveMagSpecStitcherAnalyzer(**config_dict)}
+                         requirements={dev_name},
+                         device_name=dev_name,
+                         scan_analyzer_kwargs={'image_analyzer':EBeamProfileAnalyzer(**config_dict)}
                          )
 
     import time
     t0 = time.monotonic()
-    test_tag = ScanTag(year=2025, month=6, day=5, number=31, experiment='Undulator')
+    test_tag = ScanTag(year=2025, month=6, day=9, number=8, experiment='Undulator')
     scan_analyzer = instantiate_scan_analyzer(scan_analyzer_info=analyzer_info, scan_tag=test_tag)
-    # analyze_scan(test_tag, [analyzer_info])
+    scan_analyzer.run_analysis()
     t1 = time.monotonic()
     logging.info(f'execution time: {t1-t0}')
