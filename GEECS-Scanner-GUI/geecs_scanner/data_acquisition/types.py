@@ -9,10 +9,6 @@ warnings.warn(
     stacklevel=2,
 )
 
-class ScanConfig(_ScanConfig):
-    """Stub for backward compatibility."""
-    pass
-
-class ScanMode(_ScanMode):
-    """Stub for backward compatibility."""
-    pass
+#Backward compatibility: alias instead of subclass
+ScanConfig = _ScanConfig
+ScanMode = _ScanMode
