@@ -83,11 +83,11 @@ class BCaveMagSpecStitcherAnalyzer(EBeamProfileAnalyzer):
         return_dictionary = self.build_return_dictionary(return_scalars={'optimization_target': optimization_target},
                                                          return_image=final_image,
                                                          input_parameters=self.kwargs_dict,
-                                                         return_lineouts=weighted_lineout
+                                                         return_lineouts=[weighted_lineout]
                                                          )
 
         if self.use_interactive:
-            fig, ax = self.render_image(image=final_image, input_params_dict=self.kwargs_dict, lineout=weighted_lineout)
+            fig, ax = self.render_image(image=final_image, input_params_dict=self.kwargs_dict, lineouts=[weighted_lineout])
             plt.show()
             plt.close(fig)
 
@@ -98,13 +98,13 @@ class BCaveMagSpecStitcherAnalyzer(EBeamProfileAnalyzer):
         image: np.ndarray,
         analysis_results_dict: Optional[dict[str, Union[float, int]]] = None,
         input_params_dict: Optional[dict[str, Union[float, int]]] = None,
+        lineouts: Optional[np.array] = None,
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
         cmap: str = 'plasma',
         figsize: Tuple[float, float] = (4, 4),
         dpi: int = 150,
         ax: Optional[plt.Axes] = None,
-        lineout: Optional[np.array] = None
     ) -> tuple[plt.Figure, plt.Axes]:
         """
         Overlay-enhanced version of the base renderer for EBeamProfileAnalyzer or similar.
@@ -113,6 +113,7 @@ class BCaveMagSpecStitcherAnalyzer(EBeamProfileAnalyzer):
             image=image,
             analysis_results_dict=analysis_results_dict,
             input_params_dict=input_params_dict,
+            lineouts=lineouts,
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,
@@ -120,8 +121,8 @@ class BCaveMagSpecStitcherAnalyzer(EBeamProfileAnalyzer):
             dpi=dpi,
             ax=ax
         )
-        print('lineout:')
-        # Optional overlay of a line
+
+        lineout = lineouts[0]
         # Optional overlay of a line
         if lineout is not None:
             x_vals = np.arange(len(lineout))
@@ -152,4 +153,3 @@ if __name__ == "__main__":
     file_path = Path('/Volumes/hdna2/data/Undulator/Y2025/06-Jun/25_0605/scans/Scan018/U_BCaveMagSpec/Scan018_U_BCaveMagSpec_001.png')
 
     results = image_analyzer.analyze_image_file(image_filepath=file_path)
-    print(results)
