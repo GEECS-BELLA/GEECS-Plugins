@@ -247,7 +247,7 @@ class ScanStepExecutor:
             next_index (int): Index of the scan step to update.
         """
 
-        num_initialization_steps = 1
+        num_initialization_steps = 3
         try:
             if next_index <= num_initialization_steps:
                 # Use generator during initialization as well

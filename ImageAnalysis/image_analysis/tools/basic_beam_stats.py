@@ -13,7 +13,7 @@ def compute_center_of_mass(profile: np.ndarray) -> float:
     total = profile.sum()
     if total <= 0:
         logger.warning("compute_center_of_mass: Profile has non-positive total intensity. Returning 0.0.")
-        return 0.0
+        return np.nan
     coords = np.arange(profile.size)
     return np.sum(coords * profile) / total
 
@@ -27,7 +27,7 @@ def compute_rms(profile: np.ndarray) -> float:
     total = profile.sum()
     if total <= 0:
         logger.warning("compute_rms: Profile has non-positive total intensity. Returning 0.0.")
-        return 0.0
+        return np.nan
     coords = np.arange(profile.size)
     com = compute_center_of_mass(profile)
     return np.sqrt(np.sum((coords - com) ** 2 * profile) / total)
@@ -41,18 +41,18 @@ def compute_fwhm(profile: np.ndarray) -> float:
     profile = np.asarray(profile, dtype=float)
     if profile.sum() <= 0:
         logger.warning("compute_fwhm: Profile has non-positive total intensity. Returning 0.0.")
-        return 0.0
+        return np.nan
 
     profile -= profile.min()
     max_val = profile.max()
     if max_val <= 0:
         logger.warning("compute_fwhm: Profile has non-positive peak after baseline shift. Returning 0.0.")
-        return 0.0
+        return np.nan
 
     half_max = max_val / 2
     indices = np.where(profile >= half_max)[0]
     if len(indices) < 2:
-        return 0.0
+        return np.nan
 
     left, right = indices[0], indices[-1]
 
@@ -76,7 +76,7 @@ def compute_peak_location(profile: np.ndarray) -> int:
     profile = np.asarray(profile, dtype=float)
     if profile.size == 0:
         logger.warning("compute_peak_location: Profile is empty. Returning 0.")
-        return 0
+        return np.nan
     return int(np.argmax(profile))
 
 def compute_2d_center_of_mass(img: np.ndarray) -> tuple[float, float]:
@@ -88,7 +88,7 @@ def compute_2d_center_of_mass(img: np.ndarray) -> tuple[float, float]:
     img = np.asarray(img, dtype=float)
     if img.sum() <= 0:
         logger.warning("compute_2d_center_of_mass: Image has non-positive total intensity. Returning (0.0, 0.0).")
-        return 0.0, 0.0
+        return np.nan. np.nan
     return compute_center_of_mass(img.sum(axis=0)), compute_center_of_mass(img.sum(axis=1))
 
 def compute_2d_rms(img: np.ndarray) -> tuple[float, float]:
@@ -100,7 +100,7 @@ def compute_2d_rms(img: np.ndarray) -> tuple[float, float]:
     img = np.asarray(img, dtype=float)
     if img.sum() <= 0:
         logger.warning("compute_2d_rms: Image has non-positive total intensity. Returning (0.0, 0.0).")
-        return 0.0, 0.0
+        return np.nan, np.nan
     return compute_rms(img.sum(axis=0)), compute_rms(img.sum(axis=1))
 
 def compute_2d_fwhm(img: np.ndarray) -> tuple[float, float]:
@@ -112,7 +112,7 @@ def compute_2d_fwhm(img: np.ndarray) -> tuple[float, float]:
     img = np.asarray(img, dtype=float)
     if img.sum() <= 0:
         logger.warning("compute_2d_fwhm: Image has non-positive total intensity. Returning (0.0, 0.0).")
-        return 0.0, 0.0
+        return np.nan, np.nan
     return compute_fwhm(img.sum(axis=0)), compute_fwhm(img.sum(axis=1))
 
 def compute_2d_peak_locations(img: np.ndarray) -> tuple[int, int]:
@@ -124,7 +124,7 @@ def compute_2d_peak_locations(img: np.ndarray) -> tuple[int, int]:
     img = np.asarray(img, dtype=float)
     if img.sum() <= 0:
         logger.warning("compute_2d_peak_locations: Image has non-positive total intensity. Returning (0, 0).")
-        return 0, 0
+        return np.nan, np.nan
     return compute_peak_location(img.sum(axis=0)), compute_peak_location(img.sum(axis=1))
 
 def beam_profile_stats(img: np.ndarray, prefix: str = "") -> dict[str, float]:
@@ -143,14 +143,14 @@ def beam_profile_stats(img: np.ndarray, prefix: str = "") -> dict[str, float]:
         logger.warning("beam_profile_stats: Image has non-positive total intensity. Returning all 0.0 values.")
         prefix = f"{prefix}" if prefix else ""
         return {
-            f"{prefix}_x_CoM": 0.0,
-            f"{prefix}_x_rms": 0.0,
-            f"{prefix}_x_fwhm": 0.0,
-            f"{prefix}_x_peak": 0.0,
-            f"{prefix}_y_CoM": 0.0,
-            f"{prefix}_y_rms": 0.0,
-            f"{prefix}_y_fwhm": 0.0,
-            f"{prefix}_y_peak": 0.0,
+            f"{prefix}_x_CoM": np.nan,
+            f"{prefix}_x_rms": np.nan,
+            f"{prefix}_x_fwhm": np.nan,
+            f"{prefix}_x_peak": np.nan,
+            f"{prefix}_y_CoM": np.nan,
+            f"{prefix}_y_rms": np.nan,
+            f"{prefix}_y_fwhm": np.nan,
+            f"{prefix}_y_peak": np.nan,
         }
 
     x_proj = img.sum(axis=0)

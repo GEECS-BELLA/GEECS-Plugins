@@ -1,7 +1,7 @@
 vocs:
   variables:
-    U_S1H:Current: [ 0.0, 1.0 ]
-    U_S2H:Current: [ 0.0, 1.0 ]
+    U_EMQTripletBipolar:Current_Limit.Ch1: [ .5, 2 ]
+    U_EMQTripletBipolar:Current_Limit.Ch2: [ -1.4, -.5]
   objectives:
     f: MINIMIZE
   constraints: {}
