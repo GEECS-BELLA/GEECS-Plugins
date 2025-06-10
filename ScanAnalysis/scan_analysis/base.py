@@ -140,7 +140,7 @@ class ScanAnalyzer:
             logging.info(f"Scan parameter is: {self.scan_parameter}.")
             s_param = self.scan_parameter.lower()
 
-            if s_param == 'noscan' or s_param == 'shotnumber':
+            if s_param == 'noscan' or s_param == 'Shotnumber':
                 logging.warning("No parameter varied during the scan, setting noscan flag.")
                 self.noscan = True
 

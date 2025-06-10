@@ -827,7 +827,7 @@ if __name__ == "__main__":
 
     import time
     t0 = time.monotonic()
-    test_tag = ScanTag(year=2025, month=6, day=9, number=8, experiment='Undulator')
+    test_tag = ScanTag(year=2025, month=6, day=10, number=6, experiment='Undulator')
     scan_analyzer = instantiate_scan_analyzer(scan_analyzer_info=analyzer_info, scan_tag=test_tag)
     scan_analyzer.run_analysis()
     t1 = time.monotonic()

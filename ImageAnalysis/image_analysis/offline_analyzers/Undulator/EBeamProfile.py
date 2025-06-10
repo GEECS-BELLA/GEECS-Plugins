@@ -46,11 +46,11 @@ e_beam_camera_configs = {
         "spatial_calibration": 0.00002394
     },
     "UC_ALineEBeam3": {
-        "bkg_level": 10,
+        "bkg_level": 64,
         "left_ROI": 175,    #orginal value: 180
-        "top_ROI": 175,     #orginal value: 200
-        "roi_width": 600,   #orginal value: 500
-        "roi_height": 600,  #orginal value: 500
+        "top_ROI": 100,     #orginal value: 200
+        "roi_width": 800,   #orginal value: 500
+        "roi_height": 800,  #orginal value: 500
         "rotate": 0,
         "spatial_calibration": 0.0000244
     },
@@ -349,6 +349,8 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         """
         if self.config.fiducial_cross1_location and self.config.fiducial_cross2_location:
             image = self.apply_cross_mask(image)
+        self.background.set_constant_background(self.config.bkg_level)
+        image = self.background.subtract(image)
         image = self.apply_roi(image)
         return image
 
