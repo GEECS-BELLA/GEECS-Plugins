@@ -706,8 +706,18 @@ class ScanManager:
 
         self.device_manager.load_from_dictionary(self.optimizer.device_requirements)
 
-        for var in self.optimizer.vocs.variables.keys():
-            self.device_manager.check_then_add_variable(var)
+        # for var in self.optimizer.vocs.variables.keys():
+        #     self.device_manager.check_then_add_variable(var)
+        from collections import defaultdict
+        # Step 1: Consolidate variables by device
+        device_variables = defaultdict(list)
+        for key in self.optimizer.vocs.variables.keys():
+            device, variable = key.split(':', 1)
+            device_variables[device].append(variable)
+
+        # Step 2: Call add_scan_device for each device
+        for device, variables in device_variables.items():
+            self.device_manager.add_scan_device(device, variables)
 
         # Ensure the executor sees the updated optimizer. Maybe it's better to contstruct the executor
         # after this method...
