@@ -95,7 +95,7 @@ class ALine3SizeEval(BaseEvaluator):
 
     @staticmethod
     def objective_fn(x, y):
-        calibration = 24.4 # spatial calibration in um/pixel
+        calibration = 24.4e-3 # spatial calibration in um/pixel
         return (x*calibration)**2 + (y*calibration)**2
 
     def _get_value(self, input_data: Dict) -> Dict:
