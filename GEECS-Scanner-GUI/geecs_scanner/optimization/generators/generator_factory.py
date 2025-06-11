@@ -6,11 +6,6 @@ from xopt.generators.bayesian.models.standard import StandardModelConstructor
 
 from typing import Any, Dict
 
-import sys
-# sys.path.append('../2025_pilot_digital_twin_LDRD/simulation_scripts')
-sys.path.append(r'C:\Users\loasis.LOASIS\Documents\GitHub\2025_pilot_digital_twin_LDRD\simulation_scripts')
-from htu_lattice import get_lattice, current_to_k
-
 # Explicitly defined generators dictionary
 PREDEFINED_GENERATORS = {
     "random": lambda vocs: RandomGenerator(vocs=vocs),

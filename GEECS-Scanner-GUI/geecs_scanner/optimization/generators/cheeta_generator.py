@@ -5,7 +5,9 @@ import torch
 def get_cheetah_generator(vocs):
     try:
         from cheetah import ParameterBeam, ParticleBeam, Segment
+        sys.path.append(r'C:\Users\loasis.LOASIS\Documents\GitHub\2025_pilot_digital_twin_LDRD\simulation_scripts')
         from htu_lattice import get_lattice, current_to_k
+
     except ImportError as e:
         raise ImportError("The 'cheetah' dependency is required for 'bayes_cheetah'. "
                           "Please install it separately.") from e
