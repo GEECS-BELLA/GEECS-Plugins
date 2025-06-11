@@ -23,22 +23,12 @@ from geecs_data_utils import ScanData
 
 # %% classes
 class HTTMagSpecAnalyzer(ScanAnalyzer):
-    def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True):
-        super().__init__(scan_tag, device_name=None, skip_plt_show=skip_plt_show)
+    def __init__(self, device_name: Optional[str] = None, skip_plt_show: bool = True):
+        super().__init__(device_name=None, skip_plt_show=skip_plt_show)
 
         self.device_list = ['HTT-C23_1_MagSpec1', 'HTT-C23_2_MagSpec2', 'HTT-C23_3_MagSpec3', 'HTT-C23_4_MagSpec4']
         self.background_tag = ScanData.get_scan_tag(year=2025, month=3, day=26, number=7, experiment='Thomson')
         self.backgrounds = {}
-
-        # Check if data directory exists and is not empty
-        for device in self.device_list:
-            device_path = self.scan_directory / device
-            if not device_path.exists() or not any(device_path.iterdir()):
-                msg = f"Data directory 'device_path' does not exist or is empty."
-                logging.warning(msg)
-                raise NotADirectoryError(msg)
-
-        self.save_path = self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / "ScAnalyzer"
         self.load_backgrounds()
 
     def load_backgrounds(self):
@@ -56,6 +46,17 @@ class HTTMagSpecAnalyzer(ScanAnalyzer):
 
     def _run_analysis_core(self):
         """ Main function to run the analysis and generate plots. """
+
+        # Check if data directory exists and is not empty
+        for device in self.device_list:
+            device_path = self.scan_directory / device
+            if not device_path.exists() or not any(device_path.iterdir()):
+                msg = f"Data directory 'device_path' does not exist or is empty."
+                logging.warning(msg)
+                raise NotADirectoryError(msg)
+
+        self.save_path = self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / "ScAnalyzer"
+
         # For HTU we grab these from files
         # energy_values, charge_density_matrix
 
@@ -118,5 +119,5 @@ class HTTMagSpecAnalyzer(ScanAnalyzer):
 if __name__ == "__main__":
     from geecs_data_utils import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=3, day=21, number=10, experiment='Thomson')
-    analyzer = HTTMagSpecAnalyzer(scan_tag=tag, skip_plt_show=False)
-    analyzer._run_analysis_core()
+    analyzer = HTTMagSpecAnalyzer( skip_plt_show=False)
+    analyzer.run_analysis(scan_tag=tag)
