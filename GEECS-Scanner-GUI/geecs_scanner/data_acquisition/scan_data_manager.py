@@ -200,15 +200,15 @@ class ScanDataManager:
         # Add the Scan Info section
         config_file_contents = [
             "[Scan Info]\n",
-            f"Scan No = \"{scan_number}\"\n",
+            f"Scan No = {scan_number}\n",
             f"ScanStartInfo = \"{scan_info}\"\n",
             f"Scan Parameter = \"{scan_var}\"\n",
-            f"Start = \"{scan_config.start}\"\n",
-            f"End = \"{scan_config.end}\"\n",
-            f"Step size = \"{scan_config.step}\"\n",
-            f"Shots per step = \"{scan_config.wait_time}\"\n",
+            f"Start = {scan_config.start}\n",
+            f"End = {scan_config.end}\n",
+            f"Step size = {scan_config.step}\n",
+            f"Shots per step = {scan_config.wait_time}\n",
             f"ScanEndInfo = \"\"\n",
-            f"Background = \"{scan_config.background}\"\n",
+            f"Background = {str(scan_config.background).lower()}\n",  # INI-style lowercase booleans
             f"ScanMode = \"{scan_config.scan_mode.value}\"\n"
         ]
 
