@@ -17,7 +17,7 @@ import random
 import matplotlib.pyplot as plt
 import scipy.stats as stats
 from scipy.optimize import fsolve
-sys.path.append('../')
+sys.path.append('../../')
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 import asyncio
@@ -95,18 +95,18 @@ class CameraCentroid:
 
 #region Test Code for HPD-CCD
 async def main():
-    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info("Bella")
-    camera = GeecsDevice('CAM-HPD-CCD')
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info("kHzLPA")
+    camera = GeecsDevice('kHz_Cam2-3_AstrellaMode')
     monitor = CameraCentroid(camera)
 
-    await monitor.start_monitoring(interval=0.2)
+    await monitor.start_monitoring(interval=0.1)
 
-    for i in range(10):
+    for i in range(100):
 
         mean = await monitor.get_running_mean()
         print(f"Current Mean: {mean}")
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.1)
 
     await monitor.stop_monitoring()
     camera.close

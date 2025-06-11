@@ -1,11 +1,11 @@
 # Data Acquisition Module
 
 This is a GUI wrapper for the Python-based data acquisition module in 
-`GEECS-PythonAPI/geecs_python_api/controls/data_acquisition/`.  While it was
-developed for HTU originally, it is designed to be generally usable by any
+`./geecs_scanner/data_acquisition/` that utilizes `GEECS-PythonAPI`.  It was originally
+developed for HTU, but it is designed to be generally usable by any
 experiment using the GEECS/Master Control environment.
 
-While Master Control scans save everything, will crash or slowdown at any device encountering an error, and keep all devices explictly timed to one-another through designated shots, the python data acquisition operates instead in an "opt-in" framework.  Here, you are in control of what devices get saved in a given scan, if a device becomes unresponsive then the rest of the scan continues un-interrupted (so long as it is not vital to the triggering of devices), and data is collected instead by turing "Save" to "on" for devices and waiting a specified amount of time.  While you are not garunteed to get every device saved for exactly N number of shots, this framework allows for routine data-collection to be achieved very smoothly and reliably.  As an added bonus, being written in Python allows for much more flexibility in including additional features, such as
+While Master Control scans save everything, will crash or slowdown at any device encountering an error, and keep all devices explictly timed to one-another through designated shots; the python data acquisition operates instead in an "opt-in" framework.  Here, you are in control of what devices get saved in a given scan, if a device becomes unresponsive then the rest of the scan continues un-interrupted (so long as it is not vital to the triggering of devices), and data is collected instead by turing "Save" to "on" for devices and waiting a specified amount of time.  While you are not garunteed to get every device saved for exactly N number of shots, this framework allows for routine data-collection to be achieved very smoothly and reliably.  As an added bonus, being written in Python allows for much more flexibility in including additional features, such as
 
 * Automated actions before and after scans
 * Composite scan variables defined relative to current values
@@ -40,12 +40,16 @@ Now, there are two installation paths:  one for just running the GUI and one for
 Open a terminal.  Change directory to this folder (the one with `pyproject.toml`).  Then run the following two commands:
 ```commandline
 poetry install
-poetry run GEECSScanner.py
+poetry run main.py
 ```
 
-Note1:  you can write a quick bash script and place on your desktop for these three steps.  In the future, we may have a standalone .exe which replaces these steps.
+The first time you run this GUI on a given PC, a dialog box will appear asking you to "repair/generate" a config.ini file.  Do this and follow the steps, this will generate a file that lets GEECS-Plugins applications know what experiment name and user data information it is working with.
 
-Note2:  this may not work if your default python version is not 3.10.  You can see what python version your system defaults to by typing `python --verison`.  If you are experiencing troubles with poetry here, might need to manually specify which python version to use in these two commands.
+For the `GEECS user data location` information, you will need to copy the existing user data folder from the server into the local path that you defined in the config.ini above.  For example, if you set your GEECS user data path to be in `C:\GEECS\user data`, then you will need to make the `GEECS` folder in `C:` and copy the user data from the server.  (For example, HTU's server data was located in `Z:\software\control-all-loasis\HTU\user data`)
+
+Alternatively, you can use the included bash script `GEECS_Scanner.sh` to launch the version of the GUI on the Z drive.  This can be modified if needed.
+
+Note:  this may not work if your default python version is not 3.10.  You can see what python version your system defaults to by typing `python --verison`.  If you are experiencing troubles with poetry here, might need to manually specify which python version to use in these two commands.
 
 ### Setting up the environment for development
 
@@ -73,13 +77,22 @@ Note:  If you want to add a package to the poetry file, there is an easy command
 poetry add <<python package>>
 ```
 
+### Editing the gui files
+
+The gui's themselves are developed using `pyqt5`, which is a python package for gui development.  To launch the designer tool:
+
+1. Be in an active terminal within the poetry virtual environment
+2. `pyqt5-tools designer`
+3. Do whatever you want, saving and closing the designer after you are done.  (GUI files are located in `geecs_scanner\app\gui\`)
+4. For any changed file, you'll need to update the python backend code.  To do so, first `cd` into the `gui\` directory.  Then, for anything you changed execute the following:  `pyuic5 -o .\<GUIFile>_ui.py .\<GUIFile>.ui`  (replacing `<GUIFile>` with the `.ui` file you created/edited)
+
 ## Tutorial
 
 This section serves as a guide to running the software once you are able to successfully launch it.  
 
 ### Experiment Config
 
-Upon first running the GUI, it will prompt you for four things necessary for the GEECS-PythonAPI to function.  First is the path for GEECS user data.  Second is the name of the experiment, this should match the syntax and case sensitivity as shown on Master Control.  Second is the repetition rate of the experiment.  While GEECS Scanner does not operate on a shot-counting method for data acquisition, this number is instead used to estimate the acquisition time per step.  Lastly is the shot control device used for triggering all experimental devices.  These are subsequently written to a config file located at `~\.config\geecs_python_api\`:
+Upon first running the GUI, it will prompt you for three things necessary for the GEECS-PythonAPI to function.  First is the path for GEECS user data.  Second is the name of the experiment, this should match the syntax and case sensitivity as shown on Master Control.  Next is the repetition rate of the experiment.  While GEECS Scanner does not operate on a shot-counting method for data acquisition, this number is instead used to estimate the acquisition time per step.  These are subsequently written to a config file located at `~\.config\geecs_python_api\`:
 ```config
 [Paths]
 geecs_data = C:\GEECS\user data\
@@ -87,11 +100,12 @@ geecs_data = C:\GEECS\user data\
 [Experiment]
 expt = Undulator
 rep_rate_hz = 1
-shot_control = U_DG645_ShotControl
 ```
 These are examples for Undulator, but need to be defined for other experiments.  There is also a button on the GUI to re-set these values.
 
-NOTE:  Currently the triggering is hardcoded in scan_manager.py to only switch `Amplitude.Ch AB` between `0.5` and `4.0` for 'off' and 'on', respectively, and to change `Trigger.Source` from `Single shot external rising edges` and `External rising edges` for 'off' and 'on', respectively.  This will need to become generalized in the near future.
+### Timing Setup
+
+This side-GUI opens up a dialog to specify what happens when the experiment goes into "Scan" mode.  This is composed of a single device to act as the shot controller and any number of associated variables.  You can then set the states of these variables for when the system goes into Off, Scan, and Standby modes.
 
 ### Element Editor
 
@@ -103,7 +117,7 @@ Next, you can optionally specify actions that can be automatically executed befo
 
 Next, you specify the type of scan.  Noscan (or statistics scan) is where no variables are changed and the settings are held constant for the number of shots specified.  1D Scan varies the specifed variable from the start value to the end value with the specified step size, acquiring a set number of shots each step.  The Scan Variables do not list every scan variable in the experiment, rather only the defined list in `geecs_python_api/controls/data_acquisition/configs/.../scan_devices/scan_devices.yaml`.  This file maps a nickname (ie: EMQ1) to a GEECS Variable name (ie: U_EMQTripletBipolar:Current_Limit.Ch1).  Additionally, composite variables can be defined in `composite_variables.yaml` and will show up in this list as well.
 
-Note1:  Composite variables have a start and stop that are relative to the current values in Master Control.  Regular, single variables always are defined with an absolute start and stop values.
+Note1:  Composite variables have a start and stop that can be relative to the current values or can be modified in absolute terms. Relative adjusting is useful for composite variables that combine things like multiple steering magnets or mirrors.  Regular, single variables always are defined with an absolute start and stop values.
 
 Note2:  Eventually there will be a GUI to edit these scan variables.
 
@@ -137,8 +151,19 @@ TODO, right now files are separated by GUI window and each python file contains 
 
 Current improvements on the wishlist:
 
+* Cleaning up and expanding THIS README.md file
+* Standardize logging practices
+* Fix/enable the log output window on the main GUI window
+* Chance composite variables to be a subclass of a regular GEECS Device, rather than treating as a special case
 * GUI for viewing/editing the 1D scan variables and composite variables
 * GUI for viewing/editing the actions defined in `actions.yaml`, as well as executing actions without running a scan
-* Location to define timing settings for turning the triggering on and off, as well as a method for editing on the GUI
 * Checkbox to toggle if scan variables return to original position after the scan or not
 * Long-term goal, implement an "optimization" scan with Xopt
+
+## Known Bugs
+
+* A composite variable cannot consist of multiple variables of a single device
+* If launching the GUI for the first time and no pre-defined user config .ini file, will need to restart the GUI for it to enable scanning.  Ideally, it should work after you specify the experiment.
+* Starting a scan with no save elements just freezes forever
+* Stopping a scan immediately after clicking the start button does strange things, but stopping in the middle of a scan is fine
+* The progress bar is often not too accurate, it is mostly a guess of how far along the scan is.  This is because there is no way to enforce exactly when a scan starts relative to the trigger signals, so the number of shots per step can vary.

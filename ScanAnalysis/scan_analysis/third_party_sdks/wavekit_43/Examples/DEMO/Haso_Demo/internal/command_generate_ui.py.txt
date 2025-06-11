@@ -1,0 +1,1 @@
+pyuic4 internal/recalage.ui -o internal/recalage_ui.py

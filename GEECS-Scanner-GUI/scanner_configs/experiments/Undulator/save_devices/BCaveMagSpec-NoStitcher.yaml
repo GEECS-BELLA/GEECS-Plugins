@@ -1,0 +1,40 @@
+Devices:
+  UC_BCaveMagSpecCam1:
+    save_nonscalar_data: true
+    scan_setup:
+      Analysis:
+      - 'on'
+      - 'on'
+    synchronous: true
+    variable_list:
+    - Charge
+  UC_BCaveMagSpecCam2:
+    save_nonscalar_data: true
+    scan_setup:
+      Analysis:
+      - 'on'
+      - 'on'
+    synchronous: true
+    variable_list:
+    - Charge
+  UC_BCaveMagSpecCam3:
+    save_nonscalar_data: true
+    scan_setup:
+      Analysis:
+      - 'on'
+      - 'on'
+    synchronous: true
+    variable_list:
+    - Charge
+  U_BCaveHallProbe:
+    save_nonscalar_data: false
+    synchronous: false
+    variable_list:
+    - Field
+    - Rawfield
+  U_BCaveMagSpecPS:
+    save_nonscalar_data: false
+    synchronous: false
+    variable_list:
+    - Field
+    - Rawfield

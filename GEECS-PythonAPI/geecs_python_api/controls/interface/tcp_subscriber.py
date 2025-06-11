@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from geecs_python_api.controls.devices import GeecsDevice
 import geecs_python_api.controls.interface.message_handling as mh
 from geecs_python_api.controls.interface.geecs_errors import ErrorAPI, api_error
-
+import logging
 
 class TcpSubscriber:
     def __init__(self, owner: GeecsDevice):
@@ -40,7 +40,6 @@ class TcpSubscriber:
 
     def connect(self) -> bool:
         """ Connects to "host/IP" on port "port". """
-
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.connect((self.owner.dev_ip, self.owner.dev_port))
@@ -48,9 +47,21 @@ class TcpSubscriber:
             self.port = self.owner.dev_port
             self.connected = True
 
-        except Exception:
-            api_error.error(f'Failed to connect TCP client ({self.owner.get_name()})',
-                            'TcpSubscriber class, method "connect"')
+        except ConnectionRefusedError as e:
+            api_error.error(
+                f'Device not on (ConnectionRefusedError): {e}',
+                'TcpSubscriber class, method "connect"'
+            )
+            self.sock = None
+            self.host = ''
+            self.port = -1
+            self.connected = False
+
+        except (TimeoutError, InterruptedError) as e:
+            api_error.error(
+                f'Error while connecting TCP client ({self.owner.get_name()}): {e}',
+                'TcpSubscriber class, method "connect"'
+            )
             self.sock = None
             self.host = ''
             self.port = -1
@@ -139,8 +150,13 @@ class TcpSubscriber:
                                 this_msg += chunk.decode('ascii')
 
                         # Notify event handler on receiving a new message (general update)
-                        if self.message_callback:  # Invoke the callback if it is set
-                            self.message_callback(this_msg)
+                        if self.message_callback:
+                            try:
+                                self.message_callback(this_msg)
+                            except Exception as e:
+                                error_message = (f'Handling of TCP Callback failed for '
+                                              f'{self.owner.get_name()}: {e}')
+                                logging.error(error_message, exc_info=True)  # Logs stack trace
 
                         # Handle the message if subscribed
                         if self.subscribed:
@@ -157,9 +173,8 @@ class TcpSubscriber:
                             try:
                                 self.owner.handle_subscription(net_msg)
                             except Exception as e:
-                                api_error.error('Failed to handle TCP subscription',
-                                                'TcpSubscriber class, method "async_listener"')
-                                print(f"Exception in handle_subscription: {e}")
+                                logging.error('device Failed to handle TCP subscription, TcpSubscriber class, method "async_listener"')
+                                logging.error(f"Exception in handle_subscription: {e}")
 
                 # Check for unsubscribe event (to stop the listener)
                 if self.unsubscribe_event.wait(0.):

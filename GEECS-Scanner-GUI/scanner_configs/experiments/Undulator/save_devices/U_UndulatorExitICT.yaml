@@ -1,0 +1,7 @@
+Devices:
+  U_UndulatorExitICT:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - Python Results.ChA
+    - Python Results.ChB

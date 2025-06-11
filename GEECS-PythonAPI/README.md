@@ -14,7 +14,7 @@ scan_tag = ScanData.get_scan_tag(year, month, day, number)
 
 To get folders associated with the scan tag, need to also provide experiment name:
 ```python
-scan_folder = ScanData.build_scan_folder_path(scan_tag, experiment=experiment_name)
+scan_folder = ScanData.get_scan_folder_path(scan_tag, experiment=experiment_name)
 ```
 
 A `ScanData` instance is created either with a folder or a tag+experiment name:

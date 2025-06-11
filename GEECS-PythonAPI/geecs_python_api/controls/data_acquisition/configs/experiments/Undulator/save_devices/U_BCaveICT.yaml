@@ -1,5 +1,0 @@
-Devices:
-  U_BCaveICT:
-    variable_list: ["Python Results.ChA", "Python Results.ChB", "timestamp"]
-    synchronous: True
-    save_nonscalar_data: True

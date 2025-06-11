@@ -1,0 +1,24 @@
+vocs:
+  variables:
+    U_EMQTripletBipolar:Current_Limit.Ch1: [ .5, 2 ]
+    U_EMQTripletBipolar:Current_Limit.Ch2: [ -1.4, -.5]
+    U_EMQTripletBipolar:Current_Limit.Ch3: [ -.1, 1.0]
+  objectives:
+    f: MINIMIZE
+  constraints: {}
+
+evaluator:
+  module: geecs_scanner.optimization.evaluators.ALine3_FWHM
+  class: ALine3SizeEval
+
+generator:
+  name: bayes_default
+
+device_requirements:
+  Devices:
+    UC_ALineEBeam3:
+      add_all_variables: false
+      save_nonscalar_data: true
+      synchronous: true
+      variable_list:
+        - acq_timestamp

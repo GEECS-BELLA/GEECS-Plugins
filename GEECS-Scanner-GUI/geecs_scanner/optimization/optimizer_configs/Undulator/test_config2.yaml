@@ -1,0 +1,22 @@
+vocs:
+  variables:
+    'U_ESP_JetXYZ:Position.Axis 3': [ 2.0, 8.0 ]
+  objectives:
+    f: MINIMIZE
+  constraints: {}
+
+evaluator:
+  module: geecs_scanner.optimization.evaluators.HTU_test_v2
+  class: TestEvaluator
+
+generator:
+  name: bayes_default
+
+device_requirements:
+  Devices:
+    U_BCaveMagSpec:
+      add_all_variables: false
+      save_nonscalar_data: true
+      synchronous: true
+      variable_list:
+        - acq_timestamp

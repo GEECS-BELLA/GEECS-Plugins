@@ -17,7 +17,8 @@ import matplotlib.pyplot as plt
 import scipy.stats as stats
 from scipy.optimize import fsolve
 from AsyncCamera import CameraCentroid
-sys.path.append('../')
+from PiezoControllerClass import TLMDT69_Controller
+sys.path.append('../../')
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 import asyncio
@@ -111,10 +112,11 @@ def update_plot(frame, ax, scatter_current, scatter_target, line, shared_data):
 
         # Set axis limits with target at center
         # Use either 50 units or the distance, whichever is greater
-        axis_range = max(50, distance * 1.2)  # Add 20% margin to distance
+        axis_range = max(3, distance * 1.2)  # Add 20% margin to distance
 
         ax.set_xlim(target_x - axis_range, target_x + axis_range)
         ax.set_ylim(target_y - axis_range, target_y + axis_range)
+        ax.invert_yaxis()
 
         # Update title with position information
         ax.set_title(f'Centroid Tracking - Current: ({current_x:.1f}, {current_y:.1f}) '
@@ -144,15 +146,17 @@ def start_plotting_thread(shared_data):
     # Set initial view limits (will be updated in update_plot)
     ax.set_xlim(0, 200)
     ax.set_ylim(0, 200)
+    ax.invert_yaxis()
 
     # Set aspect ratio to be equal
     ax.set_aspect('equal')
 
+
     # Add grid lines at the target position
     def on_xlims_change(axes):
         target_x, target_y = shared_data.target
-        ax.axhline(y=target_y, color='r', linestyle='--', alpha=0.1)
-        ax.axvline(x=target_x, color='r', linestyle='--', alpha=0.1)
+        #ax.axhline(y=target_y, color='r', linestyle='--', alpha=0.1)
+        #ax.axvline(x=target_x, color='r', linestyle='--', alpha=0.1)
 
     ax.callbacks.connect('xlim_changed', on_xlims_change)
 
@@ -184,18 +188,23 @@ async def main():
     plotting_thread.start()
 
     # Initialize your hardware
-    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info("Bella")
-    camera = GeecsDevice('CAM-HPD-CCD')
+    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info("kHzLPA")
+    camera = GeecsDevice('kHz_Cam2-2_AstrellaNF_Online')
     monitor = CameraCentroid(camera)
+    motor = GeecsDevice('KHz_Splitter_Piezo')
+    piezo = TLMDT69_Controller(motor)
+
+
 
     # Define target values and update shared data
-    targetx = 820  # Replace with your actual target value
-    targety = 615  # Replace with your actual target value
+    targetx = 252.0  # Replace with your actual target value
+    targety = 243.0  # Replace with your actual target value
+    calib_factor = 68/150 #This is the number of pixels moved/voltage
 
     with shared_data.lock:
         shared_data.target = [targetx, targety]
 
-    await monitor.start_monitoring(interval=0.3)
+    await monitor.start_monitoring(interval=0.05)
 
     print("Monitoring started. Press Enter at any time to stop.")
 
@@ -209,16 +218,18 @@ async def main():
 
             print(f"Current Mean: {mean}")
 
-            if abs(mean[0] - targetx) > 5:
-                # Add moving logic here
+            if abs(mean[0] - targetx) > 2:
+                movex = piezo.get_current_voltage(axis="x") - (mean[0] - targetx)*calib_factor
+                piezo.move_axis(movex, axis="x")
                 print("Moving the x axis of mirror to a certain position")
 
-            if abs(mean[1] - targety) > 5:
-                # Add moving logic here
+            if abs(mean[1] - targety) > 2:
+                movey = piezo.get_current_voltage(axis="y") - (mean[0] - targetx) * calib_factor
+                piezo.move_axis(movey, axis="y")
                 print("Moving the y axis of mirror to a certain position")
 
             # Short sleep to allow checking the stop_flag frequently
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.1)
 
         print("Loop exited. Cleaning up...")
     finally:

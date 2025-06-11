@@ -1,7 +1,0 @@
-Devices:
-  UC_ALineEBeam3:
-    post_analysis_class: CameraImageAnalysis
-    save_nonscalar_data: true
-    synchronous: true
-    variable_list:
-    - timestamp

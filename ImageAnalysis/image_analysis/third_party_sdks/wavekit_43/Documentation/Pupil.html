@@ -1,0 +1,333 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Wavekit_Python::Pupil &#8212; Wavekit Python 2020 documentation</title>
+    <link rel="stylesheet" href="_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="_static/language_data.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Wavekit_Python::Server" href="Server.html" />
+    <link rel="prev" title="Wavekit_Python::Phase" href="Phase.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="Server.html" title="Wavekit_Python::Server"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="Phase.html" title="Wavekit_Python::Phase"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">Wavekit Python 2020 documentation</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="module-wavekit_py.io_wavekit_pupil">
+<span id="wavekit-python-pupil"></span><h1>Wavekit_Python::Pupil<a class="headerlink" href="#module-wavekit_py.io_wavekit_pupil" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil">
+<em class="property">class </em><code class="descclassname">wavekit_py.io_wavekit_pupil.</code><code class="descname">Pupil</code><span class="sig-paren">(</span><em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class Pupil</p>
+<ul class="simple">
+<li><dl class="first docutils">
+<dt>Constructor from Dimensions :</dt>
+<dd><ul class="first last">
+<li><strong>dimensions</strong> - dimensions : Pupil dimensions</li>
+<li><strong>value</strong> - bool : Inital value</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Constructor from HasoSlopes :</dt>
+<dd><ul class="first last">
+<li><strong>hasoslopes</strong> - HasoSlopes : HasoSlopes dimensions</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Constructor from Legendre Pupil :</dt>
+<dd><ul class="first last">
+<li><strong>dimensions</strong> - dimensions : Pupil dimensions</li>
+<li><strong>center</strong> - float2D : Center of the rectangle shape (nb subpupils)</li>
+<li><strong>rectangle_size</strong> - float2D : Shape (half-width, half-height) of the rectangle (nb subpupils)</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Constructor from Zernike Pupil :</dt>
+<dd><ul class="first last">
+<li><strong>dimensions</strong> - dimensions : Pupil dimensions</li>
+<li><strong>center</strong> - float2D : Center of the circle shape</li>
+<li><strong>radius</strong> - float : Radius of the circle shape</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Constructor from Copy :</dt>
+<dd><ul class="first last">
+<li><strong>pupil</strong> - Pupil : Pupil object to copy</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil.get_barycenter">
+<code class="descname">get_barycenter</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil.get_barycenter"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil.get_barycenter" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get Pupil barycenter</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Pupil barycenter</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.float2D" title="wavekit_py.io_wavekit_structure.float2D">float2D</a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil.get_data">
+<code class="descname">get_data</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil.get_data"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil.get_data" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get Pupil buffer</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Pupil buffer</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">bool 2D numpy.array</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil.get_dimensions">
+<code class="descname">get_dimensions</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil.get_dimensions"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil.get_dimensions" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get Pupil size and steps</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Dimensions of the pupil</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference internal" href="Structure.html#wavekit_py.io_wavekit_structure.dimensions" title="wavekit_py.io_wavekit_structure.dimensions">dimensions</a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil.get_nb_enlighted_subapertures">
+<code class="descname">get_nb_enlighted_subapertures</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil.get_nb_enlighted_subapertures"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil.get_nb_enlighted_subapertures" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get Pupil enlighted subapertures number</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Number of enlighted subapertures</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">int</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil.get_regions_positions">
+<code class="descname">get_regions_positions</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil.get_regions_positions"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil.get_regions_positions" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get statistics on pupil regions</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Array of bottom edge, Array of left edge, Array of right edge, Array of top edge position for each region’s bounding rectangle, Array region’s type (0 if black region)</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">tuple(int list[], int list[], int list[], int list[], int list[])</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil.get_regions_stats">
+<code class="descname">get_regions_stats</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil.get_regions_stats"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil.get_regions_stats" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get statistics on pupil regions</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">Number of regions where subpupils are off, enlighted, Total number of regions</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">tuple(int, int, int)</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil.has_central_occultation">
+<code class="descname">has_central_occultation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil.has_central_occultation"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil.has_central_occultation" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find if pupil has one or more central occultation(s)</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">True if Pupil has one or more central occultation(s)</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Return type:</th><td class="field-body">bool</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil.resize">
+<code class="descname">resize</code><span class="sig-paren">(</span><em>resize_factor</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil.resize"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil.resize" title="Permalink to this definition">¶</a></dt>
+<dd><p>Resize pupil</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>resize_factor</strong> (<em>uchar</em>) – resize factor : output pupil width (or height) = factor * input pupil width (or height)</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">Resized Pupil</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><a class="reference internal" href="#wavekit_py.io_wavekit_pupil.Pupil" title="wavekit_py.io_wavekit_pupil.Pupil">Pupil</a></td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil.save_data_to_text">
+<code class="descname">save_data_to_text</code><span class="sig-paren">(</span><em>text_file_path</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil.save_data_to_text"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil.save_data_to_text" title="Permalink to this definition">¶</a></dt>
+<dd><p>Save Pupil buffer to text file.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>text_file_path</strong> (<em>string</em>) – text file in which to save data</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil.set_data">
+<code class="descname">set_data</code><span class="sig-paren">(</span><em>datas</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil.set_data"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil.set_data" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set Pupil buffer</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>datas</strong> (<em>bool 2D numpy.array</em>) – Pupil buffer</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="wavekit_py.io_wavekit_pupil.Pupil.set_data_from_text">
+<code class="descname">set_data_from_text</code><span class="sig-paren">(</span><em>text_file_path</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/wavekit_py/io_wavekit_pupil.html#Pupil.set_data_from_text"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#wavekit_py.io_wavekit_pupil.Pupil.set_data_from_text" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set Pupil buffer from text data.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>text_file_path</strong> (<em>string</em>) – text file to read data from</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="Phase.html"
+                        title="previous chapter">Wavekit_Python::Phase</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="Server.html"
+                        title="next chapter">Wavekit_Python::Server</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/Pupil.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="Server.html" title="Wavekit_Python::Server"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="Phase.html" title="Wavekit_Python::Phase"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">Wavekit Python 2020 documentation</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2020, Imagine Optic.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.8.5.
+    </div>
+  </body>
+</html>

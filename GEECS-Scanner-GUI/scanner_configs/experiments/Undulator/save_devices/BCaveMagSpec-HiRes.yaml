@@ -1,0 +1,39 @@
+Devices:
+  UC_HiResMagCam:
+    save_nonscalar_data: true
+    scan_setup:
+      Analysis:
+      - 'on'
+      - 'off'
+      PythonAnalysis:
+      - 'on'
+      - 'off'
+    synchronous: true
+    variable_list:
+    - Python Result 1
+    - Python Result 2
+    - Python Result 3
+    - Python Result 4
+    - Python Result 5
+    - Python Result 6
+    - Python Result 7
+    - Python Result 8
+    - Python Result 9
+    - Python Result 10
+    - Python Result 11
+    - Python Result 12
+    - Python Result 13
+    - Python Result 14
+    - Python Result 15
+  U_BCaveHallProbe:
+    save_nonscalar_data: false
+    synchronous: false
+    variable_list:
+    - Field
+    - Rawfield
+  U_BCaveMagSpecPS:
+    save_nonscalar_data: false
+    synchronous: false
+    variable_list:
+    - Field
+    - Rawfield
