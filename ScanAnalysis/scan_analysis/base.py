@@ -115,14 +115,14 @@ class ScanAnalyzer:
             **kwargs: additional ScanAnalyzer related args
         """
 
-        self.scan_tag: ScanTag = None
-        self.scan_data: ScanData = None
-        self.scan_directory: Path = None
-        self.experiment_dir: str = None
-        self.ini_file_path: Path = None
-        self.scan_path: Path = None
-        self.auxiliary_file_path: Path = None
-        self.scan_parameter: str = None
+        self.scan_tag: Optional[ScanTag] = None
+        self.scan_data: Optional[ScanData] = None
+        self.scan_directory: Optional[Path] = None
+        self.experiment_dir: Optional[str] = None
+        self.ini_file_path: Optional[Path] = None
+        self.scan_path: Optional[Path] = None
+        self.auxiliary_file_path: Optional[Path] = None
+        self.scan_parameter: Optional[str] = None
 
         self.noscan = False
         self.device_name = device_name

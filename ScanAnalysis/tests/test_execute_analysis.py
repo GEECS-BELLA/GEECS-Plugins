@@ -1,7 +1,7 @@
 import unittest
 
 from geecs_data_utils import ScanData, ScanTag
-from scan_analysis.execute_scan_analysis import analyze_scan
+from scan_analysis.execute_scan_analysis import analyze_scan, instantiate_scan_analyzer
 from pathlib import Path
 from dataclasses import asdict
 
@@ -16,19 +16,20 @@ class TestExecuteAnalysis(unittest.TestCase):
 
         # Given scan tag and string for analysis:
         test_tag = ScanTag(year=2024, month=11, day=5, number=5, experiment='Undulator')
-        test_analyzer = undulator_analyzers[0]  # MagSpec
-
+        test_analyzer_info = undulator_analyzers[0]  # MagSpec
+        test_analyzer_instance = instantiate_scan_analyzer(test_analyzer_info)
         # Convert string to analysis class and call analysis with scan tag
-        analyze_scan(test_tag, [test_analyzer], debug_mode=not perform_analysis)
+        analyze_scan(test_tag, [test_analyzer_instance], debug_mode=not perform_analysis)
         print("Done with MagSpec")
 
         ######################
 
         test_tag = ScanTag(year=2024, month=11, day=26, number=19, experiment='Undulator')
-        test_analyzer = undulator_analyzers[1]  # Visa Undulator
+        test_analyzer_info = undulator_analyzers[1]  # Visa Undulator
+        test_analyzer_instance = instantiate_scan_analyzer(test_analyzer_info)
 
         # Convert string to analysis class and call analysis with scan tag
-        analyze_scan(test_tag, [test_analyzer], debug_mode=not perform_analysis)
+        analyze_scan(test_tag, [test_analyzer_instance], debug_mode=not perform_analysis)
         print("Done with Visa")
 
 
@@ -40,8 +41,8 @@ class TestExecuteAnalysis(unittest.TestCase):
                              device_name='UC_ACaveMagCam3',
                              scan_analyzer_kwargs={'image_analyzer':ACaveMagCam3ImageAnalyzer()})
         test_tag = ScanTag(year=2025, month=3, day=6, number=39, experiment='Undulator')
-        test_analyzer = analyzer_info
-        analyze_scan(test_tag, [analyzer_info], debug_mode=not perform_analysis)
+        test_analyzer = instantiate_scan_analyzer(analyzer_info)
+        analyze_scan(test_tag, [test_analyzer], debug_mode=not perform_analysis)
 
     def test_HasoLift(self):
         from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
@@ -62,9 +63,10 @@ class TestExecuteAnalysis(unittest.TestCase):
                              scan_analyzer_kwargs={'image_analyzer':HASOHimgHasProcessor(**analysis_config_dict),
                           'file_tail':".himg"}
                              )
+        test_analyzer = instantiate_scan_analyzer(analyzer_info)
 
         test_tag = ScanTag(year=2025, month=2, day=19, number=2, experiment='Undulator')
-        analyze_scan(test_tag, [analyzer_info])
+        analyze_scan(test_tag, [test_analyzer])
 
     def test_DensityDownRampPhase(self):
         from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, \
@@ -92,8 +94,11 @@ class TestExecuteAnalysis(unittest.TestCase):
                              scan_analyzer_kwargs={'image_analyzer': PhaseDownrampProcessor(**config_dict),
                             'file_tail': "_postprocessed.tsv"})
 
+        test_analyzer = instantiate_scan_analyzer(analyzer_info)
+
+
         test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
-        analyze_scan(test_tag, [analyzer_info])
+        analyze_scan(test_tag, [test_analyzer])
 
     def test_VisaEBeamAnalyzer(self):
         from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
@@ -105,7 +110,10 @@ class TestExecuteAnalysis(unittest.TestCase):
                              scan_analyzer_kwargs={'image_analyzer': EBeamProfileAnalyzer(**config_dict)})
 
         test_tag = ScanTag(year=2024, month=12, day=5, number=11, experiment='Undulator')
-        analyze_scan(test_tag, [analyzer_info])
+
+        test_analyzer = instantiate_scan_analyzer(analyzer_info)
+
+        analyze_scan(test_tag, [test_analyzer])
 
 
 if __name__ == "__main__":
