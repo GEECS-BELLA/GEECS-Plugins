@@ -4,7 +4,7 @@ import configparser
 import numpy as np
 from numpy.typing import NDArray
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union, Any
+from typing import TYPE_CHECKING, Optional, Union, Any, Tuple
 if TYPE_CHECKING:
     from .types import Array2D, AnalyzerResultDict
 

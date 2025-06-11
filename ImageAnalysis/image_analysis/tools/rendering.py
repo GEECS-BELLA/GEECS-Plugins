@@ -1,6 +1,6 @@
 # image_analysis/tools/rendering.py
 
-from typing import Optional, Union, Tuple, TYPE_CHECKING
+from typing import Optional, Union, Tuple, TYPE_CHECKING, List
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -11,6 +11,7 @@ def base_render_image(
     image: np.ndarray,
     analysis_results_dict: Optional[dict[str, Union[float, int]]] = None,
     input_params_dict: Optional[dict[str, Union[float, int, str]]] = None,
+    lineouts: Optional[List[np.array]] = None,
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
     cmap: str = 'plasma',

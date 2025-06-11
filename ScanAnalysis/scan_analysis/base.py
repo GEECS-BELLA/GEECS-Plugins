@@ -175,6 +175,12 @@ class ScanAnalyzer:
 
         ini_contents = self.scan_data.load_scan_info()
         cleaned_scan_parameter = ini_contents['Scan Parameter'].strip().replace(':', ' ').replace('"', '')
+        scan_mode = ini_contents.get('ScanMode',None)
+
+        #add some special handling in case of optimization scan
+        if scan_mode == "optimization" and cleaned_scan_parameter == 'Shotnumber':
+            cleaned_scan_parameter = 'Bin #'
+
         return cleaned_scan_parameter
 
     def load_auxiliary_data(self):

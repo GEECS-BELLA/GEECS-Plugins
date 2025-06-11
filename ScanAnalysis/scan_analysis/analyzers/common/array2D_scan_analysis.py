@@ -494,6 +494,11 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             # Collect images and scalar results
             images = [self.results[sn]["processed_image"] for sn in valid_shots]
             analysis_results = [self.results[sn].get("analyzer_return_dictionary", {}) for sn in valid_shots]
+            lineouts = [
+                self.results[sn].get("analyzer_return_lineouts")
+                for sn in valid_shots
+                if isinstance(self.results[sn].get("analyzer_return_lineouts"), np.ndarray)
+            ]
             # just extract the first entry in the input parameters, as it isn't expected to change
             input_params = self.results[valid_shots[0]].get("analyzer_input_parameters", {})
 
@@ -508,6 +513,12 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                     sums[k].append(v)
             avg_vals = {k: np.mean(v, axis=0) for k, v in sums.items()}
 
+            if lineouts:
+                lineouts_array = np.stack(lineouts)
+                average_lineout = np.mean(lineouts_array, axis=0)
+            else:
+                average_lineout = None
+
             # Get representative scan parameter value
             column_full_name, _ = self.find_scan_param_column()
             param_value = self.auxiliary_data.loc[
@@ -519,7 +530,8 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 "result": {
                     "processed_image": avg_image,
                     "analyzer_return_dictionary": avg_vals,
-                    "analyzer_input_parameters": input_params
+                    "analyzer_input_parameters": input_params,
+                    "analyzer_return_lineouts": average_lineout
                 }
             }
 
@@ -641,12 +653,14 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             img = result.get("processed_image")
             analysis_results = result.get("analyzer_return_dictionary", {})
             input_params = result.get("analyzer_input_parameters", {})
+            lineouts = result.get('analyzer_return_lineouts',[])
             param_val = entry.get("value", 0)
 
             render_fn(
                 image=img,
                 analysis_results_dict=analysis_results,
                 input_params_dict=input_params,
+                lineouts=lineouts,
                 vmin=vmin,
                 vmax=vmax,
                 ax=axs[idx]
@@ -717,6 +731,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 image=frame["image"],
                 analysis_results_dict=frame.get("analysis_results_dict", {}),
                 input_params_dict=frame.get("input_params_dict", {}),
+                lineouts=frame.get("return_lineouts", []),
                 vmin=vmin,
                 vmax=vmax,
                 figsize=(figsize_inches, figsize_inches),
@@ -770,6 +785,8 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 "title": f"{key}",
                 "analysis_results_dict": result.get("analyzer_return_dictionary", {}),
                 "input_params_dict": result.get("analyzer_input_parameters", {}),
+                'return_lineouts': result.get("analyzer_return_lineouts", [])
+
             })
 
         return frames
@@ -794,38 +811,24 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 if __name__ == "__main__":
 
     from scan_analysis.base import ScanAnalyzerInfo as Info
-    from scan_analysis.execute_scan_analysis import analyze_scan
-    from image_analysis.offline_analyzers.density_from_phase_analysis import PhaseAnalysisConfig, \
-            PhaseDownrampProcessor
+    from scan_analysis.execute_scan_analysis import analyze_scan, instantiate_scan_analyzer
+    from image_analysis.offline_analyzers.Undulator.BCaveMagSpecStitcher import BCaveMagSpecStitcherAnalyzer
+    from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
+
     from geecs_data_utils import ScanTag, ScanData
 
-
-    def get_path_to_bkg_file():
-        st = ScanTag(2025, 3, 6, 15, experiment='Undulator')
-        s_data = ScanData(tag=st)
-        path_to_file = s_data.get_folder() / 'U_HasoLift' / 'average_phase.tsv'
-
-        return path_to_file
-
-    bkg_file_path = get_path_to_bkg_file()
-    config: PhaseAnalysisConfig = PhaseAnalysisConfig(
-        pixel_scale=10.1,  # um per pixel (vertical)
-        wavelength_nm=800,  # Probe laser wavelength in nm
-        threshold_fraction=0.05,  # Threshold fraction for pre-processing
-        roi=(10, -10, 75, -250),  # Example ROI: (x_min, x_max, y_min, y_max)
-        background_path=bkg_file_path  # Background is now a Path
-    )
-    config_dict = asdict(config)
+    dev_name = 'UC_ALineEBeam3'
+    config_dict = {'camera_name': dev_name}
     analyzer_info = Info(scan_analyzer_class=Array2DScanAnalyzer,
-                         requirements={'U_HasoLift'},
-                         device_name='U_HasoLift',
-                         scan_analyzer_kwargs={'image_analyzer':PhaseDownrampProcessor(**config_dict),
-                          'file_tail':"_postprocessed.tsv"}
+                         requirements={dev_name},
+                         device_name=dev_name,
+                         scan_analyzer_kwargs={'image_analyzer':EBeamProfileAnalyzer(**config_dict)}
                          )
 
     import time
     t0 = time.monotonic()
-    test_tag = ScanTag(year=2025, month=3, day=6, number=16, experiment='Undulator')
-    analyze_scan(test_tag, [analyzer_info])
+    test_tag = ScanTag(year=2025, month=6, day=10, number=6, experiment='Undulator')
+    scan_analyzer = instantiate_scan_analyzer(scan_analyzer_info=analyzer_info, scan_tag=test_tag)
+    scan_analyzer.run_analysis()
     t1 = time.monotonic()
     logging.info(f'execution time: {t1-t0}')

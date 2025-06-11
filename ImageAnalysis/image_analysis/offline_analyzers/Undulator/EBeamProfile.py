@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Union, Optional, Tuple
+from typing import Union, Optional, Tuple, List
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +18,15 @@ from image_analysis.tools.background import Background
 import logging
 
 e_beam_camera_configs = {
+    "U_BCaveMagSpec": {
+        "bkg_level": 60,
+        "left_ROI": 200,
+        "top_ROI": 1,
+        "roi_width": 500,
+        "roi_height": 300,
+        "rotate": 0,
+        "spatial_calibration": 0.00002217
+    },
     "UC_ALineEbeam1": {
         "bkg_level": 60,
         "left_ROI": 1,
@@ -27,7 +36,6 @@ e_beam_camera_configs = {
         "rotate": 0,
         "spatial_calibration": 0.00002217
     },
-
     "UC_ALineEBeam2": {
         "bkg_level": 18,
         "left_ROI": 1,
@@ -37,17 +45,15 @@ e_beam_camera_configs = {
         "rotate": 0,
         "spatial_calibration": 0.00002394
     },
-
     "UC_ALineEBeam3": {
-        "bkg_level": 10,
+        "bkg_level": 0,
         "left_ROI": 175,    #orginal value: 180
-        "top_ROI": 175,     #orginal value: 200
-        "roi_width": 600,   #orginal value: 500
-        "roi_height": 600,  #orginal value: 500
+        "top_ROI": 100,     #orginal value: 200
+        "roi_width": 800,   #orginal value: 500
+        "roi_height": 800,  #orginal value: 500
         "rotate": 0,
         "spatial_calibration": 0.0000244
     },
-
     "UC_VisaEBeam1": {
         "bkg_level": 15,
         "left_ROI": 558,
@@ -343,6 +349,8 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         """
         if self.config.fiducial_cross1_location and self.config.fiducial_cross2_location:
             image = self.apply_cross_mask(image)
+        self.background.set_constant_background(self.config.bkg_level)
+        image = self.background.subtract(image)
         image = self.apply_roi(image)
         return image
 
@@ -425,6 +433,7 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         image: np.ndarray,
         analysis_results_dict: Optional[dict[str, Union[float, int]]] = None,
         input_params_dict: Optional[dict[str, Union[float, int]]] = None,
+        lineouts: Optional[List[np.array]] = None,
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
         cmap: str = 'plasma',
@@ -439,6 +448,7 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
             image=image,
             analysis_results_dict=analysis_results_dict,
             input_params_dict=input_params_dict,
+            lineouts=lineouts,
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,
