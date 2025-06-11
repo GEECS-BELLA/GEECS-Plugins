@@ -59,7 +59,7 @@ e_beam_profile_camera_analyzers = [
     for device in e_beam_profile_camera_devices
 ]
 
-undulator_analyzers = [
+undulator_analyzers = [    *e_beam_profile_camera_analyzers,
     Info(scan_analyzer_class=MagSpecStitcherAnalyzer,
          requirements={'U_BCaveMagSpec'},
          device_name='U_BCaveMagSpec'),
@@ -86,5 +86,4 @@ undulator_analyzers = [
          device_name='U_HasoLift',
          scan_analyzer_kwargs={'image_analyzer': PhaseDownrampProcessor(**phase_analysis_config_dict),
                        'file_tail':"_postprocessed.tsv"}),
-    *e_beam_profile_camera_analyzers
 ]

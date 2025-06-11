@@ -95,7 +95,7 @@ class HiResMagCamAnalysis(CameraImageAnalyzer):
         plt.colorbar(label="FWHM Energy Spread (%)")
         plt.scatter(np.average(peak_energy[valid]), np.average(peak_charge[valid]), marker="+", s=80, c="k",
                     label="Average")
-        plot_title = f"U_HiResMagSpec: {self.tag.month:02d}/{self.tag.day:02d}/{self.tag.year % 100:02d} Scan {self.tag.number:03d}"
+        plot_title = f"U_HiResMagSpec: {self.scan_tag.month:02d}/{self.scan_tag.day:02d}/{self.scan_tag.year % 100:02d} Scan {self.scan_tag.number:03d}"
         plt.xlim([min(peak_energy[valid]) * 0.95, max(peak_energy[valid]) * 1.05])
         plt.ylim([min(peak_charge[valid]) * 0.9, max(peak_charge[valid]) * 1.1])
         plt.legend()
@@ -203,6 +203,6 @@ class HiResMagCamAnalysis(CameraImageAnalyzer):
 if __name__ == "__main__":
     from geecs_data_utils import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=6, experiment_name='Undulator')
+    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=130, experiment_name='Undulator')
     analyzer = HiResMagCamAnalysis(skip_plt_show=False, rerun_analysis=True)
     analyzer.run_analysis(scan_tag=tag)

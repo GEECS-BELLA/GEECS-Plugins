@@ -16,7 +16,7 @@ class TestExecuteAnalysis(unittest.TestCase):
 
         # Given scan tag and string for analysis:
         test_tag = ScanTag(year=2024, month=11, day=5, number=5, experiment='Undulator')
-        test_analyzer_info = undulator_analyzers[0]  # MagSpec
+        test_analyzer_info = undulator_analyzers[11]  # MagSpec
         test_analyzer_instance = instantiate_scan_analyzer(test_analyzer_info)
         # Convert string to analysis class and call analysis with scan tag
         analyze_scan(test_tag, [test_analyzer_instance], debug_mode=not perform_analysis)
@@ -25,7 +25,7 @@ class TestExecuteAnalysis(unittest.TestCase):
         ######################
 
         test_tag = ScanTag(year=2024, month=11, day=26, number=19, experiment='Undulator')
-        test_analyzer_info = undulator_analyzers[1]  # Visa Undulator
+        test_analyzer_info = undulator_analyzers[3]  # Visa1 Undulator
         test_analyzer_instance = instantiate_scan_analyzer(test_analyzer_info)
 
         # Convert string to analysis class and call analysis with scan tag
