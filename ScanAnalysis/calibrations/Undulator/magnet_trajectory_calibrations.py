@@ -22,19 +22,16 @@ from calibrations.Undulator.utils import get_calibration_location
 
 class MagnetTrajectoryCalibration(CameraImageAnalyzer):
 
-    def __init__(self, scan_tag, device_name,
+    def __init__(self, device_name,
                  use_gui=True, flag_logging=False, flag_save_images=False):
         """
         Initialize the CameraImageAnalyzer class.
 
         Args:
-            scan_tag (ScanTag): Path to the scan directory containing data.
             device_name (str): Name of the device to construct the subdirectory path.
         """
-        super().__init__(scan_tag, device_name, skip_plt_show=use_gui,
+        super().__init__(device_name, skip_plt_show=use_gui,
                          flag_logging=flag_logging, flag_save_images=flag_save_images)
-
-        self.path_dict['calibration_data'] = get_calibration_location() / 'calibration_data'
 
     def get_binned_centroids(self, binned_data,
                              median_filter_size=2, threshold_coeff=0.1):
@@ -149,9 +146,11 @@ class MagnetTrajectoryCalibration(CameraImageAnalyzer):
 
         return
 
-    def run_analysis(self, analysis_settings=None, flag_save=True):
+    def _run_analysis_core(self, analysis_settings=None, flag_save=True):
 
-        super().run_analysis()
+        super()._run_analysis_core()
+
+        self.path_dict['calibration_data'] = get_calibration_location() / 'calibration_data'
 
         if flag_save is None:
             flag_save = self.flag_save_images
@@ -186,5 +185,5 @@ if __name__ == "__main__":
     device_name = "UC_ALineEBeam3"
     scan_tag = ScanData.get_scan_tag(year=scan['year'], month=scan['month'], day=scan['day'],
                                      number=scan['num'], experiment_name='Undulator')
-    analysis_class = MagnetTrajectoryCalibration(scan_tag, device_name)
-    analysis_class.run_analysis()
+    analysis_class = MagnetTrajectoryCalibration(device_name)
+    analysis_class.run_analysis(scan_tag=scan_tag)

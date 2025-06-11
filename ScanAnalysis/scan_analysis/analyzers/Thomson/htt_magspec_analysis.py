@@ -54,7 +54,7 @@ class HTTMagSpecAnalyzer(ScanAnalyzer):
             average_image /= 10
             self.backgrounds[device] = average_image
 
-    def run_analysis(self):
+    def _run_analysis_core(self):
         """ Main function to run the analysis and generate plots. """
         # For HTU we grab these from files
         # energy_values, charge_density_matrix
@@ -119,4 +119,4 @@ if __name__ == "__main__":
     from geecs_data_utils import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=3, day=21, number=10, experiment='Thomson')
     analyzer = HTTMagSpecAnalyzer(scan_tag=tag, skip_plt_show=False)
-    analyzer.run_analysis()
+    analyzer._run_analysis_core()

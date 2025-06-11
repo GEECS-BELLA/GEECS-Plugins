@@ -85,7 +85,7 @@ class BinImageEntry(TypedDict):
 # %% classes
 class Array2DScanAnalyzer(ScanAnalyzer):
 
-    def __init__(self, scan_tag: ScanTag,
+    def __init__(self,
                  device_name: str,
                  image_analyzer: Optional[ImageAnalyzer] = None,
                  file_tail: Optional[str] = '.png',
@@ -106,7 +106,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         if not device_name:
             raise ValueError("Array2DScanAnalyzer requires a device_name.")
 
-        super().__init__(scan_tag, device_name=device_name,
+        super().__init__(device_name=device_name,
                          skip_plt_show=skip_plt_show)
 
         self.image_analyzer = image_analyzer or ImageAnalyzer()
@@ -131,10 +131,11 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                     f"(reason: {e}). Falling back to threaded analysis."
                 )
 
-        # organize various paths
-        self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
+    def _establish_additional_paths(self):
+        # organize various paths for location of saved data
+        self.path_dict = {'data_img': Path(self.scan_directory) / f"{self.device_name}",
                           'save': (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name
-                                   / f"{device_name}" / "Array2DScanAnalyzer")
+                                   / f"{self.device_name}" / "Array2DScanAnalyzer")
                           }
 
         # Check if data directory exists and is not empty
@@ -142,11 +143,14 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             if self.flag_logging:
                 logging.warning(f"Data directory '{self.path_dict['data_img']}' does not exist or is empty. Skipping")
 
-    def run_analysis(self):
         if self.path_dict['data_img'] is None or self.auxiliary_data is None:
             if self.flag_logging:
                 logging.info("Skipping analysis due to missing data or auxiliary file.")
             return
+
+    def _run_analysis_core(self):
+
+        self._establish_additional_paths()
 
         if self.flag_save_images and not self.path_dict['save'].exists():
             self.path_dict['save'].mkdir(parents=True)
@@ -154,7 +158,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         try:
             # Run the image analyzer on every shot in parallel.
             self._process_all_shots_parallel()
-
 
             # Depending on the scan type, perform additional processing.
             # self.results is a dict that only gets updated if the ImageAnalyzer
@@ -827,8 +830,8 @@ if __name__ == "__main__":
 
     import time
     t0 = time.monotonic()
-    test_tag = ScanTag(year=2025, month=6, day=10, number=6, experiment='Undulator')
-    scan_analyzer = instantiate_scan_analyzer(scan_analyzer_info=analyzer_info, scan_tag=test_tag)
-    scan_analyzer.run_analysis()
+    test_tag = ScanTag(year=2025, month=6, day=10, number=29, experiment='Undulator')
+    scan_analyzer = instantiate_scan_analyzer(scan_analyzer_info=analyzer_info)
+    scan_analyzer.run_analysis(scan_tag=test_tag)
     t1 = time.monotonic()
     logging.info(f'execution time: {t1-t0}')

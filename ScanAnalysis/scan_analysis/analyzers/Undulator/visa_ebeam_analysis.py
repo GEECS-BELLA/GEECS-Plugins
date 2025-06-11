@@ -19,26 +19,27 @@ from geecs_data_utils import ScanData
 # %% classes
 class VisaEBeamAnalysis(CameraImageAnalyzer):
 
-    def __init__(self, scan_tag: ScanTag,
+    def __init__(self,
                  device_name: Optional[str] = None, skip_plt_show: bool = True,
                  flag_logging: bool = True, flag_save_images: bool = True) -> None:
         """
         Initialize the VisaEBeamAnalysis class.
 
         Args:
-            scan_tag (ScanTag): Path to the scan directory containing data.
             device_name (str): Name of the Visa camera.  If not given, automatically detects which one
             skip_plt_show (bool): Flag that sets if matplotlib is tried to use for plotting
             flag_logging (bool): Flag that sets if error and warning messages are displayed
             flag_save_images (bool): Flag that sets if images are saved to disk
         """
 
-        # set device name explicitly or using a priori knowledge
-        self.device_name = device_name or self.device_autofinder(scan_tag)
+
 
         # enact parent init
-        super().__init__(scan_tag, self.device_name, skip_plt_show=skip_plt_show,
+        super().__init__(self.device_name, skip_plt_show=skip_plt_show,
                          flag_logging=flag_logging, flag_save_images=flag_save_images)
+
+        # set device name explicitly or using a priori knowledge
+        self.device_name = device_name or self.device_autofinder(scan_tag)
 
         # redefine save path for this specific analysis
         self.path_dict['save'] = self.path_dict['save'].parent / "VisaEBeamAnalysis"
@@ -158,5 +159,5 @@ class VisaEBeamAnalysis(CameraImageAnalyzer):
 
 if __name__ == "__main__":
     tag = ScanData.get_scan_tag(year=2024, month=11, day=26, number=19, experiment_name='Undulator')
-    analyzer = VisaEBeamAnalysis(scan_tag=tag, device_name=None, skip_plt_show=True)
-    analyzer.run_analysis()
+    analyzer = VisaEBeamAnalysis( device_name=None, skip_plt_show=True)
+    analyzer.run_analysis(scan_tag=tag)
