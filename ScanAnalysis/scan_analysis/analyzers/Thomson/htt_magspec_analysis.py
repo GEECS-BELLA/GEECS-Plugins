@@ -68,7 +68,7 @@ class HTTMagSpecAnalyzer(ScanAnalyzer):
                 # For more complex analysis, the actual `image analysis` code within this `for` block could be moved
                 #  to a dedicated ImageAnalysis class, and one could multithread the analysis so that each thread gets
                 #  a single image to analyze.  But for this simple example I am opting to keep it all within this file
-                image_file = ScanData.get_device_shot_path(tag=self.tag, device_name=device,
+                image_file = ScanData.get_device_shot_path(tag=self.scan_tag, device_name=device,
                                                            shot_number=int(float(shot_num)))
                 image = read_imaq_png_image(image_file)*1.0
                 image -= self.backgrounds[device]
@@ -101,7 +101,7 @@ class HTTMagSpecAnalyzer(ScanAnalyzer):
         plt.imshow(all_projections, aspect='auto')
         plt.xlabel('Stitched Image Horizontal Pixel')
         plt.ylabel('Shotnumber')
-        plt.title(f"{self.tag.experiment}: {self.tag.month:02d}/{self.tag.day:02d}/{self.tag.year} Scan{self.tag.number:03d} Raw Magspec Waterfall")
+        plt.title(f"{self.scan_tag.experiment}: {self.scan_tag.month:02d}/{self.scan_tag.day:02d}/{self.scan_tag.year} Scan{self.scan_tag.number:03d} Raw Magspec Waterfall")
 
         save_path = self.save_path / 'RawMagspecWaterfall'
         save_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
