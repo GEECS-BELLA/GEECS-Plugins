@@ -46,7 +46,7 @@ e_beam_camera_configs = {
         "spatial_calibration": 0.00002394
     },
     "UC_ALineEBeam3": {
-        "bkg_level": 64,
+        "bkg_level": 0,
         "left_ROI": 175,    #orginal value: 180
         "top_ROI": 100,     #orginal value: 200
         "roi_width": 800,   #orginal value: 500
