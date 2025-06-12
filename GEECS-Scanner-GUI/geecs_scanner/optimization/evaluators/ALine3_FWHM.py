@@ -30,10 +30,10 @@ class ALine3SizeEval(BaseEvaluator):
             data_logger = data_logger
         )
 
-        dev_name = 'UC_ALineEBeam3'
-        config_dict = {'camera_name': dev_name}
+        self.dev_name = 'UC_ALineEBeam3'
+        config_dict = {'camera_name': self.dev_name}
         self.scan_analyzer = Array2DScanAnalyzer(
-                                            device_name=dev_name,
+                                            device_name=self.dev_name,
                                             image_analyzer=EBeamProfileAnalyzer(**config_dict)
                                             )
 
@@ -73,8 +73,8 @@ class ALine3SizeEval(BaseEvaluator):
         scalar_results = result['analyzer_return_dictionary']
 
         # define keys to extract values to use for the objective function
-        x_key = f'{self.image_analyzer.camera_name}_x_fwhm'
-        y_key = f'{self.image_analyzer.camera_name}_y_fwhm'
+        x_key = f'{self.dev_name}_x_fwhm'
+        y_key = f'{self.dev_name}_y_fwhm'
 
         objective_value = self.objective_fn( x = scalar_results[x_key],
                                         y = scalar_results[y_key])
