@@ -17,7 +17,6 @@ from scipy.signal import butter, filtfilt
 
 from pathlib import Path
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalyzer
-from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
 from geecs_data_utils import ScanTag, ScanData
 
 
@@ -58,6 +57,35 @@ class Rad2SpecAnalysis(CameraImageAnalyzer):
         self.visa_device = None
         self.visa_station = visa_station
 
+    @staticmethod
+    def device_autofinder(scan_tag: ScanTag) -> str:
+        """
+        Automatically find a compatible device directory.
+
+        Args:
+            scan_tag: ScanTag NamedTuple.
+
+        Returns:
+            str: Name of the compatible device directory.
+
+        Raises:
+            Exception: If multiple compatible devices are found or no devices are found.
+        """
+        scan_directory = ScanData.get_scan_folder_path(tag=scan_tag)
+
+        devices = [item.name
+                   for item in scan_directory.iterdir()
+                   if item.is_dir() and item.name.startswith('UC_VisaEBeam')]
+
+        if len(devices) == 1:
+            return devices[0]
+
+        elif len(devices) > 1:
+            raise FileNotFoundError("Multiple compatible device directories detected. Please define explicitly.")
+
+        elif len(devices) == 0:
+            raise FileNotFoundError("No compatible device directory detected. Something ain't right here.")
+
     def _establish_additional_paths(self):
         # Ensure configuration file exists
         self.rad2_config_file = Path(__file__).parents[2] / 'config' / 'Undulator' / 'rad2_analysis_settings.yaml'
@@ -66,7 +94,7 @@ class Rad2SpecAnalysis(CameraImageAnalyzer):
 
         if self.visa_station is None:
             try:
-                self.visa_device = VisaEBeamAnalysis.device_autofinder(self.scan_tag)
+                self.visa_device = self.device_autofinder(self.scan_tag)
                 pattern = r'(\d+)$'
                 match = re.search(pattern, self.visa_device)
                 if match:
