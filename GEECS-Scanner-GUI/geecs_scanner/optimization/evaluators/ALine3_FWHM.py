@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Dict, Optional
+if TYPE_CHECKING:
+    from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
+    from geecs_scanner.data_acquisition.data_logger import DataLogger
 
 import numpy as np
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
-from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
-from geecs_scanner.data_acquisition.data_logger import DataLogger
 
 from scan_analysis.base import ScanAnalyzerInfo
 from scan_analysis.execute_scan_analysis import analyze_scan, instantiate_scan_analyzer

@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Union
+from typing import TYPE_CHECKING, List, Dict, Any, Optional, Union
+if TYPE_CHECKING:
+    from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
+    from geecs_scanner.data_acquisition.data_logger import DataLogger
+
 import logging
 import pandas as pd
 from pathlib import Path
-
-from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
-from geecs_scanner.data_acquisition.data_logger import DataLogger
 
 class BaseEvaluator(ABC):
     """
