@@ -86,12 +86,10 @@ class BaseEvaluator(ABC):
          the current data. Also, extract the corresponding shot_numbers and return those
          """
         self.convert_log_entries_to_df()
-        self.bin_number = self.data_logger.bin_num  # note: subtracting one is only because the data-logger.bin_num
-                                                        # gets updated before this method gets called on for the previously
-                                                        # data bin. Order of operations for the optimization is still
-                                                        # getting fine tuned
+        self.bin_number = self.data_logger.bin_num
         self.get_shotnumbers_for_bin(self.bin_number)
-        self.current_data_bin = self.log_df[self.log_df["Bin #"] == self.bin_number]
+        self.current_data_bin = self.log_df[self.log_df["Bin #"] == self.bin_number].copy()
+
 
     def _gather_shot_entries(
             self,
