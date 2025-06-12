@@ -103,7 +103,6 @@ class ScanAnalyzer:
 
     def __init__(self,
                  skip_plt_show: bool = True,
-                 live_analysis: bool = False,
                  device_name: Optional[str] = None,
                  **kwargs):
         """
@@ -122,12 +121,16 @@ class ScanAnalyzer:
         self.ini_file_path: Optional[Path] = None
         self.scan_path: Optional[Path] = None
         self.auxiliary_file_path: Optional[Path] = None
-        self.scan_parameter: Optional[str] = None
+        self.scan_parameter: Optional[str] = None  # the one you’ll *use*
+        self.scan_parameter_with_colon: Optional[str] = None
+        self.scan_parameter_with_space: Optional[str] = None
+        self.use_colon_scan_param: bool = False  # default is file-style
+
 
         self.noscan = False
         self.device_name = device_name
         self.skip_plt_show = skip_plt_show
-        self.live_analysis = live_analysis
+        self.live_analysis = False
 
         self.bins = None
         self.auxiliary_data: Optional[pd.DataFrame] = None
@@ -194,10 +197,16 @@ class ScanAnalyzer:
         # A MasterControl scan saves the scalar data columns with spaces between device
         # and variable, rather than use the basic device:variable configuration. If
         # dealing with live data, the device:variable convention is preserved
-        if self.live_analysis:
-            cleaned_scan_parameter = ini_contents['Scan Parameter']
-        else:
-            cleaned_scan_parameter = ini_contents['Scan Parameter'].strip().replace(':', ' ').replace('"', '')
+        # Load and sanitize raw scan parameter
+        raw_param = ini_contents['Scan Parameter'].strip().replace('"', '')
+        self.scan_parameter_with_colon = raw_param
+        self.scan_parameter_with_space = raw_param.replace(':', ' ')
+
+        # Default value is space-separated unless overridden
+        cleaned_scan_parameter = (
+            self.scan_parameter_with_colon if self.use_colon_scan_param
+            else self.scan_parameter_with_space
+        )
 
         scan_mode = ini_contents.get('ScanMode',None)
 
@@ -309,6 +318,8 @@ class ScanAnalyzer:
 
         if not self.noscan:
             # Search for the first column that contains the cleaned scan parameter string
+            logging.info(f'self.auxiliary_data.columns: {self.auxiliary_data.columns}')
+
             for column in self.auxiliary_data.columns:
                 # Match the part of the column before 'Alias:'
                 if self.scan_parameter in column.split(' Alias:')[0]:
