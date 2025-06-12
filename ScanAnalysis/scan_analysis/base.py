@@ -318,8 +318,6 @@ class ScanAnalyzer:
 
         if not self.noscan:
             # Search for the first column that contains the cleaned scan parameter string
-            logging.info(f'self.auxiliary_data.columns: {self.auxiliary_data.columns}')
-
             for column in self.auxiliary_data.columns:
                 # Match the part of the column before 'Alias:'
                 if self.scan_parameter in column.split(' Alias:')[0]:

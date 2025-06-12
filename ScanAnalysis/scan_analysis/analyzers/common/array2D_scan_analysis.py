@@ -395,6 +395,8 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         self.save_image_as_h5(processed_image,
                                      save_dir=self.path_dict["save"],
                                      save_name=save_name_scaled)
+        self.saved_avg_image_paths[bin_key] = self.path_dict["save"] / save_name_scaled
+
         self.save_normalized_image(processed_image,
                                    save_dir=self.path_dict["save"],
                                    save_name=save_name_normalized)
@@ -542,7 +544,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             if flag_save:
                 save_name = f"{self.device_name}_{bin_val}.h5"
                 self.save_image_as_h5(avg_image, save_dir=self.path_dict["save"], save_name=save_name)
-                self.saved_avg_image_paths[bin_val] = self.path_dict["save"] / save_name
                 if self.flag_logging:
                     logging.info(f"Binned and averaged images for bin {bin_val} saved as {save_name}.")
 
