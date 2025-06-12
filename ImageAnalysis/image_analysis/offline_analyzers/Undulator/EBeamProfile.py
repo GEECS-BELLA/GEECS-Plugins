@@ -418,12 +418,21 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         final_image = preprocessed_image
         beam_stats = beam_profile_stats(final_image, self.camera_name)
 
+        # Generate horizontal and vertical lineouts (projections)
+        horizontal_lineout = final_image.sum(axis=0)  # sum over rows → shape (width,)
+        vertical_lineout = final_image.sum(axis=1)  # sum over columns → shape (height,)
+        lineouts = [horizontal_lineout, vertical_lineout]
+
         return_dictionary = self.build_return_dictionary(return_image = final_image,
                                                          input_parameters = self.kwargs_dict,
-                                                         return_scalars=beam_stats)
+                                                         return_scalars=beam_stats,
+                                                         return_lineouts=lineouts)
 
         if self.use_interactive:
-            fig, ax = self.render_image(image=final_image, input_params_dict=self.kwargs_dict, analysis_results_dict=beam_stats)
+            fig, ax = self.render_image(image=final_image,
+                                        input_params_dict=self.kwargs_dict,
+                                        analysis_results_dict=beam_stats,
+                                        lineouts = lineouts)
             plt.show()
             plt.close(fig)
 
@@ -463,6 +472,25 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
             cx = input_params_dict["blue_cent_x"] - input_params_dict.get("left_ROI", 0)
             cy = input_params_dict["blue_cent_y"] - input_params_dict.get("top_ROI", 0)
             ax.plot(cx, cy, 'bo', markersize=5)
+
+        # Overlay lineouts if provided
+        if lineouts is not None and len(lineouts) == 2:
+            horiz, vert = lineouts
+            img_height, img_width = image.shape
+
+            # Clip negative values to 0
+            horiz = np.clip(horiz, 0, None)
+            vert = np.clip(vert, 0, None)
+
+            # Normalize for overlay
+            horiz_norm = horiz / np.max(horiz) * img_height * 0.2
+            vert_norm = vert / np.max(vert) * img_width * 0.2
+
+            # Overlay horizontal lineout at bottom (grows up from bottom edge)
+            ax.plot(np.arange(len(horiz)), img_height - horiz_norm, color='cyan', lw=1.0, label='Horizontal lineout')
+
+            # Overlay vertical lineout at left (grows right from left edge)
+            ax.plot(vert_norm, np.arange(len(vert)), color='magenta', lw=1.0, label='Vertical lineout')
 
         return fig, ax
 
