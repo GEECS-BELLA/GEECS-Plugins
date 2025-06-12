@@ -46,7 +46,7 @@ import traceback
 import pickle
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Union, Optional, TypedDict, Any, Tuple
+from typing import TYPE_CHECKING, Union, Optional, TypedDict, Any, Tuple, Dict
 
 # --- Third-Party Libraries ---
 import numpy as np
@@ -112,6 +112,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         self.image_analyzer = image_analyzer or ImageAnalyzer()
 
         self.max_workers = 16
+        self.saved_avg_image_paths: Dict[int, Path] = {}
 
         # define flags
         self.flag_logging = flag_logging
@@ -170,8 +171,8 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                         self._postprocess_scan_interactive()
                     else:
                         self._postprocess_scan_parallel()
-
-            self.auxiliary_data.to_csv(self.auxiliary_file_path, sep='\t', index=False)
+            if not self.live_analysis:
+                self.auxiliary_data.to_csv(self.auxiliary_file_path, sep='\t', index=False)
             return self.display_contents
 
         except Exception as e:
@@ -541,6 +542,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             if flag_save:
                 save_name = f"{self.device_name}_{bin_val}.h5"
                 self.save_image_as_h5(avg_image, save_dir=self.path_dict["save"], save_name=save_name)
+                self.saved_avg_image_paths[bin_val] = self.path_dict["save"] / save_name
                 if self.flag_logging:
                     logging.info(f"Binned and averaged images for bin {bin_val} saved as {save_name}.")
 
