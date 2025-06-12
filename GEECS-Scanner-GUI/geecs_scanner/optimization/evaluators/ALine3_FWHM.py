@@ -8,8 +8,13 @@ import numpy as np
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
 from geecs_scanner.data_acquisition.data_logger import DataLogger
+
+from scan_analysis.base import ScanAnalyzerInfo
+from scan_analysis.execute_scan_analysis import analyze_scan, instantiate_scan_analyzer
+from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 from image_analysis.utils import read_imaq_image
 from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
+from geecs_data_utils import ScanTag, ScanData
 
 class ALine3SizeEval(BaseEvaluator):
     def __init__(self, device_requirements=None,
@@ -27,39 +32,18 @@ class ALine3SizeEval(BaseEvaluator):
 
         dev_name = 'UC_ALineEBeam3'
         config_dict = {'camera_name': dev_name}
-        self.image_analyzer = EBeamProfileAnalyzer(**config_dict)
+        self.scan_analyzer = Array2DScanAnalyzer(
+                                            device_name=dev_name,
+                                            image_analyzer=EBeamProfileAnalyzer(**config_dict)
+                                            )
+
+        # use live_analysis option for the scan_analyzer so that it knows not to try to load
+        # data from an sFile already written to disk (which doesn't happen until the end of scan)
+        self.scan_analyzer.live_analysis = True
+        self.scan_analyzer.use_colon_scan_param = False  # default is file-style
 
         self.output_key = 'f' # string name of optimization function defined in config, don't change
-
         self.objective_tag: str = 'PlaceHolder' # string to append to logged objective value
-
-    def analyze_image(self, shot_entry: dict) -> np.array:
-        """
-        Compute a scalar result for a single shot by summing all scalar values.
-        Images are loaded to verify their availability but not used in the computation.
-
-        Args:
-            shot_entry (dict): A dictionary with keys:
-                - 'shot_number' (int)
-                - 'scalars' (dict[str, float])
-                - 'image_paths' (dict[str, Path])
-
-        Returns:
-            float: The sum of scalar values for the shot,
-                   or NaN if an error occurs.
-        """
-        try:
-            path = shot_entry['image_paths']['UC_ALineEBeam3']
-            result = self.image_analyzer.analyze_image_file(image_filepath=path)
-
-            image = result['processed_image']
-            # self.log_objective_result(shot_num=shot_entry['shot_number'],scalar_value=objective)
-
-            return image
-
-        except Exception as e:
-            logging.error(f"Error evaluating objective for shot {shot_entry.get('shot_number')}: {e}")
-            return
 
     def evaluate_all_shots(self, shot_entries: list[dict]) -> list[float]:
         """
@@ -71,17 +55,24 @@ class ALine3SizeEval(BaseEvaluator):
         Returns:
             list[float]: List of scalar objective values, one per shot.
         """
-        images = []
-        for shot_entry in shot_entries:
-            image = self.analyze_image(shot_entry)
-            if isinstance(image, np.ndarray):
-                images.append(image)
 
-        average_image = np.mean(images, axis=0)
+        # set the 'aux' data manually to isolate the current bin to get analyzed by the ScanAnalyzer
+        self.scan_analyzer.auxiliary_data = self.current_data_bin
+        self.scan_analyzer.run_analysis(scan_tag=self.scan_tag)
 
-        avg_result = self.image_analyzer.analyze_image(image=average_image, auxiliary_data={'preprocessed':True})
+        # grab the path to the saved average image from the scan analyzer and load
+        avg_image_path =  self.scan_analyzer.saved_avg_image_paths[self.bin_number]
+        avg_image = read_imaq_image(avg_image_path)
 
-        scalar_results = avg_result['analyzer_return_dictionary']
+        # run standalone analyis using the image_analyzer, passing the argument that preprocessing
+        # has already been done, e.g. ROI, background etc.
+        result = self.scan_analyzer.image_analyzer.analyze_image(avg_image,
+                                                        auxiliary_data={"preprocessed":True})
+
+        # extract the scalar results returned by the image analyzer
+        scalar_results = result['analyzer_return_dictionary']
+
+        # define keys to extract values to use for the objective function
         x_key = f'{self.image_analyzer.camera_name}_x_fwhm'
         y_key = f'{self.image_analyzer.camera_name}_y_fwhm'
 
