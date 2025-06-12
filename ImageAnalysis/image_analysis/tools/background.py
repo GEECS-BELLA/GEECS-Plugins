@@ -87,7 +87,7 @@ class Background:
         else:
             raise ValueError("Input must be a 2D image or a 3D image stack.")
 
-    def subtract_imagewise_mode(data: np.ndarray) -> np.ndarray:
+    def subtract_imagewise_mode(self, data: np.ndarray) -> np.ndarray:
         """
         Subtract the mode from each image (3D stack) or from a single 2D image.
 
