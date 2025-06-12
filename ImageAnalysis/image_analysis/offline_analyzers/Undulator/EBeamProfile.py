@@ -267,14 +267,15 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         stack = np.stack(images, axis=0)
         stack = self.image_preprocess(stack)
         self.preprocessed = True
-        logging.info(f'batch: {self.roi}')
 
-        # Step 1: Learn background from percentile projection
-        self.background.set_percentile_background_from_stack(stack=stack, percentile=2.5)
-        stack = self.background.subtract(data=stack)
+        stack = self.background.subtract_imagewise_mode(data=stack)
 
-        # Step 2: Subtract per-image medians
-        stack = self.background.subtract_imagewise_median(data=stack)
+        # # Step 1: Learn background from percentile projection
+        # self.background.set_percentile_background_from_stack(stack=stack, percentile=2.5)
+        # stack = self.background.subtract(data=stack)
+        #
+        # # Step 2: Subtract per-image medians
+        # stack = self.background.subtract_imagewise_median(data=stack)
 
         # # Step 3: Generate and apply apodization
         # self.background.generate_apodization_mask(stack=stack, percentile=91, sigma=5)
