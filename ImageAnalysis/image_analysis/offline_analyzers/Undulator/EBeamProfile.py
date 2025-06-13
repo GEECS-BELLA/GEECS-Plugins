@@ -13,7 +13,7 @@ from image_analysis.base import ImageAnalyzer
 from image_analysis.tools.rendering import base_render_image
 from image_analysis.tools.basic_beam_stats import beam_profile_stats
 from image_analysis.tools.background import Background
-
+from image_analysis.tools.lcls_tools_gauss_fit import gauss_fit
 
 import logging
 
@@ -417,6 +417,7 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
 
         final_image = preprocessed_image
         beam_stats = beam_profile_stats(final_image, self.camera_name)
+        gauss_fit_params = gauss_fit(final_image, self.camera_name)
 
         # Generate horizontal and vertical lineouts (projections)
         horizontal_lineout = final_image.sum(axis=0)  # sum over rows → shape (width,)
@@ -425,7 +426,7 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
 
         return_dictionary = self.build_return_dictionary(return_image = final_image,
                                                          input_parameters = self.kwargs_dict,
-                                                         return_scalars=beam_stats,
+                                                         return_scalars={**beam_stats,**gauss_fit_params},
                                                          return_lineouts=lineouts)
 
         if self.use_interactive:
@@ -496,7 +497,7 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
 
 if __name__ == "__main__":
     dev_name = 'UC_VisaEBeam1'
-    # dev_name = 'UC_ALineEBeam3'
+    dev_name = 'UC_ALineEBeam3'
     test_dict = {'camera_name':dev_name}
     image_analyzer  = EBeamProfileAnalyzer(**test_dict)
 
