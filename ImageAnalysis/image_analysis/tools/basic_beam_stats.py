@@ -25,6 +25,7 @@ def compute_rms(profile: np.ndarray) -> float:
     """
     profile = np.asarray(profile, dtype=float)
     total = profile.sum()
+    profile[profile < 0] = 0  # Set all negative values to zero
     if total <= 0:
         logger.warning("compute_rms: Profile has non-positive total intensity. Returning 0.0.")
         return np.nan
@@ -151,6 +152,8 @@ def beam_profile_stats(img: np.ndarray, prefix: str = "") -> dict[str, float]:
             f"{prefix}_y_rms": np.nan,
             f"{prefix}_y_fwhm": np.nan,
             f"{prefix}_y_peak": np.nan,
+            f"{prefix}_sum": np.nan,
+
         }
 
     x_proj = img.sum(axis=0)
@@ -177,4 +180,6 @@ def beam_profile_stats(img: np.ndarray, prefix: str = "") -> dict[str, float]:
         f"{prefix}_y_rms": y_rms,
         f"{prefix}_y_fwhm": y_fwhm,
         f"{prefix}_y_peak": y_peak,
+        f"{prefix}_sum": img.sum(),
+
     }
