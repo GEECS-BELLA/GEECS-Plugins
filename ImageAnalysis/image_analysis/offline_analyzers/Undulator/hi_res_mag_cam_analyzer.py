@@ -76,14 +76,15 @@ class HiResMagCamAnalyzer(EBeamProfileAnalyzer):
             preprocessed_image = image
 
         final_image = preprocessed_image
-        preprocessed_image[preprocessed_image < 10] = 0
+        final_image[final_image < 10] = 0
 
         bowtie_result = self.algo.evaluate(final_image)
 
         lineouts=[np.array(bowtie_result.sizes), np.array(bowtie_result.weights)]
 
         # Build the usual return dictionary (contains 'return_image', etc.)
-        return_dictionary = self.build_return_dictionary(return_scalars={'optimization_target': bowtie_result.score},
+        return_dictionary = self.build_return_dictionary(return_scalars={f'{self.camera_name}:emittance_proxy': bowtie_result.score,
+                                                                         f'{self.camera_name}:total_counts': np.sum(final_image)},
                                                          return_image=final_image,
                                                          input_parameters=self.kwargs_dict,
                                                          return_lineouts=lineouts

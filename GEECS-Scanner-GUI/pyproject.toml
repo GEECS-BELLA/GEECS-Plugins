@@ -12,6 +12,7 @@ PyQt5 = {version = "^5.15.9", markers = "sys_platform == 'win32'" }
 pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == 'win32'" }
 geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
 imageanalysis = {path = "../ImageAnalysis", develop = true}
+scananalysis = {path = "../ScanAnalysis", develop = true}
 
 pyyaml = "^6.0.2"
 pyinstaller = "^6.12.0"
