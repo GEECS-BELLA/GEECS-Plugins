@@ -18,6 +18,15 @@ from image_analysis.tools.lcls_tools_gauss_fit import gauss_fit
 import logging
 
 e_beam_camera_configs = {
+    "UC_HiResMagCam": {
+        "bkg_level": 60,
+        "left_ROI": 1,
+        "top_ROI": 1,
+        "roi_width": 1287,
+        "roi_height": 325,
+        "rotate": 0,
+        "spatial_calibration": 0.00002217
+    },
     "U_BCaveMagSpec": {
         "bkg_level": 60,
         "left_ROI": 200,

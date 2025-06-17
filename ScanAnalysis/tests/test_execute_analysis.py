@@ -115,6 +115,21 @@ class TestExecuteAnalysis(unittest.TestCase):
 
         analyze_scan(test_tag, [test_analyzer])
 
+    def test_HiResMagCamAnalyzer(self):
+        from image_analysis.offline_analyzers.Undulator.hi_res_mag_cam_analyzer import HiResMagCamAnalyzer
+
+        config_dict = {'camera_name': 'UC_HiResMagCam'}
+        analyzer_info = Info(scan_analyzer_class=Array2DScanAnalyzer,
+                             requirements={'UC_HiResMagCam'},
+                             device_name='UC_HiResMagCam',
+                             scan_analyzer_kwargs={'image_analyzer': HiResMagCamAnalyzer(**config_dict)})
+
+        test_tag = ScanTag(year=2025, month=4, day=29, number=15, experiment='Undulator')
+
+        test_analyzer = instantiate_scan_analyzer(analyzer_info)
+
+        analyze_scan(test_tag, [test_analyzer])
+
 
 if __name__ == "__main__":
     unittest.main()
