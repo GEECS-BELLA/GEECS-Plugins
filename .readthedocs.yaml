@@ -11,6 +11,6 @@ mkdocs:
 python:
   install:
     - method: pip
-      path: GEECS-Scanner-GUI/geecs_scanner
+      path: GEECS-Scanner-GUI
     - method: pip
-      path: ImageAnalysis/image_analysis
+      path: ImageAnalysis
