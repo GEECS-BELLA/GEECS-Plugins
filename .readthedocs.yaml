@@ -1,4 +1,3 @@
-# .readthedocs.yaml
 version: 2
 
 build:
@@ -7,9 +6,11 @@ build:
     python: "3.10"
 
 mkdocs:
-  configuration: mkdocs.yml  # or makedocs.yml if that's your file
+  configuration: mkdocs.yml
 
 python:
   install:
     - method: pip
-      path: .
+      path: GEECS-Scanner-GUI/geecs_scanner
+    - method: pip
+      path: ImageAnalysis/image_analysis
