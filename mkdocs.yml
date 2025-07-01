@@ -1,0 +1,30 @@
+site_name: GEECS-Plugins
+repo_url: https://github.com/GEECS-BELLA/GEECS-Plugins
+repo_name: GEECS-BELLA/GEECS-Plugins
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+
+theme:
+  name: material
+  features:
+    - navigation.top
+    - navigation.tabs
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            show_source: true
+            merge_init_into_class: true
