@@ -14,8 +14,4 @@ python:
       path: GEECS-Scanner-GUI
     - method: pip
       path: ImageAnalysis
-    - method: pip
-      path: . 
-      packages:
-        - mkdocs-material
-        - mkdocstrings[python]
+    - requirements: docs/requirements.txt
