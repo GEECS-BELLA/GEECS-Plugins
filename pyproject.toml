@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "geecs-docs"
+version = "0.1.0"
+description = "Unified documentation for GEECS plugins"
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.11"
+mkdocs = "^1.5"
+mkdocs-material = "^9.5"
+mkdocstrings = { extras = ["python"], version = "^0.28.2" }
+mkdocs-autorefs = "^1.4"
+
+[tool.poetry.group.dev.dependencies]
+geecs-scanner-gui = { path = "GEECS-Scanner-GUI", develop = true }
+imageanalysis = { path = "ImageAnalysis", develop = true }
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
