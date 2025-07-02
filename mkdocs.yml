@@ -3,10 +3,19 @@ repo_url: https://github.com/GEECS-BELLA/GEECS-Plugins
 
 nav:
   - Home: index.md
-  - Scanner GUI:
-      - API: api/scanner.md
+  - GEECS Scanner GUI:
+      - API:
+          - GEECS Scanner GUI:
+              - Data Acquisition:
+                  - Overview: api/geecs_scanner/data_acquisition/overview.md
+                  - ScanManager: api/geecs_scanner/data_acquisition/scan_manager.md
+                  - DeviceManager: api/geecs_scanner/data_acquisition/device_manager.md
+                  - DataLogger: api/geecs_scanner/data_acquisition/data_logger.md
+              - Optimization:
+                  - Overview: api/geecs_scanner/optimization/overview.md
   - Image Analysis:
-      - API: api/analysis.md
+      - API: api/image_analysis.md
+
 
 theme:
   name: material
