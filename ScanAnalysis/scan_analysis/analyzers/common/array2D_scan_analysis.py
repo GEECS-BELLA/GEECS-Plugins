@@ -427,10 +427,8 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
         # Create an image grid if more than one bin exists.
         if len(binned_data) > 1 and self.flag_save_images:
-            plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get("Plot Scale", None)
-            save_path = Path(self.path_dict["save"]) / f'{self.device_name}_averaged_image_grid.png'
-            self.create_image_array(binned_data, plot_scale=plot_scale, save_path=save_path)
-            self.display_contents.append(str(save_path))
+            self._create_image_array(binned_data)
+
         self.binned_data = binned_data
 
     def _postprocess_scan_interactive(self) -> None:
@@ -448,10 +446,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
         # If more than one bin exists, create an image grid.
         if len(binned_data) > 1 and self.flag_save_images:
-            plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get("Plot Scale", None)
-            save_path = Path(self.path_dict["save"]) / f"{self.device_name}_averaged_image_grid.png"
-            self.create_image_array(binned_data, plot_scale=plot_scale, save_path=save_path)
-            self.display_contents.append(str(save_path))
+            self._create_image_array(binned_data)
 
         self.binned_data = binned_data
 
@@ -596,6 +591,21 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         plt.close(fig)  # Close the figure to free up memory
         if self.flag_logging:
             logging.info(f"Image saved at {save_path}")
+
+    def _create_image_array(
+            self,
+            binned_data: dict[Union[int, float], BinImageEntry]
+    ):
+        """
+        Wrapper function for create_image_array() that sets up passed arguements and appends to display_content.
+
+        Args:
+            binned_data (dict): Mapping from bin number to BinImageEntry (which includes result dict).
+        """
+        plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get("Plot Scale", None)
+        save_path = Path(self.path_dict["save"]) / f'{self.device_name}_averaged_image_grid.png'
+        self.create_image_array(binned_data, plot_scale=plot_scale, save_path=save_path)
+        self.display_contents.append(str(save_path))
 
     def create_image_array(
             self,
