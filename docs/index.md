@@ -1,28 +1,51 @@
-# Welcome to the GEECS Plugin Suite Docs
+# Welcome to the GEECS Plugin Suite Documentation
 
-This site documents all tools in the GEECS-Plugins experimental software stack. Each project in the suite plays a distinct role in device control, data acquisition, analysis, or optimization.
+This site documents the GEECS-Plugins monorepo, a collection of Python tools for the Generalized Equipment and Experiment Control System (GEECS) used at Lawrence Berkeley National Laboratory's BELLA facility.
 
-## Projects
+## Core Projects
 
-### GEECS Scanner GUI
+### [GEECS Scanner GUI](geecs_scanner/overview.md)
+A modular PyQt5-based interface for experiment control and scan management. Provides an alternative to Master Control with flexible data acquisition, automated scan sequences, and composite variable support.
 
-A modular interface for experiment control and scan management.
+**Key Features:**
+- Opt-in device framework for reliable data collection
+- Automated pre/post-scan actions
+- Multi-scan sequencing with presets
+- Composite scan variables
 
-- [Data Acquisition](api/geecs_scanner/data_acquisition/overview.md)
-- [Optimization Engine](api/geecs_scanner/optimization/overview.md)
-- 
-### [ImageAnalysis](api/image_analysis/overview.md)
-A library of analyzers for processing experimental images, extracting beam parameters, and generating visual diagnostics. Includes real-time and offline tools.
+### [Image Analysis](image_analysis/overview.md)
+Central repository for online and offline analysis of experimental images from BELLA experiments. Provides analyzers for beam parameter extraction and visual diagnostics.
 
-### [Optimization Engine](api/optimization/overview.md)
-An interface layer for defining and executing optimization scans, with support for Bayesian and heuristic methods through the Xopt backend.
+**Key Features:**
+- Real-time image analysis integration with GEECS devices
+- Offline analysis tools for post-processing
+- Support for LabVIEW image formats
+- Extensible analyzer framework
 
-### [LiveWatch](api/live_watch/overview.md)
-Real-time monitoring and diagnostics for experiment feedback and image streaming, designed for integration with the scanner GUI.
+### [Scan Analysis](scan_analysis/overview.md)
+Tools for analyzing complete experimental scans, often incorporating image analysis for individual shots. Designed for cross-device analysis and automated scan processing.
 
-### [Calibrations](api/calibrations/overview.md)
-Tools for defining and applying calibration functions across experiments, including device-specific calibration workflows and utilities.
+**Key Features:**
+- Multi-device data correlation
+- Automated scan discovery and analysis
+- Extensible analyzer framework
+- Integration with Google Docs logging
+
+## Additional Tools
+
+The monorepo also includes several supporting projects:
+
+- **GEECS-PythonAPI**: Core API for interfacing with GEECS control systems
+- **GEECS-Data-Utils**: Utilities for working with GEECS data structures and file formats
+- **LivePostProcessing**: Real-time data processing tools
+- **Xopt-GEECS**: Integration with Xopt optimization library
+
+## Getting Started
+
+1. Check the [Installation Guide](installation.md) for setup instructions
+2. Explore individual project documentation for detailed usage
+3. Review API references for development information
 
 ---
 
-Feel free to click on each module to explore its documentation in detail.
+*GEECS (Generalized Equipment and Experiment Control System) - Copyright (c) 2016, The Regents of the University of California, through Lawrence Berkeley National Laboratory*

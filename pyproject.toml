@@ -11,11 +11,14 @@ mkdocs = "^1.5"
 mkdocs-material = "^9.5"
 mkdocstrings = { extras = ["python"], version = "^0.28.2" }
 mkdocs-autorefs = "^1.4"
+nbconvert = "^7.0"  # Needed for Jupyter notebook output stripping
 
 [tool.poetry.group.dev.dependencies]
 geecs-scanner-gui = { path = "GEECS-Scanner-GUI", develop = true }
 imageanalysis = { path = "ImageAnalysis", develop = true }
 
+pre-commit = "^3.5"
+ruff = "^0.4"  # Use compatible version with ruff-pre-commit
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
