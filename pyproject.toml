@@ -12,6 +12,7 @@ mkdocs-material = "^9.5"
 mkdocstrings = { extras = ["python"], version = "^0.28.2" }
 mkdocs-autorefs = "^1.4"
 nbconvert = "^7.0"  # Needed for Jupyter notebook output stripping
+tomli = "^2.2.1"
 
 [tool.poetry.group.dev.dependencies]
 geecs-scanner-gui = { path = "GEECS-Scanner-GUI", develop = true }
@@ -19,6 +20,70 @@ imageanalysis = { path = "ImageAnalysis", develop = true }
 
 pre-commit = "^3.5"
 ruff = "^0.4"  # Use compatible version with ruff-pre-commit
+pydocstyle = "^6.3"
+interrogate = "^1.7"  # For docstring coverage reporting
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff.lint]
+# Enable docstring rules
+extend-select = [
+    "D",    # pydocstyle
+]
+
+[tool.ruff.lint.pydocstyle]
+# Use NumPy convention for docstrings
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore docstring rules for test files and scripts
+"**/tests/**" = ["D"]
+"**/test_*.py" = ["D"]
+"**/*_test.py" = ["D"]
+"**/conftest.py" = ["D"]
+"**/setup.py" = ["D"]
+"**/PW_scripts/**" = ["D"]
+"**/khzwave_python-master/**" = ["D"]
+"**/third_party_sdks/**" = ["D"]
+"**/openPMD-CCD/**" = ["D"]
+"**/Spot Alignment for HDR Profile/**" = ["D"]
+"**/tcp client/**" = ["D"]
+"**/Xopt-GEECS/**" = ["D"]
+"**/LogMaker*/**" = ["D"]
+"**/LivePostProcessing/**" = ["D"]
+
+
+
+[tool.interrogate]
+# Configuration for docstring coverage reporting
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = true
+ignore-semiprivate = true
+ignore-private = true
+ignore-property-decorators = true
+ignore-module = false
+ignore-nested-functions = true
+ignore-nested-classes = true
+fail-under = 80
+exclude = ["setup.py", "docs", "tests", "**/tests/**", "PW_scripts", "khzwave_python-master",
+            "**/third_party_sdks/**",
+            "**/third_party_sdks",
+            "**/openPMD-CCD/**",
+            "**/openPMD-CCD",
+            "**/Spot Alignment for HDR Profile/**",
+            "**/Spot Alignment for HDR Profile",
+            "**/tcp client/**",
+            "**/tcp client",
+            "**/Xopt-GEECS/**",
+            "**/Xopt-GEECS",
+            ]
+verbose = 2
+
+[tool.pydocstyle]
+convention = "numpy"
+add-ignore = [
+    "D100",  # Missing docstring in public module (we'll handle this gradually)
+    "D104",  # Missing docstring in public package (we'll handle this gradually)
+]
