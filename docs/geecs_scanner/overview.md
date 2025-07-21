@@ -8,28 +8,17 @@ While Master Control scans save everything but can crash or slow down when any d
 
 - **Python Flexibility**: Easy to extend with additional features and automation
 
-## Key Features
+### Key Features
 
-### Automated Actions
-- Pre and post-scan automation sequences
-- Configurable device state management
-- Custom action library integration
+- **Scan Management**: Many of the standard scan modes (e.g. 'no scan', 1D parameter scans) with additional support for multi scan execution and optimization 'scans'.
 
-### Composite Variables
-- Define scan variables relative to current values
-- Combine multiple device parameters into single scan variables
-- Support for complex multi-device coordination
+- **Composite Variables**: Combine multiple device parameters into single scan variables using arbitrary mathematical relations.
 
-### Scan Management
-- **NoScan (Statistics)**: Hold settings constant for specified number of shots
-- **1D Scans**: Vary parameters from start to end with configurable step sizes
-- **Multi-Scan Sequences**: Chain multiple scan presets together
-- **Scan Presets**: Save and load complete scan configurations
+- **Automated Actions**: Pre and post-scan automation sequences using user defined action sequences allow complex configuration chnages before/after scans.
 
-### Timing and Synchronization
-- Configurable timing setup for scan/standby/off modes
-- Shot controller integration
-- Flexible device synchronization
+- **Timing and Synchronization**: Data synchronization handled through hardware timestamps rather than shot number.
+
+- **Configuration GUIs**: GUIs available to create the necessary config files (e.g. 'save devices', 'multi scan', etc.)
 
 ## Architecture
 
@@ -45,10 +34,11 @@ The GUI is organized into several core components:
 
 The GEECS Scanner GUI is ideal for:
 
-- **Routine Data Collection**: Reliable, automated scanning with minimal intervention
-- **Complex Multi-Device Experiments**: Coordinated control of multiple experimental parameters
-- **Flexible Scan Sequences**: Custom scan patterns and automated sequences
-- **Development and Testing**: Python-based extensibility for custom features
+- Reliable, automated scanning with minimal intervention
+- Coordinated control of multiple experimental parameters
+- Custom scan patterns and automated sequences
+- Python-based extensibility for custom features
+- Paramter optimization using Xopt
 
 ## Getting Started
 

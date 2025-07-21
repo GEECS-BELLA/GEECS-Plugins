@@ -6,17 +6,14 @@ This guide covers the complete installation and setup process for the GEECS Scan
 
 ### Required Software
 
-1. **Python 3.10**: The scanner requires Python 3.10 specifically
-   - Download from: [Python 3.10.11](https://www.python.org/downloads/release/python-31011/)
-   - Use the "Windows installer (64-bit)" link
-   - **Important**: Check "Add Python 3.10 to PATH" during installation
+**Python 3.10**:
+The scanner requires Python 3.10 specifically. Download from: [Python 3.10.11](https://www.python.org/downloads/release/python-31011/). Use the "Windows installer (64-bit)" link. **Important**: Check "Add Python 3.10 to PATH" during installation.
 
-2. **Poetry**: For dependency management
-   - Install using the official installer: [Poetry Installation](https://python-poetry.org/docs/#installing-with-the-official-installer)
+**Poetry**:
+For dependency management install using the official installer: [Poetry Installation](https://python-poetry.org/docs/#installing-with-the-official-installer). Note, there is a common issue when installing on a windows computer when using the powershell command from the official installer. You may need to change the powershell command to use 'python' rather than 'py' (as noted on the website) if there is an error in installation.
 
-3. **GEECS-Plugins Repository**: Clone or access the repository
-   - Can run from Z: drive version for basic usage
-   - Recommended to clone with GitHub Desktop for development
+**GEECS-Plugins Repository**:
+Clone or ensure access to the GEECS Plugings repository. Can run from 'network' version (i.e. 'z' or 'n' drive) for basic usage. Recommended to clone with GitHub Desktop for development
 
 ### Verify Installation
 
@@ -89,11 +86,11 @@ For code development and customization:
 
 When you first run the GUI, it will prompt for three essential settings:
 
-1. **GEECS User Data Path**: Local path where GEECS data will be stored
+1. **GEECS User Data Path**: Local path to the user data used for configs, database access etc.
    - Example: `C:\GEECS\user data\`
 
 2. **Experiment Name**: Must match the name shown in Master Control
-   - Example: `Undulator`, `HTU`, etc.
+   - Example: `Undulator`, `Thomson`, etc.
    - Case-sensitive!
 
 3. **Repetition Rate**: Experiment repetition rate in Hz
@@ -104,7 +101,7 @@ These settings are saved to: `~\.config\geecs_python_api\config.ini`
 
 ### Data Directory Setup
 
-You must copy the experiment's user data from the server to your local path:
+You must copy the experiment's user data from the server to your local path if not already done:
 
 1. **Create Local Directory**: Make the directory specified in your config
    ```bash
