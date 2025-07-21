@@ -29,10 +29,16 @@ All public modules, classes, functions, and methods must have docstrings followi
 ### Docstring Quality Standards
 
 #### Minimum Requirements
-- One-line summary (imperative mood, under 79 characters)
+- One-line summary (clear and descriptive, under 79 characters)
 - Parameters section with types and descriptions
 - Returns section with type and description
 - Examples section for non-trivial functions
+
+#### Relaxed Style Rules
+To balance code quality with developer productivity, we've disabled some overly restrictive pydocstyle rules:
+- **D401** (Imperative mood) - Both "Returns the result" and "Return the result" are acceptable
+- **D200** (One-line format) - Multi-line docstrings can be more flexible in formatting
+- **D400** (Period requirement) - Periods at the end of summaries are recommended but not required
 
 #### Best Practices
 - Include realistic, runnable examples
