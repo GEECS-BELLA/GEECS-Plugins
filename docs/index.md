@@ -16,7 +16,7 @@ Tools for analyzing complete experimental scans, often incorporating image analy
 ### [GEECS Python API](geecs_python_api/overview.md)
 A general python API to interface with the GEECS control system software
 
-### [GEECS Data Utils](geecs_data_utils/overview.md)
+### [GEECS Data Utils](geecs_data_utils/api.md)
 Some general utils to establish paths and access data recorded by GEECS control system
 
 ## Getting Started
