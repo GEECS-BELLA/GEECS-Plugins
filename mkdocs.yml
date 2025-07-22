@@ -25,6 +25,8 @@ nav:
       - Overview: scan_analysis/base_evaluator.md
       - Installation & Setup: scan_analysis/installation.md
       - Creating Analyzers: scan_analysis/creating_analyzers.md
+  - Data Utils:
+      - API Reference: geecs_data_utils/api.md
 
 
 theme:
