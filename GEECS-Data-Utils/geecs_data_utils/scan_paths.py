@@ -35,7 +35,19 @@ if not logging.getLogger().hasHandlers():
 
 
 class ScanPaths:
-    """Represents a GEECS experiment scan."""
+    """Represents a GEECS experiment scan.
+
+    Attributes
+    ----------
+    scan_info : dict[str, str]
+        Dictionary containing scan configuration information loaded from scan info file
+    data_dict : dict
+        Dictionary containing loaded device data
+    data_frame : pandas.DataFrame or None
+        DataFrame representation of the scan data
+    paths_config : GeecsPathsConfig
+        Class-level configuration object for managing GEECS data paths
+    """
 
     paths_config = None
 
@@ -49,10 +61,10 @@ class ScanPaths:
         """
         Initialize ScanPaths object.
 
-        Parameter(s)
-        ----------
         Either a folder or a tag+base_directory needs to be given in order to specify the location of a scan data folder
 
+        Parameters
+        ----------
         folder : Union[str, bytes, PathLike]
             Data folder containing the scan data, e.g. "Z:/data/Undulator/Y2023/05-May/23_0501/scans/Scan002".
         tag : Optional[ScanTag]
@@ -60,8 +72,6 @@ class ScanPaths:
         base_directory : Optional[Union[Path, str]]
             The base path for the data, e/g/ "Z:/data/"
             If not given, will default to the path located by GeecsPathsConfig
-        load_scalars: bool
-            Flag that determines if the scalar data should be loaded from the s file
         read_mode: bool
             Flag that determines if ScanData should create the directory if it does not exist
         """
@@ -197,13 +207,25 @@ class ScanPaths:
 
         Ideally one should only build ScanTag objects using this function.
 
-        :param year: Target scan year
-        :param month: Target scan month
-        :param day: Target scan day
-        :param number: Target scan number
-        :param experiment: Target scan's experiment name
-        :param experiment_name: Target scan's experiment name (deprecated)
-        :return: ScanTag Tuple with properly formatted information to describe the target scan
+        Parameters
+        ----------
+        year : Union[int, str]
+            Target scan year
+        month : Union[int, str]
+            Target scan month
+        day : Union[int, str]
+            Target scan day
+        number : Union[int, str]
+            Target scan number
+        experiment : str
+            Target scan's experiment name
+        experiment_name : str
+            Target scan's experiment name (deprecated)
+
+        Returns
+        -------
+        ScanTag
+            properly formatted information to describe the target scan
         """
         year = int(year)
         if 0 <= year <= 99:

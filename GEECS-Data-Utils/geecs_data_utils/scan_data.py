@@ -102,7 +102,19 @@ def geecs_tdms_dict_to_panda(
 
 
 class ScanData(ScanPaths):
-    """GEECS experiment scan with scalar loading."""
+    """GEECS experiment scan with scalar loading.
+
+    Attributes
+    ----------
+    scan_info : dict[str, str]
+        Dictionary containing scan configuration information loaded from scan info file
+    data_dict : dict[str, dict[str, np.ndarray]]
+        Nested dictionary containing TDMS data with device -> variable -> data structure
+    data_frame : pandas.DataFrame or None
+        DataFrame containing scalar data loaded from text files
+    paths_config : GeecsPathsConfig
+        Class-level configuration object for managing GEECS data paths
+    """
 
     def __init__(self, *args, load_scalars: bool = False, **kwargs):
         super().__init__(*args, **kwargs)

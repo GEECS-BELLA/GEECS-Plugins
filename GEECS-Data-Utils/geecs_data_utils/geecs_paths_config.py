@@ -81,7 +81,7 @@ class GeecsPathsConfig:
         # See if the server address can be extracted from the experiment name without loading config file
         if experiment is not None and base_path is None:
             base_path = self._validate_and_set_base_path(
-                self.get_default_server_address(experiment)
+                self._get_default_server_address(experiment)
             )
 
         # If either was not set in arguments, then open up the config file and read its contents
@@ -98,7 +98,7 @@ class GeecsPathsConfig:
                     # Then, if no base path specified first try the default server path for the given experiment
                     if base_path is None:
                         base_path = self._validate_and_set_base_path(
-                            self.get_default_server_address(experiment)
+                            self._get_default_server_address(experiment)
                         )
 
                     # If not connected to server path, then default to the local base path defined in the config file
@@ -123,7 +123,7 @@ class GeecsPathsConfig:
         self.base_path = base_path  # .resolve()
         self.experiment = experiment
 
-    def is_default_server_address(self) -> bool:
+    def _is_default_server_address(self) -> bool:
         """
         Check if base directory matches the default server address.
 
@@ -132,11 +132,11 @@ class GeecsPathsConfig:
         bool
             True if the base directory is equivalent to the default server address
         """
-        default_path = self.get_default_server_address(self.experiment)  # .resolve()
+        default_path = self._get_default_server_address(self.experiment)  # .resolve()
         return self.base_path == default_path
 
     @staticmethod
-    def get_default_server_address(experiment_name: str) -> Optional[Path]:
+    def _get_default_server_address(experiment_name: str) -> Optional[Path]:
         """
         Get the default server path for a given experiment.
 
