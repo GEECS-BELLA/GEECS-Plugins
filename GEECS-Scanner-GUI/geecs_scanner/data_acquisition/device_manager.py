@@ -164,29 +164,61 @@ class DeviceManager:
                 logging.warning("Composite variables file not found.")
 
     def _load_composite_variables(self, composite_file: Path):
-        """
-        Load composite variable definitions from a YAML configuration file.
+        """Load and parse composite variable definitions from a YAML configuration file.
 
-        This method reads a YAML file containing mappings for composite scan
-        variables and stores them in the `self.composite_variables` dictionary.
-        Composite variables represent virtual scan controls composed of multiple
-        underlying device variables.
+        Reads a YAML configuration file to extract composite variable definitions,
+        which represent complex, multi-device scan parameters that can be controlled
+        as a single virtual variable.
 
         Parameters
         ----------
         composite_file : Path
-            Full path to the `composite_variables.yaml` file.
+            Full filesystem path to the composite variables configuration file.
+            Expected to be a YAML file with a specific structure for defining
+            composite variable mappings.
 
         Returns
         -------
         dict
-            A dictionary of composite variables parsed from the YAML file. If the file
-            is not found or invalid, an empty dictionary is returned.
+            A dictionary containing parsed composite variable definitions.
+            Each key represents a composite variable name, and its value contains
+            the detailed configuration for that variable.
 
         Notes
         -----
-        The expected format of the YAML file should have a top-level key named
-        `"composite_variables"` containing the mappings.
+        Composite Variable YAML Structure:
+        - Top-level key must be "composite_variables"
+        - Each composite variable is defined with its specific device and variable mappings
+        - Supports complex configurations involving multiple devices and variables
+
+        Example YAML Structure:
+        ```yaml
+        composite_variables:
+            BeamPosition:
+                device1:
+                    variable: x_position
+                device2:
+                    variable: y_position
+        ```
+
+        Raises
+        ------
+        FileNotFoundError
+            If the specified composite variables file does not exist.
+        yaml.YAMLError
+            If there are parsing errors in the YAML file.
+
+        Examples
+        --------
+        >>> device_mgr = DeviceManager()
+        >>> composite_vars = device_mgr._load_composite_variables(Path('composite_vars.yaml'))
+        >>> print(composite_vars)
+        {'BeamPosition': {'device1': {...}, 'device2': {...}}}
+
+        See Also
+        --------
+        is_composite_variable : Method to check if a variable is a composite variable
+        load_from_config : Method that uses composite variables during configuration loading
         """
         try:
             with open(composite_file, "r") as file:

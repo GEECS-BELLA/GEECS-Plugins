@@ -796,28 +796,64 @@ class ScanManager:
                 logging.warning(f"Device {device_name} not found in DeviceManager.")
 
     def pre_logging_setup(self):
-        """
-        Perform setup steps before starting scan data logging.
+        """Prepare the experimental environment and devices for data acquisition.
 
-        This includes:
-        - Turning off the trigger
-        - Initializing scan data and output files
-        - Generating scan steps for the scan variable
-        - Configuring device save paths if data saving is enabled
-        - Handling scan variable initialization through the DeviceManager
-        - Capturing the initial state of the scan variable
-        - Executing any defined pre-scan actions
-        - Generating a live ECS dump if configured
+        This comprehensive method orchestrates multiple setup steps to ensure
+        the experimental system is correctly configured before a scan begins.
+        It handles device initialization, trigger management, file preparation,
+        and pre-scan configuration.
+
+        Detailed Setup Steps:
+        1. Disable trigger to prevent unintended shots
+        2. Initialize scan data files and paths
+        3. Generate scan steps based on configuration
+        4. Configure device save paths (if data saving enabled)
+        5. Initialize scan variables through DeviceManager
+        6. Capture initial device states
+        7. Execute pre-scan setup actions
+        8. Generate live experiment configuration dump
+
+        Parameters
+        ----------
+        None (uses instance attributes)
 
         Requires
         --------
         self.scan_config : ScanConfig
-            Must be set before calling this method.
+            Scan configuration object containing sweep parameters
+        self.device_manager : DeviceManager
+            Manages device configurations and interactions
+        self.scan_data_manager : ScanDataManager
+            Handles scan data path and file management
+        self.save_data : bool
+            Flag indicating whether data should be saved during the scan
+
+        Notes
+        -----
+        - Method is critical for ensuring reproducible and controlled experimental scans
+        - Handles both standard and composite scan variables
+        - Supports different scan modes (standard, noscan, optimization)
+        - Provides flexibility for various experimental configurations
 
         Raises
         ------
         GeecsDeviceInstantiationError
-            If a device required for the scan fails to initialize.
+            If device initialization or configuration fails
+        ValueError
+            If scan configuration is incomplete or invalid
+
+        Examples
+        --------
+        >>> scan_mgr = ScanManager(...)
+        >>> scan_mgr.scan_config = ScanConfig(...)
+        >>> scan_mgr.pre_logging_setup()
+        # Prepares devices and environment for the upcoming scan
+
+        See Also
+        --------
+        start_scan_thread : Initiates the scan after pre-logging setup
+        _generate_scan_steps : Generates the sequence of scan steps
+        device_manager.handle_scan_variables : Manages device variable initialization
         """
         logging.info("Turning off the trigger.")
         self.trigger_off()
@@ -949,14 +985,63 @@ class ScanManager:
                 break
 
     def _generate_scan_steps(self) -> List[Dict[str, Any]]:
-        """
-        Generate the scan steps ahead of time, handling standard, noscan, and optimization scan modes.
+        """Generate a sequence of scan steps based on the current scan configuration.
 
-        Uses self.scan_config, which should be set before executing this method.
+        Prepares a list of steps to be executed during the scan, accommodating
+        different scan modes and variable configurations. This method handles
+        standard linear scans, no-scan modes, and optimization-driven scans.
+
+        Parameters
+        ----------
+        None (uses instance attributes)
 
         Returns
         -------
-            List[Dict[str, Any]]: A list of scan steps, each containing the variables and their corresponding values.
+        List[Dict[str, Any]]
+            A list of dictionaries representing scan steps, where each dictionary contains:
+            - 'variables': A dictionary of device variables and their target values
+            - 'wait_time': Duration to wait at each step
+            - 'is_composite': Flag indicating if the step involves a composite variable
+
+        Notes
+        -----
+        Scan Step Generation Strategy:
+        - NOSCAN mode: Single step with no variable changes
+        - OPTIMIZATION mode: Placeholder steps for dynamic optimization
+        - STANDARD mode: Linear sweep of a device variable between start and end values
+
+        Scan Configuration Requirements:
+        - scan_config.scan_mode must be set
+        - For STANDARD mode, start, end, step, and device_var must be defined
+        - For OPTIMIZATION mode, optimizer configuration is required
+
+        Examples
+        --------
+        >>> scan_mgr = ScanManager(...)
+        >>> scan_mgr.scan_config = ScanConfig(
+        ...     device_var='Undulator:gap',
+        ...     start=10.0,
+        ...     end=15.0,
+        ...     step=0.5,
+        ...     scan_mode=ScanMode.STANDARD
+        ... )
+        >>> steps = scan_mgr._generate_scan_steps()
+        >>> print(steps)
+        [
+            {'variables': {'Undulator:gap': 10.0}, 'wait_time': 1.0, 'is_composite': False},
+            {'variables': {'Undulator:gap': 10.5}, 'wait_time': 1.0, 'is_composite': False},
+            ...
+        ]
+
+        Raises
+        ------
+        ValueError
+            If scan configuration is incomplete or incompatible with the scan mode
+
+        See Also
+        --------
+        start_scan_thread : Initiates scan execution using generated steps
+        _setup_optimizer_from_config : Configures optimizer for optimization scans
         """
         self.data_logger.bin_num = 0
         steps = []
@@ -1051,16 +1136,66 @@ class ScanManager:
     #     return steps
 
     def _setup_optimizer_from_config(self):
-        """
-        Instantiate and configure the optimizer based on the configuration file.
+        """Configure and initialize an optimizer for dynamic scan optimization.
 
-        Loads the optimizer using the `optimizer_config_path` specified in `self.scan_config`,
-        sets required device variables, and updates the executor with the optimizer and logger.
+        This method handles the complex process of setting up an optimization
+        strategy for experimental scans. It loads an optimizer configuration,
+        instantiates the optimizer, configures device requirements, and prepares
+        the system for an optimization-driven scan.
+
+        Detailed Setup Process:
+        1. Validate optimizer configuration path
+        2. Load optimizer configuration
+        3. Instantiate BaseOptimizer with required dependencies
+        4. Configure device requirements for optimization
+        5. Add optimization variables to device manager
+        6. Update scan executor with optimizer and logger
+
+        Parameters
+        ----------
+        None (uses instance attributes)
+
+        Requires
+        --------
+        self.scan_config : ScanConfig
+            Must contain a valid `optimizer_config_path`
+        self.scan_data_manager : ScanDataManager
+            Used to provide context for optimizer initialization
+        self.data_logger : DataLogger
+            Used to provide logging capabilities to the optimizer
+
+        Returns
+        -------
+        None
+            Configures the optimizer in-place and updates related components
 
         Raises
         ------
         ValueError
-            If `optimizer_config_path` is not set in the scan configuration.
+            If optimizer configuration path is not specified
+        ImportError
+            If required optimizer modules cannot be imported
+        ConfigurationError
+            If optimizer configuration is invalid or incomplete
+
+        Notes
+        -----
+        - Supports dynamic configuration of optimization strategies
+        - Handles variable mapping between devices and optimizer
+        - Ensures compatibility between optimizer and experimental setup
+
+        Examples
+        --------
+        >>> scan_mgr = ScanManager(...)
+        >>> scan_mgr.scan_config.optimizer_config_path = 'path/to/optimizer_config.yaml'
+        >>> scan_mgr._setup_optimizer_from_config()
+        # Configures optimizer for the upcoming scan
+
+        See Also
+        --------
+        BaseOptimizer.from_config_file : Method used to instantiate optimizer
+        start_scan_thread : Initiates scan execution with configured optimizer
+        device_manager.add_scan_device : Adds optimization variables to device manager
         """
         if not self.scan_config.optimizer_config_path:
             raise ValueError(
@@ -1095,16 +1230,68 @@ class ScanManager:
         self.executor.data_logger = self.data_logger
 
     def estimate_acquisition_time(self):
-        """
-        Estimate the total data acquisition time based on the scan configuration.
+        """Compute the estimated total duration for a scan based on configuration parameters.
 
-        The estimate is based on the scan range, step size, and wait time.
-        Stores the result in `self.acquisition_time`.
+        This method calculates the expected total acquisition time by analyzing
+        the scan configuration, taking into account the scan mode, variable range,
+        step size, and wait time between steps. The result provides a predictive
+        estimate of the scan's total execution time.
+
+        Calculation Strategy:
+        - NOSCAN mode: Single wait time period
+        - STANDARD mode: Number of steps multiplied by wait time
+        - Handles both positive and negative scan directions
+
+        Parameters
+        ----------
+        None (uses instance attributes)
 
         Requires
         --------
         self.scan_config : ScanConfig
-            Must be set before calling this method.
+            Scan configuration object containing:
+            - device_var: Scan variable
+            - start: Starting value of the scan
+            - end: Ending value of the scan
+            - step: Increment/decrement between steps
+            - wait_time: Duration to wait at each step
+
+        Attributes Modified
+        ------------------
+        self.acquisition_time : float
+            Total estimated scan duration in seconds
+
+        Notes
+        -----
+        - Adjusts for different scan modes and variable ranges
+        - Provides a predictive estimate, not an exact measurement
+        - Useful for progress tracking and resource allocation
+        - Handles both linear and reverse scan directions
+
+        Examples
+        --------
+        >>> scan_mgr = ScanManager(...)
+        >>> scan_mgr.scan_config = ScanConfig(
+        ...     device_var='Undulator:gap',
+        ...     start=10.0,
+        ...     end=15.0,
+        ...     step=0.5,
+        ...     wait_time=1.0,
+        ...     scan_mode=ScanMode.STANDARD
+        ... )
+        >>> scan_mgr.estimate_acquisition_time()
+        >>> print(scan_mgr.acquisition_time)
+        11.0  # 11 steps * 1.0 seconds per step
+
+        Raises
+        ------
+        AttributeError
+            If scan_config is not set before method invocation
+
+        See Also
+        --------
+        estimate_current_completion : Calculates current scan progress
+        _generate_scan_steps : Generates the sequence of scan steps
         """
         total_time = 0
 
@@ -1146,16 +1333,68 @@ class ScanManager:
         return 1 if completion > 1 else completion
 
     def get_initial_state(self):
-        """
-        Retrieve the initial state of the scan variable before the scan begins.
+        """Capture the initial state of the scan variable before experimental manipulation.
 
-        This method accesses the current state of the scan variable (composite or standard)
-        and stores it for later restoration.
+        This method retrieves the current value of the scan variable, handling
+        both standard device variables and composite variables. The captured
+        state serves as a reference point for restoring the device to its
+        original configuration after the scan is complete.
+
+        Detailed State Retrieval Process:
+        1. Determine if the scan variable is a composite or standard variable
+        2. Access the current value from the appropriate device
+        3. Create a dictionary mapping the variable to its initial value
+
+        Parameters
+        ----------
+        None (uses instance attributes)
+
+        Requires
+        --------
+        self.scan_config : ScanConfig
+            Must contain the `device_var` to be tracked
+        self.device_manager : DeviceManager
+            Used to access device states and check variable types
 
         Returns
         -------
         dict
-            A dictionary mapping the scan variable to its initial value.
+            A dictionary with the following possible formats:
+            - For standard variables: {'device_name:variable_name': initial_value}
+            - For composite variables: {'device_name:composite_var': initial_value}
+
+        Notes
+        -----
+        - Critical for maintaining experimental reproducibility
+        - Supports both single-device and multi-device composite variables
+        - Provides a mechanism for reverting devices to their pre-scan state
+        - Handles potential variations in variable naming and device configurations
+
+        Examples
+        --------
+        >>> scan_mgr = ScanManager(...)
+        >>> scan_mgr.scan_config = ScanConfig(device_var='Undulator:gap')
+        >>> initial_state = scan_mgr.get_initial_state()
+        >>> print(initial_state)
+        {'Undulator:gap': 10.5}  # Initial gap value before scan
+
+        >>> # For composite variables
+        >>> scan_mgr.scan_config = ScanConfig(device_var='BeamPosition')
+        >>> initial_state = scan_mgr.get_initial_state()
+        >>> print(initial_state)
+        {'BeamPosition:composite_var': {'x': 0.1, 'y': 0.2}}
+
+        Raises
+        ------
+        KeyError
+            If the specified device or variable cannot be found
+        AttributeError
+            If scan configuration is incomplete
+
+        See Also
+        --------
+        restore_initial_state : Method used to revert devices to their initial state
+        device_manager.is_composite_variable : Checks if a variable is composite
         """
         device_var = self.scan_config.device_var
 
@@ -1175,20 +1414,65 @@ class ScanManager:
         return initial_state
 
     def restore_initial_state(self, initial_state):
-        """
-        Restore devices to their initial state after scan completion.
+        """Revert devices to their pre-scan configuration after experimental manipulation.
 
-        This is typically used to reset the scan variable(s) to their pre-scan values.
+        This method systematically restores devices to their original state by
+        setting each device variable back to its initial value. It is a critical
+        step in maintaining experimental reproducibility and preventing unintended
+        long-term effects from scan procedures.
+
+        Detailed Restoration Process:
+        1. Iterate through the provided initial state dictionary
+        2. Identify the device and variable for each state entry
+        3. Attempt to set the device variable to its original value
+        4. Log successful restorations and any encountered errors
 
         Parameters
         ----------
         initial_state : dict
-            A dictionary with keys in the format "device_name:variable_name"
-            and values representing the desired state to restore.
+            A dictionary mapping device variables to their initial values.
+            Keys should be in the format "device_name:variable_name",
+            with corresponding values representing the original state.
+
+            Example:
+            {
+                'Undulator:gap': 10.5,
+                'BeamPosition:composite_var': {'x': 0.1, 'y': 0.2}
+            }
 
         Notes
         -----
-        If a device is missing or a command fails, a warning or error is logged.
+        Restoration Behavior:
+        - Supports both standard and composite device variables
+        - Gracefully handles missing devices or variables
+        - Provides detailed logging for tracking restoration attempts
+        - Critical for experimental reproducibility and device safety
+
+        Error Handling:
+        - Logs a warning if a device is not found in the device manager
+        - Logs an error if setting a variable fails, without interrupting the restoration process
+        - Continues attempting to restore other variables even if one fails
+
+        Examples
+        --------
+        >>> scan_mgr = ScanManager(...)
+        >>> initial_state = {
+        ...     'Undulator:gap': 10.5,
+        ...     'Laser:power': 2.0
+        ... }
+        >>> scan_mgr.restore_initial_state(initial_state)
+        # Restores Undulator gap and Laser power to their initial values
+
+        Raises
+        ------
+        No explicit exceptions, but logs warnings and errors for:
+        - Devices not found in device manager
+        - Failures in setting device variables
+
+        See Also
+        --------
+        get_initial_state : Captures the initial state before scan manipulation
+        device_manager.devices : Dictionary of managed devices
         """
         for device_var, value in initial_state.items():
             # Split the key to get the device name and variable name
