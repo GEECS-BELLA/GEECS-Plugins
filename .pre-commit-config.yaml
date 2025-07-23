@@ -29,6 +29,7 @@ repos:
     rev: 6.3.0
     hooks:
       - id: pydocstyle
+        additional_dependencies: [ tomli ]
         args: [--convention=numpy, --add-ignore=D401,D200,D400]
         exclude: |
           (?x)^(
