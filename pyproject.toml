@@ -26,10 +26,8 @@ interrogate = "^1.7"  # For docstring coverage reporting
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.ruff]
-ignore = ["D100", "D104", "D401"]  # example
-
 [tool.ruff.lint]
+ignore = ["D100", "D104", "D401"]  # example
 # Enable docstring rules
 extend-select = [
     "D",    # pydocstyle
