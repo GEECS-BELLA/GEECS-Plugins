@@ -12,7 +12,14 @@ nav:
               - Scan Manager: geecs_scanner/api/data_acquisition/scan_manager.md
               - Device Manager: geecs_scanner/api/data_acquisition/device_manager.md
               - Data Logger: geecs_scanner/api/data_acquisition/data_logger.md
+              - Scan Executor: geecs_scanner/api/data_acquisition/scan_executor.md
+              - Action Manager: geecs_scanner/api/data_acquisition/action_manager.md
+              - Scan Data Manager: geecs_scanner/api/data_acquisition/scan_data_manager.md
               - Configuration Schemas: geecs_scanner/api/data_acquisition/schemas.md
+              - Types & Utilities:
+                  - Type Definitions: geecs_scanner/api/data_acquisition/types.md
+                  - Utilities: geecs_scanner/api/data_acquisition/utils.md
+                  - Database Lookup: geecs_scanner/api/data_acquisition/database_dict_lookup.md
           - Optimization:
               - Base Evaluator: geecs_scanner/api/optimization/base_evaluator.md
               - Base Optimizer: geecs_scanner/api/optimization/base_optimizer.md
