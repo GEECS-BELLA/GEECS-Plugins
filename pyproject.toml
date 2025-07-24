@@ -27,58 +27,39 @@ interrogate = "^1.7"  # For docstring coverage reporting
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-# Legacy folders to be completely excluded from linting and docstring checks
-[tool.legacy-folders]
-exclude = [
-    # Test and script folders
-    "**/tests/**", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/setup.py",
-
-    # Legacy project folders
-    "**/PW_scripts/**", "**/khzwave_python-master/**", "**/third_party_sdks/**",
-    "**/openPMD-CCD/**", "**/Spot Alignment for HDR Profile/**",
-    "**/tcp client/**", "**/Xopt-GEECS/**", "**/LogMaker*/**",
-    "**/LivePostProcessing/**", "**/tests/ScannerTools/**",
-
-    # Specific legacy files and patterns
-    "**/*.ipynb", "**/*.bat", "**/*.sh"
-]
-
 [tool.ruff]
-# Global exclude patterns for legacy and test folders
+# Shared excludes for all ruff tools (lint + format)
 exclude = [
-    # Test and script folders
-    "**/tests/**", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/setup.py",
-
-    # Legacy project folders
-    "**/PW_scripts/**", "**/khzwave_python-master/**", "**/third_party_sdks/**",
-    "**/openPMD-CCD/**", "**/Spot Alignment for HDR Profile/**",
-    "**/tcp client/**", "**/Xopt-GEECS/**", "**/LogMaker*/**",
-    "**/LivePostProcessing/**", "**/tests/ScannerTools/**",
-
-    # Specific legacy files and patterns
-    "**/*.ipynb", "**/*.bat", "**/*.sh"
+    "**/tests/**",
+    "**/test_*.py",
+    "**/*_test.py",
+    "**/conftest.py",
+    "**/setup.py",
+    "**/versioneer.py",
+    "**/_version.py",
+    "**/PW_scripts/**",
+    "**/khzwave_python-master/**",
+    "**/third_party_sdks/**",
+    "**/openPMD-CCD/**",
+    "**/Spot Alignment for HDR Profile/**",
+    "**/tcp client/**",
+    "**/Xopt-GEECS/**",
+    "**/LogMaker*/**",
+    "**/LivePostProcessing/**",
+    "**/*.ipynb",
+    "**/*.bat",
+    "**/*.sh"
 ]
 
 [tool.ruff.lint]
-# Ignore specific rules for excluded folders
-ignore = ["D100", "D104", "D401"]  # Ignore missing module/package docstrings and imperative mood
-# Enable docstring rules
-extend-select = [
-    "D",    # pydocstyle
-]
+ignore = ["D100", "D104", "D401"]
+extend-select = ["D"]  # Enable all docstring rules
 
 [tool.ruff.lint.pydocstyle]
-# Use NumPy convention for docstrings
 convention = "numpy"
 
-[tool.ruff.lint.per-file-ignores]
-# Minimal per-file ignores for any remaining files
-"**/tests/**" = ["D"]
-"**/test_*.py" = ["D"]
-"**/*_test.py" = ["D"]
-
 [tool.interrogate]
-# Configuration for docstring coverage reporting
+fail-under = 80
 ignore-init-method = true
 ignore-init-module = true
 ignore-magic = true
@@ -88,21 +69,13 @@ ignore-property-decorators = true
 ignore-module = false
 ignore-nested-functions = true
 ignore-nested-classes = true
-fail-under = 80
+verbose = 2
 exclude = [
-    # Test and script folders
     "setup.py", "docs", "tests", "**/tests/**", "**/test_*.py", "**/*_test.py", "**/conftest.py",
-
-    # Legacy project folders
     "PW_scripts", "khzwave_python-master", "**/third_party_sdks/**",
     "**/openPMD-CCD/**", "**/Spot Alignment for HDR Profile/**",
-    "**/tcp client/**", "**/Xopt-GEECS/**", "**/LogMaker*/**",
-    "**/LivePostProcessing/**", "**/tests/ScannerTools/**",
-
-    # Specific legacy files and patterns
-    "**/*.ipynb", "**/*.bat", "**/*.sh"
+    "**/tcp client/**", "**/Xopt-GEECS/**", "**/LogMaker*/**", "**/LivePostProcessing/**"
 ]
-verbose = 2
 
 [tool.pydocstyle]
 convention = "numpy"

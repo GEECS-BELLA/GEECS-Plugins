@@ -14,33 +14,28 @@ repos:
       - id: check-symlinks
       - id: check-xml
       - id: check-yaml
-        exclude: "^(python/versioneer.py|python/xopt/_version.py)$"
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.9
     hooks:
       - id: ruff
-        args: [--fix]
-        types_or: [python, pyi, jupyter]
-      - id: ruff-format
-        types_or: [python, pyi, jupyter]
+        args: [--fix]  # Auto-fix issues where possible
+      - id: ruff-format  # Pure formatting
 
   - repo: https://github.com/pycqa/pydocstyle
     rev: 6.3.0
     hooks:
       - id: pydocstyle
-        additional_dependencies: [ tomli ]
+        additional_dependencies: [tomli]
         args: [--convention=numpy, --add-ignore=D401,D200,D400]
         exclude: |
           (?x)^(
-              .*/__pycache__/.*|
               .*/tests/.*|
               .*/test_.*\.py|
               .*_test\.py|
               .*/conftest\.py|
               .*/setup\.py|
               .*/versioneer\.py|
-              .*/_version\.py|
               .*/PW_scripts/.*|
               .*/khzwave_python-master/.*|
               .*third_party_sdks/.*|
@@ -54,7 +49,7 @@ repos:
 
   - repo: local
     hooks:
-      - id: jupyter-notebook-clear-output
+      - id: jupyter-notebook-jupyter-clear
         name: jupyter-notebook-jupyter-clear
         files: \.ipynb$
         stages: [pre-commit]
