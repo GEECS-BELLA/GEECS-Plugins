@@ -13,9 +13,4 @@ class Environment(geecs_Environment):
     observables = ['UC_ChicaneSlit:meancounts']
     some_parameter: str = 'test'
 
-#adding some test to see if this is ignored in precommit hooks
 
-# toms
-
-
-# asdfasf
