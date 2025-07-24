@@ -1,9 +1,0 @@
----
-name: EBeamFocusOptimizer
-description: "Using Xopt to bring the ebeam to a bright focus at the entrance of the undulator"
-version: "0.1"
-dependencies:
-  - badger-opt
-  - geecs_python_api
-interface:
-  - geecs

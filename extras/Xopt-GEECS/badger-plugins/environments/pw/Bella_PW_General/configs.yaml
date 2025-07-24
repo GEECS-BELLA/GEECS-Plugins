@@ -1,0 +1,9 @@
+---
+name: control_room_test
+description: "Example using the geecs interface with the base geecs environment and optimizing to one target"
+version: "0.1"
+dependencies:
+  - badger-opt
+  - geecs_python_api
+interface:
+  - geecs

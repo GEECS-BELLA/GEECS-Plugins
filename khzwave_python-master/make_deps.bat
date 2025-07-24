@@ -1,2 +1,0 @@
-pydeps src/khzwave/
-
