@@ -41,3 +41,4 @@ ImageAnalysis/image_analysis/offline_analyzers/log_dll_load.txt
 
 # MkDocs output
 /site
+/scripts
