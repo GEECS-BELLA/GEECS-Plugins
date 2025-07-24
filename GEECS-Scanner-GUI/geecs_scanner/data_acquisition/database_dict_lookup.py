@@ -6,24 +6,28 @@ and retrieving device configuration information across different experimental se
 It serves as a centralized mechanism for loading and caching device-specific metadata
 from configuration files.
 
-Key Features:
+**Key Features:**
+
 - Dynamic experiment configuration loading
 - Caching of device information
 - Lazy loading and configuration reuse
 - Seamless integration with GEECS device infrastructure
 
-Design Principles:
+**Design Principles:**
+
 - Minimize redundant configuration file reads
 - Provide a flexible mechanism for experiment-specific device metadata
 - Support default experiment configuration retrieval
 - Robust error handling for configuration loading
 
-Dependencies:
+**Dependencies:**
+
 - geecs_python_api.controls.interface.load_config
 - geecs_python_api.controls.interface.GeecsDatabase
 - geecs_python_api.controls.devices.geecs_device.GeecsDevice
 
-Typical Workflow:
+**Typical Workflow:**
+
 1. Initialize DatabaseDictLookup
 2. Reload configuration for a specific experiment
 3. Retrieve device configuration dictionary
