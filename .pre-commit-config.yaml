@@ -1,5 +1,3 @@
-# See https://pre-commit.com for more information
-# See https://pre-commit.com/hooks.html for more hooks
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks.git
     rev: v5.0.0
@@ -7,6 +5,7 @@ repos:
       - id: no-commit-to-branch
       - id: trailing-whitespace
       - id: end-of-file-fixer
+        exclude: "^(extras/|.*/third_party_sdks/)"
       - id: check-ast
       - id: check-case-conflict
       - id: check-json
@@ -14,13 +13,18 @@ repos:
       - id: check-symlinks
       - id: check-xml
       - id: check-yaml
+        exclude: "^(extras/|.*/third_party_sdks/)"
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.9
     hooks:
       - id: ruff
-        args: [--fix]  # Auto-fix issues where possible
-      - id: ruff-format  # Pure formatting
+        args: [--fix]
+        types_or: [python, pyi, jupyter]
+        exclude: "^(extras/|.*/third_party_sdks/)"
+      - id: ruff-format
+        types_or: [python, pyi, jupyter]
+        exclude: "^(extras/|.*/third_party_sdks/)"
 
   - repo: https://github.com/pycqa/pydocstyle
     rev: 6.3.0
@@ -28,31 +32,14 @@ repos:
       - id: pydocstyle
         additional_dependencies: [tomli]
         args: [--convention=numpy, --add-ignore=D401,D200,D400]
-        exclude: |
-          (?x)^(
-              .*/tests/.*|
-              .*/test_.*\.py|
-              .*_test\.py|
-              .*/conftest\.py|
-              .*/setup\.py|
-              .*/versioneer\.py|
-              .*/PW_scripts/.*|
-              .*/khzwave_python-master/.*|
-              .*third_party_sdks/.*|
-              .*tcp client/.*|
-              .*Xopt-GEECS/.*|
-              .*Spot Alignment for HDR Profile/.*|
-              .*openPMD-CCD/.*|
-              .*LogMaker.*/.*|
-              .*LivePostProcessing/.*
-          )$
+        exclude: "^(extras/|.*/third_party_sdks/)"
 
   - repo: local
     hooks:
-      - id: jupyter-notebook-jupyter-clear
+      - id: jupyter-notebook-clear-output
         name: jupyter-notebook-jupyter-clear
         files: \.ipynb$
         stages: [pre-commit]
         language: system
         entry: jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace
-        exclude: "^.*(TODO|TODO2).ipynb$"
+        exclude: '^(extras/|.*/third_party_sdks/).*\.ipynb$'
