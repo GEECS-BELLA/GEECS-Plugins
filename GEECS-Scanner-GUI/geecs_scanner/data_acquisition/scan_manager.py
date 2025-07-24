@@ -39,8 +39,8 @@ Internal Modules
     geecs_python_api.controls.devices.scan_device.ScanDevice
     geecs_python_api.controls.interface.geecs_errors.GeecsDeviceInstantiationError
 
-Usage
------
+Examples
+--------
 >>> from geecs_scanner.data_acquisition import ScanManager
 >>> scan_mgr = ScanManager(
 ...     experiment_dir=r"C:/Experiments/UndulatorTest",

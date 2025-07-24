@@ -1,5 +1,12 @@
 # Device Manager
 
+::: geecs_scanner.data_acquisition.device_manager
+    options:
+      show_source: true
+      show_root_heading: true
+      show_root_toc_entry: false
+      filters: ["!^_"]
+
 ::: geecs_scanner.data_acquisition.device_manager.DeviceManager
     options:
       show_source: true

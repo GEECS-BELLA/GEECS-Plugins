@@ -1,6 +1,11 @@
 # Action Manager
 
-Comprehensive management system for experimental action sequences.
+::: geecs_scanner.data_acquisition.action_manager
+    options:
+      show_source: true
+      show_root_heading: true
+      show_root_toc_entry: false
+      filters: ["!^_"]
 
 ::: geecs_scanner.data_acquisition.action_manager.ActionManager
     options:

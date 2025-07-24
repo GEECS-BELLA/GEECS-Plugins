@@ -6,30 +6,34 @@ management, logging, and device setup in the GEECS experimental control system.
 It offers tools for dynamic configuration file handling, VISA configuration
 generation, and flexible logging mechanisms.
 
-Key Features:
+**Key Features:**
+
 - Configuration file path resolution
 - Dynamic VISA configuration generation
 - Flexible console logging with file and stream support
 - Cross-platform file management utilities
 
-Components:
+**Components:**
+
 1. get_full_config_path: Resolves full paths to configuration files
 2. visa_config_generator: Generates device configurations for specific diagnostics
 3. ConsoleLogger: Provides advanced logging capabilities
 
-Design Principles:
+**Design Principles:**
+
 - Centralized configuration management
 - Flexible and extensible utility functions
 - Robust error handling
 - Support for complex experimental setups
 
-Dependencies:
+**Dependencies:**
+
 - pathlib: Path manipulation
 - yaml: Configuration file parsing
 - logging: Logging infrastructure
 - shutil: File management across devices
 
-Typical Workflow:
+**Typical Workflow:**
 1. Resolve configuration file paths
 2. Generate device-specific configurations
 3. Set up logging for experimental runs

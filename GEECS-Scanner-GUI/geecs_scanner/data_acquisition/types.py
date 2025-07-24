@@ -6,22 +6,26 @@ that have been moved to the geecs_data_utils package. It serves as a transitiona
 mechanism to help users update their import statements while maintaining
 existing code functionality.
 
-Key Features:
+**Key Features:**
+
 - Provides deprecation warnings for outdated import paths
 - Maintains backward compatibility with existing code
 - Redirects imports to the new location in geecs_data_utils
 
-Design Principles:
+**Design Principles:**
+
 - Minimize disruption during package refactoring
 - Encourage gradual migration to new import paths
 - Provide clear guidance for code updates
 
-Typical Workflow:
+**Typical Workflow:**
+
 1. Receive deprecation warning
 2. Update import statements in dependent modules
 3. Gradually phase out usage of this module
 
-Dependencies:
+**Dependencies:**
+
 - geecs_data_utils package
 - warnings module for deprecation notifications
 
