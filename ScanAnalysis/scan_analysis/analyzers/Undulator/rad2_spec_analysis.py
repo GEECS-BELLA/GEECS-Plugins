@@ -17,7 +17,6 @@ from scipy.signal import butter, filtfilt
 
 from pathlib import Path
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalyzer
-from scan_analysis.analyzers.Undulator.visa_ebeam_analysis import VisaEBeamAnalysis
 from geecs_data_utils import ScanTag, ScanData
 
 
@@ -27,21 +26,75 @@ from online_analysis.HTU.picoscope_ICT_analysis import Undulator_Exit_ICT
 
 
 class Rad2SpecAnalysis(CameraImageAnalyzer):
-    def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True,
+    def __init__(self, device_name: Optional[str] = None, skip_plt_show: bool = True,
                  visa_station: Optional[int] = None, debug_mode: bool = False, force_background_mode: bool = False,
                  update_undulator_exit_ict: bool = True):
-        super().__init__(scan_tag=scan_tag, device_name='UC_UndulatorRad2', skip_plt_show=skip_plt_show)
+        super().__init__(device_name='UC_UndulatorRad2', skip_plt_show=skip_plt_show)
 
+        self.debug_mode = debug_mode
+        self.update_undulator_exit_ict = update_undulator_exit_ict
+
+        self.incoherent_signal_fit: Optional[tuple[float, float]] = None
+
+        self.force_background_mode = force_background_mode
+
+        self.crop_height: Optional[int] = None
+        self.crop_width: Optional[int] = None
+        self.zeroth_order_location: Optional[float] = None
+        self.wavelength_calibration: Optional[float] = None
+        self.crop_region: Optional[tuple[int, int, int, int]] = None
+        self.background_threshold: float = self.camera_analysis_settings.get('Background Level', 2)
+        # background_full = np.load(Path(__file__).parents[3] / 'calibrations' / 'Undulator' / 'rad2_background.npy')
+
+        # self.background_roi = self.crop_rad2(background_full)
+
+        self.charge = None
+        self.charge_label = ''
+        self.valid = None
+        self.use_bcave: Optional[bool] = None
+
+        # set device name explicitly or using a priori knowledge
+        self.visa_device = None
+        self.visa_station = visa_station
+
+    @staticmethod
+    def device_autofinder(scan_tag: ScanTag) -> str:
+        """
+        Automatically find a compatible device directory.
+
+        Args:
+            scan_tag: ScanTag NamedTuple.
+
+        Returns:
+            str: Name of the compatible device directory.
+
+        Raises:
+            Exception: If multiple compatible devices are found or no devices are found.
+        """
+        scan_directory = ScanData.get_scan_folder_path(tag=scan_tag)
+
+        devices = [item.name
+                   for item in scan_directory.iterdir()
+                   if item.is_dir() and item.name.startswith('UC_VisaEBeam')]
+
+        if len(devices) == 1:
+            return devices[0]
+
+        elif len(devices) > 1:
+            raise FileNotFoundError("Multiple compatible device directories detected. Please define explicitly.")
+
+        elif len(devices) == 0:
+            raise FileNotFoundError("No compatible device directory detected. Something ain't right here.")
+
+    def _establish_additional_paths(self):
         # Ensure configuration file exists
         self.rad2_config_file = Path(__file__).parents[2] / 'config' / 'Undulator' / 'rad2_analysis_settings.yaml'
         if not self.rad2_config_file.exists():
             raise FileNotFoundError(self.rad2_config_file)
 
-        # set device name explicitly or using a priori knowledge
-        self.visa_device = None
-        if visa_station is None:
+        if self.visa_station is None:
             try:
-                self.visa_device = VisaEBeamAnalysis.device_autofinder(scan_tag)
+                self.visa_device = self.device_autofinder(self.scan_tag)
                 pattern = r'(\d+)$'
                 match = re.search(pattern, self.visa_device)
                 if match:
@@ -54,28 +107,8 @@ class Rad2SpecAnalysis(CameraImageAnalyzer):
                 visa_station = 9
 
         self.visa_station = visa_station
-
-        self.debug_mode = debug_mode
-        self.background_mode = ScanData.is_background_scan(tag=self.tag) if not force_background_mode else True
-        self.update_undulator_exit_ict = update_undulator_exit_ict
-
-        self.incoherent_signal_fit: Optional[tuple[float, float]] = None
-
-        self.crop_height: Optional[int] = None
-        self.crop_width: Optional[int] = None
-        self.zeroth_order_location: Optional[float] = None
-        self.wavelength_calibration: Optional[float] = None
-        self.crop_region: Optional[tuple[int, int, int, int]] = None
-        self.background_threshold: float = self.camera_analysis_settings.get('Background Level', 2)
-        # background_full = np.load(Path(__file__).parents[3] / 'calibrations' / 'Undulator' / 'rad2_background.npy')
-
         self.set_visa_settings()
-        # self.background_roi = self.crop_rad2(background_full)
-
-        self.charge = None
-        self.charge_label = ''
-        self.valid = None
-        self.use_bcave: Optional[bool] = None
+        self.background_mode = ScanData.is_background_scan(tag=self.scan_tag) if not self.force_background_mode else True
 
     def run_noscan_analysis(self, config_options: Optional[str] = None):
         """
@@ -176,7 +209,7 @@ class Rad2SpecAnalysis(CameraImageAnalyzer):
             shot = i + 1
         if self.update_undulator_exit_ict and not self.use_bcave:
             try:
-                ict_filename = ScanData.get_device_shot_path(self.tag, device_name="U_UndulatorExitICT",
+                ict_filename = ScanData.get_device_shot_path(self.scan_tag, device_name="U_UndulatorExitICT",
                                                              shot_number=shot, file_extension="tdms")
                 tdms_file = TdmsFile.read(ict_filename)
                 ict_lineout = tdms_file['Picoscope']['ChB'][:]
@@ -185,7 +218,7 @@ class Rad2SpecAnalysis(CameraImageAnalyzer):
                 logging.warning(f"No ICT data for shot {shot}")
                 self.charge[i] = 0
 
-        shot_filename = ScanData.get_device_shot_path(self.tag, self.device_name, shot)
+        shot_filename = ScanData.get_device_shot_path(self.scan_tag, self.device_name, shot)
         try:
             raw_image = read_imaq_png_image(Path(shot_filename)) * 1.0
             if energy_spectrum is None and self.zeroth_order_location and self.wavelength_calibration:
@@ -233,7 +266,7 @@ class Rad2SpecAnalysis(CameraImageAnalyzer):
             photon_lineouts.append(np.zeros(self.crop_width - 2))
 
         if self.visa_device:
-            visa_camera_shot = ScanData.get_device_shot_path(self.tag, self.visa_device, shot)
+            visa_camera_shot = ScanData.get_device_shot_path(self.scan_tag, self.visa_device, shot)
             try:
                 visa_image = read_imaq_png_image(Path(visa_camera_shot)) * 1.0
                 visa_intensity_arr[i] = np.sum(visa_image)
@@ -311,7 +344,7 @@ class Rad2SpecAnalysis(CameraImageAnalyzer):
             plt.plot(charge_axis, fit(charge_axis), label="Incoherent Signal", c='k', ls='--')
 
         plt.title(f'Photon Yield VS Charge VISA{self.visa_station}: '
-                  f'{self.tag.month}/{self.tag.day}/{self.tag.year} Scan {self.tag.number}')
+                  f'{self.scan_tag.month}/{self.scan_tag.day}/{self.scan_tag.year} Scan {self.scan_tag.number}')
         plt.xlabel(self.charge_label)
         plt.ylabel("UC_Rad2 Camera Counts of 1st Order")
         if top_shots_string:
@@ -435,6 +468,6 @@ if __name__ == "__main__":
     from geecs_data_utils import ScanData
 
     tag = ScanData.get_scan_tag(year=2025, month=4, day=3, number=16, experiment='Undulator')
-    analyzer = Rad2SpecAnalysis(scan_tag=tag, skip_plt_show=False, debug_mode=False,
+    analyzer = Rad2SpecAnalysis(skip_plt_show=False, debug_mode=False,
                                 force_background_mode=False, update_undulator_exit_ict=False)
-    analyzer.run_analysis()
+    analyzer.run_analysis(scan_tag=tag)

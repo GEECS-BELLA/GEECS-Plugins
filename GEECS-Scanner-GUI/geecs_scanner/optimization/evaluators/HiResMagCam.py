@@ -10,14 +10,12 @@ import numpy as np
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
-from scan_analysis.base import ScanAnalyzerInfo
-from scan_analysis.execute_scan_analysis import analyze_scan, instantiate_scan_analyzer
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 from image_analysis.utils import read_imaq_image
-from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
+from image_analysis.offline_analyzers.Undulator.hi_res_mag_cam_analyzer import HiResMagCamAnalyzer
 from geecs_data_utils import ScanTag, ScanData
 
-class ALine3SizeEval(BaseEvaluator):
+class HiResMagCam(BaseEvaluator):
     def __init__(self, device_requirements=None,
                  scan_data_manager: Optional[ScanDataManager] = None,
                  data_logger: Optional[DataLogger] = None):
@@ -31,11 +29,11 @@ class ALine3SizeEval(BaseEvaluator):
             data_logger = data_logger
         )
 
-        self.dev_name = 'UC_ALineEBeam3'
+        self.dev_name = 'UC_HiResMagCam'
         config_dict = {'camera_name': self.dev_name}
         self.scan_analyzer = Array2DScanAnalyzer(
                                             device_name=self.dev_name,
-                                            image_analyzer=EBeamProfileAnalyzer(**config_dict)
+                                            image_analyzer=HiResMagCamAnalyzer(**config_dict)
                                             )
 
         # use live_analysis option for the scan_analyzer so that it knows not to try to load
@@ -74,8 +72,8 @@ class ALine3SizeEval(BaseEvaluator):
         scalar_results = result['analyzer_return_dictionary']
 
         # define keys to extract values to use for the objective function
-        x_key = f'{self.dev_name}_x_fwhm'
-        y_key = f'{self.dev_name}_y_fwhm'
+        x_key = f'{self.dev_name}:total_counts'
+        y_key = f'{self.dev_name}:emittance_proxy'
 
         objective_value = self.objective_fn( x = scalar_results[x_key],
                                         y = scalar_results[y_key])
@@ -87,8 +85,7 @@ class ALine3SizeEval(BaseEvaluator):
 
     @staticmethod
     def objective_fn(x, y):
-        calibration = 24.4e-3 # spatial calibration in um/pixel
-        return (x*calibration)**2 + (y*calibration)**2
+        return -x/y
 
     def _get_value(self, input_data: Dict) -> Dict:
 
