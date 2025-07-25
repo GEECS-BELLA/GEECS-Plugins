@@ -2,7 +2,9 @@
 Add-ons for the Generalized Equipment and Experiment Control system-
 
 Documentation at 
-https://sites.google.com/a/lbl.gov/geecs/plugins?authuser=0
+https://sites.google.com/a/lbl.gov/geecs/plugins?authuser=0 (original)
+
+read the docs: https://geecs-plugins.readthedocs.io/en/latest/
 
 *** Copyright Notice ***
 
