@@ -70,4 +70,4 @@ exclude = [
 [tool.pydocstyle]
 convention = "numpy"
 add-ignore = ["D100", "D104"]
-match-dir = "^(?!extras|.*third_party_sdks).*"
+match-dir = "^(?!extras/|.*third_party_sdks).*"
