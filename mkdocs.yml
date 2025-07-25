@@ -23,6 +23,12 @@ nav:
           - Optimization:
               - Base Evaluator: geecs_scanner/api/optimization/base_evaluator.md
               - Base Optimizer: geecs_scanner/api/optimization/base_optimizer.md
+              - Evaluators:
+                  - ALine3 FWHM Evaluator: geecs_scanner/api/optimization/evaluators/aline3_fwhm.md
+                  - HiRes MagCam Evaluator: geecs_scanner/api/optimization/evaluators/hiresmagcam.md
+              - Generators:
+                  - Generator Factory: geecs_scanner/api/optimization/generators/generator_factory.md
+                  - Cheetah Generator: geecs_scanner/api/optimization/generators/cheeta_generator.md
 #          - Application Interface:
 #          - Utilities:
   - Image Analysis:
