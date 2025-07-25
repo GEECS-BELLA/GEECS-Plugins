@@ -7,7 +7,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from image_analysis.tools.rendering import base_render_image
-from image_analysis.tools.basic_beam_stats import beam_profile_stats
 from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
 
 import logging

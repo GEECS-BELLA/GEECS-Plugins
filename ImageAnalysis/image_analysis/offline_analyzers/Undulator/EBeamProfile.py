@@ -11,7 +11,7 @@ from dataclasses import dataclass,asdict
 
 from image_analysis.base import ImageAnalyzer
 from image_analysis.tools.rendering import base_render_image
-from image_analysis.tools.basic_beam_stats import beam_profile_stats
+from image_analysis.tools.basic_beam_stats import beam_profile_stats, flatten_beam_stats
 from image_analysis.tools.background import Background
 from image_analysis.tools.lcls_tools_gauss_fit import gauss_fit
 
@@ -425,7 +425,9 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
             preprocessed_image = image
 
         final_image = preprocessed_image
-        beam_stats = beam_profile_stats(final_image, self.camera_name)
+        beam_stats = beam_profile_stats(final_image)
+        beam_stats_flat_dict = flatten_beam_stats(stats=beam_stats, prefix=self.camera_name)
+
         gauss_fit_params = gauss_fit(final_image, self.camera_name)
 
         # Generate horizontal and vertical lineouts (projections)
@@ -435,7 +437,7 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
 
         return_dictionary = self.build_return_dictionary(return_image = final_image,
                                                          input_parameters = self.kwargs_dict,
-                                                         return_scalars={**beam_stats,**gauss_fit_params},
+                                                         return_scalars={**beam_stats_flat_dict,**gauss_fit_params},
                                                          return_lineouts=lineouts)
 
         if self.use_interactive:
