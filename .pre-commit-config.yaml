@@ -5,7 +5,7 @@ repos:
       - id: no-commit-to-branch
       - id: trailing-whitespace
       - id: end-of-file-fixer
-        exclude: "(^extras/|third_party_sdks/)"
+        exclude: "(^extras/|.*/third_party_sdks/)"
       - id: check-ast
       - id: check-case-conflict
       - id: check-json
@@ -13,7 +13,7 @@ repos:
       - id: check-symlinks
       - id: check-xml
       - id: check-yaml
-        exclude: "(^extras/|third_party_sdks/)"
+        exclude: "(^extras/|.*/third_party_sdks/)"
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.9
@@ -21,10 +21,10 @@ repos:
       - id: ruff
         args: [--fix]
         types_or: [python, pyi, jupyter]
-        exclude: "(^extras/|third_party_sdks/)"
+        exclude: "(^extras/|.*/third_party_sdks/)"
       - id: ruff-format
         types_or: [python, pyi, jupyter]
-        exclude: "(^extras/|third_party_sdks/)"
+        exclude: "(^extras/|.*/third_party_sdks/)"
 
   - repo: https://github.com/pycqa/pydocstyle
     rev: 6.3.0
@@ -32,7 +32,7 @@ repos:
       - id: pydocstyle
         additional_dependencies: [tomli]
         args: [--convention=numpy, --add-ignore=D401,D200,D400]
-        exclude: "(^extras/|third_party_sdks/)"
+        exclude: "(^extras/|.*/third_party_sdks/)"
 
   - repo: local
     hooks:
@@ -42,4 +42,4 @@ repos:
         stages: [pre-commit]
         language: system
         entry: jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace
-        exclude: '(^extras/|third_party_sdks/).*\.ipynb$'
+        exclude: '(^extras/|.*/third_party_sdks/).*\.ipynb$'
