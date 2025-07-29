@@ -27,7 +27,7 @@ screeninfo = "^0.8.1"
 # other
 python-dotenv = "^1.0.0"
 progressbar2 = "^4.2.0"
-mysql-connector-python = "^8.2.0"
+mysql-connector-python = "^9.1.0"
 
 # internal libraries
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }
