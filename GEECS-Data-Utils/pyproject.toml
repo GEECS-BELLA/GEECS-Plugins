@@ -12,6 +12,7 @@ python = ">=3.9,<3.11"
 
 pandas = "^2.0"
 nptdms = "^1.7.0"
+pydantic = "^2.0"
 
 [build-system]
 requires = ["poetry-core"]
