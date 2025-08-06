@@ -12,8 +12,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union, Dict, Any
+from typing import Optional, Union, Dict, Any, List
 from enum import Enum
+
+from pydantic import BaseModel, Field
 
 
 class ScanMode(str, Enum):
@@ -105,3 +107,43 @@ class ScanConfig:
     optimizer_config_path: Optional[Union[str, Path]] = None
     optimizer_overrides: Optional[Dict[str, Any]] = field(default_factory=dict)
     evaluator_kwargs: Optional[Dict[str, Any]] = field(default_factory=dict)
+
+
+class DeviceDump(BaseModel):
+    """
+    Represents a single device record in an ECS Live Dump file.
+
+    Attributes
+    ----------
+    name : str
+        Device name (from "Device Name" field).
+    shot_number : Optional[int]
+        Shot number (from "shot #" field).
+    parameters : Dict[str, str]
+        All other key-value pairs from the ECS dump for this device.
+    """
+
+    name: str
+    shot_number: Optional[int] = Field(None, alias="shot #")
+    parameters: Dict[str, str] = {}
+
+    model_config = {
+        "extra": "allow",
+        "populate_by_name": True,
+    }
+
+
+class ECSDump(BaseModel):
+    """
+    Represents the full ECS Live Dump file for a scan.
+
+    Attributes
+    ----------
+    experiment_name : Optional[str]
+        The name of the experiment from the [Experiment] section.
+    devices : List[DeviceDump]
+        All parsed devices from the dump file.
+    """
+
+    experiment_name: Optional[str]
+    devices: List[DeviceDump]

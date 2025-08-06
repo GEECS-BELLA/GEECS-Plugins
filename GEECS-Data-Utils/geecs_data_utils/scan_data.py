@@ -222,6 +222,25 @@ class ScanData(ScanPaths):
             analysis_sfile.unlink()
         shutil.copy2(src=scan_sfile, dst=analysis_sfile)
 
+    def load_ecs_live_dump(self) -> dict[str, dict[str, str]]:
+        """
+        Load and parse the ECS Live Dump file for this scan.
+
+        Returns
+        -------
+        dict
+            Parsed ECS dump structured by device name.
+
+        Raises
+        ------
+        FileNotFoundError
+            If ECS dump file does not exist.
+        """
+        path = self.get_ecs_dump_file()
+        if not path:
+            raise FileNotFoundError(f"No ECS dump file found for scan {self._tag}")
+        return self.parse_ecs_dump(path)
+
 
 if __name__ == "__main__":
     tag = ScanData.get_scan_tag(2025, 5, 7, number=10, experiment="Undulator")

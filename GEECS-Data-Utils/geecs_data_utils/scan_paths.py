@@ -585,6 +585,56 @@ class ScanPaths:
             )
         return self.scan_info
 
+    def get_ecs_dump_file(self) -> Optional[Path]:
+        """
+        Get the ECS Live Dump file corresponding to this scan.
+
+        Returns
+        -------
+        Optional[Path]
+            Path to the ECS dump file if it exists, else None.
+        """
+        if not self._folder:
+            return None
+
+        ecs_folder = self._folder.parent.parent / "ECS Live dumps"
+        filename = f"Scan{self._tag.number}.txt"
+        ecs_file = ecs_folder / filename
+
+        return ecs_file if ecs_file.exists() else None
+
+    @staticmethod
+    def parse_ecs_dump(path: Path) -> dict[str, dict[str, str]]:
+        """
+        Parse ECS Live Dump file into a nested dictionary.
+
+        Parameters
+        ----------
+        path : Path
+            Path to ECS dump .txt file.
+
+        Returns
+        -------
+        dict
+            Dictionary of the form {device_name: {param: value, ...}}
+        """
+        parser = ConfigParser()
+        parser.optionxform = str  # preserve case
+
+        parser.read(path)
+        parsed = {}
+
+        for section in parser.sections():
+            device_name = parser.get(section, "Device Name", fallback=None)
+            if device_name:
+                parsed[device_name] = {
+                    key: value.strip('"')
+                    for key, value in parser.items(section)
+                    if key != "Device Name"
+                }
+
+        return parsed
+
 
 ScanPaths.reload_paths_config()
 
