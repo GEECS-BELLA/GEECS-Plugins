@@ -22,8 +22,9 @@ from configparser import ConfigParser, NoSectionError
 from typing import Optional, Union
 from geecs_data_utils.utils import ScanTag, SysPath, ConfigurationError, month_to_int
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
-# from geecs_data_utils.types import ScanConfig, ScanMode
+from geecs_data_utils.type_defs import ECSDump, DeviceDump
 
+# from geecs_data_utils.types import ScanConfig, ScanMode
 
 # module‐level logger
 logger = logging.getLogger(__name__)
@@ -238,7 +239,9 @@ class ScanPaths:
                 "Recommended to use 'experiment' instead of 'experiment_name' for 'get_scan_tag'..."
             )
 
-        return ScanTag(year, month, int(day), int(number), experiment=exp)
+        return ScanTag(
+            year=year, month=month, day=int(day), number=int(number), experiment=exp
+        )
 
     @staticmethod
     def get_scan_folder_path(
@@ -580,9 +583,9 @@ class ScanPaths:
         except NoSectionError:
             temp_scan_data = inspect.stack()[0][3]
             logging.warning(
-                'ScanInfo file does not have a "Scan Info" section',
-                f"ScanData class, method {temp_scan_data}",
+                f'ScanInfo file does not have a "Scan Info" section (in {temp_scan_data})'
             )
+
         return self.scan_info
 
     def get_ecs_dump_file(self) -> Optional[Path]:
@@ -604,9 +607,9 @@ class ScanPaths:
         return ecs_file if ecs_file.exists() else None
 
     @staticmethod
-    def parse_ecs_dump(path: Path) -> dict[str, dict[str, str]]:
+    def parse_ecs_dump(path: Path) -> ECSDump:
         """
-        Parse ECS Live Dump file into a nested dictionary.
+        Parse ECS Live Dump file and return an ECSDump object.
 
         Parameters
         ----------
@@ -615,25 +618,33 @@ class ScanPaths:
 
         Returns
         -------
-        dict
-            Dictionary of the form {device_name: {param: value, ...}}
+        ECSDump
+            Parsed experiment name and list of DeviceDump entries.
         """
         parser = ConfigParser()
         parser.optionxform = str  # preserve case
-
         parser.read(path)
-        parsed = {}
 
+        experiment = parser.get("Experiment", "Expt Name", fallback=None)
+        if experiment:
+            experiment = experiment.strip('"')
+
+        devices = []
         for section in parser.sections():
-            device_name = parser.get(section, "Device Name", fallback=None)
-            if device_name:
-                parsed[device_name] = {
-                    key: value.strip('"')
-                    for key, value in parser.items(section)
-                    if key != "Device Name"
-                }
+            if not section.startswith("Device "):
+                continue
 
-        return parsed
+            raw_items = dict(parser.items(section))
+            name = raw_items.pop("Device Name", "").strip('"')
+            shot = raw_items.pop("shot #", None)
+            device = DeviceDump(
+                name=name,
+                shot_number=int(shot) if shot and shot.isdigit() else None,
+                parameters={k: v.strip('"') for k, v in raw_items.items()},
+            )
+            devices.append(device)
+
+        return ECSDump(experiment_name=experiment, devices=devices)
 
 
 ScanPaths.reload_paths_config()
