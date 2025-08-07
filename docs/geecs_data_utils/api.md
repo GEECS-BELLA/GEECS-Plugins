@@ -154,7 +154,7 @@ folder_path = scan_paths.get_scan_folder_path()
 from geecs_data_utils import ScanTag
 
 # Create a scan tag
-tag = ScanTag(year=2024, month=1, day=15, scan_number=42)
+tag = ScanTag(year=2024, month=1, day=15, number=42, experiment='Undulator')
 print(f"Scan: {tag.year}-{tag.month:02d}-{tag.day:02d}_{tag.scan_number:03d}")
 ```
 
