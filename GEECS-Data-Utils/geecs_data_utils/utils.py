@@ -16,7 +16,8 @@ import logging
 
 from pathlib import Path
 from dateutil.parser import parse as dateparse
-from typing import Optional, Union, NamedTuple
+from typing import Optional, Union
+from pydantic import BaseModel
 
 # module‐level logger
 logger = logging.getLogger(__name__)
@@ -30,9 +31,9 @@ if not logging.getLogger().hasHandlers():
 SysPath = Union[str, bytes, os.PathLike, Path]
 
 
-class ScanTag(NamedTuple):
+class ScanTag(BaseModel):
     """
-    Named tuple representing a GEECS scan identifier.
+    pydantic model representing a GEECS scan identifier.
 
     This class provides a structured way to identify and reference
     specific scans within the GEECS acquired data using date and scan number.
@@ -52,7 +53,7 @@ class ScanTag(NamedTuple):
 
     Examples
     --------
-    >>> scan = ScanTag(2024, 1, 15, 42, "Undulator")
+    >>> scan = ScanTag(year=2024, month=1, day=15, number=42, experiment="Undulator")
     >>> print(f"Scan {scan.number} from {scan.year}-{scan.month:02d}-{scan.day:02d}")
     Scan 42 from 2024-01-15
     """
