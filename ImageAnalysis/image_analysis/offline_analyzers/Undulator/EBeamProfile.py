@@ -11,13 +11,22 @@ from dataclasses import dataclass,asdict
 
 from image_analysis.base import ImageAnalyzer
 from image_analysis.tools.rendering import base_render_image
-from image_analysis.tools.basic_beam_stats import beam_profile_stats
+from image_analysis.tools.basic_beam_stats import beam_profile_stats, flatten_beam_stats
 from image_analysis.tools.background import Background
-
+from image_analysis.tools.lcls_tools_gauss_fit import gauss_fit
 
 import logging
 
 e_beam_camera_configs = {
+    "UC_HiResMagCam": {
+        "bkg_level": 60,
+        "left_ROI": 1,
+        "top_ROI": 1,
+        "roi_width": 1287,
+        "roi_height": 325,
+        "rotate": 0,
+        "spatial_calibration": 0.00002217
+    },
     "U_BCaveMagSpec": {
         "bkg_level": 60,
         "left_ROI": 200,
@@ -267,14 +276,15 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         stack = np.stack(images, axis=0)
         stack = self.image_preprocess(stack)
         self.preprocessed = True
-        logging.info(f'batch: {self.roi}')
 
-        # Step 1: Learn background from percentile projection
-        self.background.set_percentile_background_from_stack(stack=stack, percentile=2.5)
-        stack = self.background.subtract(data=stack)
+        stack = self.background.subtract_imagewise_mode(data=stack)
 
-        # Step 2: Subtract per-image medians
-        stack = self.background.subtract_imagewise_median(data=stack)
+        # # Step 1: Learn background from percentile projection
+        # self.background.set_percentile_background_from_stack(stack=stack, percentile=2.5)
+        # stack = self.background.subtract(data=stack)
+        #
+        # # Step 2: Subtract per-image medians
+        # stack = self.background.subtract_imagewise_median(data=stack)
 
         # # Step 3: Generate and apply apodization
         # self.background.generate_apodization_mask(stack=stack, percentile=91, sigma=5)
@@ -415,14 +425,26 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
             preprocessed_image = image
 
         final_image = preprocessed_image
-        beam_stats = beam_profile_stats(final_image, self.camera_name)
+        beam_stats = beam_profile_stats(final_image)
+        beam_stats_flat_dict = flatten_beam_stats(stats=beam_stats, prefix=self.camera_name)
+
+        gauss_fit_params = gauss_fit(final_image, self.camera_name)
+
+        # Generate horizontal and vertical lineouts (projections)
+        horizontal_lineout = final_image.sum(axis=0)  # sum over rows → shape (width,)
+        vertical_lineout = final_image.sum(axis=1)  # sum over columns → shape (height,)
+        lineouts = [horizontal_lineout, vertical_lineout]
 
         return_dictionary = self.build_return_dictionary(return_image = final_image,
                                                          input_parameters = self.kwargs_dict,
-                                                         return_scalars=beam_stats)
+                                                         return_scalars={**beam_stats_flat_dict,**gauss_fit_params},
+                                                         return_lineouts=lineouts)
 
         if self.use_interactive:
-            fig, ax = self.render_image(image=final_image, input_params_dict=self.kwargs_dict, analysis_results_dict=beam_stats)
+            fig, ax = self.render_image(image=final_image,
+                                        input_params_dict=self.kwargs_dict,
+                                        analysis_results_dict=beam_stats,
+                                        lineouts = lineouts)
             plt.show()
             plt.close(fig)
 
@@ -463,11 +485,30 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
             cy = input_params_dict["blue_cent_y"] - input_params_dict.get("top_ROI", 0)
             ax.plot(cx, cy, 'bo', markersize=5)
 
+        # Overlay lineouts if provided
+        if lineouts is not None and len(lineouts) == 2:
+            horiz, vert = lineouts
+            img_height, img_width = image.shape
+
+            # Clip negative values to 0
+            horiz = np.clip(horiz, 0, None)
+            vert = np.clip(vert, 0, None)
+
+            # Normalize for overlay
+            horiz_norm = horiz / np.max(horiz) * img_height * 0.2
+            vert_norm = vert / np.max(vert) * img_width * 0.2
+
+            # Overlay horizontal lineout at bottom (grows up from bottom edge)
+            ax.plot(np.arange(len(horiz)), img_height - horiz_norm, color='cyan', lw=1.0, label='Horizontal lineout')
+
+            # Overlay vertical lineout at left (grows right from left edge)
+            ax.plot(vert_norm, np.arange(len(vert)), color='magenta', lw=1.0, label='Vertical lineout')
+
         return fig, ax
 
 if __name__ == "__main__":
     dev_name = 'UC_VisaEBeam1'
-    # dev_name = 'UC_ALineEBeam3'
+    dev_name = 'UC_ALineEBeam3'
     test_dict = {'camera_name':dev_name}
     image_analyzer  = EBeamProfileAnalyzer(**test_dict)
 

@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Union
+from typing import TYPE_CHECKING, List, Dict, Any, Optional, Union
+if TYPE_CHECKING:
+    from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
+    from geecs_scanner.data_acquisition.data_logger import DataLogger
+
 import logging
 import pandas as pd
 from pathlib import Path
-
-from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
-from geecs_scanner.data_acquisition.data_logger import DataLogger
 
 class BaseEvaluator(ABC):
     """
@@ -86,12 +87,10 @@ class BaseEvaluator(ABC):
          the current data. Also, extract the corresponding shot_numbers and return those
          """
         self.convert_log_entries_to_df()
-        self.bin_number = self.data_logger.bin_num  # note: subtracting one is only because the data-logger.bin_num
-                                                        # gets updated before this method gets called on for the previously
-                                                        # data bin. Order of operations for the optimization is still
-                                                        # getting fine tuned
+        self.bin_number = self.data_logger.bin_num
         self.get_shotnumbers_for_bin(self.bin_number)
-        self.current_data_bin = self.log_df[self.log_df["Bin #"] == self.bin_number]
+        self.current_data_bin = self.log_df[self.log_df["Bin #"] == self.bin_number].copy()
+
 
     def _gather_shot_entries(
             self,
