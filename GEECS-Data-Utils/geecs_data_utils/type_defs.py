@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union, Dict, Any, List
 from enum import Enum
+from configparser import ConfigParser
 
 from pydantic import BaseModel, Field
 
@@ -147,3 +148,46 @@ class ECSDump(BaseModel):
 
     experiment_name: Optional[str]
     devices: List[DeviceDump]
+
+
+def parse_ecs_dump(path: Path) -> Optional[ECSDump]:
+    """
+    Parse ECS Live Dump file and return an ECSDump object.
+
+    Parameters
+    ----------
+    path : Path
+        Path to ECS dump .txt file.
+
+    Returns
+    -------
+    Optional[ECSDump]
+        Parsed experiment name and list of DeviceDump entries, or None if file doesn't exist.
+    """
+    if not path.exists():
+        return None
+
+    parser = ConfigParser()
+    parser.optionxform = str  # preserve case
+    parser.read(path)
+
+    experiment = parser.get("Experiment", "Expt Name", fallback=None)
+    if experiment:
+        experiment = experiment.strip('"')
+
+    devices = []
+    for section in parser.sections():
+        if not section.startswith("Device "):
+            continue
+
+        raw_items = dict(parser.items(section))
+        name = raw_items.pop("Device Name", "").strip('"')
+        shot = raw_items.pop("shot #", None)
+        device = DeviceDump(
+            name=name,
+            shot_number=int(shot) if shot and shot.isdigit() else None,
+            parameters={k: v.strip('"') for k, v in raw_items.items()},
+        )
+        devices.append(device)
+
+    return ECSDump(experiment_name=experiment, devices=devices)

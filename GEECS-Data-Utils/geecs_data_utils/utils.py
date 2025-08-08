@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 from dateutil.parser import parse as dateparse
 from typing import Optional, Union
+from datetime import date
 from pydantic import BaseModel
 
 # module‐level logger
@@ -63,6 +64,18 @@ class ScanTag(BaseModel):
     day: int
     number: int
     experiment: Optional[str] = None
+
+    @property
+    def date(self) -> date:
+        """
+        Return the date associated with the scan.
+
+        Returns
+        -------
+        date
+            The date extracted from the year, month, and day fields.
+        """
+        return date(self.year, self.month, self.day)
 
 
 def month_to_int(month: Union[str, int]) -> int:

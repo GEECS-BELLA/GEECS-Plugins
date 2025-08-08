@@ -53,6 +53,8 @@ class ScanMetadata(BaseModel):
         Number of shots taken at each scan point.
     scan_mode : Optional[str]
         Type of scan (e.g., "standard", "background").
+    scan_description : Optional[str]
+        user input description of the scan.
     background : Optional[bool]
         Whether this scan was flagged as a background measurement.
     raw_fields : Dict[str, str]
@@ -65,6 +67,7 @@ class ScanMetadata(BaseModel):
     step_size: Optional[float] = None
     shots_per_step: Optional[float] = None
     scan_mode: Optional[str] = None
+    scan_description: Optional[str] = None
     background: Optional[bool] = None
     raw_fields: Dict[str, str] = {}
 
@@ -73,19 +76,40 @@ class ScanMetadata(BaseModel):
         """
         Construct a ScanMetadata object from an INI-style dictionary.
 
+        This method parses known scan metadata fields from a dictionary
+        produced by reading a scan's INI configuration file. Numeric and
+        boolean fields are converted to the appropriate Python types where
+        possible. Any unrecognized fields are preserved in `raw_fields`.
+
         Parameters
         ----------
         ini_data : dict of str to str
-            Dictionary parsed from a scan info (.ini) file, where all values are strings.
+            Dictionary parsed from a scan info (.ini) file, where all keys
+            and values are strings.
 
         Returns
         -------
         ScanMetadata
-            A validated ScanMetadata object with parsed fields.
+            A validated ScanMetadata object with typed and structured
+            metadata fields populated from the input dictionary.
+
+        Notes
+        -----
+        - Missing keys are returned as ``None`` for optional fields.
+        - Boolean values for ``background`` are parsed case-insensitively
+          and accept ``"true"``, ``"1"``, ``"yes"``, and ``"y"`` as True.
+        - All original key-value pairs from the INI file are stored in
+          ``raw_fields`` for completeness.
         """
 
-        def parse_float(key):
+        def parse_float(key: str) -> Optional[float]:
             return float(ini_data[key]) if key in ini_data else None
+
+        def parse_bool(key: str) -> Optional[bool]:
+            if key not in ini_data:
+                return None
+            v = ini_data.get(key, "")
+            return str(v).strip().lower() in {"true", "1", "yes", "y"}
 
         return cls(
             scan_parameter=ini_data.get("Scan Parameter"),
@@ -94,7 +118,8 @@ class ScanMetadata(BaseModel):
             step_size=parse_float("Step size"),
             shots_per_step=parse_float("Shots per step"),
             scan_mode=ini_data.get("ScanMode"),
-            background=ini_data.get("Background", "").lower() == "true",
+            scan_description=ini_data.get("ScanStartInfo"),
+            background=parse_bool("Background"),
             raw_fields=ini_data,
         )
 

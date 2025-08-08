@@ -18,19 +18,21 @@ ScanDatabase : In-memory collection of ScanEntry records.
 
 import shutil
 from pathlib import Path
-from typing import Optional, Tuple, List, Literal, Union
+from typing import Optional, Tuple, List, Literal, Union, get_args, get_origin
 from datetime import date, datetime
 import re
 import json
+
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import logging
 
 from geecs_data_utils.scan_data import ScanData
-from geecs_data_utils.scan_paths import ScanPaths
 from geecs_data_utils.utils import ScanTag
 from geecs_data_utils.database.entries import ScanEntry, ScanMetadata
+from geecs_data_utils.database.database import ScanDatabase
+from geecs_data_utils.type_defs import parse_ecs_dump
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +77,7 @@ class ScanDatabaseBuilder:
 
         ecs_folder = folder.parent.parent / "ECS Live dumps"
         ecs_path = ecs_folder / f"Scan{tag.number}.txt"
-        ecs_dump = ScanPaths.parse_ecs_dump(ecs_path)
+        ecs_dump = parse_ecs_dump(ecs_path)
 
         return ScanEntry(
             scan_tag=tag,
@@ -126,12 +128,11 @@ class ScanDatabaseBuilder:
                         tag_date = datetime.strptime(day_dir.name, "%y_%m%d").date()
                     except ValueError:
                         continue
-
                     if date_range:
                         start, end = date_range
+
                         if not (start <= tag_date <= end):
                             continue
-
                     scans_dir = day_dir / "scans"
                     if not scans_dir.is_dir():
                         continue
@@ -192,6 +193,46 @@ class ScanDatabaseBuilder:
                 )
 
     @staticmethod
+    def build_from_directory(
+        data_root: Union[str, Path],
+        experiment: str,
+        date_range: Tuple[date, date],
+        max_scans: Optional[int] = None,
+    ) -> ScanDatabase:
+        """
+        Build an in-memory ScanDatabase from a directory structure.
+
+        Parameters
+        ----------
+        data_root : str or Path
+            Root directory containing the GEECS data hierarchy.
+        experiment : str
+            Experiment name to search under the data root.
+        date_range : tuple of date
+            Inclusive date range for scans to include.
+        max_scans : int, optional
+            Maximum number of scan entries to include. Useful for testing.
+
+        Returns
+        -------
+        ScanDatabase
+            In-memory database containing all found scan entries.
+        """
+        db = ScanDatabase()
+        scan_counter = 0
+
+        for entry in ScanDatabaseBuilder._generate_scan_entries(
+            data_root=Path(data_root), experiment=experiment, date_range=date_range
+        ):
+            db.add_entry(entry)
+            scan_counter += 1
+
+            if max_scans and scan_counter >= max_scans:
+                break
+
+        return db
+
+    @staticmethod
     def stream_to_parquet(
         data_root: Path,
         experiment: str,
@@ -245,6 +286,7 @@ class ScanDatabaseBuilder:
 
         buffer = []
         scan_counter = 0
+
         for entry in ScanDatabaseBuilder._generate_scan_entries(
             data_root=data_root, experiment=experiment, date_range=date_range
         ):
@@ -267,29 +309,94 @@ class ScanDatabaseBuilder:
             ScanDatabaseBuilder._write_parquet_buffer(buffer, output_path)
 
     @staticmethod
-    def _write_parquet_buffer(buffer: List[dict], output_path: Path):
+    def _write_parquet_buffer(buffer: List[dict], output_path: Path) -> None:
         """
-        Write a list of scan entry dictionaries to Parquet with partitioning.
+        Write a list of scan entry dictionaries to a partitioned Parquet dataset.
+
+        This method:
+        1) Flattens stable fields from ``scan_tag`` (year, month, day, number, experiment)
+        2) Introspects the ``ScanMetadata`` model to extract all structured fields
+           (excluding ``raw_fields``) as top-level columns for fast lazy filtering
+        3) Casts numeric/boolean columns to appropriate (nullable) dtypes
+        4) Preserves full ``scan_metadata`` and ``ecs_dump`` as JSON strings
+        5) Writes a Hive-partitioned Parquet dataset (partitioned by ``year``)
 
         Parameters
         ----------
         buffer : list of dict
-            List of scan entry dicts produced by model_dump().
+            List of scan entry dictionaries, e.g. produced by ``ScanEntry.model_dump()``.
         output_path : Path
-            Target directory for the Parquet partitioned dataset.
+            Target directory for the Parquet dataset (Hive-style partitions).
+
+        Notes
+        -----
+        - ``non_scalar_devices`` is kept as a native list (Parquet list<item: string>).
+        - All keys of ``ScanMetadata`` (except ``raw_fields``) are extracted automatically.
+        - Missing metadata values are written as nulls.
         """
+
+        def _unwrap_optional(t):
+            """Return the inner type if Optional[T], else the type itself."""
+            if get_origin(t) is Optional:
+                args = [a for a in get_args(t) if a is not type(None)]
+                return args[0] if args else t
+            return t
+
         df = pd.DataFrame(buffer)
 
-        # Extract partition columns from scan_tag
+        # ---- 1) Flatten scan_tag -------------------------------------------------
         if "scan_tag" in df.columns:
             for field in ["year", "month", "day", "number", "experiment"]:
-                df[field] = df["scan_tag"].apply(lambda tag: tag[field])
+                df[field] = df["scan_tag"].apply(
+                    lambda tag: tag[field] if isinstance(tag, dict) else None
+                )
+            df.drop("scan_tag", axis=1, inplace=True)
 
-        # 🔁 Serialize all variable-structure columns to JSON strings
-        for col in ["scan_tag", "scan_metadata", "ecs_dump", "non_scalar_devices"]:
+        # ---- 2) Extract structured fields from ScanMetadata ----------------------
+        # Discover fields from the Pydantic model (v2): exclude raw_fields
+        meta_fields = [
+            name for name in ScanMetadata.model_fields.keys() if name != "raw_fields"
+        ]
+
+        # Helper to safely pull values from scan_metadata dicts
+        def _meta_get(meta, key):
+            return meta.get(key, None) if isinstance(meta, dict) else None
+
+        # Create columns for all ScanMetadata fields (null if missing)
+        for field in meta_fields:
+            df[field] = df.get("scan_metadata", pd.Series([None] * len(df))).apply(
+                lambda m: _meta_get(m, field)
+            )
+
+        # ---- 3) Cast numeric/boolean dtypes -------------------------------------
+        # Use annotations to decide which columns should be numeric/bool
+        numeric_candidates, bool_candidates = [], []
+        for name, field_info in ScanMetadata.model_fields.items():
+            if name == "raw_fields":
+                continue
+            anno = _unwrap_optional(field_info.annotation)
+            # Float-like
+            if anno in (float, int):
+                numeric_candidates.append(name)
+            # Bool-like
+            if anno is bool:
+                bool_candidates.append(name)
+
+        for col in numeric_candidates:
             if col in df.columns:
-                df[col] = df[col].apply(json.dumps)
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        for col in bool_candidates:
+            if col in df.columns:
+                # Nullable boolean to preserve None
+                df[col] = df[col].astype("boolean")
 
-        # Convert to Arrow table and write to partitioned Parquet dataset
-        table = pa.Table.from_pandas(df)
-        pq.write_to_dataset(table, root_path=output_path, partition_cols=["year"])
+        # ---- 4) Preserve variable-structure fields as JSON strings --------------
+        for col in ["scan_metadata", "ecs_dump"]:
+            if col in df.columns:
+                df[col] = df[col].apply(
+                    lambda x: json.dumps(x) if not isinstance(x, str) else x
+                )
+
+        # ---- 5) Write partitioned Parquet ---------------------------------------
+        table = pa.Table.from_pandas(df, preserve_index=False)
+        pq.write_to_dataset(table, root_path=str(output_path), partition_cols=["year"])

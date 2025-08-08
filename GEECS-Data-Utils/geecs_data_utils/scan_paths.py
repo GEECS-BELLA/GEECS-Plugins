@@ -22,7 +22,6 @@ from configparser import ConfigParser, NoSectionError
 from typing import Optional, Union
 from geecs_data_utils.utils import ScanTag, SysPath, ConfigurationError, month_to_int
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
-from geecs_data_utils.type_defs import ECSDump, DeviceDump
 
 # from geecs_data_utils.types import ScanConfig, ScanMode
 
@@ -605,46 +604,6 @@ class ScanPaths:
         ecs_file = ecs_folder / filename
 
         return ecs_file if ecs_file.exists() else None
-
-    @staticmethod
-    def parse_ecs_dump(path: Path) -> ECSDump:
-        """
-        Parse ECS Live Dump file and return an ECSDump object.
-
-        Parameters
-        ----------
-        path : Path
-            Path to ECS dump .txt file.
-
-        Returns
-        -------
-        ECSDump
-            Parsed experiment name and list of DeviceDump entries.
-        """
-        parser = ConfigParser()
-        parser.optionxform = str  # preserve case
-        parser.read(path)
-
-        experiment = parser.get("Experiment", "Expt Name", fallback=None)
-        if experiment:
-            experiment = experiment.strip('"')
-
-        devices = []
-        for section in parser.sections():
-            if not section.startswith("Device "):
-                continue
-
-            raw_items = dict(parser.items(section))
-            name = raw_items.pop("Device Name", "").strip('"')
-            shot = raw_items.pop("shot #", None)
-            device = DeviceDump(
-                name=name,
-                shot_number=int(shot) if shot and shot.isdigit() else None,
-                parameters={k: v.strip('"') for k, v in raw_items.items()},
-            )
-            devices.append(device)
-
-        return ECSDump(experiment_name=experiment, devices=devices)
 
 
 ScanPaths.reload_paths_config()
