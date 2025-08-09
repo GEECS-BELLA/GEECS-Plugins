@@ -1,5 +1,5 @@
 """
-Provides utilities to construct partitioned parquet 'scans database'.
+Provides utilities to construct partitioned parquet 'scans scans_database'.
 
 Structured metadata records (`ScanEntry`) are created for each scan.
 Supports streaming scan metadata to Parquet format for persistent
@@ -30,8 +30,8 @@ import logging
 
 from geecs_data_utils.scan_data import ScanData
 from geecs_data_utils.utils import ScanTag
-from geecs_data_utils.database.entries import ScanEntry, ScanMetadata
-from geecs_data_utils.database.database import ScanDatabase
+from geecs_data_utils.scans_database.entries import ScanEntry, ScanMetadata
+from geecs_data_utils.scans_database.database import ScanDatabase
 from geecs_data_utils.type_defs import parse_ecs_dump
 
 logger = logging.getLogger(__name__)
@@ -216,7 +216,7 @@ class ScanDatabaseBuilder:
         Returns
         -------
         ScanDatabase
-            In-memory database containing all found scan entries.
+            In-memory scans_database containing all found scan entries.
         """
         db = ScanDatabase()
         scan_counter = 0
@@ -281,7 +281,7 @@ class ScanDatabaseBuilder:
                 }
             except Exception as e:
                 logger.warning(
-                    f"Could not load existing database for deduplication: {e}"
+                    f"Could not load existing scans_database for deduplication: {e}"
                 )
 
         buffer = []

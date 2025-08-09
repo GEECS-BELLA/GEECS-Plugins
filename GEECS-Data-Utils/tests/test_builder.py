@@ -14,9 +14,9 @@ test_scan_database_builder_runs()
 from pathlib import Path
 from datetime import date
 
-from geecs_data_utils.database.builder import ScanDatabaseBuilder
-from geecs_data_utils.database.database import ScanDatabase
-from geecs_data_utils.database.entries import ScanEntry
+from geecs_data_utils.scans_database.builder import ScanDatabaseBuilder
+from geecs_data_utils.scans_database.database import ScanDatabase
+from geecs_data_utils.scans_database.entries import ScanEntry
 
 
 TEST_DATA_ROOT = Path("/Volumes/hdna2/data")
@@ -27,7 +27,7 @@ def test_scan_database_builder_runs():
     Test building a ScanDatabase from a single scan directory.
 
     This test verifies that:
-    - The database is built without error.
+    - The scans_database is built without error.
     - A single scan entry is returned.
     - The scan entry contains valid metadata, file paths, and devices.
 

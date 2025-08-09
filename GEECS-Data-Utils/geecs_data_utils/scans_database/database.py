@@ -1,5 +1,5 @@
 """
-Provides a searchable interface to a partitioned scans database stored in Parquet format.
+Provides a searchable interface to a partitioned scans scans_database stored in Parquet format.
 
 This module defines the `ScanDatabase` class, which enables efficient querying of
 experiment scan metadata stored as a Hive-style partitioned Parquet dataset (partitioned

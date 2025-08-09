@@ -1,5 +1,5 @@
 """
-Scan database entry schema.
+Scan scans_database entry schema.
 
 This module defines structured models for representing scan entries and
 associated metadata in the GEECS data ecosystem. These models are used
@@ -17,7 +17,7 @@ ScanEntry
 Notes
 -----
 These models are primarily intended for use in building and querying a
-structured scan database using the `ScanDatabase` class. The models use
+structured scan scans_database using the `ScanDatabase` class. The models use
 Pydantic for data validation and serialization.
 """
 
