@@ -1,5 +1,5 @@
 filters:
-  pmq_in:
+  pmq_inserted:
     kind: ecs_value_within
     args:
       device_like: "hexapod"
