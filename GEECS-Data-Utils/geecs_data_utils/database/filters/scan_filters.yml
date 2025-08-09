@@ -1,0 +1,8 @@
+filters:
+  pmq_in:
+    kind: ecs_value_within
+    args:
+      device_like: "hexapod"
+      variable_like: "y"
+      target: 18.5
+      tol: 0.5

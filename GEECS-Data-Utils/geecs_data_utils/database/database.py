@@ -25,43 +25,139 @@ pyarrow.parquet : Backend engine for reading partitioned Parquet files.
 
 from __future__ import annotations
 from pathlib import Path
-from typing import Union, List, Tuple, Callable, Optional
+from typing import Union, List, Tuple, Callable, Optional, Any, Mapping
 import pandas as pd
 import json
+import yaml
 
 
 class ScanDatabase:
     """Partition-aware Parquet reader with fast date pruning and composable filters."""
 
-    def __init__(self, parquet_root: Union[str, Path]):
+    def __init__(
+        self, parquet_root: Union[str, Path], *, autoload_presets: bool = True
+    ):
         """Initialize with the root directory of the Hive-partitioned dataset."""
         self.root = Path(parquet_root)
         if not self.root.exists():
             raise FileNotFoundError(f"Parquet root does not exist: {self.root}")
+
         self._date_range: Optional[Tuple[pd.Timestamp, pd.Timestamp]] = None
         self._df_filters: List[Callable[[pd.DataFrame], pd.DataFrame]] = []
+        self._named_specs: dict[
+            str, dict[str, Any]
+        ] = {}  # raw specs from YAML or registered
+
+        if autoload_presets:
+            self._autoload_presets()
 
     # -----------------------
-    # Filters
+    # Preset filter loading
+    # -----------------------
+    def _preset_default_path(self) -> Path:
+        """Return default filters YAML path inside the repo/package."""
+        return Path(__file__).resolve().parent / "filters" / "scan_filters.yml"
+
+    def _autoload_presets(self) -> None:
+        """Autoload named filter presets from filters/scan_filters.yml if present."""
+        preset_path = self._preset_default_path()
+        if preset_path.exists():
+            try:
+                self.load_named_filters(preset_path)
+            except Exception as e:
+                # Non-fatal: keep operating without presets
+                print(f"[WARN] Failed to load presets from {preset_path}: {e}")
+
+    def load_named_filters(self, path: Union[str, Path]) -> "ScanDatabase":
+        """Load named filter specs (including composites) from a YAML file."""
+        p = Path(path)
+        data = yaml.safe_load(p.read_text())
+        specs = (data or {}).get("filters") or {}
+        if not isinstance(specs, Mapping):
+            raise ValueError("YAML must contain a top-level 'filters' mapping")
+        self._named_specs = dict(specs)
+        return self
+
+    def register_named_filter(
+        self,
+        name: str,
+        *,
+        kind: str | None = None,
+        args: Mapping[str, Any] | None = None,
+        subfilters: list[str] | None = None,
+    ) -> "ScanDatabase":
+        """Register a single named filter spec at runtime (supports composites)."""
+        if not name:
+            raise ValueError("Filter name must be non-empty")
+        if kind == "composite":
+            self._named_specs[name] = {
+                "kind": "composite",
+                "subfilters": list(subfilters or []),
+            }
+        elif kind:
+            self._named_specs[name] = {"kind": kind, "args": dict(args or {})}
+        else:
+            raise ValueError(
+                "Provide 'kind' (and 'args') or kind='composite' with 'subfilters'"
+            )
+        return self
+
+    def list_named_filters(self) -> list[str]:
+        """Return the list of available named filter names."""
+        return sorted(self._named_specs.keys())
+
+    def describe_named_filter(self, name: str) -> dict[str, Any]:
+        """Return the raw spec dict for a named filter."""
+        spec = self._named_specs.get(name)
+        if spec is None:
+            raise KeyError(f"Unknown named filter: '{name}'")
+        return spec
+
+    def apply(self, *names: str) -> "ScanDatabase":
+        """Apply one or more named filters (supports composite filters)."""
+        if not names:
+            return self
+        seen: set[str] = set()
+        for nm in names:
+            self._apply_named(nm, seen)
+        return self
+
+    def _apply_named(self, name: str, seen: set[str]) -> None:
+        if name in seen:
+            raise ValueError(f"Cycle detected in composite filters at '{name}'")
+        spec = self._named_specs.get(name)
+        if not spec:
+            raise KeyError(f"Unknown named filter: '{name}'")
+        seen.add(name)
+        kind = spec.get("kind")
+        if kind == "composite":
+            for sub in spec.get("subfilters", []) or []:
+                self._apply_named(sub, seen)
+            return
+        self._instantiate_and_enqueue(kind, spec.get("args") or {})
+
+    def _instantiate_and_enqueue(self, kind: str, args: Mapping[str, Any]) -> None:
+        """Map 'kind' to the corresponding filter method and enqueue it."""
+        if kind == "ecs_value_within":
+            self.filter_ecs_value_within(**args)
+        elif kind == "ecs_value_contains":
+            self.filter_ecs_value_contains(**args)
+        elif kind == "scan_parameter_contains":
+            self.filter_scan_parameter_contains(**args)
+        elif kind == "experiment_equals":
+            self.filter_experiment_equals(**args)
+        elif kind == "device_contains":
+            self.filter_device_contains(**args)
+        else:
+            raise ValueError(f"Unknown filter kind: {kind}")
+
+    # -----------------------
+    # Filters (chainable)
     # -----------------------
     def date_range(
         self, start: Union[str, pd.Timestamp], end: Union[str, pd.Timestamp]
     ) -> "ScanDatabase":
-        """
-        Set an inclusive date range for partition pruning and day-level trim.
-
-        Parameters
-        ----------
-        start : str or pandas.Timestamp
-            Start date (inclusive).
-        end : str or pandas.Timestamp
-            End date (inclusive).
-
-        Returns
-        -------
-        ScanDatabase
-            Self for chaining.
-        """
+        """Set an inclusive date range for partition pruning and day-level trim."""
         s, e = pd.Timestamp(start), pd.Timestamp(end)
         if s > e:
             s, e = e, s
@@ -110,7 +206,7 @@ class ScanDatabase:
             def _has(lst) -> bool:
                 if isinstance(lst, list):
                     return any(isinstance(x, str) and needle in x.lower() for x in lst)
-                if isinstance(lst, str):  # stray single string
+                if isinstance(lst, str):
                     return needle in lst.lower()
                 return False
 
@@ -165,7 +261,7 @@ class ScanDatabase:
     def filter_ecs_value_within(
         self, device_like: str, variable_like: str, target: float, tol: float
     ) -> "ScanDatabase":
-        """Keep rows where any matching ECS value is within target±tol (values are parsed as floats)."""
+        """Keep rows where any matching ECS value is within target±tol (values parsed as floats)."""
         tgt, tol = float(target), float(tol)
 
         def _ok_num(v) -> bool:
@@ -228,7 +324,7 @@ class ScanDatabase:
         return self
 
     # -----------------------
-    # Internal helpers
+    # Partition I/O helpers
     # -----------------------
     def _all_partitions(self) -> List[Tuple[int, int]]:
         """Return all (year, month) partitions present on disk."""
@@ -250,13 +346,11 @@ class ScanDatabase:
     def _partitions_to_read(self) -> List[Path]:
         """Compute partition directories to load based on the date range."""
         if self._date_range is None:
-            # No pruning → all partitions
             return [
                 self.root / f"year={y}" / f"month={m}"
                 for (y, m) in self._all_partitions()
                 if (self.root / f"year={y}" / f"month={m}").exists()
             ]
-
         s, e = self._date_range
         months = pd.period_range(s, e, freq="M")
         paths: List[Path] = []
@@ -274,13 +368,11 @@ class ScanDatabase:
                 dfs.append(pd.read_parquet(folder))
             except Exception as e:
                 print(f"[WARN] Skipping partition {folder}: {e}")
-
         if not dfs:
             return pd.DataFrame()
-
         df = pd.concat(dfs, ignore_index=True)
 
-        # Day-level trim inside selected months
+        # day-level trim
         if self._date_range is not None and all(
             c in df.columns for c in ("year", "month", "day")
         ):
@@ -291,10 +383,9 @@ class ScanDatabase:
             )
             df = df[(ts >= s) & (ts <= e)].copy()
 
-        # Apply queued pandas filters
+        # apply pandas filters
         for f in self._df_filters:
             df = f(df)
-            # print(f"[DEBUG] filter {getattr(f, '__name__', 'callable')} kept {after}/{before}")
         return df
 
     # -----------------------
