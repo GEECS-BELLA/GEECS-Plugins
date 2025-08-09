@@ -1,9 +1,9 @@
 """
-rovides utilities for scanning GEECS experiment directories.
+Provides utilities to construct partitioned parquet 'scans database'.
 
-Provides utilities for scanning GEECS experiment directories and constructing
-structured metadata records (`ScanEntry`) for each scan. Supports streaming
-scan metadata to Parquet format for persistent storage and querying.
+Structured metadata records (`ScanEntry`) are created for each scan.
+Supports streaming scan metadata to Parquet format for persistent
+storage and querying.
 
 Classes
 -------
@@ -352,6 +352,10 @@ class ScanDatabaseBuilder:
                 )
             df.drop("scan_tag", axis=1, inplace=True)
 
+        # Ensure numeric partition keys (avoid string partition dirs)
+        df["year"] = pd.to_numeric(df["year"], errors="coerce").astype("Int16")
+        df["month"] = pd.to_numeric(df["month"], errors="coerce").astype("Int8")
+
         # ---- 2) Extract structured fields from ScanMetadata ----------------------
         # Discover fields from the Pydantic model (v2): exclude raw_fields
         meta_fields = [
@@ -399,4 +403,8 @@ class ScanDatabaseBuilder:
 
         # ---- 5) Write partitioned Parquet ---------------------------------------
         table = pa.Table.from_pandas(df, preserve_index=False)
-        pq.write_to_dataset(table, root_path=str(output_path), partition_cols=["year"])
+
+        # Partition by both year and month
+        pq.write_to_dataset(
+            table, root_path=str(output_path), partition_cols=["year", "month"]
+        )
