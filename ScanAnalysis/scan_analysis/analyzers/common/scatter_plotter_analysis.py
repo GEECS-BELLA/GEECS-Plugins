@@ -87,7 +87,10 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         if self.scatter_plot:
             axis.scatter(binned_data['bin'], binned_data[stat_type], c=c, label=label)
         else:
+            axis.scatter(binned_data['bin'], binned_data[stat_type], c=c, s=10)
             axis.plot(binned_data['bin'], binned_data[stat_type], c=c, ls='-', label=label)
+            axis.errorbar(binned_data['bin'], binned_data['average'], yerr=binned_data['sigma'], c=c, ls='none', capsize=3)
+
         axis.set_ylabel(ylabel)
         axis.tick_params(axis='y', labelcolor=c)
 
