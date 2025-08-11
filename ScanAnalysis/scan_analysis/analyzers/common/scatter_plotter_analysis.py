@@ -43,7 +43,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         self.ylabel_2: Optional[str] = ylabel_2
 
         # Plotting options
-        self.title: str = title
+        self.title: str = f"{scan_tag.month:02d}/{scan_tag.day:02d}/{scan_tag.year%1000:02d} Scan{scan_tag.number:03d}: {title}"
 
         if use_median:
             self.stat_type = 'median'
