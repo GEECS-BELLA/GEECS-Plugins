@@ -1,18 +1,13 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Union, Optional, List
+from typing import TYPE_CHECKING, Union, Optional
 if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
     from matplotlib.pyplot import Axes
 
 from pathlib import Path
 import logging
-import yaml
 import numpy as np
-import cv2
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
-from scipy.ndimage import median_filter, gaussian_filter
-import imageio as io
 
 from scan_analysis.base import ScanAnalyzer
 
@@ -22,6 +17,7 @@ PRINT_TRACEBACK = True
 
 class ScatterPlotterAnalysis(ScanAnalyzer):
     def __init__(self, scan_tag: ScanTag, scatter_plot: bool, use_median: bool,
+                 title: str,
                  data_key_1: str, label_1: str, ylabel_1: str,
                  data_key_2: Optional[str] = None, label_2: Optional[str] = None, ylabel_2: Optional[str] = None,
                  skip_plt_show: bool = True,
@@ -47,6 +43,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         self.ylabel_2: Optional[str] = ylabel_2
 
         # Plotting options
+        self.title: str = title
         self.scatter_plot: bool = scatter_plot
         self.use_median: bool = use_median
 
@@ -63,10 +60,10 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
                 print(traceback.format_exc())
             if self.flag_logging:
                 logging.warning(f"Warning: Scatter Plotter analysis failed due to: {e}")
-            return
+            return None
 
     def generate_plots(self) -> None:
-        fig, ax1 = plt.subplots(figsize=(10, 6))
+        fig, ax1 = plt.subplots(figsize=(7, 5))
 
         self._plot_data(axis=ax1, key_name=self.data_key_1, c='g', label=self.label_1, ylabel=self.ylabel_1)
         ax1.set_xlabel(self.scan_parameter)
@@ -74,6 +71,10 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         if self.data_key_2 is not None:
             ax2 = ax1.twinx()
             self._plot_data(axis=ax2, key_name=self.data_key_2, c='g', label=self.label_2, ylabel=self.ylabel_2)
+
+        plt.legend()
+        plt.grid()
+        plt.title(self.title)
 
         self.close_or_show_plot()
 

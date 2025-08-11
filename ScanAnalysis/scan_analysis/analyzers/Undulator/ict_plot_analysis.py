@@ -12,6 +12,7 @@ class ICTPlotAnalysis(ScatterPlotterAnalysis):
                          device_name='U_BCaveICT',
                          scatter_plot=False,
                          use_median=use_median,
+                         title='BCave ICT Charge Value',
                          data_key_1='U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC',
                          label_1='BCave ICT Charge',
                          ylabel_1='Charge (pC)',
