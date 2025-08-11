@@ -19,7 +19,7 @@ ScanDatabase : In-memory collection of ScanEntry records.
 import shutil
 from pathlib import Path
 from typing import Optional, Tuple, List, Literal, Union, get_args, get_origin
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import re
 import json
 
@@ -27,18 +27,29 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import logging
+from pydantic import BaseModel, ConfigDict
 
 from geecs_data_utils.scan_data import ScanData
 from geecs_data_utils.utils import ScanTag
 from geecs_data_utils.scans_database.entries import ScanEntry, ScanMetadata
-from geecs_data_utils.scans_database.database import ScanDatabase
 from geecs_data_utils.type_defs import parse_ecs_dump
 
 logger = logging.getLogger(__name__)
 
 
+class _UpdateLogEntry(BaseModel):
+    """Internal model for update log entries."""
+
+    model_config = ConfigDict(extra="forbid")
+    experiment: str
+    update_date: date
+    date_range_added: Tuple[date, date]
+
+
 class ScanDatabaseBuilder:
     """Builder class for constructing a full ScanDatabase from GEECS scan folders."""
+
+    _LOG_NAME = "_update_log.json"
 
     @staticmethod
     def build_scan_entry(scan_data: ScanData) -> ScanEntry:
@@ -193,120 +204,135 @@ class ScanDatabaseBuilder:
                 )
 
     @staticmethod
-    def build_from_directory(
-        data_root: Union[str, Path],
-        experiment: str,
-        date_range: Tuple[date, date],
-        max_scans: Optional[int] = None,
-    ) -> ScanDatabase:
-        """
-        Build an in-memory ScanDatabase from a directory structure.
-
-        Parameters
-        ----------
-        data_root : str or Path
-            Root directory containing the GEECS data hierarchy.
-        experiment : str
-            Experiment name to search under the data root.
-        date_range : tuple of date
-            Inclusive date range for scans to include.
-        max_scans : int, optional
-            Maximum number of scan entries to include. Useful for testing.
-
-        Returns
-        -------
-        ScanDatabase
-            In-memory scans_database containing all found scan entries.
-        """
-        db = ScanDatabase()
-        scan_counter = 0
-
-        for entry in ScanDatabaseBuilder._generate_scan_entries(
-            data_root=Path(data_root), experiment=experiment, date_range=date_range
-        ):
-            db.add_entry(entry)
-            scan_counter += 1
-
-            if max_scans and scan_counter >= max_scans:
-                break
-
-        return db
-
-    @staticmethod
     def stream_to_parquet(
         data_root: Path,
         experiment: str,
         output_path: Path,
-        date_range: Tuple[date, date],
+        date_range: Optional[Tuple[date, date]],
         buffer_size: int = 100,
         max_scans: Optional[int] = None,
-        mode: Literal["overwrite", "append", "smart_append"] = "overwrite",
+        mode: Literal["overwrite", "append"] = "append",
     ):
         """
-        Stream scan metadata to a partitioned Parquet dataset.
+        Stream scan metadata to a Hive-partitioned Parquet dataset.
+
+        This method is the only write path for the scans database and supports both
+        full rebuilds and incremental appends.
+
+        Behavior by mode
+        ----------------
+        - overwrite:
+            Deletes the existing Parquet dataset (including the sidecar update log),
+            then writes all scans in the specified date range.
+            If ``date_range`` is None, uses a broad default range from 2000-01-01 to today.
+            After writing, the sidecar log is initialized with a single entry for the
+            written date range.
+
+        - append:
+            Adds only new scans to the existing dataset.
+            If ``date_range`` is None, the method reads the sidecar log to determine
+            the most recent ingested date, then resumes from the next day up to today.
+            The log is updated with the exact range of dates written in this run.
 
         Parameters
         ----------
         data_root : Path
             Root directory containing the GEECS data hierarchy.
         experiment : str
-            Experiment name to search under the data root.
+            Name of the experiment to search under the data root.
         output_path : Path
-            Destination directory for the Parquet dataset.
-        date_range : tuple of date
-            Inclusive date range for scans to include.
+            Destination directory for the Parquet dataset (root of Hive partitions).
+        date_range : tuple of date, optional
+            Inclusive date range of scans to include. If None, behavior depends on mode.
         buffer_size : int, optional
-            Number of scan entries to buffer before writing. Default is 100.
+            Number of scan entries to buffer before writing to Parquet. Default is 100.
         max_scans : int, optional
-            Maximum number of scan entries to write. Useful for testing.
-        mode : {'overwrite', 'append', 'smart_append'}, optional
-            Writing mode for the Parquet dataset. Default is 'overwrite'.
+            Maximum number of scan entries to write (useful for testing).
+        mode : {'overwrite', 'append'}, optional
+            Writing mode for the Parquet dataset. Default is 'append'.
 
-            - 'overwrite': deletes existing dataset and rewrites everything.
-            - 'append': adds all new entries to the dataset.
-            - 'smart_append': skips duplicates based on scan_tag.
+        Notes
+        -----
+        - The dataset is written as Hive-style partitions by year and month.
+        - The sidecar log (``_update_log.json``) resides in the root of ``output_path``
+          and tracks the date ranges written in each run.
+        - This method does not perform duplicate checking beyond the append logic;
+          use a separate deduplication process if needed.
         """
+        # --- Resolve date_range ---
         if mode == "overwrite":
             if output_path.exists():
                 shutil.rmtree(output_path)
             output_path.mkdir(parents=True, exist_ok=True)
-
-        existing_keys = set()
-        if mode in {"append", "smart_append"} and output_path.exists():
-            try:
-                df_existing = pd.read_parquet(output_path)
-                existing_keys = {
-                    (row.year, row.month, row.day, row.number, row.experiment)
-                    for _, row in df_existing.iterrows()
-                }
-            except Exception as e:
-                logger.warning(
-                    f"Could not load existing scans_database for deduplication: {e}"
+            # If not specified, scan broadly (you can replace with an inferred earliest date)
+            if date_range is None:
+                date_range = (date(2000, 1, 1), date.today())
+            # Also reset the log now (empty)
+            ScanDatabaseBuilder._write_update_log(output_path, [])
+        elif mode == "append":
+            if date_range is None:
+                last_date = ScanDatabaseBuilder._last_ingested_date(
+                    output_path, experiment
                 )
+                start_date = (
+                    (last_date + timedelta(days=1)) if last_date else date(2000, 1, 1)
+                )
+                end_date = date.today()
+                date_range = (start_date, end_date)
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
 
-        buffer = []
+        start_date, end_date = date_range
+        if start_date > end_date:
+            return  # nothing to do
+
+        # --- Stream & write ---
+        buffer: List[dict] = []
+        written_any = False
         scan_counter = 0
 
+        # Track actual written min/max day (for precise log update)
+        written_start: Optional[date] = None
+        written_end: Optional[date] = None
+
+        def _maybe_flush():
+            nonlocal buffer, written_any
+            if buffer:
+                ScanDatabaseBuilder._write_parquet_buffer(buffer, output_path)
+                written_any = True
+                buffer.clear()
+
         for entry in ScanDatabaseBuilder._generate_scan_entries(
-            data_root=data_root, experiment=experiment, date_range=date_range
+            data_root=data_root,
+            experiment=experiment,
+            date_range=(start_date, end_date),
         ):
             tag = entry.scan_tag
-            key = (tag.year, tag.month, tag.day, tag.number, tag.experiment)
-            if key in existing_keys:
-                continue
+            entry_date = date(tag.year, tag.month, tag.day)
+
+            # Update written range (based on entries we actually append)
+            if written_start is None or entry_date < written_start:
+                written_start = entry_date
+            if written_end is None or entry_date > written_end:
+                written_end = entry_date
 
             buffer.append(entry.model_dump())
             scan_counter += 1
 
             if max_scans and scan_counter >= max_scans:
+                _maybe_flush()
                 break
 
             if len(buffer) >= buffer_size:
-                ScanDatabaseBuilder._write_parquet_buffer(buffer, output_path)
-                buffer.clear()
+                _maybe_flush()
 
-        if buffer:
-            ScanDatabaseBuilder._write_parquet_buffer(buffer, output_path)
+        _maybe_flush()
+
+        # --- Update sidecar log only if we actually wrote something ---
+        if written_any and written_start is not None and written_end is not None:
+            ScanDatabaseBuilder._append_update_log(
+                output_path, experiment, written_start, written_end
+            )
 
     @staticmethod
     def _write_parquet_buffer(buffer: List[dict], output_path: Path) -> None:
@@ -336,8 +362,8 @@ class ScanDatabaseBuilder:
         """
 
         def _unwrap_optional(t):
-            """Return the inner type if Optional[T], else the type itself."""
-            if get_origin(t) is Optional:
+            origin = get_origin(t)
+            if origin is Union:
                 args = [a for a in get_args(t) if a is not type(None)]
                 return args[0] if args else t
             return t
@@ -408,3 +434,46 @@ class ScanDatabaseBuilder:
         pq.write_to_dataset(
             table, root_path=str(output_path), partition_cols=["year", "month"]
         )
+
+    #### database builder logging and tracking methods ###
+    @staticmethod
+    def _log_path(root: Path) -> Path:
+        return Path(root) / ScanDatabaseBuilder._LOG_NAME
+
+    @staticmethod
+    def _read_update_log(root: Path) -> List[_UpdateLogEntry]:
+        p = ScanDatabaseBuilder._log_path(root)
+        if not p.exists():
+            return []
+        data = json.loads(p.read_text())
+        return [_UpdateLogEntry.model_validate(x) for x in data]
+
+    @staticmethod
+    def _write_update_log(root: Path, entries: List[_UpdateLogEntry]) -> None:
+        # atomic-ish write: write to temp, then rename
+        final_path = ScanDatabaseBuilder._log_path(root)
+        tmp = final_path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps([e.model_dump() for e in entries], indent=2, default=str)
+        )
+        tmp.replace(final_path)
+
+    @staticmethod
+    def _append_update_log(
+        root: Path, experiment: str, start_date: date, end_date: date
+    ) -> None:
+        log = ScanDatabaseBuilder._read_update_log(root)
+        log.append(
+            _UpdateLogEntry(
+                experiment=experiment,
+                update_date=date.today(),
+                date_range_added=(start_date, end_date),
+            )
+        )
+        ScanDatabaseBuilder._write_update_log(root, log)
+
+    @staticmethod
+    def _last_ingested_date(root: Path, experiment: str) -> Optional[date]:
+        log = ScanDatabaseBuilder._read_update_log(root)
+        ends = [e.date_range_added[1] for e in log if e.experiment == experiment]
+        return max(ends) if ends else None
