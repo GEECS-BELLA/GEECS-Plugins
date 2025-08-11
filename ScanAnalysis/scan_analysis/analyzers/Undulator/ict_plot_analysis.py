@@ -10,7 +10,6 @@ class ICTPlotAnalysis(ScatterPlotterAnalysis):
     def __init__(self, scan_tag: ScanTag, use_median: bool = True, skip_plt_show: bool = True, flag_logging: bool = False):
         super().__init__(scan_tag=scan_tag,
                          device_name='U_BCaveICT',
-                         scatter_plot=False,
                          use_median=use_median,
                          title='BCave ICT Charge Value',
                          data_key_1='U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC',
