@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Union, Optional
+from typing import TYPE_CHECKING, Union, Optional, NamedTuple
 if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
     from matplotlib.pyplot import Axes
@@ -14,12 +14,17 @@ from scan_analysis.base import ScanAnalyzer
 import traceback
 PRINT_TRACEBACK = True
 
+class PlotParameter(NamedTuple):
+    key_name: str
+    legend_label: str
+    axis_label: str
+    color: str
+
 
 class ScatterPlotterAnalysis(ScanAnalyzer):
     def __init__(self, scan_tag: ScanTag, use_median: bool,
                  title: str,
-                 data_key_1: str, label_1: str, ylabel_1: str,
-                 data_key_2: Optional[str] = None, label_2: Optional[str] = None, ylabel_2: Optional[str] = None,
+                 parameters: Union[PlotParameter, list[PlotParameter]],
                  skip_plt_show: bool = True,
                  device_name: Optional[str] = None,
                  flag_logging: bool = True,
@@ -29,22 +34,19 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
 
         # Set up key names to load from auxiliary data
         found_keys = self.auxiliary_data.keys()
-        if data_key_1 not in found_keys:
-            raise KeyError(f"f{data_key_1} not found in sfile for Scan {scan_tag.number}")
-        if data_key_2 is not None and data_key_2 not in found_keys:
-            raise KeyError(f"f{data_key_2} not found in sfile for Scan {scan_tag.number}")
 
-        self.data_key_1: str = data_key_1
-        self.data_key_2: Optional[str] = data_key_2
+        self.parameters: list[PlotParameter]
+        if not isinstance(parameters, list):
+            self.parameters = [parameters]
+        else:
+            self.parameters = parameters
 
-        self.label_1: str = label_1
-        self.label_2: Optional[str] = label_2
-        self.ylabel_1: str = ylabel_1
-        self.ylabel_2: Optional[str] = ylabel_2
+        for param in self.parameters:
+            if param.key_name not in found_keys:
+                raise KeyError(f"f{param.key_name} not found in sfile for Scan {scan_tag.number}")
 
         # Plotting options
         self.title: str = f"{scan_tag.month:02d}/{scan_tag.day:02d}/{scan_tag.year%1000:02d} Scan{scan_tag.number:03d}: {title}"
-
         if use_median:
             self.stat_type = 'median'
         else:
@@ -60,6 +62,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
             plt.legend()
             plt.grid()
             plt.title(self.title)
+            plt.tight_layout()
 
             self.close_or_show_plot()
 
@@ -72,13 +75,41 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
                 logging.warning(f"Warning: Image analysis failed due to: {e}")
             return None
 
+    @staticmethod
+    def _shift_axis_spine(axis: Axes, plot_number: int) -> None:
+        if plot_number < 2:
+            return
+
+        if plot_number % 2 == 0:
+            side = 'left'
+        else:
+            side = 'right'
+        outward_pixels = int(plot_number/2) * 50
+
+        axis.spines[side].set_position(('outward', outward_pixels))
+        axis.spines[side].set_visible(True)
+        axis.yaxis.set_ticks_position(side)
+        axis.yaxis.set_label_position(side)
+
+    # # # # # # Routine for Noscan Analysis # # # # # #
+
     def run_noscan_analysis(self) -> None:
         fig, ax1 = plt.subplots(figsize=(7, 5))
-        self._generate_noscan_plot(axis=ax1, key_name=self.data_key_1, c='g', label=self.label_1, ylabel=self.ylabel_1)
+
+        counter = 0
+        for param in self.parameters:
+            if counter > 0:
+                new_ax = ax1.twinx()
+            else:
+                new_ax = ax1
+            self._generate_noscan_plot(axis=new_ax, plot_parameter = param)
+            self._shift_axis_spine(axis=new_ax, plot_number=counter)
+            counter += 1
+
         ax1.set_xlabel("Shotnumber")
 
-    def _generate_noscan_plot(self, axis: Axes, key_name: str, c: str, label: str, ylabel: str):
-        data_array = self.auxiliary_data[key_name].values
+    def _generate_noscan_plot(self, axis: Axes, plot_parameter: PlotParameter):
+        data_array = self.auxiliary_data[plot_parameter.key_name].values
         shotnumber = self.auxiliary_data['Shotnumber'].values
 
         average = np.average(data_array)
@@ -88,33 +119,42 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         else:
             center = average
 
-        axis.scatter(shotnumber, data_array, c=c, label=label)
+        c = plot_parameter.color
+        axis.scatter(shotnumber, data_array, c=c, label=plot_parameter.legend_label)
 
         axis.hlines(y=center, colors=c, linestyles='solid', xmin=shotnumber[0], xmax=shotnumber[-1])
         axis.hlines(y=average-sigma, colors=c, linestyles='dashed', xmin=shotnumber[0], xmax=shotnumber[-1])
         axis.hlines(y=average+sigma, colors=c, linestyles='dashed', xmin=shotnumber[0], xmax=shotnumber[-1])
 
-        axis.set_ylabel(ylabel)
+        axis.set_ylabel(plot_parameter.axis_label)
         axis.tick_params(axis='y', labelcolor=c)
+
+    # # # # # # Routine for Scan Analysis # # # # # #
 
     def run_scan_analysis(self) -> None:
         fig, ax1 = plt.subplots(figsize=(7, 5))
 
-        self._generate_scan_plot(axis=ax1, key_name=self.data_key_1, c='g', label=self.label_1, ylabel=self.ylabel_1)
+        counter = 0
+        for param in self.parameters:
+            if counter > 0:
+                new_ax = ax1.twinx()
+            else:
+                new_ax = ax1
+            self._generate_scan_plot(axis=new_ax, plot_parameter = param)
+            self._shift_axis_spine(axis=new_ax, plot_number=counter)
+            counter += 1
+
         ax1.set_xlabel(self.scan_parameter)
 
-        if self.data_key_2 is not None:
-            ax2 = ax1.twinx()
-            self._generate_scan_plot(axis=ax2, key_name=self.data_key_2, c='g', label=self.label_2, ylabel=self.ylabel_2)
+    def _generate_scan_plot(self, axis: Axes, plot_parameter:PlotParameter):
+        binned_data = self.process_to_bins(plot_parameter.key_name)
 
-    def _generate_scan_plot(self, axis: Axes, key_name: str, c: str, label: str, ylabel: str):
-        binned_data = self.process_to_bins(key_name)
-
+        c = plot_parameter.color
         axis.scatter(binned_data['bin'], binned_data[self.stat_type], c=c, s=10)
-        axis.plot(binned_data['bin'], binned_data[self.stat_type], c=c, ls='-', label=label)
+        axis.plot(binned_data['bin'], binned_data[self.stat_type], c=c, ls='-', label=plot_parameter.legend_label)
         axis.errorbar(binned_data['bin'], binned_data['average'], yerr=binned_data['sigma'], c=c, ls='none', capsize=3)
 
-        axis.set_ylabel(ylabel)
+        axis.set_ylabel(plot_parameter.axis_label)
         axis.tick_params(axis='y', labelcolor=c)
 
     def process_to_bins(self, key_name: str) -> dict[str, np.ndarray]:
