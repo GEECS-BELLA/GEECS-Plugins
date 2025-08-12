@@ -1,0 +1,5 @@
+Devices:
+  U_RTA4000:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list: []
