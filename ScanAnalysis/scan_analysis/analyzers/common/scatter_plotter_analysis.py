@@ -25,6 +25,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
     def __init__(self, scan_tag: ScanTag, use_median: bool,
                  title: str,
                  parameters: Union[PlotParameter, list[PlotParameter]],
+                 filename: str,
                  skip_plt_show: bool = True,
                  device_name: Optional[str] = None,
                  flag_logging: bool = True,
@@ -52,6 +53,9 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         else:
             self.stat_type = 'average'
 
+        self.save_path = self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / "ParameterPlots"
+        self.filename = filename
+
     def run_analysis(self) -> Optional[list[Union[Path, str]]]:
         try:
             if self.noscan:
@@ -59,13 +63,22 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
             else:
                 self.run_scan_analysis()
 
+            # Perform some final plot touch-ups
             plt.legend()
             plt.grid()
             plt.title(self.title)
             plt.tight_layout()
 
-            self.close_or_show_plot()
+            # Save the plot
+            save_path = Path(self.save_path) / f"{self.filename}.png"
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
+            if self.flag_logging:
+                logging.info(f"Image saved at {save_path}")
+            self.display_contents.append(str(save_path))
 
+            # Closeout the plot and return list of images saved
+            self.close_or_show_plot()
             return self.display_contents
 
         except Exception as e:
