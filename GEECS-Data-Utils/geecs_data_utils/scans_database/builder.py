@@ -566,7 +566,6 @@ class ScanDatabaseBuilder:
         table = pa.Table.from_pandas(df, preserve_index=False)
         pq.write_to_dataset(table, root_path=str(output_path), partition_cols=["year", "month"])
 
-
     #### database builder logging and tracking methods ###
     @staticmethod
     def _log_path(root: Path) -> Path:
