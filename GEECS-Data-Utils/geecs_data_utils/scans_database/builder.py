@@ -352,7 +352,9 @@ class ScanDatabaseBuilder:
         """
         if "scan_tag" in df.columns:
             for field in ["year", "month", "day", "number", "experiment"]:
-                df[field] = df["scan_tag"].apply(lambda tag: tag[field] if isinstance(tag, dict) else None)
+                df[field] = df["scan_tag"].apply(
+                    lambda tag: tag[field] if isinstance(tag, dict) else None
+                )
             df = df.drop(columns=["scan_tag"])
         return df
 
@@ -402,7 +404,9 @@ class ScanDatabaseBuilder:
         return df
 
     @staticmethod
-    def _cast_numeric_bool_from_annotations(df: pd.DataFrame) -> (pd.DataFrame, List[str]):
+    def _cast_numeric_bool_from_annotations(
+        df: pd.DataFrame,
+    ) -> (pd.DataFrame, List[str]):
         """
         Cast numeric and boolean columns based on ``ScanMetadata`` annotations.
 
@@ -475,13 +479,17 @@ class ScanDatabaseBuilder:
         """
         for col in cols:
             if col in df.columns:
-                df[col] = df[col].apply(
-                    lambda x: json.dumps(x) if x is not None else pd.NA
-                ).astype("string[pyarrow]")
+                df[col] = (
+                    df[col]
+                    .apply(lambda x: json.dumps(x) if x is not None else pd.NA)
+                    .astype("string[pyarrow]")
+                )
         return df
 
     @staticmethod
-    def _normalize_variable_columns(df: pd.DataFrame, str_candidates: List[str]) -> pd.DataFrame:
+    def _normalize_variable_columns(
+        df: pd.DataFrame, str_candidates: List[str]
+    ) -> pd.DataFrame:
         """
         Normalize list, JSON, and string columns for Arrow compatibility.
 
@@ -498,10 +506,13 @@ class ScanDatabaseBuilder:
             DataFrame with normalized list/JSON columns and stable string typing.
         """
         # JSON blobs → nullable Arrow strings (no literal "null")
-        df = ScanDatabaseBuilder._normalize_json_columns(df, ["scan_metadata", "ecs_dump"])
+        df = ScanDatabaseBuilder._normalize_json_columns(
+            df, ["scan_metadata", "ecs_dump"]
+        )
 
         # List columns → list-of-utf8 (empty list for missing)
         if "non_scalar_devices" in df.columns:
+
             def _norm_devices(x):
                 if isinstance(x, list):
                     return [str(v) for v in x]
@@ -564,7 +575,9 @@ class ScanDatabaseBuilder:
             return
         df = ScanDatabaseBuilder._buffer_to_dataframe(buffer)
         table = pa.Table.from_pandas(df, preserve_index=False)
-        pq.write_to_dataset(table, root_path=str(output_path), partition_cols=["year", "month"])
+        pq.write_to_dataset(
+            table, root_path=str(output_path), partition_cols=["year", "month"]
+        )
 
     #### database builder logging and tracking methods ###
     @staticmethod
@@ -581,7 +594,6 @@ class ScanDatabaseBuilder:
 
     @staticmethod
     def _write_update_log(root: Path, entries: List[_UpdateLogEntry]) -> None:
-        # atomic-ish write: write to temp, then rename
         final_path = ScanDatabaseBuilder._log_path(root)
         tmp = final_path.with_suffix(".tmp")
         tmp.write_text(
