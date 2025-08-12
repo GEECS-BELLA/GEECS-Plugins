@@ -579,7 +579,6 @@ class ScanDatabaseBuilder:
             table, root_path=str(output_path), partition_cols=["year", "month"]
         )
 
-    #### database builder logging and tracking methods ###
     @staticmethod
     def _log_path(root: Path) -> Path:
         return Path(root) / ScanDatabaseBuilder._LOG_NAME
