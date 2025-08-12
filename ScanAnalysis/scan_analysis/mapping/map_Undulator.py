@@ -12,6 +12,7 @@ from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithA
 from scan_analysis.analyzers.Undulator.hamaspectro_analysis import FiberSpectrometerAnalyzer
 from scan_analysis.analyzers.Undulator.frog_analysis import FrogAnalyzer
 from scan_analysis.analyzers.Undulator.ict_plot_analysis import ICTPlotAnalysis
+from scan_analysis.analyzers.Undulator.aline3_dispersion_analysis import ALine3DispersionAnalysis
 
 from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
 from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
@@ -56,7 +57,10 @@ undulator_analyzers = [
     Info(scan_analyzer_class=CameraImageAnalyzer,
          requirements={'UC_ALineEBeam2'},
          device_name='UC_ALineEBeam2'),
-    Info(scan_analyzer_class=CameraImageAnalyzer,
+    #Info(scan_analyzer_class=CameraImageAnalyzer,
+    #     requirements={'UC_ALineEBeam3'},
+    #     device_name='UC_ALineEBeam3'),
+    Info(scan_analyzer_class=ALine3DispersionAnalysis,
          requirements={'UC_ALineEBeam3'},
          device_name='UC_ALineEBeam3'),
     Info(scan_analyzer_class=CameraImageAnalyzer,
