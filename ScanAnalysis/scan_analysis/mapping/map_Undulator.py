@@ -11,6 +11,7 @@ from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageA
 from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
 from scan_analysis.analyzers.Undulator.hamaspectro_analysis import FiberSpectrometerAnalyzer
 from scan_analysis.analyzers.Undulator.frog_analysis import FrogAnalyzer
+from scan_analysis.analyzers.Undulator.ict_plot_analysis import ICTPlotAnalysis
 
 from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
 from image_analysis.offline_analyzers.HASO_himg_has_processor import HASOHimgHasProcessor
@@ -41,6 +42,9 @@ undulator_analyzers = [
     Info(scan_analyzer_class=MagSpecStitcherAnalyzer,
          requirements={'U_BCaveMagSpec'},
          device_name='U_BCaveMagSpec'),
+    Info(scan_analyzer_class=ICTPlotAnalysis,
+         requirements={'U_BCaveICT'},
+         device_name='U_BCaveICT'),
     Info(scan_analyzer_class=VisaEBeamAnalysis,
          requirements={'OR': ['UC_VisaEBeam1', 'UC_VisaEBeam2', 'UC_VisaEBeam3', 'UC_VisaEBeam4',
                               'UC_VisaEBeam5', 'UC_VisaEBeam6', 'UC_VisaEBeam7', 'UC_VisaEBeam8']}),
