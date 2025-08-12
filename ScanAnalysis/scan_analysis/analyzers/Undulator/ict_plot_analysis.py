@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
 
@@ -7,7 +7,8 @@ from scan_analysis.analyzers.common.scatter_plotter_analysis import ScatterPlott
 
 
 class ICTPlotAnalysis(ScatterPlotterAnalysis):
-    def __init__(self, scan_tag: ScanTag, use_median: bool = True, skip_plt_show: bool = True, flag_logging: bool = False):
+    def __init__(self, scan_tag: ScanTag, skip_plt_show: bool = True, device_name: Optional[str] = None,
+                 use_median: bool = True,  flag_logging: bool = False):
 
         ict_plot_parameter = [
             PlotParameter(key_name='U_BCaveICT Python Results.ChA Alias:U_BCaveICT Charge pC',
@@ -21,6 +22,7 @@ class ICTPlotAnalysis(ScatterPlotterAnalysis):
                          use_median=use_median,
                          title='BCave ICT Charge Value',
                          parameters=ict_plot_parameter,
+                         filename='bcaveict',
                          skip_plt_show=skip_plt_show,
                          flag_logging=flag_logging)
 
