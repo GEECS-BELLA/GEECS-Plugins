@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict
 
 from geecs_data_utils.scan_data import ScanData
 from geecs_data_utils.utils import ScanTag
-from geecs_data_utils.scans_database.entries import ScanEntry, ScanMetadata
+from geecs_data_utils.scans_database.entries import ScanEntry, ScanMetadata, collect_dtypes, get_pyarrow_schema
 from geecs_data_utils.type_defs import parse_ecs_dump
 
 logger = logging.getLogger(__name__)
@@ -55,16 +55,6 @@ class ScanDatabaseBuilder:
     def build_scan_entry(scan_data: ScanData) -> ScanEntry:
         """
         Construct a ScanEntry from a given ScanData object.
-
-        Parameters
-        ----------
-        scan_data : ScanData
-            Object containing paths and parsed content for a single scan.
-
-        Returns
-        -------
-        ScanEntry
-            Fully populated metadata entry for the scan.
         """
         folder = scan_data.get_folder()
         tag = scan_data.get_tag()
@@ -73,9 +63,7 @@ class ScanDatabaseBuilder:
         devices = files_and_folders.get("devices", [])
         files = files_and_folders.get("files", [])
 
-        scalar_txt = next(
-            (f for f in files if f.endswith(".txt") and f.startswith("ScanData")), None
-        )
+        scalar_txt = next((f for f in files if f.endswith(".txt") and f.startswith("ScanData")), None)
         tdms_file = next((f for f in files if f.endswith(".tdms")), None)
 
         scalar_data_file = str(folder / scalar_txt) if scalar_txt else None
@@ -91,7 +79,11 @@ class ScanDatabaseBuilder:
         ecs_dump = parse_ecs_dump(ecs_path)
 
         return ScanEntry(
-            scan_tag=tag,
+            year=tag.year,
+            month=tag.month,
+            day=tag.day,
+            number=tag.number,
+            experiment=tag.experiment,
             scalar_data_file=scalar_data_file,
             tdms_file=tdms_file_path,
             non_scalar_devices=devices,
@@ -307,16 +299,15 @@ class ScanDatabaseBuilder:
             experiment=experiment,
             date_range=(start_date, end_date),
         ):
-            tag = entry.scan_tag
-            entry_date = date(tag.year, tag.month, tag.day)
 
+            entry_date = date(entry.year, entry.month, entry.day)
             # Update written range (based on entries we actually append)
             if written_start is None or entry_date < written_start:
                 written_start = entry_date
             if written_end is None or entry_date > written_end:
                 written_end = entry_date
 
-            buffer.append(entry.model_dump())
+            buffer.append(entry)
             scan_counter += 1
 
             if max_scans and scan_counter >= max_scans:
@@ -335,220 +326,32 @@ class ScanDatabaseBuilder:
             )
 
     @staticmethod
-    def _flatten_scan_tag(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Flatten the ``scan_tag`` dictionary into individual columns.
+    def _buffer_to_dataframe(
+            buffer: List[ScanEntry]) -> pd.DataFrame:
+        """Convert a list of scan entry dictionaries to a normalized DataFrame."""
 
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            DataFrame containing a ``scan_tag`` column with dictionaries.
+        records = ScanDatabaseBuilder.get_parquet_records_from_entries(buffer)
+        schema = collect_dtypes(buffer[0])
+        df = pd.DataFrame(records).astype(schema, errors="ignore")  # `schema` from collect_dtypes()
 
-        Returns
-        -------
-        pandas.DataFrame
-            DataFrame with columns ``year``, ``month``, ``day``, ``number``, ``experiment``
-            extracted from ``scan_tag`` and the original ``scan_tag`` column removed.
-        """
-        if "scan_tag" in df.columns:
-            for field in ["year", "month", "day", "number", "experiment"]:
-                df[field] = df["scan_tag"].apply(
-                    lambda tag: tag[field] if isinstance(tag, dict) else None
-                )
-            df = df.drop(columns=["scan_tag"])
         return df
 
     @staticmethod
-    def _ensure_partition_keys(df: pd.DataFrame) -> pd.DataFrame:
+    def get_parquet_records_from_entries(
+            entries: list[ScanEntry]) -> list[dict]:
         """
-        Ensure ``year`` and ``month`` partition keys are numeric types.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            DataFrame containing ``year`` and ``month`` columns.
+        Flatten a list of ScanEntry objects into a list of dictionaries
+        suitable for writing to Parquet.
 
         Returns
         -------
-        pandas.DataFrame
-            DataFrame with ``year`` as Int16 and ``month`` as Int8, coercing invalid values to NaN.
+        list of dict
+            Each dict has flat keys including nested metadata fields.
         """
-        df["year"] = pd.to_numeric(df.get("year"), errors="coerce").astype("Int16")
-        df["month"] = pd.to_numeric(df.get("month"), errors="coerce").astype("Int8")
-        return df
+        return [entry.flatten() for entry in entries]
 
     @staticmethod
-    def _extract_metadata_columns(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Extract structured metadata fields from the ``scan_metadata`` dictionary column.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            DataFrame containing a ``scan_metadata`` column with dictionaries.
-
-        Returns
-        -------
-        pandas.DataFrame
-            DataFrame with all fields from ``ScanMetadata`` (excluding ``raw_fields``) added
-            as top-level columns.
-        """
-        meta_fields = [n for n in ScanMetadata.model_fields.keys() if n != "raw_fields"]
-
-        def _meta_get(meta, key):
-            return meta.get(key, None) if isinstance(meta, dict) else None
-
-        src = df.get("scan_metadata", pd.Series([None] * len(df)))
-        for field in meta_fields:
-            df[field] = src.apply(lambda m, k=field: _meta_get(m, k))
-        return df
-
-    @staticmethod
-    def _cast_numeric_bool_from_annotations(
-        df: pd.DataFrame,
-    ) -> (pd.DataFrame, List[str]):
-        """
-        Cast numeric and boolean columns based on ``ScanMetadata`` annotations.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            DataFrame with extracted metadata fields.
-
-        Returns
-        -------
-        tuple
-            A tuple ``(df, string_candidates)`` where:
-            - df : pandas.DataFrame
-                DataFrame with numeric columns cast to float/int and boolean columns to
-                nullable boolean dtype.
-            - string_candidates : list of str
-                Column names that should be treated as string-like for Arrow schema stability.
-        """
-
-        def _unwrap_optional(t):
-            origin = get_origin(t)
-            if origin is Union:
-                args = [a for a in get_args(t) if a is not type(None)]
-                return args[0] if args else t
-            return t
-
-        numeric, booleans, strings = [], [], []
-        for name, field_info in ScanMetadata.model_fields.items():
-            if name == "raw_fields":
-                continue
-            anno = _unwrap_optional(field_info.annotation)
-            if anno in (float, int):
-                numeric.append(name)
-            elif anno is bool:
-                booleans.append(name)
-            elif anno is str:
-                strings.append(name)
-
-        for col in numeric:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-        for col in booleans:
-            if col in df.columns:
-                df[col] = df[col].astype("boolean")
-
-        return df, strings
-
-    @staticmethod
-    def _normalize_json_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
-        """
-        Normalize JSON-like columns to nullable Arrow strings.
-
-        Each column is:
-          - Serialized with ``json.dumps`` when the value is not ``None``.
-          - Set to ``pd.NA`` when the value is ``None`` (so missing shows as <NA>).
-          - Finally coerced to ``string[pyarrow]`` to guarantee Arrow ``utf8`` type,
-            even if an entire batch is missing (prevents Arrow ``null``-typed partitions).
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            DataFrame containing the JSON-like columns.
-        cols : list of str
-            Column names to normalize.
-
-        Returns
-        -------
-        pandas.DataFrame
-            DataFrame with the specified columns normalized to nullable Arrow strings.
-        """
-        for col in cols:
-            if col in df.columns:
-                df[col] = (
-                    df[col]
-                    .apply(lambda x: json.dumps(x) if x is not None else pd.NA)
-                    .astype("string[pyarrow]")
-                )
-        return df
-
-    @staticmethod
-    def _normalize_variable_columns(
-        df: pd.DataFrame, str_candidates: List[str]
-    ) -> pd.DataFrame:
-        """
-        Normalize list, JSON, and string columns for Arrow compatibility.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            DataFrame to normalize.
-        str_candidates : list of str
-            Additional columns to force to Arrow utf8 type.
-
-        Returns
-        -------
-        pandas.DataFrame
-            DataFrame with normalized list/JSON columns and stable string typing.
-        """
-        # JSON blobs → nullable Arrow strings (no literal "null")
-        df = ScanDatabaseBuilder._normalize_json_columns(
-            df, ["scan_metadata", "ecs_dump"]
-        )
-
-        # List columns → list-of-utf8 (empty list for missing)
-        if "non_scalar_devices" in df.columns:
-            df["non_scalar_devices"] = df["non_scalar_devices"].apply(
-                lambda lst: [str(v) for v in lst] if isinstance(lst, list) else []
-            )
-
-        # Force Arrow utf8 on other string-like columns
-        string_like = ["experiment", "scalar_data_file", "tdms_file"]
-        string_like.extend([c for c in str_candidates if c in df.columns])
-        for col in string_like:
-            if col in df.columns:
-                df[col] = df[col].astype("string[pyarrow]")
-        return df
-
-    @staticmethod
-    def _buffer_to_dataframe(buffer: List[dict]) -> pd.DataFrame:
-        """
-        Convert a list of scan entry dictionaries to a normalized DataFrame.
-
-        Parameters
-        ----------
-        buffer : list of dict
-            List of scan entry dictionaries (e.g., from ``ScanEntry.model_dump()``).
-
-        Returns
-        -------
-        pandas.DataFrame
-            Normalized DataFrame ready for Parquet export.
-        """
-        df = pd.DataFrame(buffer)
-        df = ScanDatabaseBuilder._flatten_scan_tag(df)
-        df = ScanDatabaseBuilder._ensure_partition_keys(df)
-        df = ScanDatabaseBuilder._extract_metadata_columns(df)
-        df, str_candidates = ScanDatabaseBuilder._cast_numeric_bool_from_annotations(df)
-        df = ScanDatabaseBuilder._normalize_variable_columns(df, str_candidates)
-        return df
-
-    @staticmethod
-    def _write_parquet_buffer(buffer: List[dict], output_path: Path) -> None:
+    def _write_parquet_buffer(buffer: List[ScanEntry], output_path: Path) -> None:
         """
         Write a buffered list of scan entry dicts to a Hive-partitioned Parquet dataset.
 
@@ -568,7 +371,9 @@ class ScanDatabaseBuilder:
         if not buffer:
             return
         df = ScanDatabaseBuilder._buffer_to_dataframe(buffer)
-        table = pa.Table.from_pandas(df, preserve_index=False)
+        arrow_schema = get_pyarrow_schema(buffer[0])  # new function
+        table = pa.Table.from_pandas(df, schema=arrow_schema, preserve_index=False)
+
         pq.write_to_dataset(
             table, root_path=str(output_path), partition_cols=["year", "month"]
         )

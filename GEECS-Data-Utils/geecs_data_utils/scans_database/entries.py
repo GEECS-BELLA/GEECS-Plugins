@@ -1,31 +1,9 @@
-"""
-Scan scans_database entry schema.
-
-This module defines structured models for representing scan entries and
-associated metadata in the GEECS data ecosystem. These models are used
-to serialize, organize, and manage experimental scan data, including
-scalar logs, TDMS files, non-scalar device data, scan metadata parsed
-from INI files, and ECS dumps.
-
-Classes
--------
-ScanMetadata
-    Represents structured scan metadata extracted from INI-style config files.
-ScanEntry
-    Represents a full scan record with associated files and metadata.
-
-Notes
------
-These models are primarily intended for use in building and querying a
-structured scan scans_database using the `ScanDatabase` class. The models use
-Pydantic for data validation and serialization.
-"""
-
 from __future__ import annotations
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from datetime import date
 from pydantic import BaseModel
 import pyarrow as pa
+import json
 
 from geecs_data_utils.utils import ScanTag
 from geecs_data_utils.type_defs import ECSDump
@@ -34,7 +12,6 @@ from geecs_data_utils.type_defs import ECSDump
 # -----------------------------------------------------------------------------
 # ScanMetadata
 # -----------------------------------------------------------------------------
-
 
 class ScanMetadata(BaseModel):
     """
@@ -55,13 +32,17 @@ class ScanMetadata(BaseModel):
     scan_mode : Optional[str]
         Type of scan (e.g., "standard", "background").
     scan_description : Optional[str]
-        user input description of the scan.
+        User-provided description of the scan.
     background : Optional[bool]
         Whether this scan was flagged as a background measurement.
     raw_fields : Dict[str, str]
         Raw key-value fields from the scan info file.
-    """
 
+    Notes
+    -----
+    - This model is expected to be flat (no nested submodels).
+    - Nested models inside ScanMetadata are not currently supported by flatten().
+    """
     scan_parameter: Optional[str] = None
     start: Optional[float] = None
     end: Optional[float] = None
@@ -74,35 +55,6 @@ class ScanMetadata(BaseModel):
 
     @classmethod
     def from_ini_dict(cls, ini_data: Dict[str, str]) -> ScanMetadata:
-        """
-        Construct a ScanMetadata object from an INI-style dictionary.
-
-        This method parses known scan metadata fields from a dictionary
-        produced by reading a scan's INI configuration file. Numeric and
-        boolean fields are converted to the appropriate Python types where
-        possible. Any unrecognized fields are preserved in `raw_fields`.
-
-        Parameters
-        ----------
-        ini_data : dict of str to str
-            Dictionary parsed from a scan info (.ini) file, where all keys
-            and values are strings.
-
-        Returns
-        -------
-        ScanMetadata
-            A validated ScanMetadata object with typed and structured
-            metadata fields populated from the input dictionary.
-
-        Notes
-        -----
-        - Missing keys are returned as ``None`` for optional fields.
-        - Boolean values for ``background`` are parsed case-insensitively
-          and accept ``"true"``, ``"1"``, ``"yes"``, and ``"y"`` as True.
-        - All original key-value pairs from the INI file are stored in
-          ``raw_fields`` for completeness.
-        """
-
         def parse_float(key: str) -> Optional[float]:
             return float(ini_data[key]) if key in ini_data else None
 
@@ -129,43 +81,15 @@ class ScanMetadata(BaseModel):
 # ScanEntry
 # -----------------------------------------------------------------------------
 
-
 class ScanEntry(BaseModel):
     """
     Represents a single scan and its associated metadata and state.
 
-    This model stores scan date components (`year`, `month`, `day`) as integers for
-    Parquet/Hive compatibility, along with scan number, experiment name, file paths,
-    device lists, and metadata.
-
-    Attributes
-    ----------
-    year : int
-        Four-digit year of the scan (e.g., 2025).
-    month : int
-        Month of the scan, in range [1, 12].
-    day : int
-        Day of the month of the scan, in range [1, 31].
-    number : int
-        Sequential scan number for that day.
-    experiment : str
-        Name of the experiment associated with this scan.
-    scalar_data_file : Optional[str]
-        Path to scalar data file (.txt), if available.
-    tdms_file : Optional[str]
-        Path to TDMS file, if present.
-    non_scalar_devices : list of str
-        Device names with saved image or scope data.
-    scan_metadata : dict
-        Parsed scan metadata (from ScanInfo file).
-    ecs_dump : Optional[dict]
-        Parsed ECS dump containing device states, if present.
-    has_analysis_dir : bool
-        Whether an associated analysis directory exists for the scan.
-    notes : Optional[str]
-        Optional notes or annotations about this scan.
+    This model uses submodels for components like ScanMetadata and flattens
+    fields on export for Parquet/DF usage. Nested submodels beyond one level
+    (i.e., submodels inside submodels) are currently not supported and will
+    raise a ValueError during flattening.
     """
-
     year: int
     month: int
     day: int
@@ -174,8 +98,8 @@ class ScanEntry(BaseModel):
     scalar_data_file: Optional[str]
     tdms_file: Optional[str]
     non_scalar_devices: List[str]
-    scan_metadata: dict
-    ecs_dump: Optional[dict]
+    scan_metadata: Optional[ScanMetadata] = None
+    ecs_dump: Optional[ECSDump] = None
     has_analysis_dir: bool
     notes: Optional[str] = None
 
@@ -191,19 +115,108 @@ class ScanEntry(BaseModel):
         """
         return date(self.year, self.month, self.day)
 
+    def flatten(self) -> dict:
+        """
+        Flatten nested models into a flat dictionary for Parquet/DF use.
+
+        Returns
+        -------
+        dict
+            A flattened dictionary representation of the scan entry.
+
+        Raises
+        ------
+        ValueError
+            If nested submodels are detected within any BaseModel attribute.
+        """
+        flat = {}
+        for k, v in self.__dict__.items():
+            if isinstance(v, ScanMetadata):
+                for sub_k, sub_v in v.model_dump(exclude_unset=False).items():
+                    # Serialize raw_fields if it's a dict
+                    if sub_k == 'raw_fields' and isinstance(sub_v, dict):
+                        sub_v = json.dumps(sub_v)
+                        flat[f"{k}_{sub_k}"] = sub_v
+                    else:
+                        flat[f"{sub_k}"] = sub_v
+            elif k == 'ecs_dump' and isinstance(v, dict):
+                flat[k] = json.dumps(v)
+            else:
+                flat[k] = v
+        return flat
+
+    @classmethod
+    def unflatten(cls, data: dict) -> ScanEntry:
+        """
+        Rehydrate a ScanEntry from a flat dictionary.
+
+        Parameters
+        ----------
+        data : dict
+            A flat dictionary, typically loaded from a Parquet row.
+
+        Returns
+        -------
+        ScanEntry
+            A reconstructed ScanEntry instance.
+        """
+        scan_metadata_fields = {
+            k.removeprefix("scan_metadata_"): v
+            for k, v in data.items()
+            if k.startswith("scan_metadata_")
+        }
+        base_fields = {
+            k: v for k, v in data.items() if not k.startswith("scan_metadata_")
+        }
+        return cls(
+            **base_fields,
+            scan_metadata=ScanMetadata(**scan_metadata_fields) if scan_metadata_fields else None
+        )
+
     model_config = {"arbitrary_types_allowed": True}
 
-SCHEMA_DTYPE_MAP = {
-    "year": "Int16",
-    "month": "Int8",
-    "day": "Int8",
-    "number": "Int32",
-    "experiment": "string[pyarrow]",
-    "scalar_data_file": "string[pyarrow]",
-    "tdms_file": "string[pyarrow]",
-    "non_scalar_devices": pa.list_(pa.string()),
-    "scan_metadata": "string[pyarrow]",
-    "ecs_dump": "string[pyarrow]",
-    "has_analysis_dir": "boolean",
-    "notes": "string[pyarrow]",
-}
+
+# -----------------------------------------------------------------------------
+# Schema mapping
+# -----------------------------------------------------------------------------
+
+def collect_dtypes(entry: ScanEntry) -> dict[str, str]:
+    """
+    Collect **pandas-compatible** dtypes for use in .astype().
+    Use string representations only — no pyarrow types.
+    """
+    flat = entry.flatten()
+    out = {}
+    for k, v in flat.items():
+        if isinstance(v, int):
+            out[k] = "Int32"
+        elif isinstance(v, float):
+            out[k] = "float64"
+        elif isinstance(v, bool):
+            out[k] = "boolean"
+        elif isinstance(v, list):
+            out[k] = "object"  # ✅ pandas dtype for lists
+        else:
+            out[k] = "string"
+    return out
+
+def get_pyarrow_schema(entry: ScanEntry) -> pa.Schema:
+    """
+    Collect PyArrow-compatible schema for writing to Parquet.
+    """
+    flat = entry.flatten()
+    fields = []
+    for k, v in flat.items():
+        if isinstance(v, int):
+            dtype = pa.int32()
+        elif isinstance(v, float):
+            dtype = pa.float64()
+        elif isinstance(v, bool):
+            dtype = pa.bool_()
+        elif isinstance(v, list):
+            dtype = pa.list_(pa.string())
+        else:
+            dtype = pa.string()
+        fields.append(pa.field(k, dtype))
+    return pa.schema(fields)
+
