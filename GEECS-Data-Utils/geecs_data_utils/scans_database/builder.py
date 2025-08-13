@@ -512,15 +512,9 @@ class ScanDatabaseBuilder:
 
         # List columns → list-of-utf8 (empty list for missing)
         if "non_scalar_devices" in df.columns:
-
-            def _norm_devices(x):
-                if isinstance(x, list):
-                    return [str(v) for v in x]
-                if x is None or (isinstance(x, float) and pd.isna(x)):
-                    return []
-                return [str(x)]
-
-            df["non_scalar_devices"] = df["non_scalar_devices"].apply(_norm_devices)
+            df["non_scalar_devices"] = df["non_scalar_devices"].apply(
+                lambda lst: [str(v) for v in lst] if isinstance(lst, list) else []
+            )
 
         # Force Arrow utf8 on other string-like columns
         string_like = ["experiment", "scalar_data_file", "tdms_file"]

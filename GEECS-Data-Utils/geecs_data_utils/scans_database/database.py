@@ -27,6 +27,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Union, List, Tuple, Callable, Optional, Any, Mapping
 import pandas as pd
+import pyarrow as pa
+import pyarrow.dataset as ds
+import pandas as pd
+
 import json
 import yaml
 from pydantic import ValidationError
@@ -688,6 +692,9 @@ class ScanDatabase:
 
     def filter_device_contains(self, device_substring: str) -> "ScanDatabase":
         """Filter rows where any `non_scalar_devices` item contains the substring (case-insensitive)."""
+        import numpy as np
+        import pandas as pd
+
         needle = device_substring.lower()
 
         def _f(df: pd.DataFrame) -> pd.DataFrame:
@@ -695,12 +702,20 @@ class ScanDatabase:
             if col not in df.columns:
                 return df
 
-            def _has(lst) -> bool:
-                if isinstance(lst, list):
-                    return any(isinstance(x, str) and needle in x.lower() for x in lst)
-                if isinstance(lst, str):
-                    return needle in lst.lower()
-                return False
+            def _has(v) -> bool:
+                # normalize to list[str] just-in-time
+                if isinstance(v, np.ndarray):
+                    v = v.ravel().tolist()
+                elif isinstance(v, list):
+                    pass
+                elif v is None or (isinstance(v, float) and pd.isna(v)):
+                    v = []
+                elif isinstance(v, str):
+                    v = [v]
+                else:
+                    v = []
+
+                return any(isinstance(x, str) and needle in x.lower() for x in v)
 
             return df[df[col].apply(_has)]
 
@@ -854,30 +869,35 @@ class ScanDatabase:
 
     def _load_partitions(self) -> pd.DataFrame:
         """Load selected partitions, trim by day if needed, then apply filters."""
-        dfs: List[pd.DataFrame] = []
-        for folder in self._partitions_to_read():
+        parts = self._partitions_to_read()
+        if not parts:
+            return pd.DataFrame()
+
+        tables = []
+        for folder in parts:
             try:
-                dfs.append(pd.read_parquet(folder))
+                dset = ds.dataset(str(folder), format="parquet", partitioning="hive")
+                tables.append(dset.to_table())
             except Exception as e:
                 print(f"[WARN] Skipping partition {folder}: {e}")
-        if not dfs:
+
+        if not tables:
             return pd.DataFrame()
-        df = pd.concat(dfs, ignore_index=True)
+
+        table = pa.concat_tables(tables, promote=True)
+        # keep nullable dtypes where possible
+        df = table.to_pandas(types_mapper=pd.ArrowDtype)
 
         # day-level trim
-        if self._date_range is not None and all(
-            c in df.columns for c in ("year", "month", "day")
-        ):
+        if self._date_range is not None and all(c in df.columns for c in ("year", "month", "day")):
             s, e = self._date_range
-            ts = pd.to_datetime(
-                {"year": df["year"], "month": df["month"], "day": df["day"]},
-                errors="coerce",
-            )
+            ts = pd.to_datetime({"year": df["year"], "month": df["month"], "day": df["day"]}, errors="coerce")
             df = df[(ts >= s) & (ts <= e)].copy()
 
         # apply pandas filters
         for f in self._df_filters:
             df = f(df)
+
         return df
 
     # -----------------------
