@@ -780,7 +780,8 @@ class ScanDatabase:
         def _f(df: pd.DataFrame) -> pd.DataFrame:
             if "ecs_dump" not in df.columns:
                 return df
-            mask = df["ecs_dump"].apply(
+            col = "__ecs" if "__ecs" in df.columns else "ecs_dump"
+            mask = df[col].apply(
                 lambda s: any(
                     _ok_num(v)
                     for v in ScanDatabase._ecs_values(s, device_like, variable_like)
@@ -808,7 +809,8 @@ class ScanDatabase:
         def _f(df: pd.DataFrame) -> pd.DataFrame:
             if "ecs_dump" not in df.columns:
                 return df
-            mask = df["ecs_dump"].apply(
+            col = "__ecs" if "__ecs" in df.columns else "ecs_dump"
+            mask = df[col].apply(
                 lambda s: any(
                     _ok_str(v)
                     for v in ScanDatabase._ecs_values(s, device_like, variable_like)
@@ -868,37 +870,53 @@ class ScanDatabase:
         return paths
 
     def _load_partitions(self) -> pd.DataFrame:
-        """Load selected partitions, trim by day if needed, then apply filters."""
-        parts = self._partitions_to_read()
-        if not parts:
-            return pd.DataFrame()
+        """Load selected partitions via a single hive-partitioned dataset, then apply filters."""
+        # Build a single dataset rooted at the hive tree
+        dataset = ds.dataset(str(self.root), format="parquet", partitioning="hive")
 
-        tables = []
-        for folder in parts:
-            try:
-                dset = ds.dataset(str(folder), format="parquet", partitioning="hive")
-                tables.append(dset.to_table())
-            except Exception as e:
-                print(f"[WARN] Skipping partition {folder}: {e}")
+        # Optional partition pruning using a filter expression
+        filter_expr = None
+        if self._date_range is not None:
+            s, e = self._date_range
+            months = pd.period_range(s, e, freq="M")
 
-        if not tables:
-            return pd.DataFrame()
+            # group months by year to build (year==Y & month IN [...]) OR ...
+            by_year = {}
+            for p in months:
+                by_year.setdefault(p.year, []).append(p.month)
 
-        table = pa.concat_tables(tables, promote=True)
-        # keep nullable dtypes where possible
-        df = table.to_pandas(types_mapper=pd.ArrowDtype)
+            exprs = []
+            for y, mlist in by_year.items():
+                exprs.append((ds.field("year") == int(y)) & ds.field("month").isin(list(map(int, mlist))))
+            # Combine with OR
+            if exprs:
+                filter_expr = exprs[0]
+                for ex in exprs[1:]:
+                    filter_expr = filter_expr | ex
 
-        # day-level trim
+        # Scan only the needed partitions; this injects year/month columns automatically
+        table = dataset.to_table(filter=filter_expr)
+        df = table.to_pandas()  # (avoid Arrow-backed dtypes here)
+
+        # Day-level trim if day exists (partition filter above is month-level)
         if self._date_range is not None and all(c in df.columns for c in ("year", "month", "day")):
             s, e = self._date_range
             ts = pd.to_datetime({"year": df["year"], "month": df["month"], "day": df["day"]}, errors="coerce")
             df = df[(ts >= s) & (ts <= e)].copy()
 
-        # apply pandas filters
+        # Normalize ECS once so filters are fast and stable
+        # if "ecs_dump" in df.columns:
+        #     df["__ecs"] = df["ecs_dump"].astype("object").map(self._ecs_json_load)
+
+        if "ecs_dump" in df.columns:
+            df["__ecs"] = df["ecs_dump"].astype(str).map(self._ecs_json_load)
+
+        # Apply any queued pandas filters
         for f in self._df_filters:
             df = f(df)
 
         return df
+
 
     # -----------------------
     # Public API

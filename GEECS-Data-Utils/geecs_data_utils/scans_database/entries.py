@@ -139,8 +139,14 @@ class ScanEntry(BaseModel):
                         flat[f"{k}_{sub_k}"] = sub_v
                     else:
                         flat[f"{sub_k}"] = sub_v
-            elif k == 'ecs_dump' and isinstance(v, dict):
-                flat[k] = json.dumps(v)
+
+            elif k == "ecs_dump":
+                # ✅ Single standard: JSON string written to Parquet
+                if v is None:
+                    flat[k] = None
+                else:
+                    flat[k] = json.dumps(v.model_dump(by_alias=True))
+
             else:
                 flat[k] = v
         return flat
@@ -188,7 +194,9 @@ def collect_dtypes(entry: ScanEntry) -> dict[str, str]:
     flat = entry.flatten()
     out = {}
     for k, v in flat.items():
-        if isinstance(v, int):
+        if k == "ecs_dump":
+            out[k] = "string"            # ✅ force pandas string
+        elif isinstance(v, int):
             out[k] = "Int32"
         elif isinstance(v, float):
             out[k] = "float64"
@@ -196,6 +204,7 @@ def collect_dtypes(entry: ScanEntry) -> dict[str, str]:
             out[k] = "boolean"
         elif isinstance(v, list):
             out[k] = "object"  # ✅ pandas dtype for lists
+
         else:
             out[k] = "string"
     return out
@@ -207,7 +216,9 @@ def get_pyarrow_schema(entry: ScanEntry) -> pa.Schema:
     flat = entry.flatten()
     fields = []
     for k, v in flat.items():
-        if isinstance(v, int):
+        if k == "ecs_dump":
+            dtype = pa.large_string()  # ✅ force Arrow string
+        elif isinstance(v, int):
             dtype = pa.int32()
         elif isinstance(v, float):
             dtype = pa.float64()
@@ -215,6 +226,7 @@ def get_pyarrow_schema(entry: ScanEntry) -> pa.Schema:
             dtype = pa.bool_()
         elif isinstance(v, list):
             dtype = pa.list_(pa.string())
+
         else:
             dtype = pa.string()
         fields.append(pa.field(k, dtype))
