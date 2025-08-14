@@ -26,8 +26,6 @@ pyarrow.parquet : Backend engine for reading partitioned Parquet files.
 from __future__ import annotations
 from pathlib import Path
 from typing import Union, List, Tuple, Callable, Optional, Any, Mapping
-import pandas as pd
-import pyarrow as pa
 import pyarrow.dataset as ds
 import pandas as pd
 
@@ -106,111 +104,6 @@ class ScanDatabase:
             except Exception as e:
                 # Non-fatal: keep operating without presets
                 print(f"[WARN] Failed to load generic presets from {preset_path}: {e}")
-
-    def load_named_filters(self, path: Union[str, Path]) -> "ScanDatabase":
-        """Load named filter specs (including composites) from a YAML file."""
-        p = Path(path)
-        data = yaml.safe_load(p.read_text())
-        specs = (data or {}).get("filters") or {}
-        if not isinstance(specs, Mapping):
-            raise ValueError("YAML must contain a top-level 'filters' mapping")
-
-        # Parse and validate using Pydantic models
-        validated_specs = {}
-        total_filters = len(specs)
-        skipped_filters = []
-
-        for name, raw_spec in specs.items():
-            try:
-                # Parse using Pydantic models with automatic validation
-                filter_spec = parse_filter_spec_from_yaml(name, raw_spec)
-                validated_specs[name] = filter_spec
-            except (ValidationError, ValueError) as e:
-                print(f"[ERROR] Filter '{name}' validation failed: {e} - REMOVED")
-                skipped_filters.append(name)
-            except Exception as e:
-                print(f"[ERROR] Filter '{name}' unexpected error: {e} - REMOVED")
-                skipped_filters.append(name)
-
-        self._named_specs.update(validated_specs)
-
-        # Report loading summary
-        loaded_count = len(validated_specs)
-        print(f"[INFO] Loaded {loaded_count}/{total_filters} filters from {p.name}")
-        if skipped_filters:
-            print(f"[INFO] Skipped filters: {', '.join(skipped_filters)}")
-
-        return self
-
-    def register_named_filter(
-        self,
-        name: str,
-        *,
-        kind: str | None = None,
-        args: Mapping[str, Any] | None = None,
-        subfilters: list[str] | None = None,
-    ) -> "ScanDatabase":
-        """Register a single named filter spec at runtime (supports composites)."""
-        if not name:
-            raise ValueError("Filter name must be non-empty")
-        if kind == "composite":
-            self._named_specs[name] = {
-                "kind": "composite",
-                "subfilters": list(subfilters or []),
-            }
-        elif kind:
-            self._named_specs[name] = {"kind": kind, "args": dict(args or {})}
-        else:
-            raise ValueError(
-                "Provide 'kind' (and 'args') or kind='composite' with 'subfilters'"
-            )
-        return self
-
-    def list_named_filters(self, show_dates: bool = False) -> list[str]:
-        """Return available filter names, optionally showing validity periods."""
-        if not show_dates:
-            return sorted(self._named_specs.keys())
-
-        result = []
-        for name, filter_spec in self._named_specs.items():
-            if len(filter_spec.versions) > 1:
-                # Multiple dated versions
-                for version in filter_spec.versions:
-                    valid_from = version.valid_from or "always"
-                    valid_to = version.valid_to or "current"
-                    result.append(f"{name}[{valid_from} to {valid_to}]")
-            else:
-                # Single version
-                version = filter_spec.versions[0]
-                if version.valid_from or version.valid_to:
-                    valid_from = version.valid_from or "always"
-                    valid_to = version.valid_to or "current"
-                    result.append(f"{name}[{valid_from} to {valid_to}]")
-                else:
-                    result.append(f"{name}[undated]")
-        return sorted(result)
-
-    def describe_named_filter(self, name: str) -> dict[str, Any]:
-        """Return the raw spec dict for a named filter."""
-        spec = self._named_specs.get(name)
-        if spec is None:
-            raise KeyError(f"Unknown named filter: '{name}'")
-        return spec
-
-    def apply(self, *names: str) -> "ScanDatabase":
-        """Apply one or more named filters, using stored date range for version resolution."""
-        if not names:
-            return self
-
-        for name in names:
-            if self._date_range:
-                # Use the multi-version spanning logic
-                self._apply_dated_filter_spanning(name, self._date_range)
-            else:
-                # No date range set, use current date or latest version
-                resolved_spec = self._resolve_dated_filter(name, None)
-                self._apply_resolved_spec(name, resolved_spec, set())
-        return self
 
     def _apply_dated_filter_spanning(
         self, name: str, date_range: Tuple[pd.Timestamp, pd.Timestamp]
@@ -315,77 +208,6 @@ class ScanDatabase:
             return
 
         self._instantiate_and_enqueue(kind, spec.get("args") or {})
-
-    def _find_overlapping_versions(
-        self, spec_list: List[dict], date_range: Tuple[pd.Timestamp, pd.Timestamp]
-    ) -> List[Tuple[pd.Timestamp, pd.Timestamp, dict]]:
-        """Find all filter versions that overlap with the given date range."""
-        start_date, end_date = date_range[0].date(), date_range[1].date()
-        applicable_versions = []
-
-        for version in spec_list:
-            valid_from = pd.to_datetime(version.get("valid_from", "1900-01-01")).date()
-            valid_to_str = version.get("valid_to")
-            valid_to = (
-                pd.to_datetime(valid_to_str).date()
-                if valid_to_str
-                else pd.Timestamp.now().date()
-            )
-
-            # Check if this version overlaps with query range
-            if not (valid_to < start_date or valid_from > end_date):
-                # Calculate the actual overlap period
-                overlap_start = pd.Timestamp(max(valid_from, start_date))
-                overlap_end = pd.Timestamp(min(valid_to, end_date))
-
-                version_spec = {
-                    k: v
-                    for k, v in version.items()
-                    if k not in ["valid_from", "valid_to"]
-                }
-                applicable_versions.append((overlap_start, overlap_end, version_spec))
-
-        return applicable_versions
-
-    def _create_composite_dated_filter(
-        self, applicable_versions: List[Tuple[pd.Timestamp, pd.Timestamp, dict]]
-    ) -> Callable[[pd.DataFrame], pd.DataFrame]:
-        """Create a composite filter that applies the right version based on scan date."""
-
-        def _composite_dated_filter(df: pd.DataFrame) -> pd.DataFrame:
-            if df.empty:
-                return df
-
-            # Create scan dates from year/month/day columns
-            if not all(c in df.columns for c in ["year", "month", "day"]):
-                # If we don't have date columns, apply all versions (OR logic)
-                result_mask = pd.Series([False] * len(df), index=df.index)
-                for _, _, version_spec in applicable_versions:
-                    filtered_subset = self._apply_single_filter_spec(df, version_spec)
-                    result_mask.loc[filtered_subset.index] = True
-                return df[result_mask]
-
-            scan_dates = pd.to_datetime(
-                {"year": df["year"], "month": df["month"], "day": df["day"]}
-            )
-
-            result_mask = pd.Series([False] * len(df), index=df.index)
-
-            # Apply each version to its applicable date range
-            for overlap_start, overlap_end, version_spec in applicable_versions:
-                date_mask = (scan_dates >= overlap_start) & (scan_dates <= overlap_end)
-                if date_mask.any():
-                    # Apply this version's filter to the subset
-                    subset_df = df[date_mask]
-                    filtered_subset = self._apply_single_filter_spec(
-                        subset_df, version_spec
-                    )
-                    # Mark these rows as passing the filter
-                    result_mask.loc[filtered_subset.index] = True
-
-            return df[result_mask]
-
-        return _composite_dated_filter
 
     def _create_composite_dated_filter_pydantic(
         self, applicable_versions: List, date_range: Tuple[pd.Timestamp, pd.Timestamp]
@@ -540,98 +362,6 @@ class ScanDatabase:
             # Unknown filter type, return unchanged
             return df
 
-    def _apply_single_filter_spec(self, df: pd.DataFrame, spec: dict) -> pd.DataFrame:
-        """Apply a single filter spec to a DataFrame and return the filtered result."""
-        kind = spec.get("kind")
-        args = spec.get("args", {})
-
-        if kind == "ecs_value_contains":
-            device_like = args.get("device_like", "")
-            variable_like = args.get("variable_like", "")
-            text = args.get("text", "")
-            case = args.get("case", False)
-
-            if case:
-
-                def _ok_str(v) -> bool:
-                    return isinstance(v, str) and (text in v)
-            else:
-                t = text.lower()
-
-                def _ok_str(v) -> bool:
-                    return isinstance(v, str) and (t in v.lower())
-
-            if "ecs_dump" not in df.columns:
-                return df
-            mask = df["ecs_dump"].apply(
-                lambda s: any(
-                    _ok_str(v)
-                    for v in ScanDatabase._ecs_values(s, device_like, variable_like)
-                )
-            )
-            return df[mask]
-
-        elif kind == "ecs_value_within":
-            device_like = args.get("device_like", "")
-            variable_like = args.get("variable_like", "")
-            target = float(args.get("target", 0))
-            tol = float(args.get("tol", 0))
-
-            def _ok_num(v) -> bool:
-                try:
-                    return abs(float(v) - target) <= tol
-                except Exception:
-                    return False
-
-            if "ecs_dump" not in df.columns:
-                return df
-            mask = df["ecs_dump"].apply(
-                lambda s: any(
-                    _ok_num(v)
-                    for v in ScanDatabase._ecs_values(s, device_like, variable_like)
-                )
-            )
-            return df[mask]
-
-        elif kind == "scan_parameter_contains":
-            substring = args.get("substring", "")
-            case = args.get("case", False)
-
-            if "scan_parameter" not in df.columns:
-                return df
-            return df[
-                df["scan_parameter"]
-                .astype("string")
-                .str.contains(substring, case=case, na=False)
-            ]
-
-        elif kind == "experiment_equals":
-            name = args.get("name", "")
-            if "experiment" not in df.columns:
-                return df
-            return df[df["experiment"] == name]
-
-        elif kind == "device_contains":
-            device_substring = args.get("device_substring", "")
-            needle = device_substring.lower()
-
-            col = "non_scalar_devices"
-            if col not in df.columns:
-                return df
-
-            def _has(lst) -> bool:
-                if isinstance(lst, list):
-                    return any(isinstance(x, str) and needle in x.lower() for x in lst)
-                if isinstance(lst, str):
-                    return needle in lst.lower()
-                return False
-
-            return df[df[col].apply(_has)]
-
-        else:
-            # Unknown filter type, return unchanged
-            return df
-
     def _instantiate_and_enqueue(self, kind: str, args: Mapping[str, Any]) -> None:
         """Map 'kind' to the corresponding filter method and enqueue it."""
         if kind == "ecs_value_within":
@@ -646,6 +376,130 @@ class ScanDatabase:
             self.filter_device_contains(**args)
         else:
             raise ValueError(f"Unknown filter kind: {kind}")
+
+    @staticmethod
+    def _ecs_json_load(s: object):
+        if s is None or (isinstance(s, float) and pd.isna(s)):
+            return None
+        if not isinstance(s, str) or not s.strip():
+            return None
+        try:
+            return json.loads(s)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _i_contains(hay: str, needle: str) -> bool:
+        try:
+            return needle.lower() in hay.lower()
+        except Exception:
+            return False
+
+    @staticmethod
+    def _ecs_values(row_ecs: object, device_like: str, variable_like: str):
+        obj = (
+            row_ecs
+            if isinstance(row_ecs, dict)
+            else ScanDatabase._ecs_json_load(row_ecs)
+        )
+        if not isinstance(obj, dict):
+            return
+        devices = obj.get("devices")
+        if not isinstance(devices, list):
+            return
+        for rec in devices:
+            if not isinstance(rec, dict):
+                continue
+            name = rec.get("name", "")
+            if not ScanDatabase._i_contains(str(name), device_like):
+                continue
+            params = rec.get("parameters")
+            if not isinstance(params, dict):
+                continue
+            for var_name, val in params.items():
+                if ScanDatabase._i_contains(str(var_name), variable_like):
+                    yield val
+
+    # -----------------------
+    # Partition I/O helpers
+    # -----------------------
+    def _load_partitions(self) -> pd.DataFrame:
+        """Load selected partitions via a single hive-partitioned dataset, then apply filters."""
+        # Build a single dataset rooted at the hive tree
+        dataset = ds.dataset(str(self.root), format="parquet", partitioning="hive")
+
+        # Optional partition pruning using a filter expression
+        filter_expr = None
+        if self._date_range is not None:
+            s, e = self._date_range
+            months = pd.period_range(s, e, freq="M")
+
+            # group months by year to build (year==Y & month IN [...]) OR ...
+            by_year = {}
+            for p in months:
+                by_year.setdefault(p.year, []).append(p.month)
+
+            exprs = []
+            for y, mlist in by_year.items():
+                exprs.append(
+                    (ds.field("year") == int(y))
+                    & ds.field("month").isin(list(map(int, mlist)))
+                )
+            # Combine with OR
+            if exprs:
+                filter_expr = exprs[0]
+                for ex in exprs[1:]:
+                    filter_expr = filter_expr | ex
+
+        # Scan only the needed partitions; this injects year/month columns automatically
+        table = dataset.to_table(filter=filter_expr)
+        df = table.to_pandas()  # (avoid Arrow-backed dtypes here)
+
+        # Day-level trim if day exists (partition filter above is month-level)
+        if self._date_range is not None and all(
+            c in df.columns for c in ("year", "month", "day")
+        ):
+            s, e = self._date_range
+            ts = pd.to_datetime(
+                {"year": df["year"], "month": df["month"], "day": df["day"]},
+                errors="coerce",
+            )
+            df = df[(ts >= s) & (ts <= e)].copy()
+
+        # Normalize ECS once so filters are fast and stable
+        # if "ecs_dump" in df.columns:
+        #     df["__ecs"] = df["ecs_dump"].astype("object").map(self._ecs_json_load)
+
+        if "ecs_dump" in df.columns:
+            df["__ecs"] = df["ecs_dump"].astype(str).map(self._ecs_json_load)
+
+        # Apply any queued pandas filters
+        for f in self._df_filters:
+            df = f(df)
+
+        return df
+
+    # -----------------------
+    # Public API
+    # -----------------------
+    def preview(self, n: int = 5) -> pd.DataFrame:
+        """Return the first n rows after applying filters."""
+        return self._load_partitions().head(n)
+
+    def to_df(self) -> pd.DataFrame:
+        """Return the fully filtered DataFrame."""
+        return self._load_partitions()
+
+    def where(self, fn: Callable[[pd.DataFrame], pd.DataFrame]) -> "ScanDatabase":
+        """Add a custom pandas filter callable(df) -> df."""
+        self._df_filters.append(fn)
+        return self
+
+    def reset(self) -> "ScanDatabase":
+        """Clear date range and all filters."""
+        self._date_range = None
+        self._df_filters.clear()
+        return self
 
     # -----------------------
     # Filters (chainable)
@@ -722,49 +576,6 @@ class ScanDatabase:
         self._df_filters.append(_f)
         return self
 
-    @staticmethod
-    def _ecs_json_load(s: object):
-        if s is None or (isinstance(s, float) and pd.isna(s)):
-            return None
-        if not isinstance(s, str) or not s.strip():
-            return None
-        try:
-            return json.loads(s)
-        except Exception:
-            return None
-
-    @staticmethod
-    def _i_contains(hay: str, needle: str) -> bool:
-        try:
-            return needle.lower() in hay.lower()
-        except Exception:
-            return False
-
-    @staticmethod
-    def _ecs_values(row_ecs: object, device_like: str, variable_like: str):
-        obj = (
-            row_ecs
-            if isinstance(row_ecs, dict)
-            else ScanDatabase._ecs_json_load(row_ecs)
-        )
-        if not isinstance(obj, dict):
-            return
-        devices = obj.get("devices")
-        if not isinstance(devices, list):
-            return
-        for rec in devices:
-            if not isinstance(rec, dict):
-                continue
-            name = rec.get("name", "")
-            if not ScanDatabase._i_contains(str(name), device_like):
-                continue
-            params = rec.get("parameters")
-            if not isinstance(params, dict):
-                continue
-            for var_name, val in params.items():
-                if ScanDatabase._i_contains(str(var_name), variable_like):
-                    yield val
-
     def filter_ecs_value_within(
         self, device_like: str, variable_like: str, target: float, tol: float
     ) -> "ScanDatabase":
@@ -821,110 +632,107 @@ class ScanDatabase:
         self._df_filters.append(_f)
         return self
 
-    def where(self, fn: Callable[[pd.DataFrame], pd.DataFrame]) -> "ScanDatabase":
-        """Add a custom pandas filter callable(df) -> df."""
-        self._df_filters.append(fn)
-        return self
+    def load_named_filters(self, path: Union[str, Path]) -> "ScanDatabase":
+        """Load named filter specs (including composites) from a YAML file."""
+        p = Path(path)
+        data = yaml.safe_load(p.read_text())
+        specs = (data or {}).get("filters") or {}
+        if not isinstance(specs, Mapping):
+            raise ValueError("YAML must contain a top-level 'filters' mapping")
 
-    def reset(self) -> "ScanDatabase":
-        """Clear date range and all filters."""
-        self._date_range = None
-        self._df_filters.clear()
-        return self
+        # Parse and validate using Pydantic models
+        validated_specs = {}
+        total_filters = len(specs)
+        skipped_filters = []
 
-    # -----------------------
-    # Partition I/O helpers
-    # -----------------------
-    def _all_partitions(self) -> List[Tuple[int, int]]:
-        """Return all (year, month) partitions present on disk."""
-        parts: List[Tuple[int, int]] = []
-        for ydir in self.root.glob("year=*"):
+        for name, raw_spec in specs.items():
             try:
-                y = int(ydir.name.split("=", 1)[1])
-            except Exception:
-                continue
-            for mdir in ydir.glob("month=*"):
-                try:
-                    m = int(mdir.name.split("=", 1)[1])
-                    parts.append((y, m))
-                except Exception:
-                    continue
-        parts.sort()
-        return parts
+                # Parse using Pydantic models with automatic validation
+                filter_spec = parse_filter_spec_from_yaml(name, raw_spec)
+                validated_specs[name] = filter_spec
+            except (ValidationError, ValueError) as e:
+                print(f"[ERROR] Filter '{name}' validation failed: {e} - REMOVED")
+                skipped_filters.append(name)
+            except Exception as e:
+                print(f"[ERROR] Filter '{name}' unexpected error: {e} - REMOVED")
+                skipped_filters.append(name)
 
-    def _partitions_to_read(self) -> List[Path]:
-        """Compute partition directories to load based on the date range."""
-        if self._date_range is None:
-            return [
-                self.root / f"year={y}" / f"month={m}"
-                for (y, m) in self._all_partitions()
-                if (self.root / f"year={y}" / f"month={m}").exists()
-            ]
-        s, e = self._date_range
-        months = pd.period_range(s, e, freq="M")
-        paths: List[Path] = []
-        for p in months:
-            folder = self.root / f"year={p.year}" / f"month={p.month}"
-            if folder.exists():
-                paths.append(folder)
-        return paths
+        self._named_specs.update(validated_specs)
 
-    def _load_partitions(self) -> pd.DataFrame:
-        """Load selected partitions via a single hive-partitioned dataset, then apply filters."""
-        # Build a single dataset rooted at the hive tree
-        dataset = ds.dataset(str(self.root), format="parquet", partitioning="hive")
+        # Report loading summary
+        loaded_count = len(validated_specs)
+        print(f"[INFO] Loaded {loaded_count}/{total_filters} filters from {p.name}")
+        if skipped_filters:
+            print(f"[INFO] Skipped filters: {', '.join(skipped_filters)}")
 
-        # Optional partition pruning using a filter expression
-        filter_expr = None
-        if self._date_range is not None:
-            s, e = self._date_range
-            months = pd.period_range(s, e, freq="M")
+        return self
 
-            # group months by year to build (year==Y & month IN [...]) OR ...
-            by_year = {}
-            for p in months:
-                by_year.setdefault(p.year, []).append(p.month)
+    def register_named_filter(
+        self,
+        name: str,
+        *,
+        kind: str | None = None,
+        args: Mapping[str, Any] | None = None,
+        subfilters: list[str] | None = None,
+    ) -> "ScanDatabase":
+        """Register a single named filter spec at runtime (supports composites)."""
+        if not name:
+            raise ValueError("Filter name must be non-empty")
+        if kind == "composite":
+            self._named_specs[name] = {
+                "kind": "composite",
+                "subfilters": list(subfilters or []),
+            }
+        elif kind:
+            self._named_specs[name] = {"kind": kind, "args": dict(args or {})}
+        else:
+            raise ValueError(
+                "Provide 'kind' (and 'args') or kind='composite' with 'subfilters'"
+            )
+        return self
 
-            exprs = []
-            for y, mlist in by_year.items():
-                exprs.append((ds.field("year") == int(y)) & ds.field("month").isin(list(map(int, mlist))))
-            # Combine with OR
-            if exprs:
-                filter_expr = exprs[0]
-                for ex in exprs[1:]:
-                    filter_expr = filter_expr | ex
+    def list_named_filters(self, show_dates: bool = False) -> list[str]:
+        """Return available filter names, optionally showing validity periods."""
+        if not show_dates:
+            return sorted(self._named_specs.keys())
 
-        # Scan only the needed partitions; this injects year/month columns automatically
-        table = dataset.to_table(filter=filter_expr)
-        df = table.to_pandas()  # (avoid Arrow-backed dtypes here)
+        result = []
+        for name, filter_spec in self._named_specs.items():
+            if len(filter_spec.versions) > 1:
+                # Multiple dated versions
+                for version in filter_spec.versions:
+                    valid_from = version.valid_from or "always"
+                    valid_to = version.valid_to or "current"
+                    result.append(f"{name}[{valid_from} to {valid_to}]")
+            else:
+                # Single version
+                version = filter_spec.versions[0]
+                if version.valid_from or version.valid_to:
+                    valid_from = version.valid_from or "always"
+                    valid_to = version.valid_to or "current"
+                    result.append(f"{name}[{valid_from} to {valid_to}]")
+                else:
+                    result.append(f"{name}[undated]")
+        return sorted(result)
 
-        # Day-level trim if day exists (partition filter above is month-level)
-        if self._date_range is not None and all(c in df.columns for c in ("year", "month", "day")):
-            s, e = self._date_range
-            ts = pd.to_datetime({"year": df["year"], "month": df["month"], "day": df["day"]}, errors="coerce")
-            df = df[(ts >= s) & (ts <= e)].copy()
+    def describe_named_filter(self, name: str) -> dict[str, Any]:
+        """Return the raw spec dict for a named filter."""
+        spec = self._named_specs.get(name)
+        if spec is None:
+            raise KeyError(f"Unknown named filter: '{name}'")
+        return spec
 
-        # Normalize ECS once so filters are fast and stable
-        # if "ecs_dump" in df.columns:
-        #     df["__ecs"] = df["ecs_dump"].astype("object").map(self._ecs_json_load)
+    def apply(self, *names: str) -> "ScanDatabase":
+        """Apply one or more named filters, using stored date range for version resolution."""
+        if not names:
+            return self
 
-        if "ecs_dump" in df.columns:
-            df["__ecs"] = df["ecs_dump"].astype(str).map(self._ecs_json_load)
-
-        # Apply any queued pandas filters
-        for f in self._df_filters:
-            df = f(df)
-
-        return df
-
-
-    # -----------------------
-    # Public API
-    # -----------------------
-    def preview(self, n: int = 5) -> pd.DataFrame:
-        """Return the first n rows after applying filters."""
-        return self._load_partitions().head(n)
-
-    def to_df(self) -> pd.DataFrame:
-        """Return the fully filtered DataFrame."""
-        return self._load_partitions()
+        for name in names:
+            if self._date_range:
+                # Use the multi-version spanning logic
+                self._apply_dated_filter_spanning(name, self._date_range)
+            else:
+                # No date range set, use current date or latest version
+                resolved_spec = self._resolve_dated_filter(name, None)
+                self._apply_resolved_spec(name, resolved_spec, set())
+        return self
