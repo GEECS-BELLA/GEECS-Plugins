@@ -15,8 +15,55 @@ from pathlib import Path
 from typing import Optional, Union, Dict, Any, List
 from enum import Enum
 from configparser import ConfigParser
+from datetime import date
 
 from pydantic import BaseModel, Field
+
+
+class ScanTag(BaseModel):
+    """
+    pydantic model representing a GEECS scan identifier.
+
+    This class provides a structured way to identify and reference
+    specific scans within the GEECS acquired data using date and scan number.
+
+    Attributes
+    ----------
+    year : int
+        Year when the scan was performed
+    month : int
+        Month when the scan was performed (1-12)
+    day : int
+        Day of the month when the scan was performed
+    number : int
+        Sequential scan number for that day
+    experiment : str
+        Name of the experiment (default is None)
+
+    Examples
+    --------
+    >>> scan = ScanTag(year=2024, month=1, day=15, number=42, experiment="Undulator")
+    >>> print(f"Scan {scan.number} from {scan.year}-{scan.month:02d}-{scan.day:02d}")
+    Scan 42 from 2024-01-15
+    """
+
+    year: int
+    month: int
+    day: int
+    number: int
+    experiment: Optional[str] = None
+
+    @property
+    def date(self) -> date:
+        """
+        Return the date associated with the scan.
+
+        Returns
+        -------
+        date
+            The date extracted from the year, month, and day fields.
+        """
+        return date(self.year, self.month, self.day)
 
 
 class ScanMode(str, Enum):

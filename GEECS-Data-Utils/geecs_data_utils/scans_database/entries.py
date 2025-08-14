@@ -1,17 +1,72 @@
+"""
+Models and schema helpers for the scan database.
+
+This module defines Pydantic models that represent a single scan
+(`ScanEntry`) and its flat scan metadata (`ScanMetadata`), plus utilities
+to produce stable pandas/PyArrow schemas for Parquet I/O.
+
+Contents
+--------
+Classes
+    ScanMetadata
+        Flat, one-level scan metadata parsed from `scan_info.ini`.
+    ScanEntry
+        A single scan record including date parts, file paths, devices,
+        optional `ScanMetadata`, optional `ECSDump`, notes, and flags.
+
+Functions
+    collect_dtypes(entry)
+        Return pandas dtypes (as strings) suitable for `DataFrame.astype`.
+    get_pyarrow_schema(entry)
+        Return a `pyarrow.Schema` suitable for Parquet writes.
+
+Notes
+-----
+- `ScanEntry.flatten()` converts the model to a flat `dict` for DataFrame /
+  Parquet use. The `ecs_dump` field is **serialized to a JSON string**
+  via `model_dump(by_alias=True)` to preserve field aliases (e.g., `"shot #"`).
+- `collect_dtypes()` forces the `ecs_dump` column to pandas `"string"` and uses
+  nullable dtypes (`Int32`, `boolean`) where possible.
+- `get_pyarrow_schema()` forces `ecs_dump` to `pa.large_string()` to safely hold
+  large JSON payloads and avoid Arrow object columns.
+- `ScanMetadata.raw_fields` is serialized to JSON in the flattened output so it
+  can be round-tripped losslessly.
+
+See Also
+--------
+geecs_data_utils.type_defs.ECSDump
+pandas.DataFrame.astype
+pyarrow.schema
+
+Examples
+--------
+>>> entry = ScanEntry(
+...     year=2025, month=8, day=8, number=123, experiment="Undulator",
+...     scalar_data_file=None, tdms_file=None, non_scalar_devices=[],
+...     scan_metadata=ScanMetadata(scan_parameter="U_S3V:Current"),
+...     ecs_dump=None, has_analysis_dir=False,
+... )
+>>> row = entry.flatten()
+>>> # Enforce stable types for pandas
+>>> dtypes = collect_dtypes(entry)
+>>> # Build an Arrow schema for Parquet
+>>> schema = get_pyarrow_schema(entry)
+"""
+
 from __future__ import annotations
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from datetime import date
 from pydantic import BaseModel
 import pyarrow as pa
 import json
 
-from geecs_data_utils.utils import ScanTag
 from geecs_data_utils.type_defs import ECSDump
 
 
 # -----------------------------------------------------------------------------
 # ScanMetadata
 # -----------------------------------------------------------------------------
+
 
 class ScanMetadata(BaseModel):
     """
@@ -43,6 +98,7 @@ class ScanMetadata(BaseModel):
     - This model is expected to be flat (no nested submodels).
     - Nested models inside ScanMetadata are not currently supported by flatten().
     """
+
     scan_parameter: Optional[str] = None
     start: Optional[float] = None
     end: Optional[float] = None
@@ -55,6 +111,8 @@ class ScanMetadata(BaseModel):
 
     @classmethod
     def from_ini_dict(cls, ini_data: Dict[str, str]) -> ScanMetadata:
+        """Convert dict loaded from ini file to ScanEntry model type."""
+
         def parse_float(key: str) -> Optional[float]:
             return float(ini_data[key]) if key in ini_data else None
 
@@ -81,6 +139,7 @@ class ScanMetadata(BaseModel):
 # ScanEntry
 # -----------------------------------------------------------------------------
 
+
 class ScanEntry(BaseModel):
     """
     Represents a single scan and its associated metadata and state.
@@ -90,6 +149,7 @@ class ScanEntry(BaseModel):
     (i.e., submodels inside submodels) are currently not supported and will
     raise a ValueError during flattening.
     """
+
     year: int
     month: int
     day: int
@@ -134,7 +194,7 @@ class ScanEntry(BaseModel):
             if isinstance(v, ScanMetadata):
                 for sub_k, sub_v in v.model_dump(exclude_unset=False).items():
                     # Serialize raw_fields if it's a dict
-                    if sub_k == 'raw_fields' and isinstance(sub_v, dict):
+                    if sub_k == "raw_fields" and isinstance(sub_v, dict):
                         sub_v = json.dumps(sub_v)
                         flat[f"{k}_{sub_k}"] = sub_v
                     else:
@@ -176,7 +236,9 @@ class ScanEntry(BaseModel):
         }
         return cls(
             **base_fields,
-            scan_metadata=ScanMetadata(**scan_metadata_fields) if scan_metadata_fields else None
+            scan_metadata=ScanMetadata(**scan_metadata_fields)
+            if scan_metadata_fields
+            else None,
         )
 
     model_config = {"arbitrary_types_allowed": True}
@@ -186,16 +248,18 @@ class ScanEntry(BaseModel):
 # Schema mapping
 # -----------------------------------------------------------------------------
 
+
 def collect_dtypes(entry: ScanEntry) -> dict[str, str]:
     """
     Collect **pandas-compatible** dtypes for use in .astype().
+
     Use string representations only — no pyarrow types.
     """
     flat = entry.flatten()
     out = {}
     for k, v in flat.items():
         if k == "ecs_dump":
-            out[k] = "string"            # ✅ force pandas string
+            out[k] = "string"  # ✅ force pandas string
         elif isinstance(v, int):
             out[k] = "Int32"
         elif isinstance(v, float):
@@ -209,10 +273,9 @@ def collect_dtypes(entry: ScanEntry) -> dict[str, str]:
             out[k] = "string"
     return out
 
+
 def get_pyarrow_schema(entry: ScanEntry) -> pa.Schema:
-    """
-    Collect PyArrow-compatible schema for writing to Parquet.
-    """
+    """Collect PyArrow-compatible schema for writing to Parquet."""
     flat = entry.flatten()
     fields = []
     for k, v in flat.items():
@@ -231,4 +294,3 @@ def get_pyarrow_schema(entry: ScanEntry) -> pa.Schema:
             dtype = pa.string()
         fields.append(pa.field(k, dtype))
     return pa.schema(fields)
-

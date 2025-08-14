@@ -20,7 +20,8 @@ from pathlib import Path
 from datetime import datetime, date
 from configparser import ConfigParser, NoSectionError
 from typing import Optional, Union
-from geecs_data_utils.utils import ScanTag, SysPath, ConfigurationError, month_to_int
+from geecs_data_utils.utils import SysPath, ConfigurationError, month_to_int
+from geecs_data_utils.type_defs import ScanTag
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
 
 # from geecs_data_utils.types import ScanConfig, ScanMode

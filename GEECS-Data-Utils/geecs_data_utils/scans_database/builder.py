@@ -18,7 +18,7 @@ ScanDatabase : In-memory collection of ScanEntry records.
 
 import shutil
 from pathlib import Path
-from typing import Optional, Tuple, List, Literal, Union, get_args, get_origin
+from typing import Optional, Tuple, List, Literal, Union
 from datetime import date, datetime, timedelta
 import re
 import json
@@ -30,8 +30,13 @@ import logging
 from pydantic import BaseModel, ConfigDict
 
 from geecs_data_utils.scan_data import ScanData
-from geecs_data_utils.utils import ScanTag
-from geecs_data_utils.scans_database.entries import ScanEntry, ScanMetadata, collect_dtypes, get_pyarrow_schema
+from geecs_data_utils.type_defs import ScanTag
+from geecs_data_utils.scans_database.entries import (
+    ScanEntry,
+    ScanMetadata,
+    collect_dtypes,
+    get_pyarrow_schema,
+)
 from geecs_data_utils.type_defs import parse_ecs_dump
 
 logger = logging.getLogger(__name__)
@@ -53,9 +58,7 @@ class ScanDatabaseBuilder:
 
     @staticmethod
     def build_scan_entry(scan_data: ScanData) -> ScanEntry:
-        """
-        Construct a ScanEntry from a given ScanData object.
-        """
+        """Construct a ScanEntry from a given ScanData object."""
         folder = scan_data.get_folder()
         tag = scan_data.get_tag()
 
@@ -63,7 +66,9 @@ class ScanDatabaseBuilder:
         devices = files_and_folders.get("devices", [])
         files = files_and_folders.get("files", [])
 
-        scalar_txt = next((f for f in files if f.endswith(".txt") and f.startswith("ScanData")), None)
+        scalar_txt = next(
+            (f for f in files if f.endswith(".txt") and f.startswith("ScanData")), None
+        )
         tdms_file = next((f for f in files if f.endswith(".tdms")), None)
 
         scalar_data_file = str(folder / scalar_txt) if scalar_txt else None
@@ -299,7 +304,6 @@ class ScanDatabaseBuilder:
             experiment=experiment,
             date_range=(start_date, end_date),
         ):
-
             entry_date = date(entry.year, entry.month, entry.day)
             # Update written range (based on entries we actually append)
             if written_start is None or entry_date < written_start:
@@ -326,22 +330,20 @@ class ScanDatabaseBuilder:
             )
 
     @staticmethod
-    def _buffer_to_dataframe(
-            buffer: List[ScanEntry]) -> pd.DataFrame:
+    def _buffer_to_dataframe(buffer: List[ScanEntry]) -> pd.DataFrame:
         """Convert a list of scan entry dictionaries to a normalized DataFrame."""
-
         records = ScanDatabaseBuilder.get_parquet_records_from_entries(buffer)
         schema = collect_dtypes(buffer[0])
-        df = pd.DataFrame(records).astype(schema, errors="ignore")  # `schema` from collect_dtypes()
+        df = pd.DataFrame(records).astype(
+            schema, errors="ignore"
+        )  # `schema` from collect_dtypes()
 
         return df
 
     @staticmethod
-    def get_parquet_records_from_entries(
-            entries: list[ScanEntry]) -> list[dict]:
+    def get_parquet_records_from_entries(entries: list[ScanEntry]) -> list[dict]:
         """
-        Flatten a list of ScanEntry objects into a list of dictionaries
-        suitable for writing to Parquet.
+        Flatten a list of ScanEntry objects into a list of dictionaries suitable for writing to Parquet.
 
         Returns
         -------

@@ -18,9 +18,9 @@ Examples
 
 from geecs_data_utils.scan_data import ScanData
 from geecs_data_utils.scan_paths import ScanPaths
-from geecs_data_utils.utils import ScanTag, ConfigurationError, SysPath
+from geecs_data_utils.utils import ConfigurationError, SysPath
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
-from geecs_data_utils.type_defs import ScanMode, ScanConfig
+from geecs_data_utils.type_defs import ScanMode, ScanConfig, ScanTag
 
 __all__ = [
     "ScanData",
