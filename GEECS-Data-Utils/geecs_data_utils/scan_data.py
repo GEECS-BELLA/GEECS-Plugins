@@ -21,6 +21,7 @@ import pandas as pd
 import nptdms as tdms
 
 from geecs_data_utils.scan_paths import ScanPaths
+from geecs_data_utils.type_defs import parse_ecs_dump, ECSDump
 
 # Module-level logger
 logger = logging.getLogger(__name__)
@@ -222,7 +223,7 @@ class ScanData(ScanPaths):
             analysis_sfile.unlink()
         shutil.copy2(src=scan_sfile, dst=analysis_sfile)
 
-    def load_ecs_live_dump(self) -> dict[str, dict[str, str]]:
+    def load_ecs_live_dump(self) -> ECSDump:
         """
         Load and parse the ECS Live Dump file for this scan.
 
@@ -239,7 +240,7 @@ class ScanData(ScanPaths):
         path = self.get_ecs_dump_file()
         if not path:
             raise FileNotFoundError(f"No ECS dump file found for scan {self._tag}")
-        return self.parse_ecs_dump(path)
+        return parse_ecs_dump(path)
 
 
 if __name__ == "__main__":
