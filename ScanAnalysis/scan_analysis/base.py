@@ -18,6 +18,7 @@ For the "requirements" block of ScanAnalyzerInfo to be compatible with `scan_eva
 from __future__ import annotations
 from numpy.typing import NDArray
 from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple, Dict, List, Any
+
 if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
 from pathlib import Path
@@ -87,6 +88,18 @@ class DataLengthError(ValueError):
     """Raised when data arrays have inconsistent lengths."""
     pass
 
+class ScanParameter(NamedTuple):
+    raw_string: str
+
+    def with_colon(self):
+        return f"{self.raw_string}"
+    def with_space(self):
+        return f"{self.raw_string.replace(':', ' ')}"
+    def __str__(self):
+        # default, used for example in f"{scan_parameter}"
+        return self.with_colon()
+
+
 class ScanAnalyzer:
     """
     Base class for performing analysis on scan data. Handles loading auxiliary data and extracting
@@ -122,8 +135,6 @@ class ScanAnalyzer:
         self.scan_path: Optional[Path] = None
         self.auxiliary_file_path: Optional[Path] = None
         self.scan_parameter: Optional[str] = None  # the one you’ll *use*
-        self.scan_parameter_with_colon: Optional[str] = None
-        self.scan_parameter_with_space: Optional[str] = None
         self.use_colon_scan_param: bool = False  # default is file-style
 
 
@@ -199,13 +210,12 @@ class ScanAnalyzer:
         # dealing with live data, the device:variable convention is preserved
         # Load and sanitize raw scan parameter
         raw_param = ini_contents['Scan Parameter'].strip().replace('"', '')
-        self.scan_parameter_with_colon = raw_param
-        self.scan_parameter_with_space = raw_param.replace(':', ' ')
+        scan_parameter = ScanParameter(raw_string = raw_param)
 
         # Default value is space-separated unless overridden
         cleaned_scan_parameter = (
-            self.scan_parameter_with_colon if self.use_colon_scan_param
-            else self.scan_parameter_with_space
+            scan_parameter.with_colon() if self.use_colon_scan_param
+            else scan_parameter.with_space()
         )
 
         scan_mode = ini_contents.get('ScanMode',None)

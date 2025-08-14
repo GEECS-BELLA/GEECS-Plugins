@@ -54,7 +54,7 @@ e_beam_profile_camera_analyzers = [
         scan_analyzer_class=Array2DScanAnalyzer,
         requirements={device},
         device_name=device,
-        scan_analyzer_kwargs = {'image_analyzer': EBeamProfileAnalyzer(**{'camera_name': device})}
+        scan_analyzer_kwargs = {'image_analyzer': EBeamProfileAnalyzer(camera_name=device)}
     )
     for device in e_beam_profile_camera_devices
 ]
