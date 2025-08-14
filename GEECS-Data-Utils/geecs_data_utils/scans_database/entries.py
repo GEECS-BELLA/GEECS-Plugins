@@ -175,6 +175,15 @@ class ScanEntry(BaseModel):
         """
         return date(self.year, self.month, self.day)
 
+    @property
+    def scan_id(self) -> str:
+        """
+        A standardized string identifier for the scan, useful for manifests or logging.
+
+        Format: "{experiment}_{YYYY-MM-DD}_Scan{NNN}"
+        """
+        return f"{self.experiment}_{self.date.isoformat()}_Scan{self.number:03d}"
+
     def flatten(self) -> dict:
         """
         Flatten nested models into a flat dictionary for Parquet/DF use.
