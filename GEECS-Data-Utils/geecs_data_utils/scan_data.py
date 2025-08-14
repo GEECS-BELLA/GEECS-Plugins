@@ -221,9 +221,3 @@ class ScanData(ScanPaths):
         if analysis_sfile.exists():
             analysis_sfile.unlink()
         shutil.copy2(src=scan_sfile, dst=analysis_sfile)
-
-
-if __name__ == "__main__":
-    tag = ScanData.get_scan_tag(2025, 5, 7, number=10, experiment="Undulator")
-    sd = ScanData(tag=tag)
-    print(sd.get_sfile_data())

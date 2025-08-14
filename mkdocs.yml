@@ -1,5 +1,31 @@
 site_name: GEECS Plugin Suite
 repo_url: https://github.com/GEECS-BELLA/GEECS-Plugins
+repo_name: GEECS-Plugins
+
+theme:
+  name: material
+  features:
+    # --- enable tabs across the top ---
+    - navigation.tabs
+    # optional but recommended polish:
+    - navigation.sections        # section headings in sidebar
+    - navigation.indexes         # allow section index pages (index.md inside a folder)
+    - content.code.copy          # copy button on code blocks
+    - search.suggest
+    - search.highlight
+    - toc.integrate              # integrate page ToC into sidebar
+  # Optional branding:
+  # logo: assets/logo.svg
+  # favicon: assets/favicon.png
+  # palette:
+  #   - scheme: default
+  #     toggle:
+  #       icon: material/weather-night
+  #       name: Switch to dark mode
+  #   - scheme: slate
+  #     toggle:
+  #       icon: material/weather-sunny
+  #       name: Switch to light mode
 
 nav:
   - Home: index.md
@@ -71,9 +97,6 @@ nav:
               - GEECS Paths Config: geecs_data_utils/api/geecs_paths_config.md
 
 
-theme:
-  name: material
-
 plugins:
   - search
   - mkdocstrings:
@@ -95,9 +118,12 @@ plugins:
             show_category_heading: true
             group_by_category: true
             heading_level: 2
+            show_module_attributes: false
 
 markdown_extensions:
+  - admonition
   - toc:
       permalink: true
+  - pymdownx.details
   - pymdownx.highlight
   - pymdownx.superfences
