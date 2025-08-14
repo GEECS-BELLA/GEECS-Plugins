@@ -29,7 +29,7 @@ except:
 
 
 
-def instantiate_scan_analyzer(scan_tag: ScanTag, scan_analyzer_info: ScanAnalyzerInfo) -> ScanAnalyzer:
+def instantiate_scan_analyzer(scan_analyzer_info: ScanAnalyzerInfo) -> ScanAnalyzer:
     """
     Instantiate a ScanAnalysis (or subclass) using the provided ScanAnalyzerInfo.
 
@@ -38,21 +38,19 @@ def instantiate_scan_analyzer(scan_tag: ScanTag, scan_analyzer_info: ScanAnalyze
     configuration from scan_analyzer_kwargs.
 
     Args:
-        scan_tag (ScanTag): Tag representing the scan's experiment, date, and scan number.
         scan_analyzer_info (ScanAnalyzerInfo): Metadata describing which analyzer to construct and how.
 
     Returns:
         ScanAnalyzer: A fully initialized ScanAnalysis or subclass instance ready for use.
     """
     return scan_analyzer_info.scan_analyzer_class(
-        scan_tag=scan_tag,
         device_name=scan_analyzer_info.device_name,
         skip_plt_show=True,
         **scan_analyzer_info.scan_analyzer_kwargs
     )
 
 
-def analyze_scan(tag: ScanTag, scan_analyzer_list: list[ScanAnalyzerInfo], upload_to_scanlog: bool = True,
+def analyze_scan(tag: ScanTag, scan_analyzer_list: list[ScanAnalyzer], upload_to_scanlog: bool = True,
                  documentID: Optional[str] = None, debug_mode: bool = False):
     """
     Performs all given analysis routines on a given scan. Optionally uploads results to google doc scanlog.
@@ -66,15 +64,12 @@ def analyze_scan(tag: ScanTag, scan_analyzer_list: list[ScanAnalyzerInfo], uploa
     """
     all_display_files = []
 
-    for analyzer_info in scan_analyzer_list:
-        device = analyzer_info.device_name if analyzer_info.device_name else ''
-        print(tag, ":", analyzer_info.scan_analyzer_class.__name__, device)
+    for analyzer in scan_analyzer_list:
+        device = analyzer.device_name if analyzer.device_name else ''
+        # print(tag, ":", analyzer.scan_analyzer_class.__name__, device)
         if not debug_mode:
             try:
-                # Use the helper to instantiate the analyzer (with image analyzer and file pattern settings)
-                logging.info(f'attempting to instantiate image the scan analyzer with an ImageAnalyzer config: {analyzer_info}')
-                analyzer = instantiate_scan_analyzer(tag, analyzer_info)
-                index_of_files = analyzer.run_analysis()
+                index_of_files = analyzer.run_analysis(scan_tag=tag)
                 print(f'index of files: {index_of_files}')
 
                 # If analysis produces files, add them to the list.

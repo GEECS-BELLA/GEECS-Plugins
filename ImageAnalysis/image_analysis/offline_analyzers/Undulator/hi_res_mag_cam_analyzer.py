@@ -8,10 +8,21 @@ import matplotlib.pyplot as plt
 
 from image_analysis.tools.rendering import base_render_image
 from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
+from image_analysis.algorithms.bowtie_fit import BowtieFitResult, BowtieFitAlgorithm
 
 import logging
 
-class BCaveMagSpecStitcherAnalyzer(EBeamProfileAnalyzer):
+class HiResMagCamAnalyzer(EBeamProfileAnalyzer):
+
+    def __init__(self, camera_name: str = None):
+
+        self.algo = BowtieFitAlgorithm(
+            n_beam_size_clearance=4,
+            min_total_counts=2500,
+            threshold_factor=10
+        )
+
+        super().__init__(camera_name=camera_name)
 
     def image_preprocess(self, image: np.ndarray) -> np.ndarray:
         """
@@ -32,10 +43,10 @@ class BCaveMagSpecStitcherAnalyzer(EBeamProfileAnalyzer):
         np.ndarray
             The preprocessed image or image stack with masks and ROI applied.
         """
+        image = image.astype(np.float32)
         if self.config.fiducial_cross1_location and self.config.fiducial_cross2_location:
             image = self.apply_cross_mask(image)
-        self.background.set_constant_background(0)
-        image = self.background.subtract(image)
+        image = self.background.subtract_imagewise_mode(image)
         image = self.apply_roi(image)
         return image
 
@@ -59,34 +70,27 @@ class BCaveMagSpecStitcherAnalyzer(EBeamProfileAnalyzer):
         logging.info(f'file path for this image was: {fp}')
 
         if not processed_flag:
-            preprocessed_image = self.image_preprocess(image)
+            preprocessed_image = self.image_preprocess(image.astype(np.float32))
         else:
             preprocessed_image = image
 
         final_image = preprocessed_image
-        # → New block: compute vertical sum, apply Gaussian weighting, and sum result ←
-        # 1. Sum over rows (axis=0) → produces a 1D array of length = number of columns
-        vertical_lineout = np.sum(final_image, axis=0)
+        final_image[final_image < 10] = 0
 
-        # 2. Build Gaussian (center at 400, sigma=20) matching the length of the lineout
-        x = np.arange(vertical_lineout.shape[0])
-        sigma = 20.0
-        center = 250.0
-        gaussian = np.exp(-0.5 * ((x - center) / sigma) ** 2)
+        bowtie_result = self.algo.evaluate(final_image)
 
-        # 3. Multiply lineout by Gaussian, then sum to get the optimization target
-        weighted_lineout = vertical_lineout * gaussian
-        optimization_target = np.sum(weighted_lineout)
+        lineouts=[np.array(bowtie_result.sizes), np.array(bowtie_result.weights)]
 
         # Build the usual return dictionary (contains 'return_image', etc.)
-        return_dictionary = self.build_return_dictionary(return_scalars={'optimization_target': optimization_target},
+        return_dictionary = self.build_return_dictionary(return_scalars={f'{self.camera_name}:emittance_proxy': bowtie_result.score,
+                                                                         f'{self.camera_name}:total_counts': np.sum(final_image)},
                                                          return_image=final_image,
                                                          input_parameters=self.kwargs_dict,
-                                                         return_lineouts=[weighted_lineout]
+                                                         return_lineouts=lineouts
                                                          )
 
         if self.use_interactive:
-            fig, ax = self.render_image(image=final_image, input_params_dict=self.kwargs_dict, lineouts=[weighted_lineout])
+            fig, ax = self.render_image(image=final_image, input_params_dict=self.kwargs_dict, lineouts=lineouts)
             plt.show()
             plt.close(fig)
 
@@ -121,34 +125,36 @@ class BCaveMagSpecStitcherAnalyzer(EBeamProfileAnalyzer):
             ax=ax
         )
 
-        lineout = lineouts[0]
+        lineout = lineouts[1]
         # Optional overlay of a line
         if lineout is not None:
             x_vals = np.arange(len(lineout))
 
-            # STATIC normalization based on a fixed expected max value
-            max_expected_value = 1e3  # <-- adjust this to your typical lineout range
-            norm_lineout = np.clip(lineout / max_expected_value, 0, 1)
+            # Auto-normalize lineout to its own max (avoids assumption of "expected max")
+            if np.max(lineout) > 0:
+                norm_lineout = lineout / np.max(lineout)
+            else:
+                norm_lineout = lineout
 
-            scale = image.shape[0] * 0.3  # scale to 30% of image height
-            y_offset = int(image.shape[0] * 0.1) * 0
-
-            y_vals = y_offset + norm_lineout * scale
+            # Scale to a reasonable fraction of the image height
+            scale = image.shape[0] * 0.3  # use 30% of height
+            y_vals = norm_lineout * scale  # no offset applied
 
             ax.plot(x_vals, y_vals, color='cyan', linewidth=1.0, zorder=10)
-
-            # Optional: force redraw limits
             ax.set_ylim([0, image.shape[0]])
 
         return fig, ax
 
 if __name__ == "__main__":
-    dev_name = 'U_BCaveMagSpec'
+    dev_name = 'UC_HiResMagCam'
     test_dict = {'camera_name':dev_name}
-    image_analyzer  = BCaveMagSpecStitcherAnalyzer(**test_dict)
+    image_analyzer  = HiResMagCamAnalyzer(**test_dict)
 
     image_analyzer.use_interactive = True
 
-    file_path = Path('/Volumes/hdna2/data/Undulator/Y2025/06-Jun/25_0605/scans/Scan018/U_BCaveMagSpec/Scan018_U_BCaveMagSpec_001.png')
+    # file_path = Path('/Volumes/hdna2/data/Undulator/Y2025/06-Jun/25_0605/scans/Scan018/U_BCaveMagSpec/Scan018_U_BCaveMagSpec_001.png')
+    file_path = Path('/Volumes/hdna2/data/Undulator/Y2025/04-Apr/25_0429/scans/Scan015/UC_HiResMagCam/Scan015_UC_HiResMagCam_004.png')
 
     results = image_analyzer.analyze_image_file(image_filepath=file_path)
+    print(results)
+
