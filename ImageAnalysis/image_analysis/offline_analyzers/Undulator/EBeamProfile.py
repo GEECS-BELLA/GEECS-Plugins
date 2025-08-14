@@ -428,7 +428,8 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         beam_stats = beam_profile_stats(final_image)
         beam_stats_flat_dict = flatten_beam_stats(stats=beam_stats, prefix=self.camera_name)
 
-        gauss_fit_params = gauss_fit(final_image, self.camera_name)
+        gauss_fit_params = gauss_fit(final_image)
+        gauss_fit_params = {f"{self.camera_name}_{k}": v for k, v in gauss_fit_params.items()}
 
         # Generate horizontal and vertical lineouts (projections)
         horizontal_lineout = final_image.sum(axis=0)  # sum over rows → shape (width,)
@@ -519,3 +520,4 @@ if __name__ == "__main__":
         script_dir = script_dir.parent
     file_path = script_dir / "tests" / "data" / "VisaEBeam_test_data" / f'{dev_name}_001.png'
     results = image_analyzer.analyze_image_file(image_filepath=file_path)
+    print(results)

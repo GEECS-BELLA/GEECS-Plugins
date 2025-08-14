@@ -10,13 +10,13 @@ if TYPE_CHECKING:
 import numpy as np
 from lcls_tools.common.image.fit import ImageProjectionFit
 
-def gauss_fit(img: np.ndarray, prefix: str = "") -> dict[str, float]:
+def gauss_fit(img: np.ndarray) -> dict[str, float]:
 
     result = ImageProjectionFit().fit_image(img)
 
     # Add prefixes
-    prefix_x = f'{prefix}_gaussian_fit_x_'
-    prefix_y = f'{prefix}_gaussian_fit_y_'
+    prefix_x = f'gaussian_fit_x_'
+    prefix_y = f'gaussian_fit_y_'
 
     prefixed_dict_x = {f'{prefix_x}{k}': v for k, v in result.x_projection_fit_parameters.items()}
     prefixed_dict_y = {f'{prefix_y}{k}': v for k, v in result.y_projection_fit_parameters.items()}
