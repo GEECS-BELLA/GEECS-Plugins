@@ -42,4 +42,4 @@ repos:
         stages: [pre-commit]
         language: system
         entry: jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace
-        exclude: '(^extras/|.*/third_party_sdks/).*\.ipynb$'
+        exclude: '(^extras/|.*/third_party_sdks/|^docs/).*\.ipynb$'
