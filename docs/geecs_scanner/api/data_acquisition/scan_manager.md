@@ -5,6 +5,9 @@
       show_source: true
       show_root_heading: true
       show_root_toc_entry: true
+      show_category_heading: false
+      show_category: false
+      members: false
       filters: ["!^_"]
 
 ::: geecs_scanner.data_acquisition.scan_manager.ScanManager
@@ -12,6 +15,8 @@
       show_source: true
       show_root_heading: true
       show_root_toc_entry: true
+      show_category_heading: false
+      show_category: false
       merge_init_into_class: true
       heading_level: 3
       filters: ["!^_"]

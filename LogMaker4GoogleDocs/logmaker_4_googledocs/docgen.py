@@ -1,29 +1,50 @@
 """
-This module provides functions for automated document creation from 
-templates in Gdocs. The second half of this code is a google apps 
-script project available online. A version of the Google Project source
-code will be stored in the github repository for convenience.
+logmaker4googledocs: Helpers for experiment logs on Google Docs/Drive/Sheets.
 
-It is currently used for automated experiment logs at 
-BELLA Center@LBNL.
+This module wraps a small set of Google APIs plus a companion Apps Script to:
+- create or locate a daily experiment log from a template,
+- append a template block to an existing log,
+- replace placeholders with current values,
+- upload images and insert them into a specific table cell,
+- pull small bits of data from spreadsheets.
 
-Example:
-    An example of how to implement the functions to generate a Google 
-    doc step by step can be seen in createGdoc.py and appendScan.py
+It is currently used for automated experiment logs at BELLA Center @ LBNL.
 
-    $ python createGdoc.py parameters.ini placeholders.ini 
-                                                currentvalues.ini
+Notes
+-----
+- The **second half** of the system runs as a *Google Apps Script* (deployed in
+  your Google account) and is referenced here via its `SCRIPT_ID` loaded from
+  `config.ini` next to this file.
+- Credentials are expected in `credentials.json`; OAuth tokens are cached in
+  `token.pickle` (both next to this file).
+- This code is intentionally light‑touch: it prefers explicit prints and simple
+  returns over elaborate exception handling. Treat it as a pragmatic utility.
 
+Examples
+--------
+Create/find a daily log, then append a template block and replace placeholders:
 
-by Tobias Ostermayr, last updated 08/06/2020
+>>> from logmaker_4_googledocs import docgen as g
+>>> svc = g.establishService('script', 'v1')
+>>> doc_id = g.createExperimentLog(LOG_TEMPLATE_ID, TEMPLATE_FOLDER_ID, LOG_FOLDER_ID,
+...                                'Experiment Log 2025-06-12', ARG_CONFIG_PATH, svc)
+>>> g.appendToLog(TEMPLATE_BLOCK_ID, doc_id, search='Scan 042', servicevar=svc)
+>>> g.findAndReplace(doc_id, placeholders_cfg, servicevar=svc)
+
+The scripts `createGdoc.py` and `appendScan.py` in this package show a more
+complete flow using INI files with placeholders and current values.
+
+Authors
+-------
+Tobias Ostermayr, updated 2020-08-06
 """
 
 from __future__ import print_function
 
-__version__ = '0.2'
-__author__ = 'Tobias Ostermayr'
+__version__ = "0.2"
+__author__ = "Tobias Ostermayr"
 
-
+# stdlib
 import pickle
 from PIL import Image
 import os.path
@@ -39,248 +60,260 @@ from googleapiclient.http import MediaFileUpload
 from datetime import datetime
 import configparser
 import decimal
-import sys
-import httplib2
 
-# DON'T TOUCH
-SCOPES = ['https://www.googleapis.com/auth/documents','https://www.googleapis.com/auth/drive','https://www.googleapis.com/auth/spreadsheets']
-# scriptconfig = configparser.ConfigParser()
-# scriptconfig.read('config.ini')
+# OAuth scopes required for Docs, Drive, and Sheets
+SCOPES = [
+    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/spreadsheets",
+]
 
-# Create the ConfigParser object
+# Load `config.ini` colocated with this module. Must contain DEFAULT.script (Apps Script ID).
 scriptconfig = configparser.ConfigParser()
-
-# Get the directory of the current script (docgen.py)
 script_dir = Path(__file__).parent
-
-# Construct the path to config.ini
-config_path = script_dir / 'config.ini'
-
-# Load the configuration file
+config_path = script_dir / "config.ini"
 scriptconfig.read(config_path)
 
-# Debugging: Verify the loaded sections
 if not scriptconfig.sections():
     print(f"Failed to load config file from: {config_path}")
 else:
     print(f"Successfully loaded config file: {config_path}")
 
-SCRIPT_ID = scriptconfig['DEFAULT']['script']
+SCRIPT_ID = scriptconfig["DEFAULT"]["script"]
 
-
-
-# DATE & TIME
+# Date/time convenience strings used in file naming
 today = datetime.now()
-# date = today.strftime("%m-%d-%y")
 date = today.strftime("%y-%m-%d")
-
 time = today.strftime("%H:%M")
 
 
 # ========================LOCAL FUNCTIONS=============================
-#Remove trailing zeros from numbers exported from MC
 def format_number(num):
     """
-    Remove trailing zeros from numbers exported from MC
-    
-    Args:
-        num (float): any float number
+    Convert a numeric value to a compact decimal string (trim trailing zeros).
 
-    Returns:
-        val: same number trimmed by trainling zeroes
+    Parameters
+    ----------
+    num : float or str
+        Numeric value that may contain trailing zeros when rendered as text.
+
+    Returns
+    -------
+    str
+        A compact decimal string with trailing zeros removed (and no trailing dot).
+        Returns 'bad' if conversion to `Decimal` fails.
+
+    Notes
+    -----
+    This is used to prettify values written into INI files / Google Docs.
     """
     try:
         dec = decimal.Decimal(num)
-    except:
-        return 'bad'
+    except Exception:
+        return "bad"
     tup = dec.as_tuple()
     delta = len(tup.digits) + tup.exponent
-    digits = ''.join(str(d) for d in tup.digits)
+    digits = "".join(str(d) for d in tup.digits)
     if delta <= 0:
         zeros = abs(tup.exponent) - len(tup.digits)
-        val = '0.' + ('0'*zeros) + digits
+        val = "0." + ("0" * zeros) + digits
     else:
-        val = digits[:delta] + ('0'*tup.exponent) + '.' + digits[delta:]
-    val = val.rstrip('0')
-    if val[-1] == '.':
+        val = digits[:delta] + ("0" * tup.exponent) + "." + digits[delta:]
+    val = val.rstrip("0")
+    if val and val[-1] == ".":
         val = val[:-1]
     if tup.sign:
-        return '-' + val
+        return "-" + val
     return val
 
-# get path to latest file in local directory
-def latestFileInDirectory(path,pattern):
-    """
-    Get path to latest file in local directory
 
-    Args: 
-        path (str): The directory you want to probe
-        pattern (str): Search pattern
-
-    Returns: 
-        Name of the latest file or directory in path matching pattern
+def latestFileInDirectory(path, pattern):
     """
-    list_of_files = glob.glob(path+'/*'+pattern+'*') 
+    Return the most recently modified item in a directory matching a pattern.
+
+    Parameters
+    ----------
+    path : str
+        Directory to search.
+    pattern : str
+        Substring (globbed as `*{pattern}*`) used to filter entries.
+
+    Returns
+    -------
+    str
+        Full path to the newest matching file.
+
+    Raises
+    ------
+    ValueError
+        If no files match the pattern.
+    """
+    list_of_files = glob.glob(path + "/*" + pattern + "*")
     latest_file = max(list_of_files, key=os.path.getctime)
     print(latest_file)
     return latest_file
 
-# Open the latest scan/ECS file and replace device parameter keys in
-# placeholders.ini with current values in a new ini file (configparser 
-# currentvalues).
-# This step connects names in Google Templates with the current device
-# value. 
-# Pattern refers to a specific pattern in the filename if required, e.g., 
-# "ECS Live Dump" or "Scan No "
-def getValueForNameKeysECS(
-        path,pattern,keylist,
-        currentvalues,argcurrentvalues):
-    """
-    Open the latest scan/ECS file in path and replace device parameter 
-    keys from keylist (placeholders.ini) with current values in a new 
-    ini file (configparser currentvalues) writing them in 
-    argcurrentvalues.
-    This step connects names in Google Templates with the current
-    device value that are stored locally. 
-    Pattern refers to a specific pattern in the filename if required,
-    e.g., "ECS Live Dump" or "Scan No "
 
-    Args: 
-        path (str): path to look for scan/ECS files locally
-        pattern (str): search for name pattern in path
-        keylist (list): keyword list of data extracted from ECS/scan
-        currentvalues (configparser): configparser to store extracted 
-            values in
-        argcurrentvalues: path to store currentvalues config
-
-    Returns: 
-        Saves a new configuration file in the specified location,
-        where all keys from a keylist (placeholders)
-        are looked up in the ECS/scan file and connected to their 
-        current values.
+def getValueForNameKeysECS(path, pattern, keylist, currentvalues, argcurrentvalues):
     """
-    #latest ECS dump for the latest scan
-    latestfile = latestFileInDirectory(path,pattern)
+    Populate a config with current ECS/scan values for a set of placeholder keys.
+
+    Parameters
+    ----------
+    path : str
+        Directory containing the latest ECS/scan INI dump.
+    pattern : str
+        Filename pattern used to locate the latest ECS/scan file (e.g., "ECS Live Dump").
+    keylist : list[tuple]
+        Iterable of `(placeholder_key, "Device&&Parameter")` entries specifying what to copy.
+    currentvalues : configparser.ConfigParser
+        Destination config in which DEFAULT section will be filled.
+    argcurrentvalues : str or Path
+        File path where `currentvalues` will be written after update.
+
+    Returns
+    -------
+    None
+        Writes the updated config to `argcurrentvalues`.
+
+    Notes
+    -----
+    The ECS file is expected to have multiple sections; each section contains
+    keys like `"Device Name"` and the parameter names to be copied.
+    """
+    latestfile = latestFileInDirectory(path, pattern)
     latest = configparser.ConfigParser()
     latest.read(latestfile)
 
-    #keylist is the placeholder list prepared in the ini
     for i in keylist:
-        #print(i)
         tmp = i[1]
         devicename = tmp.split("&&")[0]
-        #print(devicename)
         parameter = tmp.split("&&")[1]
-        #print(parameter)
-        for j in latest.sections(): 
-            #print(j)
-            try: 
-                devnam = latest[j]['Device Name']
-                devnam = devnam.replace('"','')
-            except: devnam = None
-            # print(devnam)
+        for j in latest.sections():
+            try:
+                devnam = latest[j]["Device Name"].replace('"', "")
+            except Exception:
+                devnam = None
             if devnam == devicename:
-                # print(latest[j][str(parameter)])
-                try: tmp = latest[j][parameter]
-                except: tmp = "No value found"
-                currentvalues['DEFAULT'][i[0]] = tmp.replace('"','')
-    with open(argcurrentvalues, 'w') as configfile:
+                try:
+                    tmp = latest[j][parameter]
+                except Exception:
+                    tmp = "No value found"
+                currentvalues["DEFAULT"][i[0]] = tmp.replace('"', "")
+    with open(argcurrentvalues, "w") as configfile:
         currentvalues.write(configfile)
 
-#Append the latest scan detail info (parameter, range etc) 
-# to the currentvalues.ini that contains the latest values.
-def getValueForNameKeysScanFiles(path,pattern,currentvalues,argcurrentvalues):
-    """
-    Append the latest scan detail info (parameter, range etc) 
-    to the currentvalues.ini that contains the latest values.
-    Does not use keys like ECS version, but takes whole scan-
-    file 'Scan Info' section.
 
-    Args:
-        path (str): path to scanfile
-        pattern (str): pattern for scanfile name
-        currentvalues (configparser): configparser to write values
-        argcurrentvalues (str): path to save currenvalues
-
-    Returns: 
-        Config file with the standard scan info added 
+def getValueForNameKeysScanFiles(path, pattern, currentvalues, argcurrentvalues):
     """
-    latestfile = latestFileInDirectory(path,pattern)
+    Append the 'Scan Info' section from the newest scan INI to current values.
+
+    Parameters
+    ----------
+    path : str
+        Directory to search for scan files.
+    pattern : str
+        Filename pattern used to locate the latest scan file (e.g., "Scan Info").
+    currentvalues : configparser.ConfigParser
+        Destination config whose DEFAULT section will be extended.
+    argcurrentvalues : str or Path
+        File path where `currentvalues` will be written after update.
+
+    Returns
+    -------
+    None
+        Writes the updated config to `argcurrentvalues`.
+
+    Notes
+    -----
+    For each key/value from "Scan Info", the value is de‑quoted and then
+    optionally compacted via `format_number`.
+    """
+    latestfile = latestFileInDirectory(path, pattern)
     latest = configparser.ConfigParser()
     latest.read(latestfile)
-    
-    for (key, value) in latest['Scan Info'].items():
-        # print(key)
-        # print(value.replace('"',''))
-        currentvalues['DEFAULT'][key]=value.replace('"','') 
-        # print(currentvalues['DEFAULT'][key])
-        if format_number(currentvalues['DEFAULT'][key]) != 'bad': 
-            currentvalues['DEFAULT'][key]=format_number(
-                currentvalues['DEFAULT'][key])
 
-    with open(argcurrentvalues, 'w') as f:
+    for key, value in latest["Scan Info"].items():
+        currentvalues["DEFAULT"][key] = value.replace('"', "")
+        if format_number(currentvalues["DEFAULT"][key]) != "bad":
+            currentvalues["DEFAULT"][key] = format_number(currentvalues["DEFAULT"][key])
+
+    with open(argcurrentvalues, "w") as f:
         currentvalues.write(f)
 
-#Explains itself
-def cropAndScaleImage(imagepath,margin_left,margin_top,
-                    margin_right,margin_bottom,scalefactor):
+
+def cropAndScaleImage(
+    imagepath, margin_left, margin_top, margin_right, margin_bottom, scalefactor
+):
     """
-    Crops and scales and image.
+    Crop and scale an image in place.
 
-    Args:
-        imagepath (str): path to image
-        margin_left (int): explains itself
-        margin_top (int): explains itself
-        margin_right (int): explains itself
-        margin_bottom (int): explains itself
-        scalefactor (float): explains itself
+    Parameters
+    ----------
+    imagepath : str
+        Path to the image to modify (overwritten on save).
+    margin_left, margin_top, margin_right, margin_bottom : int
+        Crop margins in pixels.
+    scalefactor : float
+        Uniform scale factor applied to the cropped image.
 
-    Returns:
-        Saves a cropped and scaled image in the same path
+    Returns
+    -------
+    None
+        Saves back to `imagepath` (PNG).
+
+    Notes
+    -----
+    Uses Pillow. Consider using a copy if you need to preserve the original.
     """
     img = Image.open(imagepath)
-    #print(img.size)
-    width = int(img.size[0]-margin_right)
-    height = int(img.size[1]-margin_bottom)
-    print('image size:', img.size[0], img.size[1])
-    print('margin left, margin top, right, bottom = ', int(margin_left), int(margin_top), width, height)
-    img=img.crop((int(margin_left), int(margin_top), width, height))
-    img=img.resize((int(width*scalefactor), int(height*scalefactor)))
-					# img=img.resize((int(width*scalefactor), int(height*scalefactor)), 
-                    # Image.ANTIALIAS)
-    img.save(imagepath,"PNG",quality = 94)
+    width = int(img.size[0] - margin_right)
+    height = int(img.size[1] - margin_bottom)
+    print("image size:", img.size[0], img.size[1])
+    print(
+        "margin left, margin top, right, bottom = ",
+        int(margin_left),
+        int(margin_top),
+        width,
+        height,
+    )
+    img = img.crop((int(margin_left), int(margin_top), width, height))
+    img = img.resize((int(width * scalefactor), int(height * scalefactor)))
+    img.save(imagepath, "PNG", quality=94)
 
 
-def scale_image(image_path, target_width_in_inches = 4.75, dpi=100):
+def scale_image(image_path, target_width_in_inches=4.75, dpi=100):
     """
-    Scale an image to a target width in inches while maintaining the aspect ratio.
-    Save the scaled image with '_scaled' added to the filename.
+    Scale an image to a target width (inches) while preserving aspect ratio.
 
-    Args:
-        image_path (str): Path to the input image.
-        target_width_in_inches (float): Desired width in inches.
-        dpi (int, optional): Resolution in dots per inch. Default is 96 DPI.
+    Parameters
+    ----------
+    image_path : str
+        Path to the input image.
+    target_width_in_inches : float, default 4.75
+        Desired width.
+    dpi : int, default 100
+        Dots per inch used to convert inches to pixels.
 
-    Returns:
-        str: Path to the scaled image.
+    Returns
+    -------
+    str or None
+        Path to the new image written alongside the original with suffix `_scaled`,
+        or `None` if scaling fails.
+
+    Notes
+    -----
+    Uses Pillow with `Image.Resampling.LANCZOS` for quality. Height is derived from
+    the original aspect ratio.
     """
     try:
-        # Calculate the target width in pixels
         target_width_pixels = int(target_width_in_inches * dpi)
-        
-        # Open the image
         with Image.open(image_path) as img:
-            # Calculate the new height to maintain aspect ratio
             aspect_ratio = img.height / img.width
             target_height_pixels = int(target_width_pixels * aspect_ratio)
-            
-            # Resize the image
             scaled_img = img.resize(
-                (target_width_pixels, target_height_pixels),
-                Image.Resampling.LANCZOS  # Use LANCZOS for high-quality resizing
+                (target_width_pixels, target_height_pixels), Image.Resampling.LANCZOS
             )
-            
-            # Save the scaled image
             base, ext = os.path.splitext(image_path)
             scaled_image_path = f"{base}_scaled{ext}"
             scaled_img.save(scaled_image_path)
@@ -291,606 +324,588 @@ def scale_image(image_path, target_width_in_inches = 4.75, dpi=100):
     except Exception as e:
         print(f"An error occurred: {e}")
 
-# Example usage
-# scaled_image_path = scale_image("path/to/your/image.jpg", 5.25)
 
-        
 # ==================FUNCTIONS USING GOOGLE API========================
-
-# Establish connection with google api service
-# All following functions with a servicevar can run as standalone 
-# (if None specified)
-# Or use a common service established through the function 
-# servicevar = establishService(apiservice,apiversion)
 def establishService(apiservice, apiversion):
     """
-    Handles connection with Google API and authorization.
+    Create an authenticated Google API client for a given service/version.
 
-    Args: 
-        apiservice (str): Name of the Google API (e.g., 'docs', 'drive').
-        apiversion (str): Version number of the API (e.g., 'v1').
+    Parameters
+    ----------
+    apiservice : str
+        Service name (e.g., 'script', 'drive', 'docs', 'sheets').
+    apiversion : str
+        Version string (e.g., 'v1', 'v3').
 
-    Returns:
-        service (googleapiclient.discovery.Resource): Google API service object.
+    Returns
+    -------
+    googleapiclient.discovery.Resource
+        Bound client for the requested API.
+
+    Raises
+    ------
+    FileNotFoundError
+        If `credentials.json` is missing.
+    Exception
+        If client creation fails.
+
+    Notes
+    -----
+    - OAuth tokens are cached in `token.pickle`.
+    - Required scopes are defined in `SCOPES`.
     """
-    print('**Establish Server Connection with Google Cloud**')
+    print("**Establish Server Connection with Google Cloud**")
 
     creds = None
-
-    # Define the path to token.pickle and credentials.json
     base_path = Path(__file__).parent
-    token_path = base_path / 'token.pickle'
-    credentials_path = base_path / 'credentials.json'
+    token_path = base_path / "token.pickle"
+    credentials_path = base_path / "credentials.json"
 
-    # Check for token.pickle to load stored credentials
     if token_path.exists():
-        with token_path.open('rb') as token_file:
+        with token_path.open("rb") as token_file:
             creds = pickle.load(token_file)
 
-    # If no (valid) credentials are available, log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
             if not credentials_path.exists():
-                raise FileNotFoundError(f"Credentials file not found at: {credentials_path}")
-            
-            # Load credentials.json and initiate login
-            flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
+                raise FileNotFoundError(
+                    f"Credentials file not found at: {credentials_path}"
+                )
+            flow = InstalledAppFlow.from_client_secrets_file(
+                str(credentials_path), SCOPES
+            )
             creds = flow.run_local_server(port=0)
 
-        # Save the credentials for the next run
-        with token_path.open('wb') as token_file:
+        with token_path.open("wb") as token_file:
             pickle.dump(creds, token_file)
 
-    # Build the service object
     try:
         service = build(apiservice, apiversion, credentials=creds)
-        print('...Service created successfully')
+        print("...Service created successfully")
         return service
     except Exception as e:
         print(f"...Error in opening the service: {e}")
         raise
 
-# Create daily log and return ID// if exits already, just return ID
-def createExperimentLog(logtempID,tempfolderID,logfolderID, 
-                        logfilename,argconfig,servicevar):
-    """
-    If no Google Docfile exists for this day yet, this function
-    generates a new file from the template.
 
-    Args:
-        logtempID (str): google ID of the template google document
-        tempfolderID (str): google ID of the template google folder
-        logfolderID (str): target google folder for the new document
-        logfilename (str): filename for the new google doc
-        argconfig (str): path to the ini file containing the apps script ID
-        servicevar (json?!): service passed on from previously 
-                establishservice
-    
-    Returns:
-        Returns the google ID of the new document and updates stores
-        its value in the configfile with path argconfig.
+def createExperimentLog(
+    logtempID, tempfolderID, logfolderID, logfilename, argconfig, servicevar
+):
     """
-    print('**Create or find Log...**')
-    API_SERVICE_NAME='script'
-    API_VERSION='v1'
-    if(servicevar == None):
+    Create (or find) a daily Google Doc experiment log from a template.
+
+    Parameters
+    ----------
+    logtempID : str
+        Google ID of the template Google Doc.
+    tempfolderID : str
+        Google ID of the template folder (Apps Script may use this).
+    logfolderID : str
+        Google ID of the target folder where the new document will live.
+    logfilename : str
+        Desired filename of the new document (e.g., 'Experiment Log 25-06-12').
+    argconfig : str or Path
+        Path to a config file (INI) where the resulting LogID will be written.
+    servicevar : googleapiclient.discovery.Resource or None
+        An existing 'script' API service. If `None`, this function will create one.
+
+    Returns
+    -------
+    str
+        Google Doc ID for the (new or existing) daily log.
+
+    Notes
+    -----
+    This calls the Apps Script function `createExperimentLog` and records the
+    resulting document ID in `argconfig` under `DEFAULT/LogID`.
+    """
+    print("**Create or find Log...**")
+    API_SERVICE_NAME = "script"
+    API_VERSION = "v1"
+    if servicevar is None:
         print("...establish service in createExperimentLog standalone")
-        service = establishService(API_SERVICE_NAME,API_VERSION)      
-    else: 
+        service = establishService(API_SERVICE_NAME, API_VERSION)
+    else:
         service = servicevar
-        print("...existing service used")    #documentID = ""
-    #Create an execution request object.
+        print("...existing service used")
+
     request = {
-        "function": 'createExperimentLog', 
+        "function": "createExperimentLog",
         "parameters": [logtempID, tempfolderID, logfolderID, logfilename],
-        "devMode": True
+        "devMode": True,
     }
 
     try:
-         # Make the API request.
-        print('...sending request to service')
-        response = service.scripts().run(body=request,
-                 scriptId=SCRIPT_ID).execute()
-        if 'error' in response:
-            # The API executed, but the script returned an error.
-    
-            # Extract the first (and only) set of error details. 
-            # The values of this object are the script's 
-            # 'errorMessage' and 'errorType', and an list of stack 
-            # trace elements.
+        response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
+        if "error" in response:
             print("...Something went wrong in createExperimentLog")
-            error = response['error']['details'][0]
-            print("Script error message: {0}".format(error['errorMessage']))
-        else: 
-            print('...returned documend ID: ', response['response']['result'])
-            documentID = response['response']['result']
-            #print(str(documentID))
+            error = response["error"]["details"][0]
+            print("Script error message: {0}".format(error["errorMessage"]))
+        else:
+            print("...returned documend ID: ", response["response"]["result"])
+            documentID = response["response"]["result"]
             config = configparser.ConfigParser()
             config.read(argconfig)
-            config['DEFAULT']['LogID'] = documentID
-            with open(argconfig, 'w') as configfile:
+            config["DEFAULT"]["LogID"] = documentID
+            with open(argconfig, "w") as configfile:
                 config.write(configfile)
     except errors.HttpError as e:
-        # The API encountered a problem before the script
-        # started executing.
         print("...HTTP error occurred in create Experiment:")
         print(e.content)
-    except Exception as e: print("...non HTTP error in opening the service")
-    return(documentID)
+    except Exception:
+        print("...non HTTP error in opening the service")
+    return documentID
 
-# Append to the ExperimentLog Document from a Template
-def appendToLog(templateID,documentID,search,servicevar):
-    """
-    Appends a google template to a google document if the search
-    phrase (search) is not present in the document yet.
 
-    Args:
-        template ID (str): google ID of the template
-        document ID (str): google ID of the document to write in
-        search (str): search phrase to look for in google doc
-        servicevar (json?!): service established with google
-    
-    Returns:
-        If search is not found in doc, appends the template to 
-        the document and returns 0. If search is found, does not
-        append the template, writes stdout explanation and quits.
+def appendToLog(templateID, documentID, search, servicevar):
     """
-    API_SERVICE_NAME='script'
-    API_VERSION='v1'
-    if(servicevar == None):
-        #print("establish service in checkFile standalone")
-        service = establishService(API_SERVICE_NAME,API_VERSION)   
-    else: 
+    Append a template block to a Google Doc unless a search phrase already exists.
+
+    Parameters
+    ----------
+    templateID : str
+        Google ID of the template document (block to insert).
+    documentID : str
+        Google ID of the target document to modify.
+    search : str or None
+        If provided and found in the target document, skip insertion.
+        If `None`, a sentinel string is used (i.e., always insert).
+    servicevar : googleapiclient.discovery.Resource or None
+        An existing 'script' API service. If `None`, a new one will be created.
+
+    Returns
+    -------
+    int
+        0 on success (inserted or already present), 1 on retry/error path.
+
+    Notes
+    -----
+    Uses the Apps Script function `appendTemplate`.
+    """
+    API_SERVICE_NAME = "script"
+    API_VERSION = "v1"
+    if servicevar is None:
+        service = establishService(API_SERVICE_NAME, API_VERSION)
+    else:
         service = servicevar
-        #print("service from root function used")     
-    #Create an execution request object.
-    
+
     request = {
-        "function": 'appendTemplate', 
-        "parameters": [templateID,documentID],
-        "devMode": True
+        "function": "appendTemplate",
+        "parameters": [templateID, documentID],
+        "devMode": True,
     }
-    # If no search term is provided, 
-    # or the search term ain't in the document,
-    # the function will execute and insert the template to the document
-    if (search == None): search = "SomethingNobodyWouldEverWriteInADocentEver"
+
+    if search is None:
+        search = "SomethingNobodyWouldEverWriteInADocentEver"
+
     tmp = None
-    try: tmp = checkFileContains(documentID,search,service)
-    except: print("...Failed to check file for search pattern"); return 1; 
-    if (tmp == False):
-        #print('Trying to append...')
+    try:
+        tmp = checkFileContains(documentID, search, service)
+    except Exception:
+        print("...Failed to check file for search pattern")
+        return 1
+
+    if not tmp:
         try:
             print("**Append template to document...**")
-             # Make the API request.
-            response = service.scripts().run(body=request,
-                    scriptId=SCRIPT_ID).execute()
-            
-            if 'error' in response:
-                # The API executed, but the script returned an error.
-    
-                # Extract the first (and only) set of error details. 
-                # The values of this object are the script's 
-                # 'errorMessage' and 'errorType', 
-                # and a list of stack trace elements.
-                error = response['error']['details'][0]
-                print("Script error msg: {0}".format(error['errorMessage']))
-            else: 
-                print('...',response['response']['result'])
-                #print(documentID)
+            response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
+            if "error" in response:
+                error = response["error"]["details"][0]
+                print("Script error msg: {0}".format(error["errorMessage"]))
+            else:
+                print("...", response["response"]["result"])
                 return 0
-        #except errors.HttpError as e:
-            # The API encountered a problem 
-            # before the script started executing.
-        #    print("HTTP ERROR occurred in Append to Log")
-        #    print(e.content)
         except errors.HttpError as e:
-        # The API encountered a problem before the script
-        # started executing.
-            print("...HTTP error occurred in Append To Log",e)
-        except Exception as e: print("Error in Append To Log ", e)
-    elif (tmp == True): print("...this Scan is already present in the Log", documentID); return 0; 
-    else: print("...retry"); return 1
+            print("...HTTP error occurred in Append To Log", e)
+        except Exception as e:
+            print("Error in Append To Log ", e)
+    elif tmp:
+        print("...this Scan is already present in the Log", documentID)
+        return 0
+    else:
+        print("...retry")
+        return 1
 
-# Use the currentvalues.ini file created via getValueForNameKeysECS
-# and getValueForScanFiles functions to replace all placeholder 
-# occurances in a google document by ID
-def findAndReplace(documentID,placeholdersandvalues,servicevar):
+
+def findAndReplace(documentID, placeholdersandvalues, servicevar):
     """
-    Finds placeholders in a google document and replaces
-    them with values. 
+    Replace `{{placeholder}}` tokens in a Google Doc with values.
 
-    Args:
-        document ID (str): google ID of the document to write in
-        placeholdersandvalues: configparser containing placeholders
-            as keys and the values to replace them with as values.
-            Placeholders in the configparser are stripped of {{}},
-            which will be used in the google docs to identify them.
-        servicevar (json?!): service established with google
-    
-    Returns:
-        Finds and replaces all instances of placeholder keys within
-        {{}} in the google docs and replaces them by values stored 
-        in the configparser placeholdersandvalues. This configparser
-        can for instance be stored in a file (currentvalues.ini)
+    Parameters
+    ----------
+    documentID : str
+        Google ID of the document to modify.
+    placeholdersandvalues : configparser.ConfigParser
+        Config whose DEFAULT section maps placeholder keys (without `{{ }}`) to values.
+    servicevar : googleapiclient.discovery.Resource or None
+        An existing 'script' API service. If `None`, a new one will be created.
+
+    Returns
+    -------
+    int
+        0 on success, 1 if the Apps Script reported an error.
+
+    Notes
+    -----
+    Uses the Apps Script function `findAndReplace`.
     """
+    API_SERVICE_NAME = "script"
+    API_VERSION = "v1"
 
-    API_SERVICE_NAME='script'
-    API_VERSION='v1'
-    
-    keys = list(placeholdersandvalues['DEFAULT'].keys())
-    values = list(placeholdersandvalues['DEFAULT'].values())
+    keys = list(placeholdersandvalues["DEFAULT"].keys())
+    values = list(placeholdersandvalues["DEFAULT"].values())
 
-    if(servicevar == None):
-        #print("establish service in checkFile standalone")
-        service = establishService(API_SERVICE_NAME,API_VERSION)      
-    else: 
+    if servicevar is None:
+        service = establishService(API_SERVICE_NAME, API_VERSION)
+    else:
         service = servicevar
-        #print("service from root function used")
-    
-    #Create an execution request object.
-    
+
     request = {
-        "function": 'findAndReplace', 
-        "parameters": [documentID,keys,values],
-        "devMode": False
+        "function": "findAndReplace",
+        "parameters": [documentID, keys, values],
+        "devMode": False,
     }
 
     try:
-         # Make the API request.
-        response = service.scripts().run(body=request,
-                 scriptId=SCRIPT_ID).execute()
-        if 'error' in response:
-            # The API executed, but the script returned an error.
-    
-            # Extract the first (and only) set of error details. 
-            # The values of this object are the script's 
-            # 'errorMessage' and 'errorType', and
-            # an list of stack trace elements.
-            error = response['error']['details'][0]
-            print("...Script error message: {0}".format(error['errorMessage']))
+        response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
+        if "error" in response:
+            error = response["error"]["details"][0]
+            print("...Script error message: {0}".format(error["errorMessage"]))
             return 1
-        else: 
-            #print(response['response']['result'])
+        else:
             return 0
-            
-    except Exception as e: print("Error in findAndReplace")
+
+    except Exception:
+        print("Error in findAndReplace")
     except errors.HttpError as e:
-        # The API encountered a problem 
-        # before the script started executing.
         print("...HTTP Error in findAndReplace", e.content)
 
-# Find and replace placeholders in tables with images. 
-# So far only for images in tables.
-def findAndReplaceImage(documentID,imageID, pattern,servicevar):
-    """
-    Finds pattern in a gdocument and replaces
-    it with an image from google drive. 
 
-    Args:
-        document ID (str): google ID of the document to write in
-        imageID: ID of an image on google drive
-        pattern: search pattern that should be replaced in google doc
-        servicevar (json?!): service established with google
-    
-    Returns:
-        Replaces pattern (e.g., '{{screenshot}}') in the google docs
-        with an image from google drive.
-        Currently works only for images in a table. 
+def findAndReplaceImage(documentID, imageID, pattern, servicevar):
     """
-    API_SERVICE_NAME='script'
-    API_VERSION='v1'
+    Replace a text pattern in a Google Doc table cell with a Drive image.
 
-    if(servicevar == None):
-        #print("establish service in checkFile standalone")
-        service = establishService(API_SERVICE_NAME,API_VERSION)      
-    else: 
+    Parameters
+    ----------
+    documentID : str
+        Google Doc ID to modify.
+    imageID : str
+        Google Drive file ID of the image to insert.
+    pattern : str
+        Text marker to be replaced (e.g., '{{screenshot}}').
+    servicevar : googleapiclient.discovery.Resource or None
+        An existing 'script' API service. If `None`, a new one will be created.
+
+    Returns
+    -------
+    int or None
+        0 on success; `None` if a low‑level error occurred.
+
+    Notes
+    -----
+    Currently only supports replacements *inside tables*, as implemented in the
+    companion Apps Script `findAndReplaceImage`.
+    """
+    API_SERVICE_NAME = "script"
+    API_VERSION = "v1"
+
+    if servicevar is None:
+        service = establishService(API_SERVICE_NAME, API_VERSION)
+    else:
         service = servicevar
-        #print("service from root function used")
-    
-    #Create an execution request object.
-    
+
     request = {
-        "function": 'findAndReplaceImage', 
-        "parameters": [documentID,imageID,pattern],
-        "devMode": False
+        "function": "findAndReplaceImage",
+        "parameters": [documentID, imageID, pattern],
+        "devMode": False,
     }
 
     try:
-         # Make the API request.
-        response = service.scripts().run(body=request,
-                 scriptId=SCRIPT_ID).execute()
-        if 'error' in response:
-            # The API executed, but the script returned an error.
-    
-            # Extract the first (and only) set of error details. 
-            # The values of this object are the script's 
-            # 'errorMessage' and 'errorType', and
-            # an list of stack trace elements.
-            error = response['error']['details'][0]
-            print("Script error message: {0}".format(error['errorMessage']))
-        else: 
-            #print(response['response']['result'])
+        response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
+        if "error" in response:
+            error = response["error"]["details"][0]
+            print("Script error message: {0}".format(error["errorMessage"]))
+        else:
             return 0
-            
 
     except errors.HttpError as e:
-        # The API encountered a problem 
-        # before the script started executing.
         print(e.content)
 
 
 def uploadImage(localimagepath, destinationID):
     """
-    Uploads a local image (PNG or GIF) to Google Drive.
+    Upload a local image (PNG or GIF) to Google Drive.
 
-    Args:
-        localimagepath (str): Path to the image (PNG/GIF) to upload.
-        destinationID (str): ID of the Google Drive folder to upload to.
+    Parameters
+    ----------
+    localimagepath : str
+        Path to the image file to upload (PNG/GIF).
+    destinationID : str
+        Google Drive folder ID where the image will be created.
 
-    Returns:
-        str: Google ID of the uploaded file.
+    Returns
+    -------
+    str or None
+        The Drive file ID of the uploaded image, or `None` on error.
+
+    Notes
+    -----
+    - PNG images are scaled (width ~ 4.75 in at 100 DPI) via `scale_image`
+      before upload; GIFs are uploaded as-is.
+    - Uses Drive API v3.
     """
-    API_SERVICE_NAME = 'drive'
-    API_VERSION = 'v3'
+    API_SERVICE_NAME = "drive"
+    API_VERSION = "v3"
     driveservice = establishService(API_SERVICE_NAME, API_VERSION)
-    
-    # Detect file extension and determine MIME type
+
     file_path = Path(localimagepath)
     mime_type, _ = mimetypes.guess_type(localimagepath)
-    
+
     if not mime_type:
         raise ValueError(f"Unable to determine MIME type for file: {localimagepath}")
-    
-    if mime_type not in ['image/png', 'image/gif']:
+
+    if mime_type not in ["image/png", "image/gif"]:
         raise ValueError("Only PNG and GIF file types are supported.")
 
-    # Scale the image only for PNG files
     scaled_image_path = localimagepath
-    if mime_type == 'image/png':
+    if mime_type == "image/png":
         scaled_image_path = scale_image(localimagepath)
 
-    # Generate metadata for the upload
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     file_metadata = {
-        'name': f"{timestamp}_tmp.{file_path.suffix.lstrip('.')}",
-        'parents': [destinationID]
+        "name": f"{timestamp}_tmp.{file_path.suffix.lstrip('.')}",
+        "parents": [destinationID],
     }
-    
+
     media = MediaFileUpload(scaled_image_path, mimetype=mime_type)
-    
+
     try:
-        file = driveservice.files().create(
-            body=file_metadata, media_body=media, supportsAllDrives=True
-        ).execute()
-        if 'error' in file:
-            error = file['error']['details'][0]
+        file = (
+            driveservice.files()
+            .create(body=file_metadata, media_body=media, supportsAllDrives=True)
+            .execute()
+        )
+        if "error" in file:
+            error = file["error"]["details"][0]
             print(f"Script error message: {error['errorMessage']}")
             return None
         else:
-            imageID = file['id']
+            imageID = file["id"]
             return imageID
 
     except errors.HttpError as e:
         print(e.content)
         return None
 
-# Check if a google docs contains a search phrase 
-def checkFileContains(fileID,search,servicevar):
+
+def checkFileContains(fileID, search, servicevar):
     """
-    Checks whether a google docs file contains a search phrase
+    Check if a Google Doc contains a search string.
 
-    Args:
-        fileID (str): google ID of the document to search in
-        search (str): search phrase
-        servicevar (json?!): service established with google
-    
-    Returns:
-        True if google docs contains search phrase
-        False if not.
+    Parameters
+    ----------
+    fileID : str
+        Google Doc ID to inspect.
+    search : str
+        String to search for.
+    servicevar : googleapiclient.discovery.Resource or None
+        An existing 'script' API service. If `None`, a new one will be created.
+
+    Returns
+    -------
+    bool or None
+        True if found, False if not found, or `None` if the script failed.
     """
-    API_SERVICE_NAME='script'
-    API_VERSION='v1'
-    
-    #run standalone or within another function
-    if(servicevar == None):
-        #print("establish service in checkFile standalone")
-        service = establishService(API_SERVICE_NAME,API_VERSION)      
-    else: 
-        service = servicevar
-        #print("service from root function used")
-    
-    #Create an execution request object.
-    
-    request = {
-        "function": 'checkFileContains', 
-        "parameters": [fileID,search],
-        "devMode": False
-    }
+    API_SERVICE_NAME = "script"
+    API_VERSION = "v1"
 
-    try:
-         # Make the API request.
-        response = service.scripts().run(body=request,
-                 scriptId=SCRIPT_ID).execute()
-        if 'error' in response:
-            # The API executed, but the script returned an error.
-    
-            # Extract the first (and only) set of error details. 
-            # The values of this object are the script's 
-            # 'errorMessage' and 'errorType', and
-            # an list of stack trace elements.
-            error = response['error']['details'][0]
-            print("Script error message: {0}".format(error['errorMessage']))
-        else: 
-            #print(response['response']['result'])
-            return response['response']['result']
-
-    except errors.HttpError as e:
-        # The API encountered a problem 
-        # before the script started executing.
-        print(e.content)
-
-
-# extracts last row of a spreadsheed file 
-def lastRowOfSpreadsheet(fileID, sheetString, firstcol,lastcol, servicevar):
-    """
-    Extracts last row of a spreadsheet
-
-    Args:
-        fileID (str): google ID of the document to search in
-        sheetString (str): Name of the Sheet in the spreadsheet document
-        rangeString (str): Range to look in (e.g. A1:G1000)
-        servicevar (json?!): service established with google
-    
-    Returns:
-        Last row of the specified document within the specified range as 2 dim array 
-        (use as variable[0][column])
-    """
-    API_SERVICE_NAME='script'
-    API_VERSION='v1'
-    
-    #run standalone or within another function
-    if(servicevar == None):
-        #print("establish service in checkFile standalone")
-        service = establishService(API_SERVICE_NAME,API_VERSION)      
-    else: 
-        service = servicevar
-        #print("service from root function used")
-    
-    #Create an execution request object.
-    
-    request = {
-        "function": 'lastRowFromSpreadsheet', 
-        "parameters": [fileID,sheetString,firstcol,lastcol],
-        "devMode": False
-    }
-
-    try:
-         # Make the API request.
-        response = service.scripts().run(body=request,
-                 scriptId=SCRIPT_ID).execute()
-        if 'error' in response:
-            # The API executed, but the script returned an error.
-    
-            # Extract the first (and only) set of error details. 
-            # The values of this object are the script's 
-            # 'errorMessage' and 'errorType', and
-            # an list of stack trace elements.
-            error = response['error']['details'][0]
-            print("Script error message: {0}".format(error['errorMessage']))
-        else: 
-            #print(response['response']['result'])
-            return response['response']['result']
-
-    except errors.HttpError as e:
-        # The API encountered a problem 
-        # before the script started executing.
-        print(e.content)
-        
-def insertImageToTableCell(documentID, scanNumber, row, column, imageID, servicevar):
-    """
-    Inserts an image into a specified table cell in a Google Doc.
-
-    Args:
-        documentID (str): The Google Doc ID where the table is located.
-        scanNumber (int): The scan number to locate the specific heading in the document.
-        row (int): The row index of the target table cell (0-based).
-        column (int): The column index of the target table cell (0-based).
-        imageID (str): The Google Drive ID of the image to insert.
-        servicevar (object): Pre-established Google API service object; if None, a new service will be created.
-
-    Returns:
-        dict: Result of the script execution, if successful.
-
-    Raises:
-        Exception: If there is an error during API execution or script execution.
-    """
-    API_SERVICE_NAME = 'script'
-    API_VERSION = 'v1'
-
-    # Check if a service object is provided; if not, establish a new service
     if servicevar is None:
-        # Establish a new service if none is provided
         service = establishService(API_SERVICE_NAME, API_VERSION)
     else:
-        # Use the provided service object
         service = servicevar
 
-    # Create an execution request for the Apps Script
     request = {
-        "function": 'insertImageToTableCell',
-        "parameters": [documentID, scanNumber, row, column, imageID],
-        "devMode": True
+        "function": "checkFileContains",
+        "parameters": [fileID, search],
+        "devMode": False,
     }
 
     try:
-        # Make the API request to execute the Apps Script function
         response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
-        if 'error' in response:
-            # Handle script execution errors
-            error = response['error']['details'][0]
-            print(f"Script error message: {error['errorMessage']}")
+        if "error" in response:
+            error = response["error"]["details"][0]
+            print("Script error message: {0}".format(error["errorMessage"]))
         else:
-            # Return the result of the script execution
-            return response['response']['result']
+            return response["response"]["result"]
 
     except errors.HttpError as e:
-        # Handle API-level errors
         print(e.content)
 
 
-def insertImageToExperimentLog(scanNumber, row, column, image_path, documentID = None, experiment = 'Undulator'):
+def lastRowOfSpreadsheet(fileID, sheetString, firstcol, lastcol, servicevar):
     """
-    Uploads an image to Google Drive and inserts it into a specific table cell in a Google Doc.
+    Return the last non-empty row (as values) from a Google Sheet range.
 
-    Args:
-        documentID (str): The Google Doc ID where the table is located.
-        scanNumber (int): The scan number to locate the specific heading in the document.
-        row (int): The row index of the target table cell (0-based).
-        column (int): The column index of the target table cell (0-based).
-        image_path (str): The local file path to the image to be uploaded and inserted.
+    Parameters
+    ----------
+    fileID : str
+        Spreadsheet file ID.
+    sheetString : str
+        Sheet name (tab) within the spreadsheet.
+    firstcol : str
+        Left column letter (e.g., 'A').
+    lastcol : str
+        Right column letter (e.g., 'G').
+    servicevar : googleapiclient.discovery.Resource or None
+        An existing 'script' API service. If `None`, a new one will be created.
 
-    Returns:
-        None
+    Returns
+    -------
+    list[list] or None
+        2D array of values representing the last row inside the requested
+        column window, or `None` if the call failed.
+
+    Notes
+    -----
+    This calls the Apps Script function `lastRowFromSpreadsheet` which scans
+    the range `firstcol:lastcol`.
     """
-    # Upload the image to Google Drive and retrieve the image ID
-    # note, the id is for a folder in the BELLA HTU structure,
-    # but it's really just a temporary location for the image before 
-    # moving into the relevant experiment log. No real need to specify
-    # other directories for other experiments
-    
-    
-    #TODO: add mapping for other experiments
-    experiment_mapping = { 'Undulator':'HTUparameters.ini', 
-                            'Thomson': 'HTTparaeters.ini'}    
+    API_SERVICE_NAME = "script"
+    API_VERSION = "v1"
+
+    if servicevar is None:
+        service = establishService(API_SERVICE_NAME, API_VERSION)
+    else:
+        service = servicevar
+
+    request = {
+        "function": "lastRowFromSpreadsheet",
+        "parameters": [fileID, sheetString, firstcol, lastcol],
+        "devMode": False,
+    }
+
+    try:
+        response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
+        if "error" in response:
+            error = response["error"]["details"][0]
+            print("Script error message: {0}".format(error["errorMessage"]))
+        else:
+            return response["response"]["result"]
+
+    except errors.HttpError as e:
+        print(e.content)
+
+
+def insertImageToTableCell(documentID, scanNumber, row, column, imageID, servicevar):
+    """
+    Insert a Drive image into a specific table cell identified under a scan heading.
+
+    Parameters
+    ----------
+    documentID : str
+        Google Doc ID containing the table.
+    scanNumber : int
+        Scan number used by the Apps Script to locate the relevant section/heading.
+    row : int
+        Zero-based row index of the target table.
+    column : int
+        Zero-based column index of the target table.
+    imageID : str
+        Drive file ID of the image to insert.
+    servicevar : googleapiclient.discovery.Resource or None
+        An existing 'script' API service. If `None`, a new one will be created.
+
+    Returns
+    -------
+    dict or None
+        Script result payload on success, else `None`.
+
+    Notes
+    -----
+    Uses Apps Script function `insertImageToTableCell`. The script is responsible
+    for locating the correct table based on `scanNumber`.
+    """
+    API_SERVICE_NAME = "script"
+    API_VERSION = "v1"
+
+    if servicevar is None:
+        service = establishService(API_SERVICE_NAME, API_VERSION)
+    else:
+        service = servicevar
+
+    request = {
+        "function": "insertImageToTableCell",
+        "parameters": [documentID, scanNumber, row, column, imageID],
+        "devMode": True,
+    }
+
+    try:
+        response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
+        if "error" in response:
+            error = response["error"]["details"][0]
+            print(f"Script error message: {error['errorMessage']}")
+        else:
+            return response["response"]["result"]
+
+    except errors.HttpError as e:
+        print(e.content)
+
+
+def insertImageToExperimentLog(
+    scanNumber, row, column, image_path, documentID=None, experiment="Undulator"
+):
+    """
+    Convenience: upload a local image and insert it into the 2×2 display table for a scan.
+
+    Parameters
+    ----------
+    scanNumber : int
+        Scan number used to locate the section/heading in the Google Doc.
+    row : int
+        Zero-based row index of the target table cell.
+    column : int
+        Zero-based column index of the target table cell.
+    image_path : str
+        Local path to the image file (PNG or GIF).
+    documentID : str, optional
+        Google Doc ID. If `None`, it is read from the experiment's INI.
+    experiment : str, default 'Undulator'
+        Experiment key used to pick the INI that stores the current log ID.
+
+    Returns
+    -------
+    None
+        On success, the image is uploaded and placed; no value is returned.
+
+    Notes
+    -----
+    - Uses a temporary Drive folder (hard-coded) as a staging area; a separate
+      script is expected to purge this directory periodically.
+    - INI mapping is minimal; extend `experiment_mapping` if you add experiments.
+    """
+    # Upload the image to Drive (temporary location), then place it into the Doc.
+    experiment_mapping = {
+        "Undulator": "HTUparameters.ini",
+        "Thomson": "HTTparaeters.ini",
+    }
     config_file = experiment_mapping.get(experiment, None)
     if config_file:
-        # Create the ConfigParser object
         experiment_config = configparser.ConfigParser()
-
-        # Get the directory of the current script (docgen.py)
         experiment_config_dir = Path(__file__).parent
-
-        # Construct the path to config.ini
         config_path = experiment_config_dir / config_file
-
-        # Load the configuration file
         experiment_config.read(config_path)
 
-        # Debugging: Verify the loaded sections
         if not experiment_config.sections():
             print(f"Failed to load config file from: {config_path}")
         else:
             print(f"Successfully loaded config file: {config_path}")
 
         if documentID is None:
-            documentID = experiment_config['DEFAULT']['logid']
-    
-    ### note, the ID below is the path to directory in the bellaOps HTU experiment logs.
-    ### it's only for temporary storage so no need for multiple directories to be defined
-    ### As separated google script will be setup to purge the directory on a scheduled basis
-    image_id = uploadImage(image_path, '1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2')
+            documentID = experiment_config["DEFAULT"]["logid"]
 
-    # Insert the uploaded image into the specified table cell
+    # Temporary staging folder in BELLA Ops HTU logs (periodically purged)
+    image_id = uploadImage(image_path, "1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2")
+
     insertImageToTableCell(documentID, scanNumber, row, column, image_id, None)

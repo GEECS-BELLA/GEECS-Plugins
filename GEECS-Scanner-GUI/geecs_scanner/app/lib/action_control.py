@@ -38,7 +38,7 @@ class ActionControl:
             try:
                 # ✅ Validate structure using ActionSequence model
                 validated_sequence = ActionSequence(**action_list)
-                self.action_manager.add_action(action_name=name, action_seq=validated_sequence.model_dump())
+                self.action_manager.add_action(action_name=name, action_seq=validated_sequence)
                 self.action_manager.execute_action(name)
                 self.action_manager.clear_action(name)
                 action_finish_jingle()
