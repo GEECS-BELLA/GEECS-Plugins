@@ -38,3 +38,7 @@ ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFSL_HASO_LIFT_680_4980
 ScanAnalysis/tests/log_dll_load.txt
 ScanAnalysis/tests/single_shot_estimated_legendre.txt
 ImageAnalysis/image_analysis/offline_analyzers/log_dll_load.txt
+
+# MkDocs output
+/site
+/scripts

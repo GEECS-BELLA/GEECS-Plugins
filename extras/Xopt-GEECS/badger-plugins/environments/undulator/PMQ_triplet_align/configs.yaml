@@ -1,0 +1,9 @@
+---
+name: PMQ_triplet_align
+description: "Example using the geecs interface with the base geecs environment"
+version: "0.1"
+dependencies:
+  - badger-opt
+  - geecs_python_api
+interface:
+  - geecs

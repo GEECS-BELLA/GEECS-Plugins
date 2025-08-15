@@ -1,0 +1,10 @@
+numpy
+opencv-python
+Pillow
+pathlib
+scikit-image
+scipy
+numpngw
+pandas
+pypng
+matplotlib

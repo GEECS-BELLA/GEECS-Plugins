@@ -1,9 +1,0 @@
-Author: Anthony V
-
-- cd to folder where "Spot Analysis" is
--run this in terminal/cmd: python create_env.py myenv requirements.txt
--run: python "Spot Alignment.py"
-
-*** important note ***
-- If you decide to run the create_env.py with the requirements.txt, then make sure you remove 
-the myenv folder that pops up before committing to master. 
