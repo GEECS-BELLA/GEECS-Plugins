@@ -33,7 +33,6 @@ FUTURE WORK:
 from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional, NamedTuple
 if TYPE_CHECKING:
-    from geecs_data_utils import ScanTag
     from matplotlib.pyplot import Axes
 
 from pathlib import Path
