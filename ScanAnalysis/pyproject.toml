@@ -20,7 +20,7 @@ LogMaker4GoogleDocs = {path = "../LogMaker4GoogleDocs", develop = true}
 pyyaml = "^6.0.2"
 matplotlib = "^3.9.2"
 pandas = "^2.2.3"
-h5py = "*"
+h5py = "^3.8.0"
 watchdog = "^6.0.0"
 spyder-kernels = "==3.0.*"
 

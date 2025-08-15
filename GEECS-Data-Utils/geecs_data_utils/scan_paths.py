@@ -12,6 +12,7 @@ from configparser import ConfigParser, NoSectionError
 from typing import Optional, Union
 from geecs_data_utils.utils import ScanTag, SysPath, ConfigurationError, month_to_int
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
+# from geecs_data_utils.types import ScanConfig, ScanMode
 
 
 # module‐level logger
@@ -433,5 +434,7 @@ ScanPaths.reload_paths_config()
 
 if __name__ == '__main__':
 
-    test_tag = ScanPaths.get_scan_tag(2025, 4, 3, number=2, experiment='Undulator')
-    print(ScanPaths.get_scan_folder_path(test_tag))
+    test_tag = ScanPaths.get_scan_tag(2025, 6, 5, number=31, experiment='Undulator')
+    sp = ScanPaths(tag=test_tag)
+    print(sp.load_scan_info())
+

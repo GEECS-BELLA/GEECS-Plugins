@@ -290,7 +290,7 @@ class ActionLibrary(QWidget):
             name = self.get_selected_name()
             if index >= 0 and name:
                 action = self.actions_data['actions'][name]['steps'][index]
-                if action.get("wait") is not None:
+                if action['action'] == 'wait':
                     self.action_mode = 'wait'
                     self.ui.labelActionOption1.setText("Wait Time (s):")
                     self.ui.lineActionOption1.setEnabled(True)
@@ -331,7 +331,7 @@ class ActionLibrary(QWidget):
             if index >= 0 and name:
                 action = self.actions_data['actions'][name]['steps'][index]
 
-                if action.get("wait") is not None:
+                if action['action'] == 'wait':
                     action['wait'] = parse_variable_text(self.ui.lineActionOption1.text().strip())
                 elif action['action'] == 'execute':
                     action['action_name'] = self.ui.lineActionOption1.text().strip()

@@ -30,44 +30,32 @@ def test_compute_peak_location():
     assert bbs.compute_peak_location(profile) == 2
 
 
-def test_compute_2d_centroids_and_rms():
-    img = np.zeros((5, 5))
-    img[2, 3] = 10
-    x_c, y_c = bbs.compute_2d_center_of_mass(img)
-    x_rms, y_rms = bbs.compute_2d_rms(img)
-    assert np.isclose(x_c, 3.0)
-    assert np.isclose(y_c, 2.0)
-    assert np.isclose(x_rms, 0.0)
-    assert np.isclose(y_rms, 0.0)
-
-
-def test_compute_2d_fwhm_and_peak():
-    img = np.zeros((5, 5))
-    img[2, 1:4] = [1, 2, 1]
-    x_fwhm, y_fwhm = bbs.compute_2d_fwhm(img)
-    x_peak, y_peak = bbs.compute_2d_peak_locations(img)
-    assert x_fwhm > 0
-    assert y_fwhm == 0.0
-    assert x_peak == 2
-    assert y_peak == 2
-
-
-def test_beam_profile_stats_keys():
+def test_beam_profile_stats_structure():
     img = np.zeros((3, 3))
     img[1, 1] = 10
-    result = bbs.beam_profile_stats(img, prefix="Test")
-    expected_keys = [
-        "Test_x_mean", "Test_x_rms", "Test_x_fwhm", "Test_x_peak",
-        "Test_y_mean", "Test_y_rms", "Test_y_fwhm", "Test_y_peak"
-    ]
-    assert set(result.keys()) == set(expected_keys)
+    result = bbs.beam_profile_stats(img)
+
+    # Check top-level type
+    assert isinstance(result, bbs.BeamStats)
+    assert isinstance(result.image, bbs.ImageStats)
+    assert isinstance(result.x, bbs.ProjectionStats)
+    assert isinstance(result.y, bbs.ProjectionStats)
+
+    # Check fields exist and are floats
+    for nt in (result.image, result.x, result.y):
+        for value in nt:
+            assert isinstance(value, (float, int, np.floating))
 
 
 def test_zero_intensity_image():
     img = np.zeros((5, 5))
-    result = bbs.beam_profile_stats(img, prefix="Zero")
-    for v in result.values():
-        assert v == 0.0
+    result = bbs.beam_profile_stats(img)
+
+    # Image total should be 0.0, projections should be NaN
+    assert result.image.total == 0.0
+    assert np.isnan(result.image.peak_value)
+    assert all(np.isnan(v) for v in result.x)
+    assert all(np.isnan(v) for v in result.y)
 
 
 def test_negative_values_handling():
@@ -76,9 +64,23 @@ def test_negative_values_handling():
     rms = bbs.compute_rms(profile)
     fwhm = bbs.compute_fwhm(profile)
 
-    assert centroid == 0.0
-    assert rms == 0.0
-    assert fwhm == 0.0
+    assert np.isnan(centroid)
+    assert np.isnan(rms)
+    assert np.isnan(fwhm)
+
+def test_flatten_beam_stats():
+    img = np.zeros((3, 3))
+    img[1, 1] = 5
+    stats = bbs.beam_profile_stats(img)
+    flat = bbs.flatten_beam_stats(stats, prefix="cam")
+
+    # Check all keys are prefixed and values are floats
+    assert all(k.startswith("cam_") for k in flat.keys())
+    assert all(isinstance(v, (float, int, np.floating)) for v in flat.values())
+    # Ensure expected fields exist
+    expected_fields = {"image_total", "image_peak_value", "x_CoM", "y_CoM"}
+    assert any(k.endswith(f) for f in expected_fields for k in flat.keys())
+
 
 if __name__ == "__main__":
     pytest.main()

@@ -18,10 +18,7 @@ from nptdms import TdmsWriter, ChannelObject
 from . import DeviceManager, DatabaseDictLookup
 
 from geecs_python_api.controls.interface import GeecsDatabase
-from geecs_data_utils import ScanData
-from .types import ScanConfig
-
-from geecs_python_api.tools.files.timestamping import extract_timestamp_from_file
+from geecs_data_utils import ScanData, ScanMode, ScanConfig
 
 class ScanDataManager:
     """
@@ -65,75 +62,64 @@ class ScanDataManager:
         self.scan_number_int: Optional[int] = None
         self.parsed_scan_string: Optional[str] = None
 
-    def create_and_set_data_paths(self, save_local: bool = True) -> ScanData:
+    def initialize_scan_data_and_output_files(self):
         """
-        Create data paths for devices that need non-scalar saving, and initialize the TDMS writers.
-
-        This method sets up the necessary directories and paths for saving device data,
-        then initializes the TDMS writers for logging scalar and non-scalar data.
+        Initialize scan data metadata and set up file output paths (TDMS, HDF5, TXT).
+        Also initializes TDMS writers.
         """
-
         ScanData.reload_paths_config()
         self.scan_data = ScanData.build_next_scan_data()
-        
-        # if not ScanData.paths_config.is_default_server_address():
-        #     raise NotADirectoryError("Unable to locate server address for saving data, unable to set paths")
-
-        for device_name in self.device_manager.non_scalar_saving_devices:
-            logging.info(f'attemping to configure save paths for {device_name}')
-            data_path = self.scan_data.get_folder() / device_name
-            data_path.mkdir(parents=True, exist_ok=True)
-            target_dir = data_path
-
-            device = self.device_manager.devices.get(device_name)
-            device_type = GeecsDatabase.find_device_type(device_name)
-            logging.info(f'device is {device}')
-
-            if device:
-                device_name = device.get_name()
-                dev_host_ip_string = device.dev_ip
-                if save_local:
-                    source_dir = Path(f'//{dev_host_ip_string}/SharedData/{device_name}')
-                    self.purge_local_save_dir(source_dir)
-                    logging.info(f'creating save path for {device_name}')
-                    data_path_client_side = Path('C:\\SharedData') / device_name
-                else:
-                    source_dir = target_dir
-                    data_path_client_side = target_dir
-
-                save_path = str(data_path_client_side).replace('/', "\\")
-
-                logging.info(f"Setting save data path for {device_name} to {save_path}")
-                device.set("localsavingpath", save_path, sync=False)
-                time.sleep(.1)
-                device.set('save', 'on', sync=False)
-
-                # creating a dict here which contains all of the necessary information to
-                # move and rename a saved file from a local directory to thec correct
-                # scans directory on the data server
-                self.device_save_paths_mapping[device_name] = {
-                    "target_dir": target_dir,
-                    "source_dir": source_dir,
-                    "device_type": device_type}
-
-            else:
-                logging.warning(f"Device {device_name} not found in DeviceManager.")
 
         self.parsed_scan_string = self.scan_data.get_folder().parts[-1]
         self.scan_number_int = int(self.parsed_scan_string[-3:])
 
-        self.tdms_output_path = self.scan_data.get_folder() / f"{self.parsed_scan_string}.tdms"
-        self.data_txt_path = self.scan_data.get_folder() / f"ScanData{self.parsed_scan_string}.txt"
-        self.data_h5_path = self.scan_data.get_folder() / f"ScanData{self.parsed_scan_string}.h5"
+        folder = self.scan_data.get_folder()
+        analysis_folder = self.scan_data.get_analysis_folder().parent
 
-        self.sFile_txt_path = self.scan_data.get_analysis_folder().parent / f"s{self.scan_number_int}.txt"
-        self.sFile_info_path = self.scan_data.get_analysis_folder().parent / f"s{self.scan_number_int}_info.txt"
+        self.tdms_output_path = folder / f"{self.parsed_scan_string}.tdms"
+        self.data_txt_path = folder / f"ScanData{self.parsed_scan_string}.txt"
+        self.data_h5_path = folder / f"ScanData{self.parsed_scan_string}.h5"
+        self.sFile_txt_path = analysis_folder / f"s{self.scan_number_int}.txt"
+        self.sFile_info_path = analysis_folder / f"s{self.scan_number_int}_info.txt"
 
-        self.initialize_tdms_writers(str(self.tdms_output_path))        
-
+        self.initialize_tdms_writers(str(self.tdms_output_path))
         time.sleep(1)
 
-        return self.scan_data
+    def configure_device_save_paths(self, save_local: bool = True):
+        """
+        Set up save paths and saving behavior for all non-scalar devices.
+        """
+        for device_name in self.device_manager.non_scalar_saving_devices:
+            logging.info(f"Configuring save paths for device: {device_name}")
+            target_dir = self.scan_data.get_folder() / device_name
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            device = self.device_manager.devices.get(device_name)
+            device_type = GeecsDatabase.find_device_type(device_name)
+
+            if not device:
+                logging.warning(f"Device {device_name} not found in DeviceManager.")
+                continue
+
+            dev_host_ip_string = device.dev_ip
+            if save_local:
+                source_dir = Path(f"//{dev_host_ip_string}/SharedData/{device_name}")
+                self.purge_local_save_dir(source_dir)
+                data_path_client_side = Path("C:/SharedData") / device_name
+            else:
+                source_dir = target_dir
+                data_path_client_side = target_dir
+
+            save_path = str(data_path_client_side).replace("/", "\\")
+            device.set("localsavingpath", save_path, sync=False)
+            time.sleep(0.1)
+            device.set("save", "on", sync=False)
+
+            self.device_save_paths_mapping[device_name] = {
+                "target_dir": target_dir,
+                "source_dir": source_dir,
+                "device_type": device_type,
+            }
 
     def purge_all_local_save_dir(self) -> None:
         """
@@ -193,10 +179,6 @@ class ScanDataManager:
                                 such as device variable, start, end, and step values.
                                 See types.py
         """
-        # # Check if scan_config is a dictionary
-        # if not isinstance(scan_config, dict):
-        #     logging.error(f"scan_config is not a dictionary: {type(scan_config)}")
-        #     return
 
         # TODO: should probably add some exception handling here. the self.parsed_scan_string and
         # self.scan_number_int are set in create_and_set_data_paths. This method is only called
@@ -208,6 +190,9 @@ class ScanDataManager:
         filename = f"ScanInfo{scan_folder}.ini"
 
         scan_var = scan_config.device_var
+        if not scan_var:
+            scan_var = 'Shotnumber'
+
         additional_description = scan_config.additional_description
 
         scan_info = f'{self.device_manager.scan_base_description}. scanning {scan_var}. {additional_description}'
@@ -215,15 +200,16 @@ class ScanDataManager:
         # Add the Scan Info section
         config_file_contents = [
             "[Scan Info]\n",
-            f"Scan No = \"{scan_number}\"\n",
+            f"Scan No = {scan_number}\n",
             f"ScanStartInfo = \"{scan_info}\"\n",
             f"Scan Parameter = \"{scan_var}\"\n",
-            f"Start = \"{scan_config.start}\"\n",
-            f"End = \"{scan_config.end}\"\n",
-            f"Step size = \"{scan_config.step}\"\n",
-            f"Shots per step = \"{scan_config.wait_time}\"\n",
+            f"Start = {scan_config.start}\n",
+            f"End = {scan_config.end}\n",
+            f"Step size = {scan_config.step}\n",
+            f"Shots per step = {scan_config.wait_time}\n",
             f"ScanEndInfo = \"\"\n",
-            f"Background = \"{scan_config.background}\""
+            f"Background = {str(scan_config.background).lower()}\n",  # INI-style lowercase booleans
+            f"ScanMode = \"{scan_config.scan_mode.value}\"\n"
         ]
 
         # Create the full path for the file

@@ -1,12 +1,14 @@
-from dataclasses import dataclass
-from typing import Optional, Union
+import warnings
+from geecs_data_utils import ScanConfig as _ScanConfig
+from geecs_data_utils import ScanMode as _ScanMode
 
-@dataclass
-class ScanConfig:
-    device_var: str = 'noscan'
-    start: Union[int, float] = 0
-    end: Union[int, float] = 1
-    step: Union[int, float] = 1
-    wait_time: float = 1.0
-    additional_description: str = ''
-    background: bool = False
+warnings.warn(
+    "geecs_scanner.data_acquisition.types.ScanConfg/ScanMode have moved to "
+    "geecs_data_utils.types; please update your imports.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+#Backward compatibility: alias instead of subclass
+ScanConfig = _ScanConfig
+ScanMode = _ScanMode

@@ -94,7 +94,7 @@ class Interface(interface.Interface):
             retries = 0
             error_occured = False
             while retries < max_retries:
-                device_response = self.devices[device_name].set(attribute, value)
+                device_response = self.devices[device_name].set(attribute, value) #edit by josh
                 print('device response: ',device_response)
                 time.sleep(0.21)
                 device_state = self.devices[device_name].state
@@ -152,7 +152,7 @@ class Interface(interface.Interface):
         # first valid entry for the variables has been updated in the state.        
         for var in variables:
             device_name, _ = var.split(':')
-            timeout = 2.5
+            timeout = 10
             t0 = time.monotonic()
             t1 = t0
             
