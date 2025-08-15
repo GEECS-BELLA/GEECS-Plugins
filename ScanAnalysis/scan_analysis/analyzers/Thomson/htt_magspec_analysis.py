@@ -23,22 +23,12 @@ from geecs_data_utils import ScanData
 
 # %% classes
 class HTTMagSpecAnalyzer(ScanAnalyzer):
-    def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True):
-        super().__init__(scan_tag, device_name=None, skip_plt_show=skip_plt_show)
+    def __init__(self, device_name: Optional[str] = None, skip_plt_show: bool = True):
+        super().__init__(device_name=None, skip_plt_show=skip_plt_show)
 
         self.device_list = ['HTT-C23_1_MagSpec1', 'HTT-C23_2_MagSpec2', 'HTT-C23_3_MagSpec3', 'HTT-C23_4_MagSpec4']
         self.background_tag = ScanData.get_scan_tag(year=2025, month=3, day=26, number=7, experiment='Thomson')
         self.backgrounds = {}
-
-        # Check if data directory exists and is not empty
-        for device in self.device_list:
-            device_path = self.scan_directory / device
-            if not device_path.exists() or not any(device_path.iterdir()):
-                msg = f"Data directory 'device_path' does not exist or is empty."
-                logging.warning(msg)
-                raise NotADirectoryError(msg)
-
-        self.save_path = self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / "ScAnalyzer"
         self.load_backgrounds()
 
     def load_backgrounds(self):
@@ -54,8 +44,19 @@ class HTTMagSpecAnalyzer(ScanAnalyzer):
             average_image /= 10
             self.backgrounds[device] = average_image
 
-    def run_analysis(self):
+    def _run_analysis_core(self):
         """ Main function to run the analysis and generate plots. """
+
+        # Check if data directory exists and is not empty
+        for device in self.device_list:
+            device_path = self.scan_directory / device
+            if not device_path.exists() or not any(device_path.iterdir()):
+                msg = f"Data directory 'device_path' does not exist or is empty."
+                logging.warning(msg)
+                raise NotADirectoryError(msg)
+
+        self.save_path = self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / "ScAnalyzer"
+
         # For HTU we grab these from files
         # energy_values, charge_density_matrix
 
@@ -67,7 +68,7 @@ class HTTMagSpecAnalyzer(ScanAnalyzer):
                 # For more complex analysis, the actual `image analysis` code within this `for` block could be moved
                 #  to a dedicated ImageAnalysis class, and one could multithread the analysis so that each thread gets
                 #  a single image to analyze.  But for this simple example I am opting to keep it all within this file
-                image_file = ScanData.get_device_shot_path(tag=self.tag, device_name=device,
+                image_file = ScanData.get_device_shot_path(tag=self.scan_tag, device_name=device,
                                                            shot_number=int(float(shot_num)))
                 image = read_imaq_png_image(image_file)*1.0
                 image -= self.backgrounds[device]
@@ -100,7 +101,7 @@ class HTTMagSpecAnalyzer(ScanAnalyzer):
         plt.imshow(all_projections, aspect='auto')
         plt.xlabel('Stitched Image Horizontal Pixel')
         plt.ylabel('Shotnumber')
-        plt.title(f"{self.tag.experiment}: {self.tag.month:02d}/{self.tag.day:02d}/{self.tag.year} Scan{self.tag.number:03d} Raw Magspec Waterfall")
+        plt.title(f"{self.scan_tag.experiment}: {self.scan_tag.month:02d}/{self.scan_tag.day:02d}/{self.scan_tag.year} Scan{self.scan_tag.number:03d} Raw Magspec Waterfall")
 
         save_path = self.save_path / 'RawMagspecWaterfall'
         save_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
@@ -118,5 +119,5 @@ class HTTMagSpecAnalyzer(ScanAnalyzer):
 if __name__ == "__main__":
     from geecs_data_utils import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=3, day=21, number=10, experiment='Thomson')
-    analyzer = HTTMagSpecAnalyzer(scan_tag=tag, skip_plt_show=False)
-    analyzer.run_analysis()
+    analyzer = HTTMagSpecAnalyzer( skip_plt_show=False)
+    analyzer.run_analysis(scan_tag=tag)

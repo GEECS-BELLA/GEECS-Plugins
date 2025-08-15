@@ -5,6 +5,7 @@ from typing import Union, Optional
 from warnings import warn
 
 import numpy as np
+import h5py
 import png
 from imageio.v3 import imread
 
@@ -64,9 +65,15 @@ def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
         return np.load(file_path)
     elif file_path.suffix.lower() == '.tsv':
         return read_tsv_file(file_path)
+    elif file_path.suffix.lower() == '.h5':
+        return load_image_from_h5(h5_path=file_path)
     else:
         return imread(file_path)
 
+def load_image_from_h5(h5_path: Path | str) -> np.ndarray:
+    with h5py.File(h5_path, 'r') as f:
+        image = f['image'][()]  # Load the dataset into a NumPy array
+    return image
 
 def extract_shot_number(filename):
     """
