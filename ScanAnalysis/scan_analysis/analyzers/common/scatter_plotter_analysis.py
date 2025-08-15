@@ -22,7 +22,8 @@ class PlotParameter(NamedTuple):
 
 
 class ScatterPlotterAnalysis(ScanAnalyzer):
-    def __init__(self, scan_tag: ScanTag, use_median: bool,
+    def __init__(self,
+                 use_median: bool,
                  title: str,
                  parameters: Union[PlotParameter, list[PlotParameter]],
                  filename: str,
@@ -30,11 +31,17 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
                  device_name: Optional[str] = None,
                  flag_logging: bool = True,
                  ):
-        super().__init__(scan_tag, skip_plt_show, device_name)
-        self.flag_logging = flag_logging
+        super().__init__(skip_plt_show=skip_plt_show, device_name=device_name)
 
-        # Set up key names to load from auxiliary data
-        found_keys = self.auxiliary_data.keys()
+        self.flag_logging = flag_logging
+        self.filename = filename
+        self.base_title = title
+        self.title: str
+
+        if use_median:
+            self.stat_type = 'median'
+        else:
+            self.stat_type = 'average'
 
         self.parameters: list[PlotParameter]
         if not isinstance(parameters, list):
@@ -42,21 +49,25 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         else:
             self.parameters = parameters
 
+    def _check_parameters(self):
+        # Set up key names to load from auxiliary data
+        found_keys = self.auxiliary_data.keys()
+
         for param in self.parameters:
             if param.key_name not in found_keys:
-                raise KeyError(f"f{param.key_name} not found in sfile for Scan {scan_tag.number}")
+                raise KeyError(f"f{param.key_name} not found in sfile for Scan {self.scan_tag.number}")
 
+    def _set_plotting_options(self):
         # Plotting options
-        self.title: str = f"{scan_tag.month:02d}/{scan_tag.day:02d}/{scan_tag.year%1000:02d} Scan{scan_tag.number:03d}: {title}"
-        if use_median:
-            self.stat_type = 'median'
-        else:
-            self.stat_type = 'average'
+        self.title: str = (f"{self.scan_tag.month:02d}/{self.scan_tag.day:02d}/{self.scan_tag.year%1000:02d} "
+                           f"Scan{self.scan_tag.number:03d}: {self.base_title}")
 
         self.save_path = self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / "ParameterPlots"
-        self.filename = filename
 
     def _run_analysis_core(self) -> Optional[list[Union[Path, str]]]:
+        self._check_parameters()
+        self._set_plotting_options()
+
         try:
             if self.noscan:
                 self.run_noscan_analysis()

@@ -1,13 +1,11 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional
-if TYPE_CHECKING:
-    from geecs_data_utils import ScanTag
+from typing import Optional
 
 from scan_analysis.analyzers.common.scatter_plotter_analysis import ScatterPlotterAnalysis, PlotParameter
 
 
 class ICTPlotAnalysis(ScatterPlotterAnalysis):
-    def __init__(self, scan_tag: ScanTag, skip_plt_show: bool = True, device_name: Optional[str] = None,
+    def __init__(self, skip_plt_show: bool = True, device_name: Optional[str] = None,
                  use_median: bool = True,  flag_logging: bool = False):
 
         ict_plot_parameter = [
@@ -17,8 +15,7 @@ class ICTPlotAnalysis(ScatterPlotterAnalysis):
                           axis_label='Charge (pC)'),
         ]
 
-        super().__init__(scan_tag=scan_tag,
-                         device_name='U_BCaveICT',
+        super().__init__(device_name='U_BCaveICT',
                          use_median=use_median,
                          title='BCave ICT Charge Value',
                          parameters=ict_plot_parameter,
@@ -31,5 +28,5 @@ if __name__ == "__main__":
     from geecs_data_utils import ScanData
 
     tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=8, experiment='Undulator')
-    analyzer = ICTPlotAnalysis(scan_tag=tag, skip_plt_show=False, flag_logging=True, use_median=True)
-    analyzer.run_analysis()
+    analyzer = ICTPlotAnalysis(skip_plt_show=False, flag_logging=True, use_median=True)
+    analyzer.run_analysis(scan_tag=tag)
