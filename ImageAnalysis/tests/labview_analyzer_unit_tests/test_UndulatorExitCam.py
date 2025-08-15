@@ -47,7 +47,7 @@ class TestUndulatorExitCamAnalyze(unittest.TestCase):
         test_image = generate_mirrored_gaussian_image(image_size=(image_size, image_size), spot_std=spot_size,
                                                       rot_angle=-rotation_angle, amp=amplitude)
 
-        # Make an analyzer using some smaller calibration numbers
+        # Make an image_analyzer using some smaller calibration numbers
         analyzer = UC_LightSpectrometerCamAnalyzer(
             noise_threshold=50,
             roi=[None, None, None, None],  # ROI(top, bottom, left, right)

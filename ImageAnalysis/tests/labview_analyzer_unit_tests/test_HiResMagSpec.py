@@ -65,7 +65,7 @@ class TestHiResMagSpecAnalyze(unittest.TestCase):
             optimization_bandwidth_energy=2.0)
         results = test_analyzer.analyze_image(elliptical_gaussian_array)
 
-        # Here I check that the mag spec analyzer is working properly using the constants set above with the sample data
+        # Here I check that the mag spec image_analyzer is working properly using the constants set above with the sample data
         analyze_dict = results['analyzer_return_dictionary']
         self.assertAlmostEqual(analyze_dict["camera_clipping_factor"], 0.42678, delta=1e-4)
         self.assertEqual(analyze_dict["camera_saturation_counts"], 49)

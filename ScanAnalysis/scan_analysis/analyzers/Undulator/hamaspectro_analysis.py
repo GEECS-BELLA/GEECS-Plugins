@@ -19,38 +19,35 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from scan_analysis.base import ScanAnalysis
-from geecs_python_api.controls.api_defs import ScanTag
+from scan_analysis.base import ScanAnalyzer
+from geecs_data_utils import ScanTag
 
 # %% classes
 
-class FiberSpectrometerAnalysis(ScanAnalysis):
+class FiberSpectrometerAnalyzer(ScanAnalyzer):
 
-    def __init__(self, scan_tag: ScanTag, device_name: str,
+    def __init__(self, device_name: str,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
-                 flag_save_images: bool = True,
-                 image_analyzer=None) -> None:
+                 flag_save_images: bool = True) -> None:
 
-        super().__init__(scan_tag, device_name=device_name, skip_plt_show=skip_plt_show)
+        super().__init__(device_name=device_name, skip_plt_show=skip_plt_show)
 
         # define flags
         self.flags = {'logging': flag_logging,
                       'save_image': flag_save_images,
                       'noscan': self.noscan}
 
-        # organize paths
-        self.path_dict = {'data': Path(self.scan_directory) / f"{device_name}",
-                          'save': (self.scan_directory.parents[1] / 'analysis'
-                                   / self.scan_directory.name / f"{device_name}" / "FiberSpectrometerAnalysis")
-                          }
-
         # initialize future variables
         self.wavelength = None
         self.spectra = None
         self.spectra_binned = None
 
-    def run_analysis(self) -> list[str]:
+    def _run_analysis_core(self) -> list[str]:
+        # organize paths
+        self.path_dict = {'data': Path(self.scan_directory) / f"{self.device_name}",
+                          'save': (self.scan_directory.parents[1] / 'analysis'
+                                   / self.scan_directory.name / f"{self.device_name}" / "FiberSpectrometerAnalyzer")}
         try:
             # load  data
             self.wavelength, self.spectra = self.load_spectrometer_data()
@@ -68,7 +65,7 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
 
         except Exception as e:
             raise Exception(f""""
-                            Error: FiberSpectrometerAnalysis for {self.device_name} failed.
+                            Error: FiberSpectrometerAnalyzer for {self.device_name} failed.
                             Error Message: {e}.
                             """)
 
@@ -111,7 +108,7 @@ class FiberSpectrometerAnalysis(ScanAnalysis):
         for ind, shot_num in enumerate(shot_numbers):
             try:
                 # get file for shot number
-                file = self.scan_data.get_device_shot_path(self.tag, self.device_name, shot_num, file_extension='txt')
+                file = self.scan_data.get_device_shot_path(self.scan_tag, self.device_name, shot_num, file_extension='txt')
 
                 # read data
                 data = pd.read_csv(file, delimiter='\t', header=None)
@@ -283,8 +280,8 @@ def testing():
     tag = ScanTag(**kwargs)
 
     # initialize analyzer, run analysis
-    analyzer = FiberSpectrometerAnalysis(scan_tag=tag, device_name="U_HamaSpectro")
-    analyzer.run_analysis()
+    analyzer = FiberSpectrometerAnalyzer(device_name="U_HamaSpectro")
+    analyzer.run_analysis(scan_tag=tag)
 
 # %% execute
 if __name__ == "__main__":

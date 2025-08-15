@@ -369,7 +369,7 @@ class SaveElementEditor(QDialog):
             else:
                 self.ui.radioIsPost.setChecked(True)
 
-            if action.get("wait") is not None:
+            if action['action'] == 'wait':
                 self.action_mode = 'wait'
                 self.ui.labelActionOption1.setText("Wait Time (s):")
                 self.ui.lineActionOption1.setEnabled(True)
@@ -424,7 +424,7 @@ class SaveElementEditor(QDialog):
 
         if action is None:
             return
-        if action.get("wait") is not None:
+        if action['action'] == 'wait':
             action['wait'] = parse_variable_text(self.ui.lineActionOption1.text().strip())
         elif action['action'] == 'execute':
             action['action_name'] = self.ui.lineActionOption1.text().strip()

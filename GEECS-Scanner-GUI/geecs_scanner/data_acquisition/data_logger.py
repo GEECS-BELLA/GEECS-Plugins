@@ -124,7 +124,7 @@ class FileMover:
             task_success = False
             adjusted_target_dir = target_dir.parent / variant.name
             adjusted_target_dir.mkdir(parents=True, exist_ok=True)
-            logging.info(f"Processing variant '{variant.name}' with target '{adjusted_target_dir}'")
+            # logging.info(f"Processing variant '{variant.name}' with target '{adjusted_target_dir}'")
 
             found_files_count = 0
             for file in variant.glob("*"):
@@ -151,7 +151,7 @@ class FileMover:
                         continue
 
                 file_ts = extract_timestamp_from_file(file, device_type)
-                logging.info(f"Checking {file} with timestamp {file_ts} against expected {expected_timestamp}")
+                # logging.info(f"Checking {file} with timestamp {file_ts} against expected {expected_timestamp}")
                 if abs(file_ts - expected_timestamp) < 0.0011:
                     found_files_count += 1
 
@@ -204,7 +204,7 @@ class FileMover:
         dest_file = target_dir / new_filename
         try:
             shutil.move(str(source_file), str(dest_file))
-            logging.info(f"Moved {source_file} to {dest_file}")
+            # logging.info(f"Moved {source_file} to {dest_file}")
             self.processed_files.add(dest_file)
             return True
         except Exception as e:

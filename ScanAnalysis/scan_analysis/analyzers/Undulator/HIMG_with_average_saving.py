@@ -1,6 +1,6 @@
 """
 General camera image analyzer.
-Child to ScanAnalysis (./scan_analysis/base.py)
+Child to ScanAnalyzer (./scan_analysis/base.py)
 """
 # %% imports
 from __future__ import annotations
@@ -17,15 +17,15 @@ if TYPE_CHECKING:
 from pathlib import Path
 import logging
 
-from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalysis
+from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 
 import traceback
 PRINT_TRACEBACK = True
 
 
-class HIMGWithAveraging(Array2DScanAnalysis):
+class HIMGWithAveraging(Array2DScanAnalyzer):
     """
-    A child class of Array2DScanAnalysis that overrides the noscan postprocessing.
+    A child class of Array2DScanAnalyzer that overrides the noscan postprocessing.
     This version may, for example, save a custom average image and skip creating a GIF.
     """
 

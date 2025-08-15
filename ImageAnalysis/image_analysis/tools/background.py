@@ -1,6 +1,7 @@
 import numpy as np
 from pathlib import Path
 from scipy.ndimage import gaussian_filter, label, binary_opening
+from scipy import stats
 from skimage.morphology import remove_small_objects
 from typing import Optional, Union, Literal
 from image_analysis.utils import read_imaq_image
@@ -21,6 +22,8 @@ class Background:
         self._background: Optional[np.ndarray] = None
         self._apodization_mask: Optional[np.ndarray] = None
         self._min_subtracted_value: float = 0.0
+    def set_constant_background(self, background: float) -> None:
+        self._background = background
 
     def set_background_from_array(self, background: np.ndarray) -> None:
         self._background = background.astype(np.float64)
@@ -81,6 +84,28 @@ class Background:
             return data - np.median(data, axis=(1, 2), keepdims=True)
         elif data.ndim == 2:
             return data - np.median(data)
+        else:
+            raise ValueError("Input must be a 2D image or a 3D image stack.")
+
+    def subtract_imagewise_mode(self, data: np.ndarray) -> np.ndarray:
+        """
+        Subtract the mode from each image (3D stack) or from a single 2D image.
+
+        Args:
+            data (np.ndarray): Either a single 2D image (H, W) or a stack of images (N, H, W).
+
+        Returns:
+            np.ndarray: The result after mode subtraction.
+        """
+        if data.ndim == 3:
+            modes = np.array([
+                stats.mode(img, axis=None, keepdims=False).mode
+                for img in data
+            ])
+            return data - modes[:, None, None]
+        elif data.ndim == 2:
+            mode_val = stats.mode(data, axis=None, keepdims=False).mode
+            return data - mode_val
         else:
             raise ValueError("Input must be a 2D image or a 3D image stack.")
 
@@ -175,7 +200,7 @@ class Background:
             # Stack of images — broadcast the mask over the first dimension
             return data * self._apodization_mask[None, :, :]
         else:
-            raise ValueError(f"Expected 2D or 3D image array, got shape {image.shape}")
+            raise ValueError(f"Expected 2D or 3D image array, got shape {data.shape}")
 
     def get_min_value(self, data: np.ndarray) -> float:
         """

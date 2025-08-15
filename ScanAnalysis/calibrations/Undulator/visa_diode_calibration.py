@@ -24,7 +24,7 @@ class VisaBlueDiodeCalibration(VisaEBeamAnalysis):
 
     def __init__(self, scan_tag: ScanTag):
         """
-        Initialize the CameraImageAnalysis class.
+        Initialize the CameraImageAnalyzer class.
 
         Args:
             scan_directory (str or Path): Path to the scan directory containing data.
@@ -41,7 +41,7 @@ class VisaBlueDiodeCalibration(VisaEBeamAnalysis):
         plt.title(f"Centroid: X = {centroidx}, Y = {centroidy}")
         plt.show()
 
-    def run_analysis(self, show=True):
+    def _run_analysis_core(self, show=True):
 
         # check for existing data
         if self.path_dict['data_img'] is None or self.auxiliary_data is None:
@@ -100,7 +100,7 @@ def testing_VisaEBeamAnalysis():
     # initialize analysis class
     analysis_class = VisaBlueDiodeCalibration(scan_tag)
 
-    output = analysis_class.run_analysis()
+    output = analysis_class._run_analysis_core()
 
     print(f"Device: {analysis_class.device_name}")
     print(f"Centroid X = {output['centroidx']}")
