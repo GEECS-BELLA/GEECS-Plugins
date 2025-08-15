@@ -1,7 +1,12 @@
 """
-This is a replacement of the usual CameraImageAnalyzer just for ALine3, and it only effects parameter scans
+This is a replacement of the usual CameraImageAnalyzer just for ALine3, and it only effects parameter scans.
 
--Chris
+Bins the iamges across the scan and performs a dynamic background subtraction.  Gets an average image
+for each bin.  Then, get projections in x and y for each image and calculate the beam centroid and location
+of the peak.  Finally, plot and save a 2x2 figure showing these projections stacked in a waterfall plot, along
+with how the centroid and max locations vary with the scan parameter.
+
+TODO Ideally this should be replaced with an implementation using array2D_scan_analysis.py
 """
 from __future__ import annotations
 
@@ -15,9 +20,28 @@ from image_analysis.utils import read_imaq_png_image
 
 class ALine3DispersionAnalysis(CameraImageAnalyzer):
     def __init__(self, device_name=None, skip_plt_show: bool = True):
+        """
+        Initializes the analyzer and calls the parent class initialization
+
+        Args:
+            device_name (str): Name of the device to construct the subdirectory path.
+            skip_plt_show (bool): Flag that sets if matplotlib is tried to use for plotting
+        """
         super().__init__(device_name='UC_ALineEBeam3', skip_plt_show=skip_plt_show)
 
     def run_scan_analysis(self):
+        """
+        Main analysis loop that overwrites the typical scan analysis routine of the parent class.
+
+        In the first phase: loads all images, calculates a dynamic background image, and applies that background.
+
+        Next, bin the data by the scanned parameter and calculate an average image.  Normalize this average so that
+        the peak value is 1, and calculate projections in both x and y.  For these projections, calculate stats for
+        the mean and location of the max.
+
+        Lastly, generate a 2x2 figure that displays both the projections and how the statistics vary with the
+        scanned parameter.  Save this figure and append to the list of display contents.
+        """
         # Load all images and crop them accordingly
         images = []
         missing_shots = []
@@ -79,7 +103,7 @@ class ALine3DispersionAnalysis(CameraImageAnalyzer):
 
             # Save a normalized projection for each bin
             x_proj_max = np.max(x_projection)
-            x_projection_norm = x_projection / x_proj_max if x_proj_max !=0 else x_projection
+            x_projection_norm = x_projection / x_proj_max if x_proj_max != 0 else x_projection
             x_projection_stack.append(x_projection_norm)
 
             y_proj_max = np.max(y_projection)
