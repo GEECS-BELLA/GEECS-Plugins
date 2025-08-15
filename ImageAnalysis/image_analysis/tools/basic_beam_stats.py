@@ -1,7 +1,24 @@
+from __future__ import annotations
+from typing import NamedTuple
 import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
+
+class ProjectionStats(NamedTuple):
+    CoM: float
+    rms: float
+    fwhm: float
+    peak_location: float
+
+class ImageStats(NamedTuple):
+    total: float
+    peak_value: float
+
+class BeamStats(NamedTuple):
+    image: ImageStats
+    x: ProjectionStats
+    y: ProjectionStats
 
 def compute_center_of_mass(profile: np.ndarray) -> float:
     """
@@ -25,6 +42,7 @@ def compute_rms(profile: np.ndarray) -> float:
     """
     profile = np.asarray(profile, dtype=float)
     total = profile.sum()
+    profile[profile < 0] = 0  # Set all negative values to zero
     if total <= 0:
         logger.warning("compute_rms: Profile has non-positive total intensity. Returning 0.0.")
         return np.nan
@@ -67,7 +85,7 @@ def compute_fwhm(profile: np.ndarray) -> float:
 
     return right_edge - left_edge
 
-def compute_peak_location(profile: np.ndarray) -> int:
+def compute_peak_location(profile: np.ndarray) -> float:
     """
     Compute index of peak value in a 1D profile.
 
@@ -79,102 +97,75 @@ def compute_peak_location(profile: np.ndarray) -> int:
         return np.nan
     return int(np.argmax(profile))
 
-def compute_2d_center_of_mass(img: np.ndarray) -> tuple[float, float]:
+def beam_profile_stats(img: np.ndarray) -> BeamStats:
     """
-    Compute center of mass along x and y axes from a 2D image.
+    Compute beam profile statistics (global and per-axis) from a 2D image.
 
-    Returns (0.0, 0.0) and logs a warning if total image intensity is non-positive.
-    """
-    img = np.asarray(img, dtype=float)
-    if img.sum() <= 0:
-        logger.warning("compute_2d_center_of_mass: Image has non-positive total intensity. Returning (0.0, 0.0).")
-        return np.nan. np.nan
-    return compute_center_of_mass(img.sum(axis=0)), compute_center_of_mass(img.sum(axis=1))
+    Parameters
+    ----------
+    img : np.ndarray
+        2D image array.
 
-def compute_2d_rms(img: np.ndarray) -> tuple[float, float]:
-    """
-    Compute RMS widths along x and y axes from a 2D image.
-
-    Returns (0.0, 0.0) and logs a warning if total image intensity is non-positive.
+    Returns
+    -------
+    BeamStats
+        Named tuple with:
+          - image: ImageStats for overall image metrics
+          - x, y: ProjectionStats for horizontal and vertical projections
     """
     img = np.asarray(img, dtype=float)
-    if img.sum() <= 0:
-        logger.warning("compute_2d_rms: Image has non-positive total intensity. Returning (0.0, 0.0).")
-        return np.nan, np.nan
-    return compute_rms(img.sum(axis=0)), compute_rms(img.sum(axis=1))
+    total_counts = img.sum()
 
-def compute_2d_fwhm(img: np.ndarray) -> tuple[float, float]:
-    """
-    Compute FWHM along x and y axes from a 2D image.
+    if total_counts <= 0:
+        logger.warning("beam_profile_stats: Image has non-positive total intensity. Returning NaNs.")
+        nan_proj = ProjectionStats(np.nan, np.nan, np.nan, np.nan)
+        nan_img = ImageStats(total=total_counts, peak_value=np.nan)
+        return BeamStats(image=nan_img, x=nan_proj, y=nan_proj)
 
-    Returns (0.0, 0.0) and logs a warning if total image intensity is non-positive.
-    """
-    img = np.asarray(img, dtype=float)
-    if img.sum() <= 0:
-        logger.warning("compute_2d_fwhm: Image has non-positive total intensity. Returning (0.0, 0.0).")
-        return np.nan, np.nan
-    return compute_fwhm(img.sum(axis=0)), compute_fwhm(img.sum(axis=1))
-
-def compute_2d_peak_locations(img: np.ndarray) -> tuple[int, int]:
-    """
-    Compute peak locations along x and y axes from a 2D image.
-
-    Returns (0, 0) and logs a warning if total image intensity is non-positive.
-    """
-    img = np.asarray(img, dtype=float)
-    if img.sum() <= 0:
-        logger.warning("compute_2d_peak_locations: Image has non-positive total intensity. Returning (0, 0).")
-        return np.nan, np.nan
-    return compute_peak_location(img.sum(axis=0)), compute_peak_location(img.sum(axis=1))
-
-def beam_profile_stats(img: np.ndarray, prefix: str = "") -> dict[str, float]:
-    """
-    Compute beam profile statistics (CoM, RMS, FWHM, peak) from 2D image.
-
-    Parameters:
-        img (np.ndarray): 2D image array.
-        prefix (str): Optional prefix for dictionary keys.
-
-    Returns:
-        dict[str, float]: Dictionary of computed stats with optional prefixed keys.
-    """
-    img = np.asarray(img, dtype=float)
-    if img.sum() <= 0:
-        logger.warning("beam_profile_stats: Image has non-positive total intensity. Returning all 0.0 values.")
-        prefix = f"{prefix}" if prefix else ""
-        return {
-            f"{prefix}_x_CoM": np.nan,
-            f"{prefix}_x_rms": np.nan,
-            f"{prefix}_x_fwhm": np.nan,
-            f"{prefix}_x_peak": np.nan,
-            f"{prefix}_y_CoM": np.nan,
-            f"{prefix}_y_rms": np.nan,
-            f"{prefix}_y_fwhm": np.nan,
-            f"{prefix}_y_peak": np.nan,
-        }
-
+    # projections
     x_proj = img.sum(axis=0)
     y_proj = img.sum(axis=1)
 
-    x_com = compute_center_of_mass(x_proj)
-    x_rms = compute_rms(x_proj)
-    x_fwhm = compute_fwhm(x_proj)
-    x_peak = compute_peak_location(x_proj)
+    return BeamStats(
+        image=ImageStats(
+            total=total_counts,
+            peak_value=np.max(img)
+        ),
+        x=ProjectionStats(
+            CoM=compute_center_of_mass(x_proj),
+            rms=compute_rms(x_proj),
+            fwhm=compute_fwhm(x_proj),
+            peak_location=compute_peak_location(x_proj),
+        ),
+        y=ProjectionStats(
+            CoM=compute_center_of_mass(y_proj),
+            rms=compute_rms(y_proj),
+            fwhm=compute_fwhm(y_proj),
+            peak_location=compute_peak_location(y_proj),
+        ),
+    )
 
-    y_com = compute_center_of_mass(y_proj)
-    y_rms = compute_rms(y_proj)
-    y_fwhm = compute_fwhm(y_proj)
-    y_peak = compute_peak_location(y_proj)
+def flatten_beam_stats(stats: BeamStats, prefix: str | None = None) -> dict[str, float]:
+    """
+    Flatten a BeamStats NamedTuple into a flat dictionary with optional prefix.
 
-    prefix = f"{prefix}" if prefix else ""
+    Parameters
+    ----------
+    stats : BeamStats
+        Structured beam profile statistics.
+    prefix : str, optional
+        Optional prefix for keys.
 
-    return {
-        f"{prefix}_x_CoM": x_com,
-        f"{prefix}_x_rms": x_rms,
-        f"{prefix}_x_fwhm": x_fwhm,
-        f"{prefix}_x_peak": x_peak,
-        f"{prefix}_y_CoM": y_com,
-        f"{prefix}_y_rms": y_rms,
-        f"{prefix}_y_fwhm": y_fwhm,
-        f"{prefix}_y_peak": y_peak,
-    }
+    Returns
+    -------
+    dict[str, float]
+        Flat dictionary with keys like '<prefix>_image_total', '<prefix>_x_CoM', etc.
+    """
+
+    flat: dict[str, float] = {}
+    for field in stats._fields:
+        nested = getattr(stats, field)
+        for k, v in nested._asdict().items():
+            key = f"{prefix}_{field}_{k}" if prefix else f"{field}_{k}"
+            flat[key] = v
+    return flat

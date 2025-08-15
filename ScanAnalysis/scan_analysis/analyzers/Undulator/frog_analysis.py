@@ -27,7 +27,6 @@ from image_analysis.utils import read_imaq_image
 class FrogAnalyzer(ScanAnalyzer):
 
     def __init__(self,
-                 scan_tag: ScanTag,
                  device_name: str,
                  skip_plt_show: bool = True,
                  flag_logging: bool = True,
@@ -37,8 +36,6 @@ class FrogAnalyzer(ScanAnalyzer):
 
         Parameters
         ----------
-        scan_tag : ScanTag
-            Path to scan directory containing data
         device_name : str
             Name of device to construct the subdirectory path
         skip_plt_show : bool, optional
@@ -56,24 +53,25 @@ class FrogAnalyzer(ScanAnalyzer):
         if not device_name:
             raise ValueError("FrogAnalyzer requires a device name.")
 
-        super().__init__(scan_tag=scan_tag, device_name=device_name,
+        super().__init__(device_name=device_name,
                          skip_plt_show=skip_plt_show)
 
         # store flags
         self.flag = {'logging': flag_logging,
                      'save_images': flag_save_images}
 
+    def _establish_additional_paths(self):
         # organize various paths
-        self.path_dict = {'data_img': Path(self.scan_directory) / f"{device_name}",
+        self.path_dict = {'data_img': Path(self.scan_directory) / f"{self.device_name}",
                           'save': (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name
-                                   / f"{device_name}" / f"{self.__class__.__name__}")}
+                                   / f"{self.device_name}" / f"{self.__class__.__name__}")}
 
         # check if data directory exists and is not empty
         if not self.path_dict['data_img'].exists() or not any(self.path_dict['data_img'].iterdir()):
             if self.flag['logging']:
                 logging.warning(f"Data directory '{self.path_dict['data_img']}' does not exist or is empty.")
 
-    def run_analysis(self) -> Optional[list[Union[Path, str]]]:
+    def _run_analysis_core(self) -> Optional[list[Union[Path, str]]]:
         """
         Run the appropriate analysis based on scan type.
 
@@ -82,6 +80,7 @@ class FrogAnalyzer(ScanAnalyzer):
         List or None
             List of display contents if successful, None otherwise
         """
+        self._establish_additional_paths()
         # run initial checks
         if self.path_dict['data_img'] is None or self.auxiliary_data is None:
             if self.flag['logging']:
@@ -186,7 +185,7 @@ class FrogAnalyzer(ScanAnalyzer):
         # iterate shot numbers, load and store image
         for ind, shot_num in enumerate(shot_numbers):
             try:
-                file = self.scan_data.get_device_shot_path(self.tag, self.device_name,
+                file = self.scan_data.get_device_shot_path(self.scan_tag, self.device_name,
                                                            shot_num, file_extension='png')
 
                 images[ind] = read_imaq_image(file)
@@ -271,9 +270,9 @@ def testing():
     kwargs = {'year': 2025, 'month': 3, 'day': 6, 'number': 15, 'experiment': 'Undulator'}
     tag = ScanData.get_scan_tag(**kwargs)
 
-    analyzer = FrogAnalyzer(scan_tag=tag, device_name="U_FROG_Grenouille-Temporal")
+    analyzer = FrogAnalyzer(device_name="U_FROG_Grenouille-Temporal")
 
-    analyzer.run_analysis()
+    analyzer.run_analysis(scan_tag=tag)
 
     pass
 
