@@ -95,7 +95,9 @@ nav:
 #              - Utils: geecs_data_utils/api/utils.md
 #              - Type Definitions: geecs_data_utils/api/type_defs.md
 #              - GEECS Paths Config: geecs_data_utils/api/geecs_paths_config.md
-      - Examples: geecs_data_utils/examples/data_utils_examples.ipynb
+      - Examples:
+          - Basic Usage: geecs_data_utils/examples/basic_usage.ipynb
+          - Scan Database Utils: geecs_data_utils/examples/scans_database_utils.ipynb
 
 
 plugins:
