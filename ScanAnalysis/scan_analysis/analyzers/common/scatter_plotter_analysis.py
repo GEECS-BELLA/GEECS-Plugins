@@ -56,7 +56,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         self.save_path = self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / "ParameterPlots"
         self.filename = filename
 
-    def run_analysis(self) -> Optional[list[Union[Path, str]]]:
+    def _run_analysis_core(self) -> Optional[list[Union[Path, str]]]:
         try:
             if self.noscan:
                 self.run_noscan_analysis()
