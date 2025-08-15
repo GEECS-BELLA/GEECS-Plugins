@@ -23,6 +23,8 @@ ruff = "^0.4"  # Use compatible version with ruff-pre-commit
 pydocstyle = "^6.3"
 interrogate = "^1.7"  # For docstring coverage reporting
 
+mkdocs-jupyter = "^0.24.6"  # or latest version
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

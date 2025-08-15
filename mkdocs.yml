@@ -89,12 +89,13 @@ nav:
   - Data Utils:
       - Overview: geecs_data_utils/overview.md
       - API Reference:
-          - Core Modules:
-              - Scan Data: geecs_data_utils/api/scan_data.md
-              - Scan Paths: geecs_data_utils/api/scan_paths.md
-              - Utils: geecs_data_utils/api/utils.md
-              - Type Definitions: geecs_data_utils/api/type_defs.md
-              - GEECS Paths Config: geecs_data_utils/api/geecs_paths_config.md
+          - Core Modules: geecs_data_utils/api/core_modules.md
+#              - Scan Data: geecs_data_utils/api/scan_data.md
+#              - Scan Paths: geecs_data_utils/api/scan_paths.md
+#              - Utils: geecs_data_utils/api/utils.md
+#              - Type Definitions: geecs_data_utils/api/type_defs.md
+#              - GEECS Paths Config: geecs_data_utils/api/geecs_paths_config.md
+      - Examples: geecs_data_utils/examples/data_utils_examples.ipynb
 
 
 plugins:
@@ -119,11 +120,17 @@ plugins:
             group_by_category: true
             heading_level: 2
             show_module_attributes: false
+            summary: true          # <- show only summary line
+            docstring_section_style: table  # keeps it compact
+  - mkdocs-jupyter:
+      execute: false   # use saved outputs; set to true to run cells at build time
+      include_source: true  # optional: show a “download .ipynb” link
 
 markdown_extensions:
   - admonition
   - toc:
       permalink: true
+      toc_depth: 3        # <-- only show up to H3 in the left sidebar
   - pymdownx.details
   - pymdownx.highlight
   - pymdownx.superfences
