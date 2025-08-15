@@ -1,13 +1,25 @@
+from __future__ import annotations
+from typing import Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from geecs_scanner.data_acquisition.schemas.save_devices import SaveDeviceConfig, DeviceConfig
+
 import logging
 import yaml
 import threading
 from pathlib import Path
 
+
+
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceInstantiationError
 
-from .utils import get_full_config_path  # Import the utility function
+from .utils import get_full_config_path  # Import utility function to build paths to config files
+from geecs_data_utils import ScanConfig, ScanMode
+from .schemas.save_devices import SaveDeviceConfig, DeviceConfig
+from geecs_scanner.data_acquisition.schemas.actions import ActionSequence, SetStep  # or wherever ActionSequence is defined
 
+from pydantic import ValidationError
 
 class DeviceManager:
     """
@@ -17,20 +29,21 @@ class DeviceManager:
     """
 
     def __init__(self, experiment_dir: str = None):
-
         """
         Initialize the DeviceManager with optional experiment directory.
 
         Args:
             experiment_dir (str, optional): Path to the directory where experiment configurations are stored.
         """
+
         self.devices = {}
         self.event_driven_observables = []  # Store event-driven observables
         self.async_observables = []  # Store asynchronous observables
         self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
         self.composite_variables = {}
-        self.scan_setup_action = {'steps': []}
-        self.scan_closeout_action = {'steps': []}
+        self.scan_setup_action = ActionSequence(steps=[])
+        self.scan_closeout_action = ActionSequence(steps=[])
+        self.scan_base_description = ''
 
         self.fatal_error_event = threading.Event()  # Used to signal a fatal error
 
@@ -51,7 +64,6 @@ class DeviceManager:
                 logging.warning(f"Composite variables file not found.")
 
     def load_composite_variables(self, composite_file: Path):
-
         """
         Load composite variables from the given YAML file.
 
@@ -64,105 +76,100 @@ class DeviceManager:
 
         try:
             with open(composite_file, 'r') as file:
-                composite_variables = yaml.safe_load(file).get('composite_variables', {})
+                self.composite_variables = yaml.safe_load(file).get('composite_variables', {})
             logging.info(f"Loaded composite variables from {composite_file}")
-            return composite_variables
+            return self.composite_variables
         except FileNotFoundError:
             logging.warning(f"Composite variables file not found: {composite_file}.")
             return {}
 
-    def load_from_config(self, config_filename):
+    def load_from_config(self, config_filename: Union[str, Path]):
         """
         Load configuration from a YAML file, including scan info, parameters, and device observables.
         Also loads the base configuration if necessary.
 
         Args:
-            config_filename (str): The name of the YAML configuration file to load.
+            config_filename (str, Path): Either the name of the YAML configuration file to load or it's complete Path.
         """
 
         # Load base configuration first
         # self.load_base_config()
 
         # Load the specific config for the experiment
-        config_path = get_full_config_path(self.experiment_dir, 'save_devices', config_filename)
+        if isinstance(config_filename, Path) and config_filename.exists():
+            config_path = config_filename
+        else:
+            config_path = get_full_config_path(self.experiment_dir, 'save_devices', config_filename)
+
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
         logging.info(f"Loaded configuration from {config_path}")
         self.load_from_dictionary(config)
 
     def load_from_dictionary(self, config_dictionary):
-
         """
         Load configuration from a preloaded dictionary, bypassing the need to read a YAML file. Primarily
-        used by the GUI, but can enable loading conffigs in a different manner.
+        used by the GUI, but can enable loading configs in a different manner.
 
         Args:
             config_dictionary (dict): A dictionary containing the experiment configuration.
         """
+        logging.info(f'config dict is {config_dictionary}')
+        try:
+            validated = SaveDeviceConfig(**config_dictionary)
+        except ValidationError as e:
+            logging.error(f"Invalid save device configuration: {e}")
+            return
+        logging.info(f'validated SaveDeviceConfig is {validated}')
 
-        # Load scan info
-        self.scan_base_description = config_dictionary.get('scan_info', {}).get('description', '')
-        # self.scan_setup_action = config_dictionary.get('setup_action', None)
-        # self.scan_closeout_action = config_dictionary.get('closeout_action', None)
+        # note: there is a bit of mess with all these configs...
+        if config_dictionary.get('scan_info', None):
+            self.scan_base_description = config_dictionary['scan_info'].get('description')
 
-        # Append setup action from config
-        setup_actions = config_dictionary.get('setup_action', {}).get('steps', [])
-        if setup_actions:
-            self.scan_setup_action['steps'].extend(setup_actions)
+        self.scan_setup_action = validated.setup_action or ActionSequence(steps=[])
+        self.scan_closeout_action = validated.closeout_action or ActionSequence(steps=[])
 
-        # Append closeout action from config
-        closeout_actions = config_dictionary.get('closeout_action', {}).get('steps', [])
-        if closeout_actions:
-            self.scan_closeout_action['steps'].extend(closeout_actions)
-
-        self._load_devices_from_config(config_dictionary)
-
-        # Initialize the subscribers
+        self._load_devices_from_config(validated.Devices)
         self.initialize_subscribers(self.event_driven_observables + self.async_observables, clear_devices=False)
-
         logging.info(f"Loaded scan info: {self.scan_base_description}")
 
-    def _load_devices_from_config(self, config):
+    def _load_devices_from_config(self, devices: dict[str, DeviceConfig]):
         """
         Helper method to load devices from the base or custom configuration files.
         Adds devices to the manager and categorizes them as synchronous or asynchronous.
 
         Args:
-            config (dict): A dictionary of devices and their configuration.
+            devices (dict): A dictionary of DeviceConfig.
         """
 
-        devices = config.get('Devices', {})
         for device_name, device_config in devices.items():
-            variable_list = device_config.get('variable_list', [])
-            synchronous = device_config.get('synchronous', False)
-            save_non_scalar = device_config.get('save_nonscalar_data', False)
-            scan_setup = device_config.get('scan_setup', None)
-            logging.info(f"{device_name}: Synchronous = {synchronous}, Save_Non_Scalar = {save_non_scalar}")
+            logging.info(f"{device_name}: Synchronous = {device_config.synchronous}, "
+                         f"Save_Non_Scalar = {device_config.save_nonscalar_data}")
 
             # Add to non-scalar saving devices if applicable
-            if save_non_scalar:  # *NOTE* `acq_timestamp allows for file renaming of nonscalar data
-                if 'acq_timestamp' not in variable_list:
-                    variable_list.append('acq_timestamp')
+            if device_config.save_nonscalar_data:  # *NOTE* `acq_timestamp allows for file renaming of nonscalar data
+                if 'acq_timestamp' not in device_config.variable_list:
+                    device_config.variable_list.append('acq_timestamp')
                 self.non_scalar_saving_devices.append(device_name)
 
             # Categorize as synchronous or asynchronous
-            if synchronous:  # *NOTE* `acq_timestamp` allows for checking synchronicity
-                if 'acq_timestamp' not in variable_list:
-                    variable_list.append('acq_timestamp')
-                self.event_driven_observables.extend([f"{device_name}:{var}" for var in variable_list])
+            if device_config.synchronous:  # *NOTE* `acq_timestamp` allows for checking synchronicity
+                if 'acq_timestamp' not in device_config.variable_list:
+                    device_config.variable_list.append('acq_timestamp')
+                self.event_driven_observables.extend([f"{device_name}:{var}" for var in device_config.variable_list])
             else:
-                self.async_observables.extend([f"{device_name}:{var}" for var in variable_list])
+                self.async_observables.extend([f"{device_name}:{var}" for var in device_config.variable_list])
 
             # Check if device already exists, if not, instantiate it
             if device_name not in self.devices:
-                self._subscribe_device(device_name, variable_list)
+                self._subscribe_device(device_name, device_config.variable_list)
             else:
                 # If device exists, append new variables to its subscription
-                self.devices[device_name].subscribe_var_values(variable_list)
+                self.devices[device_name].subscribe_var_values(device_config.variable_list)
 
             # Append scan setup actions if they exist
-            if scan_setup:
-                self.append_device_setup_closeout_actions(device_name, scan_setup)
+            if device_config.scan_setup:
+                self.append_device_setup_closeout_actions(device_name, device_config.scan_setup)
 
         logging.info(f"Devices loaded: {self.devices.keys()}")
 
@@ -174,39 +181,40 @@ class DeviceManager:
             device_name (str): The name of the device.
             scan_setup (dict): Dictionary containing scan setup actions and their corresponding setup/closeout values.
         """
+
         # Iterate over each key in the 'scan_setup' dictionary
         for analysis_type, values in scan_setup.items():
             # Ensure the setup and closeout values exist in the 'scan_setup'
             if len(values) != 2:
                 logging.warning(
-                    f"Invalid scan setup actions for {device_name}: {analysis_type} (Expected 2 values, got {len(values)})")
+                    f"Invalid scan setup actions for {device_name}: {analysis_type} "
+                    f"(Expected 2 values, got {len(values)})")
                 continue
 
             setup_value, closeout_value = values
 
-            # Append to setup_action
-            self.scan_setup_action['steps'].append({
-                'action': 'set',
-                'device': device_name,
-                'value': setup_value,  # setup value
-                'variable': analysis_type,
-                'wait_for_execution': False
-            })
+            self.scan_setup_action.steps.append(SetStep(
+                action='set',
+                device=device_name,
+                variable=analysis_type,
+                value=setup_value,
+                wait_for_execution=False
+            ))
 
-            # Append to closeout_action
-            self.scan_closeout_action['steps'].append({
-                'action': 'set',
-                'device': device_name,
-                'value': closeout_value,  # closeout value
-                'variable': analysis_type,
-                'wait_for_execution': False
-
-            })
+            self.scan_closeout_action.steps.append(SetStep(
+                action='set',
+                device=device_name,
+                variable=analysis_type,
+                value=closeout_value,
+                wait_for_execution=False
+            ))
 
             logging.info(
-                f"Added setup and closeout actions for {device_name}: {analysis_type} (setup={setup_value}, closeout={closeout_value})")
+                f"Added setup and closeout actions for {device_name}: {analysis_type} "
+                f"(setup={setup_value}, closeout={closeout_value})")
 
-    def is_statistic_noscan(self, variable_name):
+    @staticmethod
+    def is_statistic_noscan(variable_name):
         """
         Check if the variable is a 'noscan' or 'statistics' placeholder.
 
@@ -229,6 +237,7 @@ class DeviceManager:
         Returns:
             bool: True if the variable is a composite variable, False otherwise.
         """
+
         return self.composite_variables is not None and variable_name in self.composite_variables
 
     def initialize_subscribers(self, variables, clear_devices=True):
@@ -327,8 +336,8 @@ class DeviceManager:
             self.reset()
         self.is_reset = False
 
-        self.scan_setup_action['steps'] = []
-        self.scan_closeout_action['steps'] = []
+        self.scan_setup_action = ActionSequence(steps=[])
+        self.scan_closeout_action = ActionSequence(steps=[])
 
         # Now load the new configuration and reinitialize the instance
         if config_path is not None:
@@ -338,7 +347,8 @@ class DeviceManager:
 
         logging.info("DeviceManager instance has been reinitialized.")
 
-    def preprocess_observables(self, observables):
+    @staticmethod
+    def preprocess_observables(observables):
         """
         Preprocess a list of observables by organizing them into device-variable mappings.
 
@@ -362,6 +372,8 @@ class DeviceManager:
         Add a new device or append variables to an existing device for scan operations and
         recording their data.
 
+        # TODO is there ever an instance where variable_list is a list?  Can we make it just a single string?
+
         Args:
             device_name (str or dict): The name of the device to add or update, or dict for composite var
             variable_list (list): A list of variables to add for the device.
@@ -371,6 +383,7 @@ class DeviceManager:
             logging.info(f"Adding new scan device: {device_name} with default settings.")
             self._subscribe_device(device_name, var_list=variable_list)
 
+            # TODO can we delete these lines of code for `self.nonscalar_saving_devices`?
             # Default attributes for scan-specific devices (e.g., from scan_config)
             default_device_config = {
                 'save_non_scalar_data': False,
@@ -399,29 +412,39 @@ class DeviceManager:
                                            f"{device_name}:{var}" not in self.async_observables])
             logging.info(f"Updated async_observables with new variables for {device_name}: {variable_list}")
 
-    def handle_scan_variables(self, scan_config):
+    def handle_scan_variables(self, scan_config: ScanConfig):
         """
         Handle the initialization and setup of scan variables, including composite variables.
 
         Args:
-            scan_config (dict): The configuration for the scan, including device and variable information.
+            scan_config (ScanConfig): The configuration for the scan, including device and variable information.
         """
 
-        device_var = scan_config['device_var']
+        logging.info(f"Handling scan variables with mode: {scan_config.scan_mode}")
+
+        if scan_config.scan_mode == ScanMode.NOSCAN:
+            logging.info("NOSCAN mode: no scan variables to set.")
+            return
+
+        if scan_config.scan_mode == ScanMode.OPTIMIZATION:
+            logging.info("OPTIMIZATION mode: assume devices will be set dynamically.")
+            return
+
+        device_var = scan_config.device_var
         logging.info(f"Processing scan device_var: {device_var}")
 
-        # Handle composite variables
-        if self.is_statistic_noscan(device_var):
-            logging.info("Statistical noscan selected, adding no scan devices.")
-        elif self.is_composite_variable(device_var):
+        self.check_then_add_variable(device_var=device_var)
+
+    def check_then_add_variable(self,device_var: str):
+
+        if self.is_composite_variable(device_var):
             logging.info(f"{device_var} is a composite variable.")
             device_name = device_var
             logging.info(f"Trying to add composite device variable {device_var} to self.devices.")
-            self.add_scan_device(device_name)  # Add or append the normal variable
-
+            self.add_scan_device(device_name)
         else:
-            # Normal variables
+            # Normal variable case
             logging.info(f"{device_var} is a normal variable.")
             device_name, var_name = device_var.split(':', 1)
             logging.info(f"Trying to add {device_name}:{var_name} to self.devices.")
-            self.add_scan_device(device_name, [var_name])  # Add or append the normal variable
+            self.add_scan_device(device_name, [var_name])

@@ -11,7 +11,7 @@ ImageAnalysis for a binned image. (rather than rely on the scalar calculations f
 from __future__ import annotations
 
 from pathlib import Path
-from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalysis
+from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalyzer
 from geecs_data_utils import ScanTag
 from image_analysis import labview_adapters
 import matplotlib.pyplot as plt
@@ -21,11 +21,11 @@ from image_analysis.labview_adapters import analyzer_from_device_type
 from image_analysis.utils import read_imaq_png_image
 
 
-class HiResMagCamAnalysis(CameraImageAnalysis):
-    def __init__(self, scan_tag: ScanTag, device_name=None, skip_plt_show: bool = True, rerun_analysis: bool = False, image_analyzer=None):
+class HiResMagCamAnalysis(CameraImageAnalyzer):
+    def __init__(self, device_name=None, skip_plt_show: bool = True, rerun_analysis: bool = False):
 
 
-        super().__init__(scan_tag=scan_tag, device_name='UC_HiResMagCam', skip_plt_show=skip_plt_show)
+        super().__init__(device_name='UC_HiResMagCam', skip_plt_show=skip_plt_show)
         self.rerun_analysis = rerun_analysis
 
     def run_noscan_analysis(self):
@@ -95,7 +95,7 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
         plt.colorbar(label="FWHM Energy Spread (%)")
         plt.scatter(np.average(peak_energy[valid]), np.average(peak_charge[valid]), marker="+", s=80, c="k",
                     label="Average")
-        plot_title = f"U_HiResMagSpec: {self.tag.month:02d}/{self.tag.day:02d}/{self.tag.year % 100:02d} Scan {self.tag.number:03d}"
+        plot_title = f"U_HiResMagSpec: {self.scan_tag.month:02d}/{self.scan_tag.day:02d}/{self.scan_tag.year % 100:02d} Scan {self.scan_tag.number:03d}"
         plt.xlim([min(peak_energy[valid]) * 0.95, max(peak_energy[valid]) * 1.05])
         plt.ylim([min(peak_charge[valid]) * 0.9, max(peak_charge[valid]) * 1.1])
         plt.legend()
@@ -203,6 +203,6 @@ class HiResMagCamAnalysis(CameraImageAnalysis):
 if __name__ == "__main__":
     from geecs_data_utils import ScanData
 
-    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=6, experiment_name='Undulator')
-    analyzer = HiResMagCamAnalysis(scan_tag=tag, skip_plt_show=False, rerun_analysis=True)
-    analyzer.run_analysis()
+    tag = ScanData.get_scan_tag(year=2025, month=3, day=6, number=130, experiment_name='Undulator')
+    analyzer = HiResMagCamAnalysis(skip_plt_show=False, rerun_analysis=True)
+    analyzer.run_analysis(scan_tag=tag)

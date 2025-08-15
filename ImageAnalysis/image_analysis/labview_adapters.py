@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Type, NamedTuple
 from .base import LabviewImageAnalyzer
 class DeviceConfig(NamedTuple):
-    labview_analyzer_class: Type[LabviewImageAnalyzer]  # Specific analyzer class
+    labview_analyzer_class: Type[LabviewImageAnalyzer]  # Specific image_analyzer class
     key_list_name: str  # name of keys dictionary in .json file
     default_settings_filename: str  # .ini config file in "image_analysis_configs/"
 
@@ -68,7 +68,7 @@ def analyze_labview_image(device_type, image, background):
 
 def analyzer_from_device_type(device_type: str, build_path_override=False) -> LabviewImageAnalyzer:
     """
-    Given the device type, returns the analyzer with default parameters as given by the config file in the above
+    Given the device type, returns the image_analyzer with default parameters as given by the config file in the above
     dictionary.  Additionally, this function can be used by outside post-analysis scripts
 
     Parameters:
@@ -114,6 +114,7 @@ def parse_results_to_labview(return_dictionary, key_list_name):
     if return_image is not None:
         validate_uint16_castable(return_image)
         return_image = return_image.astype(np.uint16)
+
 
     scalar_dict = return_dictionary['analyzer_return_dictionary']
     return_lineouts = return_dictionary['analyzer_return_lineouts']

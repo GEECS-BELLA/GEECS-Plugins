@@ -2,7 +2,7 @@
 """
 B-cave Magnetic Spectrometer Stitcher Analysis
 
-Child to ScanAnalysis (./scan_analysis/base.py)
+Child to ScanAnalyzer (./scan_analysis/base.py)
 """
 # %% imports
 from __future__ import annotations
@@ -16,37 +16,36 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from scan_analysis.base import ScanAnalysis
+from scan_analysis.base import ScanAnalyzer
 
 
 # %% classes
-class MagSpecStitcherAnalysis(ScanAnalysis):
-    def __init__(self, scan_tag: ScanTag, device_name: str, skip_plt_show: bool = True, image_analyzer=None):
-        super().__init__(scan_tag, device_name=device_name, skip_plt_show=skip_plt_show)
+class MagSpecStitcherAnalyzer(ScanAnalyzer):
+    def __init__(self, device_name: str, skip_plt_show: bool = True):
+        super().__init__(device_name=device_name, skip_plt_show=skip_plt_show)
         # self.data_subdirectory = Path(scan_directory) / data_subdirectory
-        self.data_subdirectory = self.scan_directory / f"{device_name}-interpSpec"
+
+
+    def _run_analysis_core(self):
+        """
+        Main function to run the analysis and generate plots.
+        """
+
+        self.data_subdirectory = self.scan_directory / f"{self.device_name}-interpSpec"
 
         # Check if data directory exists and is not empty
         if not self.data_subdirectory.exists() or not any(self.data_subdirectory.iterdir()):
             logging.warning(f"Data directory '{self.data_subdirectory}' does not exist or is empty.")
             self.data_subdirectory = None
 
-        self.save_path = (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / f"{device_name}")        
+        self.save_path = (self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / f"{self.device_name}")
 
-    def run_analysis(self, config_options: Optional[str] = None):
-        """
-        Main function to run the analysis and generate plots.
-        """
         if self.data_subdirectory is None or self.auxiliary_data is None:
             logging.info(f"Skipping analysis due to missing data or auxiliary file.")
             return
 
         try:
             energy_values, charge_density_matrix = self.load_charge_data()
-
-            if config_options is not None:
-                # TODO set some values for `interpolate_data`, etc from a config file
-                pass
 
             if energy_values is None or len(charge_density_matrix) == 0:
                 logging.error("No valid charge data found. Skipping analysis.")
@@ -211,5 +210,5 @@ class MagSpecStitcherAnalysis(ScanAnalysis):
 if __name__ == "__main__":
     from geecs_data_utils import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=2, day=27, number=4, experiment_name='Undulator')
-    analyzer = MagSpecStitcherAnalysis(scan_tag=tag, device_name="U_BCaveMagSpec", skip_plt_show=True)
-    analyzer.run_analysis()
+    analyzer = MagSpecStitcherAnalyzer( device_name="U_BCaveMagSpec", skip_plt_show=True)
+    analyzer.run_analysis(scan_tag=tag)

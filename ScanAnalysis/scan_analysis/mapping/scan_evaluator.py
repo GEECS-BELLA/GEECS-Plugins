@@ -1,9 +1,10 @@
 from typing import Union
 from pathlib import Path
-from scan_analysis.base import AnalyzerInfo
+from scan_analysis.base import ScanAnalyzerInfo, ScanAnalyzer
+from scan_analysis.execute_scan_analysis import instantiate_scan_analyzer
 
 
-def check_for_analysis_match(scan_folder: Union[Path, str], analyzer_list: list[AnalyzerInfo]) -> list[AnalyzerInfo]:
+def check_for_analysis_match(scan_folder: Union[Path, str], analyzer_list: list[ScanAnalyzerInfo]) -> list[ScanAnalyzer]:
     """
     Checks list of potential analyzers against what is actually saved for a given scan
 
@@ -17,7 +18,7 @@ def check_for_analysis_match(scan_folder: Union[Path, str], analyzer_list: list[
     valid_analyzers = []
     for analyzer_info in analyzer_list:
         if evaluate_condition(analyzer_info.requirements, saved_devices) and analyzer_info.is_active:
-            valid_analyzers.append(analyzer_info)
+            valid_analyzers.append(instantiate_scan_analyzer(analyzer_info))
     return valid_analyzers
 
 

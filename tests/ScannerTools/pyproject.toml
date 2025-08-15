@@ -6,7 +6,7 @@ authors = ["Your Name <you@example.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.9, <3.11"
+python = ">=3.10, <3.11"
 pytest = "^8.3.4"
 
 GEECS-Scanner_GUI = { path = "../../GEECS-Scanner-GUI", develop = true }
