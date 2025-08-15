@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalyzer
-from geecs_data_utils import ScanTag
 from image_analysis import labview_adapters
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,9 +16,8 @@ from image_analysis.utils import read_imaq_png_image
 
 
 class ALine3DispersionAnalysis(CameraImageAnalyzer):
-    def __init__(self, scan_tag: ScanTag, device_name=None, skip_plt_show: bool = True):
-        super().__init__(scan_tag=scan_tag, device_name='UC_ALineEBeam3', skip_plt_show=skip_plt_show)
-
+    def __init__(self, device_name=None, skip_plt_show: bool = True):
+        super().__init__(device_name='UC_ALineEBeam3', skip_plt_show=skip_plt_show)
 
     def run_scan_analysis(self):
         # Load all images and crop them accordingly
@@ -153,5 +151,5 @@ if __name__ == "__main__":
     from geecs_data_utils import ScanData
 
     tag = ScanData.get_scan_tag(year=2025, month=7, day=3, number=16, experiment_name='Undulator')
-    analyzer = ALine3DispersionAnalysis(scan_tag=tag, skip_plt_show=False)
-    analyzer.run_analysis()
+    analyzer = ALine3DispersionAnalysis(skip_plt_show=False)
+    analyzer.run_analysis(scan_tag=tag)
