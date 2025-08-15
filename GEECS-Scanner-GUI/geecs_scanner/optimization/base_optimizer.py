@@ -1,13 +1,17 @@
 # optimization/base_optimizer.py
 from __future__ import annotations
 
+from typing import TYPE_CHECKING,Callable, Optional, List, Any, Dict
+
+if TYPE_CHECKING:
+    from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
+    from geecs_scanner.data_acquisition.data_logger import DataLogger
+
 from xopt import Xopt, VOCS
-from typing import Callable, Optional, List, Any, Dict
+
 import yaml
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
-from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
-from geecs_scanner.data_acquisition.data_logger import DataLogger
 from geecs_scanner.optimization.generators.generator_factory import build_generator_from_config
 
 class BaseOptimizer:
