@@ -6239,4 +6239,4 @@ doc = ["mkdocs", "mkdocs-jupyter", "mkdocs-macros-plugin", "mkdocs-material", "m
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.11"
-content-hash = "5dc15d1ea067a84932a44cb5f07ac1d3c846e504dfa082f76c8c0e2db44643a1"
+content-hash = "bcd090a143886f0d17ae15d04fbbdb876f7875774aecd9ee24299dd35373a5e1"

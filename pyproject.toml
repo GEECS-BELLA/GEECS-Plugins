@@ -29,6 +29,7 @@ interrogate = "^1.7"  # For docstring coverage reporting
 
 jupyterlab = "^4.0"
 mkdocs-jupyter = "^0.24.6"  # or latest version
+ipykernel = "^6.30.1"
 
 [build-system]
 requires = ["poetry-core"]
