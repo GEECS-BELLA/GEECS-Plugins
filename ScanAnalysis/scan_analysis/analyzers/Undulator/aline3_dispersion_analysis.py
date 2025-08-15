@@ -7,11 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalyzer
-from image_analysis import labview_adapters
 import matplotlib.pyplot as plt
 import numpy as np
 import logging
-from image_analysis.labview_adapters import analyzer_from_device_type
 from image_analysis.utils import read_imaq_png_image
 
 
