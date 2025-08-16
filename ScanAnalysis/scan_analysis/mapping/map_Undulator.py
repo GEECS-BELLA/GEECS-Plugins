@@ -9,6 +9,8 @@ from scan_analysis.analyzers.Undulator.rad2_spec_analysis import Rad2SpecAnalysi
 from scan_analysis.analyzers.Undulator.HIMG_with_average_saving import HIMGWithAveraging
 from scan_analysis.analyzers.Undulator.hamaspectro_analysis import FiberSpectrometerAnalyzer
 from scan_analysis.analyzers.Undulator.frog_analysis import FrogAnalyzer
+from scan_analysis.analyzers.Undulator.ict_plot_analysis import ICTPlotAnalysis
+from scan_analysis.analyzers.Undulator.aline3_dispersion_analysis import ALine3DispersionAnalysis
 
 from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
 from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import ACaveMagCam3ImageAnalyzer
@@ -63,8 +65,26 @@ undulator_analyzers = [    *e_beam_profile_camera_analyzers,
     Info(scan_analyzer_class=MagSpecStitcherAnalyzer,
          requirements={'U_BCaveMagSpec'},
          device_name='U_BCaveMagSpec'),
+    Info(scan_analyzer_class=ICTPlotAnalysis,
+         requirements={'U_BCaveICT'},
+         device_name='U_BCaveICT'),
     Info(scan_analyzer_class=Rad2SpecAnalysis,
          requirements={'AND': ['UC_UndulatorRad2', {'OR': ['U_BCaveICT', 'U_UndulatorExitICT']}]}),
+    Info(scan_analyzer_class=ALine3DispersionAnalysis,
+         requirements={'UC_ALineEBeam3'},
+         device_name='UC_ALineEBeam3'),
+    Info(scan_analyzer_class=CameraImageAnalyzer,
+         requirements={'UC_TC_Phosphor'},
+         device_name='UC_TC_Phosphor'),
+    Info(scan_analyzer_class=CameraImageAnalyzer,
+         requirements={'UC_DiagnosticsPhosphor'},
+         device_name='UC_DiagnosticsPhosphor'),
+    Info(scan_analyzer_class=CameraImageAnalyzer,
+         requirements={'UC_Phosphor1'},
+         device_name='UC_Phosphor1'),
+    Info(scan_analyzer_class=CameraImageAnalyzer,
+         requirements={'UC_ModeImager'},
+         device_name='UC_ModeImager'),
     Info(scan_analyzer_class=HiResMagCamAnalysis,
          requirements={'UC_HiResMagCam'}),
     Info(scan_analyzer_class=FiberSpectrometerAnalyzer,
