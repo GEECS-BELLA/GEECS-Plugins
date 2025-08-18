@@ -1,0 +1,73 @@
+[tool.poetry]
+name = "geecs-docs"
+version = "0.1.0"
+description = "Unified documentation for GEECS plugins"
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.11"
+mkdocs = "^1.5"
+mkdocs-material = "^9.5"
+mkdocstrings = { extras = ["python"], version = "^0.28.2" }
+mkdocs-autorefs = "^1.4"
+nbconvert = "^7.0"  # Needed for Jupyter notebook output stripping
+tomli = "^2.2.1"
+
+[tool.poetry.group.dev.dependencies]
+geecs-scanner-gui = { path = "GEECS-Scanner-GUI", develop = true }
+imageanalysis = { path = "ImageAnalysis", develop = true }
+
+pre-commit = "^3.5"
+ruff = "^0.4"  # Use compatible version with ruff-pre-commit
+pydocstyle = "^6.3"
+interrogate = "^1.7"  # For docstring coverage reporting
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+# -------------------------------
+# Ruff settings
+# -------------------------------
+[tool.ruff]
+exclude = ["extras/**", "**/third_party_sdks/**"]
+
+[tool.ruff.lint]
+ignore = ["D100", "D104", "D401"]  # Allow missing module/package docstrings and imperative mood
+extend-select = ["D"]  # Enable all pydocstyle checks
+
+[tool.ruff.lint.per-file-ignores]
+"extras/**" = ["D"]
+"**/third_party_sdks/**" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+# -------------------------------
+# Interrogate settings (doc coverage checker)
+# -------------------------------
+[tool.interrogate]
+fail-under = 80
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = true
+ignore-semiprivate = true
+ignore-private = true
+ignore-property-decorators = true
+ignore-module = false
+ignore-nested-functions = true
+ignore-nested-classes = true
+verbose = 2
+exclude = [
+    "setup.py", "docs", "tests", "**/tests/**", "**/test_*.py", "**/*_test.py", "**/conftest.py",
+    "**/third_party_sdks/**",
+    "**/extras/**"
+]
+
+# -------------------------------
+# Pydocstyle settings
+# -------------------------------
+[tool.pydocstyle]
+convention = "numpy"
+add-ignore = ["D100", "D104"]
+match-dir = "^(?!extras/|.*third_party_sdks).*"

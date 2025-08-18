@@ -1,3 +1,17 @@
+"""Bowtie beam-profile fitting utilities.
+
+This module provides:
+- `BowtieFitResult`: Dataclass container for fitted parameters and diagnostics.
+- `BowtieFitAlgorithm`: Column-wise size extraction and Gaussian-beam model fit
+  for "bowtie"-shaped beam profiles in 2D images.
+
+Typical usage
+-------------
+>>> algo = BowtieFitAlgorithm(n_beam_size_clearance=4, min_total_counts=2500, threshold_factor=10)
+>>> result = algo.evaluate(image)  # image: np.ndarray, shape (H, W)
+>>> result.score, result.w0, result.theta, result.x0
+"""
+
 # # File: algorithms/bowtie_fit.py
 
 import numpy as np
@@ -13,14 +27,26 @@ class BowtieFitResult:
     """
     Encapsulates the result of a bowtie beam profile fit.
 
-    Attributes:
-        score (float): Quality metric equal to w0 * |theta|.
-        w0 (float): Minimum beam size (waist).
-        theta (float): Angular divergence in pixels^-1.
-        x0 (float): Horizontal location of the beam waist.
-        r_squared (float): R-squared value of the fit.
-        param_errors (Tuple[float, float, float]): Uncertainties of the fit parameters (w0, theta, x0).
+    Attributes
+    ----------
+    score : float
+        Quality metric defined as ``w0 * |theta|`` (smaller is typically better).
+    w0 : float
+        Minimum beam size (waist) in pixels (or calibrated units if input was scaled).
+    theta : float
+        Angular divergence in ``pixels^-1`` (magnitude only in final result).
+    x0 : float
+        Horizontal location (column index) of the beam waist.
+    r_squared : float
+        Coefficient of determination for the fit; ``-inf`` if undefined.
+    param_errors : Tuple[float, float, float]
+        One-sigma uncertainties for ``(w0, theta, x0)`` derived from covariance.
+    sizes : numpy.ndarray
+        Column-wise vertical size estimates used in the fit (NaN where invalid).
+    weights : numpy.ndarray
+        Column-wise total intensities used as weights.
     """
+
     score: float
     w0: float
     theta: float
@@ -33,8 +59,29 @@ class BowtieFitResult:
 
 class BowtieFitAlgorithm:
     """
-    Algorithm for evaluating synthetic or experimental bowtie-shaped beam profiles in 2D images.
-    Provides preprocessing, beam size extraction, and model fitting utilities.
+    Evaluate bowtie-shaped profile.
+
+    Achieved by extracting column-wise vertical sizes and fitting a Gaussian-beam-like divergence model.
+
+    The model is:
+        ``sigma(x) = sqrt(w0^2 + ((x - x0) * theta)^2)``
+
+    Parameters
+    ----------
+    threshold_factor : float, default=0.0
+        Reserved for external preprocessing/thresholding conventions (not used internally here).
+    n_beam_size_clearance : float, default=4.0
+        Number of vertical sigmas required to be fully within the image for a column to be valid.
+    min_total_counts : float, default=0.0
+        Minimum total column intensity required to attempt a size estimate.
+    beam_size_func : callable, optional
+        Custom function ``f(col: np.ndarray) -> float`` that returns a vertical size for one column.
+        If not provided, an RMS size estimator with intensity weights is used.
+
+    Notes
+    -----
+    - The algorithm stores the last extracted profile via `get_last_profile()`.
+    - Weights are used to derive per-point uncertainties for the fit (``sigma_err ~ 1/sqrt(weight)``).
     """
 
     def __init__(
@@ -42,7 +89,7 @@ class BowtieFitAlgorithm:
         threshold_factor: float = 0.0,
         n_beam_size_clearance: float = 4.0,
         min_total_counts: float = 0.0,
-        beam_size_func: Optional[Callable[[np.ndarray], float]] = None
+        beam_size_func: Optional[Callable[[np.ndarray], float]] = None,
     ):
         self.threshold_factor = threshold_factor
         self.n_beam_size_clearance = n_beam_size_clearance
@@ -51,51 +98,52 @@ class BowtieFitAlgorithm:
         self._last_profile: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
 
     def get_last_profile(self) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """
-        Returns the last (sizes, weights, valid_mask) profile extracted in evaluate().
-
-        Returns:
-            Tuple of arrays or None if evaluate() has not been called.
-        """
+        """Return the last (sizes, weights, valid_mask) extracted by `evaluate()`, or None if unavailable."""
         return self._last_profile
-
 
     @staticmethod
     def gaussian_fit_beam_size(col: np.ndarray) -> float:
+        """Estimate column size via a Gaussian fit and return the fitted sigma."""
         projection_fit = ProjectionFit(model=GaussianModel())
         result = projection_fit.fit_projection(col)
-        return result['sigma']
+        return result["sigma"]
 
     def _default_beam_size_func(self, y: np.ndarray) -> Callable[[np.ndarray], float]:
-        """
-        Returns RMS beam size estimator with fixed y-axis.
+        """Return a weighted RMS size estimator over a fixed vertical axis."""
 
-        Args:
-            y (np.ndarray): Vertical axis.
-
-        Returns:
-            Callable: Beam size function.
-        """
         def rms_beam_size(col: np.ndarray) -> float:
             if col.sum() <= 0:
                 return np.nan
             y_center = np.average(y, weights=col)
             return np.sqrt(np.average((y - y_center) ** 2, weights=col))
+
         return rms_beam_size
 
     def extract_profile(
         self,
         image: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Extracts vertical beam size (RMS) and total intensity for each column.
-        Applies clipping rejection based on vertical spread.
+        """Compute column-wise sizes and weights, with validity checks.
 
-        Args:
-            image (np.ndarray): 2D input image.
+        Parameters
+        ----------
+        image : numpy.ndarray
+            2D input image of shape ``(H, W)``.
 
-        Returns:
-            Tuple: (sizes, weights, valid_mask)
+        Returns
+        -------
+        sizes : numpy.ndarray, shape (W,)
+            Estimated vertical size per column; NaN where invalid or below `min_total_counts`.
+        weights : numpy.ndarray, shape (W,)
+            Total intensity per column.
+        valid_mask : numpy.ndarray of bool, shape (W,)
+            Mask of columns that (a) met count threshold and (b) had spread fully within the image
+            by ``n_beam_size_clearance``; further cleaned to be monotonic away from the weighted center.
+
+        Notes
+        -----
+        - Validity requires that the interval ``[y_center ± n_beam_size_clearance * spread]`` lies within image bounds.
+        - The final mask is post-processed by `enforce_monotonic_validity()` to avoid isolated valid islands.
         """
         h, w = image.shape
         y = np.arange(h)
@@ -116,7 +164,10 @@ class BowtieFitAlgorithm:
             try:
                 spread = beam_size_func(col)
                 y_center = np.average(y, weights=col)
-                ymin, ymax = y_center - self.n_beam_size_clearance * spread, y_center + self.n_beam_size_clearance * spread
+                ymin, ymax = (
+                    y_center - self.n_beam_size_clearance * spread,
+                    y_center + self.n_beam_size_clearance * spread,
+                )
                 is_valid = (ymin >= 0) and (ymax < h) and np.isfinite(spread)
             except Exception:
                 spread = np.nan
@@ -132,17 +183,25 @@ class BowtieFitAlgorithm:
         return sizes, weights, valid_mask
 
     def evaluate(self, image: np.ndarray) -> BowtieFitResult:
-        """
-        Evaluate the beam profile by extracting vertical sizes column-wise and
-        fitting the Gaussian beam divergence model.
+        """Extract sizes and fit the divergence model, returning fit parameters and diagnostics.
 
-        Stores the extracted profile for optional reuse.
+        Parameters
+        ----------
+        image : numpy.ndarray
+            2D input image of shape ``(H, W)``. Any external preprocessing (thresholding, background
+            removal, etc.) should be performed by the caller before this method if desired.
 
-        Args:
-            image (np.ndarray): Input 2D image.
+        Returns
+        -------
+        BowtieFitResult
+            Result object with model parameters, R², uncertainties, and the raw profiles used.
 
-        Returns:
-            BowtieFitResult: Result object containing fitted parameters and diagnostics.
+        Fit details
+        -----------
+        - Points are selected where both ``valid_mask`` is True and ``weights > 0``.
+        - Per-point uncertainties scale as ``1/sqrt(weight)`` for `curve_fit`.
+        - Initial guess defaults to ``[min(sigma_fit), 0.1, median(x_fit)]``.
+        - A guard rejects fits if there is insufficient weight within ±10 px of the waist (``x0``).
         """
         preprocessed = image
         sizes, weights, valid_mask = self.extract_profile(preprocessed)
@@ -162,7 +221,7 @@ class BowtieFitAlgorithm:
                 r_squared=-np.inf,
                 param_errors=(np.nan, np.nan, np.nan),
                 sizes=sizes,
-                weights=weights
+                weights=weights,
             )
         try:
             weights_fit_safe = np.clip(weights_fit, 1e-6, None)
@@ -174,26 +233,33 @@ class BowtieFitAlgorithm:
                 sigma_fit,
                 sigma=sigma_err,
                 absolute_sigma=True,
-                p0=[np.min(sigma_fit), 0.1, np.median(x_fit)]
+                p0=[np.min(sigma_fit), 0.1, np.median(x_fit)],
             )
 
             w0, theta, x0 = popt
             residuals = sigma_fit - self._beam_model(x_fit, *popt)
-            ss_res = np.sum(residuals ** 2)
+            ss_res = np.sum(residuals**2)
             ss_tot = np.sum((sigma_fit - np.mean(sigma_fit)) ** 2)
-            r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else float('-inf')
+            r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else float("-inf")
 
-            perr = np.sqrt(np.diag(pcov)) if np.all(np.isfinite(pcov)) else (np.nan, np.nan, np.nan)
+            perr = (
+                np.sqrt(np.diag(pcov))
+                if np.all(np.isfinite(pcov))
+                else (np.nan, np.nan, np.nan)
+            )
 
-            # Additional check: ensure enough weight around the waist
+            # Additional check: ensure enough weight around the waist.
             waist_window = 10  # pixels
-            in_waist_region = (x_fit >= (x0 - waist_window)) & (x_fit <= (x0 + waist_window))
+            in_waist_region = (x_fit >= (x0 - waist_window)) & (
+                x_fit <= (x0 + waist_window)
+            )
             total_weight_waist = np.sum(weights_fit[in_waist_region])
             total_weight_all = np.sum(weights_fit)
 
             if total_weight_waist < 0.004 * total_weight_all:
                 print(
-                    f"⚠️ Insufficient weight near waist: x0={x0:.1f}, waist weight = {total_weight_waist:.1f}, total = {total_weight_all:.1f}")
+                    f"⚠️ Insufficient weight near waist: x0={x0:.1f}, waist weight = {total_weight_waist:.1f}, total = {total_weight_all:.1f}"
+                )
                 return BowtieFitResult(
                     score=1e6,
                     w0=1e6,
@@ -202,7 +268,7 @@ class BowtieFitAlgorithm:
                     r_squared=-np.inf,
                     param_errors=(np.nan,) * 3,
                     sizes=sizes,
-                    weights=weights
+                    weights=weights,
                 )
 
             return BowtieFitResult(
@@ -213,7 +279,7 @@ class BowtieFitAlgorithm:
                 r_squared=r_squared,
                 param_errors=perr,
                 sizes=sizes,
-                weights=weights
+                weights=weights,
             )
 
         except Exception as e:
@@ -226,33 +292,41 @@ class BowtieFitAlgorithm:
                 r_squared=-np.inf,
                 param_errors=(np.nan, np.nan, np.nan),
                 sizes=sizes,
-                weights=weights
+                weights=weights,
             )
 
     @staticmethod
     def _beam_model(x: np.ndarray, w0: float, theta: float, x0: float) -> np.ndarray:
-        """Returns model: sigma(x) = sqrt(w0^2 + ((x - x0) * theta)^2)"""
-        return np.sqrt(w0**2 + ((x - x0) * theta)**2)
+        """Return model: ``sigma(x) = sqrt(w0**2 + ((x - x0) * theta)**2)``."""
+        return np.sqrt(w0**2 + ((x - x0) * theta) ** 2)
 
     @staticmethod
-    def _initial_guess(x_vals: np.ndarray, sizes: np.ndarray) -> Tuple[float, float, float]:
-        """Provides initial parameters (w0, theta, x0) for model fit."""
+    def _initial_guess(
+        x_vals: np.ndarray, sizes: np.ndarray
+    ) -> Tuple[float, float, float]:
+        """Provide initial parameters ``(w0, theta, x0)`` for the model fit."""
         idx_min = np.nanargmin(sizes)
         x0 = x_vals[idx_min]
         w0 = sizes[idx_min]
         theta = 0.05
         return w0, theta, x0
 
-    def enforce_monotonic_validity(self, valid_mask: np.ndarray, weights: np.ndarray) -> np.ndarray:
-        """
-        Ensures beam profile validity mask is monotonic from center.
+    def enforce_monotonic_validity(
+        self, valid_mask: np.ndarray, weights: np.ndarray
+    ) -> np.ndarray:
+        """Force the valid-mask to be contiguous away from the weighted center.
 
-        Args:
-            valid_mask (np.ndarray): Boolean mask.
-            weights (np.ndarray): Column totals.
+        Parameters
+        ----------
+        valid_mask : numpy.ndarray of bool, shape (W,)
+            Initial column validity mask.
+        weights : numpy.ndarray, shape (W,)
+            Column totals used to compute a weighted center.
 
-        Returns:
-            np.ndarray: Cleaned mask.
+        Returns
+        -------
+        numpy.ndarray
+            Cleaned boolean mask where invalid regions propagate outward from the center.
         """
         x_vals = np.arange(len(valid_mask))
         center_x = np.average(x_vals, weights=weights + 1e-8)

@@ -1,36 +1,4 @@
 actions:
-  Amp4_DUMP_HP:
-    steps:
-    - action: execute
-      action_name: close_gaia_internal_shutters
-    - action: set
-      device: U_148_PLC
-      value: 'off'
-      variable: DO.Ch9
-    - action: wait
-      wait: 3
-    - action: get
-      device: U_148_PLC
-      expected_value: 'off'
-      variable: DI.Ch17
-    - action: execute
-      action_name: open_gaia_internal_shutters
-  Amp4_SEND_HP_TO_TARGET:
-    steps:
-    - action: execute
-      action_name: close_gaia_internal_shutters
-    - action: set
-      device: U_148_PLC
-      value: 'on'
-      variable: DO.Ch9
-    - action: wait
-      wait: 3
-    - action: get
-      device: U_148_PLC
-      expected_value: 'off'
-      variable: DI.Ch18
-    - action: execute
-      action_name: open_gaia_internal_shutters
   close_gaia_internal_shutters:
     steps:
     - action: set
@@ -51,32 +19,6 @@ actions:
       device: U_GaiaSVEReader
       expected_value: 0
       variable: InternalShutterB
-  closeout_amp4:
-    steps:
-    - action: set
-      device: U_148_PLC
-      value: 'off'
-      variable: DO.Ch9
-    - action: wait
-      wait: 3
-    - action: get
-      device: U_148_PLC
-      expected_value: 'off'
-      variable: DI.Ch17
-  closeout_dump_gaia:
-    steps:
-    - action: execute
-      action_name: close_gaia_internal_shutters
-    - action: execute
-      action_name: insert_gaia_stops
-    - action: execute
-      action_name: closeout_amp4
-  closeout_pmq_REMOVE:
-    steps:
-    - action: set
-      device: U_Hexapod
-      value: -22
-      variable: ypos
   dump_gaia_on_stops:
     steps:
     - action: execute
@@ -85,24 +27,6 @@ actions:
       action_name: insert_gaia_stops
     - action: execute
       action_name: open_gaia_internal_shutters
-  experiment_CLOSEOUT:
-    steps:
-    - action: execute
-      action_name: closeout_dump_gaia
-    - action: execute
-      action_name: zero_steering_magnets
-    - action: execute
-      action_name: zero_visa_magnets
-    - action: execute
-      action_name: zero_emq_magnets
-    - action: execute
-      action_name: zero_pressure_voltage
-    - action: execute
-      action_name: zero_chicane_magnets
-    - action: execute
-      action_name: zero_magspec_currents
-    - action: execute
-      action_name: closeout_pmq_REMOVE
   insert_gaia_stops:
     steps:
     - action: set
@@ -114,7 +38,7 @@ actions:
       value: 'on'
       variable: DO.Ch2
     - action: wait
-      wait: 3
+      wait: 1
     - action: get
       device: U_148_PLC
       expected_value: 'on'
@@ -123,6 +47,14 @@ actions:
       device: U_148_PLC
       expected_value: 'on'
       variable: DI.Ch3
+  insert_pmqs:
+    steps:
+    - action: execute
+      action_name: insert_gaia_stops
+    - action: set
+      device: U_Hexapod
+      value: -20
+      variable: ypos
   open_gaia_internal_shutters:
     steps:
     - action: set
@@ -143,22 +75,6 @@ actions:
       device: U_GaiaSVEReader
       expected_value: 1
       variable: InternalShutterB
-  pmq_INSERT:
-    steps:
-    - action: execute
-      action_name: Amp4_DUMP_HP
-    - action: set
-      device: U_Hexapod
-      value: 18.5
-      variable: ypos
-  pmq_REMOVE:
-    steps:
-    - action: execute
-      action_name: Amp4_DUMP_HP
-    - action: set
-      device: U_Hexapod
-      value: -22
-      variable: ypos
   remove_gaia_stops:
     steps:
     - action: set
@@ -179,6 +95,14 @@ actions:
       device: U_148_PLC
       expected_value: 'on'
       variable: DI.Ch4
+  remove_pmqs:
+    steps:
+    - action: execute
+      action_name: insert_gaia_stops
+    - action: set
+      device: U_Hexapod
+      value: -22
+      variable: ypos
   remove_visa_plungers:
     steps:
     - action: set
@@ -221,175 +145,55 @@ actions:
       device: U_PLC
       value: 'off'
       variable: DO.Ch19
-  zero_chicane_magnets:
+  test_HP_laser_dump_amp4:
     steps:
+    - action: execute
+      action_name: close_gaia_internal_shutters
     - action: set
-      device: U_ChicaneInner
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_ChicaneInner
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_ChicaneOuter
+      device: U_148_PLC
       value: 'off'
-      variable: Enable_Output
-      wait_for_execution: true
+      variable: DO.Ch9
+    - action: wait
+      wait: 3
+    - action: get
+      device: U_148_PLC
+      expected_value: 'off'
+      variable: DI.Ch17
+    - action: execute
+      action_name: open_gaia_internal_shutters
+  test_send_HP_beam_past_AMP4_dump:
+    steps:
+    - action: execute
+      action_name: close_gaia_internal_shutters
     - action: set
-      device: U_ChicaneInner
-      value: 'off'
-      variable: Enable_Output
-      wait_for_execution: true
-  zero_emq_magnets:
+      device: U_148_PLC
+      value: 'on'
+      variable: DO.Ch9
+    - action: wait
+      wait: 3
+    - action: get
+      device: U_148_PLC
+      expected_value: 'off'
+      variable: DI.Ch18
+    - action: execute
+      action_name: open_gaia_internal_shutters
+  visa1_energy:
     steps:
     - action: set
-      device: U_EMQTripletBipolar
-      value: 0
-      variable: Current_Limit.Ch1
-      wait_for_execution: true
+      device: U_GaiaSVEReader
+      value: 1
+      variable: InternalShutterA
     - action: set
-      device: U_EMQTripletBipolar
-      value: 0
-      variable: Current_Limit.Ch2
-      wait_for_execution: true
-    - action: set
-      device: U_EMQTripletBipolar
-      value: 0
-      variable: Current_Limit.Ch3
-      wait_for_execution: true
-    - action: set
-      device: U_EMQTripletBipolar
-      value: 'off'
-      variable: Enable_Output.Ch1
-      wait_for_execution: true
-    - action: set
-      device: U_EMQTripletBipolar
-      value: 'off'
-      variable: Enable_Output.Ch2
-      wait_for_execution: true
-    - action: set
-      device: U_EMQTripletBipolar
-      value: 'off'
-      variable: Enable_Output.Ch3
-      wait_for_execution: true
-  zero_magspec_currents:
-    steps:
-    - action: set
-      device: U_EMQTripletBipolar
-      value: 0
-      variable: Current_Limit.Ch4
-      wait_for_execution: true
-    - action: set
-      device: U_ACaveMagSpecPS
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_BCaveMagSpecPS
-      value: 0
-      variable: Current_Limit.Ch1
-      wait_for_execution: true
-  zero_pressure_voltage:
-    steps:
-    - action: set
-      device: U_HP_Daq
-      value: 0
-      variable: AnalogOutput.Channel 1
-      wait_for_execution: true
-  zero_steering_magnets:
-    steps:
-    - action: set
-      device: U_S1H
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_S1V
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_S2H
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_S2V
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_S3H
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_S3V
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_S4H
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_S4V
-      value: 0
-      variable: Current
-      wait_for_execution: true
-  zero_visa_magnets:
-    steps:
-    - action: set
-      device: U_VS1H
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_VS1V
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_VS2H
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_VS2V
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_VS3H
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_VS3V
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_VS4H
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_VS4V
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_VS5H
-      value: 0
-      variable: Current
-      wait_for_execution: true
-    - action: set
-      device: U_VS5V
-      value: 0
-      variable: Current
-      wait_for_execution: true
+      device: U_GaiaSVEReader
+      value: 1
+      variable: InternalShutterB
+    - action: wait
+      wait: 2
+    - action: get
+      device: U_GaiaSVEReader
+      expected_value: 1
+      variable: InternalShutterA
+    - action: get
+      device: U_GaiaSVEReader
+      expected_value: 1
+      variable: InternalShutterB
