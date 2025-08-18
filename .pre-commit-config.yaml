@@ -1,3 +1,9 @@
+exclude: |
+  (?x)^(
+    extras/|
+    .*/third_party_sdks/
+  )
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks.git
     rev: v5.0.0

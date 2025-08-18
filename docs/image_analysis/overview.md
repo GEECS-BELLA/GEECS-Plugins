@@ -1,6 +1,6 @@
 # Image Analysis
 
-The Image Analysis module is a flexible toolkit for developing custom analysis routines for various types of array type data. Custom ImageAnalyzers should be derived from base class (base.ImageAnalyzer). 
+The Image Analysis module is a flexible toolkit for developing custom analysis routines for various types of array type data. Custom ImageAnalyzers should be derived from base class (base.ImageAnalyzer).
 
 Contacts: Sam, Chris
 
