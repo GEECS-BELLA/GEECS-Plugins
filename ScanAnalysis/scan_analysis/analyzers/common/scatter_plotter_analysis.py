@@ -1,37 +1,43 @@
 """
+ScatterPlotterAnalysis module.
+
+Provides a generic analyzer for loading and plotting scalar data from auxiliary sfiles.
+This module defines `ScatterPlotterAnalysis`, which extends `ScanAnalyzer` to create
+two-parameter-style plots that integrate with the ScanAnalyzer framework and GUI. It is
+intended to be subclassed by analyzers that specify the particular data to be plotted.
+
+The `PlotParameter` named tuple collects the metadata required for each plotted parameter,
+including the sfile key, axis label, legend label, and color. One or more `PlotParameter`
+instances configure the plots.
+
+Behavior differs by scan type:
+- **1D scan**: Data are binned by the scanned parameter. The median (or mean) is plotted
+  per bin, and error bars indicate ±1 standard deviation about the mean.
+- **Noscan**: Each parameter is plotted as a scatter versus shot number. A solid line
+  marks the representative statistic (median or mean); dashed lines indicate mean ±1σ.
+
+Classes
+-------
+PlotParameter
+    Named tuple specifying how a scalar quantity is plotted.
 ScatterPlotterAnalysis
+    Analyzer that generates plots for scalar data across scans or noscans.
 
-Generic analyzer to load and plot scalar data from auxiliary sfiles.
-Child to ScanAnalyzer (./scan_analysis/base.py)
+Examples
+--------
+For a usage example, see:
+`analyzers/Undulator/ict_plot_analysis.py`
 
-Provides a quick framework for 2-parameter-style plots that can be run through
-the ScAnalyzer framework and GUI.  Intended to be used by child classes that
-specify the data to be plotted.
-
-Parameters are specified using the `PlotParameter` class defined below.  Each
-PlotParameter contains a key that points to the scalar data in the sfile, along with
-strings for how to label the y-axis, how to label the legend, and what color to
-make the line.
-
-In a 1D scan, this analyzer will bin the data and plot the median (or mean)
-of each given PlotParameter.  Errorbars for each bin are plotted as +/- 1 std from the
-mean.
-
-In a noscan, this analyzer will instead plot a scatter plot of the PlotParameter vs
-shot number.  The median is plotted as a solid, horizontal line.  Two dashed lines at
-the mean +/- 1 std represent the spread in the data.
-
-For a good example of usage, see `analyzers/Undulator/ict_plot_analysis.py`
-
-FUTURE WORK:
- - Add in an option to allow child classes to specify if they want the scanned parameter
-   to be the x-axis, or if scatter plots should instead be between two other scalars.  This
-   may make the binning of data in a 1D scan a bit strange, so some thought is needed.
-
+Notes
+-----
+Future work may allow child classes to choose whether the scanned parameter appears on
+the x-axis or whether scatter plots should relate two arbitrary scalars, which could
+complicate binning logic for 1D scans.
 """
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Union, Optional, NamedTuple
+
 if TYPE_CHECKING:
     from matplotlib.pyplot import Axes
 
@@ -43,13 +49,31 @@ import matplotlib.pyplot as plt
 from scan_analysis.base import ScanAnalyzer
 
 import traceback
+
 PRINT_TRACEBACK = True
 
 
 class PlotParameter(NamedTuple):
     """
-    Class that defines all required information to load and plot data from the sfile
+    Plot configuration for a scalar quantity.
+
+    Parameters
+    ----------
+    key_name : str
+        Key name in the sfile from which to load the data for this plot.
+    legend_label : str
+        Text to use in the legend for this parameter.
+    axis_label : str
+        Label to use for the y-axis corresponding to this parameter.
+    color : str
+        Matplotlib-compatible color specifier for plotting this parameter.
+
+    Notes
+    -----
+    The legend label and axis label are intentionally separate to support concise legends
+    while preserving detailed axis labeling.
     """
+
     key_name: str  # Key name from the sfile to load for the given plot
     legend_label: str  # String to appear on plot's y-axis for given parameter
     axis_label: str  # String to appear on plot's legend for given parameter
@@ -57,27 +81,69 @@ class PlotParameter(NamedTuple):
 
 
 class ScatterPlotterAnalysis(ScanAnalyzer):
-    def __init__(self,
-                 use_median: bool,
-                 title: str,
-                 parameters: Union[PlotParameter, list[PlotParameter]],
-                 filename: str,
-                 skip_plt_show: bool = True,
-                 device_name: Optional[str] = None,
-                 flag_logging: bool = True,
-                 ):
-        """
-        Initializes class variables for the ScatterPlotter instance
+    """
+    Analyzer for plotting scalar data from sfiles across scans or noscans.
 
-        Args:
-            use_median (bool): If true, the median is plotted instead of the mean for a
-                representative value in a given scan bin or noscan.  Defaults to True for median
-            title (str): The top title for the full final figure
-            parameters: Either a single PlotParameter or list of PlotParameter's.  Can be any length
-            filename (str): Name of the resulting png file of the exported figure
-            skip_plt_show (bool): Flag that sets if matplotlib is tried to use for plotting
-            device_name (str): Name of the device to construct the subdirectory path.
-            flag_logging (bool): Flag that sets if error and warning messages are displayed
+    This class extends `ScanAnalyzer` and produces parameter plots either by binning a
+    1D scan or by plotting per-shot scatter for noscans. The representative statistic
+    for each parameter can be the median or the mean.
+
+    Parameters
+    ----------
+    use_median : bool
+        If ``True``, plot the median as the representative statistic; otherwise, plot
+        the mean. The mean is still used to compute error bars (±1 standard deviation)
+        in 1D scans.
+    title : str
+        Title to display at the top of the final figure.
+    parameters : PlotParameter or list of PlotParameter
+        One or more plot specifications describing which scalars to plot and how.
+    filename : str
+        Base filename (without extension) for the exported figure (PNG).
+    skip_plt_show : bool, optional
+        If ``True``, avoid calling ``plt.show()``; typically used in headless or batch
+        environments. Default is ``True``.
+    device_name : str, optional
+        Optional device name used to construct subdirectory paths for outputs.
+    flag_logging : bool, optional
+        If ``True``, log informative messages, warnings, and errors. Default is ``True``.
+
+    Notes
+    -----
+    The save path is created under:
+    ``<scan_root>/analysis/<scan_directory_name>/ParameterPlots/<filename>.png``.
+    """
+
+    def __init__(
+        self,
+        use_median: bool,
+        title: str,
+        parameters: Union[PlotParameter, list[PlotParameter]],
+        filename: str,
+        skip_plt_show: bool = True,
+        device_name: Optional[str] = None,
+        flag_logging: bool = True,
+    ):
+        """
+        Initialize the `ScatterPlotterAnalysis` instance.
+
+        Parameters
+        ----------
+        use_median : bool
+            If ``True``, the median is used as the representative statistic; otherwise,
+            the mean is used.
+        title : str
+            Figure title to display on the output plot.
+        parameters : PlotParameter or list of PlotParameter
+            Single plot parameter or a list of parameters to include.
+        filename : str
+            Output PNG filename stem (without extension).
+        skip_plt_show : bool, optional
+            If ``True``, do not display the plot interactively. Default is ``True``.
+        device_name : str, optional
+            Name of the device for constructing subdirectory paths.
+        flag_logging : bool, optional
+            If ``True``, enable logging for progress and warnings. Default is ``True``.
         """
         super().__init__(skip_plt_show=skip_plt_show, device_name=device_name)
 
@@ -87,9 +153,9 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         self.title: str
 
         if use_median:
-            self.stat_type = 'median'
+            self.stat_type = "median"
         else:
-            self.stat_type = 'average'
+            self.stat_type = "average"
 
         self.parameters: list[PlotParameter]
         if not isinstance(parameters, list):
@@ -99,33 +165,58 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
 
     def _check_parameters(self) -> None:
         """
-        Checks the keys contained in the scan's sfile against those in the list of parameters for this analyzer
+        Validate that required sfile keys exist for all configured parameters.
 
-        Raises:
-            KeyError: if a given key is not in the sfile for the scan
+        Raises
+        ------
+        KeyError
+            If any `PlotParameter.key_name` is not present in the loaded sfile data.
         """
         found_keys = self.auxiliary_data.keys()
 
         for param in self.parameters:
             if param.key_name not in found_keys:
-                raise KeyError(f"f{param.key_name} not found in sfile for Scan {self.scan_tag.number}")
+                raise KeyError(
+                    f"f{param.key_name} not found in sfile for Scan {self.scan_tag.number}"
+                )
 
     def _set_plotting_options(self) -> None:
         """
-        Sets plot options before analysis script using the given scan tag to the base analyzer
-        """
-        self.title: str = (f"{self.scan_tag.month:02d}/{self.scan_tag.day:02d}/{self.scan_tag.year%1000:02d} "
-                           f"Scan{self.scan_tag.number:03d}: {self.base_title}")
+        Configure plot titles and output paths.
 
-        self.save_path = self.scan_directory.parents[1] / 'analysis' / self.scan_directory.name / "ParameterPlots"
+        Notes
+        -----
+        The plot title is formatted with the scan date and number. The save path is set
+        to ``<scan_root>/analysis/<scan_dir>/ParameterPlots``.
+        """
+        self.title: str = (
+            f"{self.scan_tag.month:02d}/{self.scan_tag.day:02d}/{self.scan_tag.year % 1000:02d} "
+            f"Scan{self.scan_tag.number:03d}: {self.base_title}"
+        )
+
+        self.save_path = (
+            self.scan_directory.parents[1]
+            / "analysis"
+            / self.scan_directory.name
+            / "ParameterPlots"
+        )
 
     def _run_analysis_core(self) -> Optional[list[Union[Path, str]]]:
         """
-        Core analysis script.  Calls a different routine depending on if the scan is a noscan or not, and
-        after the routine this method packages up the plot, saves to the analysis directory, and optionally
-        displays the plot in matplotlib
+        Execute the analysis and generate the plot.
 
-        :return: Optional - the filename for the saved figure
+        This method dispatches to either noscan or scan analysis paths, finalizes plot
+        styling, saves the figure, and optionally displays it.
+
+        Returns
+        -------
+        list of Path or list of str or None
+            A list containing the saved figure path(s) as `Path` or `str`. Returns
+            ``None`` if analysis fails.
+
+        Notes
+        -----
+        The figure is saved as a PNG with ``bbox_inches='tight'`` and small padding.
         """
         self._check_parameters()
         self._set_plotting_options()
@@ -145,7 +236,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
             # Save the plot
             save_path = Path(self.save_path) / f"{self.filename}.png"
             save_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
+            plt.savefig(save_path, bbox_inches="tight", pad_inches=0)
             if self.flag_logging:
                 logging.info(f"Image saved at {save_path}")
             self.display_contents.append(str(save_path))
@@ -164,28 +255,32 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
     @staticmethod
     def _shift_axis_spine(axis: Axes, plot_number: int) -> None:
         """
-        Assigns an axis to be either on the left or right side of a figure, and shifts this
-        axis outwards from the figure.  The orientation and shift is calculated by using the
-        counter for this specific axis.
+        Offset and position an axis spine to avoid overlap in multi-axis figures.
 
-        IE:  Every other axis uses the left-hand side of the figure.  Axes 3 and 4 are shifted
-        50 pixels outwards (on the left and right side, respectively).  Axes 5 and 6 are shifted
-        100 pixels outwards, and so forth.
+        Every second axis is placed on alternating sides (left/right) and pushed outward
+        by multiples of 50 pixels to improve readability when stacking several twinx axes.
 
-        Args
-            axis (Axes): matplotlib Axes instance
-            plot_number (int): sequentially, which plot this Axes corresponds to in the figure
+        Parameters
+        ----------
+        axis : matplotlib.axes.Axes
+            The axis to offset and place on the left or right.
+        plot_number : int
+            Zero-based index of the axis in the figure; determines side and offset.
+
+        Notes
+        -----
+        If ``plot_number < 2``, no offset is applied and the axis remains in place.
         """
         if plot_number < 2:
             return
 
         if plot_number % 2 == 0:
-            side = 'left'
+            side = "left"
         else:
-            side = 'right'
-        outward_pixels = int(plot_number/2) * 50
+            side = "right"
+        outward_pixels = int(plot_number / 2) * 50
 
-        axis.spines[side].set_position(('outward', outward_pixels))
+        axis.spines[side].set_position(("outward", outward_pixels))
         axis.spines[side].set_visible(True)
         axis.yaxis.set_ticks_position(side)
         axis.yaxis.set_label_position(side)
@@ -194,8 +289,12 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
 
     def run_noscan_analysis(self) -> None:
         """
-        Loops over all PlotParameters and generates a plot for each.  The resulting collection
-        of axes are organized together into the full figure.  This method is for noscans
+        Generate per-shot scatter plots for all configured parameters (noscan mode).
+
+        Notes
+        -----
+        A new twinx axis is created for each additional parameter, and axis spines are
+        shifted outward to mitigate overlap. The x-axis is shot number.
         """
         fig, ax1 = plt.subplots(figsize=(7, 5))
 
@@ -213,18 +312,26 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
 
     def _generate_noscan_plot(self, axis: Axes, plot_parameter: PlotParameter):
         """
-        Calculates statistics for the given PlotParameter and generates a matplotlib plot
+        Create a scatter plot and reference lines for a parameter in noscan mode.
 
-        Args:
-            axis: matplotlib Axes instance (either generated through "subplots" or "twinx")
-            plot_parameter: instance of PlotParameter containing the key name and plot options
+        Parameters
+        ----------
+        axis : matplotlib.axes.Axes
+            Axis on which to render the scatter and reference lines.
+        plot_parameter : PlotParameter
+            Plot specification containing key name, labels, and color.
+
+        Notes
+        -----
+        The solid horizontal line indicates the representative statistic
+        (median if configured, otherwise mean). Dashed lines show mean ±1σ.
         """
         data_array = self.auxiliary_data[plot_parameter.key_name].values
-        shotnumber = self.auxiliary_data['Shotnumber'].values
+        shotnumber = self.auxiliary_data["Shotnumber"].values
 
         average = np.average(data_array)
         sigma = np.std(data_array)
-        if self.stat_type == 'median':
+        if self.stat_type == "median":
             center = np.median(data_array)
         else:
             center = average
@@ -232,19 +339,41 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         c = plot_parameter.color
         axis.scatter(shotnumber, data_array, c=c, label=plot_parameter.legend_label)
 
-        axis.hlines(y=center, colors=c, linestyles='solid', xmin=shotnumber[0], xmax=shotnumber[-1])
-        axis.hlines(y=average-sigma, colors=c, linestyles='dashed', xmin=shotnumber[0], xmax=shotnumber[-1])
-        axis.hlines(y=average+sigma, colors=c, linestyles='dashed', xmin=shotnumber[0], xmax=shotnumber[-1])
+        axis.hlines(
+            y=center,
+            colors=c,
+            linestyles="solid",
+            xmin=shotnumber[0],
+            xmax=shotnumber[-1],
+        )
+        axis.hlines(
+            y=average - sigma,
+            colors=c,
+            linestyles="dashed",
+            xmin=shotnumber[0],
+            xmax=shotnumber[-1],
+        )
+        axis.hlines(
+            y=average + sigma,
+            colors=c,
+            linestyles="dashed",
+            xmin=shotnumber[0],
+            xmax=shotnumber[-1],
+        )
 
         axis.set_ylabel(plot_parameter.axis_label)
-        axis.tick_params(axis='y', labelcolor=c)
+        axis.tick_params(axis="y", labelcolor=c)
 
     # # # # # # Routine for Scan Analysis # # # # # #
 
     def run_scan_analysis(self) -> None:
         """
-        Loops over all PlotParams and generates a plot for each.  The resulting collection
-        of axes are organized together into the full figure.  This method is for 1D scans
+        Generate per-bin plots for all configured parameters (1D scan mode).
+
+        Notes
+        -----
+        Data are grouped by the scanned parameter into unique bins. The representative
+        statistic (median or mean) is plotted per bin. Error bars reflect mean ±1σ.
         """
         fig, ax1 = plt.subplots(figsize=(7, 5))
 
@@ -262,34 +391,65 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
 
     def _generate_scan_plot(self, axis: Axes, plot_parameter: PlotParameter):
         """
-        Bins the data for the given PlotParameter and generates a matplotlib plot using the
-        statistics of the bins.  Errorbars are plotted as the mean +/- 1 standard deviation
+        Plot per-bin statistics and error bars for a parameter in 1D scan mode.
 
-        Args:
-            axis: matplotlib Axes instance (either generated through "subplots" or "twinx")
-            plot_parameter: instance of PlotParameter containing the key name and plot options
+        Parameters
+        ----------
+        axis : matplotlib.axes.Axes
+            Axis on which to render the per-bin statistics.
+        plot_parameter : PlotParameter
+            Plot specification containing key name, labels, and color.
+
+        Notes
+        -----
+        The representative statistic is controlled by the `use_median` flag passed at
+        initialization. Error bars are computed as mean ±1 standard deviation.
         """
         binned_data = self.process_to_bins(plot_parameter.key_name)
 
         c = plot_parameter.color
-        axis.scatter(binned_data['bin'], binned_data[self.stat_type], c=c, s=10)
-        axis.plot(binned_data['bin'], binned_data[self.stat_type], c=c, ls='-', label=plot_parameter.legend_label)
-        axis.errorbar(binned_data['bin'], binned_data['average'], yerr=binned_data['sigma'], c=c, ls='none', capsize=3)
+        axis.scatter(binned_data["bin"], binned_data[self.stat_type], c=c, s=10)
+        axis.plot(
+            binned_data["bin"],
+            binned_data[self.stat_type],
+            c=c,
+            ls="-",
+            label=plot_parameter.legend_label,
+        )
+        axis.errorbar(
+            binned_data["bin"],
+            binned_data["average"],
+            yerr=binned_data["sigma"],
+            c=c,
+            ls="none",
+            capsize=3,
+        )
 
         axis.set_ylabel(plot_parameter.axis_label)
-        axis.tick_params(axis='y', labelcolor=c)
+        axis.tick_params(axis="y", labelcolor=c)
 
     def process_to_bins(self, key_name: str) -> dict[str, np.ndarray]:
         """
-        Args:
-            key_name (str): key name to extract from sfile and bin across the 1D scan variable
+        Compute per-bin statistics for a parameter across the scanned variable.
 
-        Returns:
-            dict containing numpy arrays organized by type:
-                'bin' : numpy array with the scan parameter value at each bin
-                'average' : mean value for the plot parameter at each bin
-                'sigma' : standard deviation for the plot parameter at each bin
-                'median' : median for the plot parameter at each bin
+        Parameters
+        ----------
+        key_name : str
+            Key in the sfile from which to extract the scalar data to bin.
+
+        Returns
+        -------
+        dict of str to numpy.ndarray
+            Dictionary containing per-bin statistics:
+            - ``'bin'``: float array of scanned parameter values for each bin.
+            - ``'average'``: float array of mean values per bin.
+            - ``'sigma'``: float array of standard deviations per bin.
+            - ``'median'``: float array of medians per bin.
+
+        Notes
+        -----
+        Bins are determined by unique values in ``self.bins``. The corresponding
+        scanned parameter values are taken from ``self.binned_param_values``.
         """
         # Load data from sfile contents for key name
         data_array = self.auxiliary_data[key_name].values
@@ -308,7 +468,12 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         # Iterate parameter bins
         for bin_ind, bin_val in enumerate(unique_bins):
             # Sort by shots within this bin
-            shots_in_bin = self.auxiliary_data[self.auxiliary_data['Bin #'] == bin_val]['Shotnumber'].values-1
+            shots_in_bin = (
+                self.auxiliary_data[self.auxiliary_data["Bin #"] == bin_val][
+                    "Shotnumber"
+                ].values
+                - 1
+            )
 
             data_in_bin = data_array[shots_in_bin]
 
@@ -323,9 +488,4 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
                 logging.info(f"Bin Value: {self.binned_param_values[bin_ind]}")
                 logging.info(f"Shots: {shots_in_bin[0]} - {shots_in_bin[-1]}")
 
-        return {
-            'bin': bins,
-            'average': average,
-            'sigma': sigma,
-            'median': median
-        }
+        return {"bin": bins, "average": average, "sigma": sigma, "median": median}
