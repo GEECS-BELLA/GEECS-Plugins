@@ -1,17 +1,11 @@
-version: 2
+# Read the Docs configuration file
+# See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
 
+# Required
+version: 1
+
+# Set the OS, Python version, and other tools you might need
 build:
-  os: ubuntu-22.04
+  os: windows
   tools:
     python: "3.10"
-
-mkdocs:
-  configuration: mkdocs.yml
-
-python:
-  install:
-    - method: pip
-      path: GEECS-Scanner-GUI
-    - method: pip
-      path: ImageAnalysis
-    - requirements: docs/requirements.txt
