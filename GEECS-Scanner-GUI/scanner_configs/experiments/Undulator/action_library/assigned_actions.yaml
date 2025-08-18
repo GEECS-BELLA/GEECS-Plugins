@@ -1,5 +1,6 @@
 assigned_actions:
-- name: test_HP_laser_dump_amp4
-- name: test_send_HP_beam_past_AMP4_dump
+- name: Amp4_DUMP_HP
+- name: Amp4_SEND_HP_TO_TARGET
 - element_filename: visa9_spectrometer_setup.yaml
   name: setup_action
+- name: experiment_CLOSEOUT
