@@ -69,15 +69,3 @@ Devices:
     variable_list:
     - Field
     - Rawfield
-closeout_action:
-  steps:
-  - action: set
-    device: UC_HiResMagCam
-    value: 'off'
-    variable: PythonAnalysis
-setup_action:
-  steps:
-  - action: set
-    device: UC_HiResMagCam
-    value: 'on'
-    variable: PythonAnalysis
