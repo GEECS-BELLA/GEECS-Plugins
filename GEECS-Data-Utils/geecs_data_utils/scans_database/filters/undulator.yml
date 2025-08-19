@@ -1,0 +1,12 @@
+# Undulator experiment-specific filters with date validity ranges
+filters:
+  PMQ_inserted:
+    # Multiple versions with different validity periods
+    - valid_from: "2023-01-01"
+      valid_to: null
+      kind: ecs_value_within
+      args:
+        device_like: "hexapod"
+        variable_like: "y"
+        target: 18.5
+        tol: 0.5

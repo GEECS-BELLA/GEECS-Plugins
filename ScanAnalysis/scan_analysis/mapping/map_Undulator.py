@@ -40,6 +40,7 @@ from scan_analysis.analyzers.Undulator.aline3_dispersion_analysis import (
     ALine3DispersionAnalysis,
 )
 
+
 from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
 from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import (
     ACaveMagCam3ImageAnalyzer,

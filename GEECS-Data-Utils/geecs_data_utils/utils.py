@@ -16,7 +16,7 @@ import logging
 
 from pathlib import Path
 from dateutil.parser import parse as dateparse
-from typing import Optional, Union, NamedTuple
+from typing import Union
 
 # module‐level logger
 logger = logging.getLogger(__name__)
@@ -28,40 +28,6 @@ if not logging.getLogger().hasHandlers():
 
 # support both strings and real Path objects
 SysPath = Union[str, bytes, os.PathLike, Path]
-
-
-class ScanTag(NamedTuple):
-    """
-    Named tuple representing a GEECS scan identifier.
-
-    This class provides a structured way to identify and reference
-    specific scans within the GEECS acquired data using date and scan number.
-
-    Attributes
-    ----------
-    year : int
-        Year when the scan was performed
-    month : int
-        Month when the scan was performed (1-12)
-    day : int
-        Day of the month when the scan was performed
-    number : int
-        Sequential scan number for that day
-    experiment : str
-        Name of the experiment (default is None)
-
-    Examples
-    --------
-    >>> scan = ScanTag(2024, 1, 15, 42, "Undulator")
-    >>> print(f"Scan {scan.number} from {scan.year}-{scan.month:02d}-{scan.day:02d}")
-    Scan 42 from 2024-01-15
-    """
-
-    year: int
-    month: int
-    day: int
-    number: int
-    experiment: Optional[str] = None
 
 
 def month_to_int(month: Union[str, int]) -> int:

@@ -684,6 +684,8 @@ develop = true
 [package.dependencies]
 nptdms = "^1.7.0"
 pandas = "^2.0"
+pydantic = "^2.0"
+pytest = "^7.0"
 
 [package.source]
 type = "directory"

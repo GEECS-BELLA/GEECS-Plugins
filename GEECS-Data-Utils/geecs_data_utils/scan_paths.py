@@ -19,11 +19,14 @@ import calendar as cal
 from pathlib import Path
 from datetime import datetime, date
 from configparser import ConfigParser, NoSectionError
-from typing import Optional, Union
-from geecs_data_utils.utils import ScanTag, SysPath, ConfigurationError, month_to_int
-from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
-# from geecs_data_utils.types import ScanConfig, ScanMode
+from typing import Optional, Union, Sequence
+import pandas as pd
 
+from geecs_data_utils.utils import SysPath, ConfigurationError, month_to_int
+from geecs_data_utils.type_defs import ScanTag
+from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
+
+# from geecs_data_utils.types import ScanConfig, ScanMode
 
 # module‐level logger
 logger = logging.getLogger(__name__)
@@ -238,7 +241,9 @@ class ScanPaths:
                 "Recommended to use 'experiment' instead of 'experiment_name' for 'get_scan_tag'..."
             )
 
-        return ScanTag(year, month, int(day), int(number), experiment=exp)
+        return ScanTag(
+            year=year, month=month, day=int(day), number=int(number), experiment=exp
+        )
 
     @staticmethod
     def get_scan_folder_path(
@@ -580,10 +585,129 @@ class ScanPaths:
         except NoSectionError:
             temp_scan_data = inspect.stack()[0][3]
             logging.warning(
-                'ScanInfo file does not have a "Scan Info" section',
-                f"ScanData class, method {temp_scan_data}",
+                f'ScanInfo file does not have a "Scan Info" section (in {temp_scan_data})'
             )
+
         return self.scan_info
+
+    def get_ecs_dump_file(self) -> Optional[Path]:
+        """
+        Get the ECS Live Dump file corresponding to this scan.
+
+        Returns
+        -------
+        Optional[Path]
+            Path to the ECS dump file if it exists, else None.
+        """
+        if not self._folder:
+            return None
+
+        ecs_folder = self._folder.parent.parent / "ECS Live dumps"
+        filename = f"Scan{self._tag.number}.txt"
+        ecs_file = ecs_folder / filename
+
+        return ecs_file if ecs_file.exists() else None
+
+    def build_device_file_map(self, device: str, file_tail: str) -> dict[int, Path]:
+        """
+        Build a mapping from shot number to file path for a given device.
+
+        Parameters
+        ----------
+        device : str
+            Device name (subfolder of scan directory).
+        file_tail : str
+            Suffix and extension, e.g., '.png', '_avg.h5'.
+
+        Returns
+        -------
+        dict[int, Path]
+            Mapping from shot number to file path.
+        """
+        base_path = self.get_folder()
+        if not base_path:
+            raise ValueError("Scan folder is not set.")
+
+        device_folder = base_path / device
+        if not device_folder.exists():
+            logger.warning(f"Device folder missing: {device_folder}")
+            return {}
+
+        pattern = re.compile(
+            rf"Scan\d{{3,}}_{re.escape(device)}_(\d{{3,}}){re.escape(file_tail)}$"
+        )
+
+        file_map = {}
+        for file in device_folder.iterdir():
+            if not file.is_file():
+                continue
+            match = pattern.match(file.name)
+            if match:
+                shot_number = int(match.group(1))
+                file_map[shot_number] = file
+
+        return file_map
+
+    def get_common_shot_dataframe(
+        self, device_file_specs: Sequence[tuple[str, str]]
+    ) -> pd.DataFrame:
+        """
+        Generate a DataFrame containing file paths for all devices with common shot number.
+
+        This method identifies shot numbers that are common (present in all specified
+        devices' subfolders) and returns a table where each row corresponds to a shot
+        number, and each column contains the full path to the file for that device.
+
+        Parameters
+        ----------
+        device_file_specs : Sequence[tuple[str, str]]
+            A sequence of (device_name, file_tail) pairs.
+            - `device_name` is the name of the subdirectory inside the scan folder.
+            - `file_tail` is the suffix used in the filename, including extension,
+              such as '.png', '_avg.h5', or '.tdms'.
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame with one row per shot number that exists for all devices.
+            Columns:
+            - 'shot_number': The shot number (int).
+            - One column per device name, with each entry as a `Path` object to the matching file.
+            If no common shots are found, an empty DataFrame with appropriate columns is returned.
+
+        Examples
+        --------
+        >>> tag = ScanTag(year=2025, month=8, day=7, number=5, experiment='Undulator')
+        >>> sd = ScanPaths(tag=tag)
+        >>> dev_list = [
+        ...     ('Z_Test_Scope', '.dat'),
+        ...     ('Z_Test_Scope_2', '.dat'),
+        ...     ('UC_ALineEBeam3', '.png')
+        ... ]
+        >>> common_shots = sd.get_common_shot_dataframe(dev_list)
+        """
+        device_maps = {
+            device: self.build_device_file_map(device, file_tail)
+            for device, file_tail in device_file_specs
+        }
+
+        # Find common shot numbers across all devices
+        common_shots = set.intersection(*(set(m.keys()) for m in device_maps.values()))
+        if not common_shots:
+            logger.warning("No common shots found across specified devices.")
+            return pd.DataFrame(
+                columns=["shot_number"] + [device for device, _ in device_file_specs]
+            )
+
+        # Build rows: one per shot
+        rows = []
+        for shot in sorted(common_shots):
+            row = {"shot_number": shot}
+            for device, file_map in device_maps.items():
+                row[device] = file_map[shot]
+            rows.append(row)
+
+        return pd.DataFrame(rows)
 
 
 ScanPaths.reload_paths_config()

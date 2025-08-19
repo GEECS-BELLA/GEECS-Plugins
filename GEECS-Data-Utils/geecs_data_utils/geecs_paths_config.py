@@ -29,6 +29,7 @@ EXPERIMENT_TO_SERVER_DICT: dict[str, Path] = {
     "Undulator": Path("Z:/data"),
     "Thomson": Path("Z:/data"),
     "DataLogging": Path("N:/data/PWlaserData"),
+    "PWlaserData": Path("N:/data"),
 }
 
 
