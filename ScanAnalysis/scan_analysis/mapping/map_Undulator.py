@@ -58,7 +58,7 @@ from dataclasses import asdict
 
 def get_path_to_bkg_file():
     """Return a default background TSV for HASO phase processing (Undulator example)."""
-    st = ScanTag(2025, 3, 6, 15, experiment="Undulator")
+    st = ScanTag(year=2025, month=3, day=6, number=15, experiment="Undulator")
     s_data = ScanData(tag=st)
     path_to_file = s_data.get_folder() / "U_HasoLift" / "average_phase.tsv"
     return path_to_file
