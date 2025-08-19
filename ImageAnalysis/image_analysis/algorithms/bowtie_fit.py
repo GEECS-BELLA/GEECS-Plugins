@@ -214,7 +214,7 @@ class BowtieFitAlgorithm:
 
         if len(x_fit) < 5:
             return BowtieFitResult(
-                score=np.nan,
+                score=1e6,
                 w0=np.nan,
                 theta=np.nan,
                 x0=np.nan,

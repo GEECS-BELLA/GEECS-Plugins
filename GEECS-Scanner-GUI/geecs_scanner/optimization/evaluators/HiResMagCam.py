@@ -254,7 +254,9 @@ class HiResMagCam(BaseEvaluator):
         and lower emittance proxy (better beam quality) both contribute to
         a more negative (better) objective value.
         """
-        return -x / y
+
+        return -x/y/20000000
+
 
     def _get_value(self, input_data: Dict) -> Dict:
         """

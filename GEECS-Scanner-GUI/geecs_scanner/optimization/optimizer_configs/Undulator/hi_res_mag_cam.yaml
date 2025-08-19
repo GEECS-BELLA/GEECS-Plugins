@@ -1,9 +1,9 @@
 vocs:
   variables:
-    U_ESP_JetXYZ:Position.Axis 2: [ -8, -7 ]
-    U_ESP_JetXYZ:Position.Axis 3: [ 2, 8]
+#    U_ESP_JetXYZ:Position.Axis 2: [ -8, -7 ]
+    U_ESP_JetXYZ:Position.Axis 3: [ 3, 9]
     U_HP_Daq:AnalogOutput.Channel 1: [ 1.5, 2.5]
-    U_ModeImagerESP:Position.Axis 2: [-17.2,-17.0]
+    U_ModeImagerESP:Position.Axis 2: [-17.15,-17.0]
   objectives:
     f: MINIMIZE
   constraints: {}
