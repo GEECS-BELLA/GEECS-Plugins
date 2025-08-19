@@ -21,6 +21,7 @@ from geecs_data_utils import ScanData, ScanTag
 
 from scan_analysis.base import ScanAnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
+from scan_analysis.analyzers.Undulator.camera_image_analysis import CameraImageAnalyzer
 
 from scan_analysis.analyzers.Undulator.hi_res_mag_cam_analysis import (
     HiResMagCamAnalysis,
@@ -34,6 +35,10 @@ from scan_analysis.analyzers.Undulator.hamaspectro_analysis import (
     FiberSpectrometerAnalyzer,
 )
 from scan_analysis.analyzers.Undulator.frog_analysis import FrogAnalyzer
+from scan_analysis.analyzers.Undulator.ict_plot_analysis import ICTPlotAnalysis
+from scan_analysis.analyzers.Undulator.aline3_dispersion_analysis import (
+    ALine3DispersionAnalysis,
+)
 
 from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
 from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import (
@@ -103,10 +108,40 @@ undulator_analyzers = [
         device_name="U_BCaveMagSpec",
     ),
     Info(
+        scan_analyzer_class=ICTPlotAnalysis,
+        requirements={"U_BCaveICT"},
+        device_name="U_BCaveICT",
+    ),
+    Info(
         scan_analyzer_class=Rad2SpecAnalysis,
         requirements={
             "AND": ["UC_UndulatorRad2", {"OR": ["U_BCaveICT", "U_UndulatorExitICT"]}]
         },
+    ),
+    Info(
+        scan_analyzer_class=ALine3DispersionAnalysis,
+        requirements={"UC_ALineEBeam3"},
+        device_name="UC_ALineEBeam3",
+    ),
+    Info(
+        scan_analyzer_class=CameraImageAnalyzer,
+        requirements={"UC_TC_Phosphor"},
+        device_name="UC_TC_Phosphor",
+    ),
+    Info(
+        scan_analyzer_class=CameraImageAnalyzer,
+        requirements={"UC_DiagnosticsPhosphor"},
+        device_name="UC_DiagnosticsPhosphor",
+    ),
+    Info(
+        scan_analyzer_class=CameraImageAnalyzer,
+        requirements={"UC_Phosphor1"},
+        device_name="UC_Phosphor1",
+    ),
+    Info(
+        scan_analyzer_class=CameraImageAnalyzer,
+        requirements={"UC_ModeImager"},
+        device_name="UC_ModeImager",
     ),
     Info(scan_analyzer_class=HiResMagCamAnalysis, requirements={"UC_HiResMagCam"}),
     Info(
