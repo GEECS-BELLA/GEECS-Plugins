@@ -9,6 +9,8 @@ repos:
     rev: v5.0.0
     hooks:
       - id: no-commit-to-branch
+        args: [--branch, main, --branch, master]
+        stages: [commit]
       - id: trailing-whitespace
       - id: end-of-file-fixer
         exclude: "(^extras/|.*/third_party_sdks/)"
