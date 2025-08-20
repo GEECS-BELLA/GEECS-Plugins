@@ -57,6 +57,13 @@ nav:
                   - Cheetah Generator: geecs_scanner/api/optimization/generators/cheetah_generator.md
 #          - Application Interface:
 #          - Utilities:
+      - Examples:
+          - Optimization:
+              - Basic Optimization Setup: geecs_scanner/examples/optimization/optimization_example.ipynb
+      - Notes and Discussions:
+          - Optimization:
+              - Developing e-beam brightness optimization on HTU: geecs_scanner/notes_and_discussions/optimization/bayesian optimization for e-beam brightness.md
+
   - Image Analysis:
       - Overview: image_analysis/overview.md
       - Installation & Setup: image_analysis/installation.md
@@ -136,3 +143,4 @@ markdown_extensions:
   - pymdownx.details
   - pymdownx.highlight
   - pymdownx.superfences
+  - attr_list
