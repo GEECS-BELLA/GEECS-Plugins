@@ -1,7 +1,7 @@
 Devices:
   UC_Amp2_IR_input:
     add_all_variables: false
-    save_nonscalar_data: false
+    save_nonscalar_data: true
     synchronous: true
     variable_list:
     - MeanCounts
@@ -10,7 +10,7 @@ Devices:
     - centroidy
   UC_Amp3_IR_input:
     add_all_variables: false
-    save_nonscalar_data: false
+    save_nonscalar_data: true
     synchronous: true
     variable_list:
     - MeanCounts
@@ -19,7 +19,7 @@ Devices:
     - centroidy
   UC_Amp4_IR_input:
     add_all_variables: false
-    save_nonscalar_data: false
+    save_nonscalar_data: true
     synchronous: true
     variable_list:
     - MeanCounts
@@ -34,30 +34,15 @@ Devices:
     - MaxCounts
     - centroidx
     - centroidy
-  UC_GhostFocus:
-    add_all_variables: false
-    save_nonscalar_data: false
-    synchronous: true
-    variable_list:
-    - MeanCounts
-    - MaxCounts
-    - centroidx
-    - centroidy
   UC_GhostUpstream:
     add_all_variables: false
-    save_nonscalar_data: false
-    synchronous: true
-    variable_list:
-    - MeanCounts
-    - MaxCounts
-    - centroidx
-    - centroidy
-  U_LaserEnergyMLinkPicoscope:
     save_nonscalar_data: true
     synchronous: true
     variable_list:
-    - Python Results.ChA
-    - Python Results.ChB
+    - MeanCounts
+    - MaxCounts
+    - centroidx
+    - centroidy
   U_VacuumGauge:
     save_nonscalar_data: false
     synchronous: false

@@ -4,3 +4,4 @@ assigned_actions:
 - element_filename: visa9_spectrometer_setup.yaml
   name: setup_action
 - name: experiment_CLOSEOUT
+- name: pmq_INSERT
