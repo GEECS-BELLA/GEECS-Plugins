@@ -45,6 +45,8 @@ class HiResMagCamAnalyzer(EBeamProfileAnalyzer):
             n_beam_size_clearance=4, min_total_counts=2500, threshold_factor=10
         )
 
+        self.run_analyze_image_asynchronously = True
+
         super().__init__(camera_name=camera_name)
 
     def image_preprocess(self, image: np.ndarray) -> np.ndarray:
@@ -228,7 +230,7 @@ if __name__ == "__main__":
 
     # file_path = Path('/Volumes/hdna2/data/Undulator/Y2025/06-Jun/25_0605/scans/Scan018/U_BCaveMagSpec/Scan018_U_BCaveMagSpec_001.png')
     file_path = Path(
-        "/Volumes/hdna2/data/Undulator/Y2025/04-Apr/25_0429/scans/Scan015/UC_HiResMagCam/Scan015_UC_HiResMagCam_004.png"
+        "Z:/data/Undulator/Y2025/04-Apr/25_0429/scans/Scan015/UC_HiResMagCam/Scan015_UC_HiResMagCam_004.png"
     )
 
     results = image_analyzer.analyze_image_file(image_filepath=file_path)

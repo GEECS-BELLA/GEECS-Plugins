@@ -124,7 +124,7 @@ class TestExecuteAnalysis(unittest.TestCase):
                              device_name='UC_HiResMagCam',
                              scan_analyzer_kwargs={'image_analyzer': HiResMagCamAnalyzer(**config_dict)})
 
-        test_tag = ScanTag(year=2025, month=4, day=29, number=15, experiment='Undulator')
+        test_tag = ScanTag(year=2025, month=8, day=19, number=4, experiment='Undulator')
 
         test_analyzer = instantiate_scan_analyzer(analyzer_info)
 
