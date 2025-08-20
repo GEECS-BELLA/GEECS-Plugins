@@ -176,7 +176,7 @@ def _make_bayes_turbo(
     d = len(vocs.variable_names)
 
     turbo = OptimizeTurboController(
-        dim=d,
+        vocs=vocs,
         batch_size=batch_size,
         length=length,
         length_min=length_min,
