@@ -66,9 +66,13 @@ from typing import List, Dict, Any
 import logging
 import time
 
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+
 
 
 class ScanStepExecutor:
@@ -336,7 +340,9 @@ class ScanStepExecutor:
         self.prepare_for_step()
 
         logging.info(f"Moving devices for step: {step['variables']}")
-        self.move_devices(step["variables"], step["is_composite"])
+        # self.move_devices(step["variables"], step["is_composite"])
+        self.move_devices_parallel_by_device(step["variables"], step["is_composite"])
+
 
         logging.info(f"Waiting for acquisition: {step}")
         self.wait_for_acquisition(step["wait_time"])
@@ -470,6 +476,95 @@ class ScanStepExecutor:
                     logging.warning(
                         f"Device {device_name} not found in device manager."
                     )
+
+    def move_devices_parallel_by_device(
+            self,
+            component_vars: Dict[str, Any],
+            is_composite: bool,
+            max_retries: int = 3,
+            retry_delay: float = 0.5,
+    ) -> None:
+        """
+        Set device variables in parallel, grouped by device, with optional retry and tolerance checks.
+
+        This method initiates device variable settings in parallel by assigning one thread per device.
+        Variables belonging to the same device are set sequentially in that thread, preserving device-level
+        ordering and avoiding conflicts. Threads are launched and the method returns immediately without
+        waiting for completion.
+
+        Parameters
+        ----------
+        component_vars : dict of str to Any
+            Dictionary mapping device variables to target values.
+            Keys are formatted as "device_name:variable_name".
+        is_composite : bool
+            Flag indicating whether the variables are part of a composite device configuration.
+        max_retries : int, optional
+            Maximum number of attempts to set each device variable. Defaults to 3.
+        retry_delay : float, optional
+            Time (in seconds) to wait between retry attempts. Defaults to 0.5 seconds.
+
+        Notes
+        -----
+        - This method returns immediately after launching threads; device settings may still be in progress.
+        - Device setting for composite variables is performed without tolerance checking.
+        - For standard variables, the device-specific tolerance is used to verify success.
+        - Device setting is skipped if `component_vars` corresponds to a statistical no-scan configuration.
+        - Logs are generated for each attempt, including success, warnings, and failures.
+        """
+
+        if self.device_manager.is_statistic_noscan(component_vars):
+            return
+
+        if not component_vars:
+            logging.info("No variables to move for this scan step.")
+            return
+
+        # Step 1: Group variables by device
+        vars_by_device = defaultdict(list)
+        for device_var, set_val in component_vars.items():
+            device_name, var_name = (device_var.split(":") + ["composite_var"])[:2]
+            vars_by_device[device_name].append((var_name, set_val))
+
+        # Step 2: Define per-device setting function
+        def set_device_variables(device_name, var_list):
+            """Helper fucntion to set vars in threads."""
+            device = self.device_manager.devices.get(device_name)
+            if not device:
+                logging.warning(f"Device {device_name} not found.")
+                return
+
+            logging.info(f"[{device_name}] Preparing to set vars: {var_list}")
+            for var_name, set_val in var_list:
+                tol = (
+                    10000 if device.is_composite
+                    else float(GeecsDevice.exp_info["devices"][device_name][var_name]["tolerance"])
+                )
+                success = False
+                for attempt in range(max_retries):
+                    ret_val = device.set(var_name, set_val)
+                    logging.info(
+                        f"[{device_name}] Attempt {attempt + 1}: Set {var_name}={set_val}, got {ret_val}")
+                    if ret_val - tol <= set_val <= ret_val + tol:
+                        logging.info(
+                            f"[{device_name}] Success: {var_name}={ret_val} within tolerance {tol}")
+                        success = True
+                        break
+                    else:
+                        logging.warning(
+                            f"[{device_name}] {var_name}={ret_val} not within tolerance of {set_val}")
+                        time.sleep(retry_delay)
+
+                if not success:
+                    logging.error(
+                        f"[{device_name}] Failed to set {var_name} after {max_retries} attempts.")
+
+        # Step 3: Run each device in parallel
+        with ThreadPoolExecutor(max_workers=len(vars_by_device)) as executor:
+            futures = [executor.submit(set_device_variables, device_name, var_list)
+                       for device_name, var_list in vars_by_device.items()]
+            for f in futures:
+                f.result()  # propagate exceptions, if any
 
     def wait_for_acquisition(self, wait_time: float) -> None:
         """
