@@ -100,6 +100,12 @@ class DeviceConfig(BaseModel):
     variable_list: Optional[List[str]] = Field(
         None, description="List of variables to acquire from the device."
     )
+
+    add_all_variables: Optional[bool] = Field(
+        False,
+        description="If True, include all device variables (overridden by variable_list if provided).",
+    )
+
     post_analysis_class: Optional[str] = Field(
         None, description="Deprecated post-analysis processing class."
     )
