@@ -250,7 +250,7 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         self.roi = (self.top, self.top + self.height, self.left, self.left + self.width)
 
         self.preprocessed = preprocessed
-        self.run_analyze_image_asynchronously = False
+        self.run_analyze_image_asynchronously = True
         self.flag_logging = True
         self.min_val = 0
         self.use_interactive = False
