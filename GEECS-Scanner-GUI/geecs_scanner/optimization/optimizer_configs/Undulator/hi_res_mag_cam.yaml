@@ -10,14 +10,17 @@ vocs:
 
   objectives:
     f: MINIMIZE
-  constraints: {}
+
+  constraints:
+    UC_HiResMagCam:total_counts: ["GREATER_THAN", 100000.]
+    UC_HiResMagCam:emittance_proxy: ["LESS_THAN", 10.]
 
 evaluator:
   module: geecs_scanner.optimization.evaluators.HiResMagCam
   class: HiResMagCam
 
 generator:
-  name: bayes_default
+  name: bayes_turbo_HTU_e_beam_brightness
 
 device_requirements:
   Devices:

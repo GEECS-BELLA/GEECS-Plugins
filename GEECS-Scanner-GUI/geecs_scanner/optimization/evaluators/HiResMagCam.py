@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
     from geecs_scanner.data_acquisition.data_logger import DataLogger
 
+import numpy as np
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
@@ -144,6 +145,16 @@ class HiResMagCam(BaseEvaluator):
             "PlaceHolder"  # string to append to logged objective value
         )
 
+    @property
+    def counts_key(self) -> str:
+        """Return key name to find total counts."""
+        return f"{self.dev_name}:total_counts"
+
+    @property
+    def emittance_key(self) -> str:
+        """Return key name to find emittance proxy."""
+        return f"{self.dev_name}:emittance_proxy"
+
     def evaluate_all_shots(self, shot_entries: list[dict]) -> float:
         """
         Evaluate beam quality objective function for all shots in current bin.
@@ -185,6 +196,8 @@ class HiResMagCam(BaseEvaluator):
         >>> objective_value = evaluator.evaluate_all_shots(shot_entries)
         >>> print(f"Beam quality metric: {objective_value:.3f}")
         """
+        self._last_metrics = {}  # reset each call
+
         # set the 'aux' data manually to isolate the current bin to get analyzed by the ScanAnalyzer
         self.scan_analyzer.auxiliary_data = self.current_data_bin
         self.scan_analyzer.run_analysis(scan_tag=self.scan_tag)
@@ -202,13 +215,18 @@ class HiResMagCam(BaseEvaluator):
         # extract the scalar results returned by the image analyzer
         scalar_results = result["analyzer_return_dictionary"]
 
-        # define keys to extract values to use for the objective function
-        x_key = f"{self.dev_name}:total_counts"
-        y_key = f"{self.dev_name}:emittance_proxy"
+        # ---- NEW: extract + cache the metrics used in constraints
+        # pull metrics; if missing/bad, use NaN and let Xopt handle it
+        counts = float(scalar_results.get(self.counts_key, np.nan))
+        emit = float(scalar_results.get(self.emittance_key, np.nan))
 
-        objective_value = self.objective_fn(
-            x=scalar_results[x_key], y=scalar_results[y_key]
-        )
+        self._last_metrics = {  # stash for _get_value
+            self.counts_key: counts,
+            self.emittance_key: emit,
+        }
+        # ----
+
+        objective_value = self.objective_fn(x=counts, y=emit)
 
         for shot_entry in shot_entries:
             self.log_objective_result(
@@ -254,9 +272,7 @@ class HiResMagCam(BaseEvaluator):
         and lower emittance proxy (better beam quality) both contribute to
         a more negative (better) objective value.
         """
-
-        return -x/y/20000000
-
+        return -x / y / 20000000
 
     def _get_value(self, input_data: Dict) -> Dict:
         """
@@ -304,6 +320,11 @@ class HiResMagCam(BaseEvaluator):
             non_scalar_variables=["UC_ALineEBeam3"],
         )
 
-        result = self.evaluate_all_shots(shot_entries)
+        f_val = self.evaluate_all_shots(shot_entries)
 
-        return {self.output_key: result}
+        # ---- NEW: return constraint outcomes alongside 'f'
+        out = {self.output_key: f_val}
+        if hasattr(self, "_last_metrics"):
+            out.update(self._last_metrics)
+        return out
+        # ----
