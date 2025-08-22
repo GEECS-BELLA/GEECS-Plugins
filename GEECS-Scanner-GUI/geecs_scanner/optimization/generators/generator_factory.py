@@ -173,8 +173,6 @@ def _make_bayes_turbo(
     use_low_noise_prior : bool
         Use low noise prior in GP model.
     """
-    d = len(vocs.variable_names)
-
     turbo = OptimizeTurboController(
         vocs=vocs,
         batch_size=batch_size,
