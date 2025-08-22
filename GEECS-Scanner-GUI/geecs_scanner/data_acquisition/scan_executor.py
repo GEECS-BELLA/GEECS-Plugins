@@ -74,7 +74,6 @@ import numpy as np
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
 
-
 class ScanStepExecutor:
     """
     A sophisticated executor for managing complex scan step sequences.
@@ -343,7 +342,6 @@ class ScanStepExecutor:
         # self.move_devices(step["variables"], step["is_composite"])
         self.move_devices_parallel_by_device(step["variables"], step["is_composite"])
 
-
         logging.info(f"Waiting for acquisition: {step}")
         self.wait_for_acquisition(step["wait_time"])
 
@@ -478,11 +476,11 @@ class ScanStepExecutor:
                     )
 
     def move_devices_parallel_by_device(
-            self,
-            component_vars: Dict[str, Any],
-            is_composite: bool,
-            max_retries: int = 3,
-            retry_delay: float = 0.5,
+        self,
+        component_vars: Dict[str, Any],
+        is_composite: bool,
+        max_retries: int = 3,
+        retry_delay: float = 0.5,
     ) -> None:
         """
         Set device variables in parallel, grouped by device, with optional retry and tolerance checks.
@@ -512,7 +510,6 @@ class ScanStepExecutor:
         - Device setting is skipped if `component_vars` corresponds to a statistical no-scan configuration.
         - Logs are generated for each attempt, including success, warnings, and failures.
         """
-
         if self.device_manager.is_statistic_noscan(component_vars):
             return
 
@@ -537,32 +534,43 @@ class ScanStepExecutor:
             logging.info(f"[{device_name}] Preparing to set vars: {var_list}")
             for var_name, set_val in var_list:
                 tol = (
-                    10000 if device.is_composite
-                    else float(GeecsDevice.exp_info["devices"][device_name][var_name]["tolerance"])
+                    10000
+                    if device.is_composite
+                    else float(
+                        GeecsDevice.exp_info["devices"][device_name][var_name][
+                            "tolerance"
+                        ]
+                    )
                 )
                 success = False
                 for attempt in range(max_retries):
                     ret_val = device.set(var_name, set_val)
                     logging.info(
-                        f"[{device_name}] Attempt {attempt + 1}: Set {var_name}={set_val}, got {ret_val}")
+                        f"[{device_name}] Attempt {attempt + 1}: Set {var_name}={set_val}, got {ret_val}"
+                    )
                     if ret_val - tol <= set_val <= ret_val + tol:
                         logging.info(
-                            f"[{device_name}] Success: {var_name}={ret_val} within tolerance {tol}")
+                            f"[{device_name}] Success: {var_name}={ret_val} within tolerance {tol}"
+                        )
                         success = True
                         break
                     else:
                         logging.warning(
-                            f"[{device_name}] {var_name}={ret_val} not within tolerance of {set_val}")
+                            f"[{device_name}] {var_name}={ret_val} not within tolerance of {set_val}"
+                        )
                         time.sleep(retry_delay)
 
                 if not success:
                     logging.error(
-                        f"[{device_name}] Failed to set {var_name} after {max_retries} attempts.")
+                        f"[{device_name}] Failed to set {var_name} after {max_retries} attempts."
+                    )
 
         # Step 3: Run each device in parallel
         with ThreadPoolExecutor(max_workers=len(vars_by_device)) as executor:
-            futures = [executor.submit(set_device_variables, device_name, var_list)
-                       for device_name, var_list in vars_by_device.items()]
+            futures = [
+                executor.submit(set_device_variables, device_name, var_list)
+                for device_name, var_list in vars_by_device.items()
+            ]
             for f in futures:
                 f.result()  # propagate exceptions, if any
 
