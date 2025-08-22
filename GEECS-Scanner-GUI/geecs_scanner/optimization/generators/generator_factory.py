@@ -46,20 +46,32 @@ with appropriate factory functions.
 """
 
 # optimization/generator_factory.py
+
+from typing import Any, Dict, Callable
+
 from xopt.vocs import VOCS
 from xopt.generators.random import RandomGenerator
 from xopt.generators.bayesian import ExpectedImprovementGenerator
 from xopt.generators.bayesian.models.standard import StandardModelConstructor
-
-from typing import Any, Dict
+from xopt.generators.bayesian.turbo import OptimizeTurboController
 
 # Explicitly defined generators dictionary
-PREDEFINED_GENERATORS = {
+PREDEFINED_GENERATORS: dict[str, Callable[[VOCS], Any]] = {
     "random": lambda vocs: RandomGenerator(vocs=vocs),
     "bayes_default": lambda vocs: ExpectedImprovementGenerator(
         vocs=vocs, gp_constructor=StandardModelConstructor(use_low_noise_prior=False)
     ),
     "bayes_cheetah": lambda vocs: _load_cheetah_generator(vocs),
+    "bayes_turbo_standard": lambda vocs: _make_bayes_turbo(vocs),
+    "bayes_turbo_HTU_e_beam_brightness": lambda vocs: _make_bayes_turbo(
+        vocs,
+        success_tolerance=2,
+        failure_tolerance=2,
+        length=0.25,
+        length_max=2.0,
+        length_min=0.0078125,
+        scale_factor=2.0,
+    ),
     # Add more explicit named generators here if needed
 }
 
@@ -124,6 +136,64 @@ def build_generator_from_config(config: Dict[str, Any], vocs: VOCS):
         return PREDEFINED_GENERATORS[generator_name](vocs)
     except KeyError:
         raise ValueError(f"Unsupported or undefined generator name: '{generator_name}'")
+
+
+def _make_bayes_turbo(
+    vocs: VOCS,
+    length: float = 0.30,
+    length_min: float = 0.01,
+    length_max: float = 1.00,
+    success_tolerance: int = 2,
+    failure_tolerance: int = 2,
+    scale_factor: float = 2.0,
+    restrict_model_data: bool = True,
+    batch_size: int = 1,
+    n_monte_carlo_samples: int = 128,
+    use_low_noise_prior: bool = False,
+) -> ExpectedImprovementGenerator:
+    """
+    Build an ExpectedImprovementGenerator with a customized TuRBO trust region.
+
+    Parameters
+    ----------
+    vocs : VOCS
+        VOCS specification for the optimization problem.
+    length, length_min, length_max : float
+        Trust region bounds.
+    success_tolerance, failure_tolerance : int
+        Number of successes/failures to expand/shrink TR.
+    scale_factor : float
+        Trust region expansion factor.
+    restrict_model_data : bool
+        Whether to fit GP only to points in the TR.
+    batch_size : int
+        Number of candidates per iteration.
+    n_monte_carlo_samples : int
+        Number of MC samples for qEI.
+    use_low_noise_prior : bool
+        Use low noise prior in GP model.
+    """
+    turbo = OptimizeTurboController(
+        vocs=vocs,
+        batch_size=batch_size,
+        length=length,
+        length_min=length_min,
+        length_max=length_max,
+        success_tolerance=success_tolerance,
+        failure_tolerance=failure_tolerance,
+        scale_factor=scale_factor,
+        restrict_model_data=restrict_model_data,
+        name="OptimizeTurboController",
+    )
+
+    return ExpectedImprovementGenerator(
+        vocs=vocs,
+        gp_constructor=StandardModelConstructor(
+            use_low_noise_prior=use_low_noise_prior
+        ),
+        n_monte_carlo_samples=n_monte_carlo_samples,
+        turbo_controller=turbo,
+    )
 
 
 def _load_cheetah_generator(vocs):
