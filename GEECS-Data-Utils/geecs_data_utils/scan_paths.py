@@ -27,7 +27,7 @@ from geecs_data_utils.type_defs import ScanTag
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
 
 # Acceptable extensions (lowercase, no dot)
-_ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms", "jpg", "jpeg", "bmp"}
+_ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms", "himg"}
 
 # from geecs_data_utils.types import ScanConfig, ScanMode
 
