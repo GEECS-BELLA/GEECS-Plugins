@@ -25,7 +25,6 @@ from typing import (
     Union,
     TypeAlias,
     Hashable,
-    Callable,
 )
 import logging
 import re
@@ -121,33 +120,6 @@ class BinningConfig:
     right: bool = True
     label: Literal["interval", "left", "center", "right"] = "center"
     origin: Optional[float] = None
-
-
-@dataclass(frozen=True)
-class DeviceSpec:
-    """Filename parsing spec for a device.
-
-    Notes
-    -----
-    The regex **must** capture a named group ``(?P<shot>...)`` and may capture
-    ``(?P<variant>...)`` and ``(?P<ext>...)``. The default works for names like
-    ``Scan012_Device_005.png`` or ``Scan012_Device_005_avg.tif``.
-
-    Parameters
-    ----------
-    device
-        Device folder name under the scan directory.
-    folder
-        Override subfolder name if it differs from ``device``.
-    regex
-        Pattern used to extract shot/variant/ext from filenames.
-    """
-
-    device: str
-    folder: Optional[str] = None
-    regex: str = (
-        r"^Scan\d+_.*?_(?P<shot>\d{3,})(?:_(?P<variant>[\w\-]+))?\.(?P<ext>\w+)$"
-    )
 
 
 def read_geecs_tdms(file_path: Path) -> Optional[dict[str, dict[str, np.ndarray]]]:
@@ -254,11 +226,6 @@ class ScanData:
         self._binned_cache: Optional[pd.DataFrame] = None
         self._df_version: int = 0
         self._binned_key: Optional[Tuple] = None
-
-        # Asset index cache (normalized table)
-        self._device_specs: Dict[str, DeviceSpec] = {}
-        self._assets_cache: Optional[pd.DataFrame] = None
-        self._assets_stamp: Optional[float] = None
 
         # Local (user) aliases for columns (independent of DAQ "Alias:" strings)
         self.column_aliases: Dict[str, str] = {}
@@ -409,216 +376,6 @@ class ScanData:
         self._df_version += 1
         self._binned_cache = None
         self._binned_key = None
-
-    # ----------------------------- Asset Indexing ------------------------------
-
-    def register_device(self, spec: DeviceSpec) -> None:
-        """Register or override a :class:`DeviceSpec` for filename parsing.
-
-        Parameters
-        ----------
-        spec
-            Device parsing rule. Must capture a ``shot`` group.
-        """
-        self._device_specs[spec.device] = spec
-        self._assets_cache = None  # force rebuild
-
-    def assets_table(self, *, force: bool = False) -> pd.DataFrame:
-        """Return a normalized table of discovered assets (no bytes loaded).
-
-        Returns a DataFrame with columns: ``device, shot, variant, ext, path``.
-
-        Parameters
-        ----------
-        force
-            If True, rebuild the index even if the folder mtime hasn't changed.
-
-        Returns
-        -------
-        pandas.DataFrame
-            Normalized asset table sorted by device/shot.
-        """
-        root = self.paths.get_folder()
-        stamp = root.stat().st_mtime if root.exists() else None
-        if (
-            (not force)
-            and (self._assets_cache is not None)
-            and (self._assets_stamp == stamp)
-        ):
-            return self._assets_cache.copy()
-
-        rows: List[Dict] = []
-        if root.exists():
-            subdirs = [p for p in root.iterdir() if p.is_dir()]
-            for dpath in subdirs:
-                dev = dpath.name
-                spec = self._device_specs.get(dev, DeviceSpec(device=dev))
-                folder = root / (spec.folder or dev)
-                if not folder.is_dir():
-                    continue
-                rx = re.compile(spec.regex)
-                for f in folder.iterdir():
-                    if not f.is_file():
-                        continue
-                    m = rx.match(f.name)
-                    if not m:
-                        continue
-                    rows.append(
-                        {
-                            "device": dev,
-                            "shot": int(m.group("shot")),
-                            "variant": m.groupdict().get("variant"),
-                            "ext": (
-                                m.groupdict().get("ext") or f.suffix.lstrip(".")
-                            ).lower(),
-                            "path": f,
-                        }
-                    )
-
-        df = (
-            pd.DataFrame(rows)
-            if rows
-            else pd.DataFrame(columns=["device", "shot", "variant", "ext", "path"])
-        )
-        df = df.sort_values(
-            ["device", "shot", "variant"], na_position="last"
-        ).reset_index(drop=True)
-        self._assets_cache = df
-        self._assets_stamp = stamp
-        return df.copy()
-
-    def assets_for(
-        self, device: str, kinds: Optional[Iterable[str]] = None
-    ) -> pd.DataFrame:
-        """Return assets for a device, optionally filtered by extension(s).
-
-        Parameters
-        ----------
-        device
-            Device folder name under the scan directory.
-        kinds
-            File types to include (e.g., ``{"png", "tif"}``); case-insensitive.
-
-        Returns
-        -------
-        pandas.DataFrame
-            Columns: ``shot, path, variant, ext`` for the device.
-        """
-        df = self.assets_table()
-        df = df[df.device == device]
-        if kinds:
-            k = {k.lower().lstrip(".") for k in kinds}
-            df = df[df.ext.isin(k)]
-        return df[["shot", "path", "variant", "ext"]].sort_values("shot")
-
-    # ---------- Images grouped by Bin # (paths only / averaged arrays) ---------
-
-    def assets_table_with_bins(
-        self, device: str, *, kinds: Optional[Iterable[str]] = None
-    ) -> pd.DataFrame:
-        """Return a tidy table of assets joined with the scan's ``Bin #``.
-
-        Parameters
-        ----------
-        device
-            Device name.
-        kinds
-            Filter by file extensions (e.g., ``{"png", "tif"}``).
-
-        Returns
-        -------
-        pandas.DataFrame
-            Columns: ``shot, path, ext, variant, Bin #`` sorted by bin then shot.
-
-        Raises
-        ------
-        ValueError
-            If scalar DataFrame is not loaded.
-        """
-        if self.data_frame is None:
-            raise ValueError("No scalar dataframe loaded.")
-        assets = self.assets_for(device, kinds=kinds)
-        bins = self.data_frame[["Shotnumber", "Bin #"]].rename(
-            columns={"Shotnumber": "shot"}
-        )
-        return assets.merge(bins, on="shot", how="inner").sort_values(["Bin #", "shot"])
-
-    def images_by_bin(
-        self, device: str, kinds: Optional[Iterable[str]] = None
-    ) -> Dict[Hashable, List[Path]]:
-        """Group image paths by ``Bin #``.
-
-        Parameters
-        ----------
-        device
-            Device name.
-        kinds
-            File types to include (e.g., ``{"png", "tif"}``).
-
-        Returns
-        -------
-        dict[int, list[pathlib.Path]]
-            Mapping ``{bin_value: [image paths]}``.
-
-        Notes
-        -----
-        This does not load any image bytes.
-        """
-        df = self.assets_table_with_bins(device, kinds=kinds)
-        out: Dict[Hashable, List[Path]] = {}
-        for bin_val, group in df.groupby("Bin #", dropna=False):
-            out[bin_val] = group["path"].tolist()
-        return out
-
-    def average_images_by_bin(
-        self,
-        device: str,
-        *,
-        kinds: Optional[Iterable[str]] = None,
-        loader: Optional[Callable[[Path], np.ndarray]] = None,
-        reducer: Optional[Callable[[List[np.ndarray]], np.ndarray]] = None,
-    ) -> Dict[Hashable, np.ndarray]:
-        """Load and average images per ``Bin #``.
-
-        Parameters
-        ----------
-        device
-            Device name.
-        kinds
-            File types to include (e.g., ``{"png", "tif"}``).
-        loader
-            Optional callable ``loader(path) -> ndarray``. Defaults to ``imageio.v3.imread``.
-        reducer
-            Optional callable ``reducer(list_of_arrays) -> ndarray``. Defaults to mean.
-
-        Returns
-        -------
-        dict[int, numpy.ndarray]
-            Mapping ``{bin_value: averaged_image}``.
-
-        Notes
-        -----
-        This is intentionally lightweight. For advanced image handling, plug in your
-        ImageAnalysis loaders or reducers via the hooks.
-        """
-        import imageio.v3 as iio
-
-        paths_by_bin = self.images_by_bin(device, kinds=kinds)
-        if not paths_by_bin:
-            return {}
-
-        _load = loader or iio.imread
-
-        def _reduce(imgs: List[np.ndarray]) -> np.ndarray:
-            stack = np.stack(imgs, axis=0)
-            return stack.mean(axis=0)
-
-        red = reducer or _reduce
-        return {
-            b: red([_load(p) for p in paths])
-            for b, paths in paths_by_bin.items()
-            if paths
-        }
 
     # ------------------------- Flexible Column Resolution ----------------------
 
@@ -944,6 +701,70 @@ class ScanData:
         self._binned_key = key
         return out.copy()
 
+    def expected_paths_by_bin(
+        self,
+        device: str,
+        *,
+        variant: Optional[str] = None,
+        bin_col: Optional[str] = None,
+        dropna_paths: bool = True,
+        exists_only: bool = False,
+    ) -> Dict[Hashable, List[Path]]:
+        """
+        Group expected image paths by the current bin definition.
+
+        Parameters
+        ----------
+        device
+            Device name (subfolder).
+        variant
+            Optional variant suffix used when creating expected-path columns.
+        bin_col
+            Override the configured bin column for this call.
+        dropna_paths
+            If True, drop rows with missing path strings.
+        exists_only
+            If True, filter out paths that do not currently exist on disk.
+
+        Returns
+        -------
+        dict[Hashable, list[pathlib.Path]]
+            Mapping {bin_value -> [image paths]}.
+        """
+        if self.data_frame is None:
+            raise ValueError("No scalar dataframe loaded.")
+
+        # Optionally override the bin column for just this call
+        if bin_col is not None:
+            self._bin_cfg = replace(self._bin_cfg, bin_col=str(bin_col))
+
+        # Ensure the bin source is present; compute the effective bin key
+        self._require_bin_col()
+        df = self.data_frame.copy()
+        bin_key, bin_name = self._compute_bin_key(df)
+        df = df.assign(**{bin_name: bin_key})
+
+        col = self._expected_path_col(device, variant=variant)
+        series = df[col]
+
+        if dropna_paths:
+            mask = series.notna()
+            df = df.loc[mask]
+
+        # Convert to Paths and optionally filter to existing files
+        df = df.assign(
+            _path_obj=df[col].map(lambda s: Path(s) if isinstance(s, str) else None)
+        )
+        if exists_only:
+            df = df.loc[df["_path_obj"].map(lambda p: p is not None and p.exists())]
+
+        out: Dict[Hashable, List[Path]] = {}
+        for bval, group in df.groupby(bin_name, dropna=False, observed=True, sort=True):
+            paths = [p for p in group["_path_obj"].tolist() if p is not None]
+            if paths:
+                out[bval] = paths
+        return out
+
     # ------------------------------- Internals ---------------------------------
 
     def _flatten_columns(self) -> List[str]:
@@ -1048,6 +869,134 @@ class ScanData:
         bin_name = f"{src} (binned)"
         return labels, bin_name
 
+    def _append_expected_asset_columns(
+        self,
+        df: pd.DataFrame,
+        *,
+        ext_override: Optional[dict[str, str]] = None,
+        variants_override: Optional[dict[str, list[Optional[str]]]] = None,
+    ) -> pd.DataFrame:
+        """
+        Add wide columns of expected paths for each device (and optional variant).
+
+        Column names created:
+          - ``<device>_expected_path``                  (no variant)
+          - ``<device>_expected_<variant>_path``        (with variant)
+
+        Each column contains the full expected file path (as a string) for every
+        row's ``Shotnumber``. File extensions are inferred per device via
+        :meth:`ScanPaths.infer_device_ext`, unless overridden with ``ext_override``.
+        Variants default to ``[None]`` per device, and can be customized with
+        ``variants_override``.
+
+        Parameters
+        ----------
+        df
+            Scalar DataFrame that must include ``"Shotnumber"``.
+        ext_override
+            Optional mapping ``{device: ext}`` to force a specific extension
+            (e.g., ``{"UC_HiResMagCam": "png"}``).
+        variants_override
+            Optional mapping ``{device: [variant1, variant2, None, ...]}`` to
+            control which variant-specific columns are created.
+
+        Returns
+        -------
+        pandas.DataFrame
+            A copy of ``df`` with one or more ``*_expected_*_path`` columns added.
+
+        Notes
+        -----
+        - If ``"Shotnumber"`` is missing, the input ``df`` is returned unchanged.
+        - Paths are generated with :meth:`ScanPaths.build_asset_path`.
+        """
+        if "Shotnumber" not in df.columns:
+            return df
+
+        shots = df["Shotnumber"].astype(int).tolist()
+        devs = self.paths.list_device_folders()
+
+        # Resolve per-device ext and variants
+        ext_map: dict[str, str] = {}
+        var_map: dict[str, list[Optional[str]]] = {}
+        for dev in devs:
+            ext_map[dev] = (ext_override or {}).get(dev) or self.paths.infer_device_ext(
+                dev
+            )
+            var_map[dev] = (variants_override or {}).get(dev, [None])
+
+        # Build and attach columns
+        out = df.copy()
+        for dev in devs:
+            ext = ext_map[dev]
+            for variant in var_map[dev]:
+                col = (
+                    f"{dev}_expected_path"
+                    if not variant
+                    else f"{dev}_expected_{variant}_path"
+                )
+                # Faster than row-wise apply: precompute for all shots
+                paths = [
+                    str(
+                        self.paths.build_asset_path(
+                            shot=s, device=dev, ext=ext, variant=variant
+                        )
+                    )
+                    for s in shots
+                ]
+                out[col] = paths
+
+        return out
+
+    def _expected_path_col(self, device: str, variant: Optional[str] = None) -> str:
+        """
+        Return the expected-path column name for a device/variant.
+
+        Looks for either:
+          - "<device>_expected_path"                  (no variant)
+          - "<device>_expected_<variant>_path"        (with variant)
+
+        Raises
+        ------
+        KeyError
+            If no matching expected-path column is found.
+        """
+        if self.data_frame is None:
+            raise ValueError("No scalar dataframe loaded.")
+
+        want = (
+            f"{device}_expected_path"
+            if not variant
+            else f"{device}_expected_{variant}_path"
+        )
+        if want in self.data_frame.columns:
+            return want
+
+        # Fallback: search permissively (variant might have underscores, etc.)
+        cols = [
+            c
+            for c in self.data_frame.columns
+            if c.startswith(f"{device}_expected_") and c.endswith("_path")
+        ]
+        if not variant and f"{device}_expected_path" in cols:
+            return f"{device}_expected_path"
+        if variant:
+            # try exact, then CI/underscore-insensitive
+            for c in cols:
+                if c == want:
+                    return c
+
+            def norm(s: str) -> str:
+                return s.lower().replace("-", "_")
+
+            for c in cols:
+                if norm(c) == norm(want):
+                    return c
+
+        raise KeyError(
+            f"No expected-path column found for device={device!r}, variant={variant!r}."
+        )
+
     # ------------------------------extras---------------------
     def reload_sfile(self) -> None:
         """Re-read the analysis s-file into ``self.data_frame``.
@@ -1098,56 +1047,3 @@ class ScanData:
         if not ecs_path:
             raise FileNotFoundError(f"No ECS live dump file found for scan {tag}")
         return parse_ecs_dump(ecs_path)
-
-    def _append_expected_asset_columns(
-        self,
-        df: pd.DataFrame,
-        *,
-        ext_override: Optional[dict[str, str]] = None,
-        variants_override: Optional[dict[str, list[Optional[str]]]] = None,
-    ) -> pd.DataFrame:
-        """
-        Add wide columns of expected paths for each device/ext[/variant], one column per combination.
-
-        Column names:
-          <device>__expected__<ext>            (no variant)
-          <device>__expected__<ext>__<variant> (with variant)
-        Values are strings with full expected paths for each Shotnumber.
-        """
-        if "Shotnumber" not in df.columns:
-            return df
-
-        shots = df["Shotnumber"].astype(int).tolist()
-        devs = self.paths.list_device_folders()
-
-        # Resolve per-device ext and variants
-        ext_map: dict[str, str] = {}
-        var_map: dict[str, list[Optional[str]]] = {}
-        for dev in devs:
-            ext_map[dev] = (ext_override or {}).get(dev) or self.paths.infer_device_ext(
-                dev
-            )
-            var_map[dev] = (variants_override or {}).get(dev, [None])
-
-        # Build and attach columns
-        out = df.copy()
-        for dev in devs:
-            ext = ext_map[dev]
-            for variant in var_map[dev]:
-                col = (
-                    f"{dev}_expected_path"
-                    if not variant
-                    else f"{dev}_expected_{variant}_path"
-                )
-                # Faster than row-wise apply: precompute for all shots
-                paths = [
-                    str(
-                        self.paths.build_asset_path(
-                            shot=s, device=dev, ext=ext, variant=variant
-                        )
-                    )
-                    for s in shots
-                ]
-                out[col] = paths
-
-        return out
