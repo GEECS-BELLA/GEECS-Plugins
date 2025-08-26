@@ -38,7 +38,7 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from geecs_data_utils import ScanData
+from geecs_data_utils import ScanData, ScanPaths
 
 
 # %% classes
@@ -212,13 +212,14 @@ class ScanAnalyzer:
     def _handle_scan_tag(self, scan_tag: ScanTag):
         """Resolve paths, read `.ini`, load auxiliary data, and set flags."""
         self.scan_tag = scan_tag
-        self.scan_data = ScanData(tag=self.scan_tag, load_scalars=False, read_mode=True)
-        self.scan_directory = self.scan_data.get_folder()
+        self.scan_paths = ScanPaths(tag=self.scan_tag, read_mode=True)
+        self.scan_data = ScanData(paths=self.scan_paths)
+        self.scan_directory = self.scan_data.paths.get_folder()
         self.experiment_dir = self.scan_tag.experiment
         self.ini_file_path = (
             self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
         )
-        self.scan_path: Path = self.scan_data.get_analysis_folder()
+        self.scan_path: Path = self.scan_data.paths.get_analysis_folder()
         self.auxiliary_file_path: Path = (
             self.scan_path.parent / f"s{self.scan_tag.number}.txt"
         )
@@ -263,7 +264,7 @@ class ScanAnalyzer:
             unless `use_colon_scan_param` is set to True. Optimization scans with
             a "Shotnumber" parameter are mapped to "Bin #".
         """
-        ini_contents = self.scan_data.load_scan_info()
+        ini_contents = self.scan_data.paths.load_scan_info()
         # A MasterControl scan saves the scalar data columns with spaces between device
         # and variable, rather than use the basic device:variable configuration. If
         # dealing with live data, the device:variable convention is preserved

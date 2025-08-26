@@ -137,7 +137,7 @@ class BaseEvaluator(ABC):
         self.current_shot_numbers: Optional[List] = None
         self.objective_tag: str = "default"
 
-        self.scan_tag = self.scan_data_manager.scan_data.get_tag()
+        self.scan_tag = self.scan_data_manager.scan_paths.get_tag()
 
         # Validate required keys if provided
         if self.required_keys:
@@ -176,7 +176,7 @@ class BaseEvaluator(ABC):
         >>> print(path)
         /path/to/scan/data/camera1/shot_042.tiff
         """
-        return self.scan_data_manager.scan_data.get_device_shot_path(
+        return self.scan_data_manager.scan_paths.get_device_shot_path(
             device_name=device_name,
             shot_number=shot_number,
             tag=self.scan_tag,

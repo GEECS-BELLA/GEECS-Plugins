@@ -29,6 +29,7 @@ import pyarrow.parquet as pq
 import logging
 from pydantic import BaseModel, ConfigDict
 
+from geecs_data_utils import ScanPaths
 from geecs_data_utils.scan_data import ScanData
 from geecs_data_utils.type_defs import ScanTag
 from geecs_data_utils.scans_database.entries import (
@@ -59,10 +60,10 @@ class ScanDatabaseBuilder:
     @staticmethod
     def build_scan_entry(scan_data: ScanData) -> ScanEntry:
         """Construct a ScanEntry from a given ScanData object."""
-        folder = scan_data.get_folder()
-        tag = scan_data.get_tag()
+        folder = scan_data.paths.get_folder()
+        tag = scan_data.paths.get_tag()
 
-        files_and_folders = scan_data.get_folders_and_files()
+        files_and_folders = scan_data.paths.get_folders_and_files()
         devices = files_and_folders.get("devices", [])
         files = files_and_folders.get("files", [])
 
@@ -74,10 +75,10 @@ class ScanDatabaseBuilder:
         scalar_data_file = str(folder / scalar_txt) if scalar_txt else None
         tdms_file_path = str(folder / tdms_file) if tdms_file else None
 
-        ini_dict = scan_data.load_scan_info()
+        ini_dict = scan_data.paths.load_scan_info()
         scan_metadata = ScanMetadata.from_ini_dict(ini_dict)
 
-        has_analysis = scan_data.get_analysis_folder().exists()
+        has_analysis = scan_data.paths.get_analysis_folder().exists()
 
         ecs_folder = folder.parent.parent / "ECS Live dumps"
         ecs_path = ecs_folder / f"Scan{tag.number}.txt"
@@ -163,7 +164,8 @@ class ScanDatabaseBuilder:
                         )
 
                         try:
-                            yield ScanData(tag=tag, read_mode=True)
+                            sp = ScanPaths(tag=tag, read_mode=True)
+                            yield ScanData(paths=sp)
                         except Exception as e:
                             logger.warning(
                                 f"[SKIPPED] Scan {scan_folder} - {type(e).__name__}: {e}"
@@ -197,7 +199,7 @@ class ScanDatabaseBuilder:
                 yield ScanDatabaseBuilder.build_scan_entry(scan_data)
             except Exception as e:
                 logger.warning(
-                    f"[SKIPPED] {scan_data.get_tag()} - {type(e).__name__}: {e}"
+                    f"[SKIPPED] {scan_data.paths.get_tag()} - {type(e).__name__}: {e}"
                 )
 
     @staticmethod
