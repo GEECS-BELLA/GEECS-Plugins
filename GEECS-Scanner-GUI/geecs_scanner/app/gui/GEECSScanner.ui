@@ -1,4 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -669,7 +668,61 @@
      <enum>QToolButton::InstantPopup</enum>
     </property>
    </widget>
-  </widget>
+  <widget class="QRadioButton" name="optimizationRadioButton">
+ <property name="geometry">
+  <rect>
+   <x>30</x>
+   <y>320</y>
+   <width>111</width>
+   <height>20</height>
+  </rect>
+ </property>
+ <property name="text">
+  <string>Optimization</string>
+ </property>
+</widget><widget class="QLabel" name="labelOptimizationConfig">
+ <property name="geometry">
+  <rect>
+   <x>150</x>
+   <y>346</y>
+   <width>150</width>
+   <height>20</height>
+  </rect>
+ </property>
+ <property name="text">
+  <string>Optimization config:</string>
+ </property>
+ <property name="visible">
+  <bool>false</bool>
+ </property>
+</widget><widget class="QComboBox" name="comboOptimizationConfig">
+ <property name="geometry">
+  <rect>
+   <x>310</x>
+   <y>344</y>
+   <width>360</width>
+   <height>24</height>
+  </rect>
+ </property>
+ <property name="visible">
+  <bool>false</bool>
+ </property>
+</widget><widget class="QToolButton" name="btnRefreshOptConfigs">
+ <property name="geometry">
+  <rect>
+   <x>680</x>
+   <y>344</y>
+   <width>24</width>
+   <height>24</height>
+  </rect>
+ </property>
+ <property name="text">
+  <string>↻</string>
+ </property>
+ <property name="visible">
+  <bool>false</bool>
+ </property>
+</widget></widget>
   <widget class="QStatusBar" name="statusBar"/>
   <widget class="QMenuBar" name="menuBar">
    <property name="geometry">

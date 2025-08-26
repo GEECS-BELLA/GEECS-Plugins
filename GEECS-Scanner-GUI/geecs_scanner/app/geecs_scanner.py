@@ -52,6 +52,22 @@ class GEECSScannerWindow(QMainWindow):
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+        # --- Optimization UI wiring ---
+        if hasattr(self.ui, 'optimizationRadioButton'):
+            self.ui.optimizationRadioButton.toggled.connect(self.update_scan_edit_state)
+        if hasattr(self.ui, 'btnRefreshOptConfigs'):
+            self.ui.btnRefreshOptConfigs.clicked.connect(self.populate_optimization_configs)
+
+        # Default directory for optimization configs (adjust as needed)
+        from pathlib import Path as _Path
+        try:
+            self.optimizer_config_dir = _Path.home() / "geecs_scanner" / "optimizer_configs"
+        except Exception:
+            self.optimizer_config_dir = _Path.cwd() / "optimizer_configs"
+        # Populate dropdown now (will show only when Optimization is selected)
+        if hasattr(self, 'populate_optimization_configs'):
+            self.populate_optimization_configs()
+
         self.setWindowTitle(f"GEECS Scanner - {CURRENT_VERSION}")
         self.setWindowIcon(QIcon(":/application_icon.ico"))
 
@@ -730,7 +746,26 @@ class GEECSScannerWindow(QMainWindow):
 
     # # # # #  Functions that work with the scan parameter section of the GUI  # # # # #
 
-    def update_scan_edit_state(self):
+
+    def populate_optimization_configs(self):
+        """Populate the optimization config dropdown with *.yml / *.yaml files."""
+        if not hasattr(self.ui, 'comboOptimizationConfig'):
+            return
+        combo = self.ui.comboOptimizationConfig
+        combo.clear()
+        try:
+            d = getattr(self, 'optimizer_config_dir', None)
+            files = []
+            if d is not None and d.exists():
+                files = sorted([p for p in d.iterdir() if p.suffix.lower() in {'.yml', '.yaml'}])
+            for pth in files:
+                combo.addItem(pth.name, str(pth))
+            if not files:
+                combo.addItem('(no configs found)', '')
+        except Exception as e:
+            combo.addItem(f'(error: {e})', '')
+
+def update_scan_edit_state(self):
         """Depending on which radio button is selected, enable/disable text boxes for if this scan is a noscan or a
         variable scan.  Previous values are saved so the user can switch between the two scan modes easily."""
         if self.ui.noscanRadioButton.isChecked() or self.ui.backgroundRadioButton.isChecked():
@@ -748,6 +783,10 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.lineNumShots.setText(str(self.noscan_num))
             self.ui.toolbuttonStepList.setEnabled(False)
             self.ui.toolbuttonStepList.setVisible(False)
+            # Hide optimization widgets when not in optimization mode
+            if hasattr(self.ui, 'labelOptimizationConfig'): self.ui.labelOptimizationConfig.setVisible(False)
+            if hasattr(self.ui, 'comboOptimizationConfig'): self.ui.comboOptimizationConfig.setVisible(False)
+            if hasattr(self.ui, 'btnRefreshOptConfigs'): self.ui.btnRefreshOptConfigs.setVisible(False)
 
         else:
             self.ui.lineScanVariable.setEnabled(True)
@@ -764,6 +803,37 @@ class GEECSScannerWindow(QMainWindow):
             self.calculate_num_shots()
             self.ui.toolbuttonStepList.setEnabled(True)
             self.ui.toolbuttonStepList.setVisible(True)
+            # Hide optimization widgets when not in optimization mode
+            if hasattr(self.ui, 'labelOptimizationConfig'): self.ui.labelOptimizationConfig.setVisible(False)
+            if hasattr(self.ui, 'comboOptimizationConfig'): self.ui.comboOptimizationConfig.setVisible(False)
+            if hasattr(self.ui, 'btnRefreshOptConfigs'): self.ui.btnRefreshOptConfigs.setVisible(False)
+
+        elif hasattr(self.ui, 'optimizationRadioButton') and self.ui.optimizationRadioButton.isChecked():
+            # Disable/hide scan fields
+            self.ui.lineScanVariable.setEnabled(False); self.ui.lineScanVariable.setText("")
+            self.ui.lineStartValue.setEnabled(False);   self.ui.lineStartValue.setText("")
+            self.ui.lineStopValue.setEnabled(False);    self.ui.lineStopValue.setText("")
+            self.ui.lineStepSize.setEnabled(False);     self.ui.lineStepSize.setText("")
+            self.ui.lineShotStep.setEnabled(False);     self.ui.lineShotStep.setText("")
+            self.ui.toolbuttonStepList.setEnabled(False); self.ui.toolbuttonStepList.setVisible(False)
+            # Hide optimization widgets when not in optimization mode
+            if hasattr(self.ui, 'labelOptimizationConfig'): self.ui.labelOptimizationConfig.setVisible(False)
+            if hasattr(self.ui, 'comboOptimizationConfig'): self.ui.comboOptimizationConfig.setVisible(False)
+            if hasattr(self.ui, 'btnRefreshOptConfigs'): self.ui.btnRefreshOptConfigs.setVisible(False)
+            # NumShots controlled by optimizer; disable
+            self.ui.lineNumShots.setEnabled(False)
+            # Show optimization widgets
+            if hasattr(self.ui, 'labelOptimizationConfig'):
+                self.ui.labelOptimizationConfig.setVisible(True)
+            if hasattr(self.ui, 'comboOptimizationConfig'):
+                self.ui.comboOptimizationConfig.setVisible(True)
+            if hasattr(self.ui, 'btnRefreshOptConfigs'):
+                self.ui.btnRefreshOptConfigs.setVisible(True)
+            # Ensure dropdown is populated
+            self.populate_optimization_configs()
+        else:
+            # Default fall-through
+            pass
 
     def populate_scan_variable_lists(self):
         """Generates a list of found scan devices from the scan_devices.yaml file"""
@@ -1179,6 +1249,12 @@ class GEECSScannerWindow(QMainWindow):
                 'experiment': self.experiment,
                 'description': self.ui.textEditScanInfo.toPlainText().replace('\n', ' ')
             }
+            if hasattr(self.ui, 'optimizationRadioButton') and self.ui.optimizationRadioButton.isChecked():
+                try:
+                    scan_information['optimization_config'] = selected_path if selected_path else self.ui.comboOptimizationConfig.currentData()
+                except Exception:
+                    scan_information['optimization_config'] = self.ui.comboOptimizationConfig.currentData() if hasattr(self.ui, 'comboOptimizationConfig') else ''
+
 
             if self.ui.scanRadioButton.isChecked():
                 scan_variable_tag = self.read_device_tag_from_nickname(self.scan_variable)
@@ -1198,7 +1274,24 @@ class GEECSScannerWindow(QMainWindow):
                 )
             else:
                 scan_config = None
-            scan_config.background = str(self.ui.backgroundRadioButton.isChecked())
+
+            elif hasattr(self.ui, 'optimizationRadioButton') and self.ui.optimizationRadioButton.isChecked():
+                # Optimization run: provide a minimal ScanConfig; the backend should inspect 'optimization_config' in scan_info
+                try:
+                    scan_mode_opt = getattr(ScanMode, 'OPTIMIZE', ScanMode.NOSCAN)
+                except Exception:
+                    scan_mode_opt = ScanMode.NOSCAN
+                scan_config = ScanConfig(
+                    wait_time = (self.noscan_num + 0.5)/self.repetition_rate,
+                    scan_mode = scan_mode_opt
+                )
+                # Attach selected optimization config path into scan_information (created below)
+                try:
+                    selected_path = self.ui.comboOptimizationConfig.currentData() or ''
+                except Exception:
+                    selected_path = ''
+                # We'll add to scan_information after it's created
+        scan_config.background = str(self.ui.backgroundRadioButton.isChecked())
 
             option_dict = {
                 "rep_rate_hz": self.repetition_rate,

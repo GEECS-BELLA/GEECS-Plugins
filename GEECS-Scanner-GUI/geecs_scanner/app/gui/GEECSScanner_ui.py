@@ -180,7 +180,27 @@ class Ui_MainWindow(object):
         self.lineLastScan.setText("")
         self.lineLastScan.setReadOnly(True)
         self.lineLastScan.setObjectName("lineLastScan")
-        self.backgroundRadioButton = QtWidgets.QRadioButton(self.centralwidget)
+
+        # Optimization radio and config controls
+        self.optimizationRadioButton = QtWidgets.QRadioButton(self.centralwidget)
+        self.optimizationRadioButton.setObjectName("optimizationRadioButton")
+        self.optimizationRadioButton.setGeometry(QtCore.QRect(30, 320, 111, 20))
+
+        self.labelOptimizationConfig = QtWidgets.QLabel(self.centralwidget)
+        self.labelOptimizationConfig.setObjectName("labelOptimizationConfig")
+        self.labelOptimizationConfig.setGeometry(QtCore.QRect(150, 346, 150, 20))
+        self.labelOptimizationConfig.setVisible(False)
+
+        self.comboOptimizationConfig = QtWidgets.QComboBox(self.centralwidget)
+        self.comboOptimizationConfig.setObjectName("comboOptimizationConfig")
+        self.comboOptimizationConfig.setGeometry(QtCore.QRect(310, 344, 360, 24))
+        self.comboOptimizationConfig.setVisible(False)
+
+        self.btnRefreshOptConfigs = QtWidgets.QToolButton(self.centralwidget)
+        self.btnRefreshOptConfigs.setObjectName("btnRefreshOptConfigs")
+        self.btnRefreshOptConfigs.setGeometry(QtCore.QRect(680, 344, 24, 24))
+        self.btnRefreshOptConfigs.setVisible(False)
+self.backgroundRadioButton = QtWidgets.QRadioButton(self.centralwidget)
         self.backgroundRadioButton.setGeometry(QtCore.QRect(30, 260, 95, 20))
         self.backgroundRadioButton.setObjectName("backgroundRadioButton")
         self.buttonDeleteElement = QtWidgets.QPushButton(self.centralwidget)
@@ -285,3 +305,7 @@ class Ui_MainWindow(object):
         self.actionDarkMode.setText(_translate("MainWindow", "Dark Mode"))
         self.actionRandomizedBeeps.setText(_translate("MainWindow", "Randomized Beeps"))
         self.actionExperiment_Scanlog.setText(_translate("MainWindow", "Experiment Scanlog"))
+
+        self.optimizationRadioButton.setText(_translate("MainWindow", "Optimization"))
+        self.labelOptimizationConfig.setText(_translate("MainWindow", "Optimization config:"))
+        self.btnRefreshOptConfigs.setText(_translate("MainWindow", "↻"))
