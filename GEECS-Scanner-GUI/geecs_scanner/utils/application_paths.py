@@ -15,6 +15,7 @@ class ApplicationPaths:
     MULTISCAN_FOLDER = "multiscan_presets"
     SHOT_CONTROL_FOLDER = "shot_control_configurations"
     ACTION_LIBRARY_FOLDER = "action_library"
+    OPTIMIZATION_CONFIGS = 'optimizer_configs'
 
     def __init__(self, experiment: str, create_new: bool = True):
         """
@@ -32,6 +33,7 @@ class ApplicationPaths:
         self.exp_multiscan = self.exp_path / self.MULTISCAN_FOLDER
         self.exp_shot_control = self.exp_path / self.SHOT_CONTROL_FOLDER
         self.exp_action_library = self.exp_path / self.ACTION_LIBRARY_FOLDER
+        self.exp_optimization_routines = self.exp_path / self.OPTIMIZATION_CONFIGS
 
         if create_new:
             for attr_name in dir(self):
@@ -101,3 +103,7 @@ class ApplicationPaths:
     def action_library(self) -> Path:
         """ :return: folder for the action library yaml's """
         return self.exp_action_library
+
+    def optimizer_configs(self) -> Path:
+        """ :return: folder for the optimizer yaml's """
+        return self.exp_optimization_routines
