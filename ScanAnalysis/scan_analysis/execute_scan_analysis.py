@@ -170,10 +170,10 @@ def insert_display_content_to_doc(
 
 
 if __name__ == "__main__":
-    from geecs_data_utils import ScanData
+    from geecs_data_utils import ScanPaths
     from scan_analysis.mapping.map_Undulator import undulator_analyzers
 
-    test_tag = ScanData.get_scan_tag(2025, 4, 3, number=2, experiment="Undulator")
+    test_tag = ScanPaths.get_scan_tag(2025, 4, 3, number=2, experiment="Undulator")
     test_analyzer = undulator_analyzers[0]
 
     analyze_scan(test_tag, scan_analyzer_list=[test_analyzer], upload_to_scanlog=False)
