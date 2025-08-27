@@ -59,6 +59,12 @@ from . import DeviceManager, DatabaseDictLookup
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_data_utils import ScanConfig, ScanPaths
 
+# -----------------------------------------------------------------------------
+# Module-level logger
+# -----------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 DeviceSavePaths = Dict[str, Dict[str, Union[Path, str]]]
 
 
@@ -208,7 +214,7 @@ class ScanDataManager:
             If True, configures local saving to a shared directory. If False, saves to scan folder.
         """
         for device_name in self.device_manager.non_scalar_saving_devices:
-            logging.info(f"Configuring save paths for device: {device_name}")
+            logger.info("Configuring save paths for device: %s", device_name)
             target_dir = self.scan_paths.get_folder() / device_name
             target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -216,7 +222,7 @@ class ScanDataManager:
             device_type = GeecsDatabase.find_device_type(device_name)
 
             if not device:
-                logging.warning(f"Device {device_name} not found in DeviceManager.")
+                logger.warning("Device %s not found in DeviceManager.", device_name)
                 continue
 
             dev_host_ip_string = device.dev_ip
@@ -269,10 +275,10 @@ class ScanDataManager:
                     # Iterate over all directories in the SharedData folder.
                     for subdir in base_dir.iterdir():
                         if subdir.is_dir() and dev_name in subdir.name:
-                            logging.info(f"Purging directory: {subdir}")
+                            logger.info("Purging directory: %s", subdir)
                             self.purge_local_save_dir(subdir)
                 else:
-                    logging.warning(f"Base directory {base_dir} does not exist.")
+                    logger.warning("Base directory %s does not exist.", base_dir)
 
     @staticmethod
     def purge_local_save_dir(source_dir: Path) -> None:
@@ -289,9 +295,9 @@ class ScanDataManager:
                 if item.is_file():
                     try:
                         item.unlink()
-                        logging.info(f"Removed file: {item}")
-                    except Exception as e:
-                        logging.error(f"Error removing {item}: {e}")
+                        logger.info("Removed file: %s", item)
+                    except Exception:
+                        logger.exception("Error removing %s", item)
 
     def initialize_tdms_writers(self, tdms_output_path: str) -> None:
         """Initialize TDMS writers for scalar data and index file generation.
@@ -323,9 +329,9 @@ class ScanDataManager:
         """
         try:
             self.tdms_writer = TdmsWriter(tdms_output_path, index_file=True)
-            logging.info(f"TDMS writer initialized with path: {tdms_output_path}")
+            logger.info("TDMS writer initialized with path: %s", tdms_output_path)
         except (IOError, OSError) as e:
-            logging.error(f"Failed to initialize TDMS writer: {e}")
+            logger.error("Failed to initialize TDMS writer: %s", e)
             raise
 
     def write_scan_info_ini(self, scan_config: ScanConfig) -> None:
@@ -390,19 +396,13 @@ class ScanDataManager:
         initialize_scan_data_and_output_files : Method that sets up scan data paths
         process_results : Method that processes and saves scan results
         """
-        # TODO: should probably add some exception handling here. the self.parsed_scan_string and
-        # self.scan_number_int are set in create_and_set_data_paths. This method is only called
-        # once immediately after that, so it should be ok, but if these variables aren't set
-        # something sensible should happend...
+        # TODO: Add additional guards if needed for unset parsed_scan_string/scan_number_int
         scan_folder = self.parsed_scan_string
         scan_number = self.scan_number_int
 
         filename = f"ScanInfo{scan_folder}.ini"
 
-        scan_var = scan_config.device_var
-        if not scan_var:
-            scan_var = "Shotnumber"
-
+        scan_var = scan_config.device_var or "Shotnumber"
         additional_description = scan_config.additional_description
 
         scan_info = f"{self.device_manager.scan_base_description}. scanning {scan_var}. {additional_description}"
@@ -418,7 +418,7 @@ class ScanDataManager:
             f"Step size = {scan_config.step}\n",
             f"Shots per step = {scan_config.wait_time}\n",
             'ScanEndInfo = ""\n',
-            f"Background = {str(scan_config.background).lower()}\n",  # INI-style lowercase booleans
+            f"Background = {str(scan_config.background).lower()}\n",
             f'ScanMode = "{scan_config.scan_mode.value}"\n',
         ]
 
@@ -426,16 +426,16 @@ class ScanDataManager:
         full_path = Path(self.data_txt_path).parent / filename
         full_path.parent.mkdir(parents=True, exist_ok=True)
 
-        logging.info(f"Attempting to write to {full_path}")
+        logger.info("Attempting to write to %s", full_path)
 
         # Write to the .ini file
         with full_path.open("w") as configfile:
             for line in config_file_contents:
                 configfile.write(line)
 
-        logging.info(f"Scan info written to {full_path}")
+        logger.info("Scan info written to %s", full_path)
 
-    def save_to_txt_and_h5(self, df):
+    def save_to_txt_and_h5(self, df: pd.DataFrame) -> None:
         """Save processed scan data to text file with tab-separated values.
 
         Converts a processed DataFrame to a tab-separated text file, providing
@@ -478,21 +478,21 @@ class ScanDataManager:
         """
         try:
             if df.empty:
-                logging.warning("Attempting to save an empty DataFrame to text file")
+                logger.warning("Attempting to save an empty DataFrame to text file")
                 return
 
             # Save as .txt file (TSV format)
             df.to_csv(self.data_txt_path, sep="\t", index=False)
-            logging.info(f"Scan data saved to {self.data_txt_path}")
+            logger.info("Scan data saved to %s", self.data_txt_path)
 
             # Commented out alternative save path for potential future use
             # df.to_csv(self.sFile_txt_path, sep='\t', index=False)
 
         except (IOError, ValueError) as e:
-            logging.error(f"Error saving text file: {e}")
+            logger.error("Error saving text file: %s", e)
             raise
 
-    def _make_sFile(self, df):
+    def _make_sFile(self, df: pd.DataFrame) -> None:
         """Create an analysis-ready s-file from processed scan data.
 
         Saves a preprocessed DataFrame to a tab-separated text file specifically
@@ -533,16 +533,16 @@ class ScanDataManager:
         """
         try:
             if df.empty:
-                logging.warning("Attempting to save an empty DataFrame to s-file")
+                logger.warning("Attempting to save an empty DataFrame to s-file")
                 return
 
             df.to_csv(self.sFile_txt_path, sep="\t", index=False)
-            logging.info(f"Analysis-ready data saved to {self.sFile_txt_path}")
+            logger.info("Analysis-ready data saved to %s", self.sFile_txt_path)
         except (IOError, ValueError) as e:
-            logging.error(f"Error saving s-file: {e}")
+            logger.error("Error saving s-file: %s", e)
             raise
 
-    def dataframe_to_tdms(self, df):
+    def dataframe_to_tdms(self, df: pd.DataFrame) -> None:
         """Convert DataFrame to TDMS file with comprehensive device and variable metadata.
 
         Transforms a pandas DataFrame into a TDMS (Technical Data Management Streaming) file,
@@ -621,12 +621,12 @@ class ScanDataManager:
                     ch_object = ChannelObject(device_name, variable_name, data)
                     tdms_writer.write_segment([ch_object])
 
-            logging.info("TDMS file written successfully with comprehensive metadata.")
+            logger.info("TDMS file written successfully with comprehensive metadata.")
         except (ValueError, TypeError, IOError) as e:
-            logging.error(f"Error converting DataFrame to TDMS: {e}")
+            logger.error("Error converting DataFrame to TDMS: %s", e)
             raise
 
-    def convert_to_dataframe(self, log_entries):
+    def convert_to_dataframe(self, log_entries: dict) -> pd.DataFrame:
         """Transform raw log entries into a structured, analysis-ready pandas DataFrame.
 
         This method is a critical data preprocessing function that converts
@@ -695,7 +695,7 @@ class ScanDataManager:
                 raise TypeError("log_entries must be a dictionary")
 
             if not log_entries:
-                logging.warning("Empty log entries provided")
+                logger.warning("Empty log entries provided")
                 return pd.DataFrame()
 
             # Convert log entries to DataFrame
@@ -703,7 +703,7 @@ class ScanDataManager:
 
             # Ensure 'Elapsed Time' column exists and sort
             if "Elapsed Time" not in log_df.columns:
-                logging.warning("No 'Elapsed Time' column found. Using index order.")
+                logger.warning("No 'Elapsed Time' column found. Using index order.")
                 log_df = log_df.sort_index().reset_index(drop=True)
             else:
                 log_df = log_df.sort_values(by="Elapsed Time").reset_index(drop=True)
@@ -721,11 +721,11 @@ class ScanDataManager:
 
             return log_df
 
-        except Exception as e:
-            logging.error(f"Error converting log entries to DataFrame: {e}")
+        except Exception:
+            logger.exception("Error converting log entries to DataFrame")
             raise
 
-    def modify_headers(self, headers):
+    def modify_headers(self, headers: list[str]) -> list[str]:
         """
         Modify the headers of a DataFrame by appending aliases or adjusting format.
 
@@ -744,10 +744,10 @@ class ScanDataManager:
         -------
             list: A list of modified headers with aliases or adjusted formats.
         """
-        new_headers = []
+        new_headers: list[str] = []
         for header in headers:
             if ":" in header:
-                device_name, variable = header.split(":")
+                device_name, variable = header.split(":", 1)
                 new_header = f"{device_name} {variable}"
                 # Check if alias exists
                 device_dict = self.database_dict.get_database()
@@ -759,7 +759,7 @@ class ScanDataManager:
             new_headers.append(new_header)
         return new_headers
 
-    def process_results(self, results):
+    def process_results(self, results: dict) -> pd.DataFrame:
         """Process scan results and prepare data for storage and analysis.
 
         This method is a critical component of the data acquisition workflow. It takes
@@ -820,7 +820,7 @@ class ScanDataManager:
         if results:
             try:
                 log_df = self.convert_to_dataframe(results)
-                logging.info("Data logging complete. Returning DataFrame.")
+                logger.info("Data logging complete. Returning DataFrame.")
 
                 # Save results to .txt and .h5
                 self.save_to_txt_and_h5(log_df)
@@ -829,15 +829,17 @@ class ScanDataManager:
                 self.dataframe_to_tdms(log_df)
 
                 return log_df
-            except Exception as e:
-                logging.error(f"Error processing scan results: {e}")
+            except Exception:
+                logger.exception("Error processing scan results")
                 return pd.DataFrame()
         else:
-            logging.warning("No data was collected during the logging period.")
+            logger.warning("No data was collected during the logging period.")
             return pd.DataFrame()
 
     @staticmethod
-    def fill_async_nans(log_df, async_observables, fill_value=0):
+    def fill_async_nans(
+        log_df: pd.DataFrame, async_observables: list, fill_value: int | float = 0
+    ):
         """Handle missing values in asynchronous observable columns with advanced filling strategies.
 
         Applies sophisticated data imputation techniques to handle missing or inconsistent
@@ -924,8 +926,9 @@ class ScanDataManager:
                         # Then, apply backward fill (bfill) to fill leading NaNs with the first non-NaN value
                         log_df[async_obs] = log_df[async_obs].bfill()
                     else:
-                        logging.warning(
-                            f"Column {async_obs} consists entirely of NaN values and will be left unchanged."
+                        logger.warning(
+                            "Column %s consists entirely of NaN values and will be left unchanged.",
+                            async_obs,
                         )
 
             # Finally, fill any remaining NaN values with the specified fill_value
@@ -933,10 +936,10 @@ class ScanDataManager:
 
             # Use infer_objects to downcast the object dtype arrays appropriately
             log_df = log_df.infer_objects(copy=False)
-            logging.info(f"Filled remaining NaN and empty values with {fill_value}.")
+            logger.info("Filled remaining NaN and empty values with %s.", fill_value)
 
             return log_df
 
-        except Exception as e:
-            logging.error(f"Error in fill_async_nans: {e}")
+        except Exception:
+            logger.exception("Error in fill_async_nans")
             raise
