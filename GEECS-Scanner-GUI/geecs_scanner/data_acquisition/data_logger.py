@@ -293,7 +293,7 @@ class FileMover:
                     )
                     if self.file_check_counts[file] > 1:
                         logger.info(
-                            f"File {file} checked >1 times; marking as orphaned."
+                            "File %s checked >1 times; marking as orphaned.", file
                         )
                         self.orphaned_files.add(file)
                         continue
@@ -331,7 +331,9 @@ class FileMover:
         if not task_success:
             # Task failed to find a match, log it as an orphaned task
             logger.info(
-                f"failed to find a file for {task.device_name} with timestamp {task.expected_timestamp}"
+                "failed to find a file for %s with timestamp %s",
+                task.device_name,
+                task.expected_timestamp,
             )
             self.orphan_tasks.append(task)
 
@@ -399,7 +401,9 @@ class FileMover:
         variant_dir = task.source_dir.parent / f"{task.device_name}{task.suffix}"
         if not variant_dir.exists():
             logger.info(
-                f"Variant directory {variant_dir} does not exist; skipping processing for {task.suffix}."
+                "Variant directory %s does not exist; skipping processing for %s.",
+                variant_dir,
+                task.suffix,
             )
             return
 
@@ -411,7 +415,7 @@ class FileMover:
 
         if candidate is None:
             logger.warning(
-                f"No file found in {variant_dir} containing '{task.random_part}'."
+                "No file found in %s containing %s.", variant_dir, task.random_part
             )
             return
 
@@ -513,7 +517,7 @@ class FileMover:
 
             for file in orphan_files:
                 file_ts = extract_timestamp_from_file(file, device_type)
-                logger.info(f"Found orphan file {file} with timestamp {file_ts}")
+                logger.info("Found orphan file %s with timestamp %s", file, file_ts)
                 matched_shot = None
 
                 # Find the matching shot number using the pairs from the DataFrame.
@@ -537,14 +541,17 @@ class FileMover:
                         random_part=random_part,
                     )
                     logger.info(
-                        f"Enqueuing orphan task for {file} with shot number {matched_shot}"
+                        "Enqueuing orphan task for {file} with shot number %s",
+                        matched_shot,
                     )
                     # Process the task using your FileMover's method.
 
                     self.move_files_by_timestamp(task)
                 else:
                     logger.warning(
-                        f"No matching shot number found for orphan file {file} (timestamp {file_ts})"
+                        "No matching shot number found for orphan file %s (timestamp %s)",
+                        file,
+                        file_ts,
                     )
 
     def _post_process_orphan_task(self):
@@ -903,7 +910,7 @@ class DataLogger:
             return True
         else:
             logger.info(
-                f"Not all devices are in standby: {self.standby_mode_device_status}"
+                "Not all devices are in standby: %s", self.standby_mode_device_status
             )
 
             return False
@@ -1001,11 +1008,13 @@ class DataLogger:
         if t0 is None:
             self.initial_timestamps[device.get_name()] = timestamp
             logger.info(
-                f"First TCP event received from {device.get_name()}. Initial dummy timestamp set to {timestamp}."
+                "First TCP event received from %s. Initial dummy timestamp set to %s.",
+                device.get_name(),
+                timestamp,
             )
             return
 
-        logger.info(f"checking standby status of {device.get_name()}")
+        logger.info("checking standby status of %s", device.get_name())
 
         # update the timestamp in this dict each call. Once all devices have verifiably
         # entered standby and exited standby synchronously, we will overwrite the
@@ -1020,11 +1029,11 @@ class DataLogger:
         # *NOTE* This uses `timestamp` from `_extract_timestamp_from_tcp_message` for synchronization check
         if t0 == timestamp:
             self.standby_mode_device_status[device.get_name()] = True
-            logger.info(f"{device.get_name()} is in standby")
+            logger.info("%s is in standby", device.get_name())
             return
         else:
             self.standby_mode_device_status[device.get_name()] = False
-            logger.info(f"{device.get_name()} has exited in standby")
+            logger.info("%s has exited in standby", device.get_name())
             return
 
     def update_repetition_rate(self, new_repetition_rate) -> None:
@@ -1076,7 +1085,8 @@ class DataLogger:
         )  # *NOTE* `timestamp` for synchronizing
         if current_timestamp is None:
             logger.warning(
-                f"No timestamp found for {device.get_name()}. Using system time instead."
+                "No timestamp found for %s. Using system time instead.",
+                device.get_name(),
             )
             current_timestamp = float(stamp)
         return float(current_timestamp)
@@ -1100,7 +1110,8 @@ class DataLogger:
             for observable in self.event_driven_observables:
                 if observable.startswith(device_name):
                     logger.info(
-                        f"Registering logging for event-driven observable: {observable}"
+                        "Registering logging for event-driven observable: %s",
+                        observable,
                     )
                     device.event_handler.register(
                         "update", "logger", lambda msg, dev=device: log_update(msg, dev)
@@ -1157,7 +1168,7 @@ class DataLogger:
             and self.last_timestamps[device.get_name()] == current_timestamp
         ):
             logger.info(
-                f"Timestamp hasn't changed for {device.get_name()}. Skipping log."
+                "Timestamp hasn't changed for %s. Skipping log.", device.get_name()
             )
             return True
         self.last_timestamps[device.get_name()] = current_timestamp
@@ -1200,8 +1211,10 @@ class DataLogger:
                         composite_value
                     )
                     logger.info(
-                        f"Updated composite var {device_name}:composite_var to {composite_value} "
-                        f"for elapsed time {elapsed_time}."
+                        "Updated composite var %s:composite_var to %s for elapsed time %s.",
+                        device_name,
+                        composite_value,
+                        elapsed_time,
                     )
 
                     # Log sub-component states
@@ -1216,29 +1229,41 @@ class DataLogger:
                                 f"{sub_device_name}:{sub_var_name}"
                             ] = sub_value
                             logger.info(
-                                f"Updated sub-component {sub_device_name}:{sub_var_name} to {sub_value} "
-                                f"for elapsed time {elapsed_time}."
+                                "Updated sub-component %s:%s to %s for elapsed time %s.",
+                                sub_device_name,
+                                sub_var_name,
+                                sub_value,
+                                elapsed_time,
                             )
                         else:
                             logger.warning(
-                                f"Sub-device {sub_device_name} not found for {device_name}."
+                                "Sub-device %s not found for %s.",
+                                sub_device_name,
+                                device_name,
                             )
                 else:
                     # Handle regular devices
                     if var_name is None:
                         logger.warning(
-                            f"No variable specified for device {device_name}. Skipping."
+                            "No variable specified for device %s. Skipping.",
+                            device_name,
                         )
                         continue
 
                     value = device.state.get(var_name, "N/A")
                     self.log_entries[elapsed_time][f"{device_name}:{var_name}"] = value
                     logger.info(
-                        f"Updated async var {device_name}:{var_name} to {value} for elapsed time {elapsed_time}."
+                        "Updated async var %s:%s to %s for elapsed time %s.",
+                        device_name,
+                        var_name,
+                        value,
+                        elapsed_time,
                     )
             else:
                 logger.warning(
-                    f"Device {device_name} not found in DeviceManager. Skipping {observable}."
+                    "Device %s not found in DeviceManager. Skipping %s.",
+                    device_name,
+                    observable,
                 )
 
     def _log_device_data(self, device: GeecsDevice, elapsed_time: float) -> None:
@@ -1275,7 +1300,9 @@ class DataLogger:
             }
             if elapsed_time not in self.log_entries:
                 logger.info(
-                    f"elapsed time in sync devices {elapsed_time}. reported by {device.get_name()}"
+                    "elapsed time in sync devices %s. reported by %s",
+                    elapsed_time,
+                    device.get_name(),
                 )
                 self.log_entries[elapsed_time] = {"Elapsed Time": elapsed_time}
                 # Log configuration variables (such as 'bin') only when a new entry is created

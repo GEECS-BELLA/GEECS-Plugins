@@ -190,7 +190,8 @@ class ActionManager:
                 self.load_actions()
             except FileNotFoundError:
                 logger.exception(
-                    f"Actions configuration file not found for experiment: {experiment_dir}"
+                    "Actions configuration file not found for experiment: %s",
+                    experiment_dir,
                 )
                 logger.info("Continuing with empty action library.")
 
@@ -243,10 +244,10 @@ class ActionManager:
                 raw_yaml = yaml.safe_load(file)
 
             library = ActionLibrary(**raw_yaml)
-            logger.info(f"Successfully loaded master actions from {actions_file}")
+            logger.info("Successfully loaded master actions from %s", actions_file)
 
             self.actions = library.actions
-            logger.debug(f"Loaded {len(self.actions)} action sequences")
+            logger.debug("Loaded %s action sequences", len(self.actions))
 
             return self.actions
 
@@ -305,10 +306,10 @@ class ActionManager:
         """
         try:
             if action_name in self.actions:
-                logger.warning(f"Overwriting existing action: {action_name}")
+                logger.warning("Overwriting existing action: %s", action_name)
 
             self.actions[action_name] = action_seq
-            logger.info(f"Added action sequence: {action_name}")
+            logger.info("Added action sequence: %s", action_name)
 
         except Exception:
             logger.exception("Failed to add action %s", action_name)
@@ -369,7 +370,7 @@ class ActionManager:
         if action_name not in self.actions:
             raise ActionError(f"Action '{action_name}' is not defined.")
 
-        logger.info(f"Starting execution of action sequence: {action_name}")
+        logger.info("Starting execution of action sequence: %s", action_name)
 
         action = self.actions[action_name]
         steps = action.steps
@@ -380,20 +381,20 @@ class ActionManager:
             logger.exception(
                 "Device connectivity check failed for action %s", action_name
             )
-            raise ActionError(f"Device connectivity error in action {action_name}")
+            raise ActionError("Device connectivity error in action %s", action_name)
 
         for step_index, step in enumerate(steps, 1):
             logger.debug(
-                f"Executing step {step_index}/{len(steps)} in action {action_name}"
+                "Executing step %s/%s in action %s", step_index, len(steps), action_name
             )
 
             try:
                 match step:
                     case WaitStep():
-                        logger.info(f"Waiting for {step.wait} seconds")
+                        logger.info("Waiting for %s seconds", step.wait)
                         self._wait(step.wait)
                     case ExecuteStep():
-                        logger.info(f"Executing nested action: {step.action_name}")
+                        logger.info("Executing nested action: %s", step.action_name)
                         self.execute_action(step.action_name)
                     case SetStep():
                         device = self._get_or_create_device(step.device)
@@ -417,7 +418,7 @@ class ActionManager:
                 )
                 raise ActionError(f"Step execution failed in action {action_name}")
 
-        logger.info(f"Successfully completed action sequence: {action_name}")
+        logger.info("Successfully completed action sequence: %s", action_name)
 
     def _get_or_create_device(self, device_name: str) -> ScanDevice:
         if device_name not in self.instantiated_devices:
@@ -467,13 +468,15 @@ class ActionManager:
             step.device for step in action_steps if isinstance(step, (SetStep, GetStep))
         }
 
-        logger.info(f"Checking connectivity for {len(devices)} devices")
+        logger.info("Checking connectivity for %s devices", len(devices))
 
         for device_name in devices:
             try:
                 timestamp = self.return_value(device_name, "SysTimestamp")
                 logger.debug(
-                    f"Device {device_name} connectivity check passed. Timestamp: {timestamp}"
+                    "Device %s connectivity check passed. Timestamp: %s",
+                    device_name,
+                    timestamp,
                 )
             except Exception:
                 logger.exception("Device connectivity check failed for %s", device_name)
@@ -510,12 +513,12 @@ class ActionManager:
         """
         if action_name not in self.actions:
             logger.error(
-                f"Action '{action_name}' is not defined in the available actions."
+                "Action '%s' is not defined in the available actions.", action_name
             )
             return
 
         del self.actions[action_name]
-        logger.info(f"Removed action sequence: {action_name}")
+        logger.info("Removed action sequence: %s", action_name)
 
     @staticmethod
     def _set_device(device: ScanDevice, variable: str, value: Any, sync: bool = True):
@@ -553,7 +556,9 @@ class ActionManager:
         # Sets device mode asynchronously
         """
         result = device.set(variable, value, sync=sync)
-        logger.info(f"Set {device.get_name()}:{variable} to {value}. Result: {result}")
+        logger.info(
+            "Set %s:%s to %s. Result: %s", device.get_name(), variable, value, result
+        )
 
     def _get_device(self, device: ScanDevice, variable: str, expected_value: Any):
         """
@@ -594,7 +599,10 @@ class ActionManager:
         value = device.get(variable)
         if value == expected_value:
             logger.info(
-                f"Get {device.get_name()}:{variable} returned expected value: {value}"
+                "Get %s:%s returned expected value: %s",
+                device.get_name(),
+                variable,
+                value,
             )
         else:
             message = f"Get {device.get_name()}:{variable} returned {value}, expected {expected_value}"
@@ -663,7 +671,7 @@ class ActionManager:
         >>> ActionManager._wait(1.5)
         # Pauses execution for 1.5 seconds
         """
-        logger.info(f"Waiting for {seconds} seconds.")
+        logger.info("Waiting for %s seconds.", seconds)
         time.sleep(seconds)
 
     @staticmethod
