@@ -94,7 +94,7 @@ from . import (
     ScanStepExecutor,
 )
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
-from .utils import ConsoleLogger
+
 from geecs_data_utils import ScanConfig, ScanMode  # Adjust the path as needed
 from dataclasses import fields
 
@@ -102,6 +102,8 @@ from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
+
+logger = logging.getLogger(__name__)
 
 database_dict = DatabaseDictLookup()
 
@@ -205,12 +207,6 @@ class ScanManager:
         self.stop_scanning_thread_event = (
             threading.Event()
         )  # Event to signal the logging thread to stop
-
-        # Use the ConsoleLogger class
-        self.console_logger = ConsoleLogger(
-            log_file="scan_execution.log", level=logging.INFO, console=True
-        )
-        self.console_logger.setup_logging()
 
         self.virtual_variable_list = []
         self.virtual_variable_name = None
