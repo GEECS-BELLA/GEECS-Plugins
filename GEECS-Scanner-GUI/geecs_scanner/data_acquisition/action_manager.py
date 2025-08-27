@@ -251,15 +251,15 @@ class ActionManager:
             return self.actions
 
         except FileNotFoundError:
-            logger.exception(f"Actions configuration file not found: {actions_file}")
+            logger.exception("Actions configuration file not found: %s", actions_file)
             raise
-        except yaml.YAMLError as e:
-            logger.exception(f"YAML parsing error in {actions_file}: {e}")
+
+        except yaml.YAMLError:
+            logger.exception("YAML parsing error in %s", actions_file)
             raise
-        except Exception as e:
-            logger.exception(
-                f"Unexpected error loading actions from {actions_file}: {e}"
-            )
+
+        except Exception:
+            logger.exception("Unexpected error loading actions from %s", actions_file)
             raise
 
     def add_action(self, action_name: str, action_seq: ActionSequence):
@@ -310,10 +310,9 @@ class ActionManager:
             self.actions[action_name] = action_seq
             logger.info(f"Added action sequence: {action_name}")
 
-        except Exception as e:
-            error_msg = f"Failed to add action '{action_name}': {e}"
-            logger.exception(error_msg)
-            raise ValueError(error_msg)
+        except Exception:
+            logger.exception("Failed to add action %s", action_name)
+            raise ValueError(f"Failed to add action {action_name}")
 
     def execute_action(self, action_name: str):
         """
@@ -377,9 +376,9 @@ class ActionManager:
 
         try:
             self.ping_devices_in_action_list(action_steps=steps)
-        except Exception as e:
+        except Exception:
             logger.exception(
-                f"Device connectivity check failed for action {action_name}: {e}"
+                "Device connectivity check failed for action %s", action_name
             )
             raise ActionError(f"Device connectivity error in action {action_name}")
 
@@ -412,9 +411,9 @@ class ActionManager:
                             f"Unrecognized action step type: {type(step)}"
                         )
 
-            except Exception as e:
+            except Exception:
                 logger.exception(
-                    f"Error executing step {step_index} in action {action_name}: {e}"
+                    "Error executing step %s in action %s", step_index, action_name
                 )
                 raise ActionError(f"Step execution failed in action {action_name}")
 
@@ -476,10 +475,8 @@ class ActionManager:
                 logger.debug(
                     f"Device {device_name} connectivity check passed. Timestamp: {timestamp}"
                 )
-            except Exception as e:
-                logger.exception(
-                    f"Device connectivity check failed for {device_name}: {e}"
-                )
+            except Exception:
+                logger.exception("Device connectivity check failed for %s", device_name)
                 raise
 
     def clear_action(self, action_name: str):

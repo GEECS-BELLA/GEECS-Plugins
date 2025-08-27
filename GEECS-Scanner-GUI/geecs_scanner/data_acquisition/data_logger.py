@@ -192,8 +192,8 @@ class FileMover:
 
             try:
                 self._process_task(task)
-            except Exception as e:
-                logger.exception(f"Error processing task: {e}")
+            except Exception:
+                logger.exception("Error processing task")
             finally:
                 self.task_queue.task_done()
         logger.info("FileMover worker stopped.")
@@ -373,8 +373,8 @@ class FileMover:
             shutil.move(str(source_file), str(dest_file))
             self.processed_files.add(dest_file)
             return True
-        except Exception as e:
-            logger.exception(f"Error moving {source_file} to {dest_file}: {e}")
+        except Exception:
+            logger.exception("Error moving %s to %s", source_file, dest_file)
             return False
 
     def _process_variant_file(self, task: FileMoveTask) -> None:

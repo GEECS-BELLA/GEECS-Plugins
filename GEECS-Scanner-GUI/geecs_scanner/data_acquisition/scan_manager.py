@@ -299,10 +299,10 @@ class ScanManager:
             self.device_manager.reinitialize(
                 config_path=config_path, config_dictionary=config_dictionary
             )
-        except GeecsDeviceInstantiationError as e:
-            logger.error(
-                f"Device reinitialization failed during initialization of device manager. check "
-                f"that all devices are on and available: {e}"
+        except GeecsDeviceInstantiationError:
+            logger.exception(
+                "Device reinitialization failed during initialization of device manager. check "
+                "that all devices are on and available"
             )
             # Optionally, notify the user via a UI pop-up or other mechanism here
             # Then, you can abort reinitialization:
@@ -580,8 +580,8 @@ class ScanManager:
                 log_df = self.stop_scan()
                 logger.info("scan %s: finished", scan_id)
 
-        except Exception as e:
-            logger.exception(f"Error during scanning {e}")
+        except Exception:
+            logger.exception("Error during scanning")
 
         return log_df  # Return the DataFrame with the logged data
 
@@ -886,9 +886,9 @@ class ScanManager:
         logger.info(f"scan config in pre logging is this: {self.scan_config}")
         try:
             self.device_manager.handle_scan_variables(self.scan_config)
-        except GeecsDeviceInstantiationError as e:
+        except GeecsDeviceInstantiationError:
             logger.exception(
-                f"Device instantiation failed during handling of scan devices   {e}"
+                "Device instantiation failed during handling of scan devices"
             )
             raise
 
@@ -1473,9 +1473,12 @@ class ScanManager:
                 try:
                     device.set(variable_name, value)
                     logger.info(f"Restored {device_name}:{variable_name} to {value}.")
-                except Exception as e:
+                except Exception:
                     logger.exception(
-                        f"Failed to restore {device_name}:{variable_name} to {value}: {e}"
+                        "Failed to restore %s:%s to %s",
+                        device_name,
+                        variable_name,
+                        value,
                     )
             else:
                 logger.warning(
