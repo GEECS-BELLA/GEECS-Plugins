@@ -70,6 +70,12 @@ from geecs_scanner.data_acquisition.schemas.actions import (
 
 from pydantic import ValidationError
 
+# -----------------------------------------------------------------------------
+# Module-level logger
+# -----------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 
 class DeviceManager:
     """
@@ -108,7 +114,7 @@ class DeviceManager:
         Path to the YAML file containing definitions for composite variables.
     """
 
-    def __init__(self, experiment_dir: str = None):
+    def __init__(self, experiment_dir: str | None = None):
         """
         Initialize a new instance of the DeviceManager.
 
@@ -131,14 +137,16 @@ class DeviceManager:
         - If the `composite_variables.yaml` file is not found in the provided experiment directory,
           a warning is logged and the `composite_variables` attribute remains empty.
         """
-        self.devices = {}
-        self.event_driven_observables = []  # Store event-driven observables
-        self.async_observables = []  # Store asynchronous observables
-        self.non_scalar_saving_devices = []  # Store devices that need to save non-scalar data
-        self.composite_variables = {}
-        self.scan_setup_action = ActionSequence(steps=[])
-        self.scan_closeout_action = ActionSequence(steps=[])
-        self.scan_base_description = ""
+        self.devices: dict[str, ScanDevice] = {}
+        self.event_driven_observables: list[str] = []  # Store event-driven observables
+        self.async_observables: list[str] = []  # Store asynchronous observables
+        self.non_scalar_saving_devices: list[
+            str
+        ] = []  # Devices that save non-scalar data
+        self.composite_variables: dict = {}
+        self.scan_setup_action: ActionSequence = ActionSequence(steps=[])
+        self.scan_closeout_action: ActionSequence = ActionSequence(steps=[])
+        self.scan_base_description: str = ""
 
         self.fatal_error_event = threading.Event()  # Used to signal a fatal error
 
@@ -161,9 +169,9 @@ class DeviceManager:
                     self.composite_variables_file_path
                 )
             except FileNotFoundError:
-                logging.warning("Composite variables file not found.")
+                logger.warning("Composite variables file not found.")
 
-    def _load_composite_variables(self, composite_file: Path):
+    def _load_composite_variables(self, composite_file: Path) -> dict:
         """Load and parse composite variable definitions from a YAML configuration file.
 
         Reads a YAML configuration file to extract composite variable definitions,
@@ -225,10 +233,10 @@ class DeviceManager:
                 self.composite_variables = yaml.safe_load(file).get(
                     "composite_variables", {}
                 )
-            logging.info(f"Loaded composite variables from {composite_file}")
+            logger.info("Loaded composite variables from %s", composite_file)
             return self.composite_variables
         except FileNotFoundError:
-            logging.warning(f"Composite variables file not found: {composite_file}.")
+            logger.warning("Composite variables file not found: %s.", composite_file)
             return {}
 
     def load_from_config(self, config_filename: Union[str, Path]):
@@ -251,9 +259,6 @@ class DeviceManager:
         experiment directory under the `save_devices` subfolder. If it's a valid
         `Path` object, it is used directly.
         """
-        # Load base configuration first
-        # self.load_base_config()
-
         # Load the specific config for the experiment
         if isinstance(config_filename, Path) and config_filename.exists():
             config_path = config_filename
@@ -264,7 +269,7 @@ class DeviceManager:
 
         with open(config_path, "r") as file:
             config = yaml.safe_load(file)
-        logging.info(f"Loaded configuration from {config_path}")
+        logger.info("Loaded configuration from %s", config_path)
         self.load_from_dictionary(config)
 
     def load_from_dictionary(self, config_dictionary):
@@ -289,13 +294,13 @@ class DeviceManager:
           provided device definitions.
         - If validation fails, a warning is logged and the method returns early.
         """
-        logging.info(f"config dict is {config_dictionary}")
+        logger.info("config dict is %s", config_dictionary)
         try:
-            validated = SaveDeviceConfig(**config_dictionary)
+            validated: SaveDeviceConfig = SaveDeviceConfig(**config_dictionary)
         except ValidationError as e:
-            logging.error(f"Invalid save device configuration: {e}")
+            logger.error("Invalid save device configuration: %s", e)
             return
-        logging.info(f"validated SaveDeviceConfig is {validated}")
+        logger.info("validated SaveDeviceConfig is %s", validated)
 
         # note: there is a bit of mess with all these configs...
         if config_dictionary.get("scan_info", None):
@@ -312,7 +317,7 @@ class DeviceManager:
         self._initialize_subscribers(
             self.event_driven_observables + self.async_observables, clear_devices=False
         )
-        logging.info(f"Loaded scan info: {self.scan_base_description}")
+        logger.info("Loaded scan info: %s", self.scan_base_description)
 
     def _load_devices_from_config(self, devices: dict[str, DeviceConfig]):
         """
@@ -338,23 +343,23 @@ class DeviceManager:
         - Setup actions specified in the configuration are added to the overall scan setup sequence.
         """
         for device_name, device_config in devices.items():
-            logging.info(
-                f"{device_name}: Synchronous = {device_config.synchronous}, "
-                f"Save_Non_Scalar = {device_config.save_nonscalar_data}"
+            logger.info(
+                "%s: Synchronous = %s, Save_Non_Scalar = %s",
+                device_name,
+                device_config.synchronous,
+                device_config.save_nonscalar_data,
             )
 
             # Add to non-scalar saving devices if applicable
-            if (
-                device_config.save_nonscalar_data
-            ):  # *NOTE* `acq_timestamp allows for file renaming of nonscalar data
+            if device_config.save_nonscalar_data:
+                # *NOTE* `acq_timestamp` allows for file renaming of nonscalar data
                 if "acq_timestamp" not in device_config.variable_list:
                     device_config.variable_list.append("acq_timestamp")
                 self.non_scalar_saving_devices.append(device_name)
 
             # Categorize as synchronous or asynchronous
-            if (
-                device_config.synchronous
-            ):  # *NOTE* `acq_timestamp` allows for checking synchronicity
+            if device_config.synchronous:
+                # *NOTE* `acq_timestamp` allows for checking synchronicity
                 if "acq_timestamp" not in device_config.variable_list:
                     device_config.variable_list.append("acq_timestamp")
                 self.event_driven_observables.extend(
@@ -380,7 +385,7 @@ class DeviceManager:
                     device_name, device_config.scan_setup
                 )
 
-        logging.info(f"Devices loaded: {self.devices.keys()}")
+        logger.info("Devices loaded: %s", list(self.devices.keys()))
 
     def _append_device_setup_closeout_actions(self, device_name, scan_setup):
         """
@@ -411,9 +416,11 @@ class DeviceManager:
         for analysis_type, values in scan_setup.items():
             # Ensure the setup and closeout values exist in the 'scan_setup'
             if len(values) != 2:
-                logging.warning(
-                    f"Invalid scan setup actions for {device_name}: {analysis_type} "
-                    f"(Expected 2 values, got {len(values)})"
+                logger.warning(
+                    "Invalid scan setup actions for %s: %s (Expected 2 values, got %d)",
+                    device_name,
+                    analysis_type,
+                    len(values),
                 )
                 continue
 
@@ -439,9 +446,12 @@ class DeviceManager:
                 )
             )
 
-            logging.info(
-                f"Added setup and closeout actions for {device_name}: {analysis_type} "
-                f"(setup={setup_value}, closeout={closeout_value})"
+            logger.info(
+                "Added setup and closeout actions for %s: %s (setup=%s, closeout=%s)",
+                device_name,
+                analysis_type,
+                setup_value,
+                closeout_value,
             )
 
     @staticmethod
@@ -526,12 +536,12 @@ class DeviceManager:
         """
         for device_name, device in self.devices.items():
             try:
-                logging.info(f"Attempting to unsubscribe from {device_name}...")
+                logger.info("Attempting to unsubscribe from %s...", device_name)
                 device.unsubscribe_var_values()
                 device.close()
-                logging.info(f"Successfully unsubscribed from {device_name}.")
-            except Exception as e:
-                logging.error(f"Error unsubscribing from {device_name}: {e}")
+                logger.info("Successfully unsubscribed from %s.", device_name)
+            except Exception:
+                logger.exception("Error unsubscribing from %s", device_name)
 
         self.devices = {}
 
@@ -563,13 +573,13 @@ class DeviceManager:
             else:
                 device = ScanDevice(device_name)
                 device.use_alias_in_TCP_subscription = False
-                logging.info(f"Subscribing {device_name} to variables: {var_list}")
+                logger.info("Subscribing %s to variables: %s", device_name, var_list)
                 device.subscribe_var_values(var_list)
 
             self.devices[device_name] = device
 
         except GeecsDeviceInstantiationError as e:
-            logging.error(f"Failed to instantiate GEecs device {device_name}: {e}")
+            logger.error("Failed to instantiate GEecs device %s: %s", device_name, e)
             # Signal a fatal error event so that the scan can abort cleanly
             self.fatal_error_event.set()
             raise
@@ -594,20 +604,23 @@ class DeviceManager:
         self.async_observables.clear()
         self.non_scalar_saving_devices.clear()
 
-        logging.info(
-            f"synchronous variables after reset: {self.event_driven_observables}"
+        logger.info(
+            "synchronous variables after reset: %s", self.event_driven_observables
         )
-        logging.info(f"asynchronous variables after reset: {self.async_observables}")
-        logging.info(
-            f"non_scalar_saving_devices devices after reset: {self.non_scalar_saving_devices}"
+        logger.info("asynchronous variables after reset: %s", self.async_observables)
+        logger.info(
+            "non_scalar_saving_devices devices after reset: %s",
+            self.non_scalar_saving_devices,
         )
-        logging.info(f"devices devices after reset: {self.devices}")
-        logging.info(
+        logger.info("devices devices after reset: %s", self.devices)
+        logger.info(
             "DeviceManager instance has been reset and is ready for reinitialization."
         )
         self.is_reset = True
 
-    def reinitialize(self, config_path=None, config_dictionary=None):
+    def reinitialize(
+        self, config_path: str | None = None, config_dictionary: dict | None = None
+    ):
         """
         Reinitialize the DeviceManager by resetting its state and loading a new configuration.
 
@@ -637,10 +650,10 @@ class DeviceManager:
         elif config_dictionary is not None:
             self.load_from_dictionary(config_dictionary)
 
-        logging.info("DeviceManager instance has been reinitialized.")
+        logger.info("DeviceManager instance has been reinitialized.")
 
     @staticmethod
-    def _preprocess_observables(observables):
+    def _preprocess_observables(observables: list[str]) -> dict[str, list[str]]:
         """
         Preprocess a list of observable strings into a dictionary mapping devices to variables.
 
@@ -663,7 +676,7 @@ class DeviceManager:
         >>> DeviceManager._preprocess_observables(observables)
         {'Dev1': ['Var1', 'Var2'], 'Dev2': ['Var1']}
         """
-        device_map = {}
+        device_map: dict[str, list[str]] = {}
         for observable in observables:
             device_name, var_name = observable.split(":")
             if device_name not in device_map:
@@ -701,8 +714,8 @@ class DeviceManager:
         - Consider removing logic related to `non_scalar_saving_devices` if unused.
         """
         if device_name not in self.devices:
-            logging.info(
-                f"Adding new scan device: {device_name} with default settings."
+            logger.info(
+                "Adding new scan device: %s with default settings.", device_name
             )
             self._subscribe_device(device_name, var_list=variable_list)
 
@@ -713,22 +726,23 @@ class DeviceManager:
                 "synchronous": False,
             }
 
-            self.non_scalar_saving_devices.append(device_name) if default_device_config[
-                "save_non_scalar_data"
-            ] else None
+            if default_device_config["save_non_scalar_data"]:
+                self.non_scalar_saving_devices.append(device_name)
 
             # Add scan variables to async_observables
             if self.is_composite_variable(device_name):
                 self.async_observables.extend([f"{device_name}"])
             else:
                 self.async_observables.extend(
-                    [f"{device_name}:{var}" for var in variable_list]
+                    [f"{device_name}:{var}" for var in (variable_list or [])]
                 )
-            logging.info(f"Scan device {device_name} added to async_observables.")
+            logger.info("Scan device %s added to async_observables.", device_name)
 
         else:
-            logging.info(
-                f"Device {device_name} already exists. Adding new variables: {variable_list}"
+            logger.info(
+                "Device %s already exists. Adding new variables: %s",
+                device_name,
+                variable_list,
             )
 
             # Update the existing device's variable list by subscribing to new variables
@@ -739,12 +753,14 @@ class DeviceManager:
             self.async_observables.extend(
                 [
                     f"{device_name}:{var}"
-                    for var in variable_list
+                    for var in (variable_list or [])
                     if f"{device_name}:{var}" not in self.async_observables
                 ]
             )
-            logging.info(
-                f"Updated async_observables with new variables for {device_name}: {variable_list}"
+            logger.info(
+                "Updated async_observables with new variables for %s: %s",
+                device_name,
+                variable_list,
             )
 
     def handle_scan_variables(self, scan_config: ScanConfig):
@@ -768,18 +784,18 @@ class DeviceManager:
         - In `ScanMode.OPTIMIZATION`, device control is expected externally.
         - Otherwise, the scan variable is added using `_check_then_add_variable`.
         """
-        logging.info(f"Handling scan variables with mode: {scan_config.scan_mode}")
+        logger.info("Handling scan variables with mode: %s", scan_config.scan_mode)
 
         if scan_config.scan_mode == ScanMode.NOSCAN:
-            logging.info("NOSCAN mode: no scan variables to set.")
+            logger.info("NOSCAN mode: no scan variables to set.")
             return
 
         if scan_config.scan_mode == ScanMode.OPTIMIZATION:
-            logging.info("OPTIMIZATION mode: assume devices will be set dynamically.")
+            logger.info("OPTIMIZATION mode: assume devices will be set dynamically.")
             return
 
         device_var = scan_config.device_var
-        logging.info(f"Processing scan device_var: {device_var}")
+        logger.info("Processing scan device_var: %s", device_var)
 
         self._check_then_add_variable(device_var=device_var)
 
@@ -802,15 +818,16 @@ class DeviceManager:
         - Standard variables are split and added by device name and variable name.
         """
         if self.is_composite_variable(device_var):
-            logging.info(f"{device_var} is a composite variable.")
+            logger.info("%s is a composite variable.", device_var)
             device_name = device_var
-            logging.info(
-                f"Trying to add composite device variable {device_var} to self.devices."
+            logger.info(
+                "Trying to add composite device variable %s to self.devices.",
+                device_var,
             )
             self.add_scan_device(device_name)
         else:
             # Normal variable case
-            logging.info(f"{device_var} is a normal variable.")
+            logger.info("%s is a normal variable.", device_var)
             device_name, var_name = device_var.split(":", 1)
-            logging.info(f"Trying to add {device_name}:{var_name} to self.devices.")
+            logger.info("Trying to add %s:%s to self.devices.", device_name, var_name)
             self.add_scan_device(device_name, [var_name])
