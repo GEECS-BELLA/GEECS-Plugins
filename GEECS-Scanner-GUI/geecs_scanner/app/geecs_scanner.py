@@ -61,7 +61,6 @@ from geecs_scanner.data_acquisition import DatabaseDictLookup
 # Module-level logger
 # ---------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
 
 CURRENT_VERSION = "v" + version(
     "geecs-scanner-gui"

@@ -74,7 +74,6 @@ from pydantic import ValidationError
 # Module-level logger
 # -----------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
 
 
 class DeviceManager:

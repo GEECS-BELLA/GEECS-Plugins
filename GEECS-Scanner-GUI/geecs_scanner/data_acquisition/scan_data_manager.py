@@ -63,7 +63,6 @@ from geecs_data_utils import ScanConfig, ScanPaths
 # Module-level logger
 # -----------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
 
 DeviceSavePaths = Dict[str, Dict[str, Union[Path, str]]]
 
