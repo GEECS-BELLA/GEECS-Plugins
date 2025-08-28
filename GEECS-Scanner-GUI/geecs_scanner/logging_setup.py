@@ -33,11 +33,14 @@ from threading import Lock
 from contextlib import contextmanager
 from queue import Queue
 from typing import Optional
+import atexit
+
 
 # --- internal globals ---
 _QUEUE: Optional[Queue] = None
 _LISTENER: Optional[logging.handlers.QueueListener] = None
-_MUX: Optional[MultiplexingHandler] = None  # was Optional[logging.Handler]
+_MUX: Optional[MultiplexingHandler] = None
+_CTX_FILTER: Optional[ContextFilter] = None
 _INIT = False
 _LOCK = Lock()
 
@@ -118,8 +121,8 @@ class MultiplexingHandler(logging.Handler):
         with self._hlock:
             for h in tuple(self._handlers):
                 try:
-                    if h.filter(record):
-                        h.emit(record)
+                    # handle() applies handler-level filters + level threshold
+                    h.handle(record)
                 except Exception:
                     self.handleError(record)
 
@@ -191,8 +194,10 @@ def init_logging(
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers[:] = [logging.handlers.QueueHandler(_QUEUE)]
-    root.filters.clear()
-    root.addFilter(ContextFilter(**(base_context or {"scan_id": "-", "shot_id": "-"})))
+    global _CTX_FILTER
+    _CTX_FILTER = ContextFilter(**(base_context or {"scan_id": "-", "shot_id": "-"}))
+    # Don't clear other filters; just add ours
+    root.addFilter(_CTX_FILTER)
 
     # Multiplexer for real sinks
     _MUX = MultiplexingHandler()
@@ -228,7 +233,18 @@ def init_logging(
 
     _LISTENER = logging.handlers.QueueListener(_QUEUE, _MUX, respect_handler_level=True)
     _LISTENER.start()
+    atexit.register(_shutdown_logging)
     _INIT = True
+
+
+def _shutdown_logging() -> None:
+    """Stop the QueueListener gracefully at process exit."""
+    global _LISTENER
+    try:
+        if _LISTENER:
+            _LISTENER.stop()
+    except Exception:
+        pass
 
 
 def ensure_logging(log_dir: Optional[str] = None, **kwargs) -> None:
@@ -265,9 +281,13 @@ def update_context(context: dict[str, object]) -> None:
     context : dict
         Key/value pairs to inject into all future log records.
     """
-    root = logging.getLogger()
-    root.filters.clear()
-    root.addFilter(ContextFilter(**context))
+    global _CTX_FILTER
+    if _CTX_FILTER is None:
+        # Late init safety: install a new one with defaults + provided context
+        _CTX_FILTER = ContextFilter(**{"scan_id": "-", "shot_id": "-", **context})
+        logging.getLogger().addFilter(_CTX_FILTER)
+    else:
+        _CTX_FILTER.base.update(context)
 
 
 def attach_scan_log(
