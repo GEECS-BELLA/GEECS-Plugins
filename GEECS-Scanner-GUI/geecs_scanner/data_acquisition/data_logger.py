@@ -1329,14 +1329,7 @@ class DataLogger:
                 self.sound_player.play_beep()  # Play the beep sound
                 self.shot_index += 1
                 # Stamp the current shot number into the logging context
-                update_context(
-                    {
-                        "scan_id": getattr(
-                            self, "scan_number", "-"
-                        ),  # or pass it in from ScanManager
-                        "shot_id": str(self.shot_index),
-                    }
-                )
+                update_context({"shot_id": str(self.shot_index)})
 
             self.log_entries[elapsed_time].update(
                 {

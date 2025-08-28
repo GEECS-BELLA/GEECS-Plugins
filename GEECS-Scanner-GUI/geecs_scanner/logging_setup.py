@@ -193,14 +193,16 @@ def init_logging(
     _QUEUE = Queue(-1)
     root = logging.getLogger()
     root.setLevel(level)
-    root.handlers[:] = [logging.handlers.QueueHandler(_QUEUE)]
+    qh = logging.handlers.QueueHandler(_QUEUE)
+    root.handlers[:] = [qh]
+    # One shared ContextFilter; apply at handler level so *all* records get i
     global _CTX_FILTER
     _CTX_FILTER = ContextFilter(**(base_context or {"scan_id": "-", "shot_id": "-"}))
-    # Don't clear other filters; just add ours
-    root.addFilter(_CTX_FILTER)
+    qh.addFilter(_CTX_FILTER)  # inject before enqueue
 
     # Multiplexer for real sinks
     _MUX = MultiplexingHandler()
+    _MUX.addFilter(_CTX_FILTER)  # inject in listener thread before fan-out
 
     # Global rotating file
     gf = logging.handlers.RotatingFileHandler(
