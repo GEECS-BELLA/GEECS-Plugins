@@ -13,7 +13,7 @@ The package contains modules for:
 Examples
 --------
 >>> from geecs_data_utils import ScanData, ScanPaths
->>> scan_data = ScanData(year=2024, month=1, day=15, scan_number=42)
+>>> scan_paths = ScanData(year=2024, month=1, day=15, scan_number=42)
 """
 
 from geecs_data_utils.scan_data import ScanData

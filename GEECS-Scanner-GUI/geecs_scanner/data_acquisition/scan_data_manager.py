@@ -31,7 +31,7 @@ Usage
 This class is designed to be used primarily with the ScanManager during scan execution.
 
 >>> from geecs_scanner.data_acquisition import ScanDataManager
->>> scan_data_mgr = ScanDataManager(device_manager, scan_data, database_dict)
+>>> scan_data_mgr = ScanDataManager(device_manager, scan_paths, database_dict)
 >>> scan_data_mgr.initialize_scan_data_and_output_files()
 >>> scan_data_mgr.configure_device_save_paths(save_local=True)
 >>> # ... during scan execution ...
@@ -57,7 +57,7 @@ from nptdms import TdmsWriter, ChannelObject
 # Internal project imports
 from . import DeviceManager, DatabaseDictLookup
 from geecs_python_api.controls.interface import GeecsDatabase
-from geecs_data_utils import ScanData, ScanConfig
+from geecs_data_utils import ScanConfig, ScanPaths
 
 DeviceSavePaths = Dict[str, Dict[str, Union[Path, str]]]
 
@@ -74,7 +74,7 @@ class ScanDataManager:
     ----------
     device_manager : DeviceManager
         Manages the devices involved in the scan.
-    scan_data : ScanData, optional
+    scan_paths : ScanData, optional
         Manages scan data paths and metadata. Defaults to None.
     database_dict : DatabaseDictLookup, optional
         Contains a dictionary of all experiment devices and variables.
@@ -84,7 +84,7 @@ class ScanDataManager:
     ----------
     device_manager : DeviceManager
         Manages the devices involved in the scan.
-    scan_data : ScanData
+    scan_paths : ScanData
         Manages scan data paths and metadata.
     database_dict : DatabaseDictLookup
         Dictionary of all experiment devices and variables.
@@ -119,7 +119,7 @@ class ScanDataManager:
     def __init__(
         self,
         device_manager: DeviceManager,
-        scan_data: Optional[ScanData] = None,
+        scan_paths: Optional[ScanPaths] = None,
         database_dict: Optional[DatabaseDictLookup] = None,
     ):
         """Initialize the ScanDataManager with references to the ScanData and DeviceManager.
@@ -128,7 +128,7 @@ class ScanDataManager:
         ----------
         device_manager : DeviceManager
             Manages the devices involved in the scan. This is a required parameter.
-        scan_data : ScanData, optional
+        scan_paths : ScanPaths, optional
             Manages scan data paths and metadata. Defaults to None.
         database_dict : DatabaseDictLookup, optional
             Contains a dictionary of all experiment devices and variables.
@@ -140,7 +140,7 @@ class ScanDataManager:
         created and reloaded automatically.
         """
         self.device_manager = device_manager  # Explicitly pass device_manager
-        self.scan_data: ScanData = scan_data
+        self.scan_paths: ScanPaths = scan_paths
         if database_dict is None:
             database_dict = DatabaseDictLookup().reload()
         self.database_dict = database_dict
@@ -152,7 +152,7 @@ class ScanDataManager:
         self.sFile_info_path: Optional[Path] = None
 
         self.device_save_paths_mapping: DeviceSavePaths = {}
-        # self.scan_number_int = self.scan_data.get_tag().number
+        # self.scan_number_int = self.scan_paths.get_tag().number
         # self.parsed_scan_string = f"Scan{self.scan_number_int:03}"
 
         self.scan_number_int: Optional[int] = None
@@ -180,14 +180,14 @@ class ScanDataManager:
         Exception
             If path configuration reload or scan data build fails
         """
-        ScanData.reload_paths_config()
-        self.scan_data = ScanData.build_next_scan_data()
+        ScanPaths.reload_paths_config()
+        self.scan_paths = ScanPaths.build_next_scan_data()
 
-        self.parsed_scan_string = self.scan_data.get_folder().parts[-1]
+        self.parsed_scan_string = self.scan_paths.get_folder().parts[-1]
         self.scan_number_int = int(self.parsed_scan_string[-3:])
 
-        folder = self.scan_data.get_folder()
-        analysis_folder = self.scan_data.get_analysis_folder().parent
+        folder = self.scan_paths.get_folder()
+        analysis_folder = self.scan_paths.get_analysis_folder().parent
 
         self.tdms_output_path = folder / f"{self.parsed_scan_string}.tdms"
         self.data_txt_path = folder / f"ScanData{self.parsed_scan_string}.txt"
@@ -209,7 +209,7 @@ class ScanDataManager:
         """
         for device_name in self.device_manager.non_scalar_saving_devices:
             logging.info(f"Configuring save paths for device: {device_name}")
-            target_dir = self.scan_data.get_folder() / device_name
+            target_dir = self.scan_paths.get_folder() / device_name
             target_dir.mkdir(parents=True, exist_ok=True)
 
             device = self.device_manager.devices.get(device_name)
@@ -319,7 +319,7 @@ class ScanDataManager:
 
         Examples
         --------
-        >>> scan_data_mgr.initialize_tdms_writers('/path/to/output/scan_data.tdms')
+        >>> scan_data_mgr.initialize_tdms_writers('/path/to/output/scan_paths.tdms')
         """
         try:
             self.tdms_writer = TdmsWriter(tdms_output_path, index_file=True)

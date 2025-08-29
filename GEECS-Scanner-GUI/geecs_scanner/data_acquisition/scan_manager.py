@@ -183,7 +183,7 @@ class ScanManager:
 
         self.MC_ip = ""
 
-        # Initialize ScanDataManager with device_manager and scan_data
+        # Initialize ScanDataManager with device_manager and scan_paths
         self.scan_data_manager = ScanDataManager(
             self.device_manager, scan_data, database_dict
         )
@@ -858,7 +858,7 @@ class ScanManager:
         logging.info("Turning off the trigger.")
         self.trigger_off()
 
-        # initialize a ScanData objet and create basic scan files
+        # initialize a ScanPaths objet and create basic scan files
         self.scan_data_manager.initialize_scan_data_and_output_files()
 
         # Generate the scan steps

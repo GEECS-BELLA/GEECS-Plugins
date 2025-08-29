@@ -10,7 +10,7 @@ Designed to work for any GEECS experiment, given the save data is in a similar f
 
 ## Installation
 
-Requires GEECS-Plugins installed somewhere, Python 3.10, and Poetry.  Can be run off of the Z: drive version, but it is not recommended to edit this version directly if you are planning code development.  Beyond basic usage, we recommend cloning your own copy of the repo with `Github Desktop` onto your local PC.  
+Requires GEECS-Plugins installed somewhere, Python 3.10, and Poetry.  Can be run off of the Z: drive version, but it is not recommended to edit this version directly if you are planning code development.  Beyond basic usage, we recommend cloning your own copy of the repo with `Github Desktop` onto your local PC.
 
 Python 3.10 can be installed from the following link:
 ```link
@@ -134,8 +134,8 @@ Another useful tip is to make a quick block of code at the bottom of this file t
 
 ```python
 if __name__ == "__main__":
-    from geecs_data_utils import ScanData
-    tag = ScanData.get_scan_tag(year=2025, month=12, day=25, number=1, experiment='MyExperimentName')
+    from geecs_data_utils import ScanTag
+    tag = ScanTag(year=2025, month=12, day=25, number=1, experiment='MyExperimentName')
     analyzer = MyCustomAnalyzer(scan_tag=tag, skip_plt_show=False)
     analyzer.run_analysis()
 ```

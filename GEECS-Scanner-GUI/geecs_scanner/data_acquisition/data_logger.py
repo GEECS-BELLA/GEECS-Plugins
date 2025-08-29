@@ -109,7 +109,7 @@ class FileMover:
 
     When a file is created after a successful acquisition, the file name contains
     the system timestamp. The same timestamp is recorded in the scalar data (aka
-    scan_data, sfile, etc.) during acquisition. This information is used to infer
+    scan_paths, sfile, etc.) during acquisition. This information is used to infer
     the shot number and change the name to match the shot number based naming
     convention established by Master Control.
 
