@@ -49,7 +49,6 @@ from .lib import action_api
 # Module-level logger
 # ---------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
 
 
 def get_default_action() -> dict:

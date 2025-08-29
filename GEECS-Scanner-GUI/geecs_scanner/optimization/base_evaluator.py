@@ -44,7 +44,6 @@ from pathlib import Path
 
 # Module-level logger
 logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
 
 
 class BaseEvaluator(ABC):

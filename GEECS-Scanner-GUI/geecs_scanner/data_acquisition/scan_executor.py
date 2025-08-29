@@ -74,7 +74,7 @@ import numpy as np
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
 # -----------------------------------------------------------------------------
-# Module-level logger (no NullHandler for internal app modules)
+# Module-level logger
 # -----------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
 
