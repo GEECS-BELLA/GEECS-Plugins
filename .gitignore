@@ -42,3 +42,8 @@ ImageAnalysis/image_analysis/offline_analyzers/log_dll_load.txt
 # MkDocs output
 /site
 /scripts
+LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in
+ScanAnalysis/log_dll_load.txt
+ScanAnalysis/single_shot_estimated_legendre.txt
+/LogMaker4GoogleDocs/logmaker_4_googledocs
+LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in
