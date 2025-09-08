@@ -6,7 +6,7 @@ import re
 import subprocess
 import configparser
 from pathlib import Path
-from geecs_data_utils import ScanData
+from geecs_data_utils import ScanPaths
 
 def open_folder(path_to_folder: Path):
     """ Opens Windows file explorer to the specified location """
@@ -14,8 +14,8 @@ def open_folder(path_to_folder: Path):
 
 
 def open_daily_data_folder(experiment: str):
-    """ Uses ScanData to find the server's save data location for today, and opens in Windows file explorer """
-    latest = ScanData.get_daily_scan_folder(experiment=experiment)
+    """ Uses ScanPath to find the server's save data location for today, and opens in Windows file explorer """
+    latest = ScanPaths.get_daily_scan_folder(experiment=experiment)
     latest.mkdir(parents=True, exist_ok=True)
     open_folder(path_to_folder=latest)
 
@@ -34,11 +34,11 @@ def iterate_scan_numbers(scan_folder: Path):
 
 
 def get_latest_scan_number(experiment: str) -> int:
-    """ Finds the latest scan number using regular expressions rather than iterating through ScanData scan tags
+    """ Finds the latest scan number using regular expressions rather than iterating through ScanPath scan tags
 
     :return: int for latest scan number, 0 if no scans that day
     """
-    scan_folder = ScanData.get_daily_scan_folder(experiment=experiment)
+    scan_folder = ScanPaths.get_daily_scan_folder(experiment=experiment)
     return max(iterate_scan_numbers(scan_folder), default=0)
 
 
@@ -83,5 +83,5 @@ def get_scanlog_undulator() -> Optional[str]:
 
 
 def reload_scan_data_paths():
-    """ Calls ScanData's function to reset static variables pointing to experiment-specific folders """
-    ScanData.reload_paths_config()
+    """ Calls ScanPath's function to reset static variables pointing to experiment-specific folders """
+    ScanPaths.reload_paths_config()
