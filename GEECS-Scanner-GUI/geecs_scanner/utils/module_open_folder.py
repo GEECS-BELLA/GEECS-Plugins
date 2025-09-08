@@ -1,7 +1,7 @@
 """
 Functions for opening file explorer on the given folders.
 
-TODO make a Mac-compatible version if needed (or throw error)
+TODO make a Mac-compatible version if needed (or throw error).
 """
 
 from typing import Optional
@@ -18,7 +18,7 @@ def open_folder(path_to_folder: Path):
 
 
 def open_daily_data_folder(experiment: str):
-    """Use ScanData to find the server's save data location for today, and opens in Windows file explorer."""
+    """Uses ScanPath to find the server's save data location for today, and opens in Windows file explorer."""
     latest = ScanPaths.get_daily_scan_folder(experiment=experiment)
     latest.mkdir(parents=True, exist_ok=True)
     open_folder(path_to_folder=latest)
@@ -35,7 +35,7 @@ def iterate_scan_numbers(scan_folder: Path):
 
 
 def get_latest_scan_number(experiment: str) -> int:
-    """Find the latest scan number using regular expressions rather than iterating through ScanData scan tags.
+    """Finds the latest scan number using regular expressions rather than iterating through ScanPath scan tags.
 
     Return: int
         Latest scan number, 0 if no scans that day.
@@ -80,5 +80,5 @@ def get_scanlog_undulator() -> Optional[str]:
 
 
 def reload_scan_data_paths():
-    """Call ScanData's function to reset static variables pointing to experiment-specific folders."""
+    """Calls ScanPath's function to reset static variables pointing to experiment-specific folders."""
     ScanPaths.reload_paths_config()
