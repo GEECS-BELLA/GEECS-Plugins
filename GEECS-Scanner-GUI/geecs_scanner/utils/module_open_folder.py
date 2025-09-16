@@ -25,7 +25,7 @@ def open_daily_data_folder(experiment: str):
 
 
 def iterate_scan_numbers(scan_folder: Path):
-    """Iteraate scan numbers."""
+    """Iterate scan numbers."""
     pattern = re.compile(r"^Scan(\d+)$")
     if not scan_folder.exists():
         return
