@@ -4,7 +4,7 @@ Top-level initialization for the GEECS-Scanner package.
 This module defines basic setup performed when the package is imported,
 This module defines basic setup performed when the package is imported.
 
-- Configuring a module-level logger with a `NullHandler` to prevent
+- Configuring a module-level logger.
   "No handler found" warnings. Applications using this package should
   configure logging explicitly.
 - Exposing the `GEECS_Plugins_folder` path, which points two levels
