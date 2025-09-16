@@ -7,7 +7,7 @@ This module defines basic setup performed when the package is imported.
 - Configuring a module-level logger.
   "No handler found" warnings. Applications using this package should
   configure logging explicitly.
-- Exposing the `GEECS_Plugins_folder` path, which points two levels
+- Exposing the `GEECS_Plugins_folder` path.
   above the current file and is used for locating plugin resources.
 
 Attributes
