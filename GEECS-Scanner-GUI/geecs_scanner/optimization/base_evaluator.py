@@ -310,7 +310,7 @@ class BaseEvaluator(ABC):
                 self.current_data_bin["Shotnumber"] == shot
             ]
             if shot_row.empty:
-                logger.warning("No row found for shot number %s", shot)
+                logger.warning("No entry in data table found for shot number %s", shot)
             else:
                 for short_name, full_key in scalar_variables.items():
                     if full_key in shot_row.columns:
