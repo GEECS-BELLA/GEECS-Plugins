@@ -2,7 +2,7 @@
 Top-level initialization for the GEECS-Scanner package.
 
 This module defines basic setup performed when the package is imported,
-including:
+This module defines basic setup performed when the package is imported.
 
 - Configuring a module-level logger with a `NullHandler` to prevent
   "No handler found" warnings. Applications using this package should
