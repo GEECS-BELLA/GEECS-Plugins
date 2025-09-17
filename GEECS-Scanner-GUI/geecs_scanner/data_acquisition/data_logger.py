@@ -1080,7 +1080,10 @@ class DataLogger:
         current_timestamp = parsed[2].get("acq_timestamp")
 
         if current_timestamp is None:
-            logger.warning("No timestamp found for %s. Using system time instead.", device.get_name())
+            logger.warning(
+                "No timestamp found for %s. Using system time instead.",
+                device.get_name(),
+            )
             current_timestamp = _now()
 
         return float(current_timestamp)
@@ -1108,9 +1111,9 @@ class DataLogger:
                         observable,
                     )
                     # Ensure the device wires its TCP → event publisher callback
-                    device.register_update_listener('logger',
-                                                    lambda msg, dev=device: log_update(msg, dev)
-                                                    )
+                    device.register_update_listener(
+                        "logger", lambda msg, dev=device: log_update(msg, dev)
+                    )
 
     def _calculate_elapsed_time(
         self, device: GeecsDevice, current_timestamp: float
@@ -1411,4 +1414,3 @@ class DataLogger:
             The current shot index.
         """
         return self.shot_index
-
