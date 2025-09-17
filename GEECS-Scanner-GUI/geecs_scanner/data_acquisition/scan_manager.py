@@ -598,21 +598,36 @@ class ScanManager:
 
     def synchronize_devices(self) -> None:
         """
-        Attempt to synchronize all devices by firing test shots and checking their standby status.
+        Attempt to synchronize all devices using global time sync or fallback to timeout method.
 
-        This method repeatedly fires a single-shot trigger and checks whether all devices
-        have exited standby mode. If synchronization fails, it resets device status and
-        retries until synchronization is successful or a timeout is reached.
+        This method first tries to use global time synchronization if enabled, which leverages
+        improved Windows domain time synchronization to check if devices are already synchronized.
+        If global sync fails or is disabled, it falls back to the original timeout-based method.
 
         Notes
         -----
-        Devices are considered synchronized when all have exited standby mode
-        after a test shot and responded appropriately.
+        Global time sync provides significant time savings by avoiding timeout waits when
+        devices are already synchronized. The timeout method serves as a robust fallback.
 
         Raises
         ------
         None directly, but logs and stops the scan if timeout is reached.
         """
+        # Try global time synchronization first if enabled
+        if self.options_dict.get("enable_global_time_sync", False):
+            logger.info("Attempting global time synchronization")
+            if self.data_logger.synchronize_devices_global_time():
+                logger.info(
+                    "Global time synchronization successful. Skipping timeout method."
+                )
+                return
+            else:
+                logger.info(
+                    "Global time synchronization failed. Falling back to timeout method."
+                )
+
+        # Original timeout-based synchronization method
+        logger.info("Using timeout-based synchronization method")
         timeout = 25.5  # seconds
         start_time = time.time()
         while not self.data_logger.devices_synchronized:
@@ -631,7 +646,7 @@ class ScanManager:
                 # wait 2 seconds after the test fire to allow time for shot to execute and for devices to respond
                 time.sleep(2)
                 if self.data_logger.devices_synchronized:
-                    logger.info("Devices synchronized.")
+                    logger.info("Devices synchronized using timeout method.")
                     break
                 else:
                     logger.warning("Not all devices exited standby after single shot.")
