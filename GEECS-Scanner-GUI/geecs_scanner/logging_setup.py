@@ -1,5 +1,4 @@
-"""
-Centralized logging utilities for geecs_scanner.
+"""Centralized logging utilities for geecs_scanner.
 
 This module configures a single, thread-safe logging pipeline for the entire
 process. It uses a QueueHandler → QueueListener to ensure that all producer
@@ -28,6 +27,7 @@ Typical usage
 from __future__ import annotations
 import logging
 import logging.handlers
+import errno
 from pathlib import Path
 from threading import Lock
 from contextlib import contextmanager
@@ -39,8 +39,8 @@ import atexit
 # --- internal globals ---
 _QUEUE: Optional[Queue] = None
 _LISTENER: Optional[logging.handlers.QueueListener] = None
-_MUX: Optional[MultiplexingHandler] = None
-_CTX_FILTER: Optional[ContextFilter] = None
+_MUX: Optional["MultiplexingHandler"] = None
+_CTX_FILTER: Optional["ContextFilter"] = None
 _INIT = False
 _LOCK = Lock()
 
@@ -98,6 +98,42 @@ class ScanFilter(logging.Filter):
 
 
 # --------------------------------------------------------------------------
+# Safe handlers (handle Windows EINVAL/EBADF gracefully)
+# --------------------------------------------------------------------------
+
+
+class _SafeFlushMixin:
+    """Mixin to swallow benign OSErrors from closed/invalid streams on Windows."""
+
+    def _safe_call(self, fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except OSError as e:
+            if getattr(e, "errno", None) in (errno.EINVAL, errno.EBADF):
+                # Silently ignore invalid/closed handle at shutdown or after file moves.
+                return
+            raise
+
+    def flush(self):  # type: ignore[override]
+        return self._safe_call(super().flush)
+
+    def emit(self, record):  # type: ignore[override]
+        return self._safe_call(super().emit, record)
+
+
+class SafeStreamHandler(_SafeFlushMixin, logging.StreamHandler):
+    pass
+
+
+class SafeFileHandler(_SafeFlushMixin, logging.FileHandler):
+    pass
+
+
+class SafeRotatingFileHandler(_SafeFlushMixin, logging.handlers.RotatingFileHandler):
+    pass
+
+
+# --------------------------------------------------------------------------
 # Multiplexing handler (fan-out target for QueueListener)
 # --------------------------------------------------------------------------
 
@@ -123,6 +159,19 @@ class MultiplexingHandler(logging.Handler):
                 try:
                     # handle() applies handler-level filters + level threshold
                     h.handle(record)
+                except OSError as e:
+                    # Auto-retire dead sinks (e.g., file moved/closed).
+                    if getattr(e, "errno", None) in (errno.EINVAL, errno.EBADF):
+                        try:
+                            self._handlers.remove(h)
+                        except ValueError:
+                            pass
+                        try:
+                            h.close()
+                        except Exception:
+                            pass
+                        continue
+                    self.handleError(record)
                 except Exception:
                     self.handleError(record)
 
@@ -183,7 +232,7 @@ def init_logging(
     base_context : dict, optional
         Initial context values (defaults to {"scan_id": "-", "shot_id": "-"}).
     """
-    global _INIT, _QUEUE, _LISTENER, _MUX
+    global _INIT, _QUEUE, _LISTENER, _MUX, _CTX_FILTER
     if _INIT:
         return
 
@@ -195,8 +244,8 @@ def init_logging(
     root.setLevel(level)
     qh = logging.handlers.QueueHandler(_QUEUE)
     root.handlers[:] = [qh]
-    # One shared ContextFilter; apply at handler level so *all* records get i
-    global _CTX_FILTER
+
+    # One shared ContextFilter; apply at handler level so *all* records get it
     _CTX_FILTER = ContextFilter(**(base_context or {"scan_id": "-", "shot_id": "-"}))
     qh.addFilter(_CTX_FILTER)  # inject before enqueue
 
@@ -204,8 +253,8 @@ def init_logging(
     _MUX = MultiplexingHandler()
     _MUX.addFilter(_CTX_FILTER)  # inject in listener thread before fan-out
 
-    # Global rotating file
-    gf = logging.handlers.RotatingFileHandler(
+    # Global rotating file (safe)
+    gf = SafeRotatingFileHandler(
         Path(log_dir, "geecs_scanner.log"),
         maxBytes=max_bytes,
         backupCount=backup_count,
@@ -215,16 +264,16 @@ def init_logging(
     gf.setLevel(level)
     gf.setFormatter(
         logging.Formatter(
-            "%(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] "
+            "%(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s) "
             "scan=%(scan_id)s shot=%(shot_id)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
     )
     _MUX.add(gf)
 
-    # Optional console output
+    # Optional console output (safe)
     if console:
-        ch = logging.StreamHandler()
+        ch = SafeStreamHandler()
         ch.setLevel(level)
         ch.setFormatter(
             logging.Formatter(
@@ -317,7 +366,7 @@ def attach_scan_log(
     """
     global _MUX
     Path(scan_dir).mkdir(parents=True, exist_ok=True)
-    fh = logging.FileHandler(Path(scan_dir, filename), encoding="utf-8", delay=True)
+    fh = SafeFileHandler(Path(scan_dir, filename), encoding="utf-8", delay=True)
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(
         logging.Formatter(
