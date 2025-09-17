@@ -35,6 +35,7 @@ from __future__ import annotations
 from typing import Optional, Dict, Any, Callable, List, Union
 
 import time
+from time import time as _now
 import threading
 from datetime import datetime
 import logging
@@ -50,7 +51,6 @@ from geecs_scanner.logging_setup import update_context
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.tools.files.timestamping import extract_timestamp_from_file
-from geecs_python_api.controls.interface.geecs_errors import ErrorAPI
 import geecs_python_api.controls.interface.message_handling as mh
 
 DeviceSavePaths = Dict[str, Dict[str, Union[Path, str]]]
@@ -1074,21 +1074,18 @@ class DataLogger:
         - If `None` is returned by the parser, the fallback to system time is logged as a warning.
         - Fallback values may affect synchronization accuracy and should be used with caution.
         """
-        stamp = datetime.now().__str__()
-        err = ErrorAPI()
-        net_msg = mh.NetworkMessage(
-            tag=device.get_name(), stamp=stamp, msg=message, err=err
-        )
-        parsed_data = device.handle_subscription(net_msg)
-        current_timestamp = parsed_data[2].get(
-            "acq_timestamp"
-        )  # *NOTE* `timestamp` for synchronizing
+        stamp_str = datetime.now().__str__()
+        net_msg = mh.NetworkMessage(tag=device.get_name(), stamp=stamp_str, msg=message)
+        parsed = device.handle_subscription(net_msg)
+        current_timestamp = parsed[2].get("acq_timestamp")
+
         if current_timestamp is None:
             logger.warning(
                 "No timestamp found for %s. Using system time instead.",
                 device.get_name(),
             )
-            current_timestamp = float(stamp)
+            current_timestamp = _now()
+
         return float(current_timestamp)
 
     def _register_event_logging(
@@ -1113,8 +1110,9 @@ class DataLogger:
                         "Registering logging for event-driven observable: %s",
                         observable,
                     )
-                    device.event_handler.register(
-                        "update", "logger", lambda msg, dev=device: log_update(msg, dev)
+                    # Ensure the device wires its TCP → event publisher callback
+                    device.register_update_listener(
+                        "logger", lambda msg, dev=device: log_update(msg, dev)
                     )
 
     def _calculate_elapsed_time(
@@ -1371,7 +1369,7 @@ class DataLogger:
         """
         # Unregister all event-driven logging
         for device_name, device in self.device_manager.devices.items():
-            device.event_handler.unregister("update", "logger")
+            device.unregister_update_listener("logger")
 
         self.sound_player.play_toot()
 
