@@ -60,6 +60,8 @@ from typing import Optional
 from geecs_python_api.controls.interface import load_config, GeecsDatabase
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
+logger = logging.getLogger(__name__)
+
 
 class DatabaseDictLookup:
     """
@@ -200,9 +202,9 @@ class DatabaseDictLookup:
 
             if config and "Experiment" in config and "expt" in config["Experiment"]:
                 experiment_name = config["Experiment"]["expt"]
-                logging.info(f"default experiment is: {experiment_name}")
+                logger.info("default experiment is: %s", experiment_name)
             else:
-                logging.warning(
+                logger.warning(
                     "Configuration file not found or default experiment not defined."
                 )
 
@@ -211,5 +213,5 @@ class DatabaseDictLookup:
             GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(experiment_name)
             self.database_dict = GeecsDevice.exp_info["devices"]
         except AttributeError:
-            logging.warning("Could not retrieve dictionary of GEECS Devices")
+            logger.warning("Could not retrieve dictionary of GEECS Devices")
             self.database_dict = {}

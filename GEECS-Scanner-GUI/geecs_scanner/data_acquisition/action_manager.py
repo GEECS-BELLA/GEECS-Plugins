@@ -73,6 +73,8 @@ from geecs_scanner.data_acquisition.schemas.actions import (
     WaitStep,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ActionManager:
     """Manage and execute complex device actions with nested action support.
@@ -187,10 +189,11 @@ class ActionManager:
                 )
                 self.load_actions()
             except FileNotFoundError:
-                logging.warning(
-                    f"Actions configuration file not found for experiment: {experiment_dir}"
+                logger.exception(
+                    "Actions configuration file not found for experiment: %s",
+                    experiment_dir,
                 )
-                logging.info("Continuing with empty action library.")
+                logger.info("Continuing with empty action library.")
 
     def load_actions(self) -> Dict[str, ActionSequence]:
         """
@@ -241,21 +244,23 @@ class ActionManager:
                 raw_yaml = yaml.safe_load(file)
 
             library = ActionLibrary(**raw_yaml)
-            logging.info(f"Successfully loaded master actions from {actions_file}")
+            logger.info("Successfully loaded master actions from %s", actions_file)
 
             self.actions = library.actions
-            logging.debug(f"Loaded {len(self.actions)} action sequences")
+            logger.debug("Loaded %s action sequences", len(self.actions))
 
             return self.actions
 
         except FileNotFoundError:
-            logging.error(f"Actions configuration file not found: {actions_file}")
+            logger.exception("Actions configuration file not found: %s", actions_file)
             raise
-        except yaml.YAMLError as e:
-            logging.error(f"YAML parsing error in {actions_file}: {e}")
+
+        except yaml.YAMLError:
+            logger.exception("YAML parsing error in %s", actions_file)
             raise
-        except Exception as e:
-            logging.error(f"Unexpected error loading actions from {actions_file}: {e}")
+
+        except Exception:
+            logger.exception("Unexpected error loading actions from %s", actions_file)
             raise
 
     def add_action(self, action_name: str, action_seq: ActionSequence):
@@ -301,15 +306,14 @@ class ActionManager:
         """
         try:
             if action_name in self.actions:
-                logging.warning(f"Overwriting existing action: {action_name}")
+                logger.warning("Overwriting existing action: %s", action_name)
 
             self.actions[action_name] = action_seq
-            logging.info(f"Added action sequence: {action_name}")
+            logger.info("Added action sequence: %s", action_name)
 
-        except Exception as e:
-            error_msg = f"Failed to add action '{action_name}': {e}"
-            logging.error(error_msg)
-            raise ValueError(error_msg)
+        except Exception:
+            logger.exception("Failed to add action %s", action_name)
+            raise ValueError(f"Failed to add action {action_name}")
 
     def execute_action(self, action_name: str):
         """
@@ -366,31 +370,31 @@ class ActionManager:
         if action_name not in self.actions:
             raise ActionError(f"Action '{action_name}' is not defined.")
 
-        logging.info(f"Starting execution of action sequence: {action_name}")
+        logger.info("Starting execution of action sequence: %s", action_name)
 
         action = self.actions[action_name]
         steps = action.steps
 
         try:
             self.ping_devices_in_action_list(action_steps=steps)
-        except Exception as e:
-            logging.error(
-                f"Device connectivity check failed for action {action_name}: {e}"
+        except Exception:
+            logger.exception(
+                "Device connectivity check failed for action %s", action_name
             )
-            raise ActionError(f"Device connectivity error in action {action_name}")
+            raise ActionError("Device connectivity error in action %s", action_name)
 
         for step_index, step in enumerate(steps, 1):
-            logging.debug(
-                f"Executing step {step_index}/{len(steps)} in action {action_name}"
+            logger.debug(
+                "Executing step %s/%s in action %s", step_index, len(steps), action_name
             )
 
             try:
                 match step:
                     case WaitStep():
-                        logging.info(f"Waiting for {step.wait} seconds")
+                        logger.info("Waiting for %s seconds", step.wait)
                         self._wait(step.wait)
                     case ExecuteStep():
-                        logging.info(f"Executing nested action: {step.action_name}")
+                        logger.info("Executing nested action: %s", step.action_name)
                         self.execute_action(step.action_name)
                     case SetStep():
                         device = self._get_or_create_device(step.device)
@@ -408,13 +412,13 @@ class ActionManager:
                             f"Unrecognized action step type: {type(step)}"
                         )
 
-            except Exception as e:
-                logging.error(
-                    f"Error executing step {step_index} in action {action_name}: {e}"
+            except Exception:
+                logger.exception(
+                    "Error executing step %s in action %s", step_index, action_name
                 )
                 raise ActionError(f"Step execution failed in action {action_name}")
 
-        logging.info(f"Successfully completed action sequence: {action_name}")
+        logger.info("Successfully completed action sequence: %s", action_name)
 
     def _get_or_create_device(self, device_name: str) -> ScanDevice:
         if device_name not in self.instantiated_devices:
@@ -464,18 +468,18 @@ class ActionManager:
             step.device for step in action_steps if isinstance(step, (SetStep, GetStep))
         }
 
-        logging.info(f"Checking connectivity for {len(devices)} devices")
+        logger.info("Checking connectivity for %s devices", len(devices))
 
         for device_name in devices:
             try:
                 timestamp = self.return_value(device_name, "SysTimestamp")
-                logging.debug(
-                    f"Device {device_name} connectivity check passed. Timestamp: {timestamp}"
+                logger.debug(
+                    "Device %s connectivity check passed. Timestamp: %s",
+                    device_name,
+                    timestamp,
                 )
-            except Exception as e:
-                logging.error(
-                    f"Device connectivity check failed for {device_name}: {e}"
-                )
+            except Exception:
+                logger.exception("Device connectivity check failed for %s", device_name)
                 raise
 
     def clear_action(self, action_name: str):
@@ -508,13 +512,13 @@ class ActionManager:
         No explicit exceptions, but logs an error for undefined actions
         """
         if action_name not in self.actions:
-            logging.error(
-                f"Action '{action_name}' is not defined in the available actions."
+            logger.error(
+                "Action '%s' is not defined in the available actions.", action_name
             )
             return
 
         del self.actions[action_name]
-        logging.info(f"Removed action sequence: {action_name}")
+        logger.info("Removed action sequence: %s", action_name)
 
     @staticmethod
     def _set_device(device: ScanDevice, variable: str, value: Any, sync: bool = True):
@@ -552,7 +556,9 @@ class ActionManager:
         # Sets device mode asynchronously
         """
         result = device.set(variable, value, sync=sync)
-        logging.info(f"Set {device.get_name()}:{variable} to {value}. Result: {result}")
+        logger.info(
+            "Set %s:%s to %s. Result: %s", device.get_name(), variable, value, result
+        )
 
     def _get_device(self, device: ScanDevice, variable: str, expected_value: Any):
         """
@@ -592,12 +598,15 @@ class ActionManager:
         """
         value = device.get(variable)
         if value == expected_value:
-            logging.info(
-                f"Get {device.get_name()}:{variable} returned expected value: {value}"
+            logger.info(
+                "Get %s:%s returned expected value: %s",
+                device.get_name(),
+                variable,
+                value,
             )
         else:
             message = f"Get {device.get_name()}:{variable} returned {value}, expected {expected_value}"
-            logging.warning(message)
+            logger.warning(message)
             if self._prompt_user_quit_action(message):
                 raise ActionError(message)
 
@@ -662,7 +671,7 @@ class ActionManager:
         >>> ActionManager._wait(1.5)
         # Pauses execution for 1.5 seconds
         """
-        logging.info(f"Waiting for {seconds} seconds.")
+        logger.info("Waiting for %s seconds.", seconds)
         time.sleep(seconds)
 
     @staticmethod

@@ -73,6 +73,11 @@ import numpy as np
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
+# -----------------------------------------------------------------------------
+# Module-level logger
+# -----------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
+
 
 class ScanStepExecutor:
     """
@@ -199,7 +204,7 @@ class ScanStepExecutor:
         self.results = None
         self.scan_steps = []
 
-        logging.info("Constructing the scan step executor")
+        logger.info("Constructing the scan step executor")
 
     def execute_scan_loop(self, scan_steps: List[Dict[str, Any]]) -> None:
         """
@@ -261,22 +266,22 @@ class ScanStepExecutor:
         """
         # Store scan steps as an instance variable for potential dynamic updates
         self.scan_steps = scan_steps
-        logging.info(f"Attempting to start scan loop with steps: {scan_steps}")
+        logger.info("Attempting to start scan loop with steps: %s", scan_steps)
         step_index = 0
 
         while step_index < len(self.scan_steps):
             # Check for external interruption
             if self.stop_scanning_thread_event.is_set():
-                logging.info("Scanning has been stopped externally.")
+                logger.info("Scanning has been stopped externally.")
                 break
 
             # Execute current scan step
             scan_step = self.scan_steps[step_index]
-            logging.info(f"Executing scan step: {scan_step}")
+            logger.info("Executing scan step: %s", scan_step)
             self.execute_step(scan_step, step_index)
             step_index += 1
 
-        logging.info("Scan loop completed. Stopping logging.")
+        logger.info("Scan loop completed. Stopping logging.")
 
     def execute_step(self, step: Dict[str, Any], index: int) -> None:
         """
@@ -335,18 +340,18 @@ class ScanStepExecutor:
         evaluate_acquired_data : Processes data from current step
         generate_next_step : Generates next step via optimizer
         """
-        logging.info(f"Preparing scan step: {step}")
+        logger.info("Preparing scan step: %s", step)
         self.prepare_for_step()
 
-        logging.info(f"Moving devices for step: {step['variables']}")
+        logger.info("Moving devices for step: %s", step["variables"])
         # self.move_devices(step["variables"], step["is_composite"])
         self.move_devices_parallel_by_device(step["variables"], step["is_composite"])
 
-        logging.info(f"Waiting for acquisition: {step}")
+        logger.info("Waiting for acquisition: %s", step)
         self.wait_for_acquisition(step["wait_time"])
 
         if self.optimizer:
-            logging.debug(
+            logger.debug(
                 "Evaluating acquired data and potentially generating next step"
             )
             self.evaluate_acquired_data(index)
@@ -373,15 +378,16 @@ class ScanStepExecutor:
         data_logger : Manages data recording and virtual variable tracking
         trigger_off : Stops data collection trigger
         """
-        logging.info("Pausing logging. Turning trigger off before moving devices.")
+        logger.info("Pausing logging. Turning trigger off before moving devices.")
 
         # update variables in data_logger that are not updated via hardware
         if self.data_logger.virtual_variable_name is not None:
             self.data_logger.virtual_variable_value = (
                 self.data_logger.virtual_variable_list[self.data_logger.bin_num]
             )
-            logging.info(
-                f"updating virtual value in data_logger from scan_manager to: {self.data_logger.virtual_variable_value}."
+            logger.info(
+                "updating virtual value in data_logger from scan_manager to: %s.",
+                self.data_logger.virtual_variable_value,
             )
 
         self.data_logger.bin_num += 1
@@ -451,28 +457,45 @@ class ScanStepExecutor:
 
                     for attempt in range(max_retries):
                         ret_val = device.set(var_name, set_val)
-                        logging.info(
-                            f"Attempt {attempt + 1}: Setting {var_name} to {set_val} on {device_name}, returned {ret_val}"
+                        logger.info(
+                            "Attempt %d: Setting %s to %s on %s, returned %s",
+                            attempt + 1,
+                            var_name,
+                            set_val,
+                            device_name,
+                            ret_val,
                         )
                         if ret_val - tol <= set_val <= ret_val + tol:
-                            logging.info(
-                                f"Success: {var_name} set to {ret_val} (within tolerance {tol}) on {device_name}"
+                            logger.info(
+                                "Success: %s set to %s (within tolerance %s) on %s",
+                                var_name,
+                                ret_val,
+                                tol,
+                                device_name,
                             )
                             success = True
                             break
                         else:
-                            logging.warning(
-                                f"Attempt {attempt + 1}: {var_name} on {device_name} not within tolerance ({ret_val} != {set_val})"
+                            logger.warning(
+                                "Attempt %d: %s on %s not within tolerance (%s != %s)",
+                                attempt + 1,
+                                var_name,
+                                device_name,
+                                ret_val,
+                                set_val,
                             )
                             time.sleep(retry_delay)
 
                     if not success:
-                        logging.error(
-                            f"Failed to set {var_name} on {device_name} after {max_retries} attempts"
+                        logger.error(
+                            "Failed to set %s on %s after %d attempts",
+                            var_name,
+                            device_name,
+                            max_retries,
                         )
                 else:
-                    logging.warning(
-                        f"Device {device_name} not found in device manager."
+                    logger.warning(
+                        "Device %s not found in device manager.", device_name
                     )
 
     def move_devices_parallel_by_device(
@@ -514,7 +537,7 @@ class ScanStepExecutor:
             return
 
         if not component_vars:
-            logging.info("No variables to move for this scan step.")
+            logger.info("No variables to move for this scan step.")
             return
 
         # Step 1: Group variables by device
@@ -528,10 +551,10 @@ class ScanStepExecutor:
             """Helper fucntion to set vars in threads."""
             device = self.device_manager.devices.get(device_name)
             if not device:
-                logging.warning(f"Device {device_name} not found.")
+                logger.warning("Device %s not found.", device_name)
                 return
 
-            logging.info(f"[{device_name}] Preparing to set vars: {var_list}")
+            logger.info("[%s] Preparing to set vars: %s", device_name, var_list)
             for var_name, set_val in var_list:
                 tol = (
                     10000
@@ -545,24 +568,40 @@ class ScanStepExecutor:
                 success = False
                 for attempt in range(max_retries):
                     ret_val = device.set(var_name, set_val)
-                    logging.info(
-                        f"[{device_name}] Attempt {attempt + 1}: Set {var_name}={set_val}, got {ret_val}"
+                    logger.info(
+                        "[%s] Attempt %d: Set %s=%s, got %s",
+                        device_name,
+                        attempt + 1,
+                        var_name,
+                        set_val,
+                        ret_val,
                     )
                     if ret_val - tol <= set_val <= ret_val + tol:
-                        logging.info(
-                            f"[{device_name}] Success: {var_name}={ret_val} within tolerance {tol}"
+                        logger.info(
+                            "[%s] Success: %s=%s within tolerance %s",
+                            device_name,
+                            var_name,
+                            ret_val,
+                            tol,
                         )
                         success = True
                         break
                     else:
-                        logging.warning(
-                            f"[{device_name}] {var_name}={ret_val} not within tolerance of {set_val}"
+                        logger.warning(
+                            "[%s] %s=%s not within tolerance of %s",
+                            device_name,
+                            var_name,
+                            ret_val,
+                            set_val,
                         )
                         time.sleep(retry_delay)
 
                 if not success:
-                    logging.error(
-                        f"[{device_name}] Failed to set {var_name} after {max_retries} attempts."
+                    logger.error(
+                        "[%s] Failed to set %s after %d attempts.",
+                        device_name,
+                        var_name,
+                        max_retries,
                     )
 
         # Step 3: Run each device in parallel
@@ -616,7 +655,7 @@ class ScanStepExecutor:
             self.data_logger.idle_time = (
                 self.scan_step_start_time - self.scan_step_end_time + self.pause_time
             )
-            logging.info(f"idle time between scan steps: {self.data_logger.idle_time}")
+            logger.info("idle time between scan steps: %s", self.data_logger.idle_time)
 
         current_time = 0
         start_time = time.time()
@@ -625,14 +664,14 @@ class ScanStepExecutor:
 
         while current_time < wait_time:
             if self.stop_scanning_thread_event.is_set():
-                logging.info("Scanning has been stopped externally.")
+                logger.info("Scanning has been stopped externally.")
                 break
 
             if not self.pause_scan_event.is_set():
                 self.trigger_off()
                 self.data_logger.data_recording = False
                 t0 = time.time()
-                logging.info("Scan is paused, waiting to resume...")
+                logger.info("Scan is paused, waiting to resume...")
                 self.pause_scan_event.wait()
                 self.pause_time = time.time() - t0
                 self.trigger_on()
@@ -713,14 +752,14 @@ class ScanStepExecutor:
 
             # Update scan steps with extracted variables
             self.scan_steps[index].update({"variables": variables})
-            logging.debug(f"Updated variables for first scan step: {variables}")
+            logger.debug("Updated variables for first scan step: %s", variables)
 
         # Evaluate data using the optimizer
         try:
             self.optimizer.evaluate(inputs=self.scan_steps[index]["variables"])
-            logging.info(f"Successfully evaluated data for scan step {index}")
-        except Exception as e:
-            logging.error(f"Error evaluating data for scan step {index}: {e}")
+            logger.info("Successfully evaluated data for scan step %s", index)
+        except Exception:
+            logger.exception("Error evaluating data for scan step %s", index)
 
     def get_control_values_from_log(self) -> Dict[str, float]:
         """
@@ -783,16 +822,18 @@ class ScanStepExecutor:
                         variables[var].append(entry[var])
 
         # Compute average values with robust handling
-        averaged_values = {}
+        averaged_values: Dict[str, float] = {}
         for var, values in variables.items():
             if values:
                 # Compute mean for variables with logged data
                 averaged_values[var] = float(np.mean(values))
-                logging.debug(f"Computed average for {var}: {averaged_values[var]}")
+                logger.debug("Computed average for %s: %s", var, averaged_values[var])
             else:
                 # Use NaN for variables without logged data
-                logging.warning(
-                    f"No readback data found for variable '{var}' in bin {current_bin}"
+                logger.warning(
+                    "No readback data found for variable '%s' in bin %s",
+                    var,
+                    current_bin,
                 )
                 averaged_values[var] = float("nan")
 
@@ -865,33 +906,36 @@ class ScanStepExecutor:
             # Determine generation strategy based on step index
             if next_index <= num_initialization_steps:
                 # Initialization phase: use random inputs for comprehensive exploration
-                logging.info("Running optimizer initialization")
+                logger.info("Running optimizer initialization")
                 next_variables = self.optimizer.vocs.random_inputs(1)[0]
-                logging.debug(
-                    f"Initializer generated random variables: {next_variables}"
+                logger.debug(
+                    "Initializer generated random variables: %s", next_variables
                 )
             else:
                 # Advanced optimization phase: use sophisticated generation strategy
-                logging.info("Running advanced optimizer")
+                logger.info("Running advanced optimizer")
                 next_variables = self.optimizer.generate(1)[0]
-                logging.debug(
-                    f"Optimizer generated optimized variables: {next_variables}"
+                logger.debug(
+                    "Optimizer generated optimized variables: %s", next_variables
                 )
 
             # Log successful generation
-            logging.info(
-                f"Next experimental step generated using optimizer: {next_variables}"
+            logger.info(
+                "Next experimental step generated using optimizer: %s",
+                next_variables,
             )
 
-        except Exception as e:
+        except Exception:
             # Robust error handling with detailed logging
-            logging.warning(f"Failed to update next step via optimizer: {e}")
+            logger.exception("Failed to update next step via optimizer")
             return
 
         # Update scan steps with generated variables
         self.scan_steps[next_index].update({"variables": next_variables})
-        logging.info(
-            f"Updated scan step {next_index} with new configuration: {self.scan_steps[next_index]}"
+        logger.info(
+            "Updated scan step %s with new configuration: %s",
+            next_index,
+            self.scan_steps[next_index],
         )
 
     def trigger_on(self) -> None:
@@ -1044,5 +1088,5 @@ class ScanStepExecutor:
         time.sleep : Standard Python time-based pause mechanism
         wait_for_acquisition : Primary method managing acquisition timing
         """
-        logging.info(f"Hiatus: Waiting for {duration} seconds before saving data.")
+        logger.info("Hiatus: Waiting for %s seconds before saving data.", duration)
         time.sleep(duration)
