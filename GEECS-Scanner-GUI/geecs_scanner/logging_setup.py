@@ -122,14 +122,32 @@ class _SafeFlushMixin:
 
 
 class SafeStreamHandler(_SafeFlushMixin, logging.StreamHandler):
+    """A `logging.StreamHandler` that safely ignores benign stream errors.
+
+    Combines `StreamHandler` with `_SafeFlushMixin` to prevent spurious errors
+    on Windows when flushing or emitting to a closed or invalid stream.
+    """
+
     pass
 
 
 class SafeFileHandler(_SafeFlushMixin, logging.FileHandler):
+    """A `logging.FileHandler` that safely ignores benign stream errors.
+
+    Combines `FileHandler` with `_SafeFlushMixin` to prevent spurious errors
+    on Windows when flushing or emitting to a closed or invalid file handle.
+    """
+
     pass
 
 
 class SafeRotatingFileHandler(_SafeFlushMixin, logging.handlers.RotatingFileHandler):
+    """A `logging.handlers.RotatingFileHandler` that safely ignores benign stream errors.
+
+    Combines `RotatingFileHandler` with `_SafeFlushMixin` to prevent spurious errors
+    on Windows when flushing or emitting to a closed or invalid file handle.
+    """
+
     pass
 
 
