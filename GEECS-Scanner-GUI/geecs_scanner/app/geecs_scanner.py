@@ -70,9 +70,15 @@ MAXIMUM_SCAN_SIZE = (
 )
 
 # Lists of options to appear in the menu bar. Automatically connects these to options in the user's .ini file
-BOOLEAN_OPTIONS = ["On-Shot TDMS", "Save Direct on Network"]
-STRING_OPTIONS = ["Master Control IP", "Save Hiatus Period (s)"]
-
+BOOLEAN_OPTIONS = ["On-Shot TDMS", "Save Direct on Network", "Enable Global Time Sync"]
+STRING_OPTIONS = ["Master Control IP", "Save Hiatus Period (s)", "Global Time Tolerance (ms)"]
+# Menu labels ↔ backend keys + caster
+OPTION_MAP: dict[str, tuple[str, type]] = {
+    "Enable Global Time Sync": ("enable_global_time_sync", bool),
+    "Global Time Tolerance (ms)": ("global_time_tolerance_ms", float),  # cast to float first, clamp, then int
+    "Save Hiatus Period (s)": ("save_hiatus_s", float),
+    "Master Control IP": ("master_control_ip", str),
+}
 
 class GEECSScannerWindow(QMainWindow):
     """
@@ -588,7 +594,7 @@ class GEECSScannerWindow(QMainWindow):
             except KeyError:
                 logger.warning("No prior 'timing_configuration' set in config file")
             try:
-                ip_address = config["Options"]["master control ip"]
+                ip_address = config["Options"]["master_control_ip"]
                 logger.info("Will attempt to use IP '%s' for ECS dumps.", ip_address)
             except KeyError:
                 logger.warning("Not including master control ip, no ECS dumps.")
@@ -787,6 +793,57 @@ class GEECSScannerWindow(QMainWindow):
     # ------------------------------------------------------------------ #
     # Available/Selected element list management                          #
     # ------------------------------------------------------------------ #
+
+    def _get_menu_opt(self, label: str, default=None):
+        """Return the current value of a menu option by its label (string from your menus)."""
+        for opt in self.all_options:
+            if opt.get_name() == label:
+                try:
+                    val = opt.get_value()
+                except Exception:
+                    return default
+                return val if val not in ("", None) else default
+        return default
+
+    def _collect_options(self) -> dict:
+        """Read, cast, and validate menu options → backend-friendly keys."""
+        opts: dict = {}
+        for label, (key, caster) in OPTION_MAP.items():
+            raw = self._get_menu_opt(label, default=None)
+
+            # Booleans from MenuBarOptionBool should already be bools
+            if caster is bool:
+                value = bool(raw) if raw is not None else False
+
+            elif caster is float:
+                try:
+                    value = float(raw)
+                except (TypeError, ValueError):
+                    value = 0.0
+                # specific clamp for tolerance
+                if key == "global_time_tolerance_ms":
+                    value = max(0.0, min(value, 60_000.0))  # 0 … 60 s safety guard
+
+            elif caster is int:
+                try:
+                    value = int(raw)
+                except (TypeError, ValueError):
+                    value = 0
+            else:
+                value = str(raw) if raw is not None else ""
+
+            # Finalize types (e.g., tolerance as int ms)
+            if key == "global_time_tolerance_ms":
+                value = int(round(value))
+
+            opts[key] = value
+
+        # Always include repetition rate and GUI flag
+        opts["rep_rate_hz"] = self.repetition_rate
+        opts["randomized_beeps"] = getattr(self.ui, "actionRandomizedBeeps",
+                                           None) and self.ui.actionRandomizedBeeps.isChecked()
+
+        return opts
 
     def populate_available_element_list(self):
         """Populate the available elements list from the experiment's save_devices folder."""
@@ -1791,12 +1848,7 @@ class GEECSScannerWindow(QMainWindow):
 
         scan_config.background = str(self.ui.backgroundRadioButton.isChecked())
 
-        option_dict = {
-            "rep_rate_hz": self.repetition_rate,
-            "randomized_beeps": self.ui.actionRandomizedBeeps.isChecked(),
-        }
-        for opt in self.all_options:
-            option_dict[opt.get_name()] = opt.get_value()
+        option_dict = self._collect_options()
 
         run_config = {
             "Devices": save_device_list,

@@ -312,11 +312,13 @@ class ScanManager:
             self.device_manager, scan_data, database_dict
         )
 
+        logger.info("config dictionary in reinitialize: %s", config_dictionary)
+
         if config_dictionary is not None and "options" in config_dictionary:
             self.options_dict = config_dictionary["options"]
             self.save_local = not self.options_dict.get("Save Direct on Network", False)
 
-        new_mc_ip = self.options_dict.get("Master Control IP", "")
+        new_mc_ip = self.options_dict.get("master_control_ip", "")
         if self.shot_control and new_mc_ip and self.MC_ip != new_mc_ip:
             self.MC_ip = new_mc_ip
             self.enable_live_ECS_dump(client_ip=self.MC_ip)
@@ -324,6 +326,7 @@ class ScanManager:
         self.data_logger.reinitialize_sound_player(options=self.options_dict)
         self.data_logger.last_log_time_sync = {}
         self.data_logger.update_repetition_rate(self.options_dict.get("rep_rate_hz", 1))
+        self.data_logger.global_sync_tol_ms = self.options_dict.get("global_time_tolerance_ms", 0)
 
         self.initialization_success = True
         return self.initialization_success
@@ -542,21 +545,13 @@ class ScanManager:
                         "Estimated acquisition time based on scan config: %s seconds.",
                         self.acquisition_time,
                     )
-
+                logger.info("options dict: %s",self.options_dict)
                 # Start data logging
                 if self.save_data:
                     logger.info("add data saving here")
                     self.results = self.data_logger.start_logging()
                 else:
                     logger.info("not doing any data saving")
-
-                in_standby = self.check_devices_in_standby_mode()
-                if in_standby:
-                    pass
-                else:
-                    logger.info("Stopping scanning.")
-                    log_df = self.stop_scan()
-                    return log_df
 
                 if self.shot_control is not None:
                     self.synchronize_devices()
@@ -620,6 +615,8 @@ class ScanManager:
                 logger.info(
                     "Global time synchronization successful. Skipping timeout method."
                 )
+                #skip the check stanby step
+                self.data_logger.all_devices_in_standby = True
                 return
             else:
                 logger.info(
@@ -869,8 +866,6 @@ class ScanManager:
         # Generate the scan steps
         self.scan_steps = self._generate_scan_steps()
         logger.info("steps for the scan are : %s", self.scan_steps)
-
-        time.sleep(2)
 
         if self.save_data:
             self.scan_data_manager.configure_device_save_paths(

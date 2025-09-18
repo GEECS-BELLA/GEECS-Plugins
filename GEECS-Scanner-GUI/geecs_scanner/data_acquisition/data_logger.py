@@ -677,6 +677,7 @@ class DataLogger:
             If None, a new one is created using the experiment_dir.
         """
         self.device_manager = device_manager or DeviceManager(experiment_dir)
+        self.global_sync_tol_ms = 0
 
         self.stop_event = threading.Event()  # Event to control polling thread
         self.warning_timeout_sync = 2  # Timeout for synchronous devices (seconds)
@@ -794,12 +795,6 @@ class DataLogger:
 
         # Register the logging function for event-driven observables
         self._register_event_logging(self._handle_TCP_message_from_device)
-
-        logger.info(
-            "waiting for all devices to go to standby mode. Note, device standby status not checked, "
-            "just waiting 4 seconds for all devices to timeout"
-        )
-        time.sleep(1)
 
         logger.info("Logging has started for all event-driven devices.")
 
@@ -1548,11 +1543,7 @@ class DataLogger:
             logger.info("Only one or no devices to synchronize")
             return True
 
-        # Get tolerance from options (default 50ms = 0.05 seconds)
-        # Try to get from device_manager options_dict, fallback to default
-        options_dict = getattr(self.device_manager, "options_dict", {})
-        tolerance_ms = options_dict.get("global_time_tolerance_ms", 50)
-        tolerance_seconds = tolerance_ms / 1000.0
+        tolerance_seconds = self.global_sync_tol_ms / 1000.0
 
         # Get reference timestamp (first device)
         reference_timestamp = next(iter(timestamps.values()))
@@ -1562,7 +1553,7 @@ class DataLogger:
             "Checking timestamp tolerance with reference device %s (timestamp: %s), tolerance: %s ms",
             reference_device,
             reference_timestamp,
-            tolerance_ms,
+            self.global_sync_tol_ms,
         )
 
         # Check all other timestamps against reference
@@ -1582,9 +1573,9 @@ class DataLogger:
                     "Device %s timestamp differs by %s ms (> %s ms tolerance)",
                     device_name,
                     time_diff * 1000,
-                    tolerance_ms,
+                    self.global_sync_tol_ms,
                 )
                 return False
 
-        logger.info("All device timestamps within %s ms tolerance", tolerance_ms)
+        logger.info("All device timestamps within %s ms tolerance", self.global_sync_tol_ms)
         return True
