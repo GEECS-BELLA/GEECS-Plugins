@@ -939,7 +939,7 @@ class ScanManager:
 
         for step in steps:
             success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
-            time.sleep(3.5)
+            time.sleep(0.5)
             logger.info("enable live ecs dumps step %s complete", step)
             if not success:
                 logger.warning(
@@ -1241,8 +1241,8 @@ class ScanManager:
         """
         total_time = 0
 
-        if self.device_manager.is_statistic_noscan(self.scan_config.device_var):
-            total_time += self.scan_config.wait_time - 0.5
+        if self.scan_config.scan_mode is ScanMode.NOSCAN or self.scan_config.scan_mode is ScanMode.BACKGROUND:
+            total_time = self.scan_config.wait_time - 0.5
         else:
             start = self.scan_config.start
             end = self.scan_config.end
