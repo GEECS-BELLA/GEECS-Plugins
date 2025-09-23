@@ -75,7 +75,7 @@ e_beam_camera_configs = {
         "spatial_calibration": 0.00002394,
     },
     "UC_ALineEBeam3": {
-        "bkg_level": 0,
+        "bkg_level": 50,
         "left_ROI": 175,  # orginal value: 180
         "top_ROI": 100,  # orginal value: 200
         "roi_width": 800,  # orginal value: 500
@@ -187,6 +187,15 @@ e_beam_camera_configs = {
         "blue_cent_x": 1,  # placeholder
         "blue_cent_y": 1,  # placeholder
     },
+    "HTT-C-ASSERTLowR": {
+        "bkg_level": 30,
+        "left_ROI": 305,
+        "top_ROI": 450,
+        "roi_width": 300,
+        "roi_height": 200,
+        "rotate": 0,
+        "spatial_calibration": 0.0000075,
+    },
 }
 
 
@@ -286,7 +295,12 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         stack = self.image_preprocess(stack)
         self.preprocessed = True
         stack = self.background.subtract_imagewise_mode(stack)
+
+        self.background.generate_apodization_mask(stack=stack, method='fixed',threshold=10)
+        stack=self.background.apply_apodization(stack)
+
         return list(stack), {"preprocessed": self.preprocessed}
+
 
     @staticmethod
     def create_cross_mask(
@@ -373,9 +387,9 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         beam_stats_flat = flatten_beam_stats(
             beam_profile_stats(final_image), prefix=self.camera_name
         )
-        gauss_params = {
-            f"{self.camera_name}_{k}": v for k, v in gauss_fit(final_image).items()
-        }
+        # gauss_params = {
+        #     f"{self.camera_name}_{k}": v for k, v in gauss_fit(final_image).items()
+        # }
 
         horiz_lineout = final_image.sum(axis=0)
         vert_lineout = final_image.sum(axis=1)
@@ -383,8 +397,9 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         return_dict = self.build_return_dictionary(
             return_image=final_image,
             input_parameters=self.kwargs_dict,
-            return_scalars={**beam_stats_flat, **gauss_params},
+            return_scalars={**beam_stats_flat},
             return_lineouts=[horiz_lineout, vert_lineout],
+            coerce_lineout_length=False
         )
 
         if self.use_interactive:
@@ -411,8 +426,15 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
         figsize: Tuple[float, float] = (4, 4),
         dpi: int = 150,
         ax: Optional[plt.Axes] = None,
+        fixed_width_in: float = 4.0,
     ) -> tuple[plt.Figure, plt.Axes]:
         """Render image with optional beam centroid and lineouts overlay."""
+
+        h, w = image.shape[:2]
+        # Compute figure size to preserve aspect when we create a new figure
+        height_in = max(1e-6, fixed_width_in * (h / float(w)))
+        computed_figsize = (fixed_width_in, height_in)
+
         fig, ax = base_render_image(
             image=image,
             analysis_results_dict=analysis_results_dict,
@@ -421,7 +443,7 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,
-            figsize=figsize,
+            figsize=computed_figsize,
             dpi=dpi,
             ax=ax,
         )
@@ -431,7 +453,7 @@ class EBeamProfileAnalyzer(ImageAnalyzer):
             cy = input_params_dict["blue_cent_y"] - input_params_dict.get("top_ROI", 0)
             ax.plot(cx, cy, "bo", markersize=5)
 
-        if lineouts and len(lineouts) == 2:
+        if len(lineouts) == 2:
             horiz, vert = np.clip(lineouts[0], 0, None), np.clip(lineouts[1], 0, None)
             img_h, img_w = image.shape
             horiz_norm = horiz / np.max(horiz) * img_h * 0.2
