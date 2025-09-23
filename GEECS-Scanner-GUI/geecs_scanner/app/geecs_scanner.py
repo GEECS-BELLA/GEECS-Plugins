@@ -71,14 +71,22 @@ MAXIMUM_SCAN_SIZE = (
 
 # Lists of options to appear in the menu bar. Automatically connects these to options in the user's .ini file
 BOOLEAN_OPTIONS = ["On-Shot TDMS", "Save Direct on Network", "Enable Global Time Sync"]
-STRING_OPTIONS = ["Master Control IP", "Save Hiatus Period (s)", "Global Time Tolerance (ms)"]
+STRING_OPTIONS = [
+    "Master Control IP",
+    "Save Hiatus Period (s)",
+    "Global Time Tolerance (ms)",
+]
 # Menu labels ↔ backend keys + caster
 OPTION_MAP: dict[str, tuple[str, type]] = {
     "Enable Global Time Sync": ("enable_global_time_sync", bool),
-    "Global Time Tolerance (ms)": ("global_time_tolerance_ms", float),  # cast to float first, clamp, then int
+    "Global Time Tolerance (ms)": (
+        "global_time_tolerance_ms",
+        float,
+    ),  # cast to float first, clamp, then int
     "Save Hiatus Period (s)": ("save_hiatus_s", float),
     "Master Control IP": ("master_control_ip", str),
 }
+
 
 class GEECSScannerWindow(QMainWindow):
     """
@@ -840,8 +848,10 @@ class GEECSScannerWindow(QMainWindow):
 
         # Always include repetition rate and GUI flag
         opts["rep_rate_hz"] = self.repetition_rate
-        opts["randomized_beeps"] = getattr(self.ui, "actionRandomizedBeeps",
-                                           None) and self.ui.actionRandomizedBeeps.isChecked()
+        opts["randomized_beeps"] = (
+            getattr(self.ui, "actionRandomizedBeeps", None)
+            and self.ui.actionRandomizedBeeps.isChecked()
+        )
 
         return opts
 

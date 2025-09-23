@@ -1577,5 +1577,7 @@ class DataLogger:
                 )
                 return False
 
-        logger.info("All device timestamps within %s ms tolerance", self.global_sync_tol_ms)
+        logger.info(
+            "All device timestamps within %s ms tolerance", self.global_sync_tol_ms
+        )
         return True
