@@ -326,7 +326,9 @@ class ScanManager:
         self.data_logger.reinitialize_sound_player(options=self.options_dict)
         self.data_logger.last_log_time_sync = {}
         self.data_logger.update_repetition_rate(self.options_dict.get("rep_rate_hz", 1))
-        self.data_logger.global_sync_tol_ms = self.options_dict.get("global_time_tolerance_ms", 0)
+        self.data_logger.global_sync_tol_ms = self.options_dict.get(
+            "global_time_tolerance_ms", 0
+        )
 
         self.initialization_success = True
         return self.initialization_success
@@ -545,7 +547,7 @@ class ScanManager:
                         "Estimated acquisition time based on scan config: %s seconds.",
                         self.acquisition_time,
                     )
-                logger.info("options dict: %s",self.options_dict)
+                logger.info("options dict: %s", self.options_dict)
                 # Start data logging
                 if self.save_data:
                     logger.info("add data saving here")
@@ -615,7 +617,7 @@ class ScanManager:
                 logger.info(
                     "Global time synchronization successful. Skipping timeout method."
                 )
-                #skip the check stanby step
+                # skip the check stanby step
                 self.data_logger.all_devices_in_standby = True
                 return
             else:
@@ -1241,7 +1243,10 @@ class ScanManager:
         """
         total_time = 0
 
-        if self.scan_config.scan_mode is ScanMode.NOSCAN or self.scan_config.scan_mode is ScanMode.BACKGROUND:
+        if (
+            self.scan_config.scan_mode is ScanMode.NOSCAN
+            or self.scan_config.scan_mode is ScanMode.BACKGROUND
+        ):
             total_time = self.scan_config.wait_time - 0.5
         else:
             start = self.scan_config.start
