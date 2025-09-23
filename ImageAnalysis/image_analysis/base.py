@@ -176,6 +176,7 @@ class ImageAnalyzer:
         return_scalars: Optional[dict[str, Union[int, float]]] = None,
         return_lineouts: Optional[Union[NDArray, list[NDArray]]] = None,
         input_parameters: Optional[dict[str, Any]] = None,
+        coerce_lineout_length: Optional[bool] =  True
     ) -> AnalyzerResultDict:
         """Build a return dictionary compatible with labview_adapters.py.
 
@@ -189,12 +190,15 @@ class ImageAnalyzer:
         return_lineouts : list(np.ndarray)
             Lineouts to be returned to labview.  Need to be given as a list of 1d arrays (numpy or otherwise)
             If not given, will return a 1x1 array of zeros.  If in an incorrect format, will return a 1x1 array of
-            zeros and print a reminder message.  If the arrays in the list are of unequal length, all arrays get
-            padded with zeros to the size of the largest array.  Also, will be returned as a 'float64'
+            zeros and print a reminder message.    Also, will be returned as a 'float64'
         input_parameters : dict
             Dictionary of the input parameters given to the image_analyzer.  If none is given, will call the class's
             self.build_input_parameter_dictionary() function to generate one from the class variables.  This is not
             returned to Labview, so it can contain anything one might find useful in post-analysis
+        coerce_lineout_length : bool
+            If the arrays in the list of return_linetours are of unequal length, all arrays get
+            padded with zeros to the size of the largest array if coerce_lineout_length is true. This is necessary
+            for analyzers used by labview
 
         Returns
         -------
@@ -233,12 +237,13 @@ class ImageAnalyzer:
             if return_lineouts is None:
                 return_lineouts = np.zeros((1, 1), dtype=np.float64)
             else:
-                max_length = max(map(len, return_lineouts))
-                return_lineouts = [
-                    np.pad(lineout, (0, max_length - len(lineout)), mode="constant")
-                    for lineout in return_lineouts
-                ]
-                return_lineouts = np.vstack(return_lineouts).astype(np.float64)
+                if coerce_lineout_length:
+                    max_length = max(map(len, return_lineouts))
+                    return_lineouts = [
+                        np.pad(lineout, (0, max_length - len(lineout)), mode="constant")
+                        for lineout in return_lineouts
+                    ]
+                    return_lineouts = np.vstack(return_lineouts).astype(np.float64)
         return_dictionary["analyzer_return_lineouts"] = return_lineouts
 
         if input_parameters is None:
