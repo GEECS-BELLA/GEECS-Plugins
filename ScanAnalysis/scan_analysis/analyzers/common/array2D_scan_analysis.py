@@ -632,9 +632,9 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             lineouts = [
                 self.results[sn].get("analyzer_return_lineouts")
                 for sn in valid_shots
-                if isinstance(
-                    self.results[sn].get("analyzer_return_lineouts"), np.ndarray
-                )
+                # if isinstance(
+                #     self.results[sn].get("analyzer_return_lineouts"), np.ndarray
+                # )
             ]
             # just extract the first entry in the input parameters, as it isn't expected to change
             input_params = self.results[valid_shots[0]].get(
@@ -653,10 +653,16 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             avg_vals = {k: np.mean(v, axis=0) for k, v in sums.items()}
 
             if lineouts:
-                lineouts_array = np.stack(lineouts)
-                average_lineout = np.mean(lineouts_array, axis=0)
+                # unzip into two lists: all x-lineouts, all y-lineouts
+                x_list = [lo[0] for lo in lineouts if lo is not None]
+                y_list = [lo[1] for lo in lineouts if lo is not None]
+
+                avg_x = np.mean(np.stack(x_list, axis=0), axis=0) if x_list else None
+                avg_y = np.mean(np.stack(y_list, axis=0), axis=0) if y_list else None
+
+                average_lineouts = [avg_x, avg_y]
             else:
-                average_lineout = None
+                average_lineouts = None
 
             # Get representative scan parameter value
             column_full_name, _ = self.find_scan_param_column()
@@ -670,7 +676,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                     "processed_image": avg_image,
                     "analyzer_return_dictionary": avg_vals,
                     "analyzer_input_parameters": input_params,
-                    "analyzer_return_lineouts": average_lineout,
+                    "analyzer_return_lineouts": average_lineouts,
                 },
             }
 
@@ -792,43 +798,48 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         grid_cols = int(np.ceil(np.sqrt(num_images)))
         grid_rows = int(np.ceil(num_images / grid_cols))
 
-        # Extract valid images from the result dicts
         images = [
             entry["result"]["processed_image"]
             for entry in binned_data.values()
             if entry["result"].get("processed_image") is not None
         ]
+        if not images:
+            return
+
         vmin = 0
-        vmax = (
-            plot_scale
-            if plot_scale is not None
-            else np.max([img.max() for img in images])
-        )
+        vmax = plot_scale if plot_scale is not None else np.max([img.max() for img in images])
 
         render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
+
+        # --- scale figure to image aspect ---
+        h0, w0 = images[0].shape[:2]
+        cell_w_in = figsize[0]
+        cell_h_in = cell_w_in * (h0 / float(w0))
+        fig_w_in = grid_cols * cell_w_in
+        fig_h_in = grid_rows * cell_h_in
 
         fig, axs = plt.subplots(
             grid_rows,
             grid_cols,
-            figsize=(grid_cols * figsize[0], grid_rows * figsize[1]),
+            figsize=(fig_w_in, fig_h_in),
             dpi=dpi,
             constrained_layout=True,
         )
-        axs = axs.flatten()
+        axs = np.ravel(axs)  # always 1-D array
         fig.suptitle(f"Scan parameter: {self.scan_parameter}", fontsize=12)
 
         img_handle = None
+
         for idx, (bin_val, entry) in enumerate(binned_data.items()):
             if idx >= len(axs):
                 break
+            ax = axs[idx]
 
             result = entry["result"]
             img = result.get("processed_image")
             if img is None:
                 continue
 
-            result = entry["result"]
-            img = result.get("processed_image")
             analysis_results = result.get("analyzer_return_dictionary", {})
             input_params = result.get("analyzer_input_parameters", {})
             lineouts = result.get("analyzer_return_lineouts", [])
@@ -841,23 +852,29 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 lineouts=lineouts,
                 vmin=vmin,
                 vmax=vmax,
-                ax=axs[idx],
+                ax=ax,
             )
-            axs[idx].set_title(f"{param_val:.2f}", fontsize=10)
 
-            if img_handle is None and axs[idx].images:
-                img_handle = axs[idx].images[0]
+            ax.set_title(f"{param_val:.2f}", fontsize=10)
 
+            if img_handle is None and ax.images:
+                img_handle = ax.images[0]
+
+        # colorbar
         if img_handle:
             fig.colorbar(
                 img_handle,
-                ax=axs,
+                ax=axs.tolist(),
                 orientation="horizontal",
                 label="Intensity",
                 shrink=0.8,
                 pad=0.01,
                 aspect=40,
             )
+
+        # hide unused axes
+        for j in range(num_images, len(axs)):
+            axs[j].set_visible(False)
 
         if save_path is None:
             filename = f"{self.device_name}_averaged_image_grid.png"
