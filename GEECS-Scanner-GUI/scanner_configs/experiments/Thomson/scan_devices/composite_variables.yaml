@@ -1,0 +1,10 @@
+composite_variables:
+  ebeam_profile_zScan:
+    components:
+    - device: Assert-Ctrl_DUTStage
+      relation: composite_var
+      variable: Position.Ch1
+    - device: HTT-TC_Zabers_II
+      relation: 100 - composite_var
+      variable: Position.Ch1
+    mode: absolute
