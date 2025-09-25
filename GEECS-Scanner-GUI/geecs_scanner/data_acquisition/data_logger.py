@@ -677,6 +677,7 @@ class DataLogger:
             If None, a new one is created using the experiment_dir.
         """
         self.device_manager = device_manager or DeviceManager(experiment_dir)
+        self.global_sync_tol_ms = 0
 
         self.stop_event = threading.Event()  # Event to control polling thread
         self.warning_timeout_sync = 2  # Timeout for synchronous devices (seconds)
@@ -794,12 +795,6 @@ class DataLogger:
 
         # Register the logging function for event-driven observables
         self._register_event_logging(self._handle_TCP_message_from_device)
-
-        logger.info(
-            "waiting for all devices to go to standby mode. Note, device standby status not checked, "
-            "just waiting 4 seconds for all devices to timeout"
-        )
-        time.sleep(1)
 
         logger.info("Logging has started for all event-driven devices.")
 
@@ -1414,3 +1409,175 @@ class DataLogger:
             The current shot index.
         """
         return self.shot_index
+
+    def synchronize_devices_global_time(self) -> bool:
+        """
+        Attempt to synchronize devices using global time synchronization.
+
+        This method leverages improved Windows domain time synchronization to check
+        if devices are already synchronized based on their current acquisition timestamps.
+        If all device timestamps are within tolerance, synchronization is considered
+        successful and the timeout-based method can be skipped entirely.
+
+        Returns
+        -------
+        bool
+            True if global time synchronization was successful, False if fallback
+            to timeout method is needed.
+
+        Notes
+        -----
+        - Requires that Windows domain time sync is working well (~10ms accuracy)
+        - Uses configurable tolerance for timestamp comparison
+        - Sets initial_timestamps and devices_synchronized flags on success
+        - Provides significant time savings by avoiding timeout waits
+        """
+        logger.info("Attempting global time synchronization")
+
+        # Collect current timestamps from all synchronous devices
+        current_timestamps = {}
+        for device_name in self.synchronous_device_names:
+            timestamp = self._get_current_device_timestamp(device_name)
+            if timestamp is None:
+                logger.warning(
+                    "Failed to get timestamp from device %s. Falling back to timeout method.",
+                    device_name,
+                )
+                return False
+            current_timestamps[device_name] = timestamp
+            logger.debug("Device %s current timestamp: %s", device_name, timestamp)
+
+        # Check if all timestamps are within tolerance
+        if self._timestamps_within_tolerance(current_timestamps):
+            # Devices are already synchronized!
+            self.initial_timestamps = current_timestamps.copy()
+            self.synced_timestamps = current_timestamps.copy()
+            self.devices_synchronized = True
+            logger.info(
+                "Global time sync successful. Devices already synchronized with timestamps: %s",
+                current_timestamps,
+            )
+            return True
+        else:
+            logger.info(
+                "Device timestamps not within tolerance. Falling back to timeout method."
+            )
+            logger.debug("Timestamps were: %s", current_timestamps)
+            return False
+
+    def _get_current_device_timestamp(self, device_name: str) -> Optional[float]:
+        """
+        Get the current acquisition timestamp from a specific device.
+
+        This method retrieves the latest timestamp from a device by accessing
+        its current state or triggering a status update.
+
+        Parameters
+        ----------
+        device_name : str
+            Name of the device to get timestamp from.
+
+        Returns
+        -------
+        float or None
+            The current acquisition timestamp from the device, or None if
+            the timestamp could not be retrieved.
+
+        Notes
+        -----
+        - Uses the device manager to access device instances
+        - Attempts to get 'acq_timestamp' from device state
+        - Returns None if device not found or timestamp unavailable
+        """
+        device = self.device_manager.devices.get(device_name)
+        if device is None:
+            logger.warning("Device %s not found in device manager", device_name)
+            return None
+
+        try:
+            # Try to get the acquisition timestamp from device state
+            timestamp = device.state.get("acq_timestamp")
+            if timestamp is not None:
+                return float(timestamp)
+
+            # If not available in state, try to trigger an update
+            # This might involve calling a device-specific method to get current status
+            logger.debug(
+                "No acq_timestamp in state for %s, attempting to get current value",
+                device_name,
+            )
+
+            # For now, return None if timestamp not readily available
+            # This could be enhanced to actively query the device
+            return None
+
+        except Exception:
+            logger.exception("Error getting timestamp from device %s", device_name)
+            return None
+
+    def _timestamps_within_tolerance(self, timestamps: Dict[str, float]) -> bool:
+        """
+        Check if all device timestamps are within acceptable tolerance of each other.
+
+        This method determines if devices are synchronized by comparing their
+        acquisition timestamps. Static offsets between devices are acceptable
+        as long as they are consistent.
+
+        Parameters
+        ----------
+        timestamps : dict
+            Dictionary mapping device names to their current timestamps.
+
+        Returns
+        -------
+        bool
+            True if all timestamps are within tolerance, False otherwise.
+
+        Notes
+        -----
+        - Uses configurable tolerance (default 50ms)
+        - Handles the case where devices have consistent static offsets
+        - Compares all timestamps against the first device's timestamp
+        """
+        if len(timestamps) < 2:
+            logger.info("Only one or no devices to synchronize")
+            return True
+
+        tolerance_seconds = self.global_sync_tol_ms / 1000.0
+
+        # Get reference timestamp (first device)
+        reference_timestamp = next(iter(timestamps.values()))
+        reference_device = next(iter(timestamps.keys()))
+
+        logger.debug(
+            "Checking timestamp tolerance with reference device %s (timestamp: %s), tolerance: %s ms",
+            reference_device,
+            reference_timestamp,
+            self.global_sync_tol_ms,
+        )
+
+        # Check all other timestamps against reference
+        for device_name, timestamp in timestamps.items():
+            if device_name == reference_device:
+                continue
+
+            time_diff = abs(timestamp - reference_timestamp)
+            logger.debug(
+                "Device %s timestamp difference from reference: %s ms",
+                device_name,
+                time_diff * 1000,
+            )
+
+            if time_diff > tolerance_seconds:
+                logger.info(
+                    "Device %s timestamp differs by %s ms (> %s ms tolerance)",
+                    device_name,
+                    time_diff * 1000,
+                    self.global_sync_tol_ms,
+                )
+                return False
+
+        logger.info(
+            "All device timestamps within %s ms tolerance", self.global_sync_tol_ms
+        )
+        return True

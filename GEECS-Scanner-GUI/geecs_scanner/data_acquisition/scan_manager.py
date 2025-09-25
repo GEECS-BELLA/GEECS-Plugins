@@ -312,11 +312,13 @@ class ScanManager:
             self.device_manager, scan_data, database_dict
         )
 
+        logger.info("config dictionary in reinitialize: %s", config_dictionary)
+
         if config_dictionary is not None and "options" in config_dictionary:
             self.options_dict = config_dictionary["options"]
             self.save_local = not self.options_dict.get("Save Direct on Network", False)
 
-        new_mc_ip = self.options_dict.get("Master Control IP", "")
+        new_mc_ip = self.options_dict.get("master_control_ip", "")
         if self.shot_control and new_mc_ip and self.MC_ip != new_mc_ip:
             self.MC_ip = new_mc_ip
             self.enable_live_ECS_dump(client_ip=self.MC_ip)
@@ -324,6 +326,9 @@ class ScanManager:
         self.data_logger.reinitialize_sound_player(options=self.options_dict)
         self.data_logger.last_log_time_sync = {}
         self.data_logger.update_repetition_rate(self.options_dict.get("rep_rate_hz", 1))
+        self.data_logger.global_sync_tol_ms = self.options_dict.get(
+            "global_time_tolerance_ms", 0
+        )
 
         self.initialization_success = True
         return self.initialization_success
@@ -542,21 +547,13 @@ class ScanManager:
                         "Estimated acquisition time based on scan config: %s seconds.",
                         self.acquisition_time,
                     )
-
+                logger.info("options dict: %s", self.options_dict)
                 # Start data logging
                 if self.save_data:
                     logger.info("add data saving here")
                     self.results = self.data_logger.start_logging()
                 else:
                     logger.info("not doing any data saving")
-
-                in_standby = self.check_devices_in_standby_mode()
-                if in_standby:
-                    pass
-                else:
-                    logger.info("Stopping scanning.")
-                    log_df = self.stop_scan()
-                    return log_df
 
                 if self.shot_control is not None:
                     self.synchronize_devices()
@@ -598,21 +595,38 @@ class ScanManager:
 
     def synchronize_devices(self) -> None:
         """
-        Attempt to synchronize all devices by firing test shots and checking their standby status.
+        Attempt to synchronize all devices using global time sync or fallback to timeout method.
 
-        This method repeatedly fires a single-shot trigger and checks whether all devices
-        have exited standby mode. If synchronization fails, it resets device status and
-        retries until synchronization is successful or a timeout is reached.
+        This method first tries to use global time synchronization if enabled, which leverages
+        improved Windows domain time synchronization to check if devices are already synchronized.
+        If global sync fails or is disabled, it falls back to the original timeout-based method.
 
         Notes
         -----
-        Devices are considered synchronized when all have exited standby mode
-        after a test shot and responded appropriately.
+        Global time sync provides significant time savings by avoiding timeout waits when
+        devices are already synchronized. The timeout method serves as a robust fallback.
 
         Raises
         ------
         None directly, but logs and stops the scan if timeout is reached.
         """
+        # Try global time synchronization first if enabled
+        if self.options_dict.get("enable_global_time_sync", False):
+            logger.info("Attempting global time synchronization")
+            if self.data_logger.synchronize_devices_global_time():
+                logger.info(
+                    "Global time synchronization successful. Skipping timeout method."
+                )
+                # skip the check stanby step
+                self.data_logger.all_devices_in_standby = True
+                return
+            else:
+                logger.info(
+                    "Global time synchronization failed. Falling back to timeout method."
+                )
+
+        # Original timeout-based synchronization method
+        logger.info("Using timeout-based synchronization method")
         timeout = 25.5  # seconds
         start_time = time.time()
         while not self.data_logger.devices_synchronized:
@@ -631,7 +645,7 @@ class ScanManager:
                 # wait 2 seconds after the test fire to allow time for shot to execute and for devices to respond
                 time.sleep(2)
                 if self.data_logger.devices_synchronized:
-                    logger.info("Devices synchronized.")
+                    logger.info("Devices synchronized using timeout method.")
                     break
                 else:
                     logger.warning("Not all devices exited standby after single shot.")
@@ -855,8 +869,6 @@ class ScanManager:
         self.scan_steps = self._generate_scan_steps()
         logger.info("steps for the scan are : %s", self.scan_steps)
 
-        time.sleep(2)
-
         if self.save_data:
             self.scan_data_manager.configure_device_save_paths(
                 save_local=self.save_local
@@ -929,7 +941,7 @@ class ScanManager:
 
         for step in steps:
             success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
-            time.sleep(3.5)
+            time.sleep(0.5)
             logger.info("enable live ecs dumps step %s complete", step)
             if not success:
                 logger.warning(
@@ -1231,8 +1243,11 @@ class ScanManager:
         """
         total_time = 0
 
-        if self.device_manager.is_statistic_noscan(self.scan_config.device_var):
-            total_time += self.scan_config.wait_time - 0.5
+        if (
+            self.scan_config.scan_mode is ScanMode.NOSCAN
+            or self.scan_config.scan_mode is ScanMode.BACKGROUND
+        ):
+            total_time = self.scan_config.wait_time - 0.5
         else:
             start = self.scan_config.start
             end = self.scan_config.end
