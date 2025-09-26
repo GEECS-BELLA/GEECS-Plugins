@@ -27,7 +27,7 @@ ruff = "^0.4"  # Use compatible version with ruff-pre-commit
 pydocstyle = "^6.3"
 interrogate = "^1.7"  # For docstring coverage reporting
 
-jupyterlab = "^4.0"
+jupyterlab = "^4.4"
 mkdocs-jupyter = "^0.24.6"  # or latest version
 ipykernel = "^6.30.1"
 
