@@ -5,7 +5,7 @@ codebase, as well as the :class:`AnalyzerResultDict` TypedDict describing the
 structure of results returned by analyzers.
 """
 
-from typing import NewType, TYPE_CHECKING
+from typing import NewType, TYPE_CHECKING, Any, Union, Optional
 
 # exception to handle python 3.7
 try:
@@ -13,16 +13,27 @@ try:
 except ImportError:
     from typing_extensions import TypedDict
 
-if TYPE_CHECKING:
-    from typing import Any, Union, Optional
-
+# Import numpy types for runtime use
+try:
     from numpy.typing import NDArray
+except ImportError:
+    # Fallback for older numpy versions
+    import numpy as np
+
+    NDArray = np.ndarray
+
+if TYPE_CHECKING:
     from pint import Quantity
 
     Array2D = NewType("Array2D", NDArray)
 
     QuantityArray = NewType("QuantityArray", Quantity)
     QuantityArray2D = NewType("QuantityArray2D", Quantity)
+else:
+    # Runtime definitions for when TYPE_CHECKING is False
+    Array2D = NDArray
+    QuantityArray = object
+    QuantityArray2D = object
 
 
 class AnalyzerResultDict(TypedDict):

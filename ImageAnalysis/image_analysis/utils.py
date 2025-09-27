@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Union, Optional
+from typing import TYPE_CHECKING, Optional, Union
+
+if TYPE_CHECKING:
+    from .types import Array2D
+
 from warnings import warn
 
 import numpy as np
@@ -138,6 +142,29 @@ def extract_shot_number(filename):
     if match:
         return int(match.group(1))
     return None
+
+
+def ensure_float64_processing(image: "Array2D") -> "Array2D":
+    """
+    Ensure image is in float64 format for processing.
+
+    This function converts images to float64 to handle:
+    - 16-bit images without loss of precision
+    - Negative values from background subtraction
+    - Proper arithmetic operations
+
+    Parameters
+    ----------
+    image : Array2D
+        Input image of any numeric dtype.
+
+    Returns
+    -------
+    Array2D
+        Image converted to float64.
+
+    """
+    return image.astype(np.float64)
 
 
 class ROI:

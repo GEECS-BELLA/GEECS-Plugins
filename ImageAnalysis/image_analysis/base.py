@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from .types import Array2D, AnalyzerResultDict
 
 from image_analysis.utils import read_imaq_image
-from image_analysis.tools.background import Background
+from image_analysis.processing.background_manager import BackgroundManager
 
 
 class ImageAnalyzer:
@@ -32,7 +32,7 @@ class ImageAnalyzer:
     # asynchronously, for example if it waits for an external process
     run_analyze_image_asynchronously = False
 
-    def __init__(self, background: Background = None, **config):
+    def __init__(self, background_manager: BackgroundManager = None, **config):
         """Initialize the ImageAnalyzer with optional background and keyword configuration parameters.
 
         As the same ImageAnalyzer instance can be applied to many images,
@@ -44,40 +44,19 @@ class ImageAnalyzer:
         defaults, and documentation. These are all used for LivePostProcessing
         for example.
 
-        If background subtraction is required, a `Background` instance can be provided here.
+        If background subtraction is required, a `BackgroundManager` instance can be provided here.
         If none is given, a default-initialized one will be created.
 
         It should also call super().__init__()
-
-        Example subclass constructor:
-
-        def __init__(self, background: Background = None,
-                     highpass_cutoff: float = 0.12,
-                     roi: ROI = ROI(top=120, bottom=700, left=None, right=1200),
-                     background_path: Path = background_folder / "cam1_background.png",
-                    ):
-            "" "
-
-        Parameters
-        ----------
-            highpass_cutoff: float
-                For the Butterworth filter, in px^-1
-            "" "
-
-            self.highpass_cutoff = highpass_cutoff
-            self.roi = roi
-            background = Background()
-            background.load_background_from_file(background_path)
-            super().__init__(background=background)
 
         Parameters
         ----------
         **config :
             Optional configuration kwargs.
-        background : Optional[Background]
-            An Background instance. If not provided, a new one will be created.
+        background_manager : Optional[BackgroundManager]
+            An BackgroundManager instance. If not provided, a new one will be created.
         """
-        self.background = background or Background()
+        self.background_manager = background_manager or BackgroundManager()
 
     def analyze_image(
         self, image: Array2D, auxiliary_data: Optional[dict] = None
@@ -176,7 +155,7 @@ class ImageAnalyzer:
         return_scalars: Optional[dict[str, Union[int, float]]] = None,
         return_lineouts: Optional[Union[NDArray, list[NDArray]]] = None,
         input_parameters: Optional[dict[str, Any]] = None,
-        coerce_lineout_length: Optional[bool] =  True
+        coerce_lineout_length: Optional[bool] = True,
     ) -> AnalyzerResultDict:
         """Build a return dictionary compatible with labview_adapters.py.
 
