@@ -7,6 +7,7 @@ All functions take images as input and return processed images.
 """
 
 import numpy as np
+import cv2
 import logging
 from typing import Tuple
 from ..types import Array2D
@@ -19,16 +20,15 @@ def apply_crosshair_masking(image: Array2D, config: CrosshairMaskingConfig) -> A
     """
     Apply crosshair masking to remove fiducial markers from image.
 
-    This function masks out crosshair-shaped fiducial markers that are commonly
-    present in beam imaging systems. The crosshairs are replaced with the
-    specified mask value.
+    This function supports both the original sophisticated crosshair masking
+    with rotation and custom dimensions, and the legacy simple line masking.
 
     Parameters
     ----------
     image : Array2D
         Input image to process.
     config : CrosshairMaskingConfig
-        Configuration specifying crosshair locations, mask size, and mask value.
+        Configuration specifying crosshair parameters.
 
     Returns
     -------
@@ -42,16 +42,124 @@ def apply_crosshair_masking(image: Array2D, config: CrosshairMaskingConfig) -> A
     # Create a copy to avoid modifying the original image
     masked_image = image.copy()
 
-    # Apply masking for each crosshair location
-    for cross_location in [
-        config.fiducial_cross1_location,
-        config.fiducial_cross2_location,
-    ]:
-        masked_image = _mask_crosshair_at_location(
-            masked_image, cross_location, config.mask_size, config.mask_value
+    if config.is_legacy_mode():
+        # Use legacy simple line masking
+        logger.debug("Using legacy crosshair masking mode")
+        for cross_location in [
+            config.fiducial_cross1_location,
+            config.fiducial_cross2_location,
+        ]:
+            if cross_location is not None:
+                masked_image = _mask_crosshair_at_location(
+                    masked_image, cross_location, config.mask_size, config.mask_value
+                )
+    else:
+        # Use sophisticated crosshair masking with rotation support
+        logger.debug(
+            f"Using sophisticated crosshair masking for {len(config.crosshairs)} crosshairs"
         )
+        for crosshair in config.crosshairs:
+            cross_mask = create_cross_mask(
+                image.shape,
+                crosshair.center,
+                crosshair.width,
+                crosshair.height,
+                crosshair.thickness,
+                crosshair.angle,
+            )
+            # Apply mask: multiply image by (1 - mask) to zero out crosshair regions
+            # Then add mask_value * mask to set crosshair regions to desired value
+            masked_image = (
+                masked_image * (1 - cross_mask) + config.mask_value * cross_mask
+            )
 
     return masked_image
+
+
+def create_cross_mask(
+    image_shape: Tuple[int, int],
+    center: Tuple[int, int],
+    width: int,
+    height: int,
+    thickness: int,
+    angle: float = 0.0,
+) -> Array2D:
+    """
+    Create a binary mask for a crosshair pattern with rotation support.
+
+    This function recreates the original sophisticated crosshair masking
+    algorithm that was used in the EBeamProfileAnalyzer.
+
+    Parameters
+    ----------
+    image_shape : Tuple[int, int]
+        Shape of the image (height, width).
+    center : Tuple[int, int]
+        Center coordinates (x, y) of the crosshair.
+    width : int
+        Width of the crosshair in pixels.
+    height : int
+        Height of the crosshair in pixels.
+    thickness : int
+        Thickness of the crosshair lines in pixels.
+    angle : float, optional
+        Rotation angle in degrees. Default is 0.0.
+
+    Returns
+    -------
+    Array2D
+        Binary mask where 1 indicates crosshair regions and 0 indicates background.
+
+    """
+    img_height, img_width = image_shape
+    center_x, center_y = center
+
+    # Create a blank mask
+    mask = np.zeros((img_height, img_width), dtype=np.float64)
+
+    # Calculate half dimensions
+    half_width = width // 2
+    half_height = height // 2
+    half_thickness = thickness // 2
+
+    # Create horizontal and vertical rectangles for the cross
+    # Horizontal bar
+    h_x1 = max(0, center_x - half_width)
+    h_x2 = min(img_width, center_x + half_width)
+    h_y1 = max(0, center_y - half_thickness)
+    h_y2 = min(img_height, center_y + half_thickness)
+
+    # Vertical bar
+    v_x1 = max(0, center_x - half_thickness)
+    v_x2 = min(img_width, center_x + half_thickness)
+    v_y1 = max(0, center_y - half_height)
+    v_y2 = min(img_height, center_y + half_height)
+
+    # Draw the cross on the mask
+    if h_y2 > h_y1 and h_x2 > h_x1:
+        mask[h_y1:h_y2, h_x1:h_x2] = 1.0
+    if v_y2 > v_y1 and v_x2 > v_x1:
+        mask[v_y1:v_y2, v_x1:v_x2] = 1.0
+
+    # Apply rotation if needed
+    if abs(angle) > 1e-6:  # Only rotate if angle is significant
+        # Get rotation matrix
+        rotation_matrix = cv2.getRotationMatrix2D((center_x, center_y), angle, 1.0)
+
+        # Apply rotation to the mask
+        mask = cv2.warpAffine(
+            mask,
+            rotation_matrix,
+            (img_width, img_height),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+
+        # Threshold to maintain binary mask after interpolation
+        mask = (mask > 0.5).astype(np.float64)
+
+    return mask
 
 
 def apply_roi_cropping(image: Array2D, config: ROIConfig) -> Array2D:

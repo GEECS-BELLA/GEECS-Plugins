@@ -174,39 +174,102 @@ class BackgroundConfig(BaseModel):
         ]
 
 
+class CrosshairConfig(BaseModel):
+    """
+    Configuration for a single crosshair.
+
+    Attributes
+    ----------
+    center : Tuple[int, int]
+        (x, y) pixel coordinates of crosshair center.
+    width : int
+        Width of the crosshair in pixels.
+    height : int
+        Height of the crosshair in pixels.
+    thickness : int
+        Thickness of the crosshair lines in pixels.
+    angle : float
+        Rotation angle of the crosshair in degrees.
+    """
+
+    center: Tuple[int, int] = Field(..., description="Center coordinates (x, y)")
+    width: int = Field(..., gt=0, description="Crosshair width in pixels")
+    height: int = Field(..., gt=0, description="Crosshair height in pixels")
+    thickness: int = Field(..., gt=0, description="Crosshair thickness in pixels")
+    angle: float = Field(0.0, description="Rotation angle in degrees")
+
+    @field_validator("center")
+    def validate_center_coordinates(cls, v):
+        """Ensure center coordinates are non-negative."""
+        x, y = v
+        if x < 0 or y < 0:
+            raise ValueError("Center coordinates must be non-negative")
+        return v
+
+
 class CrosshairMaskingConfig(BaseModel):
     """
     Configuration for crosshair masking operations.
+
+    Supports both the new simplified format and the original sophisticated format
+    with multiple crosshairs, rotation, and custom dimensions.
 
     Attributes
     ----------
     enabled : bool
         Whether crosshair masking is enabled.
-    fiducial_cross1_location : Tuple[int, int]
-        (x, y) pixel coordinates of first fiducial crosshair.
-    fiducial_cross2_location : Tuple[int, int]
-        (x, y) pixel coordinates of second fiducial crosshair.
-    mask_size : int
-        Size of the crosshair mask in pixels.
+    crosshairs : List[CrosshairConfig]
+        List of crosshair configurations for sophisticated masking.
     mask_value : float
-        Value to use for masked pixels (typically 0 or NaN).
+        Value to use for masked pixels (typically 0).
+
+    Legacy attributes (for backward compatibility):
+    fiducial_cross1_location : Optional[Tuple[int, int]]
+        (x, y) pixel coordinates of first fiducial crosshair.
+    fiducial_cross2_location : Optional[Tuple[int, int]]
+        (x, y) pixel coordinates of second fiducial crosshair.
+    mask_size : Optional[int]
+        Size of the crosshair mask in pixels (for simple mode).
     """
 
     enabled: bool = True
-    fiducial_cross1_location: Tuple[int, int] = (175, 100)
-    fiducial_cross2_location: Tuple[int, int] = (175, 924)
-    mask_size: int = Field(
-        20, gt=0, le=100, description="Size of crosshair mask in pixels"
+    crosshairs: List[CrosshairConfig] = Field(
+        default_factory=list, description="List of crosshair configurations"
     )
     mask_value: float = Field(0.0, description="Value for masked pixels")
 
+    # Legacy fields for backward compatibility
+    fiducial_cross1_location: Optional[Tuple[int, int]] = Field(
+        None, description="Legacy: first crosshair location"
+    )
+    fiducial_cross2_location: Optional[Tuple[int, int]] = Field(
+        None, description="Legacy: second crosshair location"
+    )
+    mask_size: Optional[int] = Field(
+        None, gt=0, le=100, description="Legacy: simple crosshair mask size"
+    )
+
     @field_validator("fiducial_cross1_location", "fiducial_cross2_location")
-    def validate_coordinates(cls, v):
-        """Ensure coordinates are non-negative."""
-        x, y = v
-        if x < 0 or y < 0:
-            raise ValueError("Fiducial coordinates must be non-negative")
+    def validate_legacy_coordinates(cls, v):
+        """Ensure legacy coordinates are non-negative."""
+        if v is not None:
+            x, y = v
+            if x < 0 or y < 0:
+                raise ValueError("Legacy fiducial coordinates must be non-negative")
         return v
+
+    def is_legacy_mode(self) -> bool:
+        """Check if this configuration uses legacy simple mode."""
+        return (
+            len(self.crosshairs) == 0
+            and self.fiducial_cross1_location is not None
+            and self.fiducial_cross2_location is not None
+            and self.mask_size is not None
+        )
+
+    def has_crosshairs(self) -> bool:
+        """Check if any crosshairs are configured."""
+        return len(self.crosshairs) > 0 or self.is_legacy_mode()
 
 
 class ROIConfig(BaseModel):

@@ -73,6 +73,7 @@ def apply_camera_processing_pipeline(
             processed_image, camera_config.crosshair_masking
         )
         logger.debug("Applied crosshair masking")
+        print("Applied crosshair masking")
 
     # Step 4: Circular masking
     if camera_config.circular_mask and camera_config.circular_mask.enabled:
