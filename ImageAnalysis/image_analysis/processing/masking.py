@@ -35,14 +35,6 @@ def apply_crosshair_masking(image: Array2D, config: CrosshairMaskingConfig) -> A
     Array2D
         Image with crosshairs masked out.
 
-    Examples
-    --------
-    >>> config = CrosshairMaskingConfig(
-    ...     fiducial_cross1_location=(175, 100),
-    ...     fiducial_cross2_location=(175, 924),
-    ...     mask_size=20
-    ... )
-    >>> masked_image = apply_crosshair_masking(image, config)
     """
     if not config.enabled:
         return image.copy()
@@ -83,10 +75,6 @@ def apply_roi_cropping(image: Array2D, config: ROIConfig) -> Array2D:
     ValueError
         If ROI boundaries are outside image dimensions.
 
-    Examples
-    --------
-    >>> config = ROIConfig(x_min=100, x_max=900, y_min=50, y_max=950)
-    >>> cropped_image = apply_roi_cropping(image, config)
     """
     height, width = image.shape
 
@@ -177,9 +165,6 @@ def apply_rectangular_mask(
     Array2D
         Image with rectangular region masked.
 
-    Examples
-    --------
-    >>> masked_image = apply_rectangular_mask(image, 100, 200, 150, 250, mask_value=0.0)
     """
     # Create a copy to avoid modifying the original image
     masked_image = image.copy()
@@ -267,10 +252,6 @@ def create_mask_from_threshold(
     Array2D
         Binary mask array (0 for masked, 1 for unmasked).
 
-    Examples
-    --------
-    >>> mask = create_mask_from_threshold(image, threshold=100, mask_above=True)
-    >>> masked_image = image * mask
     """
     if mask_above:
         mask = (image <= threshold).astype(np.float64)
@@ -303,10 +284,6 @@ def apply_mask_array(image: Array2D, mask: Array2D, mask_value: float = 0.0) -> 
     ValueError
         If image and mask have different shapes.
 
-    Examples
-    --------
-    >>> mask = create_mask_from_threshold(image, 50)
-    >>> masked_image = apply_mask_array(image, mask, mask_value=np.nan)
     """
     if image.shape != mask.shape:
         raise ValueError(f"Image shape {image.shape} != mask shape {mask.shape}")

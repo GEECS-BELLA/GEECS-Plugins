@@ -39,11 +39,7 @@ def compute_background(images: List[Array2D], config: BackgroundConfig) -> Array
         If background method is not supported, insufficient images provided,
         or images have inconsistent shapes.
 
-    Examples
-    --------
-    >>> config = BackgroundConfig(method="percentile_dataset", percentile=5.0)
-    >>> background = compute_background(image_list, config)
-    >>> processed_images = [subtract_background(img, background) for img in image_list]
+
     """
     if config.method == BackgroundMethod.FROM_FILE:
         return load_background_from_file(config.file_path)
@@ -98,11 +94,6 @@ def subtract_background(image: Array2D, background: Array2D) -> Array2D:
     ------
     ValueError
         If image and background have different shapes.
-
-    Examples
-    --------
-    >>> background = compute_background(image_list, config)
-    >>> processed_image = subtract_background(image, background)
     """
     if image.shape != background.shape:
         raise ValueError(
@@ -436,10 +427,7 @@ def estimate_background_statistics(images: List[Array2D]) -> dict:
         - 'percentile_95': 95th percentile background
         - 'temporal_stability': Measure of temporal stability (lower is more stable)
 
-    Examples
-    --------
-    >>> stats = estimate_background_statistics(image_list)
-    >>> print(f"Recommended percentile: {stats['percentile_5']:.1f}")
+
     """
     if not images:
         raise ValueError("At least one image required for background analysis")

@@ -41,9 +41,7 @@ def apply_rotation(
     Array2D
         Rotated image.
 
-    Examples
-    --------
-    >>> rotated_image = apply_rotation(image, angle=15.0, reshape=False)
+
     """
     if angle == 0.0:
         return image.copy()
@@ -74,9 +72,7 @@ def apply_horizontal_flip(image: Array2D) -> Array2D:
     Array2D
         Horizontally flipped image.
 
-    Examples
-    --------
-    >>> flipped_image = apply_horizontal_flip(image)
+
     """
     return np.fliplr(image)
 
@@ -95,9 +91,7 @@ def apply_vertical_flip(image: Array2D) -> Array2D:
     Array2D
         Vertically flipped image.
 
-    Examples
-    --------
-    >>> flipped_image = apply_vertical_flip(image)
+
     """
     return np.flipud(image)
 
@@ -135,10 +129,7 @@ def apply_distortion_correction(
     This is a simplified distortion correction. For production use,
     consider using OpenCV's cv2.undistort for better performance and accuracy.
 
-    Examples
-    --------
-    >>> coeffs = [-0.1, 0.05, 0.001, 0.001, 0.0]
-    >>> corrected_image = apply_distortion_correction(image, coeffs)
+
     """
     if not distortion_coeffs:
         return image.copy()
@@ -221,10 +212,7 @@ def apply_transform_config(image: Array2D, config: TransformConfig) -> Array2D:
     Array2D
         Transformed image with all specified transformations applied.
 
-    Examples
-    --------
-    >>> config = TransformConfig(rotation_angle=15.0, flip_horizontal=True)
-    >>> transformed_image = apply_transform_config(image, config)
+
     """
     transformed_image = image.copy()
 
@@ -273,11 +261,7 @@ def apply_affine_transform(
     Array2D
         Affine-transformed image.
 
-    Examples
-    --------
-    >>> # Create scaling transformation
-    >>> scale_matrix = np.array([[1.5, 0, 0], [0, 1.5, 0]])
-    >>> scaled_image = apply_affine_transform(image, scale_matrix)
+
     """
     if output_shape is None:
         output_shape = image.shape
@@ -317,10 +301,7 @@ def create_rotation_matrix(angle: float, center: Optional[tuple] = None) -> np.n
     np.ndarray
         3x3 transformation matrix for rotation about specified center.
 
-    Examples
-    --------
-    >>> matrix = create_rotation_matrix(45.0, center=(256, 256))
-    >>> rotated_image = apply_affine_transform(image, matrix)
+
     """
     angle_rad = np.radians(angle)
     cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
@@ -358,10 +339,7 @@ def create_scaling_matrix(
     np.ndarray
         3x3 transformation matrix for scaling.
 
-    Examples
-    --------
-    >>> matrix = create_scaling_matrix(1.5, 2.0)  # 1.5x in X, 2x in Y
-    >>> scaled_image = apply_affine_transform(image, matrix)
+
     """
     if scale_y is None:
         scale_y = scale_x
@@ -385,9 +363,6 @@ def create_translation_matrix(tx: float, ty: float) -> np.ndarray:
     np.ndarray
         3x3 transformation matrix for translation.
 
-    Examples
-    --------
-    >>> matrix = create_translation_matrix(10, -5)
-    >>> translated_image = apply_affine_transform(image, matrix)
+
     """
     return np.array([[1, 0, tx], [0, 1, ty], [0, 0, 1]])

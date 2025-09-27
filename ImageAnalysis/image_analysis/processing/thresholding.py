@@ -41,11 +41,7 @@ def apply_constant_threshold(
     Array2D
         Thresholded image.
 
-    Examples
-    --------
-    >>> image = np.array([[10, 50, 100], [200, 150, 75]])
-    >>> result = apply_constant_threshold(image, 100, mode="binary")
-    >>> print(result)  # Values >= 100 become max_val, others become 0
+
     """
     image = np.asarray(image, dtype=np.float64)
 
@@ -123,11 +119,7 @@ def apply_percentage_threshold(
     Array2D
         Thresholded image.
 
-    Examples
-    --------
-    >>> image = np.array([[10, 50, 100], [200, 150, 75]])
-    >>> # 50% of max (200) = 100
-    >>> result = apply_percentage_threshold(image, 50.0, mode="binary")
+
     """
     image = np.asarray(image, dtype=np.float64)
 
@@ -181,15 +173,7 @@ def apply_threshold(
     ValueError
         If method is not recognized.
 
-    Examples
-    --------
-    >>> image = np.array([[10, 50, 100], [200, 150, 75]])
-    >>>
-    >>> # Constant threshold
-    >>> result1 = apply_threshold(image, "constant", 100, "binary")
-    >>>
-    >>> # Percentage threshold
-    >>> result2 = apply_threshold(image, "percentage_max", 50.0, "binary")
+
     """
     if method == "constant":
         return apply_constant_threshold(image, value, mode, invert)
@@ -222,11 +206,7 @@ def get_threshold_value(image: Array2D, method: ThresholdMethod, value: float) -
     float
         Actual threshold value that would be applied.
 
-    Examples
-    --------
-    >>> image = np.array([[10, 50, 100], [200, 150, 75]])
-    >>> threshold = get_threshold_value(image, "percentage_max", 50.0)
-    >>> print(threshold)  # 100.0 (50% of max value 200)
+
     """
     image = np.asarray(image, dtype=np.float64)
 

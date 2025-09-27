@@ -34,9 +34,7 @@ def apply_gaussian_filter(image: Array2D, sigma: float) -> Array2D:
     Array2D
         Gaussian-filtered image.
 
-    Examples
-    --------
-    >>> filtered_image = apply_gaussian_filter(image, sigma=1.5)
+
     """
     if sigma <= 0:
         raise ValueError("Gaussian sigma must be positive")
@@ -72,9 +70,7 @@ def apply_median_filter(image: Array2D, kernel_size: int) -> Array2D:
     ValueError
         If kernel_size is not positive or not odd.
 
-    Examples
-    --------
-    >>> filtered_image = apply_median_filter(image, kernel_size=5)
+
     """
     if kernel_size <= 0:
         raise ValueError("Median kernel size must be positive")
@@ -119,9 +115,7 @@ def apply_bilateral_filter(
     This is a simplified bilateral filter implementation. For production use,
     consider using OpenCV's cv2.bilateralFilter for better performance.
 
-    Examples
-    --------
-    >>> filtered_image = apply_bilateral_filter(image, d=9, sigma_color=75, sigma_space=75)
+
     """
     if d <= 0:
         raise ValueError("Bilateral filter diameter must be positive")
@@ -155,10 +149,7 @@ def apply_filtering_config(image: Array2D, config: FilteringConfig) -> Array2D:
     Array2D
         Filtered image with all specified filters applied.
 
-    Examples
-    --------
-    >>> config = FilteringConfig(gaussian_sigma=1.0, median_kernel_size=3)
-    >>> filtered_image = apply_filtering_config(image, config)
+
     """
     filtered_image = image.copy()
 
@@ -210,9 +201,7 @@ def apply_unsharp_mask(
     Array2D
         Sharpened image.
 
-    Examples
-    --------
-    >>> sharpened_image = apply_unsharp_mask(image, sigma=1.5, strength=0.8)
+
     """
     if sigma <= 0:
         raise ValueError("Unsharp mask sigma must be positive")
@@ -255,9 +244,7 @@ def apply_wiener_filter(
     Array2D
         Wiener-filtered image.
 
-    Examples
-    --------
-    >>> filtered_image = apply_wiener_filter(image, noise_variance=100.0)
+
     """
     # Convert to float for processing
     image_float = image.astype(np.float64)
