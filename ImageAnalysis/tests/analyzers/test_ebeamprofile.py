@@ -1,17 +1,22 @@
 import pytest
 from pathlib import Path
 import numpy as np
-from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
+from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
 
-@pytest.mark.parametrize("camera_name", [
-    "UC_VisaEBeam1",
-    "UC_VisaEBeam2",
-    "UC_VisaEBeam3",
-    "UC_VisaEBeam4",
-    "UC_VisaEBeam5",
-    "UC_ALineEBeam3"
-])
+
+@pytest.mark.parametrize(
+    "camera_name",
+    [
+        "UC_VisaEBeam1",
+        "UC_VisaEBeam2",
+        "UC_VisaEBeam3",
+        "UC_VisaEBeam4",
+        "UC_VisaEBeam5",
+        "UC_ALineEBeam3",
+    ],
+)
 def test_analyze_image_file_visaebeam(camera_name):
+    """Test BeamAnalzyer for HTU e-beam images."""
     # Resolve test image path relative to this test file
     current_dir = Path(__file__).resolve().parent.parent
     image_name = f"{camera_name}_001.png"
@@ -19,7 +24,7 @@ def test_analyze_image_file_visaebeam(camera_name):
 
     assert test_img_path.exists(), f"Test image not found: {test_img_path}"
 
-    image_analyzer = EBeamProfileAnalyzer(camera_name=camera_name)
+    image_analyzer = BeamAnalyzer(camera_config_name=camera_name)
     image_analyzer.use_interactive = True
     result = image_analyzer.analyze_image_file(image_filepath=test_img_path)
 
@@ -29,12 +34,13 @@ def test_analyze_image_file_visaebeam(camera_name):
     assert "analyzer_input_parameters" in result
 
     image = result["processed_image"]
-    config_inputs = result["analyzer_input_parameters"]
 
     assert isinstance(image, np.ndarray)
     assert image.ndim == 2
 
+
 if __name__ == "__main__":
     import sys
+
     # Run only this specific test file
     pytest.main([sys.argv[0]])
