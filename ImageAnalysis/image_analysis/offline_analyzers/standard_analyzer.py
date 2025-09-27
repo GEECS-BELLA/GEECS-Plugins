@@ -1,15 +1,18 @@
-"""Modern E-beam Profile Analyzer using the new configuration framework.
+"""Standard Image Analyzer with configurable processing pipeline.
 
-This module provides a modernized version of the EBeamProfileAnalyzer that uses:
-- External YAML configuration files instead of hardcoded camera settings
+This module provides a general-purpose analyzer that serves as a parent class
+for specialized analyzers. It includes:
+- External YAML configuration files instead of hardcoded settings
 - Pydantic models for type-safe configuration validation
-- Unified processing pipeline with the new processing functions
+- Unified processing pipeline with modular processing functions
 - Dedicated BackgroundManager for background processing
 - Proper 16-bit image handling with float64 processing
+- Extensible preprocessing algorithm framework
 - Clean separation of concerns
 
-The analyzer provides a clean, maintainable architecture focused on the new
-configuration-driven processing pipeline.
+The StandardAnalyzer provides the foundation for any image analysis workflow,
+handling all the "plumbing" while allowing child classes to add domain-specific
+analysis capabilities.
 """
 
 from __future__ import annotations
@@ -18,7 +21,6 @@ import logging
 from typing import Optional, Union, List, Tuple, Dict, Any
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 # Import the new processing framework
 from image_analysis.config_loader import (
@@ -34,24 +36,25 @@ from image_analysis.processing import (
 
 # Import existing tools and base classes
 from image_analysis.base import ImageAnalyzer
-from image_analysis.tools.rendering import base_render_image
-from image_analysis.tools.basic_beam_stats import beam_profile_stats, flatten_beam_stats
 from image_analysis.types import AnalyzerResultDict
-
 from image_analysis.utils import ensure_float64_processing
 
 
-class ModernEBeamProfileAnalyzer(ImageAnalyzer):
+class StandardAnalyzer(ImageAnalyzer):
     """
-    Modern E-beam profile analyzer using external YAML configuration.
+    Standard image analyzer with configurable processing pipeline.
 
-    This analyzer uses the new configuration framework to provide:
+    This analyzer provides a general-purpose foundation for image analysis using:
     - Type-safe camera configuration via Pydantic models
     - Externalized configuration in YAML files
     - Unified processing pipeline
     - Dedicated background management
     - Proper 16-bit image handling
+    - Extensible preprocessing algorithms
     - Clean separation of concerns
+
+    This class is designed to be inherited by specialized analyzers that add
+    domain-specific analysis capabilities (e.g., beam statistics, spectral analysis).
 
     Parameters
     ----------
@@ -69,7 +72,7 @@ class ModernEBeamProfileAnalyzer(ImageAnalyzer):
         config_overrides: Optional[Dict[str, Any]] = None,
         use_interactive: bool = False,
     ):
-        """Initialize the modern analyzer with external configuration."""
+        """Initialize the standard analyzer with external configuration."""
         # Load camera configuration
         try:
             self.camera_config = load_camera_config_model(camera_config_name)
@@ -116,7 +119,39 @@ class ModernEBeamProfileAnalyzer(ImageAnalyzer):
             else:
                 logging.warning(f"Unknown configuration section '{section}'")
 
-    def analyze_image_batch(
+    def preprocess_image(
+        self, image: np.ndarray, force_reprocess: bool = False
+    ) -> np.ndarray:
+        """
+        Apply the complete processing pipeline to a single image.
+
+        This method handles the core image preprocessing including background
+        subtraction, ROI cropping, thresholding, masking, and any other
+        configured processing steps.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            Input image to process
+        force_reprocess : bool, default=False
+            If True, apply processing even if image appears already processed
+
+        Returns
+        -------
+        np.ndarray
+            Processed image ready for analysis
+        """
+        if self.flag_logging:
+            logging.info("Applying camera processing pipeline")
+
+        # Use the unified processing pipeline
+        processed_image = apply_camera_processing_pipeline(
+            image, self.camera_config, self.background_manager
+        )
+
+        return processed_image
+
+    def preprocess_image_batch(
         self, images: List[np.ndarray]
     ) -> Tuple[List[np.ndarray], Dict[str, Union[int, float, bool, str]]]:
         """
@@ -155,11 +190,28 @@ class ModernEBeamProfileAnalyzer(ImageAnalyzer):
 
         return final_images, {"preprocessed": True}
 
+    def analyze_image_batch(
+        self, images: List[np.ndarray]
+    ) -> Tuple[List[np.ndarray], Dict[str, Union[int, float, bool, str]]]:
+        """
+        Alias for preprocess_image_batch for backward compatibility.
+
+        This method maintains compatibility with existing scan analysis code
+        that expects analyze_image_batch to return preprocessed images.
+        """
+        return self.preprocess_image_batch(images)
+
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
     ) -> AnalyzerResultDict:
         """
-        Run complete beam analysis using the modern processing pipeline.
+        Run complete image analysis using the processing pipeline.
+
+        This is the main analysis method that should be overridden by child classes
+        to add domain-specific analysis. The base implementation provides:
+        - Image preprocessing via the configured pipeline
+        - Basic return dictionary construction
+        - Logging and metadata handling
 
         Parameters
         ----------
@@ -171,7 +223,7 @@ class ModernEBeamProfileAnalyzer(ImageAnalyzer):
         Returns
         -------
         AnalyzerResultDict
-            Dictionary containing processed image, beam statistics, and lineouts
+            Dictionary containing processed image and basic metadata
         """
         # Determine if preprocessing is needed
         processed_flag = (
@@ -184,26 +236,26 @@ class ModernEBeamProfileAnalyzer(ImageAnalyzer):
         if self.flag_logging:
             logging.info(f"Analyzing image from: {file_path}")
 
-        # Apply modern processing pipeline
+        # Apply processing pipeline
         if not processed_flag:
-            # Use the unified processing pipeline
-            final_image = apply_camera_processing_pipeline(
-                image, self.camera_config, self.background_manager
-            )
+            final_image = self.preprocess_image(image)
         else:
             # Image already processed, just ensure proper dtype
             final_image = ensure_float64_processing(image)
 
-        # Compute beam statistics
-        beam_stats_flat = flatten_beam_stats(
-            beam_profile_stats(final_image), prefix=self.camera_config.name
+        # Build basic input parameters dictionary
+        input_params = self._build_input_parameters()
+
+        # Build return dictionary (child classes should override this)
+        return_dict = self.build_return_dictionary(
+            return_image=final_image,
+            input_parameters=input_params,
         )
 
-        # Compute lineouts
-        horiz_lineout = final_image.sum(axis=0)
-        vert_lineout = final_image.sum(axis=1)
+        return return_dict
 
-        # Build input parameters dictionary
+    def _build_input_parameters(self) -> Dict[str, Any]:
+        """Build the input parameters dictionary with camera configuration info."""
         input_params = {
             "camera_name": self.camera_config.name,
             "camera_type": self.camera_config.camera_type.value,
@@ -223,92 +275,7 @@ class ModernEBeamProfileAnalyzer(ImageAnalyzer):
                 }
             )
 
-        # Build return dictionary
-        return_dict = self.build_return_dictionary(
-            return_image=final_image,
-            input_parameters=input_params,
-            return_scalars=beam_stats_flat,
-            return_lineouts=[horiz_lineout, vert_lineout],
-            coerce_lineout_length=False,
-        )
-
-        # Interactive display if requested
-        if self.use_interactive:
-            fig, ax = self.render_image(
-                final_image,
-                beam_stats_flat,
-                input_params,
-                [horiz_lineout, vert_lineout],
-            )
-            plt.show()
-            plt.close(fig)
-
-        return return_dict
-
-    @staticmethod
-    def render_image(
-        image: np.ndarray,
-        analysis_results_dict: Optional[Dict[str, Union[float, int]]] = None,
-        input_params_dict: Optional[Dict[str, Union[float, int]]] = None,
-        lineouts: Optional[List[np.ndarray]] = None,
-        vmin: Optional[float] = None,
-        vmax: Optional[float] = None,
-        cmap: str = "plasma",
-        figsize: Tuple[float, float] = (4, 4),
-        dpi: int = 150,
-        ax: Optional[plt.Axes] = None,
-        fixed_width_in: float = 4.0,
-    ) -> Tuple[plt.Figure, plt.Axes]:
-        """
-        Render image with optional beam centroid and lineouts overlay.
-
-        This method maintains compatibility with the existing rendering system
-        while supporting the new configuration format.
-        """
-        h, w = image.shape[:2]
-        height_in = max(1e-6, fixed_width_in * (h / float(w)))
-        computed_figsize = (fixed_width_in, height_in)
-
-        fig, ax = base_render_image(
-            image=image,
-            analysis_results_dict=analysis_results_dict,
-            input_params_dict=input_params_dict,
-            lineouts=lineouts,
-            vmin=vmin,
-            vmax=vmax,
-            cmap=cmap,
-            figsize=computed_figsize,
-            dpi=dpi,
-            ax=ax,
-        )
-
-        # Add beam centroid if available in input parameters
-        if input_params_dict:
-            # Check for legacy format
-            if (
-                "blue_cent_x" in input_params_dict
-                and "blue_cent_y" in input_params_dict
-            ):
-                cx = input_params_dict["blue_cent_x"] - input_params_dict.get(
-                    "left_ROI", 0
-                )
-                cy = input_params_dict["blue_cent_y"] - input_params_dict.get(
-                    "top_ROI", 0
-                )
-                ax.plot(cx, cy, "bo", markersize=5)
-
-        # Add lineouts overlay
-        if lineouts and len(lineouts) == 2:
-            horiz, vert = np.clip(lineouts[0], 0, None), np.clip(lineouts[1], 0, None)
-            img_h, img_w = image.shape
-
-            if len(horiz) > 0 and len(vert) > 0:
-                horiz_norm = horiz / np.max(horiz) * img_h * 0.2
-                vert_norm = vert / np.max(vert) * img_w * 0.2
-                ax.plot(np.arange(len(horiz)), img_h - horiz_norm, color="cyan", lw=1.0)
-                ax.plot(vert_norm, np.arange(len(vert)), color="magenta", lw=1.0)
-
-        return fig, ax
+        return input_params
 
     def get_camera_info(self) -> Dict[str, Any]:
         """Get comprehensive camera configuration information."""
@@ -339,6 +306,52 @@ class ModernEBeamProfileAnalyzer(ImageAnalyzer):
 
         logging.info(f"Updated configuration with: {config_overrides}")
 
+    def apply_custom_preprocessing(self, image: np.ndarray) -> np.ndarray:
+        """
+        Apply custom preprocessing algorithms.
+
+        This method provides an extension point for child classes to add
+        custom preprocessing steps that are not part of the standard pipeline.
+        The base implementation is a no-op.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            Image to preprocess
+
+        Returns
+        -------
+        np.ndarray
+            Preprocessed image
+        """
+        # Base implementation does nothing - override in child classes
+        return image
+
+    def compute_basic_statistics(self, image: np.ndarray) -> Dict[str, float]:
+        """
+        Compute basic image statistics.
+
+        This method provides basic statistics that might be useful for any
+        image analysis. Child classes can override or extend this method.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            Processed image
+
+        Returns
+        -------
+        dict
+            Dictionary of basic statistics
+        """
+        return {
+            "mean_intensity": float(np.mean(image)),
+            "max_intensity": float(np.max(image)),
+            "min_intensity": float(np.min(image)),
+            "std_intensity": float(np.std(image)),
+            "total_intensity": float(np.sum(image)),
+        }
+
 
 if __name__ == "__main__":
     # Test usage
@@ -346,8 +359,7 @@ if __name__ == "__main__":
 
     # Test with the undulator exit cam configuration
     try:
-        analyzer = ModernEBeamProfileAnalyzer("undulator_exit_cam")
-        analyzer.use_interactive = True
+        analyzer = StandardAnalyzer("undulator_exit_cam")
 
         print("Camera Info:")
         for key, value in analyzer.get_camera_info().items():
