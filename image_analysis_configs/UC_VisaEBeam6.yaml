@@ -1,0 +1,57 @@
+# Configuration for UC_VisaEBeam6 camera
+
+# Camera identification and properties
+background:
+  auto_save_path: null
+  enabled: true
+  fallback:
+    level: 25.0
+    method: constant
+  level: 25.0
+  method: constant
+  type: static
+bit_depth: 16
+camera_type: ebeam_profile
+crosshair_masking:
+  crosshairs:
+  - angle: 0
+    center:
+    - 295
+    - 85
+    height: 108
+    thickness: 10
+    width: 108
+  - angle: 0
+    center:
+    - 290
+    - 425
+    height: 108
+    thickness: 10
+    width: 108
+  enabled: true
+description: Visa electron beam camera 6 for beam profiling
+filtering:
+  bilateral_d: 3
+  gaussian_sigma: null
+  median_kernel_size: null
+metadata:
+  location: Migrated camera
+  notes: Migrated from hardcoded configuration in EBeamProfile.py
+  spatial_calibration: 7.5e-06
+name: UC_VisaEBeam6
+roi:
+  x_max: 528
+  x_min: 195
+  y_max: 418
+  y_min: 85
+thresholding:
+  enabled: false
+  invert: false
+  method: constant
+  mode: to_zero
+  value: 0.0
+transforms:
+  distortion_correction: false
+  flip_horizontal: false
+  flip_vertical: false
+  rotation_angle: 0.0

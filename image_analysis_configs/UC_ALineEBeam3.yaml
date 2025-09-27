@@ -1,0 +1,43 @@
+# Configuration for UC_ALineEBeam3 camera
+
+# Camera identification and properties
+background:
+  auto_save_path: null
+  enabled: true
+  fallback:
+    level: 50.0
+    method: constant
+  level: 50.0
+  method: constant
+  type: static
+bit_depth: 16
+camera_type: ebeam_profile
+crosshair_masking:
+  crosshairs: []
+  enabled: false
+description: A-Line electron beam camera 3 for beam profiling
+filtering:
+  bilateral_d: 3
+  gaussian_sigma: null
+  median_kernel_size: null
+metadata:
+  location: Migrated camera
+  notes: Migrated from hardcoded configuration in EBeamProfile.py
+  spatial_calibration: 2.44e-05
+name: UC_ALineEBeam3
+roi:
+  x_max: 975
+  x_min: 175
+  y_max: 900
+  y_min: 100
+thresholding:
+  enabled: false
+  invert: false
+  method: constant
+  mode: to_zero
+  value: 0.0
+transforms:
+  distortion_correction: false
+  flip_horizontal: false
+  flip_vertical: false
+  rotation_angle: 0.0
