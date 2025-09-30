@@ -22,7 +22,7 @@ from skimage.measure import regionprops, label
 
 from ..base import LabviewImageAnalyzer
 from ..utils import ROI
-from ..tools.filtering import clip_hot_pixels
+from image_analysis.processing.filtering import apply_median_filter
 
 
 # =============================================================================
@@ -97,10 +97,9 @@ class BeamSpotAnalyzer(LabviewImageAnalyzer):
 
         # perform hot pixel correction
         if self.bool_hp:
-            image_cor = clip_hot_pixels(image_cor,
-                                        median_filter_size=self.hp_median,
-                                        threshold_factor=self.hp_thresh)
-
+            image_cor = apply_median_filter(image_cor,
+                                        kernel_size=self.hp_median,
+                                            )
         # threshold signal
         if self.bool_thresh:
             image_cor = self.image_signal_thresholding(image_cor)
