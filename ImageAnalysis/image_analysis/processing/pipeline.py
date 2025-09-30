@@ -37,8 +37,8 @@ def apply_camera_processing_pipeline(
     1. Data type conversion (ensure float64 for processing)
     2. Background processing (if background_manager provided)
     3. Crosshair masking (fiducial markers)
-    4. Circular masking (if configured)
-    5. ROI cropping
+    4. ROI cropping
+    5. Circular masking (if configured)
     6. Thresholding
     7. Filtering (noise reduction)
     8. Geometric transforms
@@ -75,17 +75,17 @@ def apply_camera_processing_pipeline(
         logger.debug("Applied crosshair masking")
         print("Applied crosshair masking")
 
-    # Step 4: Circular masking
+    # Step 4: ROI cropping
+    if camera_config.roi:
+        processed_image = apply_roi_cropping(processed_image, camera_config.roi)
+        logger.debug(f"Applied ROI cropping: {camera_config.roi}")
+
+    # Step 5: Circular masking
     if camera_config.circular_mask and camera_config.circular_mask.enabled:
         processed_image = apply_circular_mask(
             processed_image, camera_config.circular_mask
         )
         logger.debug("Applied circular masking")
-
-    # Step 5: ROI cropping
-    if camera_config.roi:
-        processed_image = apply_roi_cropping(processed_image, camera_config.roi)
-        logger.debug(f"Applied ROI cropping: {camera_config.roi}")
 
     # Step 6: Thresholding
     if camera_config.thresholding and camera_config.thresholding.enabled:
