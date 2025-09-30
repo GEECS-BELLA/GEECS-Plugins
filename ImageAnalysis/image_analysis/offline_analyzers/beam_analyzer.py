@@ -54,19 +54,16 @@ class BeamAnalyzer(StandardAnalyzer):
         Name of the camera configuration to load (e.g., "undulator_exit_cam")
     config_overrides : dict, optional
         Runtime overrides for configuration parameters
-    use_interactive : bool, default=False
-        If True, display interactive plots during analysis
     """
 
     def __init__(
         self,
         camera_config_name: str,
         config_overrides: Optional[Dict[str, Any]] = None,
-        use_interactive: bool = False,
     ):
         """Initialize the beam analyzer with external configuration."""
         # Initialize parent class
-        super().__init__(camera_config_name, config_overrides, use_interactive)
+        super().__init__(camera_config_name, config_overrides)
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
@@ -116,8 +113,8 @@ class BeamAnalyzer(StandardAnalyzer):
         )
 
         # Compute lineouts
-        horiz_lineout = image.sum(axis=0)
-        vert_lineout = image.sum(axis=1)
+        horiz_lineout = final_image.sum(axis=0)
+        vert_lineout = final_image.sum(axis=1)
 
         # Build input parameters dictionary (inherited from StandardAnalyzer)
         input_params = self._build_input_parameters()
@@ -130,17 +127,6 @@ class BeamAnalyzer(StandardAnalyzer):
             return_lineouts=[horiz_lineout, vert_lineout],
             coerce_lineout_length=False,
         )
-
-        # Interactive display if requested
-        if self.use_interactive:
-            fig, ax = self.render_image(
-                final_image,
-                beam_stats_flat,
-                input_params,
-                [horiz_lineout, vert_lineout],
-            )
-            plt.show()
-            plt.close(fig)
 
         return return_dict
 
@@ -265,6 +251,69 @@ class BeamAnalyzer(StandardAnalyzer):
                     label="Vertical Lineout",
                 )
 
+        return fig, ax
+
+    def visualize(
+        self,
+        results: AnalyzerResultDict,
+        *,
+        show: bool = True,
+        close: bool = True,
+        ax: Optional[plt.Axes] = None,
+    ) -> tuple[plt.Figure, plt.Axes]:
+        """
+        Render a single visualization of the analyzed (post-ROI) image and overlays.
+
+        This convenience method draws the processed image stored in
+        ``results["processed_image"]`` using :meth:`render_image`, optionally
+        calling :func:`matplotlib.pyplot.show` and closing the figure. It performs
+        no additional computation.
+
+        Parameters
+        ----------
+        results : AnalyzerResultDict
+            Dictionary returned by :meth:`analyze_image` (or compatible). The
+            following keys are read when present:
+            - ``"processed_image"`` : ndarray (required) — image to display
+            - ``"analyzer_return_dictionary"`` : dict — scalar annotations
+            - ``"input_parameters"`` : dict — ROI offsets and inputs
+            - ``"analyzer_return_lineouts"`` : list[np.ndarray] — [horiz, vert] lineouts
+        show : bool, default True
+            If True, call :func:`matplotlib.pyplot.show` after rendering.
+        close : bool, default True
+            If True, close the figure after showing (if ``show=True``) or
+            immediately after rendering (if ``show=False``). Set to ``False`` to
+            keep the figure open for further customization.
+        ax : matplotlib.axes.Axes, optional
+            Existing axes to draw into. If omitted, a new figure and axes are
+            created.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure that contains the rendering.
+        ax : matplotlib.axes.Axes
+            The axes on which the image was drawn.
+
+        Notes
+        -----
+        * Lineouts and scalar overlays are assumed to correspond to the **post-ROI**
+          image. If they were computed from the pre-ROI image, Matplotlib may try
+          to autoscale the view unless limits are clamped in :meth:`render_image`.
+        * For frameless saved images, consider:
+          ``fig.savefig(path, bbox_inches='tight', pad_inches=0)``.
+        """
+        fig, ax = self.render_image(
+            image=results["processed_image"],
+            analysis_results_dict=results.get("analyzer_return_dictionary", {}),
+            input_params_dict=results.get("analyzer_input_parameters", {}),
+            lineouts=results.get("analyzer_return_lineouts"),
+            ax=ax,
+        )
+        if show:
+            plt.show()
+        if close:
+            plt.close(fig)
         return fig, ax
 
     def get_beam_info(self) -> Dict[str, Any]:

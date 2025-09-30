@@ -87,15 +87,12 @@ class StandardAnalyzer(ImageAnalyzer):
         Name of the camera configuration to load (e.g., "undulator_exit_cam")
     config_overrides : dict, optional
         Runtime overrides for configuration parameters
-    use_interactive : bool, default=False
-        If True, display interactive plots during analysis
     """
 
     def __init__(
         self,
         camera_config_name: str,
         config_overrides: Optional[Dict[str, Any]] = None,
-        use_interactive: bool = False,
     ):
         """Initialize the standard analyzer with external configuration."""
         # Load camera configuration
@@ -119,7 +116,6 @@ class StandardAnalyzer(ImageAnalyzer):
 
         # Store analyzer state
         self.camera_config_name = camera_config_name
-        self.use_interactive = use_interactive
         self.run_analyze_image_asynchronously = True
 
         # Initialize base class with the background manager

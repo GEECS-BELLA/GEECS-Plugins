@@ -823,7 +823,7 @@ if __name__ == "__main__":
     config_dict = asdict(config)
     print(phase_file_path)
     image_analyzer: PhaseDownrampProcessor = PhaseDownrampProcessor(**config_dict)
-    image_analyzer.use_interactive = False
+    image_analyzer.use_interactive = True
     image_analyzer.analyze_image_file(phase_file_path)
 
     # # --- Using the PyAbel inversion technique ---
