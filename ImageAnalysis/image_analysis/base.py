@@ -16,8 +16,12 @@ from typing import TYPE_CHECKING, Optional, Union, Any, Tuple
 if TYPE_CHECKING:
     from .types import Array2D, AnalyzerResultDict
 
+import logging
+
 from image_analysis.utils import read_imaq_image
 from image_analysis.processing.background_manager import BackgroundManager
+
+logger = logging.getLogger(__name__)
 
 
 class ImageAnalyzer:
