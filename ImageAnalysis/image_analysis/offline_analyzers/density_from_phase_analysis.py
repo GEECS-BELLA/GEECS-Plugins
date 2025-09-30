@@ -578,13 +578,13 @@ class PhaseDownrampProcessor(ImageAnalyzer):
 
         merged = {**results, **rotation_result[1]}
 
-        def fig_to_array(fig):
-            """Convert a Matplotlib figure to an H×W×3 uint8 array."""
-            fig.canvas.draw()
-            w, h = fig.get_size_inches() * fig.dpi
-            w, h = int(w), int(h)
-            buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-            return buf.reshape(h, w, 3)
+        def fig_to_array(fig, keep_alpha: bool = False) -> np.ndarray:
+            """Return H×W×3 (RGB) or H×W×4 (RGBA) uint8 from a Matplotlib figure, all backends."""
+            fig.canvas.draw()  # ensure renderer exists/updated
+            rgba = np.asarray(
+                fig.canvas.renderer.buffer_rgba()
+            )  # shape (H, W, 4), dtype=uint8
+            return rgba if keep_alpha else rgba[:, :, :3]
 
         fig1 = self.shock_angle_fig
         fig2 = self.shock_grad_fig
@@ -823,7 +823,7 @@ if __name__ == "__main__":
     config_dict = asdict(config)
     print(phase_file_path)
     image_analyzer: PhaseDownrampProcessor = PhaseDownrampProcessor(**config_dict)
-    image_analyzer.use_interactive = True
+    image_analyzer.use_interactive = False
     image_analyzer.analyze_image_file(phase_file_path)
 
     # # --- Using the PyAbel inversion technique ---
