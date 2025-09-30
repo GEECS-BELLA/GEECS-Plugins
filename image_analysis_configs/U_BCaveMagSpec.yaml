@@ -28,7 +28,7 @@ name: U_BCaveMagSpec
 roi:
   x_max: 700
   x_min: 200
-  y_max: 301
+  y_max: 180
   y_min: 1
 thresholding:
   enabled: false
