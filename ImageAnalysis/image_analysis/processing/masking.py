@@ -20,8 +20,7 @@ def apply_crosshair_masking(image: Array2D, config: CrosshairMaskingConfig) -> A
     """
     Apply crosshair masking to remove fiducial markers from image.
 
-    This function supports both the original sophisticated crosshair masking
-    with rotation and custom dimensions, and the legacy simple line masking.
+    Supports sophisticated crosshair masking with rotation and custom dimensions.
 
     Parameters
     ----------
@@ -42,36 +41,20 @@ def apply_crosshair_masking(image: Array2D, config: CrosshairMaskingConfig) -> A
     # Create a copy to avoid modifying the original image
     masked_image = image.copy()
 
-    if config.is_legacy_mode():
-        # Use legacy simple line masking
-        logger.debug("Using legacy crosshair masking mode")
-        for cross_location in [
-            config.fiducial_cross1_location,
-            config.fiducial_cross2_location,
-        ]:
-            if cross_location is not None:
-                masked_image = _mask_crosshair_at_location(
-                    masked_image, cross_location, config.mask_size, config.mask_value
-                )
-    else:
-        # Use sophisticated crosshair masking with rotation support
-        logger.debug(
-            f"Using sophisticated crosshair masking for {len(config.crosshairs)} crosshairs"
+    # Apply sophisticated crosshair masking with rotation support
+    logger.debug(f"Applying crosshair masking for {len(config.crosshairs)} crosshairs")
+    for crosshair in config.crosshairs:
+        cross_mask = create_cross_mask(
+            image.shape,
+            crosshair.center,
+            crosshair.width,
+            crosshair.height,
+            crosshair.thickness,
+            crosshair.angle,
         )
-        for crosshair in config.crosshairs:
-            cross_mask = create_cross_mask(
-                image.shape,
-                crosshair.center,
-                crosshair.width,
-                crosshair.height,
-                crosshair.thickness,
-                crosshair.angle,
-            )
-            # Apply mask: multiply image by (1 - mask) to zero out crosshair regions
-            # Then add mask_value * mask to set crosshair regions to desired value
-            masked_image = (
-                masked_image * (1 - cross_mask) + config.mask_value * cross_mask
-            )
+        # Apply mask: multiply image by (1 - mask) to zero out crosshair regions
+        # Then add mask_value * mask to set crosshair regions to desired value
+        masked_image = masked_image * (1 - cross_mask) + config.mask_value * cross_mask
 
     return masked_image
 
@@ -288,55 +271,6 @@ def apply_rectangular_mask(
     masked_image[y_min:y_max, x_min:x_max] = mask_value
 
     return masked_image
-
-
-def _mask_crosshair_at_location(
-    image: Array2D, location: Tuple[int, int], mask_size: int, mask_value: float
-) -> Array2D:
-    """
-    Mask a crosshair pattern at the specified location.
-
-    Parameters
-    ----------
-    image : Array2D
-        Image to modify.
-    location : Tuple[int, int]
-        (x, y) coordinates of crosshair center.
-    mask_size : int
-        Size of the crosshair mask.
-    mask_value : float
-        Value to use for masked pixels.
-
-    Returns
-    -------
-    Array2D
-        Image with crosshair masked at the specified location.
-    """
-    x_center, y_center = location
-    height, width = image.shape
-
-    # Calculate crosshair boundaries with bounds checking
-    half_size = mask_size // 2
-
-    # Horizontal line of crosshair
-    x_start = max(0, x_center - half_size)
-    x_end = min(width, x_center + half_size + 1)
-    y_line = max(0, min(y_center, height - 1))
-
-    # Vertical line of crosshair
-    y_start = max(0, y_center - half_size)
-    y_end = min(height, y_center + half_size + 1)
-    x_line = max(0, min(x_center, width - 1))
-
-    # Apply horizontal line mask
-    if 0 <= y_line < height:
-        image[y_line, x_start:x_end] = mask_value
-
-    # Apply vertical line mask
-    if 0 <= x_line < width:
-        image[y_start:y_end, x_line] = mask_value
-
-    return image
 
 
 def create_mask_from_threshold(
