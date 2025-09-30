@@ -25,8 +25,13 @@ from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
 
 # Import beam-specific tools
 from image_analysis.tools.rendering import base_render_image
-from image_analysis.tools.basic_beam_stats import beam_profile_stats, flatten_beam_stats
+from image_analysis.algorithms.basic_beam_stats import (
+    beam_profile_stats,
+    flatten_beam_stats,
+)
 from image_analysis.types import AnalyzerResultDict
+
+logger = logging.getLogger(__name__)
 
 
 class BeamAnalyzer(StandardAnalyzer):
@@ -92,8 +97,8 @@ class BeamAnalyzer(StandardAnalyzer):
         file_path = (
             auxiliary_data.get("file_path", "Unknown") if auxiliary_data else "Unknown"
         )
-        if self.flag_logging:
-            logging.info(f"Analyzing beam image from: {file_path}")
+
+        logger.info("Analyzing beam image from: %s", file_path)
 
         # Apply processing pipeline (inherited from StandardAnalyzer)
         if not processed_flag:
@@ -105,10 +110,14 @@ class BeamAnalyzer(StandardAnalyzer):
             final_image = ensure_float64_processing(image)
 
         # Compute beam statistics
-        beam_stats_flat = self.calculate_beam_statistics(final_image)
+        # Use the existing beam profile stats function
+        beam_stats_flat = flatten_beam_stats(
+            beam_profile_stats(image), prefix=self.camera_config.name
+        )
 
         # Compute lineouts
-        horiz_lineout, vert_lineout = self.calculate_lineouts(final_image)
+        horiz_lineout = image.sum(axis=0)
+        vert_lineout = image.sum(axis=1)
 
         # Build input parameters dictionary (inherited from StandardAnalyzer)
         input_params = self._build_input_parameters()
@@ -135,49 +144,6 @@ class BeamAnalyzer(StandardAnalyzer):
 
         return return_dict
 
-    def calculate_beam_statistics(self, image: np.ndarray) -> Dict[str, float]:
-        """
-        Calculate beam-specific statistics from the processed image.
-
-        This method computes comprehensive beam statistics including centroid,
-        width, height, FWHM, and other beam quality metrics.
-
-        Parameters
-        ----------
-        image : np.ndarray
-            Processed beam image
-
-        Returns
-        -------
-        dict
-            Flattened dictionary of beam statistics with camera name prefix
-        """
-        # Use the existing beam profile stats function
-        beam_stats_flat = flatten_beam_stats(
-            beam_profile_stats(image), prefix=self.camera_config.name
-        )
-
-        return beam_stats_flat
-
-    def calculate_lineouts(self, image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Calculate horizontal and vertical lineouts from the beam image.
-
-        Parameters
-        ----------
-        image : np.ndarray
-            Processed beam image
-
-        Returns
-        -------
-        tuple
-            (horizontal_lineout, vertical_lineout) as numpy arrays
-        """
-        horiz_lineout = image.sum(axis=0)
-        vert_lineout = image.sum(axis=1)
-
-        return horiz_lineout, vert_lineout
-
     @staticmethod
     def render_image(
         image: np.ndarray,
@@ -187,7 +153,6 @@ class BeamAnalyzer(StandardAnalyzer):
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
         cmap: str = "plasma",
-        figsize: Tuple[float, float] = (4, 4),
         dpi: int = 150,
         ax: Optional[plt.Axes] = None,
         fixed_width_in: float = 4.0,
@@ -212,8 +177,6 @@ class BeamAnalyzer(StandardAnalyzer):
             Color scale limits
         cmap : str, default="plasma"
             Colormap name
-        figsize : tuple, default=(4, 4)
-            Figure size in inches
         dpi : int, default=150
             Figure DPI
         ax : matplotlib.axes.Axes, optional
@@ -327,65 +290,3 @@ class BeamAnalyzer(StandardAnalyzer):
             }
         )
         return info
-
-
-if __name__ == "__main__":
-    # Test usage
-    logging.basicConfig(level=logging.INFO)
-
-    # Test with the undulator exit cam configuration
-    try:
-        analyzer = BeamAnalyzer("undulator_exit_cam")
-        analyzer.use_interactive = True
-
-        print("Beam Analyzer Info:")
-        for key, value in analyzer.get_beam_info().items():
-            print(f"  {key}: {value}")
-
-        print("\nProcessing Summary:")
-        summary = analyzer.get_processing_summary()
-        print(f"  Camera: {summary['camera_name']} ({summary['camera_type']})")
-        print(f"  Processing steps: {len(summary['processing_steps'])}")
-        for step in summary["processing_steps"]:
-            print(f"    - {step['step']}: enabled")
-
-        print("\nBackground Info:")
-        if analyzer.background_manager:
-            bg_info = analyzer.background_manager.get_background_info()
-            print(f"  Background enabled: {bg_info['background_config']['enabled']}")
-            if bg_info["background_config"]["enabled"]:
-                print(f"  Background type: {bg_info['background_config']['type']}")
-                print(f"  Background method: {bg_info['background_config']['method']}")
-        else:
-            print("  No background manager available")
-
-        # Test with synthetic beam data
-        # Create a synthetic Gaussian beam
-        x = np.linspace(-50, 50, 1024)
-        y = np.linspace(-50, 50, 1024)
-        X, Y = np.meshgrid(x, y)
-
-        # Gaussian beam with some noise
-        beam = 1000 * np.exp(-((X - 5) ** 2 + (Y + 3) ** 2) / (2 * 15**2))
-        noise = np.random.randint(0, 50, (1024, 1024))
-        test_image = (beam + noise).astype(np.uint16)
-
-        result = analyzer.analyze_image(test_image)
-
-        print("\nBeam Analysis completed successfully!")
-        print(f"Processed image shape: {result['processed_image'].shape}")
-        print(
-            f"Number of beam statistics: {len(result.get('analyzer_return_dictionary', {}))}"
-        )
-
-        # Print some key beam statistics
-        beam_stats = result.get("analyzer_return_dictionary", {})
-        for key, value in beam_stats.items():
-            if "cent" in key or "width" in key or "height" in key:
-                print(f"  {key}: {value:.2f}")
-
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-
-        traceback.print_exc()
