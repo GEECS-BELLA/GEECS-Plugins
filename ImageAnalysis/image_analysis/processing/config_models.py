@@ -211,25 +211,17 @@ class CrosshairMaskingConfig(BaseModel):
     """
     Configuration for crosshair masking operations.
 
-    Supports both the new simplified format and the original sophisticated format
-    with multiple crosshairs, rotation, and custom dimensions.
+    Supports sophisticated crosshair masking with multiple crosshairs,
+    rotation, and custom dimensions.
 
     Attributes
     ----------
     enabled : bool
         Whether crosshair masking is enabled.
     crosshairs : List[CrosshairConfig]
-        List of crosshair configurations for sophisticated masking.
+        List of crosshair configurations.
     mask_value : float
         Value to use for masked pixels (typically 0).
-
-    Legacy attributes (for backward compatibility):
-    fiducial_cross1_location : Optional[Tuple[int, int]]
-        (x, y) pixel coordinates of first fiducial crosshair.
-    fiducial_cross2_location : Optional[Tuple[int, int]]
-        (x, y) pixel coordinates of second fiducial crosshair.
-    mask_size : Optional[int]
-        Size of the crosshair mask in pixels (for simple mode).
     """
 
     enabled: bool = True
@@ -238,38 +230,9 @@ class CrosshairMaskingConfig(BaseModel):
     )
     mask_value: float = Field(0.0, description="Value for masked pixels")
 
-    # Legacy fields for backward compatibility
-    fiducial_cross1_location: Optional[Tuple[int, int]] = Field(
-        None, description="Legacy: first crosshair location"
-    )
-    fiducial_cross2_location: Optional[Tuple[int, int]] = Field(
-        None, description="Legacy: second crosshair location"
-    )
-    mask_size: Optional[int] = Field(
-        None, gt=0, le=100, description="Legacy: simple crosshair mask size"
-    )
-
-    @field_validator("fiducial_cross1_location", "fiducial_cross2_location")
-    def validate_legacy_coordinates(cls, v):
-        """Ensure legacy coordinates are non-negative."""
-        if v is not None:
-            x, y = v
-            if x < 0 or y < 0:
-                raise ValueError("Legacy fiducial coordinates must be non-negative")
-        return v
-
-    def is_legacy_mode(self) -> bool:
-        """Check if this configuration uses legacy simple mode."""
-        return (
-            len(self.crosshairs) == 0
-            and self.fiducial_cross1_location is not None
-            and self.fiducial_cross2_location is not None
-            and self.mask_size is not None
-        )
-
     def has_crosshairs(self) -> bool:
         """Check if any crosshairs are configured."""
-        return len(self.crosshairs) > 0 or self.is_legacy_mode()
+        return len(self.crosshairs) > 0
 
 
 class ROIConfig(BaseModel):
@@ -501,15 +464,6 @@ class ThresholdingConfig(BaseModel):
         return v
 
 
-class CameraType(str, Enum):
-    """Supported camera types for different image analysis workflows."""
-
-    EBEAM_PROFILE = "ebeam_profile"
-    GENERAL_IMAGING = "general_imaging"
-    SPECTROMETER = "spectrometer"
-    INTERFEROMETER = "interferometer"
-
-
 class CameraConfig(BaseModel):
     """
     Complete camera configuration model.
@@ -524,8 +478,6 @@ class CameraConfig(BaseModel):
         Camera identifier/name.
     description : Optional[str]
         Human-readable description of the camera.
-    camera_type : CameraType
-        Type of camera for workflow-specific defaults.
     bit_depth : int
         Bit depth of camera images (typically 8, 12, 14, or 16).
     roi : Optional[ROIConfig]
@@ -536,6 +488,8 @@ class CameraConfig(BaseModel):
         Crosshair masking configuration.
     circular_mask : Optional[CircularMaskConfig]
         Circular masking configuration.
+    thresholding : Optional[ThresholdingConfig]
+        Image thresholding configuration.
     filtering : Optional[FilteringConfig]
         Image filtering configuration.
     transforms : Optional[TransformConfig]
@@ -544,9 +498,6 @@ class CameraConfig(BaseModel):
 
     name: str = Field(..., description="Camera identifier/name")
     description: Optional[str] = Field(None, description="Camera description")
-    camera_type: CameraType = Field(
-        CameraType.GENERAL_IMAGING, description="Camera type"
-    )
     bit_depth: int = Field(16, ge=8, le=32, description="Camera bit depth")
 
     # Processing configurations (all optional)
