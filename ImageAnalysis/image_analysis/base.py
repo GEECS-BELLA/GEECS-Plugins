@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 import logging
 
 from image_analysis.utils import read_imaq_image
-from image_analysis.processing.background_manager import BackgroundManager
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ class ImageAnalyzer:
     # asynchronously, for example if it waits for an external process
     run_analyze_image_asynchronously = False
 
-    def __init__(self, background_manager: BackgroundManager = None, **config):
+    def __init__(self, **config):
         """Initialize the ImageAnalyzer with optional background and keyword configuration parameters.
 
         As the same ImageAnalyzer instance can be applied to many images,
@@ -48,19 +47,14 @@ class ImageAnalyzer:
         defaults, and documentation. These are all used for LivePostProcessing
         for example.
 
-        If background subtraction is required, a `BackgroundManager` instance can be provided here.
-        If none is given, a default-initialized one will be created.
-
         It should also call super().__init__()
 
         Parameters
         ----------
         **config :
             Optional configuration kwargs.
-        background_manager : Optional[BackgroundManager]
-            An BackgroundManager instance. If not provided, a new one will be created.
         """
-        self.background_manager = background_manager or BackgroundManager()
+        pass
 
     def analyze_image(
         self, image: Array2D, auxiliary_data: Optional[dict] = None
