@@ -22,15 +22,12 @@ from __future__ import annotations
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-import abel
-import abc
 from typing import Optional, Tuple, Union, TYPE_CHECKING, NewType
 
 from dataclasses import dataclass
 import scipy.ndimage as ndimage
 import logging
 
-from image_analysis import ureg, Q_
 from image_analysis.base import ImageAnalyzer
 from image_analysis.utils import read_imaq_image
 
@@ -804,111 +801,6 @@ class PhaseDownrampProcessor(ImageAnalyzer):
             delta,
         )
         return plateau_value, delta
-
-
-class InversionTechnique(abc.ABC):
-    """Abstract base class for 2D → 2D density inversion techniques."""
-
-    def __init__(
-        self, phase_data: np.ndarray, image_resolution: float, wavelength_nm: float
-    ) -> None:
-        """Store inputs shared by inversion implementations."""
-        self.phase_data: np.ndarray = phase_data
-        self.image_resolution: float = image_resolution  # µm per pixel (vertical)
-        self.wavelength_nm: float = wavelength_nm
-
-    @abc.abstractmethod
-    def invert(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Perform the inversion and return ``(vertical_lineout, density_map)``."""
-        pass
-
-
-class PyabelInversion(InversionTechnique):
-    """Density inversion using PyAbel on the wavefront-derived phase map."""
-
-    def __init__(
-        self, phase_data: np.ndarray, image_resolution: float, wavelength_nm: float
-    ) -> None:
-        """Initialize the PyAbel inverter with phase data and calibration."""
-        super().__init__(phase_data, image_resolution, wavelength_nm)
-
-    def invert(self):
-        """Compute density map via PyAbel and return a centered vertical lineout."""
-        wavefront_quantity = -self.phase_data * self.wavelength_nm
-        wavefront_quantity = Q_(wavefront_quantity, "nanometer")
-        density = self.calculate_density(
-            wavefront=wavefront_quantity,
-            image_resolution=Q_(self.image_resolution, "micrometer"),
-        )
-        density = density.to("1/cm**3")
-
-        center_index = (density.shape[0] - 1) // 2
-        num_lines = 40
-        half_lines = num_lines // 2
-        rows_to_average = density[
-            center_index - half_lines : center_index + half_lines + 1, :
-        ]
-        averaged_lineout_magnitude = np.mean(rows_to_average.magnitude, axis=0)
-        averaged_lineout = Q_(averaged_lineout_magnitude, density.units)
-        return averaged_lineout, density
-
-    def calculate_density(
-        self,
-        wavefront: np.ndarray,
-        wavelength=Q_(800, "nm"),
-        image_resolution: Optional[LengthQuantity] = None,
-    ) -> DensityQuantity:
-        """Convert wavefront to density using the plasma refraction relationship.
-
-        Parameters
-        ----------
-        wavefront : numpy.ndarray
-            Wavefront in units of length (e.g., nanometers).
-        wavelength : pint.Quantity, default=800 nm
-            Probe wavelength as a quantity.
-        image_resolution : pint.Quantity, optional
-            Real-world length per pixel; if None, uses camera resolution.
-
-        Returns
-        -------
-        DensityQuantity
-            2D density slice with units of inverse volume.
-
-        Notes
-        -----
-        Uses a unit-aware Abel inversion and refraction constant:
-        ``phi = -lambda*e^2/(4 pi c^2 eps0 m_e) ∫ n(z) dz``, followed by
-        differentiation with respect to path length to recover density.
-        """
-
-        @ureg.wraps("nm/pixel", "nm")
-        def abel_transform_ua(wavefront):
-            return abel.Transform(
-                wavefront.T,
-                direction="inverse",
-                method="onion_bordas",
-                origin="convolution",
-                center_options={"axes": 1},
-                symmetry_axis=0,
-            ).transform.T
-
-        self.optical_path_change_per_distance = abel_transform_ua(wavefront) / (
-            image_resolution / ureg.pixel
-        )
-        C = -(
-            ureg.elementary_charge**2
-            / (
-                4
-                * np.pi
-                * ureg.speed_of_light**2
-                * ureg.vacuum_permittivity
-                * ureg.electron_mass
-            )
-        )
-        self.density = (
-            2 * np.pi / wavelength**2 / C * self.optical_path_change_per_distance
-        )
-        return self.density
 
 
 if __name__ == "__main__":
