@@ -5,7 +5,7 @@ statistics from images. The module follows NumPy docstring conventions.
 """
 
 from __future__ import annotations
-from typing import NamedTuple
+from typing import NamedTuple, Optional, Union
 import numpy as np
 import logging
 
@@ -235,14 +235,16 @@ def beam_profile_stats(img: np.ndarray) -> BeamStats:
     )
 
 
-def flatten_beam_stats(stats: BeamStats, prefix: str | None = None) -> dict[str, float]:
+def flatten_beam_stats(
+    stats: BeamStats, prefix: Optional[Union[str, None]] = None
+) -> dict[str, float]:
     """Flatten a :class:`BeamStats` instance into a dictionary.
 
     Parameters
     ----------
     stats : BeamStats
         The beam statistics to flatten.
-    prefix : str, optional
+    prefix : str, None
         Optional prefix to prepend to each key.
 
     Returns
