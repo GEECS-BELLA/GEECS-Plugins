@@ -161,7 +161,7 @@ def apply_camera_processing_pipeline_batch(
     final_images = []
     for i, img in enumerate(processed_images):
         # Apply all non-background processing steps
-        final_img = _apply_non_background_processing(img, camera_config)
+        final_img = apply_non_background_processing(img, camera_config)
         final_images.append(final_img)
 
         if i % 10 == 0:  # Log progress for large batches
@@ -172,7 +172,7 @@ def apply_camera_processing_pipeline_batch(
     return final_images
 
 
-def _apply_non_background_processing(
+def apply_non_background_processing(
     image: Array2D, camera_config: CameraConfig
 ) -> Array2D:
     """
@@ -197,22 +197,29 @@ def _apply_non_background_processing(
 
     # Step 3: Crosshair masking
     if camera_config.crosshair_masking and camera_config.crosshair_masking.enabled:
+        logger.info('applying crosshair masking')
         processed_image = apply_crosshair_masking(
             processed_image, camera_config.crosshair_masking
         )
 
     # Step 4: Circular masking
     if camera_config.circular_mask and camera_config.circular_mask.enabled:
+        logger.info('applying circular masking')
+
         processed_image = apply_circular_mask(
             processed_image, camera_config.circular_mask
         )
 
     # Step 5: ROI cropping
     if camera_config.roi:
+        logger.info('applying ROI')
+
         processed_image = apply_roi_cropping(processed_image, camera_config.roi)
 
     # Step 6: Thresholding
     if camera_config.thresholding and camera_config.thresholding.enabled:
+        logger.info('applying threshold')
+
         processed_image = apply_threshold(
             processed_image,
             camera_config.thresholding.method.value,
@@ -223,12 +230,14 @@ def _apply_non_background_processing(
 
     # Step 7: Filtering
     if camera_config.filtering:
+        logger.info('applying filtering')
         processed_image = apply_filtering_config(
             processed_image, camera_config.filtering
         )
 
     # Step 8: Geometric transforms
     if camera_config.transforms:
+        logger.info('applying transforms')
         processed_image = apply_transform_config(
             processed_image, camera_config.transforms
         )
