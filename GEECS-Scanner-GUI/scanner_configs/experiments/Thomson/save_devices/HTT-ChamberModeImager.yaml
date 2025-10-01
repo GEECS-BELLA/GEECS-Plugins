@@ -1,0 +1,6 @@
+Devices:
+  HTT-Chamber-Cam:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - MaxCounts

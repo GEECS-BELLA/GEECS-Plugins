@@ -1,0 +1,13 @@
+Devices:
+  HTT-C44_1_dr_out:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - MaxCounts
+setup_action:
+  steps:
+  - action: set
+    device: HTT-C44_1_dr_out
+    value: 'on'
+    variable: Analysis
+    wait_for_execution: true
