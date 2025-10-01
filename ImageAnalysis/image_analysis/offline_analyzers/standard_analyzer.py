@@ -31,7 +31,6 @@ from image_analysis.processing import (
     apply_camera_processing_pipeline,
     apply_non_background_processing,
     create_background_manager_from_config,
-    get_processing_summary,
 )
 
 from image_analysis.processing.pipeline import ensure_float64_processing
@@ -174,7 +173,9 @@ class StandardAnalyzer(ImageAnalyzer):
         This method maintains compatibility with existing scan analysis code
         that expects analyze_image_batch to return preprocessed images.
         """
-        return self.background_manager.process_image_batch(images),  {"background_processed": True}
+        return self.background_manager.process_image_batch(images), {
+            "background_processed": True
+        }
 
     def _build_input_parameters(self) -> Dict[str, Any]:
         """Build the input parameters dictionary with camera configuration info."""
@@ -209,10 +210,6 @@ class StandardAnalyzer(ImageAnalyzer):
             "config_file": self.camera_config_name,
             "has_background_manager": self.background_manager is not None,
         }
-
-    def get_processing_summary(self) -> Dict[str, Any]:
-        """Get a summary of the processing steps that will be applied."""
-        return get_processing_summary(self.camera_config)
 
     def set_camera_config(self, new_cfg: cfg.CameraConfig) -> None:
         """Replace the entire camera configuration with a validated instance."""
@@ -305,24 +302,50 @@ class StandardAnalyzer(ImageAnalyzer):
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
     ) -> AnalyzerResultDict:
-        logger.info('the super class got called.')
+        """
+        Run complete beam analysis using the processing pipeline.
+
+        This method extends the StandardAnalyzer's analyze_image method to add
+        beam-specific analysis including statistics calculation and lineouts.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            Input image to analyze
+        auxiliary_data : dict, optional
+            Additional data including file path and preprocessing flags
+
+        Returns
+        -------
+        AnalyzerResultDict
+            Dictionary containing processed image, beam statistics, and lineouts
+        """
+        logger.info("the super class got called.")
         file_path = (
             auxiliary_data.get("file_path", "Unknown") if auxiliary_data else "Unknown"
         )
         logger.info("Analyzing image from: %s", file_path)
 
-        bg_processed = auxiliary_data.get("background_processed", False) if auxiliary_data else False
-        fully_processed = auxiliary_data.get("fully_processed", False) if auxiliary_data else False
+        bg_processed = (
+            auxiliary_data.get("background_processed", False)
+            if auxiliary_data
+            else False
+        )
+        fully_processed = (
+            auxiliary_data.get("fully_processed", False) if auxiliary_data else False
+        )
 
-        logger.info('batch based background is %s', bg_processed)
-        logger.info('fully processed state %s', fully_processed)
+        logger.info("batch based background is %s", bg_processed)
+        logger.info("fully processed state %s", fully_processed)
 
         if fully_processed:
             final_image = ensure_float64_processing(image)
         elif bg_processed:
             # Background done, apply remaining steps (masking, ROI, threshold, etc.)
-            logger.info('attempting the non background processing')
-            final_image = apply_non_background_processing(image, camera_config=self.camera_config)
+            logger.info("attempting the non background processing")
+            final_image = apply_non_background_processing(
+                image, camera_config=self.camera_config
+            )
         else:
             # Nothing done, apply full pipeline
             final_image = self.preprocess_image(image)

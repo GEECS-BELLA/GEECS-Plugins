@@ -116,7 +116,9 @@ def apply_camera_processing_pipeline(
     return processed
 
 
-def apply_non_background_processing(image: Array2D, camera_config: CameraConfig) -> Array2D:
+def apply_non_background_processing(
+    image: Array2D, camera_config: CameraConfig
+) -> Array2D:
     """
     Apply all processing steps except background processing.
 
@@ -137,6 +139,7 @@ def apply_non_background_processing(image: Array2D, camera_config: CameraConfig)
         Processed image.
     """
     return _apply_non_background_steps(image, camera_config)
+
 
 def create_background_manager_from_config(
     camera_config: CameraConfig,
@@ -257,13 +260,6 @@ def get_processing_summary(camera_config: CameraConfig) -> dict:
             filters["gaussian_sigma"] = camera_config.filtering.gaussian_sigma
         if camera_config.filtering.median_kernel_size is not None:
             filters["median_kernel_size"] = camera_config.filtering.median_kernel_size
-        if camera_config.filtering.bilateral_d is not None:
-            filters["bilateral"] = {
-                "d": camera_config.filtering.bilateral_d,
-                "sigma_color": camera_config.filtering.bilateral_sigma_color,
-                "sigma_space": camera_config.filtering.bilateral_sigma_space,
-            }
-
         if filters:
             summary["processing_steps"].append(
                 {"step": "filtering", "filters": filters, "enabled": True}
@@ -278,8 +274,6 @@ def get_processing_summary(camera_config: CameraConfig) -> dict:
             transforms["flip_horizontal"] = True
         if camera_config.transforms.flip_vertical:
             transforms["flip_vertical"] = True
-        if camera_config.transforms.distortion_correction:
-            transforms["distortion_correction"] = True
 
         if transforms:
             summary["processing_steps"].append(

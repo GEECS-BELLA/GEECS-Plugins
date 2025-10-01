@@ -24,11 +24,8 @@ class BackgroundMethod(str, Enum):
 
     CONSTANT = "constant"
     PERCENTILE_DATASET = "percentile_dataset"
-    TEMPORAL_MEDIAN = "temporal_median"
-    OUTLIER_REJECTION = "outlier_rejection"
     FROM_FILE = "from_file"
     MEDIAN = "median"  # Alias for temporal_median
-    MEAN = "mean"  # Simple mean background
 
 
 class FallbackBackgroundConfig(BaseModel):
@@ -167,10 +164,7 @@ class BackgroundConfig(BaseModel):
         # Dynamic backgrounds require image batches
         return self.method in [
             BackgroundMethod.PERCENTILE_DATASET,
-            BackgroundMethod.TEMPORAL_MEDIAN,
             BackgroundMethod.MEDIAN,
-            BackgroundMethod.MEAN,
-            BackgroundMethod.OUTLIER_REJECTION,
         ]
 
 
@@ -291,12 +285,6 @@ class FilteringConfig(BaseModel):
         Standard deviation for Gaussian filter. If None, no Gaussian filtering.
     median_kernel_size : Optional[int]
         Kernel size for median filter. If None, no median filtering.
-    bilateral_d : Optional[int]
-        Diameter for bilateral filter. If None, no bilateral filtering.
-    bilateral_sigma_color : float
-        Sigma for color space in bilateral filter.
-    bilateral_sigma_space : float
-        Sigma for coordinate space in bilateral filter.
     """
 
     gaussian_sigma: Optional[float] = Field(
@@ -304,15 +292,6 @@ class FilteringConfig(BaseModel):
     )
     median_kernel_size: Optional[int] = Field(
         None, gt=0, description="Median filter kernel size"
-    )
-    bilateral_d: Optional[int] = Field(
-        None, gt=0, description="Bilateral filter diameter"
-    )
-    bilateral_sigma_color: float = Field(
-        75.0, gt=0.0, description="Bilateral filter color sigma"
-    )
-    bilateral_sigma_space: float = Field(
-        75.0, gt=0.0, description="Bilateral filter space sigma"
     )
 
     @field_validator("median_kernel_size")

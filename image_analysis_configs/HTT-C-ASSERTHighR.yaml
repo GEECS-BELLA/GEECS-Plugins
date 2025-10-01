@@ -10,7 +10,7 @@ bit_depth: 16
 background:
   enabled: true
   type: "dynamic"               # Options: static, dynamic
-  method: "percentile_dataset"  # Options: constant, percentile_dataset, temporal_median, median, mean, outlier_rejection, from_file
+  method: "percentile_dataset"  # Options: constant, percentile_dataset, median, from_file
   auto_save_path: null          # Auto-save computed backgrounds (for dynamic type)
   fallback:                     # Fallback for single image analysis (dynamic type)
     method: "constant"
