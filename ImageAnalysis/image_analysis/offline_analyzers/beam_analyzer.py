@@ -44,7 +44,8 @@ def create_variation_analyzer(
     camera_config_name: str,
     percentile: float = 50.0,
     method: BackgroundMethod = BackgroundMethod.PERCENTILE_DATASET,
-    name_suffix: str = "_variation",
+    additional_constant: float = 0.0,
+    name_suffix: str = "_variation"
 ) -> "BeamAnalyzer":
     """Create a BeamAnalyzer configured for variation analysis.
 
@@ -69,6 +70,8 @@ def create_variation_analyzer(
         Suffix to append to camera name for scalar result prefixes.
         This ensures variation analysis results are clearly distinguished
         from standard analysis results in the output data.
+    additional_constant : float, default = 0.0
+        additional background offset after dynamic bkg subtraction
 
     Returns
     -------
@@ -84,12 +87,14 @@ def create_variation_analyzer(
         enabled=True,
         method=BackgroundMethod.FROM_FILE,
         file_path=Path("{scan_dir}/computed_background.npy"),
+        constant_level=0,
         dynamic_computation=DynamicComputationConfig(
             enabled=True,
             method=method,
             percentile=percentile,
             auto_save_path=Path("{scan_dir}/computed_background.npy"),
         ),
+        additional_constant=additional_constant
     )
 
     return BeamAnalyzer(
