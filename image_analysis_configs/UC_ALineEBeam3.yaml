@@ -2,14 +2,14 @@
 
 # Camera identification and properties
 background:
-  auto_save_path: null
   enabled: true
-  fallback:
-    level: 50.0
-    method: constant
-  level: 50.0
-  method: constant
-  type: static
+  type: "dynamic"               # Options: static, dynamic
+  method: "percentile_dataset"  # Options: constant, percentile_dataset, temporal_median, median, mean, outlier_rejection, from_file
+  percentile: 5
+  auto_save_path: null          # Auto-save computed backgrounds (for dynamic type)
+  fallback:                     # Fallback for single image analysis (dynamic type)
+    method: "constant"
+    level: 0.0
 bit_depth: 16
 camera_type: ebeam_profile
 crosshair_masking:
@@ -17,9 +17,9 @@ crosshair_masking:
   enabled: false
 description: A-Line electron beam camera 3 for beam profiling
 filtering:
-  bilateral_d: 3
+  bilateral_d: null
   gaussian_sigma: null
-  median_kernel_size: null
+  median_kernel_size: 3
 metadata:
   location: Migrated camera
   notes: Migrated from hardcoded configuration in EBeamProfile.py
