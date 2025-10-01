@@ -53,7 +53,6 @@ from .config_models import (
     ThresholdingConfig,
     CircularMaskConfig,
     BackgroundMethod,
-    BackgroundType,
     ThresholdMethod,
     ThresholdMode,
 )
@@ -105,7 +104,6 @@ __all__ = [
     "ThresholdingConfig",
     "CircularMaskConfig",
     "BackgroundMethod",
-    "BackgroundType",
     "ThresholdMethod",
     "ThresholdMode",
     # Function registry
