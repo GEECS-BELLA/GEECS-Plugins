@@ -26,15 +26,16 @@ import numpy as np
 # Import the new processing framework
 from image_analysis.config_loader import (
     load_camera_config,
-    convert_from_processing_dtype,
 )
 from image_analysis.processing import (
     apply_camera_processing_pipeline,
-    apply_camera_processing_pipeline_batch,
+    apply_non_background_processing,
     create_background_manager_from_config,
     get_processing_summary,
 )
 
+from image_analysis.processing.pipeline import ensure_float64_processing
+from image_analysis.types import AnalyzerResultDict
 
 # Import existing tools and base classes
 import image_analysis.processing.config_models as cfg
@@ -163,42 +164,6 @@ class StandardAnalyzer(ImageAnalyzer):
         )
 
         return processed_image
-
-    def preprocess_image_batch(
-        self, images: List[np.ndarray]
-    ) -> Tuple[List[np.ndarray], Dict[str, Union[int, float, bool, str]]]:
-        """
-        Preprocess and background-subtract a batch of images using the modern pipeline.
-
-        This method provides compatibility with the scan analysis framework
-        while using the new configuration-driven processing pipeline.
-
-        Parameters
-        ----------
-        images : list of numpy.ndarray
-            List of images to process.
-
-        Returns
-        -------
-        tuple
-            (list of processed images, metadata dict with 'preprocessed' flag)
-        """
-        logger.info("Processing batch of %s images using unified pipeline", len(images))
-
-        # Use the unified processing pipeline for batch processing
-        processed_images = apply_camera_processing_pipeline_batch(
-            images, self.camera_config, self.background_manager
-        )
-
-        # Convert back to storage dtype if needed
-        final_images = []
-        for img in processed_images:
-            final_img = convert_from_processing_dtype(
-                img, self.camera_config.storage_dtype
-            )
-            final_images.append(final_img)
-
-        return final_images, {"preprocessed": True}
 
     def analyze_image_batch(
         self, images: List[np.ndarray]
@@ -336,3 +301,39 @@ class StandardAnalyzer(ImageAnalyzer):
                     self.camera_config
                 )
             logger.info("Configuration updated.")
+
+    def analyze_image(
+        self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
+    ) -> AnalyzerResultDict:
+        logger.info('the super class got called.')
+        file_path = (
+            auxiliary_data.get("file_path", "Unknown") if auxiliary_data else "Unknown"
+        )
+        logger.info("Analyzing image from: %s", file_path)
+
+        bg_processed = auxiliary_data.get("background_processed", False) if auxiliary_data else False
+        fully_processed = auxiliary_data.get("fully_processed", False) if auxiliary_data else False
+
+        logger.info('batch based background is %s', bg_processed)
+        logger.info('fully processed state %s', fully_processed)
+
+        if fully_processed:
+            final_image = ensure_float64_processing(image)
+        elif bg_processed:
+            # Background done, apply remaining steps (masking, ROI, threshold, etc.)
+            logger.info('attempting the non background processing')
+            final_image = apply_non_background_processing(image, camera_config=self.camera_config)
+        else:
+            # Nothing done, apply full pipeline
+            final_image = self.preprocess_image(image)
+
+        # Build input parameters dictionary (inherited from StandardAnalyzer)
+        input_params = self._build_input_parameters()
+
+        # Build return dictionary with beam-specific data
+        return_dict = self.build_return_dictionary(
+            return_image=final_image,
+            input_parameters=input_params,
+        )
+
+        return return_dict

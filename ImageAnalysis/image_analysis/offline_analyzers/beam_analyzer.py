@@ -29,7 +29,6 @@ from image_analysis.algorithms.basic_beam_stats import (
     beam_profile_stats,
     flatten_beam_stats,
 )
-from image_analysis.processing.pipeline import ensure_float64_processing, apply_non_background_processing
 from image_analysis.types import AnalyzerResultDict
 
 logger = logging.getLogger(__name__)
@@ -87,44 +86,21 @@ class BeamAnalyzer(StandardAnalyzer):
         AnalyzerResultDict
             Dictionary containing processed image, beam statistics, and lineouts
         """
-        file_path = (
-            auxiliary_data.get("file_path", "Unknown") if auxiliary_data else "Unknown"
-        )
-        logger.info("Analyzing image from: %s", file_path)
 
-        bg_processed = auxiliary_data.get("background_processed", False) if auxiliary_data else False
-        fully_processed = auxiliary_data.get("fully_processed", False) if auxiliary_data else False
-
-        logger.info('batch based background is %s', bg_processed)
-        logger.info('fully processed state %s', fully_processed)
-
-        if fully_processed:
-            final_image = ensure_float64_processing(image)
-        elif bg_processed:
-            # Background done, apply remaining steps (masking, ROI, threshold, etc.)
-            logger.info('attempting the non background processing')
-            final_image = apply_non_background_processing(image, camera_config=self.camera_config)
-        else:
-            # Nothing done, apply full pipeline
-            final_image = self.preprocess_image(image)
+        initial_result: AnalyzerResultDict = super().analyze_image(image=image,auxiliary_data=auxiliary_data)
 
         # Compute beam statistics
-        # Use the existing beam profile stats function
         beam_stats_flat = flatten_beam_stats(
-            beam_profile_stats(image), prefix=self.camera_config.name
+            beam_profile_stats(initial_result['processed_image']), prefix=self.camera_config.name
         )
 
         # Compute lineouts
-        horiz_lineout = final_image.sum(axis=0)
-        vert_lineout = final_image.sum(axis=1)
+        horiz_lineout = initial_result['processed_image'].sum(axis=0)
+        vert_lineout = initial_result['processed_image'].sum(axis=1)
 
-        # Build input parameters dictionary (inherited from StandardAnalyzer)
-        input_params = self._build_input_parameters()
-
-        # Build return dictionary with beam-specific data
         return_dict = self.build_return_dictionary(
-            return_image=final_image,
-            input_parameters=input_params,
+            return_image=initial_result['processed_image'],
+            input_parameters=initial_result['analyzer_input_parameters'],
             return_scalars=beam_stats_flat,
             return_lineouts=[horiz_lineout, vert_lineout],
             coerce_lineout_length=False,
