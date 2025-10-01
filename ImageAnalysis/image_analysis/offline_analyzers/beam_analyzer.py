@@ -29,6 +29,7 @@ from image_analysis.algorithms.basic_beam_stats import (
     beam_profile_stats,
     flatten_beam_stats,
 )
+from image_analysis.processing.pipeline import ensure_float64_processing, apply_non_background_processing
 from image_analysis.types import AnalyzerResultDict
 
 logger = logging.getLogger(__name__)
@@ -86,25 +87,26 @@ class BeamAnalyzer(StandardAnalyzer):
         AnalyzerResultDict
             Dictionary containing processed image, beam statistics, and lineouts
         """
-        # Determine if preprocessing is needed
-        processed_flag = (
-            auxiliary_data.get("preprocessed", False) if auxiliary_data else False
-        )
-
         file_path = (
             auxiliary_data.get("file_path", "Unknown") if auxiliary_data else "Unknown"
         )
+        logger.info("Analyzing image from: %s", file_path)
 
-        logger.info("Analyzing beam image from: %s", file_path)
+        bg_processed = auxiliary_data.get("background_processed", False) if auxiliary_data else False
+        fully_processed = auxiliary_data.get("fully_processed", False) if auxiliary_data else False
 
-        # Apply processing pipeline (inherited from StandardAnalyzer)
-        if not processed_flag:
-            final_image = self.preprocess_image(image)
-        else:
-            # Image already processed, just ensure proper dtype
-            from image_analysis.utils import ensure_float64_processing
+        logger.info('batch based background is %s', bg_processed)
+        logger.info('fully processed state %s', fully_processed)
 
+        if fully_processed:
             final_image = ensure_float64_processing(image)
+        elif bg_processed:
+            # Background done, apply remaining steps (masking, ROI, threshold, etc.)
+            logger.info('attempting the non background processing')
+            final_image = apply_non_background_processing(image, camera_config=self.camera_config)
+        else:
+            # Nothing done, apply full pipeline
+            final_image = self.preprocess_image(image)
 
         # Compute beam statistics
         # Use the existing beam profile stats function
