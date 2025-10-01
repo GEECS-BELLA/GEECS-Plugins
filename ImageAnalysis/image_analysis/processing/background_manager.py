@@ -196,7 +196,7 @@ class BackgroundManager:
                     logger.warning(f"Failed to auto-save background: {e}")
 
             # Apply to all images
-            return [subtract_background(img, background) for img in images]
+            return [subtract_background(ensure_float64_processing(img), background) for img in images]
         else:
             logger.warning(
                 f"Dynamic background method {self.config.method} doesn't require batch processing"
