@@ -66,21 +66,6 @@ class ScanAnalyzerInfo(NamedTuple):
         Whether this analyzer is enabled in the current configuration.
     scan_analyzer_kwargs : dict[str, Any], default={}
         Extra keyword arguments forwarded to the analyzer constructor.
-
-    Examples
-    --------
-    >>> ScanAnalyzerInfo(
-    ...     scan_analyzer_class=Rad2SpecAnalysis,
-    ...     requirements={"tdms": ["U_BCaveICT"], "image": ["UC_UndulatorRad2"]},
-    ...     device_name="UC_UndulatorRad2",
-    ...     scan_analyzer_kwargs={"debug_mode": False, "force_background_mode": True},
-    ... )
-    >>> ScanAnalyzerInfo(
-    ...     scan_analyzer_class=Array2DScanAnalyzer,
-    ...     requirements={"image": ["U_HasoLift"]},
-    ...     device_name="U_HasoLift",
-    ...     scan_analyzer_kwargs={"image_analyzer": MyCustomImageAnalyzer()},
-    ... )
     """
 
     scan_analyzer_class: Type[ScanAnalyzer]
