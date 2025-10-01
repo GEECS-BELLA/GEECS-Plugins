@@ -36,8 +36,6 @@ class DynamicComputationConfig(BaseModel):
         Method to use for background computation.
     percentile : float
         Percentile value for percentile_dataset method (0-100).
-    outlier_threshold : float
-        Threshold for outlier rejection (in standard deviations).
     auto_save_path : Optional[Union[str, Path]]
         Path to save the computed background. Supports {scan_dir} placeholder.
     """
@@ -49,9 +47,7 @@ class DynamicComputationConfig(BaseModel):
     percentile: float = Field(
         5.0, ge=0.0, le=100.0, description="Percentile for dataset background"
     )
-    outlier_threshold: float = Field(
-        2.0, gt=0.0, description="Outlier rejection threshold (std devs)"
-    )
+
     auto_save_path: Optional[Union[str, Path]] = Field(
         None, description="Path to save computed background (supports {scan_dir})"
     )
