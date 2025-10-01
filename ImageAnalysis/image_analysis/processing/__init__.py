@@ -28,14 +28,12 @@ from .masking import apply_crosshair_masking, apply_roi_cropping, apply_circular
 from .filtering import (
     apply_gaussian_filter,
     apply_median_filter,
-    apply_bilateral_filter,
     apply_filtering_config,
 )
 from .transforms import (
     apply_rotation,
     apply_vertical_flip,
     apply_horizontal_flip,
-    apply_distortion_correction,
     apply_transform_config,
 )
 from .thresholding import apply_threshold
@@ -67,7 +65,6 @@ PROCESSING_FUNCTIONS = {
     "circular_masking": apply_circular_mask,
     "gaussian_filter": apply_gaussian_filter,
     "median_filter": apply_median_filter,
-    "bilateral_filter": apply_bilateral_filter,
     "thresholding": apply_threshold,
 }
 
@@ -85,13 +82,11 @@ __all__ = [
     # Filtering operations
     "apply_gaussian_filter",
     "apply_median_filter",
-    "apply_bilateral_filter",
     "apply_filtering_config",
     # Transform operations
     "apply_rotation",
     "apply_horizontal_flip",
     "apply_vertical_flip",
-    "apply_distortion_correction",
     "apply_transform_config",
     # Thresholding operations
     "apply_threshold",
