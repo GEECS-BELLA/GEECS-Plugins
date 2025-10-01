@@ -86,21 +86,23 @@ class BeamAnalyzer(StandardAnalyzer):
         AnalyzerResultDict
             Dictionary containing processed image, beam statistics, and lineouts
         """
-
-        initial_result: AnalyzerResultDict = super().analyze_image(image=image,auxiliary_data=auxiliary_data)
+        initial_result: AnalyzerResultDict = super().analyze_image(
+            image=image, auxiliary_data=auxiliary_data
+        )
 
         # Compute beam statistics
         beam_stats_flat = flatten_beam_stats(
-            beam_profile_stats(initial_result['processed_image']), prefix=self.camera_config.name
+            beam_profile_stats(initial_result["processed_image"]),
+            prefix=self.camera_config.name,
         )
 
         # Compute lineouts
-        horiz_lineout = initial_result['processed_image'].sum(axis=0)
-        vert_lineout = initial_result['processed_image'].sum(axis=1)
+        horiz_lineout = initial_result["processed_image"].sum(axis=0)
+        vert_lineout = initial_result["processed_image"].sum(axis=1)
 
         return_dict = self.build_return_dictionary(
-            return_image=initial_result['processed_image'],
-            input_parameters=initial_result['analyzer_input_parameters'],
+            return_image=initial_result["processed_image"],
+            input_parameters=initial_result["analyzer_input_parameters"],
             return_scalars=beam_stats_flat,
             return_lineouts=[horiz_lineout, vert_lineout],
             coerce_lineout_length=False,
@@ -293,27 +295,3 @@ class BeamAnalyzer(StandardAnalyzer):
         if close:
             plt.close(fig)
         return fig, ax
-
-    def get_beam_info(self) -> Dict[str, Any]:
-        """
-        Get comprehensive beam analyzer information.
-
-        Returns
-        -------
-        dict
-            Dictionary containing camera info and beam-specific capabilities
-        """
-        info = self.get_camera_info()  # Inherited from StandardAnalyzer
-        info.update(
-            {
-                "analyzer_type": "BeamAnalyzer",
-                "beam_analysis_capabilities": [
-                    "beam_statistics",
-                    "gaussian_fitting",
-                    "lineout_generation",
-                    "centroid_calculation",
-                    "beam_width_analysis",
-                ],
-            }
-        )
-        return info
