@@ -90,18 +90,27 @@ class BeamAnalyzer(StandardAnalyzer):
             image=image, auxiliary_data=auxiliary_data
         )
 
+        processed_image = initial_result["processed_image"]
+
+        self.background_manager.set_constant_background(
+            self.camera_config.background.fallback.level,
+            shape=processed_image.shape
+        )
+        processed_image = self.background_manager.process_single_image(processed_image)
+        processed_image = np.where(processed_image >= 0, processed_image, 0.0)
+
         # Compute beam statistics
         beam_stats_flat = flatten_beam_stats(
-            beam_profile_stats(initial_result["processed_image"]),
+            beam_profile_stats(processed_image),
             prefix=self.camera_config.name,
         )
 
         # Compute lineouts
-        horiz_lineout = initial_result["processed_image"].sum(axis=0)
-        vert_lineout = initial_result["processed_image"].sum(axis=1)
+        horiz_lineout = processed_image.sum(axis=0)
+        vert_lineout = processed_image.sum(axis=1)
 
         return_dict = self.build_return_dictionary(
-            return_image=initial_result["processed_image"],
+            return_image=processed_image,
             input_parameters=initial_result["analyzer_input_parameters"],
             return_scalars=beam_stats_flat,
             return_lineouts=[horiz_lineout, vert_lineout],
