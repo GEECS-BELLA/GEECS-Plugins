@@ -12,13 +12,6 @@ from pathlib import Path
 from enum import Enum
 
 
-class BackgroundType(str, Enum):
-    """Background processing types."""
-
-    STATIC = "static"  # Fixed background (from file or constant)
-    DYNAMIC = "dynamic"  # Computed from image data
-
-
 class BackgroundMethod(str, Enum):
     """Supported background computation methods."""
 
@@ -28,87 +21,39 @@ class BackgroundMethod(str, Enum):
     MEDIAN = "median"  # Alias for temporal_median
 
 
-class FallbackBackgroundConfig(BaseModel):
+class DynamicComputationConfig(BaseModel):
     """
-    Fallback background configuration for when dynamic background is unavailable.
+    Configuration for dynamic background computation from image batches.
 
-    Attributes
-    ----------
-    method : BackgroundMethod
-        Fallback method to use.
-    level : float
-        Constant background level (for constant method).
-    file_path : Optional[Union[str, Path]]
-        Path to fallback background file.
-    """
-
-    method: BackgroundMethod = BackgroundMethod.CONSTANT
-    level: float = Field(0.0, ge=0.0, description="Constant background level")
-    file_path: Optional[Union[str, Path]] = Field(
-        None, description="Path to fallback background file"
-    )
-
-    @field_validator("file_path")
-    def validate_fallback_file_path(cls, v, info):
-        """Validate file path when method is from_file."""
-        if (
-            hasattr(info, "data")
-            and info.data.get("method") == BackgroundMethod.FROM_FILE
-            and v is None
-        ):
-            raise ValueError('file_path required when fallback method is "from_file"')
-        return v
-
-
-class BackgroundConfig(BaseModel):
-    """
-    Enhanced configuration for background computation and subtraction.
-
-    Supports both static backgrounds (fixed from file/constant) and dynamic
-    backgrounds (computed from image batches with optional fallback).
+    This is used by Array2DScanAnalyzer to compute backgrounds from
+    all images in a scan directory.
 
     Attributes
     ----------
     enabled : bool
-        Whether background processing is enabled.
-    type : BackgroundType
-        Type of background processing (static or dynamic).
+        Whether dynamic background computation is enabled.
     method : BackgroundMethod
         Method to use for background computation.
-    level : float
-        Constant background level (used when method='constant').
     percentile : float
-        Percentile value for dataset background computation (0-100).
+        Percentile value for percentile_dataset method (0-100).
     outlier_threshold : float
-        Threshold for outlier rejection method (in standard deviations).
-    file_path : Optional[Union[str, Path]]
-        Path to background file (used when method='from_file').
+        Threshold for outlier rejection (in standard deviations).
     auto_save_path : Optional[Union[str, Path]]
-        Path to automatically save computed dynamic backgrounds.
-    fallback : Optional[FallbackBackgroundConfig]
-        Fallback configuration when dynamic background is unavailable.
+        Path to save the computed background. Supports {scan_dir} placeholder.
     """
 
-    enabled: bool = Field(True, description="Enable background processing")
-    type: BackgroundType = Field(
-        BackgroundType.STATIC, description="Background processing type"
+    enabled: bool = Field(True, description="Enable dynamic background computation")
+    method: BackgroundMethod = Field(
+        BackgroundMethod.PERCENTILE_DATASET, description="Background computation method"
     )
-    method: BackgroundMethod = BackgroundMethod.CONSTANT
-    level: float = Field(0.0, ge=0.0, description="Constant background level")
     percentile: float = Field(
         5.0, ge=0.0, le=100.0, description="Percentile for dataset background"
     )
     outlier_threshold: float = Field(
         2.0, gt=0.0, description="Outlier rejection threshold (std devs)"
     )
-    file_path: Optional[Union[str, Path]] = Field(
-        None, description="Path to background file"
-    )
     auto_save_path: Optional[Union[str, Path]] = Field(
-        None, description="Auto-save path for computed backgrounds"
-    )
-    fallback: Optional[FallbackBackgroundConfig] = Field(
-        None, description="Fallback background configuration"
+        None, description="Path to save computed background (supports {scan_dir})"
     )
 
     @field_validator("percentile")
@@ -118,54 +63,57 @@ class BackgroundConfig(BaseModel):
             raise ValueError("percentile must be between 0 and 100")
         return v
 
+
+class BackgroundConfig(BaseModel):
+    """
+    Simplified configuration for background subtraction.
+
+    This configuration supports a two-stage workflow:
+    1. Primary background source (from_file, constant, or None)
+    2. Additional constant offset applied after primary background
+    3. Optional dynamic computation (for batch processing only)
+
+    Attributes
+    ----------
+    enabled : bool
+        Whether background processing is enabled.
+    method : Optional[BackgroundMethod]
+        Primary background method. Can be None to skip primary background.
+    file_path : Optional[Union[str, Path]]
+        Path to background file (for from_file method). Supports {scan_dir} placeholder.
+    constant_level : float
+        Constant background level (for constant method, or fallback if file not found).
+    additional_constant : float
+        Additional constant to subtract AFTER primary background (default 0).
+    dynamic_computation : Optional[DynamicComputationConfig]
+        Configuration for dynamic background computation (batch processing only).
+    """
+
+    enabled: bool = Field(True, description="Enable background processing")
+    method: Optional[BackgroundMethod] = Field(
+        None, description="Primary background method (None to skip)"
+    )
+    file_path: Optional[Union[str, Path]] = Field(
+        None, description="Path to background file (supports {scan_dir})"
+    )
+    constant_level: float = Field(
+        0.0, ge=0.0, description="Constant background level or fallback"
+    )
+    additional_constant: float = Field(
+        0.0, description="Additional constant offset applied after primary background"
+    )
+    dynamic_computation: Optional[DynamicComputationConfig] = Field(
+        None, description="Dynamic background computation config (batch processing)"
+    )
+
     @field_validator("file_path")
     def validate_file_path(cls, v, info):
         """Validate file path when method is from_file."""
         if hasattr(info, "data"):
             method = info.data.get("method")
-            bg_type = info.data.get("type")
-
-            if (
-                method == BackgroundMethod.FROM_FILE
-                and bg_type == BackgroundType.STATIC
-                and v is None
-            ):
-                raise ValueError(
-                    'file_path required when type is "static" and method is "from_file"'
-                )
+            if method == BackgroundMethod.FROM_FILE and v is None:
+                raise ValueError('file_path required when method is "from_file"')
         return v
-
-    @field_validator("fallback")
-    def validate_fallback_for_dynamic(cls, v, info):
-        """Recommend fallback for dynamic backgrounds."""
-        if hasattr(info, "data"):
-            bg_type = info.data.get("type")
-            if bg_type == BackgroundType.DYNAMIC and v is None:
-                # This is just a warning, not an error - fallback is optional
-                pass
-        return v
-
-    def is_static(self) -> bool:
-        """Check if this is a static background configuration."""
-        return self.type == BackgroundType.STATIC
-
-    def is_dynamic(self) -> bool:
-        """Check if this is a dynamic background configuration."""
-        return self.type == BackgroundType.DYNAMIC
-
-    def requires_image_batch(self) -> bool:
-        """Check if this configuration requires an image batch for computation."""
-        if not self.enabled:
-            return False
-
-        if self.is_static():
-            return False
-
-        # Dynamic backgrounds require image batches
-        return self.method in [
-            BackgroundMethod.PERCENTILE_DATASET,
-            BackgroundMethod.MEDIAN,
-        ]
 
 
 class CrosshairConfig(BaseModel):

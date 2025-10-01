@@ -29,11 +29,9 @@ from image_analysis.config_loader import (
 )
 from image_analysis.processing import (
     apply_camera_processing_pipeline,
-    apply_non_background_processing,
     create_background_manager_from_config,
 )
 
-from image_analysis.processing.pipeline import ensure_float64_processing
 from image_analysis.types import AnalyzerResultDict
 
 # Import existing tools and base classes
@@ -168,14 +166,29 @@ class StandardAnalyzer(ImageAnalyzer):
         self, images: List[np.ndarray]
     ) -> Tuple[List[np.ndarray], Dict[str, Union[int, float, bool, str]]]:
         """
-        Alias for preprocess_image_batch for backward compatibility.
+        Process a batch of images for scan analysis.
 
-        This method maintains compatibility with existing scan analysis code
-        that expects analyze_image_batch to return preprocessed images.
+        This method generates dynamic backgrounds (if configured) but returns
+        the ORIGINAL images. The actual background application happens in
+        analyze_image() which is called for each image by the parallel workers.
+
+        Parameters
+        ----------
+        images : List[np.ndarray]
+            List of images from the scan
+
+        Returns
+        -------
+        Tuple[List[np.ndarray], Dict]
+            Original images and empty stateful results dict
         """
-        return self.background_manager.process_image_batch(images), {
-            "background_processed": True
-        }
+        # Generate dynamic background if configured
+        # This computes and saves the background but doesn't apply it
+        self.background_manager.generate_dynamic_background(images)
+
+        # Return ORIGINAL images (not processed)
+        # Processing happens in analyze_image() for each image
+        return images, {}
 
     def _build_input_parameters(self) -> Dict[str, Any]:
         """Build the input parameters dictionary with camera configuration info."""
@@ -303,57 +316,37 @@ class StandardAnalyzer(ImageAnalyzer):
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
     ) -> AnalyzerResultDict:
         """
-        Run complete beam analysis using the processing pipeline.
+        Analyze a single image using the full processing pipeline.
 
-        This method extends the StandardAnalyzer's analyze_image method to add
-        beam-specific analysis including statistics calculation and lineouts.
+        This method applies the complete processing pipeline to the image,
+        including background subtraction (loaded from file if computed in batch),
+        ROI cropping, masking, thresholding, and any other configured steps.
 
         Parameters
         ----------
         image : np.ndarray
             Input image to analyze
         auxiliary_data : dict, optional
-            Additional data including file path and preprocessing flags
+            Additional data (e.g., file path for logging)
 
         Returns
         -------
         AnalyzerResultDict
-            Dictionary containing processed image, beam statistics, and lineouts
+            Dictionary containing processed image and analysis results
         """
-        logger.info("the super class got called.")
         file_path = (
             auxiliary_data.get("file_path", "Unknown") if auxiliary_data else "Unknown"
         )
         logger.info("Analyzing image from: %s", file_path)
 
-        bg_processed = (
-            auxiliary_data.get("background_processed", False)
-            if auxiliary_data
-            else False
-        )
-        fully_processed = (
-            auxiliary_data.get("fully_processed", False) if auxiliary_data else False
-        )
+        # Apply full processing pipeline
+        # (Background will be loaded from file if it was computed in batch)
+        final_image = self.preprocess_image(image)
 
-        logger.info("batch based background is %s", bg_processed)
-        logger.info("fully processed state %s", fully_processed)
-
-        if fully_processed:
-            final_image = ensure_float64_processing(image)
-        elif bg_processed:
-            # Background done, apply remaining steps (masking, ROI, threshold, etc.)
-            logger.info("attempting the non background processing")
-            final_image = apply_non_background_processing(
-                image, camera_config=self.camera_config
-            )
-        else:
-            # Nothing done, apply full pipeline
-            final_image = self.preprocess_image(image)
-
-        # Build input parameters dictionary (inherited from StandardAnalyzer)
+        # Build input parameters dictionary
         input_params = self._build_input_parameters()
 
-        # Build return dictionary with beam-specific data
+        # Build return dictionary
         return_dict = self.build_return_dictionary(
             return_image=final_image,
             input_parameters=input_params,

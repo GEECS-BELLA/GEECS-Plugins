@@ -71,7 +71,9 @@ class BinImageEntry(TypedDict):
     value: float
     result: Optional[AnalyzerResultDict]
 
+
 logger = logging.getLogger(__name__)
+
 
 # %% classes
 class Array2DScanAnalyzer(ScanAnalyzer):
@@ -162,7 +164,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         if not self.path_dict["data_img"].exists() or not any(
             self.path_dict["data_img"].iterdir()
         ):
-
             logger.warning(
                 f"Data directory '{self.path_dict['data_img']}' does not exist or is empty. Skipping"
             )
@@ -332,6 +333,9 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         if not hasattr(self, "raw_images") or not self.raw_images:
             raise RuntimeError("No images loaded. Run _load_all_images_parallel first.")
 
+        # Resolve {scan_dir} placeholders in background config BEFORE batch processing
+        self._resolve_background_paths()
+
         try:
             # Extract keys and separate image + path tuples
             shot_nums = list(self.raw_images.keys())
@@ -350,7 +354,9 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 self.image_analyzer.analyze_image_batch(image_list)
             )
             self.stateful_results = stateful_results
-            logger.info('finished batch processing with %s stateful results', stateful_results)
+            logger.info(
+                "finished batch processing with %s stateful results", stateful_results
+            )
 
             if processed_images is None:
                 logger.warning("analyze_image_batch() returned None. Skipping.")
@@ -367,6 +373,42 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
         except Exception as e:
             logger.warning(f"Batch analysis skipped or failed: {e}")
+
+    def _resolve_background_paths(self) -> None:
+        """
+        Resolve {scan_dir} placeholders in ImageAnalyzer's background configuration.
+
+        This is called once before batch processing, ensuring all subsequent
+        parallel workers use concrete paths.
+        """
+        # Check if analyzer has camera_config with background settings
+        if not hasattr(self.image_analyzer, "camera_config"):
+            return
+
+        bg_config = self.image_analyzer.camera_config.background
+
+        if not bg_config:
+            return
+
+        scan_dir = self.path_dict["data_img"]
+
+        # Resolve file_path
+        if bg_config.file_path and "{scan_dir}" in str(bg_config.file_path):
+            resolved = str(bg_config.file_path).replace("{scan_dir}", str(scan_dir))
+            bg_config.file_path = Path(resolved)
+            logger.info(f"Resolved background file_path: {resolved}")
+
+        # Resolve auto_save_path in dynamic_computation
+        if (
+            bg_config.dynamic_computation
+            and bg_config.dynamic_computation.auto_save_path
+            and "{scan_dir}" in str(bg_config.dynamic_computation.auto_save_path)
+        ):
+            resolved = str(bg_config.dynamic_computation.auto_save_path).replace(
+                "{scan_dir}", str(scan_dir)
+            )
+            bg_config.dynamic_computation.auto_save_path = Path(resolved)
+            logger.info(f"Resolved background auto_save_path: {resolved}")
 
     def _run_image_analysis_parallel(self) -> None:
         """
@@ -614,7 +656,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             ]
 
             if not valid_shots:
-
                 logger.warning(f"No images found for bin {bin_val}.")
                 continue
 
@@ -713,7 +754,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 compression_opts=4,  # Compression level: 0 (none) to 9 (max)
             )
 
-
         logger.info(f"HDF5 image saved with compression at {save_path}")
 
     def save_normalized_image(
@@ -785,7 +825,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             Render DPI.
         """
         if not binned_data:
-
             logger.warning("No averaged images to arrange into an array.")
             return
 
@@ -802,7 +841,11 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             return
 
         vmin = 0
-        vmax = plot_scale if plot_scale is not None else np.max([img.max() for img in images])
+        vmax = (
+            plot_scale
+            if plot_scale is not None
+            else np.max([img.max() for img in images])
+        )
 
         render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
 
@@ -878,7 +921,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         fig.savefig(save_path, bbox_inches="tight")
         plt.close(fig)
 
-
         logger.info(f"Saved final image grid as {save_path.name}.")
         self.display_contents.append(str(save_path))
 
@@ -916,7 +958,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
         frames = self.prepare_render_frames(data_dict, sort_keys=sort_keys)
         if not frames:
-
             logger.warning("No valid frames to render into GIF.")
             return
 
@@ -949,7 +990,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
         # Save GIF
         io.mimsave(str(output_file), gif_images, duration=duration / 1000.0, loop=0)
-
 
         logger.info(f"Saved GIF to {output_file.name}.")
 

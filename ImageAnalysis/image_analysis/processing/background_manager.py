@@ -54,40 +54,64 @@ class BackgroundManager:
         self._computed_background: Optional[Array2D] = None
         self._background_metadata: Dict[str, Any] = {}
 
-    def process_image_batch(self, images: List[Array2D]) -> List[Array2D]:
-        """
-        Apply background processing to a batch of images.
+        # File-based caching to avoid repeated disk I/O
+        self._cached_file_path: Optional[str] = None
+        self._cached_background: Optional[Array2D] = None
 
-        This method handles both static and dynamic background processing
-        based on the configuration type.
+    def generate_dynamic_background(self, images: List[Array2D]) -> None:
+        """
+        Generate dynamic background from image batch and save it.
+
+        This is called by Array2DScanAnalyzer during batch processing.
+        The generated background is saved to auto_save_path and stored
+        for later use.
 
         Parameters
         ----------
         images : List[Array2D]
-            List of images to process
-
-        Returns
-        -------
-        List[Array2D]
-            Background-processed images
+            List of images to compute background from
         """
-        if not self.config.enabled:
-            return images
+        if not (
+            self.config.dynamic_computation and self.config.dynamic_computation.enabled
+        ):
+            return
 
-        if self.config.is_static():
-            return self._process_static_background_batch(images)
-        elif self.config.is_dynamic():
-            return self._process_dynamic_background_batch(images)
-        else:
-            logger.warning(f"Unknown background type: {self.config.type}")
-            return images
+        logger.info("Computing dynamic background from batch...")
+
+        # Compute background using dynamic computation config
+        dynamic_bg = compute_background(images, self.config.dynamic_computation)
+
+        # Save to auto_save_path (already resolved by Array2DScanAnalyzer)
+        if self.config.dynamic_computation.auto_save_path:
+            try:
+                save_background_to_file(
+                    dynamic_bg, self.config.dynamic_computation.auto_save_path
+                )
+                logger.info(
+                    f"Saved dynamic background to {self.config.dynamic_computation.auto_save_path}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save dynamic background: {e}")
+
+        # Store in manager for immediate use
+        self._computed_background = dynamic_bg
+        self._background_metadata = {
+            "type": "dynamic",
+            "method": self.config.dynamic_computation.method.value,
+            "source": str(self.config.dynamic_computation.auto_save_path)
+            if self.config.dynamic_computation.auto_save_path
+            else "computed",
+            "num_images": len(images),
+            "shape": dynamic_bg.shape,
+        }
 
     def process_single_image(self, image: Array2D) -> Array2D:
         """
         Apply background processing to a single image.
 
-        This method handles single image processing with fallback support
-        for dynamic backgrounds.
+        This applies the two-stage background workflow:
+        1. Primary background (from_file, constant, or None)
+        2. Additional constant offset
 
         Parameters
         ----------
@@ -102,151 +126,94 @@ class BackgroundManager:
         if not self.config.enabled:
             return image
 
-        # Option 1: Use stored background from batch processing
-        if self._computed_background is not None:
-            logger.info(f"Using stored background: {self._background_metadata}")
-            return subtract_background(image, self._computed_background)
+        processed = ensure_float64_processing(image)
 
-        # Option 2: Static background processing
-        if self.config.is_static():
-            return self._process_static_background_single(image)
+        # Stage 1: Apply primary background
+        if self.config.method is not None:
+            processed = self._apply_primary_background(processed)
 
-        # Option 3: Dynamic background with fallback
-        elif self.config.is_dynamic() and self.config.fallback:
-            return self._process_dynamic_fallback(image)
-
-        # Option 4: No background processing available
-        logger.info("No background processing available for single image")
-        return image
-
-    def _process_static_background_batch(self, images: List[Array2D]) -> List[Array2D]:
-        """Process batch with static background."""
-        if self.config.method == BackgroundMethod.FROM_FILE and self.config.file_path:
-            # Load static background from file
-            background = load_background_from_file(self.config.file_path)
-            background = ensure_float64_processing(background)
-
-            logger.info(f"Loaded static background from file: {self.config.file_path}")
-
-            # Store for single image analysis
-            self._computed_background = background
-            self._background_metadata = {
-                "type": "static",
-                "method": "from_file",
-                "source": str(self.config.file_path),
-                "shape": background.shape,
-            }
-
-            # Apply to all images
-            return [subtract_background(img, background) for img in images]
-
-        elif self.config.method == BackgroundMethod.CONSTANT:
-            # Use constant background
-            background = compute_background(images, self.config)
-
-            logger.info(f"Using static constant background level: {self.config.level}")
-
-            # Store for single image analysis
-            self._computed_background = background
-            self._background_metadata = {
-                "type": "static",
-                "method": "constant",
-                "level": self.config.level,
-                "shape": background.shape,
-            }
-
-            # Apply to all images
-            return [subtract_background(img, background) for img in images]
-        else:
-            logger.warning(
-                f"Unsupported static background method: {self.config.method}"
-            )
-            return images
-
-    def _process_dynamic_background_batch(self, images: List[Array2D]) -> List[Array2D]:
-        """Process batch with dynamic background."""
-        if self.config.requires_image_batch():
-            background = compute_background(images, self.config)
-
-            logger.info(
-                f"Computed dynamic background using method: {self.config.method}"
+        # Stage 2: Apply additional constant
+        if self.config.additional_constant != 0:
+            processed = processed - self.config.additional_constant
+            logger.debug(
+                f"Applied additional constant: {self.config.additional_constant}"
             )
 
-            # Store computed background for single image analysis
-            self._computed_background = background
-            self._background_metadata = {
-                "type": "dynamic",
-                "method": self.config.method.value,
-                "source": "computed_from_batch",
-                "num_images": len(images),
-                "shape": background.shape,
-            }
+        return processed
 
-            # Auto-save if configured
-            if self.config.auto_save_path:
+    def _apply_primary_background(self, image: Array2D) -> Array2D:
+        """
+        Apply the primary background source with file-based caching.
+
+        This method applies the primary background based on the configured method:
+        - FROM_FILE: Load from file (with caching to avoid repeated disk I/O)
+        - CONSTANT: Use constant level
+        - None: Skip primary background (only additional_constant will be applied)
+
+        The file cache is automatically invalidated when the file path changes.
+
+        Parameters
+        ----------
+        image : Array2D
+            Input image
+
+        Returns
+        -------
+        Array2D
+            Image with primary background subtracted
+        """
+        # Option 1: Load from file (with caching)
+        if self.config.method == BackgroundMethod.FROM_FILE:
+            if self.config.file_path:
+                file_path_str = str(self.config.file_path)
+
+                # Check if we have a cached background for this file
+                if (
+                    self._cached_file_path == file_path_str
+                    and self._cached_background is not None
+                ):
+                    logger.debug(f"Using cached background from {file_path_str}")
+                    return subtract_background(image, self._cached_background)
+
+                # Load from file and cache it
                 try:
-                    save_background_to_file(background, self.config.auto_save_path)
-                    logger.info(
-                        f"Auto-saved computed background to: {self.config.auto_save_path}"
-                    )
-                    self._background_metadata["auto_saved_to"] = str(
-                        self.config.auto_save_path
-                    )
+                    background = load_background_from_file(self.config.file_path)
+                    background = ensure_float64_processing(background)
+
+                    # Update cache
+                    self._cached_file_path = file_path_str
+                    self._cached_background = background
+
+                    logger.debug(f"Loaded and cached background from {file_path_str}")
+                    return subtract_background(image, background)
                 except Exception as e:
-                    logger.warning(f"Failed to auto-save background: {e}")
+                    logger.warning(
+                        f"Failed to load background from {self.config.file_path}: {e}. "
+                        f"Using constant fallback: {self.config.constant_level}"
+                    )
+                    # Invalidate cache on error
+                    self._cached_file_path = None
+                    self._cached_background = None
+                    # Fall through to constant fallback
+            else:
+                logger.warning("FROM_FILE method specified but no file_path provided")
 
-            # Apply to all images
-            return [subtract_background(ensure_float64_processing(img), background) for img in images]
-        else:
-            logger.warning(
-                f"Dynamic background method {self.config.method} doesn't require batch processing"
-            )
-            return images
-
-    def _process_static_background_single(self, image: Array2D) -> Array2D:
-        """Process single image with static background."""
-        if self.config.method == BackgroundMethod.FROM_FILE and self.config.file_path:
-            try:
-                background = load_background_from_file(self.config.file_path)
-                background = ensure_float64_processing(background)
-                logger.info(
-                    f"Loaded static background from file: {self.config.file_path}"
-                )
-                return subtract_background(image, background)
-            except Exception as e:
-                logger.warning(f"Failed to load background from file: {e}")
-
-        elif self.config.method == BackgroundMethod.CONSTANT:
-            background = compute_background([image], self.config)
-            logger.info(f"Using static constant background level: {self.config.level}")
-            return subtract_background(image, background)
-
-        return image
-
-    def _process_dynamic_fallback(self, image: Array2D) -> Array2D:
-        """Process single image using dynamic background fallback."""
-        fallback_config = self.config.fallback
-        logger.info(f"Using dynamic background fallback: {fallback_config.method}")
-
+        # Option 2: Use constant background (or fallback from failed file load)
         if (
-            fallback_config.method == BackgroundMethod.FROM_FILE
-            and fallback_config.file_path
+            self.config.method == BackgroundMethod.CONSTANT
+            or self.config.file_path is None
         ):
-            try:
-                background = load_background_from_file(fallback_config.file_path)
-                background = ensure_float64_processing(background)
-                return subtract_background(image, background)
-            except Exception as e:
-                logger.warning(f"Failed to load fallback background: {e}")
+            if self.config.constant_level > 0:
+                constant_bg = np.full(
+                    image.shape, self.config.constant_level, dtype=np.float64
+                )
+                logger.debug(f"Using constant background: {self.config.constant_level}")
+                return subtract_background(image, constant_bg)
 
-        elif fallback_config.method == BackgroundMethod.CONSTANT:
-            # Create a temporary config for constant background
-            fallback_bg_config = BackgroundConfig(
-                method=BackgroundMethod.CONSTANT, level=fallback_config.level
-            )
-            background = compute_background([image], fallback_bg_config)
-            return subtract_background(image, background)
-
+        # Option 3: method is None - skip primary background entirely
+        logger.debug(
+            "No primary background method specified, skipping primary background"
+        )
         return image
 
     def get_background_info(self) -> Dict[str, Any]:
@@ -263,20 +230,13 @@ class BackgroundManager:
             "background_metadata": self._background_metadata.copy(),
             "background_config": {
                 "enabled": self.config.enabled,
-                "type": self.config.type.value
-                if hasattr(self.config.type, "value")
-                else str(self.config.type),
-                "method": self.config.method.value
-                if hasattr(self.config.method, "value")
-                else str(self.config.method),
+                "method": self.config.method.value if self.config.method else None,
                 "file_path": str(self.config.file_path)
                 if self.config.file_path
                 else None,
-                "level": self.config.level,
-                "percentile": self.config.percentile,
-                "auto_save_path": str(self.config.auto_save_path)
-                if self.config.auto_save_path
-                else None,
+                "constant_level": self.config.constant_level,
+                "additional_constant": self.config.additional_constant,
+                "has_dynamic_computation": self.config.dynamic_computation is not None,
             },
         }
 
