@@ -1,9 +1,10 @@
-device: U_DG645_ShotControl
+device: HTT-DG645_6_B
 variables:
-  Amplitude.Ch AB:
-    'OFF': '0.5'
-    SCAN: '4.0'
-    STANDBY: '0.5'
+  Delay.Ch D:
+    'OFF': '0.00'
+    SCAN: '0.005'
+    SINGLESHOT: ''
+    STANDBY: '0.00'
   Trigger.ExecuteSingleShot:
     'OFF': ''
     SCAN: ''

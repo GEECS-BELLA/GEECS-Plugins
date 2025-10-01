@@ -1,4 +1,4 @@
-device: U_DG645_ShotControl
+device: HTT-DG645_6_B
 variables:
   Trigger.ExecuteSingleShot:
     'OFF': ''

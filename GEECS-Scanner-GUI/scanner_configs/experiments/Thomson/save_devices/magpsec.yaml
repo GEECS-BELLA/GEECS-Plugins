@@ -1,0 +1,23 @@
+Devices:
+  HTT-C23_1_MagSpec1:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list: []
+  HTT-C23_2_MagSpec2:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list: []
+  HTT-C23_3_MagSpec3:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list: []
+  HTT-C23_4_MagSpec4:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list: []
+  HTT-MagTeslameter-DTM141:
+    add_all_variables: false
+    save_nonscalar_data: false
+    synchronous: false
+    variable_list:
+    - Field
