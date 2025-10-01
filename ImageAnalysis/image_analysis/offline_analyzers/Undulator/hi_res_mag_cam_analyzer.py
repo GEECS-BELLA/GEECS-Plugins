@@ -35,7 +35,6 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
         self,
         camera_config_name: str = "UC_HiResMagCam",
         config_overrides: Optional[Dict[str, Any]] = None,
-        use_interactive: bool = False,
         n_beam_size_clearance: int = 4,
         min_total_counts: float = 2500.0,
         threshold_factor: float = 10.0,
@@ -48,8 +47,6 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
             Name of the camera configuration to load
         config_overrides : dict, optional
             Runtime overrides for configuration parameters
-        use_interactive : bool, default=False
-            If True, display interactive plots during analysis
         n_beam_size_clearance : int, default=4
             Bowtie fit parameter: beam size clearance
         min_total_counts : float, default=2500.0
@@ -222,7 +219,7 @@ if __name__ == "__main__":
         "/Users/samuelbarber/Desktop/Github_repos/GEECS-Plugins/image_analysis_configs"
     )
     image_analyzer = HiResMagCamAnalyzer(
-        camera_config_name="UC_HiResMagCam", use_interactive=True
+        camera_config_name="UC_HiResMagCam"
     )
 
     # Example file path (update to actual path)
