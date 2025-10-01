@@ -118,20 +118,33 @@ class StandardAnalyzer(ImageAnalyzer):
         super().__init__(background_manager=self.background_manager)
 
     def _apply_config_overrides(self, overrides: Dict[str, Any]) -> None:
-        """Apply runtime configuration overrides."""
+        """Apply runtime configuration overrides.
+
+        Supports both Pydantic model instances and dictionaries for each section.
+        """
         for section, params in overrides.items():
             if hasattr(self.camera_config, section):
-                config_obj = getattr(self.camera_config, section)
-                if config_obj is not None:
-                    for key, value in params.items():
-                        if hasattr(config_obj, key):
-                            setattr(config_obj, key, value)
-                        else:
-                            logger.warning(
-                                "Unknown parameter '%s' in section %s", key, section
-                            )
+                # If params is a Pydantic model, set it directly
+                if isinstance(params, BaseModel):
+                    setattr(self.camera_config, section, params)
+                    logger.info(f"Set {section} to Pydantic model instance")
+                # If params is a dict, update individual fields
+                elif isinstance(params, dict):
+                    config_obj = getattr(self.camera_config, section)
+                    if config_obj is not None:
+                        for key, value in params.items():
+                            if hasattr(config_obj, key):
+                                setattr(config_obj, key, value)
+                            else:
+                                logger.warning(
+                                    "Unknown parameter '%s' in section %s", key, section
+                                )
+                    else:
+                        logger.warning("Configuration section %s is None", section)
                 else:
-                    logger.warning("Configuration section %s is None", section)
+                    logger.warning(
+                        f"Override for {section} must be a Pydantic model or dict, got {type(params)}"
+                    )
             else:
                 logger.warning("Unknown configuration section %s", section)
 
@@ -211,6 +224,20 @@ class StandardAnalyzer(ImageAnalyzer):
             )
 
         return input_params
+
+    @property
+    def camera_name(self) -> str:
+        """Return the camera configuration name (includes any suffix like '_variation').
+
+        This property is used by scan analyzers to create unique output directories
+        for different analysis variants of the same camera.
+
+        Returns
+        -------
+        str
+            The camera configuration name from the loaded config
+        """
+        return self.camera_config.name
 
     def get_camera_info(self) -> Dict[str, Any]:
         """Get comprehensive camera configuration information."""

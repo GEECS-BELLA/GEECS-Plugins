@@ -148,6 +148,12 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
     def _establish_additional_paths(self):
         """Compute input/output paths and validate data presence."""
+        # Get the camera-specific name if available (includes suffix like "_variation")
+        # This allows multiple analysis variants of the same camera to have separate output directories
+        camera_name = (
+            getattr(self.image_analyzer, "camera_name", None) or self.device_name
+        )
+
         # organize various paths for location of saved data
         self.path_dict = {
             "data_img": Path(self.scan_directory) / f"{self.device_name}",
@@ -155,7 +161,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 self.scan_directory.parents[1]
                 / "analysis"
                 / self.scan_directory.name
-                / f"{self.device_name}"
+                / f"{camera_name}"  # Use camera_name instead of device_name
                 / "Array2DScanAnalyzer"
             ),
         }

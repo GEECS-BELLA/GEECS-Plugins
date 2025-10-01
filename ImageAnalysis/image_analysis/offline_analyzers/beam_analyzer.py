@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from typing import Optional, Union, List, Tuple, Dict, Any
+from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -30,8 +31,72 @@ from image_analysis.algorithms.basic_beam_stats import (
     flatten_beam_stats,
 )
 from image_analysis.types import AnalyzerResultDict
+from image_analysis.processing.config_models import (
+    BackgroundConfig,
+    BackgroundMethod,
+    DynamicComputationConfig,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def create_variation_analyzer(
+    camera_config_name: str,
+    percentile: float = 50.0,
+    method: BackgroundMethod = BackgroundMethod.PERCENTILE_DATASET,
+    name_suffix: str = "_variation",
+) -> "BeamAnalyzer":
+    """Create a BeamAnalyzer configured for variation analysis.
+
+    This is a convenience function that configures dynamic background subtraction
+    for analyzing shot-to-shot beam fluctuations on stable beams. The dynamic
+    background is computed from the dataset and subtracted from each image,
+    revealing the parts of the beam that fluctuate from shot to shot.
+
+    Parameters
+    ----------
+    camera_config_name : str
+        Name of the camera configuration to load (e.g., "UC_ALineEBeam3")
+    percentile : float, default=50.0
+        Percentile for background computation (only used if method is PERCENTILE_DATASET).
+        For stable beams, 50.0 (median) is typically a good choice.
+    method : BackgroundMethod, default=PERCENTILE_DATASET
+        Background computation method. Options include:
+        - PERCENTILE_DATASET: Use a percentile of the dataset
+        - MEDIAN: Use the median of the dataset
+        - CONSTANT: Use a constant value
+    name_suffix : str, default="_variation"
+        Suffix to append to camera name for scalar result prefixes.
+        This ensures variation analysis results are clearly distinguished
+        from standard analysis results in the output data.
+
+    Returns
+    -------
+    BeamAnalyzer
+        Configured analyzer for variation analysis with dynamic background enabled
+
+    Notes
+    -----
+    The dynamic background is computed during batch processing and saved to
+    ``{scan_dir}/computed_background.npy`` for inspection and reuse.
+    """
+    variation_bg_config = BackgroundConfig(
+        enabled=True,
+        method=BackgroundMethod.FROM_FILE,
+        file_path=Path("{scan_dir}/computed_background.npy"),
+        dynamic_computation=DynamicComputationConfig(
+            enabled=True,
+            method=method,
+            percentile=percentile,
+            auto_save_path=Path("{scan_dir}/computed_background.npy"),
+        ),
+    )
+
+    return BeamAnalyzer(
+        camera_config_name=camera_config_name,
+        config_overrides={"background": variation_bg_config},
+        name_suffix=name_suffix,
+    )
 
 
 class BeamAnalyzer(StandardAnalyzer):
@@ -60,10 +125,30 @@ class BeamAnalyzer(StandardAnalyzer):
         self,
         camera_config_name: str,
         config_overrides: Optional[Dict[str, Any]] = None,
+        name_suffix: Optional[str] = None,
     ):
-        """Initialize the beam analyzer with external configuration."""
+        """Initialize the beam analyzer with external configuration.
+
+        Parameters
+        ----------
+        camera_config_name : str
+            Name of the camera configuration to load (e.g., "UC_ALineEBeam3")
+        config_overrides : dict, optional
+            Runtime overrides for configuration parameters. Can contain Pydantic
+            model instances or dictionaries for any configuration section.
+        name_suffix : str, optional
+            Suffix to append to camera name for scalar result prefixes.
+            Useful for distinguishing multiple analysis passes on the same camera.
+            For example, use "_variation" to distinguish variation analysis results
+            from standard analysis results.
+        """
         # Initialize parent class
         super().__init__(camera_config_name, config_overrides)
+
+        # Apply name suffix if provided
+        if name_suffix:
+            self.camera_config.name = f"{self.camera_config.name}{name_suffix}"
+            logger.info(f"Camera name set to: {self.camera_config.name}")
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
