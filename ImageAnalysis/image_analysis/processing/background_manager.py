@@ -196,7 +196,9 @@ class BackgroundManager:
                     self._cached_background = None
 
                     # Fall through to constant fallback
-                    return image - self.config.constant_level
+                    # return image - self.config.constant_level
+                    level = getattr(self.config, "constant_level", 0)
+                    return image - level
             else:
                 logger.warning("FROM_FILE method specified but no file_path provided")
 
