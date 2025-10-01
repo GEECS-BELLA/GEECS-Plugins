@@ -92,13 +92,6 @@ class BeamAnalyzer(StandardAnalyzer):
 
         processed_image = initial_result["processed_image"]
 
-        self.background_manager.set_constant_background(
-            self.camera_config.background.fallback.level,
-            shape=processed_image.shape
-        )
-        processed_image = self.background_manager.process_single_image(processed_image)
-        processed_image = np.where(processed_image >= 0, processed_image, 0.0)
-
         # Compute beam statistics
         beam_stats_flat = flatten_beam_stats(
             beam_profile_stats(processed_image),
