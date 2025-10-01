@@ -194,7 +194,9 @@ class BackgroundManager:
                     # Invalidate cache on error
                     self._cached_file_path = None
                     self._cached_background = None
+
                     # Fall through to constant fallback
+                    return image - self.config.constant_level
             else:
                 logger.warning("FROM_FILE method specified but no file_path provided")
 
