@@ -6,15 +6,17 @@ description: "high resolution for electron beam profile analysis"
 camera_type: "ebeam_profile"
 bit_depth: 16
 
-# Enhanced background computation settings with static/dynamic support
 background:
   enabled: true
-  type: "dynamic"               # Options: static, dynamic
-  method: "percentile_dataset"  # Options: constant, percentile_dataset, median, from_file
-  auto_save_path: null          # Auto-save computed backgrounds (for dynamic type)
-  fallback:                     # Fallback for single image analysis (dynamic type)
-    method: "constant"
-    level: 100.0
+  method: from_file
+  file_path: "{scan_dir}/computed_background.npy"
+  constant_level: 100.0  #fallback to this value if file not found
+  dynamic_computation:
+    enabled: true
+    method: percentile_dataset
+    percentile: 15.0
+    auto_save_path: "{scan_dir}/computed_background.npy"
+  additional_constant: 2
 
 
 # Thresholding configuration - NEW FEATURE
