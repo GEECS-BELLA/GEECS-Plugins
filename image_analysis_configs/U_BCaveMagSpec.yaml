@@ -5,9 +5,9 @@ background:
   auto_save_path: null
   enabled: true
   fallback:
-    level: 60.0
+    level: 0.0
     method: constant
-  level: 60.0
+  level: 0.0
   method: constant
   type: static
 bit_depth: 16

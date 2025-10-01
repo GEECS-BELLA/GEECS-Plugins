@@ -1,8 +1,8 @@
 """Analyzer for BCaveMagSpec stitched images with Gaussian-weighted optimization target.
 
-This module defines `BCaveMagSpecStitcherAnalyzer`, a subclass of `BeamAnalyzer`,
+This module defines `BCaveMagSpecStitcherAnalyzer`, a subclass of `StandardAnalyzer`,
 to process stitched spectrometer images from BCaveMagSpec. It uses the standard
-BeamAnalyzer processing pipeline (background subtraction, ROI cropping, optional
+StandardAnalyzer processing pipeline (background subtraction, ROI cropping, optional
 crosshair masking), then computes a vertical sum lineout, applies Gaussian weighting,
 and returns the weighted sum as an optimization target.
 """
@@ -16,17 +16,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from image_analysis.tools.rendering import base_render_image
-from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
+from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
+from image_analysis.types import AnalyzerResultDict
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-class BCaveMagSpecStitcherAnalyzer(BeamAnalyzer):
+class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
     """Image analyzer for BCaveMagSpec stitched spectrometer images with Gaussian weighting.
 
-    This analyzer extends BeamAnalyzer to add custom Gaussian-weighted optimization
+    This analyzer extends StandardAnalyzer to add custom Gaussian-weighted optimization
     for the BCave magnetic spectrometer. It uses the standard processing pipeline
     from the config file, then applies Gaussian weighting to the vertical lineout
     for optimization purposes.
@@ -61,7 +62,7 @@ class BCaveMagSpecStitcherAnalyzer(BeamAnalyzer):
     ) -> dict[str, Union[float, int, str, np.ndarray]]:
         """Analyze BCaveMagSpec stitched image and compute Gaussian-weighted lineout sum.
 
-        This method uses BeamAnalyzer's standard processing pipeline, then adds
+        This method uses StandardAnalyzer's standard processing pipeline, then adds
         custom Gaussian weighting to compute an optimization target.
 
         Parameters
@@ -82,46 +83,34 @@ class BCaveMagSpecStitcherAnalyzer(BeamAnalyzer):
             - 'analyzer_return_lineouts' : array with weighted lineout
             - All standard beam analysis results (centroid, FWHM, etc.)
         """
-        # Log file path if provided
-        if auxiliary_data:
-            fp = auxiliary_data.get("file_path", "Unknown")
-            logger.info(f"Analyzing image from: {fp}")
-
-        # Get standard beam analysis from parent class
-        # This handles all preprocessing: background, ROI, crosshair masking, etc.
-        results = super().analyze_image(image, auxiliary_data)
-
-        # Get the processed image
-        processed_image = results["processed_image"]
+        initial_result: AnalyzerResultDict = super().analyze_image(
+            image=image, auxiliary_data=auxiliary_data
+        )
 
         # Compute vertical lineout (sum along vertical axis)
-        vertical_lineout = np.sum(processed_image, axis=0)
+        horizontal_lineout = np.sum(initial_result['processed_image'], axis=0)
+        vertical_lineout = np.sum(initial_result['processed_image'], axis=1)
+
 
         # Apply Gaussian weighting
-        x = np.arange(vertical_lineout.shape[0])
+        x = np.arange(horizontal_lineout.shape[0])
         gaussian = np.exp(
             -0.5 * ((x - self.gaussian_center) / self.gaussian_sigma) ** 2
         )
-        weighted_lineout = vertical_lineout * gaussian
+        weighted_lineout = horizontal_lineout * gaussian
 
         # Compute optimization target
         optimization_target = np.sum(weighted_lineout)
 
-        # Add custom results to the return dictionary
-        results["optimization_target"] = optimization_target
-        results["weighted_lineout"] = weighted_lineout
-        results["vertical_lineout"] = vertical_lineout
+        return_dict = self.build_return_dictionary(
+            return_image=initial_result["processed_image"],
+            input_parameters=initial_result["analyzer_input_parameters"],
+            return_scalars={"optimization_target": optimization_target},
+            return_lineouts=[weighted_lineout, vertical_lineout],
+            coerce_lineout_length=False,
+        )
 
-        # Update the analyzer_return_scalars if it exists
-        if "analyzer_return_dictionary" in results:
-            results["analyzer_return_dictionary"]["optimization_target"] = (
-                optimization_target
-            )
-
-        # Replace lineouts with weighted lineout for visualization
-        results["analyzer_return_lineouts"] = np.array([weighted_lineout])
-
-        return results
+        return return_dict
 
     @staticmethod
     def render_image(
@@ -192,14 +181,78 @@ class BCaveMagSpecStitcherAnalyzer(BeamAnalyzer):
 
         return fig, ax
 
+    def visualize(
+            self,
+            results: AnalyzerResultDict,
+            *,
+            show: bool = True,
+            close: bool = True,
+            ax: Optional[plt.Axes] = None,
+    ) -> tuple[plt.Figure, plt.Axes]:
+        """
+        Render a single visualization of the analyzed (post-ROI) image and overlays.
+
+        This convenience method draws the processed image stored in
+        ``results["processed_image"]`` using :meth:`render_image`, optionally
+        calling :func:`matplotlib.pyplot.show` and closing the figure. It performs
+        no additional computation.
+
+        Parameters
+        ----------
+        results : AnalyzerResultDict
+            Dictionary returned by :meth:`analyze_image` (or compatible). The
+            following keys are read when present:
+            - ``"processed_image"`` : ndarray (required) — image to display
+            - ``"analyzer_return_dictionary"`` : dict — scalar annotations
+            - ``"input_parameters"`` : dict — ROI offsets and inputs
+            - ``"analyzer_return_lineouts"`` : list[np.ndarray] — [horiz, vert] lineouts
+        show : bool, default True
+            If True, call :func:`matplotlib.pyplot.show` after rendering.
+        close : bool, default True
+            If True, close the figure after showing (if ``show=True``) or
+            immediately after rendering (if ``show=False``). Set to ``False`` to
+            keep the figure open for further customization.
+        ax : matplotlib.axes.Axes, optional
+            Existing axes to draw into. If omitted, a new figure and axes are
+            created.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure that contains the rendering.
+        ax : matplotlib.axes.Axes
+            The axes on which the image was drawn.
+
+        Notes
+        -----
+        * Lineouts and scalar overlays are assumed to correspond to the **post-ROI**
+          image. If they were computed from the pre-ROI image, Matplotlib may try
+          to autoscale the view unless limits are clamped in :meth:`render_image`.
+        * For frameless saved images, consider:
+          ``fig.savefig(path, bbox_inches='tight', pad_inches=0)``.
+        """
+        fig, ax = self.render_image(
+            image=results["processed_image"],
+            analysis_results_dict=results.get("analyzer_return_dictionary", {}),
+            input_params_dict=results.get("analyzer_input_parameters", {}),
+            lineouts=results.get("analyzer_return_lineouts"),
+            ax=ax,
+        )
+        if show:
+            plt.show()
+        if close:
+            plt.close(fig)
+        return fig, ax
+
 
 if __name__ == "__main__":
     # Example usage
     from image_analysis.config_loader import set_config_base_dir
 
-    set_config_base_dir(
-        "/Users/samuelbarber/Desktop/Github_repos/GEECS-Plugins/image_analysis_configs"
-    )
+    current_dir = Path(__file__).resolve().parent.parent
+
+    geecs_plugins_dir = current_dir.parent.parent.parent
+    set_config_base_dir(geecs_plugins_dir / "image_analysis_configs")
 
     image_analyzer = BCaveMagSpecStitcherAnalyzer(
         camera_config_name="U_BCaveMagSpec", gaussian_sigma=20.0, gaussian_center=250.0
@@ -207,15 +260,13 @@ if __name__ == "__main__":
 
     # Example file path (update to actual path)
     file_path = Path(
-        "/Volumes/hdna2/data/Undulator/Y2025/06-Jun/25_0605/scans/Scan018/U_BCaveMagSpec/Scan018_U_BCaveMagSpec_001.png"
+        "Z:/data/Undulator/Y2025/06-Jun/25_0605/scans/Scan018/U_BCaveMagSpec/Scan018_U_BCaveMagSpec_001.png"
     )
 
     if file_path.exists():
-        results = image_analyzer.analyze_image_file(image_filepath=file_path)
+        results: AnalyzerResultDict = image_analyzer.analyze_image_file(image_filepath=file_path)
         image_analyzer.visualize(results)
-        print(f"Optimization target: {results['optimization_target']:.2f}")
-        print(f"Centroid X: {results.get('centroid_x', 'N/A')}")
-        print(f"Centroid Y: {results.get('centroid_y', 'N/A')}")
+        print(f"Optimization target: {results['analyzer_return_dictionary']['optimization_target']:.2f}")
     else:
         print(f"Test file not found: {file_path}")
         print("Create a test with your own image file.")
