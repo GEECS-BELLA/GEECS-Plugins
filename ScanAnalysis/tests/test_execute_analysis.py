@@ -10,6 +10,12 @@ from dataclasses import asdict
 from scan_analysis.base import ScanAnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 
+from image_analysis.config_loader import set_config_base_dir
+from pathlib import Path
+current_dir = Path(__file__).resolve().parent.parent
+geecs_plugins_dir = current_dir.parent
+set_config_base_dir(geecs_plugins_dir / "image_analysis_configs")
+
 
 class TestExecuteAnalysis(unittest.TestCase):
     """Tests for ScanAnalysis."""
@@ -141,17 +147,16 @@ class TestExecuteAnalysis(unittest.TestCase):
 
     def test_VisaEBeamAnalyzer(self):
         """Test an analysis for VisaEBeam."""
-        from image_analysis.offline_analyzers.Undulator.EBeamProfile import (
-            EBeamProfileAnalyzer,
+        from image_analysis.offline_analyzers.beam_analyzer import (
+            BeamAnalyzer,
         )
 
-        config_dict = {"camera_name": "UC_VisaEBeam1"}
         analyzer_info = Info(
             scan_analyzer_class=Array2DScanAnalyzer,
             requirements={"UC_VisaEBeam1"},
             device_name="UC_VisaEBeam1",
             scan_analyzer_kwargs={
-                "image_analyzer": EBeamProfileAnalyzer(**config_dict)
+                "image_analyzer": BeamAnalyzer(camera_config_name="UC_VisaEBeam1")
             },
         )
 
@@ -169,12 +174,11 @@ class TestExecuteAnalysis(unittest.TestCase):
             HiResMagCamAnalyzer,
         )
 
-        config_dict = {"camera_name": "UC_HiResMagCam"}
         analyzer_info = Info(
             scan_analyzer_class=Array2DScanAnalyzer,
             requirements={"UC_HiResMagCam"},
             device_name="UC_HiResMagCam",
-            scan_analyzer_kwargs={"image_analyzer": HiResMagCamAnalyzer(**config_dict)},
+            scan_analyzer_kwargs={"image_analyzer": HiResMagCamAnalyzer(camera_config_name="UC_HiResMagCam")},
         )
 
         test_tag = ScanTag(year=2025, month=8, day=19, number=4, experiment="Undulator")
