@@ -61,14 +61,8 @@ def compute_background(images: List[Array2D], config: BackgroundConfig) -> Array
     elif config.method == BackgroundMethod.PERCENTILE_DATASET:
         return _compute_percentile_background(images, config.percentile)
 
-    elif config.method in [BackgroundMethod.TEMPORAL_MEDIAN, BackgroundMethod.MEDIAN]:
-        return _compute_temporal_median_background(images)
-
-    elif config.method == BackgroundMethod.MEAN:
-        return _compute_mean_background(images)
-
-    elif config.method == BackgroundMethod.OUTLIER_REJECTION:
-        return _compute_outlier_rejection_background(images, config.outlier_threshold)
+    elif config.method in [BackgroundMethod.MEDIAN]:
+        return _compute_median_background(images)
 
     else:
         raise ValueError(f"Unsupported background method: {config.method}")
@@ -158,7 +152,7 @@ def _compute_percentile_background(images: List[Array2D], percentile: float) -> 
     return background
 
 
-def _compute_temporal_median_background(images: List[Array2D]) -> Array2D:
+def _compute_median_background(images: List[Array2D]) -> Array2D:
     """
     Compute temporal median background from image stack.
 
@@ -183,83 +177,6 @@ def _compute_temporal_median_background(images: List[Array2D]) -> Array2D:
 
     # Compute median along the image stack axis
     background = np.median(image_stack, axis=0)
-
-    return background
-
-
-def _compute_mean_background(images: List[Array2D]) -> Array2D:
-    """
-    Compute simple mean background from image stack.
-
-    Parameters
-    ----------
-    images : List[Array2D]
-        List of images to compute background from.
-
-    Returns
-    -------
-    Array2D
-        Mean background image.
-    """
-    if len(images) < 2:
-        logger.warning(
-            f"Mean background with {len(images)} images may be unreliable. "
-            f"Consider using at least 2 images."
-        )
-
-    # Stack images along new axis for mean computation
-    image_stack = np.stack([img.astype(np.float64) for img in images], axis=0)
-
-    # Compute mean along the image stack axis
-    background = np.mean(image_stack, axis=0)
-
-    return background
-
-
-def _compute_outlier_rejection_background(
-    images: List[Array2D], threshold: float
-) -> Array2D:
-    """
-    Compute background using outlier rejection method.
-
-    This method computes the mean after rejecting pixels that are more than
-    `threshold` standard deviations away from the median.
-
-    Parameters
-    ----------
-    images : List[Array2D]
-        List of images to compute background from.
-    threshold : float
-        Outlier rejection threshold in standard deviations.
-
-    Returns
-    -------
-    Array2D
-        Outlier-rejected background image.
-    """
-    if len(images) < 5:
-        logger.warning(
-            f"Outlier rejection background with {len(images)} images may be unreliable. "
-            f"Consider using at least 5 images."
-        )
-        # Fall back to median for small datasets
-        return _compute_temporal_median_background(images)
-
-    # Stack images along new axis
-    image_stack = np.stack([img.astype(np.float64) for img in images], axis=0)
-
-    # Compute median and standard deviation along stack axis
-    median_img = np.median(image_stack, axis=0)
-    std_img = np.std(image_stack, axis=0)
-
-    # Create mask for outliers
-    outlier_mask = np.abs(image_stack - median_img[np.newaxis, :, :]) > (
-        threshold * std_img[np.newaxis, :, :]
-    )
-
-    # Create masked array and compute mean
-    masked_stack = np.ma.masked_array(image_stack, mask=outlier_mask)
-    background = np.ma.mean(masked_stack, axis=0).filled(median_img)
 
     return background
 
@@ -406,52 +323,3 @@ def save_background_to_file(
 
     except Exception as e:
         raise ValueError(f"Failed to save background to {file_path}: {e}")
-
-
-def estimate_background_statistics(images: List[Array2D]) -> dict:
-    """
-    Estimate background statistics to help choose appropriate background method.
-
-    Parameters
-    ----------
-    images : List[Array2D]
-        List of images to analyze.
-
-    Returns
-    -------
-    dict
-        Dictionary containing background statistics including:
-        - 'mean_background': Mean background level across all images
-        - 'std_background': Standard deviation of background
-        - 'percentile_5': 5th percentile background
-        - 'percentile_95': 95th percentile background
-        - 'temporal_stability': Measure of temporal stability (lower is more stable)
-
-
-    """
-    if not images:
-        raise ValueError("At least one image required for background analysis")
-
-    # Stack images for analysis
-    image_stack = np.stack([img.astype(np.float64) for img in images], axis=0)
-
-    # Compute various background estimates
-    mean_bg = np.mean(image_stack)
-    std_bg = np.std(image_stack)
-    p5_bg = np.percentile(image_stack, 5)
-    p95_bg = np.percentile(image_stack, 95)
-
-    # Estimate temporal stability by looking at pixel-wise variance
-    pixel_means = np.mean(image_stack, axis=0)
-    pixel_vars = np.var(image_stack, axis=0)
-    temporal_stability = np.mean(pixel_vars) / np.mean(pixel_means)
-
-    return {
-        "mean_background": float(mean_bg),
-        "std_background": float(std_bg),
-        "percentile_5": float(p5_bg),
-        "percentile_95": float(p95_bg),
-        "temporal_stability": float(temporal_stability),
-        "num_images": len(images),
-        "image_shape": images[0].shape,
-    }

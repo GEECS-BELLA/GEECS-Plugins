@@ -57,7 +57,7 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
         threshold_factor : float, default=10.0
             Bowtie fit parameter: threshold factor for fit
         """
-        super().__init__(camera_config_name, config_overrides, use_interactive)
+        super().__init__(camera_config_name, config_overrides)
 
         # Initialize bowtie fit algorithm with custom parameters
         self.algo = BowtieFitAlgorithm(
