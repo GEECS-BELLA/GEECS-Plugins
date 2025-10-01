@@ -118,6 +118,7 @@ class BeamAnalyzer(StandardAnalyzer):
         lineouts: Optional[List[np.ndarray]] = None,
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
+        figsize: Tuple[float, float] = (4, 4),
         cmap: str = "plasma",
         dpi: int = 150,
         ax: Optional[plt.Axes] = None,
@@ -141,6 +142,9 @@ class BeamAnalyzer(StandardAnalyzer):
             List containing [horizontal_lineout, vertical_lineout]
         vmin, vmax : float, optional
             Color scale limits
+        figsize : tuple of float, default ``(4, 4)``
+            Size of the created figure in inches (width, height). Ignored when an
+            existing ``ax`` is supplied.
         cmap : str, default="plasma"
             Colormap name
         dpi : int, default=150
