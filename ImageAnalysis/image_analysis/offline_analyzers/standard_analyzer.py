@@ -39,8 +39,6 @@ from image_analysis.processing import (
 # Import existing tools and base classes
 import image_analysis.processing.config_models as cfg
 from image_analysis.base import ImageAnalyzer
-from image_analysis.types import AnalyzerResultDict
-from image_analysis.utils import ensure_float64_processing
 
 logger = logging.getLogger(__name__)
 
@@ -211,59 +209,7 @@ class StandardAnalyzer(ImageAnalyzer):
         This method maintains compatibility with existing scan analysis code
         that expects analyze_image_batch to return preprocessed images.
         """
-        return self.preprocess_image_batch(images)
-
-    def analyze_image(
-        self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
-    ) -> AnalyzerResultDict:
-        """
-        Run complete image analysis using the processing pipeline.
-
-        This is the main analysis method that should be overridden by child classes
-        to add domain-specific analysis. The base implementation provides:
-        - Image preprocessing via the configured pipeline
-        - Basic return dictionary construction
-        - Logging and metadata handling
-
-        Parameters
-        ----------
-        image : np.ndarray
-            Input image to analyze
-        auxiliary_data : dict, optional
-            Additional data including file path and preprocessing flags
-
-        Returns
-        -------
-        AnalyzerResultDict
-            Dictionary containing processed image and basic metadata
-        """
-        # Determine if preprocessing is needed
-        processed_flag = (
-            auxiliary_data.get("preprocessed", False) if auxiliary_data else False
-        )
-
-        file_path = (
-            auxiliary_data.get("file_path", "Unknown") if auxiliary_data else "Unknown"
-        )
-        logger.info("Analyzing image from: %s", file_path)
-
-        # Apply processing pipeline
-        if not processed_flag:
-            final_image = self.preprocess_image(image)
-        else:
-            # Image already processed, just ensure proper dtype
-            final_image = ensure_float64_processing(image)
-
-        # Build basic input parameters dictionary
-        input_params = self._build_input_parameters()
-
-        # Build return dictionary (child classes should override this)
-        return_dict = self.build_return_dictionary(
-            return_image=final_image,
-            input_parameters=input_params,
-        )
-
-        return return_dict
+        return self.background_manager.process_image_batch(images),  {"background_processed": True}
 
     def _build_input_parameters(self) -> Dict[str, Any]:
         """Build the input parameters dictionary with camera configuration info."""
@@ -390,24 +336,3 @@ class StandardAnalyzer(ImageAnalyzer):
                     self.camera_config
                 )
             logger.info("Configuration updated.")
-
-    def apply_custom_preprocessing(self, image: np.ndarray) -> np.ndarray:
-        """
-        Apply custom preprocessing algorithms.
-
-        This method provides an extension point for child classes to add
-        custom preprocessing steps that are not part of the standard pipeline.
-        The base implementation is a no-op.
-
-        Parameters
-        ----------
-        image : np.ndarray
-            Image to preprocess
-
-        Returns
-        -------
-        np.ndarray
-            Preprocessed image
-        """
-        # Base implementation does nothing - override in child classes
-        return image
