@@ -3,15 +3,8 @@
 # Camera identification and properties
 background:
   enabled: true
-  method: from_file
-  file_path: "{scan_dir}/computed_background.npy"
-  constant_level: 100.0  #fallback to this value if file not found
-  dynamic_computation:
-    enabled: true
-    method: percentile_dataset
-    percentile: 15.0
-    auto_save_path: "{scan_dir}/computed_background.npy"
-  additional_constant: 2
+  method: constant
+  constant_level: 20.0
 
 bit_depth: 16
 camera_type: ebeam_profile
