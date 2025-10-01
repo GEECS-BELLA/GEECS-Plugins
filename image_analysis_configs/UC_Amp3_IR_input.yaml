@@ -1,0 +1,41 @@
+# Configuration for UC_ALineEBeam3 camera
+
+# Camera identification and properties
+background:
+  enabled: true
+  type: "dynamic"               # Options: static, dynamic
+  method: "percentile_dataset"  # Options: constant, percentile_dataset, temporal_median, median, mean, outlier_rejection, from_file
+  percentile: 5
+  auto_save_path: null          # Auto-save computed backgrounds (for dynamic type)
+  fallback:                     # Fallback for single image analysis (dynamic type)
+    method: "constant"
+    level: 0.0
+bit_depth: 16
+camera_type: ebeam_profile
+crosshair_masking:
+  crosshairs: []
+  enabled: false
+description: A-Line electron beam camera 3 for beam profiling
+filtering:
+  gaussian_sigma: null
+  median_kernel_size: null
+metadata:
+  location: Migrated camera
+  notes: Migrated from hardcoded configuration in EBeamProfile.py
+  spatial_calibration: 2.44e-05
+name: UC_Amp3_IR_input
+roi:
+  x_max: 600
+  x_min: 50
+  y_max: 700
+  y_min: 150
+thresholding:
+  enabled: false
+  invert: false
+  method: constant
+  mode: to_zero
+  value: 0.0
+transforms:
+  flip_horizontal: false
+  flip_vertical: false
+  rotation_angle: 0.0
