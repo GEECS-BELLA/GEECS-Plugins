@@ -17,7 +17,6 @@ crosshair_masking:
   enabled: false
 description: A-Line electron beam camera 3 for beam profiling
 filtering:
-  bilateral_d: null
   gaussian_sigma: null
   median_kernel_size: 3
 metadata:
@@ -37,7 +36,6 @@ thresholding:
   mode: to_zero
   value: 0.0
 transforms:
-  distortion_correction: false
   flip_horizontal: false
   flip_vertical: false
   rotation_angle: 0.0

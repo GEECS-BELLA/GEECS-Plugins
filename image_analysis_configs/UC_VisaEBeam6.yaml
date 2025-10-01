@@ -31,7 +31,6 @@ crosshair_masking:
   enabled: true
 description: Visa electron beam camera 6 for beam profiling
 filtering:
-  bilateral_d: 3
   gaussian_sigma: null
   median_kernel_size: null
 metadata:
@@ -51,7 +50,6 @@ thresholding:
   mode: to_zero
   value: 0.0
 transforms:
-  distortion_correction: false
   flip_horizontal: false
   flip_vertical: false
   rotation_angle: 0.0

@@ -41,14 +41,12 @@ crosshair_masking:
 filtering:
   gaussian_sigma: null
   median_kernel_size: null
-  bilateral_d: 3
 
 # Geometric transformations
 transforms:
   rotation_angle: 0.0
   flip_horizontal: false
   flip_vertical: false
-  distortion_correction: false
 
 # Camera-specific metadata
 metadata:
