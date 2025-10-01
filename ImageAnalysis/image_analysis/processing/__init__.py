@@ -42,6 +42,7 @@ from .thresholding import apply_threshold
 from .pipeline import (
     apply_camera_processing_pipeline,
     apply_camera_processing_pipeline_batch,
+    apply_non_background_processing,
     create_background_manager_from_config,
     get_processing_summary,
 )
@@ -99,6 +100,7 @@ __all__ = [
     "apply_camera_processing_pipeline",
     "apply_camera_processing_pipeline_batch",
     "create_background_manager_from_config",
+    "apply_non_background_processing",
     "get_processing_summary",
     # Configuration models
     "CameraConfig",
