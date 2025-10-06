@@ -1,0 +1,49 @@
+# Configuration for UC_ALineEBeam2 camera
+
+name: UC_ALineEBeam2
+bit_depth: 16
+description: A-Line electron beam camera 2 for beam profiling
+
+# Camera identification and properties
+background:
+  enabled: true
+  method: from_file
+  file_path: "{scan_dir}/computed_background.npy"
+  constant_level: 50.0  #fallback to this value if file not found
+  dynamic_computation:
+    enabled: true
+    method: percentile_dataset
+    percentile: 15.0
+    auto_save_path: "{scan_dir}/computed_background.npy"
+  additional_constant: 2
+
+crosshair_masking:
+  crosshairs: []
+  enabled: false
+
+filtering:
+  gaussian_sigma: null
+  median_kernel_size: null
+
+metadata:
+  location: "between A and B cave in the cutout"
+  notes: "none"
+  spatial_calibration: 2.217e-05
+
+roi:
+  x_max: 1289
+  x_min: 1
+  y_max: 964
+  y_min: 1
+
+thresholding:
+  enabled: false
+  invert: false
+  method: constant
+  mode: to_zero
+  value: 0.0
+
+transforms:
+  flip_horizontal: false
+  flip_vertical: false
+  rotation_angle: 0.0

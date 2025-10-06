@@ -1,0 +1,56 @@
+# Configuration for "HTT-C-ASSERTHighR camera
+
+# Camera identification and properties
+name: "HTT-C-ASSERTHighR"
+description: "high resolution for electron beam profile analysis"
+bit_depth: 16
+
+background:
+  enabled: true
+  method: from_file
+  file_path: "{scan_dir}/computed_background.npy"
+  constant_level: 100.0  #fallback to this value if file not found
+  dynamic_computation:
+    enabled: true
+    method: percentile_dataset
+    percentile: 15.0
+    auto_save_path: "{scan_dir}/computed_background.npy"
+  additional_constant: 2
+
+
+# Thresholding configuration
+thresholding:
+  enabled: true
+  method: "constant"  # Use percentage of max value
+  value: 0.0               # 10% of maximum pixel value
+  mode: "to_zero"            # Binary thresholding
+  invert: false             # Don't invert
+
+# Region of Interest (ROI) configuration
+roi:
+  x_min: 675  # Original left_ROI
+  y_min: 100  # Original top_ROI
+  x_max: 975  # left_ROI + roi_width (175 + 800)
+  y_max: 300  # top_ROI + roi_height (100 + 800)
+
+# Crosshair masking configuration
+crosshair_masking:
+  enabled: false  # No crosshairs defined for this camera in original config
+  crosshairs: []
+
+# Image filtering configuration
+filtering:
+  gaussian_sigma: null      # No filtering in original
+  median_kernel_size: null  # No filtering in original
+
+# Geometric transformations
+transforms:
+  rotation_angle: 0.0       # Original rotate value
+  flip_horizontal: false
+  flip_vertical: false
+
+# Camera-specific metadata
+metadata:
+  spatial_calibration: 0.000019  # as of 10/1/2025
+  location: "HTT target chamber"
+  notes: "NA"

@@ -1,0 +1,32 @@
+# Configuration for UC_HiResMagCam camera
+
+# Camera identification and properties
+name: "UC_HiResMagCam"
+description: "High resolution magnetic camera for electron beam profiling"
+bit_depth: 16
+
+# Camera identification and properties
+background:
+  enabled: true
+  method: from_file
+  file_path: "{scan_dir}/computed_background.npy"
+  constant_level: 50.0  #fallback to this value if file not found
+  dynamic_computation:
+    enabled: true
+    method: percentile_dataset
+    percentile: 15.0
+    auto_save_path: "{scan_dir}/computed_background.npy"
+  additional_constant: 2
+
+# Region of Interest (ROI) configuration
+roi:
+  x_min: 1
+  y_min: 1
+  x_max: 1288  # x_min + width (1 + 1287)
+  y_max: 326   # y_min + height (1 + 325)
+
+# Camera-specific metadata
+metadata:
+  spatial_calibration: 0.00002217
+  location: "Undulator beamline"
+  notes: "none"

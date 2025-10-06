@@ -1,0 +1,41 @@
+# Configuration for HTT-C-ASSERTLowR camera
+
+# Camera identification and properties
+background:
+  auto_save_path: null
+  enabled: true
+  fallback:
+    level: 30.0
+    method: constant
+  level: 30.0
+  method: constant
+  type: static
+bit_depth: 16
+camera_type: ebeam_profile
+crosshair_masking:
+  crosshairs: []
+  enabled: false
+description: HTT-C ASSERT Low Resolution camera for beam profiling
+filtering:
+  gaussian_sigma: null
+  median_kernel_size: null
+metadata:
+  location: Migrated camera
+  notes: Migrated from hardcoded configuration in EBeamProfile.py
+  spatial_calibration: 7.5e-06
+name: HTT-C-ASSERTLowR
+roi:
+  x_max: 605
+  x_min: 305
+  y_max: 650
+  y_min: 450
+thresholding:
+  enabled: false
+  invert: false
+  method: constant
+  mode: to_zero
+  value: 0.0
+transforms:
+  flip_horizontal: false
+  flip_vertical: false
+  rotation_angle: 0.0

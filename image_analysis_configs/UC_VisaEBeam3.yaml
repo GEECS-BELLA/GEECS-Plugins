@@ -1,0 +1,49 @@
+# Configuration for UC_VisaEBeam3 camera
+name: UC_VisaEBeam3
+bit_depth: 16
+description: e beam profile on visa 3 screen
+
+# Camera identification and properties
+background:
+  enabled: true
+  method: from_file
+  file_path: "{scan_dir}/computed_background.npy"
+  constant_level: 50.0  #fallback to this value if file not found
+  dynamic_computation:
+    enabled: true
+    method: percentile_dataset
+    percentile: 15.0
+    auto_save_path: "{scan_dir}/computed_background.npy"
+  additional_constant: 2
+
+metadata:
+  spatial_calibration: 7.5e-06
+
+crosshair_masking:
+  crosshairs:
+    - angle: -3.5
+      center:
+        - 374
+        - 127
+      height: 108
+      thickness: 10
+      width: 108
+    - angle: -3.5
+      center:
+        - 338
+        - 485
+      height: 108
+      thickness: 10
+      width: 108
+  enabled: true
+
+roi:
+  x_max: 493
+  x_min: 160
+  y_max: 473
+  y_min: 140
+
+transforms:
+  flip_horizontal: false
+  flip_vertical: false
+  rotation_angle: -3.5

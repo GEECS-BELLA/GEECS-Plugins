@@ -16,8 +16,11 @@ from typing import TYPE_CHECKING, Optional, Union, Any, Tuple
 if TYPE_CHECKING:
     from .types import Array2D, AnalyzerResultDict
 
+import logging
+
 from image_analysis.utils import read_imaq_image
-from image_analysis.tools.background import Background
+
+logger = logging.getLogger(__name__)
 
 
 class ImageAnalyzer:
@@ -32,7 +35,7 @@ class ImageAnalyzer:
     # asynchronously, for example if it waits for an external process
     run_analyze_image_asynchronously = False
 
-    def __init__(self, background: Background = None, **config):
+    def __init__(self, **config):
         """Initialize the ImageAnalyzer with optional background and keyword configuration parameters.
 
         As the same ImageAnalyzer instance can be applied to many images,
@@ -44,40 +47,14 @@ class ImageAnalyzer:
         defaults, and documentation. These are all used for LivePostProcessing
         for example.
 
-        If background subtraction is required, a `Background` instance can be provided here.
-        If none is given, a default-initialized one will be created.
-
         It should also call super().__init__()
-
-        Example subclass constructor:
-
-        def __init__(self, background: Background = None,
-                     highpass_cutoff: float = 0.12,
-                     roi: ROI = ROI(top=120, bottom=700, left=None, right=1200),
-                     background_path: Path = background_folder / "cam1_background.png",
-                    ):
-            "" "
-
-        Parameters
-        ----------
-            highpass_cutoff: float
-                For the Butterworth filter, in px^-1
-            "" "
-
-            self.highpass_cutoff = highpass_cutoff
-            self.roi = roi
-            background = Background()
-            background.load_background_from_file(background_path)
-            super().__init__(background=background)
 
         Parameters
         ----------
         **config :
             Optional configuration kwargs.
-        background : Optional[Background]
-            An Background instance. If not provided, a new one will be created.
         """
-        self.background = background or Background()
+        pass
 
     def analyze_image(
         self, image: Array2D, auxiliary_data: Optional[dict] = None
@@ -176,6 +153,7 @@ class ImageAnalyzer:
         return_scalars: Optional[dict[str, Union[int, float]]] = None,
         return_lineouts: Optional[Union[NDArray, list[NDArray]]] = None,
         input_parameters: Optional[dict[str, Any]] = None,
+        coerce_lineout_length: Optional[bool] = True,
     ) -> AnalyzerResultDict:
         """Build a return dictionary compatible with labview_adapters.py.
 
@@ -189,12 +167,15 @@ class ImageAnalyzer:
         return_lineouts : list(np.ndarray)
             Lineouts to be returned to labview.  Need to be given as a list of 1d arrays (numpy or otherwise)
             If not given, will return a 1x1 array of zeros.  If in an incorrect format, will return a 1x1 array of
-            zeros and print a reminder message.  If the arrays in the list are of unequal length, all arrays get
-            padded with zeros to the size of the largest array.  Also, will be returned as a 'float64'
+            zeros and print a reminder message.    Also, will be returned as a 'float64'
         input_parameters : dict
             Dictionary of the input parameters given to the image_analyzer.  If none is given, will call the class's
             self.build_input_parameter_dictionary() function to generate one from the class variables.  This is not
             returned to Labview, so it can contain anything one might find useful in post-analysis
+        coerce_lineout_length : bool
+            If the arrays in the list of return_linetours are of unequal length, all arrays get
+            padded with zeros to the size of the largest array if coerce_lineout_length is true. This is necessary
+            for analyzers used by labview
 
         Returns
         -------
@@ -233,12 +214,13 @@ class ImageAnalyzer:
             if return_lineouts is None:
                 return_lineouts = np.zeros((1, 1), dtype=np.float64)
             else:
-                max_length = max(map(len, return_lineouts))
-                return_lineouts = [
-                    np.pad(lineout, (0, max_length - len(lineout)), mode="constant")
-                    for lineout in return_lineouts
-                ]
-                return_lineouts = np.vstack(return_lineouts).astype(np.float64)
+                if coerce_lineout_length:
+                    max_length = max(map(len, return_lineouts))
+                    return_lineouts = [
+                        np.pad(lineout, (0, max_length - len(lineout)), mode="constant")
+                        for lineout in return_lineouts
+                    ]
+                    return_lineouts = np.vstack(return_lineouts).astype(np.float64)
         return_dictionary["analyzer_return_lineouts"] = return_lineouts
 
         if input_parameters is None:

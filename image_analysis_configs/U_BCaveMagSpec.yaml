@@ -1,0 +1,47 @@
+# Configuration for U_BCaveMagSpec camera
+name: U_BCaveMagSpec
+bit_depth: 16
+description: B-Cave magnetic spectrometer camera for electron beam profiling
+
+background:
+  enabled: true
+  method: from_file
+  file_path: "{scan_dir}/computed_background.npy"
+  constant_level: 100.0  #fallback to this value if file not found
+  dynamic_computation:
+    enabled: true
+    method: percentile_dataset
+    percentile: 15.0
+    auto_save_path: "{scan_dir}/computed_background.npy"
+  additional_constant: 2
+
+crosshair_masking:
+  crosshairs: []
+  enabled: false
+
+filtering:
+  gaussian_sigma: null
+  median_kernel_size: null
+
+metadata:
+  location: B-cave
+  notes: "NA"
+  spatial_calibration: 2.217e-05
+
+roi:
+  x_max: 700
+  x_min: 200
+  y_max: 180
+  y_min: 1
+
+thresholding:
+  enabled: false
+  invert: false
+  method: constant
+  mode: to_zero
+  value: 0.0
+
+transforms:
+  flip_horizontal: false
+  flip_vertical: false
+  rotation_angle: 0.0

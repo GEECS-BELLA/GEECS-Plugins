@@ -72,6 +72,9 @@ class BinImageEntry(TypedDict):
     result: Optional[AnalyzerResultDict]
 
 
+logger = logging.getLogger(__name__)
+
+
 # %% classes
 class Array2DScanAnalyzer(ScanAnalyzer):
     """Scan analyzer for generic 2D array images.
@@ -99,8 +102,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         "_postprocessed.tsv"). Only files ending with this literal tail are used.
     skip_plt_show : bool, default=True
         Passed to :class:`ScanAnalyzer` to control interactive plotting in parents.
-    flag_logging : bool, default=True
-        If True, logs informative messages and warnings.
     flag_save_images : bool, default=True
         If True, saves HDF5/PNG outputs to the analysis directory.
 
@@ -116,7 +117,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         image_analyzer: Optional[ImageAnalyzer] = None,
         file_tail: Optional[str] = ".png",
         skip_plt_show: bool = True,
-        flag_logging: bool = True,
         flag_save_images: bool = True,
     ):
         """Initialize the analyzer and validate concurrency constraints."""
@@ -131,7 +131,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         self.saved_avg_image_paths: Dict[int, Path] = {}
 
         # define flags
-        self.flag_logging = flag_logging
         self.flag_save_images = flag_save_images
 
         self.file_tail = file_tail
@@ -142,14 +141,19 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             # Mark that we cannot send the ImageAnalyzer through multiprocessing,
             # so we’ll fall back to threading instead.
             self.image_analyzer.run_analyze_image_asynchronously = True
-            if self.flag_logging:
-                logging.warning(
-                    f"[Array2DScanAnalyzer] ImageAnalyzer instance is not pickleable "
-                    f"(reason: {e}). Falling back to threaded analysis."
-                )
+            logger.warning(
+                f"[Array2DScanAnalyzer] ImageAnalyzer instance is not pickleable "
+                f"(reason: {e}). Falling back to threaded analysis."
+            )
 
     def _establish_additional_paths(self):
         """Compute input/output paths and validate data presence."""
+        # Get the camera-specific name if available (includes suffix like "_variation")
+        # This allows multiple analysis variants of the same camera to have separate output directories
+        camera_name = (
+            getattr(self.image_analyzer, "camera_name", None) or self.device_name
+        )
+
         # organize various paths for location of saved data
         self.path_dict = {
             "data_img": Path(self.scan_directory) / f"{self.device_name}",
@@ -157,7 +161,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 self.scan_directory.parents[1]
                 / "analysis"
                 / self.scan_directory.name
-                / f"{self.device_name}"
+                / f"{camera_name}"  # Use camera_name instead of device_name
                 / "Array2DScanAnalyzer"
             ),
         }
@@ -166,14 +170,12 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         if not self.path_dict["data_img"].exists() or not any(
             self.path_dict["data_img"].iterdir()
         ):
-            if self.flag_logging:
-                logging.warning(
-                    f"Data directory '{self.path_dict['data_img']}' does not exist or is empty. Skipping"
-                )
+            logger.warning(
+                f"Data directory '{self.path_dict['data_img']}' does not exist or is empty. Skipping"
+            )
 
         if self.path_dict["data_img"] is None or self.auxiliary_data is None:
-            if self.flag_logging:
-                logging.info("Skipping analysis due to missing data or auxiliary file.")
+            logger.info("Skipping analysis due to missing data or auxiliary file.")
             return
 
     def _run_analysis_core(self):
@@ -224,8 +226,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         except Exception as e:
             if PRINT_TRACEBACK:
                 print(traceback.format_exc())
-            if self.flag_logging:
-                logging.warning(f"Warning: Image analysis failed due to: {e}")
+            logger.warning(f"Warning: Image analysis failed due to: {e}")
             return
 
     def _process_all_shots_parallel(self):
@@ -252,7 +253,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         """
         self._image_file_map = {}
 
-        logging.info(f"self.file_tail: {self.file_tail}")
+        logger.info(f"self.file_tail: {self.file_tail}")
         image_filename_regex = re.compile(
             r"Scan(?P<scan_number>\d{3,})_"  # scan number
             r"(?P<device_subject>.*?)_"  # non-greedy subject
@@ -261,7 +262,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             + r"$"  # literal suffix+format
         )
 
-        logging.info("mapping matched files")
+        logger.info("mapping matched files")
         for file in self.path_dict["data_img"].iterdir():
             if not file.is_file():
                 continue
@@ -271,14 +272,14 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 shot_num = int(m.group("shot_number"))
                 if shot_num in self.auxiliary_data["Shotnumber"].values:
                     self._image_file_map[shot_num] = file
-                    logging.info(f"Mapped file for shot {shot_num}: {file}")
+                    logger.info(f"Mapped file for shot {shot_num}: {file}")
             else:
-                logging.debug(f"Filename {file.name} does not match expected pattern.")
+                logger.debug(f"Filename {file.name} does not match expected pattern.")
 
         expected_shots = set(self.auxiliary_data["Shotnumber"].values)
         found_shots = set(self._image_file_map.keys())
         for m in sorted(expected_shots - found_shots):
-            logging.warning(f"No file found for shot {m}")
+            logger.warning(f"No file found for shot {m}")
 
     def _load_all_images_parallel(self) -> None:
         """
@@ -316,7 +317,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                         file_path = self._image_file_map[shot_num]
                         self.raw_images[shot_num] = (image, file_path)
                 except Exception as e:
-                    logging.error(f"Error loading image for shot {shot_num}: {e}")
+                    logger.error(f"Error loading image for shot {shot_num}: {e}")
 
     def _run_batch_analysis(self) -> None:
         """
@@ -338,6 +339,9 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         if not hasattr(self, "raw_images") or not self.raw_images:
             raise RuntimeError("No images loaded. Run _load_all_images_parallel first.")
 
+        # Resolve {scan_dir} placeholders in background config BEFORE batch processing
+        self._resolve_background_paths()
+
         try:
             # Extract keys and separate image + path tuples
             shot_nums = list(self.raw_images.keys())
@@ -356,9 +360,12 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 self.image_analyzer.analyze_image_batch(image_list)
             )
             self.stateful_results = stateful_results
+            logger.info(
+                "finished batch processing with %s stateful results", stateful_results
+            )
 
             if processed_images is None:
-                logging.warning("analyze_image_batch() returned None. Skipping.")
+                logger.warning("analyze_image_batch() returned None. Skipping.")
                 self.raw_images = {}
                 return
 
@@ -371,7 +378,43 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             self.raw_images = dict(zip(shot_nums, zip(processed_images, file_paths)))
 
         except Exception as e:
-            logging.warning(f"Batch analysis skipped or failed: {e}")
+            logger.warning(f"Batch analysis skipped or failed: {e}")
+
+    def _resolve_background_paths(self) -> None:
+        """
+        Resolve {scan_dir} placeholders in ImageAnalyzer's background configuration.
+
+        This is called once before batch processing, ensuring all subsequent
+        parallel workers use concrete paths.
+        """
+        # Check if analyzer has camera_config with background settings
+        if not hasattr(self.image_analyzer, "camera_config"):
+            return
+
+        bg_config = self.image_analyzer.camera_config.background
+
+        if not bg_config:
+            return
+
+        scan_dir = self.path_dict["data_img"]
+
+        # Resolve file_path
+        if bg_config.file_path and "{scan_dir}" in str(bg_config.file_path):
+            resolved = str(bg_config.file_path).replace("{scan_dir}", str(scan_dir))
+            bg_config.file_path = Path(resolved)
+            logger.info(f"Resolved background file_path: {resolved}")
+
+        # Resolve auto_save_path in dynamic_computation
+        if (
+            bg_config.dynamic_computation
+            and bg_config.dynamic_computation.auto_save_path
+            and "{scan_dir}" in str(bg_config.dynamic_computation.auto_save_path)
+        ):
+            resolved = str(bg_config.dynamic_computation.auto_save_path).replace(
+                "{scan_dir}", str(scan_dir)
+            )
+            bg_config.dynamic_computation.auto_save_path = Path(resolved)
+            logger.info(f"Resolved background auto_save_path: {resolved}")
 
     def _run_image_analysis_parallel(self) -> None:
         """
@@ -386,12 +429,12 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         Concurrency backend follows ``run_analyze_image_asynchronously`` on
         the ImageAnalyzer instance.
         """
-        logging.info("Starting the individual image analysis")
+        logger.info("Starting the individual image analysis")
         self.results: dict[int, AnalyzerResultDict] = {}
 
         use_threads = self.image_analyzer.run_analyze_image_asynchronously
         Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
-        logging.info(
+        logger.info(
             f"Using {'ThreadPoolExecutor' if use_threads else 'ProcessPoolExecutor'}"
         )
 
@@ -405,7 +448,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 for shot_num, (img, path) in self.raw_images.items()
             }
 
-            logging.info("Submitted image analysis tasks.")
+            logger.info("Submitted image analysis tasks.")
 
             for future in as_completed(futures):
                 shot_num = futures[future]
@@ -416,19 +459,19 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
                     if processed_image is not None:
                         self.results[shot_num] = result
-                        logging.info(f"Shot {shot_num}: processed image stored.")
-                        logging.info(
+                        logger.info(f"Shot {shot_num}: processed image stored.")
+                        logger.info(
                             f"analyzed shot {shot_num} and got {analysis_results}"
                         )
 
                     else:
-                        logging.info(
+                        logger.info(
                             f"Shot {shot_num}: no image returned from analysis."
                         )
 
                     for key, value in analysis_results.items():
                         if not isinstance(value, (int, float, np.number)):
-                            logging.warning(
+                            logger.warning(
                                 f"[{self.__class__.__name__} using {self.image_analyzer.__class__.__name__}] "
                                 f"Analysis result for shot {shot_num} key '{key}' is not numeric (got {type(value).__name__}). Skipping."
                             )
@@ -438,7 +481,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                             ] = value
 
                 except Exception as e:
-                    logging.error(f"Analysis failed for shot {shot_num}: {e}")
+                    logger.error(f"Analysis failed for shot {shot_num}: {e}")
 
     def _postprocess_noscan(self) -> None:
         """Average over shots and create a GIF when no parameter is scanned."""
@@ -486,10 +529,10 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             save_dir=self.path_dict["save"],
             save_name=save_name_normalized,
         )
-        if self.flag_logging:
-            logging.info(
-                f"Saved bin {bin_key} images: {save_name_scaled} and {save_name_normalized}"
-            )
+
+        logger.info(
+            f"Saved bin {bin_key} images: {save_name_scaled} and {save_name_normalized}"
+        )
 
     def _postprocess_scan_parallel(self) -> None:
         """
@@ -517,7 +560,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                     try:
                         future.result()
                     except Exception as e:
-                        logging.error(f"Error saving images for a bin: {e}")
+                        logger.error(f"Error saving images for a bin: {e}")
 
         # Create an image grid if more than one bin exists.
         if len(binned_data) > 1 and self.flag_save_images:
@@ -545,7 +588,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             if self.flag_save_images and processed_image is not None:
                 self._save_bin_images(bin_key, processed_image)
             elif processed_image is None:
-                logging.warning(
+                logger.warning(
                     f"Bin {bin_key} has no processed image; skipping saving for this bin."
                 )
 
@@ -595,12 +638,12 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             flag_save = self.flag_save_images
 
         if "Bin #" not in self.auxiliary_data.columns:
-            logging.warning("Missing 'Bin #' column in auxiliary data.")
+            logger.warning("Missing 'Bin #' column in auxiliary data.")
             return {}
 
         unique_bins = [int(b) for b in np.unique(self.auxiliary_data["Bin #"].values)]
-        if self.flag_logging:
-            logging.info(f"Unique bins from auxiliary data: {unique_bins}")
+
+        logger.info(f"Unique bins from auxiliary data: {unique_bins}")
 
         binned_data: dict[int, BinImageEntry] = {}
 
@@ -619,8 +662,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             ]
 
             if not valid_shots:
-                if self.flag_logging:
-                    logging.warning(f"No images found for bin {bin_val}.")
+                logger.warning(f"No images found for bin {bin_val}.")
                 continue
 
             # Collect images and scalar results
@@ -632,9 +674,9 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             lineouts = [
                 self.results[sn].get("analyzer_return_lineouts")
                 for sn in valid_shots
-                if isinstance(
-                    self.results[sn].get("analyzer_return_lineouts"), np.ndarray
-                )
+                # if isinstance(
+                #     self.results[sn].get("analyzer_return_lineouts"), np.ndarray
+                # )
             ]
             # just extract the first entry in the input parameters, as it isn't expected to change
             input_params = self.results[valid_shots[0]].get(
@@ -653,10 +695,16 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             avg_vals = {k: np.mean(v, axis=0) for k, v in sums.items()}
 
             if lineouts:
-                lineouts_array = np.stack(lineouts)
-                average_lineout = np.mean(lineouts_array, axis=0)
+                # unzip into two lists: all x-lineouts, all y-lineouts
+                x_list = [lo[0] for lo in lineouts if lo is not None]
+                y_list = [lo[1] for lo in lineouts if lo is not None]
+
+                avg_x = np.mean(np.stack(x_list, axis=0), axis=0) if x_list else None
+                avg_y = np.mean(np.stack(y_list, axis=0), axis=0) if y_list else None
+
+                average_lineouts = [avg_x, avg_y]
             else:
-                average_lineout = None
+                average_lineouts = None
 
             # Get representative scan parameter value
             column_full_name, _ = self.find_scan_param_column()
@@ -670,7 +718,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                     "processed_image": avg_image,
                     "analyzer_return_dictionary": avg_vals,
                     "analyzer_input_parameters": input_params,
-                    "analyzer_return_lineouts": average_lineout,
+                    "analyzer_return_lineouts": average_lineouts,
                 },
             }
 
@@ -679,10 +727,10 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 self.save_image_as_h5(
                     avg_image, save_dir=self.path_dict["save"], save_name=save_name
                 )
-                if self.flag_logging:
-                    logging.info(
-                        f"Binned and averaged images for bin {bin_val} saved as {save_name}."
-                    )
+
+                logger.info(
+                    f"Binned and averaged images for bin {bin_val} saved as {save_name}."
+                )
 
         return binned_data
 
@@ -712,8 +760,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 compression_opts=4,  # Compression level: 0 (none) to 9 (max)
             )
 
-        if self.flag_logging:
-            logging.info(f"HDF5 image saved with compression at {save_path}")
+        logger.info(f"HDF5 image saved with compression at {save_path}")
 
     def save_normalized_image(
         self,
@@ -755,8 +802,8 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, bbox_inches="tight", pad_inches=0)
         plt.close(fig)  # Close the figure to free up memory
-        if self.flag_logging:
-            logging.info(f"Image saved at {save_path}")
+
+        logger.info(f"Image saved at {save_path}")
 
     def create_image_array(
         self,
@@ -784,20 +831,21 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             Render DPI.
         """
         if not binned_data:
-            if self.flag_logging:
-                logging.warning("No averaged images to arrange into an array.")
+            logger.warning("No averaged images to arrange into an array.")
             return
 
         num_images = len(binned_data)
         grid_cols = int(np.ceil(np.sqrt(num_images)))
         grid_rows = int(np.ceil(num_images / grid_cols))
 
-        # Extract valid images from the result dicts
         images = [
             entry["result"]["processed_image"]
             for entry in binned_data.values()
             if entry["result"].get("processed_image") is not None
         ]
+        if not images:
+            return
+
         vmin = 0
         vmax = (
             plot_scale
@@ -807,28 +855,35 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
         render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
 
+        # --- scale figure to image aspect ---
+        h0, w0 = images[0].shape[:2]
+        cell_w_in = figsize[0]
+        cell_h_in = cell_w_in * (h0 / float(w0))
+        fig_w_in = grid_cols * cell_w_in
+        fig_h_in = grid_rows * cell_h_in
+
         fig, axs = plt.subplots(
             grid_rows,
             grid_cols,
-            figsize=(grid_cols * figsize[0], grid_rows * figsize[1]),
+            figsize=(fig_w_in, fig_h_in),
             dpi=dpi,
             constrained_layout=True,
         )
-        axs = axs.flatten()
+        axs = np.ravel(axs)  # always 1-D array
         fig.suptitle(f"Scan parameter: {self.scan_parameter}", fontsize=12)
 
         img_handle = None
+
         for idx, (bin_val, entry) in enumerate(binned_data.items()):
             if idx >= len(axs):
                 break
+            ax = axs[idx]
 
             result = entry["result"]
             img = result.get("processed_image")
             if img is None:
                 continue
 
-            result = entry["result"]
-            img = result.get("processed_image")
             analysis_results = result.get("analyzer_return_dictionary", {})
             input_params = result.get("analyzer_input_parameters", {})
             lineouts = result.get("analyzer_return_lineouts", [])
@@ -841,23 +896,29 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 lineouts=lineouts,
                 vmin=vmin,
                 vmax=vmax,
-                ax=axs[idx],
+                ax=ax,
             )
-            axs[idx].set_title(f"{param_val:.2f}", fontsize=10)
 
-            if img_handle is None and axs[idx].images:
-                img_handle = axs[idx].images[0]
+            ax.set_title(f"{param_val:.2f}", fontsize=10)
 
+            if img_handle is None and ax.images:
+                img_handle = ax.images[0]
+
+        # colorbar
         if img_handle:
             fig.colorbar(
                 img_handle,
-                ax=axs,
+                ax=axs.tolist(),
                 orientation="horizontal",
                 label="Intensity",
                 shrink=0.8,
                 pad=0.01,
                 aspect=40,
             )
+
+        # hide unused axes
+        for j in range(num_images, len(axs)):
+            axs[j].set_visible(False)
 
         if save_path is None:
             filename = f"{self.device_name}_averaged_image_grid.png"
@@ -866,8 +927,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         fig.savefig(save_path, bbox_inches="tight")
         plt.close(fig)
 
-        if self.flag_logging:
-            logging.info(f"Saved final image grid as {save_path.name}.")
+        logger.info(f"Saved final image grid as {save_path.name}.")
         self.display_contents.append(str(save_path))
 
     def create_gif(
@@ -904,8 +964,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
         frames = self.prepare_render_frames(data_dict, sort_keys=sort_keys)
         if not frames:
-            if self.flag_logging:
-                logging.warning("No valid frames to render into GIF.")
+            logger.warning("No valid frames to render into GIF.")
             return
 
         vmin = 0
@@ -938,8 +997,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         # Save GIF
         io.mimsave(str(output_file), gif_images, duration=duration / 1000.0, loop=0)
 
-        if self.flag_logging:
-            logging.info(f"Saved GIF to {output_file.name}.")
+        logger.info(f"Saved GIF to {output_file.name}.")
 
         self.display_contents.append(str(output_file))
 
@@ -1002,19 +1060,23 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 if __name__ == "__main__":
     from scan_analysis.base import ScanAnalyzerInfo as Info
     from scan_analysis.execute_scan_analysis import instantiate_scan_analyzer
-    from image_analysis.offline_analyzers.Undulator.EBeamProfile import (
-        EBeamProfileAnalyzer,
+    from image_analysis.offline_analyzers.beam_analyzer import (
+        BeamAnalyzer,
     )
-
+    from image_analysis.config_loader import set_config_base_dir
     from geecs_data_utils import ScanTag
 
+    current_dir = Path(__file__).resolve().parent.parent
+    geecs_plugins_dir = current_dir.parent.parent.parent
+    set_config_base_dir(geecs_plugins_dir / "image_analysis_configs")
+
     dev_name = "UC_ALineEBeam3"
-    config_dict = {"camera_name": dev_name}
+    config_dict = {"camera_config_name": dev_name}
     analyzer_info = Info(
         scan_analyzer_class=Array2DScanAnalyzer,
         requirements={dev_name},
         device_name=dev_name,
-        scan_analyzer_kwargs={"image_analyzer": EBeamProfileAnalyzer(**config_dict)},
+        scan_analyzer_kwargs={"image_analyzer": BeamAnalyzer(**config_dict)},
     )
 
     import time
@@ -1024,4 +1086,4 @@ if __name__ == "__main__":
     scan_analyzer = instantiate_scan_analyzer(scan_analyzer_info=analyzer_info)
     scan_analyzer.run_analysis(scan_tag=test_tag)
     t1 = time.monotonic()
-    logging.info(f"execution time: {t1 - t0}")
+    logger.info(f"execution time: {t1 - t0}")

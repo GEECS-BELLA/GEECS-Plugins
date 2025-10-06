@@ -1,0 +1,25 @@
+# Configuration for UC_VisaEBeam8 camera
+name: UC_VisaEBeam8
+bit_depth: 16
+description: e beam profile on visa 8 screen
+
+# Camera identification and properties
+background:
+  enabled: true
+  method: from_file
+  file_path: "{scan_dir}/computed_background.npy"
+  constant_level: 50.0  #fallback to this value if file not found
+  dynamic_computation:
+    enabled: true
+    method: percentile_dataset
+    percentile: 15.0
+    auto_save_path: "{scan_dir}/computed_background.npy"
+  additional_constant: 2
+
+metadata:
+  spatial_calibration: 7.5e-06
+roi:
+  x_max: 438
+  x_min: 105
+  y_max: 433
+  y_min: 100

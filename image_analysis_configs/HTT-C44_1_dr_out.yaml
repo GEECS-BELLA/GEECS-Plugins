@@ -1,0 +1,56 @@
+# Configuration for "HTT-C44_1_dr_out camera
+
+# Camera identification and properties
+name: "HTT-C44_1_dr_out"
+description: "High power mode imager"
+camera_type: "ebeam_profile"
+bit_depth: 16
+
+# Enhanced background computation settings with static/dynamic support
+background:
+  auto_save_path: null
+  enabled: true
+  fallback:
+    level: 100.0
+    method: constant
+  level: 100.0
+  method: constant
+  type: static
+
+
+# Thresholding configuration - NEW FEATURE
+thresholding:
+  enabled: true
+  method: "constant"  # Use percentage of max value
+  value: 0.0               # 10% of maximum pixel value
+  mode: "to_zero"            # Binary thresholding
+  invert: false             # Don't invert
+
+# Region of Interest (ROI) configuration
+roi:
+  x_min: 200 # Original left_ROI
+  y_min: 600  # Original top_ROI
+  x_max: 400  # left_ROI + roi_width (175 + 800)
+  y_max: 800  # top_ROI + roi_height (100 + 800)
+
+# Crosshair masking configuration
+crosshair_masking:
+  enabled: false  # No crosshairs defined for this camera in original config
+  crosshairs: []
+
+# Image filtering configuration
+filtering:
+  gaussian_sigma: null      # No filtering in original
+  median_kernel_size: null  # No filtering in original
+
+# Geometric transformations
+transforms:
+  rotation_angle: 0.0       # Original rotate value
+  flip_horizontal: false
+  flip_vertical: false
+
+# Camera-specific metadata
+metadata:
+  spatial_calibration: 0.0000244  # Original spatial_calibration
+  location: "A-Line beamline"
+  notes: "Migrated from hardcoded configuration in EBeamProfile.py"

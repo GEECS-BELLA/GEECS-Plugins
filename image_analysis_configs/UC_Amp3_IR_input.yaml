@@ -1,0 +1,22 @@
+# Configuration for UC_Amp3_IR_input camera
+
+name: UC_Amp3_IR_input
+bit_depth: 16
+description: IR mode at the input to amp3
+
+# Camera identification and properties
+background:
+  enabled: true
+  method: constant
+  constant_level: 20.0
+
+metadata:
+  location: "Room 148"
+  notes: "none"
+  spatial_calibration: 2.44e-05
+
+roi:
+  x_max: 600
+  x_min: 50
+  y_max: 700
+  y_min: 150
