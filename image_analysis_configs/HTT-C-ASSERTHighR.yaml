@@ -18,7 +18,7 @@ background:
   additional_constant: 2
 
 
-# Thresholding configuration - NEW FEATURE
+# Thresholding configuration
 thresholding:
   enabled: true
   method: "constant"  # Use percentage of max value

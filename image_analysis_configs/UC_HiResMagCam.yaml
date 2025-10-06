@@ -3,27 +3,20 @@
 # Camera identification and properties
 name: "UC_HiResMagCam"
 description: "High resolution magnetic camera for electron beam profiling"
-camera_type: "ebeam_profile"
 bit_depth: 16
 
-# Enhanced background computation settings with static/dynamic support
+# Camera identification and properties
 background:
   enabled: true
-  type: "static"               # Options: static, dynamic
-  method: "constant"           # Options: constant, percentile_dataset, temporal_median, median, mean, outlier_rejection, from_file
-  level: 60.0                  # Static background level
-  auto_save_path: null         # Auto-save computed backgrounds (for dynamic type)
-  fallback:                    # Fallback for single image analysis (dynamic type)
-    method: "constant"
-    level: 60.0
-
-# Thresholding configuration
-thresholding:
-  enabled: false
-  method: "constant"
-  value: 0.0
-  mode: "to_zero"
-  invert: false
+  method: from_file
+  file_path: "{scan_dir}/computed_background.npy"
+  constant_level: 50.0  #fallback to this value if file not found
+  dynamic_computation:
+    enabled: true
+    method: percentile_dataset
+    percentile: 15.0
+    auto_save_path: "{scan_dir}/computed_background.npy"
+  additional_constant: 2
 
 # Region of Interest (ROI) configuration
 roi:
@@ -32,24 +25,8 @@ roi:
   x_max: 1288  # x_min + width (1 + 1287)
   y_max: 326   # y_min + height (1 + 325)
 
-# Crosshair masking configuration
-crosshair_masking:
-  enabled: false
-  crosshairs: []
-
-# Image filtering configuration
-filtering:
-  gaussian_sigma: null
-  median_kernel_size: null
-
-# Geometric transformations
-transforms:
-  rotation_angle: 0.0
-  flip_horizontal: false
-  flip_vertical: false
-
 # Camera-specific metadata
 metadata:
   spatial_calibration: 0.00002217
   location: "Undulator beamline"
-  notes: "Migrated from hardcoded configuration in EBeamProfile.py"
+  notes: "none"

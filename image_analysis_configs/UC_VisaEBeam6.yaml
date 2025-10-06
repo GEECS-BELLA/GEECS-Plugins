@@ -1,17 +1,24 @@
 # Configuration for UC_VisaEBeam6 camera
+name: UC_VisaEBeam6
+bit_depth: 16
+description: e beam profile on visa 6 screen
 
 # Camera identification and properties
 background:
-  auto_save_path: null
   enabled: true
-  fallback:
-    level: 25.0
-    method: constant
-  level: 25.0
-  method: constant
-  type: static
-bit_depth: 16
-camera_type: ebeam_profile
+  method: from_file
+  file_path: "{scan_dir}/computed_background.npy"
+  constant_level: 50.0  #fallback to this value if file not found
+  dynamic_computation:
+    enabled: true
+    method: percentile_dataset
+    percentile: 15.0
+    auto_save_path: "{scan_dir}/computed_background.npy"
+  additional_constant: 2
+
+metadata:
+  spatial_calibration: 7.5e-06
+
 crosshair_masking:
   crosshairs:
   - angle: 0
@@ -29,27 +36,9 @@ crosshair_masking:
     thickness: 10
     width: 108
   enabled: true
-description: Visa electron beam camera 6 for beam profiling
-filtering:
-  gaussian_sigma: null
-  median_kernel_size: null
-metadata:
-  location: Migrated camera
-  notes: Migrated from hardcoded configuration in EBeamProfile.py
-  spatial_calibration: 7.5e-06
-name: UC_VisaEBeam6
+
 roi:
   x_max: 528
   x_min: 195
   y_max: 418
   y_min: 85
-thresholding:
-  enabled: false
-  invert: false
-  method: constant
-  mode: to_zero
-  value: 0.0
-transforms:
-  flip_horizontal: false
-  flip_vertical: false
-  rotation_angle: 0.0

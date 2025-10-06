@@ -1,54 +1,48 @@
 # Configuration for UC_VisaEBeam3 camera
+name: UC_VisaEBeam3
+bit_depth: 16
+description: e beam profile on visa 3 screen
 
 # Camera identification and properties
 background:
-  auto_save_path: null
   enabled: true
-  fallback:
-    level: 15.0
-    method: constant
-  level: 15.0
-  method: constant
-  type: static
-bit_depth: 16
-camera_type: ebeam_profile
+  method: from_file
+  file_path: "{scan_dir}/computed_background.npy"
+  constant_level: 50.0  #fallback to this value if file not found
+  dynamic_computation:
+    enabled: true
+    method: percentile_dataset
+    percentile: 15.0
+    auto_save_path: "{scan_dir}/computed_background.npy"
+  additional_constant: 2
+
+metadata:
+  spatial_calibration: 7.5e-06
+
 crosshair_masking:
   crosshairs:
-  - angle: -3.5
-    center:
-    - 374
-    - 127
-    height: 108
-    thickness: 10
-    width: 108
-  - angle: -3.5
-    center:
-    - 338
-    - 485
-    height: 108
-    thickness: 10
-    width: 108
+    - angle: -3.5
+      center:
+        - 374
+        - 127
+      height: 108
+      thickness: 10
+      width: 108
+    - angle: -3.5
+      center:
+        - 338
+        - 485
+      height: 108
+      thickness: 10
+      width: 108
   enabled: true
-description: Visa electron beam camera 3 with rotation and fiducial crosshairs
-filtering:
-  gaussian_sigma: null
-  median_kernel_size: null
-metadata:
-  location: Migrated camera
-  notes: Migrated from hardcoded configuration in EBeamProfile.py
-  spatial_calibration: 7.5e-06
-name: UC_VisaEBeam3
+
 roi:
   x_max: 493
   x_min: 160
   y_max: 473
   y_min: 140
-thresholding:
-  enabled: false
-  invert: false
-  method: constant
-  mode: to_zero
-  value: 0.0
+
 transforms:
   flip_horizontal: false
   flip_vertical: false
