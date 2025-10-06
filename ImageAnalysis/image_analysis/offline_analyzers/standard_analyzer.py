@@ -18,7 +18,7 @@ analysis capabilities.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional, Type, TypeVar, Union, List, Tuple
+from typing import Any, Dict, Optional, Union, List, Tuple
 from pydantic import BaseModel
 
 import numpy as np
@@ -39,26 +39,6 @@ import image_analysis.processing.config_models as cfg
 from image_analysis.base import ImageAnalyzer
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T", bound=BaseModel)
-
-
-def _coerce_section(
-    model_cls: Type[T],
-    current: Optional[T],
-    value: Optional[Union[T, Dict[str, Any]]],
-) -> Optional[T]:
-    """Return a validated model (or None). If `value` is a dict, merge over current."""
-    if value is None:
-        return current
-    if isinstance(value, model_cls):
-        return value
-    if isinstance(value, dict):
-        base = current.model_dump() if isinstance(current, BaseModel) else {}
-        return model_cls.model_validate({**base, **value})
-    raise TypeError(
-        f"Expected {model_cls.__name__} or dict, got {type(value).__name__}."
-    )
 
 
 class StandardAnalyzer(ImageAnalyzer):
@@ -262,82 +242,70 @@ class StandardAnalyzer(ImageAnalyzer):
         logger.info("Replaced camera configuration: %s", self.camera_config.name)
 
     def update_config(
-        self,
-        *,
-        camera: Optional[Union["cfg.CameraConfig", Dict[str, Any]]] = None,
-        background: Optional[Union["cfg.BackgroundConfig", Dict[str, Any]]] = None,
-        roi: Optional[Union["cfg.ROIConfig", Dict[str, Any]]] = None,
-        crosshair_masking: Optional[
-            Union["cfg.CrosshairMaskingConfig", Dict[str, Any]]
-        ] = None,
-        circular_mask: Optional[Union["cfg.CircularMaskConfig", Dict[str, Any]]] = None,
-        thresholding: Optional[Union["cfg.ThresholdingConfig", Dict[str, Any]]] = None,
-        filtering: Optional[Union["cfg.FilteringConfig", Dict[str, Any]]] = None,
-        transforms: Optional[Union["cfg.TransformConfig", Dict[str, Any]]] = None,
+        self, **section_updates: Union[BaseModel, Dict[str, Any]]
     ) -> None:
         """
-        Type-safe, copy-on-write configuration update.
+        Update camera configuration sections dynamically.
 
-        Pass full models or dicts for any section; dicts are merged over current
-        values and validated. If `camera` is a model, it replaces the whole config;
-        if a dict, only top-level camera fields are patched (nested sections should
-        be passed via their own args).
+        This method allows updating any configuration section by passing it as a
+        keyword argument. Sections can be updated with either:
+        - A Pydantic model instance (replaces the section)
+        - A dictionary (merges with existing values)
+
+        Parameters
+        ----------
+        **section_updates : Union[BaseModel, Dict[str, Any]]
+            Configuration sections to update. Valid section names include:
+            background, roi, crosshair_masking, circular_mask, thresholding,
+            filtering, transforms, pipeline
+
         """
-        # Start from current config dict
+        # Start with current config as dict
         cfg_dict = self.camera_config.model_dump()
+        bg_changed = False
 
-        # If full CameraConfig provided, replace immediately (section args can still override)
-        if isinstance(camera, cfg.CameraConfig):
-            self.set_camera_config(camera)
-            cfg_dict = self.camera_config.model_dump()
-            camera = None  # prevent reprocessing
+        for section_name, value in section_updates.items():
+            # Validate section name
+            if not hasattr(self.camera_config, section_name):
+                logger.warning(f"Unknown configuration section: {section_name}")
+                continue
 
-        # If camera is a dict, patch only top-level fields (nested handled below)
-        if isinstance(camera, dict):
-            for k in ("name", "description", "bit_depth"):
-                if k in camera:
-                    cfg_dict[k] = camera[k]
+            # Track if background changed
+            if section_name == "background":
+                bg_changed = True
 
-        # Build a new, validated CameraConfig with section overrides
-        new_cfg = cfg.CameraConfig.model_validate(
-            {
-                **cfg_dict,
-                "background": _coerce_section(
-                    cfg.BackgroundConfig, self.camera_config.background, background
-                ),
-                "roi": _coerce_section(cfg.ROIConfig, self.camera_config.roi, roi),
-                "crosshair_masking": _coerce_section(
-                    cfg.CrosshairMaskingConfig,
-                    self.camera_config.crosshair_masking,
-                    crosshair_masking,
-                ),
-                "circular_mask": _coerce_section(
-                    cfg.CircularMaskConfig,
-                    self.camera_config.circular_mask,
-                    circular_mask,
-                ),
-                "thresholding": _coerce_section(
-                    cfg.ThresholdingConfig,
-                    self.camera_config.thresholding,
-                    thresholding,
-                ),
-                "filtering": _coerce_section(
-                    cfg.FilteringConfig, self.camera_config.filtering, filtering
-                ),
-                "transforms": _coerce_section(
-                    cfg.TransformConfig, self.camera_config.transforms, transforms
-                ),
-            }
-        )
+            current = getattr(self.camera_config, section_name)
 
-        bg_changed = new_cfg.background != self.camera_config.background
+            # Handle different value types
+            if isinstance(value, BaseModel):
+                # Direct model replacement
+                cfg_dict[section_name] = value
+            elif isinstance(value, dict):
+                # Merge dict with existing config
+                if current is not None:
+                    cfg_dict[section_name] = {**current.model_dump(), **value}
+                else:
+                    cfg_dict[section_name] = value
+            else:
+                logger.warning(
+                    f"Section '{section_name}' must be a Pydantic model or dict, "
+                    f"got {type(value).__name__}"
+                )
+                continue
+
+        # Validate and update the entire config
+        new_cfg = cfg.CameraConfig.model_validate(cfg_dict)
+
         if new_cfg != self.camera_config:
             self.camera_config = new_cfg
+
+            # Recreate background manager if background config changed
             if bg_changed:
                 self.background_manager = create_background_manager_from_config(
                     self.camera_config
                 )
-            logger.info("Configuration updated.")
+
+            logger.info("Configuration updated: %s", list(section_updates.keys()))
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
