@@ -3,7 +3,6 @@
 # Camera identification and properties
 name: "HTT-C-ASSERTHighR"
 description: "high resolution for electron beam profile analysis"
-camera_type: "ebeam_profile"
 bit_depth: 16
 
 background:
@@ -52,6 +51,6 @@ transforms:
 
 # Camera-specific metadata
 metadata:
-  spatial_calibration: 0.0000244  # Original spatial_calibration
-  location: "A-Line beamline"
-  notes: "Migrated from hardcoded configuration in EBeamProfile.py"
+  spatial_calibration: 0.000019  # as of 10/1/2025
+  location: "HTT target chamber"
+  notes: "NA"
