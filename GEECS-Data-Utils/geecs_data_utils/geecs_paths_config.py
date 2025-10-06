@@ -43,6 +43,8 @@ class GeecsPathsConfig:
         The base directory for storing GEECS data locally.
     experiment : str
         The default experiment name.
+    image_analysis_configs_path : Path
+        path to directory containing image analysis configs
     """
 
     def __init__(
@@ -50,6 +52,7 @@ class GeecsPathsConfig:
         config_path: Path = Path("~/.config/geecs_python_api/config.ini").expanduser(),
         default_experiment: Optional[str] = None,
         set_base_path: Optional[Union[Path, str]] = None,
+        image_analysis_configs_path: Optional[Union[Path, str]] = None,
     ):
         """
         Initialize GEECS paths configuration.
@@ -66,6 +69,8 @@ class GeecsPathsConfig:
             Default experiment name (default: "Undulator").
         set_base_path : Path, optional
             Default path for locating GEECS data (default: Z:/data).
+        image_analysis_configs_path : Path, optional
+            default path to folder containing image_analysis_configs
 
         Raises
         ------
@@ -81,7 +86,7 @@ class GeecsPathsConfig:
 
         # See if the server address can be extracted from the experiment name without loading config file
         if experiment is not None and base_path is None:
-            base_path = self._validate_and_set_base_path(
+            base_path = self._validate_path(
                 self._get_default_server_address(experiment)
             )
 
@@ -98,7 +103,7 @@ class GeecsPathsConfig:
 
                     # Then, if no base path specified first try the default server path for the given experiment
                     if base_path is None:
-                        base_path = self._validate_and_set_base_path(
+                        base_path = self._validate_path(
                             self._get_default_server_address(experiment)
                         )
 
@@ -107,7 +112,13 @@ class GeecsPathsConfig:
                         local_path = Path(
                             config["Paths"].get("GEECS_DATA_LOCAL_BASE_PATH", None)
                         )
-                        base_path = self._validate_and_set_base_path(local_path)
+                        base_path = self._validate_path(local_path)
+
+                    if image_analysis_configs_path is None:
+                        local_path = Path(
+                            config["Paths"].get("image_analysis_configs_path", None)
+                        )
+                        image_analysis_configs_path = self._validate_path(local_path)
 
                 except Exception as e:
                     logger.error(f"Error reading config file {config_path}: {e}")
@@ -123,6 +134,7 @@ class GeecsPathsConfig:
 
         self.base_path = base_path  # .resolve()
         self.experiment = experiment
+        self.image_analysis_configs_path = image_analysis_configs_path
 
     def _is_default_server_address(self) -> bool:
         """
@@ -155,7 +167,7 @@ class GeecsPathsConfig:
         return EXPERIMENT_TO_SERVER_DICT.get(experiment_name, None)
 
     @staticmethod
-    def _validate_and_set_base_path(input_path) -> Optional[Path]:
+    def _validate_path(input_path) -> Optional[Path]:
         """
         Validate and return path if it exists.
 
@@ -171,6 +183,8 @@ class GeecsPathsConfig:
         """
         if input_path is not None and input_path.exists():
             return input_path
+        else:
+            logger.warning("%s path was not found", input_path)
         return None
 
 
