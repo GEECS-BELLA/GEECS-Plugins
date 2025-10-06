@@ -4,13 +4,16 @@ Unified image processing pipeline that leverages the full CameraConfig Pydantic 
 This module provides a single, comprehensive processing pipeline function that
 applies all configured processing steps in the correct order, taking full
 advantage of the Pydantic model structure and validation.
+
+The pipeline now supports configurable step ordering via the PipelineConfig model,
+allowing users to customize which steps are executed and in what order.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Dict, Callable
 
 from ..types import Array2D
-from .config_models import CameraConfig
+from .config_models import CameraConfig, ProcessingStepType
 from .background_manager import BackgroundManager
 from .masking import apply_crosshair_masking, apply_roi_cropping, apply_circular_mask
 from .filtering import apply_filtering_config
@@ -21,69 +24,64 @@ from ..utils import ensure_float64_processing
 logger = logging.getLogger(__name__)
 
 
-def _apply_non_background_steps(image: Array2D, camera_config: CameraConfig) -> Array2D:
-    """
-    Apply all non-background processing steps in a canonical order.
-
-    Order:
-        1) Crosshair masking
-        2) ROI cropping
-        3) Circular masking
-        4) Thresholding
-        5) Filtering
-        6) Geometric transforms
-
-    Parameters
-    ----------
-    image : Array2D
-        Input image (already dtype-normalized and/or background-processed).
-    camera_config : CameraConfig
-        Full camera configuration model.
-
-    Returns
-    -------
-    Array2D
-        Processed image.
-    """
-    processed = image
-
-    # 1) Crosshair masking
+# Individual step functions for the pipeline
+def _apply_crosshair_step(image: Array2D, camera_config: CameraConfig) -> Array2D:
+    """Apply crosshair masking if configured."""
     if camera_config.crosshair_masking and camera_config.crosshair_masking.enabled:
-        processed = apply_crosshair_masking(processed, camera_config.crosshair_masking)
-        logger.debug("Applied crosshair masking")
+        return apply_crosshair_masking(image, camera_config.crosshair_masking)
+    return image
 
-    # 2) ROI cropping
+
+def _apply_roi_step(image: Array2D, camera_config: CameraConfig) -> Array2D:
+    """Apply ROI cropping if configured."""
     if camera_config.roi:
-        processed = apply_roi_cropping(processed, camera_config.roi)
-        logger.debug("Applied ROI cropping: %s", camera_config.roi)
+        return apply_roi_cropping(image, camera_config.roi)
+    return image
 
-    # 3) Circular masking
+
+def _apply_circular_mask_step(image: Array2D, camera_config: CameraConfig) -> Array2D:
+    """Apply circular masking if configured."""
     if camera_config.circular_mask and camera_config.circular_mask.enabled:
-        processed = apply_circular_mask(processed, camera_config.circular_mask)
-        logger.debug("Applied circular masking")
+        return apply_circular_mask(image, camera_config.circular_mask)
+    return image
 
-    # 4) Thresholding
+
+def _apply_thresholding_step(image: Array2D, camera_config: CameraConfig) -> Array2D:
+    """Apply thresholding if configured."""
     if camera_config.thresholding and camera_config.thresholding.enabled:
-        processed = apply_threshold(
-            processed,
+        return apply_threshold(
+            image,
             camera_config.thresholding.method.value,
             camera_config.thresholding.value,
             camera_config.thresholding.mode.value,
             camera_config.thresholding.invert,
         )
-        logger.debug("Applied thresholding: %s", camera_config.thresholding.method)
+    return image
 
-    # 5) Filtering
+
+def _apply_filtering_step(image: Array2D, camera_config: CameraConfig) -> Array2D:
+    """Apply filtering if configured."""
     if camera_config.filtering:
-        processed = apply_filtering_config(processed, camera_config.filtering)
-        logger.debug("Applied filtering")
+        return apply_filtering_config(image, camera_config.filtering)
+    return image
 
-    # 6) Geometric transforms
+
+def _apply_transforms_step(image: Array2D, camera_config: CameraConfig) -> Array2D:
+    """Apply geometric transforms if configured."""
     if camera_config.transforms:
-        processed = apply_transform_config(processed, camera_config.transforms)
-        logger.debug("Applied geometric transforms")
+        return apply_transform_config(image, camera_config.transforms)
+    return image
 
-    return processed
+
+# Step registry mapping step types to their execution functions
+STEP_REGISTRY: Dict[ProcessingStepType, Callable[[Array2D, CameraConfig], Array2D]] = {
+    ProcessingStepType.CROSSHAIR_MASKING: _apply_crosshair_step,
+    ProcessingStepType.ROI: _apply_roi_step,
+    ProcessingStepType.CIRCULAR_MASK: _apply_circular_mask_step,
+    ProcessingStepType.THRESHOLDING: _apply_thresholding_step,
+    ProcessingStepType.FILTERING: _apply_filtering_step,
+    ProcessingStepType.TRANSFORMS: _apply_transforms_step,
+}
 
 
 def apply_camera_processing_pipeline(
@@ -94,23 +92,46 @@ def apply_camera_processing_pipeline(
     """
     Apply the complete camera processing pipeline using the Pydantic configuration model.
 
-    Processing Order:
-        0) Ensure float64 processing dtype
-        1) Background processing (if manager provided)
-        2–7) Non-background steps via `_apply_non_background_steps`:
-              crosshair → ROI → circular → threshold → filtering → transforms
+    The pipeline now supports configurable step ordering via the optional PipelineConfig.
+    If no pipeline configuration is provided, a default order matching the original
+    hardcoded sequence is used.
+
+    Parameters
+    ----------
+    image : Array2D
+        Input image to process
+    camera_config : CameraConfig
+        Complete camera configuration including optional pipeline config
+    background_manager : Optional[BackgroundManager]
+        Background manager for background processing
+
+    Returns
+    -------
+    Array2D
+        Processed image
     """
-    # 0) dtype
+    # Ensure float64 processing dtype
     processed = ensure_float64_processing(image)
     logger.debug("Starting processing pipeline for camera: %s", camera_config.name)
 
-    # 1) Background
-    if background_manager is not None:
-        processed = background_manager.process_single_image(processed)
-        logger.debug("Applied background processing")
+    # Get pipeline configuration (use default if not specified)
+    from .config_models import PipelineConfig
 
-    # 2–7) Everything else
-    processed = _apply_non_background_steps(processed, camera_config)
+    pipeline_config = camera_config.pipeline or PipelineConfig()
+
+    # Execute steps in configured order
+    for step_type in pipeline_config.steps:
+        if step_type == ProcessingStepType.BACKGROUND:
+            # Background step is handled specially via the background manager
+            if background_manager is not None:
+                processed = background_manager.process_single_image(processed)
+                logger.debug("Applied background processing")
+        else:
+            # Get the step function from registry
+            step_func = STEP_REGISTRY.get(step_type)
+            if step_func:
+                processed = step_func(processed, camera_config)
+                logger.debug(f"Applied {step_type.value}")
 
     logger.debug("Completed processing pipeline. Final shape: %s", processed.shape)
     return processed
@@ -122,9 +143,8 @@ def apply_non_background_processing(
     """
     Apply all processing steps except background processing.
 
-    This is a thin wrapper that forwards to the canonical non-background
-    sequence used by the full pipeline. Use when the image is already
-    background-corrected (or background is not used).
+    This function applies the configured pipeline without background processing,
+    useful when the image is already background-corrected.
 
     Parameters
     ----------
@@ -138,7 +158,10 @@ def apply_non_background_processing(
     Array2D
         Processed image.
     """
-    return _apply_non_background_steps(image, camera_config)
+    # Use the main pipeline but without background manager
+    return apply_camera_processing_pipeline(
+        image, camera_config, background_manager=None
+    )
 
 
 def create_background_manager_from_config(
