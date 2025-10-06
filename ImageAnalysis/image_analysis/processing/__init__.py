@@ -41,7 +41,6 @@ from .pipeline import (
     apply_camera_processing_pipeline,
     apply_non_background_processing,
     create_background_manager_from_config,
-    get_processing_summary,
 )
 from .config_models import (
     CameraConfig,
@@ -93,7 +92,6 @@ __all__ = [
     "apply_camera_processing_pipeline",
     "create_background_manager_from_config",
     "apply_non_background_processing",
-    "get_processing_summary",
     # Configuration models
     "CameraConfig",
     "BackgroundConfig",

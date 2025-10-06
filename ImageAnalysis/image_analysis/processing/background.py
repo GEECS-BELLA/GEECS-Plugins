@@ -11,6 +11,7 @@ import logging
 from typing import List, Union
 from pathlib import Path
 from ..types import Array2D
+from image_analysis.utils import read_imaq_image
 from .config_models import BackgroundConfig, BackgroundMethod
 
 logger = logging.getLogger(__name__)
@@ -209,41 +210,8 @@ def load_background_from_file(file_path: Union[str, Path]) -> Array2D:
         raise FileNotFoundError(f"Background file not found: {file_path}")
 
     logger.info(f"Loading background from file: {file_path}")
-
     try:
-        # Handle numpy files
-        if file_path.suffix.lower() in [".npy"]:
-            background = np.load(file_path)
-        elif file_path.suffix.lower() in [".npz"]:
-            npz_data = np.load(file_path)
-            # Try common array names, or use the first array
-            if "background" in npz_data:
-                background = npz_data["background"]
-            elif "arr_0" in npz_data:
-                background = npz_data["arr_0"]
-            else:
-                # Use the first array found
-                background = npz_data[list(npz_data.keys())[0]]
-
-        # Handle image files (requires PIL/Pillow or imageio)
-        elif file_path.suffix.lower() in [".tiff", ".tif", ".png", ".jpg", ".jpeg"]:
-            try:
-                from PIL import Image
-
-                with Image.open(file_path) as img:
-                    background = np.array(img)
-            except ImportError:
-                try:
-                    import imageio
-
-                    background = imageio.imread(file_path)
-                except ImportError:
-                    raise ValueError(
-                        "PIL/Pillow or imageio required for image file loading"
-                    )
-
-        else:
-            raise ValueError(f"Unsupported background file format: {file_path.suffix}")
+        background = read_imaq_image(file_path)
 
         # Convert to float64 for processing
         background = background.astype(np.float64)
