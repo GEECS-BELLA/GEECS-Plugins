@@ -672,11 +672,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 for sn in valid_shots
             ]
             lineouts = [
-                self.results[sn].get("analyzer_return_lineouts")
-                for sn in valid_shots
-                # if isinstance(
-                #     self.results[sn].get("analyzer_return_lineouts"), np.ndarray
-                # )
+                self.results[sn].get("analyzer_return_lineouts") for sn in valid_shots
             ]
             # just extract the first entry in the input parameters, as it isn't expected to change
             input_params = self.results[valid_shots[0]].get(
@@ -696,13 +692,23 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
             if lineouts:
                 # unzip into two lists: all x-lineouts, all y-lineouts
-                x_list = [lo[0] for lo in lineouts if lo is not None]
-                y_list = [lo[1] for lo in lineouts if lo is not None]
+                try:
+                    x_list = [lo[0] for lo in lineouts if lo is not None]
+                    y_list = [lo[1] for lo in lineouts if lo is not None]
 
-                avg_x = np.mean(np.stack(x_list, axis=0), axis=0) if x_list else None
-                avg_y = np.mean(np.stack(y_list, axis=0), axis=0) if y_list else None
+                    avg_x = (
+                        np.mean(np.stack(x_list, axis=0), axis=0) if x_list else None
+                    )
+                    avg_y = (
+                        np.mean(np.stack(y_list, axis=0), axis=0) if y_list else None
+                    )
 
-                average_lineouts = [avg_x, avg_y]
+                    average_lineouts = [avg_x, avg_y]
+                except IndexError:
+                    logger.warning(
+                        "lineouts do not have expected shape for image overlays"
+                    )
+                    average_lineouts = None
             else:
                 average_lineouts = None
 
@@ -810,7 +816,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         binned_data: dict[Union[int, float], BinImageEntry],
         plot_scale: Optional[float] = None,
         save_path: Optional[Path] = None,
-        figsize: Tuple[float, float] = (4, 4),
+        figsize: Tuple[float, float] = (6, 6),
         dpi: int = 150,
     ):
         """
