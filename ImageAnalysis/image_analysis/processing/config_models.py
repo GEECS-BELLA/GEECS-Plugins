@@ -387,6 +387,48 @@ class ThresholdingConfig(BaseModel):
         return v
 
 
+class ProcessingStepType(str, Enum):
+    """Available processing step types for the pipeline."""
+
+    BACKGROUND = "background"
+    CROSSHAIR_MASKING = "crosshair_masking"
+    ROI = "roi"
+    CIRCULAR_MASK = "circular_mask"
+    THRESHOLDING = "thresholding"
+    FILTERING = "filtering"
+    TRANSFORMS = "transforms"
+
+
+class PipelineConfig(BaseModel):
+    """
+    Configuration for the processing pipeline execution order.
+
+    This allows users to customize which processing steps are executed
+    and in what order. If not specified, a default pipeline matching
+    the original hardcoded order is used.
+
+    Attributes
+    ----------
+    steps : List[ProcessingStepType]
+        Ordered list of processing steps to execute. Steps are executed
+        in the order specified. If a step's configuration is not provided
+        or is disabled, it will be skipped automatically.
+    """
+
+    steps: List[ProcessingStepType] = Field(
+        default_factory=lambda: [
+            ProcessingStepType.BACKGROUND,
+            ProcessingStepType.CROSSHAIR_MASKING,
+            ProcessingStepType.ROI,
+            ProcessingStepType.CIRCULAR_MASK,
+            ProcessingStepType.THRESHOLDING,
+            ProcessingStepType.FILTERING,
+            ProcessingStepType.TRANSFORMS,
+        ],
+        description="Ordered list of processing steps to execute",
+    )
+
+
 class CameraConfig(BaseModel):
     """
     Complete camera configuration model.
@@ -442,6 +484,9 @@ class CameraConfig(BaseModel):
     )
     transforms: Optional[TransformConfig] = Field(
         None, description="Geometric transform settings"
+    )
+    pipeline: Optional[PipelineConfig] = Field(
+        None, description="Processing pipeline configuration"
     )
 
     @field_validator("bit_depth")
