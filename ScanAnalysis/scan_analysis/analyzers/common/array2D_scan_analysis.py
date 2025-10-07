@@ -34,27 +34,23 @@ import traceback
 import pickle
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Union, Optional, TypedDict, Tuple, Dict
+from typing import TYPE_CHECKING, Optional, TypedDict, Dict
 
 # --- Third-Party Libraries ---
 import numpy as np
 import matplotlib
-import matplotlib.pyplot as plt
-import imageio as io
-import h5py
 from collections import defaultdict
 
-from mpl_toolkits.axes_grid1 import ImageGrid
 
 # --- Local / Project Imports ---
 from scan_analysis.base import ScanAnalyzer
+from scan_analysis.analyzers.renderers import Image2DRenderer
 from image_analysis.base import ImageAnalyzer
 from image_analysis.tools.rendering import base_render_image
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
-    from numpy.typing import NDArray
     from image_analysis.types import AnalyzerResultDict
 
 # --- Global Config ---
@@ -128,6 +124,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         super().__init__(device_name=device_name, skip_plt_show=skip_plt_show)
 
         self.image_analyzer = image_analyzer or ImageAnalyzer()
+        self.renderer = Image2DRenderer()
 
         self.max_workers = 16
         self.saved_avg_image_paths: Dict[int, Path] = {}
@@ -223,7 +220,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 self.auxiliary_data.to_csv(
                     self.auxiliary_file_path, sep="\t", index=False
                 )
-            return self.display_contents
+            return self.renderer.display_contents
 
         except Exception as e:
             if PRINT_TRACEBACK:
@@ -494,7 +491,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
         if self.flag_save_images:
             # Save average image as HDF5
-            self.save_image_as_h5(
+            self.renderer.save_data(
                 avg_image,
                 save_dir=self.path_dict["save"],
                 save_name=f"{self.device_name}_average_processed.h5",
@@ -502,32 +499,32 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
             # Save normalized PNG
             save_name = f"{self.device_name}_average_processed_visual.png"
-            self.save_normalized_image(
+            self.renderer.save_visualization(
                 avg_image,
                 save_dir=self.path_dict["save"],
                 save_name=save_name,
                 label=save_name,
             )
 
-            # Track for display
-            display_content_path = Path(self.path_dict["save"]) / save_name
-            self.display_contents.append(str(display_content_path))
-
             # Create and store GIF
             gif_path = self.path_dict["save"] / "noscan.gif"
-            self.create_gif(data_dict=self.results, output_file=gif_path)
-            self.display_contents.append(str(gif_path))
+            render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
+            self.renderer.create_animation(
+                data_dict=self.results,
+                output_file=gif_path,
+                render_fn=render_fn,
+            )
 
     def _save_bin_images(self, bin_key: int, processed_image: np.ndarray) -> None:
         """Save per‑bin averaged image in HDF5 (data) and PNG (visual) formats."""
         save_name_scaled = f"{self.device_name}_{bin_key}_processed.h5"
         save_name_normalized = f"{self.device_name}_{bin_key}_processed_visual.png"
-        self.save_image_as_h5(
+        self.renderer.save_data(
             processed_image, save_dir=self.path_dict["save"], save_name=save_name_scaled
         )
         self.saved_avg_image_paths[bin_key] = self.path_dict["save"] / save_name_scaled
 
-        self.save_normalized_image(
+        self.renderer.save_visualization(
             processed_image,
             save_dir=self.path_dict["save"],
             save_name=save_name_normalized,
@@ -574,10 +571,15 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 Path(self.path_dict["save"])
                 / f"{self.device_name}_averaged_image_grid.png"
             )
-            self.create_image_array(
-                binned_data, plot_scale=plot_scale, save_path=save_path
+            render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
+            self.renderer.create_summary_figure(
+                binned_data,
+                plot_scale=plot_scale,
+                save_path=save_path,
+                device_name=self.device_name,
+                scan_parameter=self.scan_parameter,
+                render_fn=render_fn,
             )
-            self.display_contents.append(str(save_path))
         self.binned_data = binned_data
 
     def _postprocess_scan_interactive(self) -> None:
@@ -604,10 +606,15 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 Path(self.path_dict["save"])
                 / f"{self.device_name}_averaged_image_grid.png"
             )
-            self.create_image_array(
-                binned_data, plot_scale=plot_scale, save_path=save_path
+            render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
+            self.renderer.create_summary_figure(
+                binned_data,
+                plot_scale=plot_scale,
+                save_path=save_path,
+                device_name=self.device_name,
+                scan_parameter=self.scan_parameter,
+                render_fn=render_fn,
             )
-            self.display_contents.append(str(save_path))
 
         self.binned_data = binned_data
 
@@ -733,7 +740,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
             if flag_save:
                 save_name = f"{self.device_name}_{bin_val}.h5"
-                self.save_image_as_h5(
+                self.renderer.save_data(
                     avg_image, save_dir=self.path_dict["save"], save_name=save_name
                 )
 
@@ -742,336 +749,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
                 )
 
         return binned_data
-
-    def save_image_as_h5(
-        self, image: NDArray, save_dir: Union[str, Path], save_name: str
-    ):
-        """
-        Save an image to HDF5 with gzip compression.
-
-        Parameters
-        ----------
-        image : np.ndarray
-            Image data to save.
-        save_dir : str or Path
-            Output directory.
-        save_name : str
-            File name, typically ending with ``.h5``.
-        """
-        save_path = Path(save_dir) / save_name
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with h5py.File(save_path, "w") as f:
-            f.create_dataset(
-                "image",
-                data=image,
-                compression="gzip",  # Use GZIP compression
-                compression_opts=4,  # Compression level: 0 (none) to 9 (max)
-            )
-
-        logger.info(f"HDF5 image saved with compression at {save_path}")
-
-    def save_normalized_image(
-        self,
-        image: np.ndarray,
-        save_dir: Union[str, Path],
-        save_name: str,
-        label: Optional[str] = None,
-    ):
-        """
-        Save a PNG visualization of an image using min/max normalization.
-
-        A local Figure/Axes is used (no global state), which is safer under
-        multi-threaded usage.
-
-        Parameters
-        ----------
-        image : np.ndarray
-            Image to visualize.
-        save_dir : str or Path
-            Output directory.
-        save_name : str
-            File name (e.g., ``something_visual.png``).
-        label : str, optional
-            Title to render in the figure.
-        """
-        max_val = np.max(image)
-        # Create a new figure and axes locally
-        fig, ax = plt.subplots()
-        im = ax.imshow(image, cmap="plasma", vmin=0, vmax=max_val)
-        fig.colorbar(im, ax=ax)  # Adds a color scale bar to the current axes
-        ax.axis("off")  # Hide axes for a cleaner look
-
-        # Add a label if provided
-        if label:
-            ax.set_title(label, fontsize=12, pad=10)
-
-        # Ensure the directory exists and save the figure
-        save_path = Path(save_dir) / save_name
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, bbox_inches="tight", pad_inches=0)
-        plt.close(fig)  # Close the figure to free up memory
-
-        logger.info(f"Image saved at {save_path}")
-
-    @staticmethod
-    def _grid_dims(n: int) -> tuple[int, int]:
-        cols = int(np.ceil(np.sqrt(n)))
-        rows = int(np.ceil(n / cols))
-        return rows, cols
-
-    def create_image_array(
-        self,
-        binned_data: dict[Union[int, float], BinImageEntry],
-        plot_scale: Optional[float] = None,
-        save_path: Optional[Path] = None,
-        figsize: Tuple[float, float] = (
-            6,
-            6,
-        ),  # interpreted as *panel width*, height auto by aspect
-        dpi: int = 150,
-    ):
-        """Arrange per-bin averaged images into a labeled grid montage with one colorbar."""
-        if not binned_data:
-            logger.warning("No averaged images to arrange into an array.")
-            return
-
-        # Stable order by bin value
-        items = sorted(binned_data.items(), key=lambda kv: kv[0])
-
-        images = []
-        titles = []
-        metas = []
-        for bin_val, entry in items:
-            img = entry["result"].get("processed_image")
-            if img is None:
-                continue
-            images.append(img)
-            titles.append(f"{entry.get('value', bin_val):.2f}")
-            metas.append(entry["result"])
-
-        if not images:
-            logger.warning("No images found in binned_data results.")
-            return
-
-        # vmin/vmax (shared)
-        vmin = 0
-        vmax = (
-            plot_scale
-            if plot_scale is not None
-            else max(float(img.max()) for img in images)
-        )
-
-        # Assume consistent shape; warn if not
-        shapes = {img.shape[:2] for img in images}
-        if len(shapes) > 1:
-            logger.warning(
-                "Images have varying shapes: %s; layout will use the first shape.",
-                shapes,
-            )
-        h0, w0 = images[0].shape[:2]
-
-        # Figure size from *panel width* and image aspect
-        panel_w_in = float(figsize[0])
-        panel_h_in = panel_w_in * (h0 / float(w0))
-        rows, cols = self._grid_dims(len(images))
-
-        # Reserve space for the right-side colorbar
-        cbar_extra_w = panel_w_in * 0.28  # tweak 0.22–0.35 if needed
-        fig_w_in = cols * panel_w_in + cbar_extra_w
-        fig_h_in = rows * panel_h_in
-
-        fig = plt.figure(figsize=(fig_w_in, fig_h_in), dpi=dpi)
-
-        grid = ImageGrid(
-            fig,
-            111,
-            nrows_ncols=(rows, cols),
-            axes_pad=(0.10, 0.32),  # ↑ increase vertical pad a bit more
-            share_all=True,
-            label_mode="L",  # labels on left & bottom by default
-            cbar_mode="single",
-            cbar_location="right",  # ← move colorbar to the right
-            cbar_pad=0.02,  # small gap between panels and bar
-            cbar_size="3%",  # slim vertical bar
-        )
-
-        render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
-
-        axes = list(grid)  # ← get a real list for typing, zipping, slicing
-
-        # Plot panels
-        first_im_artist = None
-        for ax, img, title, meta in zip(axes, images, titles, metas):
-            render_fn(
-                image=img,
-                analysis_results_dict=meta.get("analyzer_return_dictionary", {}),
-                input_params_dict=meta.get("analyzer_input_parameters", {}),
-                lineouts=meta.get("analyzer_return_lineouts", []),
-                vmin=vmin,
-                vmax=vmax,
-                ax=ax,
-            )
-            ax.set_title(title, fontsize=10)
-            if first_im_artist is None and ax.images:
-                first_im_artist = ax.images[0]
-
-        # Hide any leftover axes (when grid > images)
-        for ax in axes[len(images) :]:
-            ax.set_visible(False)
-
-        # Only outer labels to avoid overlap
-        for i, ax in enumerate(axes[: len(images)]):
-            r, c = divmod(i, cols)
-            if r < rows - 1:
-                ax.set_xlabel("")
-                ax.tick_params(labelbottom=False)
-            if c > 0:
-                ax.set_ylabel("")
-                ax.tick_params(labelleft=False)
-            ax.set_title(ax.get_title(), pad=2)
-            ax.xaxis.labelpad = 1
-            ax.tick_params(axis="x", pad=1)
-
-        # Shared colorbar
-        if first_im_artist is not None:
-            from matplotlib.cm import ScalarMappable
-
-            sm = ScalarMappable(norm=first_im_artist.norm, cmap=first_im_artist.cmap)
-            sm.set_array([])
-            cax = grid.cbar_axes[0]  # right-side colorbar axis
-            cb = cax.colorbar(sm)  # vertical by default
-            cb.set_label("")
-
-        fig.suptitle(f"Scan parameter: {self.scan_parameter}", fontsize=12)
-
-        # Save
-        if save_path is None:
-            filename = f"{self.device_name}_averaged_image_grid.png"
-            save_path = Path(self.path_dict["save"]) / filename
-        fig.savefig(save_path, bbox_inches="tight")
-        plt.close(fig)
-
-        logger.info("Saved final image grid as %s.", save_path.name)
-        self.display_contents.append(str(save_path))
-
-    def create_gif(
-        self,
-        data_dict: dict[Union[int, float], AnalyzerResultDict],
-        output_file: Union[str, Path],
-        sort_keys: bool = True,
-        duration: float = 100,
-        dpi: int = 150,
-        figsize_inches: float = 4.0,
-    ):
-        """
-        Create an animated GIF from a set of AnalyzerResultDicts.
-
-        Parameters
-        ----------
-        data_dict : dict
-            Mapping from ID (e.g., shot number) to AnalyzerResultDict. Frames without
-            ``processed_image`` are skipped.
-        output_file : str or Path
-            Destination GIF path.
-        sort_keys : bool, default=True
-            If True, iterate frames in sorted key order.
-        duration : float, default=100
-            Duration per frame in milliseconds.
-        dpi : int, default=150
-            DPI for matplotlib rendering.
-        figsize_inches : float, default=4.0
-            Width/height (square) of each rendered frame in inches.
-        """
-        output_file = Path(output_file)
-
-        render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
-
-        frames = self.prepare_render_frames(data_dict, sort_keys=sort_keys)
-        if not frames:
-            logger.warning("No valid frames to render into GIF.")
-            return
-
-        vmin = 0
-        vmax = max(frame["image"].max() for frame in frames)
-
-        gif_images = []
-        for frame in frames:
-            fig, ax = render_fn(
-                image=frame["image"],
-                analysis_results_dict=frame.get("analysis_results_dict", {}),
-                input_params_dict=frame.get("input_params_dict", {}),
-                lineouts=frame.get("return_lineouts", []),
-                vmin=vmin,
-                vmax=vmax,
-                figsize=(figsize_inches, figsize_inches),
-                dpi=dpi,
-            )
-            ax.set_title(frame["title"], fontsize=10)
-
-            # Convert rendered fig to RGB array
-            fig.canvas.draw()
-            rgb = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
-            rgb = rgb.reshape(fig.canvas.get_width_height()[::-1] + (4,))[
-                :, :, :3
-            ]  # drop alpha
-            gif_images.append(rgb)
-
-            plt.close(fig)
-
-        # Save GIF
-        io.mimsave(str(output_file), gif_images, duration=duration / 1000.0, loop=0)
-
-        logger.info(f"Saved GIF to {output_file.name}.")
-
-        self.display_contents.append(str(output_file))
-
-    @staticmethod
-    def prepare_render_frames(
-        data_dict: dict[Union[int, float], AnalyzerResultDict], sort_keys: bool = True
-    ) -> list[dict]:
-        """
-        Convert a mapping of results into a list of renderable frames.
-
-        Parameters
-        ----------
-        data_dict : dict
-            Mapping of IDs (e.g., shot/bin numbers) to AnalyzerResultDicts.
-        sort_keys : bool, default=True
-            If True, iterate IDs in sorted order.
-
-        Returns
-        -------
-        list of dict
-            Each frame dict contains:
-            - ``image`` : np.ndarray
-            - ``title`` : str (key rendered as text)
-            - ``analysis_results_dict`` : dict (optional)
-            - ``input_params_dict`` : dict (optional)
-            - ``return_lineouts`` : list/array (optional)
-        """
-        keys = sorted(data_dict) if sort_keys else data_dict.keys()
-        frames = []
-
-        for key in keys:
-            result = data_dict[key]
-            img = result.get("processed_image")
-            if img is None:
-                continue
-
-            frames.append(
-                {
-                    "image": img,
-                    "title": f"{key}",
-                    "analysis_results_dict": result.get(
-                        "analyzer_return_dictionary", {}
-                    ),
-                    "input_params_dict": result.get("analyzer_input_parameters", {}),
-                    "return_lineouts": result.get("analyzer_return_lineouts", []),
-                }
-            )
-
-        return frames
 
     @staticmethod
     def average_images(images: list[np.ndarray]) -> Optional[np.ndarray]:
