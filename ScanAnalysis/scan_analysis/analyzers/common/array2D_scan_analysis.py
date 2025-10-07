@@ -44,6 +44,8 @@ import imageio as io
 import h5py
 from collections import defaultdict
 
+from mpl_toolkits.axes_grid1 import ImageGrid
+
 # --- Local / Project Imports ---
 from scan_analysis.base import ScanAnalyzer
 from image_analysis.base import ImageAnalyzer
@@ -356,6 +358,7 @@ class Array2DScanAnalyzer(ScanAnalyzer):
             # results that should be used by analyze_image, but which are not explicitly
             # available to the multiprocessing based instances of the analyzer. Thus, they need
             # to be passed with the aux data
+
             processed_images, stateful_results = (
                 self.image_analyzer.analyze_image_batch(image_list)
             )
@@ -811,129 +814,142 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
         logger.info(f"Image saved at {save_path}")
 
+    @staticmethod
+    def _grid_dims(n: int) -> tuple[int, int]:
+        cols = int(np.ceil(np.sqrt(n)))
+        rows = int(np.ceil(n / cols))
+        return rows, cols
+
     def create_image_array(
         self,
         binned_data: dict[Union[int, float], BinImageEntry],
         plot_scale: Optional[float] = None,
         save_path: Optional[Path] = None,
-        figsize: Tuple[float, float] = (6, 6),
+        figsize: Tuple[float, float] = (
+            6,
+            6,
+        ),  # interpreted as *panel width*, height auto by aspect
         dpi: int = 150,
     ):
-        """
-        Arrange per‑bin averaged images into a labeled grid montage.
-
-        Parameters
-        ----------
-        binned_data : dict
-            Mapping from bin number to :class:`BinImageEntry` with an averaged
-            ``processed_image`` and optional metadata.
-        plot_scale : float, optional
-            Colorbar max (vmax). If omitted, uses the global maximum across images.
-        save_path : Path, optional
-            Output path of the montage PNG. If omitted, a default filename is used.
-        figsize : tuple of float, default=(4, 4)
-            Size of each image panel in inches.
-        dpi : int, default=150
-            Render DPI.
-        """
+        """Arrange per-bin averaged images into a labeled grid montage with one colorbar."""
         if not binned_data:
             logger.warning("No averaged images to arrange into an array.")
             return
 
-        num_images = len(binned_data)
-        grid_cols = int(np.ceil(np.sqrt(num_images)))
-        grid_rows = int(np.ceil(num_images / grid_cols))
+        # Stable order by bin value
+        items = sorted(binned_data.items(), key=lambda kv: kv[0])
 
-        images = [
-            entry["result"]["processed_image"]
-            for entry in binned_data.values()
-            if entry["result"].get("processed_image") is not None
-        ]
+        images = []
+        titles = []
+        metas = []
+        for bin_val, entry in items:
+            img = entry["result"].get("processed_image")
+            if img is None:
+                continue
+            images.append(img)
+            titles.append(f"{entry.get('value', bin_val):.2f}")
+            metas.append(entry["result"])
+
         if not images:
+            logger.warning("No images found in binned_data results.")
             return
 
+        # vmin/vmax (shared)
         vmin = 0
         vmax = (
             plot_scale
             if plot_scale is not None
-            else np.max([img.max() for img in images])
+            else max(float(img.max()) for img in images)
+        )
+
+        # Assume consistent shape; warn if not
+        shapes = {img.shape[:2] for img in images}
+        if len(shapes) > 1:
+            logger.warning(
+                "Images have varying shapes: %s; layout will use the first shape.",
+                shapes,
+            )
+        h0, w0 = images[0].shape[:2]
+
+        # Figure size from *panel width* and image aspect
+        panel_w_in = float(figsize[0])
+        panel_h_in = panel_w_in * (h0 / float(w0))
+        rows, cols = self._grid_dims(len(images))
+
+        # Reserve space for the right-side colorbar
+        cbar_extra_w = panel_w_in * 0.28  # tweak 0.22–0.35 if needed
+        fig_w_in = cols * panel_w_in + cbar_extra_w
+        fig_h_in = rows * panel_h_in
+
+        fig = plt.figure(figsize=(fig_w_in, fig_h_in), dpi=dpi)
+
+        grid = ImageGrid(
+            fig,
+            111,
+            nrows_ncols=(rows, cols),
+            axes_pad=(0.10, 0.32),  # ↑ increase vertical pad a bit more
+            share_all=True,
+            label_mode="L",  # labels on left & bottom by default
+            cbar_mode="single",
+            cbar_location="right",  # ← move colorbar to the right
+            cbar_pad=0.02,  # small gap between panels and bar
+            cbar_size="3%",  # slim vertical bar
         )
 
         render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
 
-        # --- scale figure to image aspect ---
-        h0, w0 = images[0].shape[:2]
-        cell_w_in = figsize[0]
-        cell_h_in = cell_w_in * (h0 / float(w0))
-        fig_w_in = grid_cols * cell_w_in
-        fig_h_in = grid_rows * cell_h_in
+        axes = list(grid)  # ← get a real list for typing, zipping, slicing
 
-        fig, axs = plt.subplots(
-            grid_rows,
-            grid_cols,
-            figsize=(fig_w_in, fig_h_in),
-            dpi=dpi,
-            constrained_layout=True,
-        )
-        axs = np.ravel(axs)  # always 1-D array
-        fig.suptitle(f"Scan parameter: {self.scan_parameter}", fontsize=12)
-
-        img_handle = None
-
-        for idx, (bin_val, entry) in enumerate(binned_data.items()):
-            if idx >= len(axs):
-                break
-            ax = axs[idx]
-
-            result = entry["result"]
-            img = result.get("processed_image")
-            if img is None:
-                continue
-
-            analysis_results = result.get("analyzer_return_dictionary", {})
-            input_params = result.get("analyzer_input_parameters", {})
-            lineouts = result.get("analyzer_return_lineouts", [])
-            param_val = entry.get("value", 0)
-
+        # Plot panels
+        first_im_artist = None
+        for ax, img, title, meta in zip(axes, images, titles, metas):
             render_fn(
                 image=img,
-                analysis_results_dict=analysis_results,
-                input_params_dict=input_params,
-                lineouts=lineouts,
+                analysis_results_dict=meta.get("analyzer_return_dictionary", {}),
+                input_params_dict=meta.get("analyzer_input_parameters", {}),
+                lineouts=meta.get("analyzer_return_lineouts", []),
                 vmin=vmin,
                 vmax=vmax,
                 ax=ax,
             )
+            ax.set_title(title, fontsize=10)
+            if first_im_artist is None and ax.images:
+                first_im_artist = ax.images[0]
 
-            ax.set_title(f"{param_val:.2f}", fontsize=10)
+        # Hide any leftover axes (when grid > images)
+        for ax in axes[len(images) :]:
+            ax.set_visible(False)
 
-            if img_handle is None and ax.images:
-                img_handle = ax.images[0]
+        # Only outer labels to avoid overlap
+        for i, ax in enumerate(axes[: len(images)]):
+            r, c = divmod(i, cols)
+            if r < rows - 1:
+                ax.set_xlabel("")
+                ax.tick_params(labelbottom=False)
+            if c > 0:
+                ax.set_ylabel("")
+                ax.tick_params(labelleft=False)
+            ax.set_title(ax.get_title(), pad=2)
+            ax.xaxis.labelpad = 1
+            ax.tick_params(axis="x", pad=1)
 
-        # colorbar
-        if img_handle:
-            fig.colorbar(
-                img_handle,
-                ax=axs.tolist(),
-                orientation="horizontal",
-                label="Intensity",
-                shrink=0.8,
-                pad=0.01,
-                aspect=40,
-            )
+        # Shared colorbar
+        if first_im_artist is not None:
+            from matplotlib.cm import ScalarMappable
 
-        # hide unused axes
-        for j in range(num_images, len(axs)):
-            axs[j].set_visible(False)
+            sm = ScalarMappable(norm=first_im_artist.norm, cmap=first_im_artist.cmap)
+            sm.set_array([])
 
+        fig.suptitle(f"Scan parameter: {self.scan_parameter}", fontsize=12)
+
+        # Save
         if save_path is None:
             filename = f"{self.device_name}_averaged_image_grid.png"
             save_path = Path(self.path_dict["save"]) / filename
-
         fig.savefig(save_path, bbox_inches="tight")
         plt.close(fig)
 
-        logger.info(f"Saved final image grid as {save_path.name}.")
+        logger.info("Saved final image grid as %s.", save_path.name)
         self.display_contents.append(str(save_path))
 
     def create_gif(
