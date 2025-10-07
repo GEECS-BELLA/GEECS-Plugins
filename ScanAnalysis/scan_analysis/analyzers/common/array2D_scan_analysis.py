@@ -939,6 +939,9 @@ class Array2DScanAnalyzer(ScanAnalyzer):
 
             sm = ScalarMappable(norm=first_im_artist.norm, cmap=first_im_artist.cmap)
             sm.set_array([])
+            cax = grid.cbar_axes[0]  # right-side colorbar axis
+            cb = cax.colorbar(sm)  # vertical by default
+            cb.set_label("")
 
         fig.suptitle(f"Scan parameter: {self.scan_parameter}", fontsize=12)
 
