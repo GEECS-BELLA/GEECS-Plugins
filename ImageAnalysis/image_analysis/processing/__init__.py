@@ -7,10 +7,8 @@ Submodules
 ----------
 array2d : 2D array processing operations (camera/image data)
     All camera/image processing operations including background subtraction,
-    masking, filtering, transforms, thresholding, and pipeline orchestration.
-
-background_manager : Dedicated background management class
-    Dimension-agnostic background management for various data types.
+    masking, filtering, transforms, thresholding, pipeline orchestration,
+    and background management.
 
 Notes
 -----
@@ -19,11 +17,7 @@ Import directly from there:
 
     from image_analysis.processing.array2d import apply_gaussian_filter
     from image_analysis.processing.array2d.config_models import CameraConfig
+    from image_analysis.processing.array2d import BackgroundManager
 """
 
-# Import dimension-agnostic background manager for convenience
-from .background_manager import BackgroundManager
-
-__all__ = [
-    "BackgroundManager",
-]
+__all__ = []

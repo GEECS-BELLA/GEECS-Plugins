@@ -10,7 +10,7 @@ import numpy as np
 import cv2
 import logging
 from typing import Tuple
-from ..types import Array2D
+from ...types import Array2D
 from .config_models import CrosshairMaskingConfig, ROIConfig, CircularMaskConfig
 
 logger = logging.getLogger(__name__)

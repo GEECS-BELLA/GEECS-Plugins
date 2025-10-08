@@ -66,6 +66,12 @@ from .pipeline import (
     apply_camera_processing_pipeline,
 )
 
+# Background Manager
+from .background_manager import (
+    BackgroundManager,
+    create_background_manager_from_config,
+)
+
 __all__ = [
     # Config models
     "CameraConfig",
@@ -103,4 +109,7 @@ __all__ = [
     "apply_thresholding",
     # Pipeline
     "apply_camera_processing_pipeline",
+    # Background Manager
+    "BackgroundManager",
+    "create_background_manager_from_config",
 ]

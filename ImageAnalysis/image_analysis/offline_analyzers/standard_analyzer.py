@@ -28,7 +28,7 @@ from image_analysis.config_loader import load_camera_config
 from image_analysis.processing.array2d import (
     apply_camera_processing_pipeline,
 )
-from image_analysis.processing.background_manager import (
+from image_analysis.processing.array2d import (
     BackgroundManager,
     create_background_manager_from_config,
 )
