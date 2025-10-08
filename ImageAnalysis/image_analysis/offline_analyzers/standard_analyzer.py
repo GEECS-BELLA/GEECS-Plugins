@@ -24,18 +24,18 @@ from pydantic import BaseModel
 import numpy as np
 
 # Import the new processing framework
-from image_analysis.config_loader import (
-    load_camera_config,
-)
-from image_analysis.processing import (
+from image_analysis.config_loader import load_camera_config
+from image_analysis.processing.array2d import (
     apply_camera_processing_pipeline,
+)
+from image_analysis.processing.background_manager import (
+    BackgroundManager,
     create_background_manager_from_config,
 )
-
 from image_analysis.types import AnalyzerResultDict
 
 # Import existing tools and base classes
-import image_analysis.processing.config_models as cfg
+import image_analysis.processing.array2d.config_models as cfg
 from image_analysis.base import ImageAnalyzer
 
 logger = logging.getLogger(__name__)

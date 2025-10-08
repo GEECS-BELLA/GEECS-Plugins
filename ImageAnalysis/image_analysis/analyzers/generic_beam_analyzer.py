@@ -22,11 +22,12 @@ from skimage.measure import regionprops, label
 
 from ..base import LabviewImageAnalyzer
 from ..utils import ROI
-from image_analysis.processing.filtering import apply_median_filter
+from image_analysis.processing.array2d.filtering import apply_median_filter
 
 
 # =============================================================================
 # %% beam spot image_analyzer
+
 
 class BeamSpotAnalyzer(LabviewImageAnalyzer):
     """
@@ -35,15 +36,16 @@ class BeamSpotAnalyzer(LabviewImageAnalyzer):
     Inherits ImageAnalyzer super class.
     """
 
-    def __init__(self,
-                 roi: ROI = ROI(),
-                 bool_hp: bool = True,
-                 hp_median: int = 2,
-                 hp_thresh: float = 3.0,
-                 bool_thresh: bool = True,
-                 thresh_median: int = 2,
-                 thresh_coeff: float = 0.1,
-                 ):
+    def __init__(
+        self,
+        roi: ROI = ROI(),
+        bool_hp: bool = True,
+        hp_median: int = 2,
+        hp_thresh: float = 3.0,
+        bool_thresh: bool = True,
+        thresh_median: int = 2,
+        thresh_coeff: float = 0.1,
+    ):
         super().__init__()
 
         self.roi = roi
@@ -55,9 +57,8 @@ class BeamSpotAnalyzer(LabviewImageAnalyzer):
         self.thresh_coeff = float(thresh_coeff)
 
     def image_signal_thresholding(self, image: np.ndarray) -> np.ndarray:
-
         data_type = image.dtype
-        image = image.astype('float64')
+        image = image.astype("float64")
 
         # perform median filtering
         blurred = median_filter(image, size=self.thresh_median)
@@ -69,7 +70,6 @@ class BeamSpotAnalyzer(LabviewImageAnalyzer):
 
     @staticmethod
     def find_beam_properties(image: np.ndarray):
-
         # initialize beam properties dict
         beam_properties = {}
 
@@ -85,21 +85,24 @@ class BeamSpotAnalyzer(LabviewImageAnalyzer):
         props = props[areas.index(max(areas))]
 
         # extract centroid
-        beam_properties['centroid'] = props.centroid_weighted
+        beam_properties["centroid"] = props.centroid_weighted
 
         return beam_properties
 
-    def analyze_image(self, image: Array2D, auxiliary_data: Optional[dict] = None,
-                      ) -> dict[str, Union[dict, np.ndarray]]:
-
+    def analyze_image(
+        self,
+        image: Array2D,
+        auxiliary_data: Optional[dict] = None,
+    ) -> dict[str, Union[dict, np.ndarray]]:
         # initialize processed image
         image_cor = image.copy()
 
         # perform hot pixel correction
         if self.bool_hp:
-            image_cor = apply_median_filter(image_cor,
-                                        kernel_size=self.hp_median,
-                                            )
+            image_cor = apply_median_filter(
+                image_cor,
+                kernel_size=self.hp_median,
+            )
         # threshold signal
         if self.bool_thresh:
             image_cor = self.image_signal_thresholding(image_cor)
@@ -113,25 +116,28 @@ class BeamSpotAnalyzer(LabviewImageAnalyzer):
         # lineouts['y'] = image[:, int(beam_properties['centroid'][1])]
 
         # organize results dict
-        results_dict = {"centroid": beam_properties['centroid']
-                        }
+        results_dict = {"centroid": beam_properties["centroid"]}
         # organize return dict
-        return_dictionary = self.build_return_dictionary(return_image=image_cor,
-                                                         return_scalars=results_dict,
-                                                         return_lineouts=None,
-                                                         input_parameters=self.build_input_parameter_dictionary())
+        return_dictionary = self.build_return_dictionary(
+            return_image=image_cor,
+            return_scalars=results_dict,
+            return_lineouts=None,
+            input_parameters=self.build_input_parameter_dictionary(),
+        )
         return return_dictionary
 
     def build_input_parameter_dictionary(self) -> dict:
-
-        input_params = {'roi': [self.roi.top, self.roi.bottom, self.roi.left, self.roi.right],
-                        'bool_hp': self.bool_hp,
-                        'hp_median': self.hp_median,
-                        "hp_thresh": self.hp_thresh,
-                        "bool_thresh": self.bool_thresh,
-                        "thresh_median": self.thresh_median,
-                        "thresh_coeff": self.thresh_coeff
-                        }
+        input_params = {
+            "roi": [self.roi.top, self.roi.bottom, self.roi.left, self.roi.right],
+            "bool_hp": self.bool_hp,
+            "hp_median": self.hp_median,
+            "hp_thresh": self.hp_thresh,
+            "bool_thresh": self.bool_thresh,
+            "thresh_median": self.thresh_median,
+            "thresh_coeff": self.thresh_coeff,
+        }
 
         return input_params
+
+
 # =============================================================================
