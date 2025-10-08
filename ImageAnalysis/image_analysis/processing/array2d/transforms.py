@@ -10,7 +10,7 @@ import numpy as np
 import logging
 from typing import Optional
 from scipy.ndimage import rotate
-from ..types import Array2D
+from ...types import Array2D
 from .config_models import TransformConfig
 
 logger = logging.getLogger(__name__)

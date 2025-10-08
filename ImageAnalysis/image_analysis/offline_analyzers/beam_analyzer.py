@@ -34,7 +34,7 @@ from image_analysis.types import AnalyzerResultDict
 from image_analysis.processing.array2d.config_models import (
     BackgroundConfig,
     BackgroundMethod,
-    DynamicBackgroundConfig as DynamicComputationConfig,
+    DynamicComputationConfig,
 )
 
 logger = logging.getLogger(__name__)
