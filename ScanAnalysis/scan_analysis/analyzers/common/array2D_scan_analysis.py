@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Optional
 from scan_analysis.analyzers.common.single_device_scan_analyzer import (
     SingleDeviceScanAnalyzer,
 )
+
+
 from scan_analysis.analyzers.renderers import Image2DRenderer
 from image_analysis.base import ImageAnalyzer
 
