@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
 import numpy as np
 
-from ..types import Array2D
+from ...types import Array2D
 from .config_models import BackgroundConfig, BackgroundMethod
 from .background import (
     compute_background,
@@ -19,7 +19,7 @@ from .background import (
     load_background_from_file,
     save_background_to_file,
 )
-from ..utils import ensure_float64_processing
+from ...utils import ensure_float64_processing
 
 logger = logging.getLogger(__name__)
 

@@ -24,18 +24,17 @@ from pydantic import BaseModel
 import numpy as np
 
 # Import the new processing framework
-from image_analysis.config_loader import (
-    load_camera_config,
-)
-from image_analysis.processing import (
+from image_analysis.config_loader import load_camera_config
+from image_analysis.processing.array2d import (
     apply_camera_processing_pipeline,
+)
+from image_analysis.processing.array2d import (
     create_background_manager_from_config,
 )
-
 from image_analysis.types import AnalyzerResultDict
 
 # Import existing tools and base classes
-import image_analysis.processing.config_models as cfg
+import image_analysis.processing.array2d.config_models as cfg_2d
 from image_analysis.base import ImageAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -231,10 +230,10 @@ class StandardAnalyzer(ImageAnalyzer):
             "has_background_manager": self.background_manager is not None,
         }
 
-    def set_camera_config(self, new_cfg: cfg.CameraConfig) -> None:
+    def set_camera_config(self, new_cfg: cfg_2d.CameraConfig) -> None:
         """Replace the entire camera configuration with a validated instance."""
         old_bg = self.camera_config.background
-        self.camera_config = cfg.CameraConfig.model_validate(new_cfg)
+        self.camera_config = cfg_2d.CameraConfig.model_validate(new_cfg)
         if self.camera_config.background != old_bg:
             self.background_manager = create_background_manager_from_config(
                 self.camera_config
@@ -294,7 +293,7 @@ class StandardAnalyzer(ImageAnalyzer):
                 continue
 
         # Validate and update the entire config
-        new_cfg = cfg.CameraConfig.model_validate(cfg_dict)
+        new_cfg = cfg_2d.CameraConfig.model_validate(cfg_dict)
 
         if new_cfg != self.camera_config:
             self.camera_config = new_cfg

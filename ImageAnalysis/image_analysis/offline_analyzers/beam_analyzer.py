@@ -31,7 +31,7 @@ from image_analysis.algorithms.basic_beam_stats import (
     flatten_beam_stats,
 )
 from image_analysis.types import AnalyzerResultDict
-from image_analysis.processing.config_models import (
+from image_analysis.processing.array2d.config_models import (
     BackgroundConfig,
     BackgroundMethod,
     DynamicComputationConfig,
@@ -45,7 +45,7 @@ def create_variation_analyzer(
     percentile: float = 50.0,
     method: BackgroundMethod = BackgroundMethod.PERCENTILE_DATASET,
     additional_constant: float = 0.0,
-    name_suffix: str = "_variation"
+    name_suffix: str = "_variation",
 ) -> "BeamAnalyzer":
     """Create a BeamAnalyzer configured for variation analysis.
 
@@ -94,7 +94,7 @@ def create_variation_analyzer(
             percentile=percentile,
             auto_save_path=Path("{scan_dir}/computed_background.npy"),
         ),
-        additional_constant=additional_constant
+        additional_constant=additional_constant,
     )
 
     return BeamAnalyzer(

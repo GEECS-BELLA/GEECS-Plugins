@@ -9,7 +9,7 @@ image enhancement. All functions take images as input and return processed image
 import numpy as np
 import logging
 from scipy.ndimage import median_filter, gaussian_filter
-from ..types import Array2D
+from ...types import Array2D
 from .config_models import FilteringConfig
 
 logger = logging.getLogger(__name__)

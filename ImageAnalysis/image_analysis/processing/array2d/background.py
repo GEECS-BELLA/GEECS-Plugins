@@ -10,7 +10,7 @@ import numpy as np
 import logging
 from typing import List, Union
 from pathlib import Path
-from ..types import Array2D
+from ...types import Array2D
 from image_analysis.utils import read_imaq_image
 from .config_models import BackgroundConfig, BackgroundMethod
 

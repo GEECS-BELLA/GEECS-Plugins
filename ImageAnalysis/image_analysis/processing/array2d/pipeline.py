@@ -12,14 +12,14 @@ allowing users to customize which steps are executed and in what order.
 import logging
 from typing import Optional, Dict, Callable
 
-from ..types import Array2D
+from ...types import Array2D
 from .config_models import CameraConfig, ProcessingStepType
 from .background_manager import BackgroundManager
 from .masking import apply_crosshair_masking, apply_roi_cropping, apply_circular_mask
 from .filtering import apply_filtering_config
 from .transforms import apply_transform_config
 from .thresholding import apply_threshold
-from ..utils import ensure_float64_processing
+from ...utils import ensure_float64_processing
 
 logger = logging.getLogger(__name__)
 

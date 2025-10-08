@@ -2,7 +2,7 @@
 Configuration loading utilities for image analysis.
 
 Single public entry point:
-    load_camera_config(...) -> cfg.CameraConfig
+    load_camera_config(...) -> cfg_2d.CameraConfig
 
 This version uses a single, explicit base directory for YAML configs:
 - Set once via `set_config_base_dir("/path/to/image_analysis_configs")`
@@ -25,7 +25,7 @@ import numpy as np
 from pydantic import BaseModel, ValidationError
 
 # All config models in one namespace
-import image_analysis.processing.config_models as cfg
+import image_analysis.processing.array2d.config_models as cfg_2d
 
 if TYPE_CHECKING:
     from .types import Array2D
@@ -199,7 +199,7 @@ def load_camera_config(
     *,
     config_dir: Optional[Path] = None,
     **overrides: Any,
-) -> cfg.CameraConfig:
+) -> cfg_2d.CameraConfig:
     r"""
     Load and validate a CameraConfig model from name/path/dict, with __ overrides.
 
@@ -216,12 +216,12 @@ def load_camera_config(
 
     Returns
     -------
-    cfg.CameraConfig
+    cfg_2d.CameraConfig
         Validated camera configuration model.
     """
     data = _load_camera_config_dict(config_source, config_dir=config_dir, **overrides)
     try:
-        return cfg.CameraConfig.model_validate(data)
+        return cfg_2d.CameraConfig.model_validate(data)
     except ValidationError as e:
         raise ValueError(f"Invalid camera configuration: {e}") from e
 
@@ -234,13 +234,13 @@ def load_camera_config(
 def create_processing_configs(config_data: Dict[str, Any]) -> Dict[str, BaseModel]:
     """Create validated processing sub-configs from a dict (useful outside CameraConfig)."""
     mapping: Dict[str, Type[BaseModel]] = {
-        "background": cfg.BackgroundConfig,
-        "crosshair_masking": cfg.CrosshairMaskingConfig,
-        "roi": cfg.ROIConfig,
-        "filtering": cfg.FilteringConfig,
-        "transforms": cfg.TransformConfig,
-        "circular_mask": cfg.CircularMaskConfig,
-        "thresholding": cfg.ThresholdingConfig,
+        "background": cfg_2d.BackgroundConfig,
+        "crosshair_masking": cfg_2d.CrosshairMaskingConfig,
+        "roi": cfg_2d.ROIConfig,
+        "filtering": cfg_2d.FilteringConfig,
+        "transforms": cfg_2d.TransformConfig,
+        "circular_mask": cfg_2d.CircularMaskConfig,
+        "thresholding": cfg_2d.ThresholdingConfig,
     }
     out: Dict[str, BaseModel] = {}
     for key, model_cls in mapping.items():
