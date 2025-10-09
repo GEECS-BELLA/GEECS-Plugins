@@ -25,12 +25,14 @@ except ImportError:
 if TYPE_CHECKING:
     from pint import Quantity
 
+    Array1D = NewType("Array1D", NDArray)  # Nx2 array for (x, y) pairs or 1D data
     Array2D = NewType("Array2D", NDArray)
 
     QuantityArray = NewType("QuantityArray", Quantity)
     QuantityArray2D = NewType("QuantityArray2D", Quantity)
 else:
     # Runtime definitions for when TYPE_CHECKING is False
+    Array1D = NDArray
     Array2D = NDArray
     QuantityArray = object
     QuantityArray2D = object
