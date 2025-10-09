@@ -536,6 +536,10 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 / f"{self.device_name}_averaged_data_grid.png"
             )
             render_fn = getattr(self.image_analyzer, "render_image", None)
+
+            # Get renderer_kwargs if available (for Array1DScanAnalyzer, etc.)
+            renderer_kwargs = getattr(self, "renderer_kwargs", {})
+
             self.renderer.create_summary_figure(
                 binned_data,
                 plot_scale=plot_scale,
@@ -543,6 +547,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 device_name=self.device_name,
                 scan_parameter=self.scan_parameter,
                 render_fn=render_fn,
+                **renderer_kwargs,
             )
         self.binned_data = binned_data
 

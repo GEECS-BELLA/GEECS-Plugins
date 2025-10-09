@@ -21,7 +21,7 @@ from __future__ import annotations
 
 # --- Standard Library ---
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Dict, Any
 
 # --- Local / Project Imports ---
 from scan_analysis.analyzers.common.single_device_scan_analyzer import (
@@ -106,10 +106,56 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         file_tail: Optional[str] = ".csv",
         skip_plt_show: bool = True,
         flag_save_data: bool = True,
+        renderer_kwargs: Optional[Dict[str, Any]] = None,
     ):
-        """Initialize the analyzer with an ImageAnalyzer and Line1DRenderer."""
+        """Initialize the analyzer with an ImageAnalyzer and Line1DRenderer.
+
+        Parameters
+        ----------
+        renderer_kwargs : dict, optional
+            Additional keyword arguments to pass to the renderer's create_summary_figure method.
+            Useful options include:
+
+            - ``colormap_mode`` : str, default="sequential"
+                Colormap normalization mode:
+
+                - "sequential": Standard 0 to max (default, uses 'plasma')
+                - "diverging": Symmetric around zero for bipolar data (uses 'RdBu_r')
+                - "custom": User-defined vmin/vmax and cmap
+
+            - ``cmap`` : str, optional
+                Matplotlib colormap name (e.g., 'plasma', 'RdBu_r', 'coolwarm')
+            - ``mode`` : str, default="waterfall"
+                Visualization mode: "waterfall", "overlay", or "grid"
+            - ``vmin``, ``vmax`` : float, optional
+                Custom colormap limits (only used with colormap_mode="custom")
+
+        Examples
+        --------
+        For scope traces with bipolar signals::
+
+            analyzer = Array1DScanAnalyzer(
+                device_name="TekScope",
+                renderer_kwargs={"colormap_mode": "diverging"}
+            )
+
+        For custom colormap and limits::
+
+            analyzer = Array1DScanAnalyzer(
+                device_name="MyDevice",
+                renderer_kwargs={
+                    "colormap_mode": "custom",
+                    "cmap": "coolwarm",
+                    "vmin": -10,
+                    "vmax": 10
+                }
+            )
+        """
         if not device_name:
             raise ValueError("Array1DScanAnalyzer requires a device_name.")
+
+        # Store renderer kwargs for later use
+        self.renderer_kwargs = renderer_kwargs or {}
 
         # Create image analyzer if not provided
         image_analyzer = image_analyzer or Standard1DAnalyzer()

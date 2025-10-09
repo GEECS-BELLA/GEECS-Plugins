@@ -209,6 +209,8 @@ class Line1DRenderer(BaseRenderer):
         device_name: str = "device",
         scan_parameter: str = "parameter",
         mode: str = "waterfall",
+        colormap_mode: str = "sequential",
+        cmap: Optional[str] = None,
         **kwargs,
     ) -> None:
         """
@@ -226,8 +228,18 @@ class Line1DRenderer(BaseRenderer):
             Scan parameter name for the figure title
         mode : str, default="waterfall"
             Visualization mode: "waterfall" (heatmap), "overlay", or "grid"
+        colormap_mode : str, default="sequential"
+            Colormap normalization mode (only applies to waterfall mode):
+
+            - "sequential": Standard 0 to max (default, uses 'plasma')
+            - "diverging": Symmetric around zero for bipolar data (uses 'RdBu_r')
+            - "custom": User-defined vmin/vmax and cmap
+
+        cmap : str, optional
+            Matplotlib colormap name. If not provided, defaults are:
+            'plasma' for sequential, 'RdBu_r' for diverging
         **kwargs
-            Additional rendering parameters
+            Additional rendering parameters (e.g., vmin, vmax for custom mode)
         """
         if not binned_data:
             logger.warning("No data to create summary figure.")
@@ -235,7 +247,13 @@ class Line1DRenderer(BaseRenderer):
 
         if mode == "waterfall":
             self._create_waterfall_plot(
-                binned_data, save_path, device_name, scan_parameter, **kwargs
+                binned_data,
+                save_path,
+                device_name,
+                scan_parameter,
+                colormap_mode=colormap_mode,
+                cmap=cmap,
+                **kwargs,
             )
         elif mode == "overlay":
             self._create_overlay_plot(
@@ -248,7 +266,13 @@ class Line1DRenderer(BaseRenderer):
         else:
             logger.warning(f"Unknown mode '{mode}'. Using 'waterfall'.")
             self._create_waterfall_plot(
-                binned_data, save_path, device_name, scan_parameter, **kwargs
+                binned_data,
+                save_path,
+                device_name,
+                scan_parameter,
+                colormap_mode=colormap_mode,
+                cmap=cmap,
+                **kwargs,
             )
 
     def _create_waterfall_plot(
@@ -257,6 +281,8 @@ class Line1DRenderer(BaseRenderer):
         save_path: Optional[Path],
         device_name: str,
         scan_parameter: str,
+        colormap_mode: str = "sequential",
+        cmap: Optional[str] = None,
         **kwargs,
     ) -> None:
         """
@@ -266,6 +292,16 @@ class Line1DRenderer(BaseRenderer):
         - X-axis: x-values from 1D data (e.g., energy, wavelength)
         - Y-axis: Scan parameter values (one row per bin)
         - Color: y-values from 1D data (e.g., intensity, charge density)
+
+        Parameters
+        ----------
+        colormap_mode : str, default="sequential"
+            Colormap normalization mode:
+            - "sequential": Standard 0 to max (uses 'plasma')
+            - "diverging": Symmetric around zero for bipolar data (uses 'RdBu_r')
+            - "custom": User-defined vmin/vmax and cmap
+        cmap : str, optional
+            Matplotlib colormap name. Overrides defaults if provided.
         """
         # Sort bins by bin number
         items = sorted(binned_data.items(), key=lambda kv: kv[0])
@@ -282,10 +318,34 @@ class Line1DRenderer(BaseRenderer):
         # Get scan parameter values for y-axis labels
         param_values = [entry["value"] for _, entry in items]
 
+        # Determine colormap and normalization based on mode
+        if colormap_mode == "diverging":
+            # Symmetric around zero for bipolar data (e.g., scope traces)
+            vmax = max(abs(y_matrix.min()), abs(y_matrix.max()))
+            vmin = -vmax
+            cmap = cmap or "RdBu_r"  # Red-white-blue (reversed)
+            logger.info(
+                f"Using diverging colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
+            )
+        elif colormap_mode == "sequential":
+            # Standard: 0 to max (current default behavior)
+            vmin = 0
+            vmax = y_matrix.max()
+            cmap = cmap or "plasma"
+            logger.info(
+                f"Using sequential colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
+            )
+        else:  # "custom"
+            # User-defined limits
+            vmin = kwargs.get("vmin", y_matrix.min())
+            vmax = kwargs.get("vmax", y_matrix.max())
+            cmap = cmap or "plasma"
+            logger.info(f"Using custom colormap with vmin={vmin:.2e}, vmax={vmax:.2e}")
+
         # Create figure
         fig, ax = plt.subplots(figsize=(10, 6))
 
-        # Create heatmap
+        # Create heatmap with determined colormap and normalization
         extent = [
             float(x_axis[0]),
             float(x_axis[-1]),
@@ -295,7 +355,9 @@ class Line1DRenderer(BaseRenderer):
         im = ax.imshow(
             y_matrix,
             aspect="auto",
-            cmap="plasma",
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
             extent=extent,
             interpolation="none",
         )
