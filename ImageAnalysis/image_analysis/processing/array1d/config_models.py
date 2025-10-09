@@ -19,6 +19,45 @@ import numpy as np
 from pydantic import BaseModel, Field, field_validator
 
 
+class Data1DType(str, Enum):
+    """Enumeration of supported 1D data formats.
+
+    All formats return Nx2 arrays where column 0 is x values and column 1 is y values.
+    """
+
+    TEK_SCOPE_HDF5 = "tek_scope_hdf5"
+    TDMS_SCOPE = "tdms_scope"
+    CSV = "csv"
+    TSV = "tsv"
+    NPY = "npy"
+
+
+class Data1DConfig(BaseModel):
+    r"""Configuration for reading 1D data files.
+
+    Parameters
+    ----------
+    data_type : Data1DType
+        The type of data format to read
+    trace_index : int, default=0
+        Trace/channel index for scope files (Tek HDF5, TDMS)
+    delimiter : str, optional
+        Delimiter for CSV/TSV files (defaults to ',' for CSV, '\t' for TSV)
+    x_column : int, default=0
+        Column index for x values in delimited files
+    y_column : int, default=1
+        Column index for y values in delimited files
+    """
+
+    data_type: Data1DType
+    trace_index: int = Field(default=0, ge=0, description="Trace/channel index")
+    delimiter: Optional[str] = Field(
+        default=None, description="Delimiter for CSV/TSV files"
+    )
+    x_column: int = Field(default=0, ge=0, description="Column index for x values")
+    y_column: int = Field(default=1, ge=0, description="Column index for y values")
+
+
 class BackgroundMethod(str, Enum):
     """Background subtraction methods for 1D data."""
 
@@ -196,6 +235,8 @@ class Line1DConfig(BaseModel):
         Unique identifier for this configuration
     description : str
         Human-readable description
+    data_loading : Data1DConfig
+        Configuration for loading 1D data from files
     data_format : str
         Description of the data format (e.g., "wavelength vs intensity")
     processing_dtype : str
@@ -216,6 +257,12 @@ class Line1DConfig(BaseModel):
     description: str = Field(
         default="", description="Human-readable description of this configuration"
     )
+
+    # Data loading configuration
+    data_loading: Data1DConfig = Field(
+        ..., description="Configuration for loading 1D data from files"
+    )
+
     data_format: str = Field(
         default="x vs y",
         description="Description of data format (e.g., 'wavelength vs intensity')",
