@@ -18,6 +18,7 @@ import numpy as np
 from .background import compute_background, subtract_background
 from .config_models import Line1DConfig, PipelineStepType
 from .filtering import apply_filtering
+from .roi import apply_roi_1d
 from .thresholding import apply_thresholding
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,14 @@ def apply_line_processing_pipeline(
 
     # Execute pipeline steps in order
     for step in steps:
-        if step == PipelineStepType.BACKGROUND:
+        if step == PipelineStepType.ROI:
+            if config.roi is not None:
+                processed = apply_roi_1d(processed, config.roi)
+                if return_intermediate:
+                    intermediate["roi"] = processed.copy()
+                logger.debug("Applied ROI filtering")
+
+        elif step == PipelineStepType.BACKGROUND:
             if config.background is not None:
                 background = compute_background(processed, config.background)
                 processed = subtract_background(processed, background)
@@ -138,7 +146,9 @@ def validate_pipeline_config(config: Line1DConfig) -> list[str]:
     # Check if pipeline steps reference configs that don't exist
     if config.pipeline is not None:
         for step in config.pipeline.steps:
-            if step == PipelineStepType.BACKGROUND and config.background is None:
+            if step == PipelineStepType.ROI and config.roi is None:
+                warnings.append("Pipeline includes ROI step but no ROI config provided")
+            elif step == PipelineStepType.BACKGROUND and config.background is None:
                 warnings.append(
                     "Pipeline includes BACKGROUND step but no background config provided"
                 )

@@ -30,6 +30,7 @@ from .config_models import (
     Line1DConfig,
     PipelineConfig,
     PipelineStepType,
+    ROI1DConfig,
     ThresholdingConfig,
     ThresholdMethod,
 )
@@ -40,6 +41,7 @@ from .filtering import (
     apply_median_filter,
 )
 from .pipeline import apply_line_processing_pipeline, validate_pipeline_config
+from .roi import apply_roi_1d
 from .thresholding import apply_thresholding, find_threshold_crossings
 
 __all__ = [
@@ -49,6 +51,7 @@ __all__ = [
     "BackgroundMethod",
     "FilteringConfig",
     "FilterMethod",
+    "ROI1DConfig",
     "ThresholdingConfig",
     "ThresholdMethod",
     "PipelineConfig",
@@ -63,6 +66,8 @@ __all__ = [
     "apply_gaussian_filter",
     "apply_median_filter",
     "apply_bilateral_filter",
+    # ROI operations
+    "apply_roi_1d",
     # Thresholding operations
     "apply_thresholding",
     "find_threshold_crossings",

@@ -83,9 +83,43 @@ class ThresholdMethod(str, Enum):
     PERCENTILE = "percentile"
 
 
+class ROI1DConfig(BaseModel):
+    """ROI configuration for 1D data based on x-axis values.
+
+    Unlike 2D ROIs which use pixel indices, 1D ROIs specify
+    a range of x-values to keep. This allows for physically meaningful
+    ROI specifications (e.g., wavelength range, time window).
+
+    Attributes
+    ----------
+    x_min : float, optional
+        Minimum x-value to include (inclusive). If None, no lower bound.
+    x_max : float, optional
+        Maximum x-value to include (inclusive). If None, no upper bound.
+
+    Examples
+    --------
+    Time window for scope trace::
+
+        roi = ROI1DConfig(x_min=0.0e-6, x_max=10.0e-6)  # 0-10 microseconds
+
+    Wavelength range for spectrum::
+
+        roi = ROI1DConfig(x_min=400, x_max=700)  # 400-700 nm
+    """
+
+    x_min: Optional[float] = Field(
+        default=None, description="Minimum x-value (inclusive)"
+    )
+    x_max: Optional[float] = Field(
+        default=None, description="Maximum x-value (inclusive)"
+    )
+
+
 class PipelineStepType(str, Enum):
     """Types of processing steps available in the pipeline."""
 
+    ROI = "roi"
     BACKGROUND = "background"
     FILTERING = "filtering"
     THRESHOLDING = "thresholding"
@@ -273,6 +307,7 @@ class Line1DConfig(BaseModel):
     storage_dtype: str = Field(default="float32", description="NumPy dtype for storage")
 
     # Processing configurations
+    roi: Optional[ROI1DConfig] = None
     background: Optional[BackgroundConfig] = None
     filtering: Optional[FilteringConfig] = None
     thresholding: Optional[ThresholdingConfig] = None
