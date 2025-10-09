@@ -34,7 +34,7 @@ from image_analysis.base import ImageAnalyzer
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
-    from geecs_data_utils import ScanTag
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -138,34 +138,3 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
 
         # Backward compatibility: map flag_save_images to flag_save_data
         self.flag_save_images = flag_save_images
-
-
-if __name__ == "__main__":
-    from scan_analysis.base import ScanAnalyzerInfo as Info
-    from scan_analysis.execute_scan_analysis import instantiate_scan_analyzer
-    from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
-    from image_analysis.config_loader import set_config_base_dir
-    from geecs_data_utils import ScanTag
-    from pathlib import Path
-
-    current_dir = Path(__file__).resolve().parent.parent
-    geecs_plugins_dir = current_dir.parent.parent.parent
-    set_config_base_dir(geecs_plugins_dir / "image_analysis_configs")
-
-    dev_name = "UC_ALineEBeam3"
-    config_dict = {"camera_config_name": dev_name}
-    analyzer_info = Info(
-        scan_analyzer_class=Array2DScanAnalyzer,
-        requirements={dev_name},
-        device_name=dev_name,
-        scan_analyzer_kwargs={"image_analyzer": BeamAnalyzer(**config_dict)},
-    )
-
-    import time
-
-    t0 = time.monotonic()
-    test_tag = ScanTag(year=2025, month=6, day=10, number=29, experiment="Undulator")
-    scan_analyzer = instantiate_scan_analyzer(scan_analyzer_info=analyzer_info)
-    scan_analyzer.run_analysis(scan_tag=test_tag)
-    t1 = time.monotonic()
-    logger.info(f"execution time: {t1 - t0}")
