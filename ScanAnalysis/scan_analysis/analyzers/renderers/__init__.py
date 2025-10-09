@@ -6,5 +6,6 @@ Renderers are used by scan analyzers to create plots, images, and animations fro
 
 from .base_renderer import BaseRenderer
 from .image_2d_renderer import Image2DRenderer
+from .line_1d_renderer import Line1DRenderer
 
-__all__ = ["BaseRenderer", "Image2DRenderer"]
+__all__ = ["BaseRenderer", "Image2DRenderer", "Line1DRenderer"]
