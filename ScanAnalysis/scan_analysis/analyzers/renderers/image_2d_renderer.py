@@ -67,7 +67,7 @@ class Image2DRenderer(BaseRenderer):
         **kwargs,
     ) -> None:
         """
-        Save a PNG visualization of an image using min/max normalization.
+        Save a PNG visualization of an image.
 
         Parameters
         ----------
@@ -80,11 +80,16 @@ class Image2DRenderer(BaseRenderer):
         label : str, optional
             Title to render in the figure
         **kwargs
-            Additional rendering parameters
+            Additional rendering parameters including:
+            - colormap_mode: "sequential", "diverging", or "custom"
+            - cmap: colormap name
+            - vmin, vmax: colormap limits
         """
-        max_val = np.max(data)
+        # Determine colormap and normalization
+        vmin, vmax, cmap = self._get_colormap_params(data, **kwargs)
+
         fig, ax = plt.subplots()
-        im = ax.imshow(data, cmap="plasma", vmin=0, vmax=max_val)
+        im = ax.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax)
         fig.colorbar(im, ax=ax)
         ax.axis("off")
 
@@ -390,6 +395,64 @@ class Image2DRenderer(BaseRenderer):
             )
 
         return frames
+
+    @staticmethod
+    def _get_colormap_params(data: NDArray, **kwargs) -> Tuple[float, float, str]:
+        """
+        Determine colormap parameters based on colormap_mode.
+
+        Parameters
+        ----------
+        data : NDArray
+            Image data to determine limits from
+        **kwargs
+            Rendering parameters including:
+            - colormap_mode: "sequential", "diverging", or "custom"
+            - cmap: colormap name
+            - vmin, vmax: explicit limits
+            - plot_scale: legacy parameter (mapped to vmax)
+
+        Returns
+        -------
+        vmin : float
+            Minimum colormap value
+        vmax : float
+            Maximum colormap value
+        cmap : str
+            Colormap name
+        """
+        colormap_mode = kwargs.get("colormap_mode", "sequential")
+        cmap = kwargs.get("cmap", None)
+
+        # Handle legacy plot_scale parameter (maps to vmax)
+        plot_scale = kwargs.get("plot_scale", None)
+        if plot_scale is not None and kwargs.get("vmax", None) is None:
+            kwargs["vmax"] = plot_scale
+
+        if colormap_mode == "diverging":
+            # Symmetric around zero for bipolar data
+            vmax = max(abs(data.min()), abs(data.max()))
+            vmin = -vmax
+            cmap = cmap or "RdBu_r"
+            logger.info(
+                f"Using diverging colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
+            )
+        elif colormap_mode == "sequential":
+            # Standard: 0 to max (default behavior)
+            vmin = 0
+            vmax = kwargs.get("vmax", data.max())
+            cmap = cmap or "plasma"
+            logger.info(
+                f"Using sequential colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
+            )
+        else:  # "custom"
+            # User-defined limits
+            vmin = kwargs.get("vmin", data.min())
+            vmax = kwargs.get("vmax", data.max())
+            cmap = cmap or "plasma"
+            logger.info(f"Using custom colormap with vmin={vmin:.2e}, vmax={vmax:.2e}")
+
+        return float(vmin), float(vmax), cmap
 
     @staticmethod
     def _grid_dims(n: int) -> tuple[int, int]:
