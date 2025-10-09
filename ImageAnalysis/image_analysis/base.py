@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union, Any, Tuple
 
 if TYPE_CHECKING:
-    from .types import Array2D, AnalyzerResultDict
+    from .types import Array1D, Array2D, AnalyzerResultDict
 
 import logging
 
@@ -57,7 +57,7 @@ class ImageAnalyzer:
         pass
 
     def analyze_image(
-        self, image: Array2D, auxiliary_data: Optional[dict] = None
+        self, image: Union[Array1D, Array2D], auxiliary_data: Optional[dict] = None
     ) -> dict[str, Union[float, int, str, np.ndarray]]:
         """Calculate metrics from an image.
 
@@ -68,7 +68,7 @@ class ImageAnalyzer:
 
         Parameters
         ----------
-        image : 2d array
+        image : 2d array (e.g. MxN) or standard y vs x data (eg. Nx2)
         auxiliary_data : dict
             Additional data used by the image image_analyzer for this image, such as
             image range.
@@ -104,7 +104,7 @@ class ImageAnalyzer:
 
         return self.analyze_image(image, auxiliary_data)
 
-    def load_image(self, file_path: Path) -> Array2D:
+    def load_image(self, file_path: Path) -> Union[Array1D, Array2D]:
         """
         Load an image from a path.
 
@@ -119,15 +119,15 @@ class ImageAnalyzer:
 
         Returns
         -------
-         image : Array2D
+         image : Union[Array1D,Array2D]
         """
         image = read_imaq_image(file_path)
 
         return image
 
     def analyze_image_batch(
-        self, images: list[Array2D]
-    ) -> Tuple[list[Array2D], dict[str, Union[int, float, bool, str]]]:
+        self, images: list[Union[Array1D, Array2D]]
+    ) -> Tuple[list[Union[Array1D, Array2D]], dict[str, Union[int, float, bool, str]]]:
         """
         Perform optional batch-level analysis on a list of images.
 
@@ -139,11 +139,11 @@ class ImageAnalyzer:
         method should be added as attributes of the instance and accessed that way
 
         Args:
-            images (list of Array2D): All images loaded for the scan.
+            images (list of Union[Array1D,Array2D]): All images loaded for the scan.
 
         Returns
         -------
-            images (list of Array2D):
+            images (list of Union[Array1D,Array2D]):
         """
         return images, {}
 
