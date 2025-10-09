@@ -8,7 +8,7 @@ description: IR mode at the input to amp3
 background:
   enabled: true
   method: constant
-  constant_level: 20.0
+  constant_level: 10.0
 
 metadata:
   location: "Room 148"
@@ -20,3 +20,11 @@ roi:
   x_min: 1
   y_max: 600
   y_min: 1
+
+  # Thresholding configuration
+thresholding:
+  enabled: true
+  method: "constant"  # Use percentage of max value
+  value: 0.0               # 10% of maximum pixel value
+  mode: "to_zero"            # Binary thresholding
+  invert: false             # Don't invert
