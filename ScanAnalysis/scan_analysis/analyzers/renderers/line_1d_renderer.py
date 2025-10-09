@@ -94,12 +94,32 @@ class Line1DRenderer(BaseRenderer):
         label : str, optional
             Title to render in the figure
         **kwargs
-            Additional rendering parameters (e.g., xlabel, ylabel)
+            Additional rendering parameters including:
+            - xlabel, ylabel: Axis labels
+            - x_label, y_label: Alternative axis labels (from metadata)
+            - x_units, y_units: Units for axis labels (from metadata)
         """
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.plot(data[:, 0], data[:, 1], linewidth=1.5)
-        ax.set_xlabel(kwargs.get("xlabel", "x"))
-        ax.set_ylabel(kwargs.get("ylabel", "y"))
+
+        # Use metadata labels if available, otherwise fall back to kwargs
+        x_label = kwargs.get("x_label")
+        y_label = kwargs.get("y_label")
+        x_units = kwargs.get("x_units")
+        y_units = kwargs.get("y_units")
+
+        if x_label:
+            xlabel = f"{x_label} ({x_units})" if x_units else x_label
+            ax.set_xlabel(xlabel)
+        else:
+            ax.set_xlabel(kwargs.get("xlabel", "x"))
+
+        if y_label:
+            ylabel = f"{y_label} ({y_units})" if y_units else y_label
+            ax.set_ylabel(ylabel)
+        else:
+            ax.set_ylabel(kwargs.get("ylabel", "y"))
+
         ax.grid(True, alpha=0.3)
 
         if label:
@@ -364,10 +384,25 @@ class Line1DRenderer(BaseRenderer):
 
         # Colorbar
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label(kwargs.get("colorbar_label", "Intensity"))
 
-        # Axis labels
-        ax.set_xlabel(kwargs.get("xlabel", "x"))
+        # Use metadata for colorbar label if available
+        y_label = kwargs.get("y_label")
+        y_units = kwargs.get("y_units")
+        if y_label:
+            colorbar_label = f"{y_label} ({y_units})" if y_units else y_label
+            cbar.set_label(colorbar_label)
+        else:
+            cbar.set_label(kwargs.get("colorbar_label", "Intensity"))
+
+        # Axis labels - use metadata if available
+        x_label = kwargs.get("x_label")
+        x_units = kwargs.get("x_units")
+        if x_label:
+            xlabel = f"{x_label} ({x_units})" if x_units else x_label
+            ax.set_xlabel(xlabel)
+        else:
+            ax.set_xlabel(kwargs.get("xlabel", "x"))
+
         ax.set_ylabel(scan_parameter)
 
         # Y-axis ticks at bin positions
@@ -411,8 +446,24 @@ class Line1DRenderer(BaseRenderer):
                 linewidth=1.5,
             )
 
-        ax.set_xlabel(kwargs.get("xlabel", "x"))
-        ax.set_ylabel(kwargs.get("ylabel", "y"))
+        # Use metadata labels if available
+        x_label = kwargs.get("x_label")
+        y_label = kwargs.get("y_label")
+        x_units = kwargs.get("x_units")
+        y_units = kwargs.get("y_units")
+
+        if x_label:
+            xlabel = f"{x_label} ({x_units})" if x_units else x_label
+            ax.set_xlabel(xlabel)
+        else:
+            ax.set_xlabel(kwargs.get("xlabel", "x"))
+
+        if y_label:
+            ylabel = f"{y_label} ({y_units})" if y_units else y_label
+            ax.set_ylabel(ylabel)
+        else:
+            ax.set_ylabel(kwargs.get("ylabel", "y"))
+
         ax.set_title(f"Scan parameter: {scan_parameter}", fontsize=12)
         ax.legend(title=scan_parameter, bbox_to_anchor=(1.05, 1), loc="upper left")
         ax.grid(True, alpha=0.3)
@@ -456,6 +507,23 @@ class Line1DRenderer(BaseRenderer):
         y_min -= 0.05 * y_range
         y_max += 0.05 * y_range
 
+        # Extract metadata labels if available
+        x_label = kwargs.get("x_label")
+        y_label = kwargs.get("y_label")
+        x_units = kwargs.get("x_units")
+        y_units = kwargs.get("y_units")
+
+        # Build axis labels with units
+        if x_label:
+            xlabel = f"{x_label} ({x_units})" if x_units else x_label
+        else:
+            xlabel = kwargs.get("xlabel", "x")
+
+        if y_label:
+            ylabel = f"{y_label} ({y_units})" if y_units else y_label
+        else:
+            ylabel = kwargs.get("ylabel", "y")
+
         # Plot each bin
         for idx, (_, entry) in enumerate(items):
             ax = axes[idx]
@@ -468,9 +536,9 @@ class Line1DRenderer(BaseRenderer):
             ax.grid(True, alpha=0.3)
 
             if idx >= (rows - 1) * cols:  # Bottom row
-                ax.set_xlabel(kwargs.get("xlabel", "x"))
+                ax.set_xlabel(xlabel)
             if idx % cols == 0:  # Left column
-                ax.set_ylabel(kwargs.get("ylabel", "y"))
+                ax.set_ylabel(ylabel)
 
         # Hide unused subplots
         for idx in range(n_bins, len(axes)):

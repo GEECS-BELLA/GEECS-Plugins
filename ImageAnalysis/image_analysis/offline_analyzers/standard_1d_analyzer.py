@@ -74,6 +74,9 @@ class Standard1DAnalyzer(ImageAnalyzer):
         self.line_config_name = line_config_name
         self.run_analyze_image_asynchronously = False
 
+        # Storage for metadata from read_1d_data
+        self.data_metadata: Optional[Dict[str, str]] = None
+
         # Initialize base class
         super().__init__()
 
@@ -114,7 +117,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         This method overrides the base class to use read_1d_data instead of
         read_imaq_image. It uses the data_loading configuration stored in
-        self.line_config.
+        self.line_config and preserves metadata for later use.
 
         Parameters
         ----------
@@ -131,6 +134,14 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         # Load data using read_1d_data
         result = read_1d_data(file_path, data_config)
+
+        # Store metadata for use in _build_input_parameters
+        self.data_metadata = {
+            "x_units": result.x_units,
+            "y_units": result.y_units,
+            "x_label": result.x_label,
+            "y_label": result.y_label,
+        }
 
         logger.info(
             "Loaded 1D data from %s (type: %s, shape: %s)",
@@ -176,6 +187,14 @@ class Standard1DAnalyzer(ImageAnalyzer):
         AnalyzerResultDict
             Dictionary containing processed data and metadata
         """
+        # If metadata not already cached AND file_path is available, load it
+        if (
+            self.data_metadata is None
+            and auxiliary_data
+            and "file_path" in auxiliary_data
+        ):
+            self.load_image(auxiliary_data["file_path"])  # Populates self.data_metadata
+
         # Apply processing pipeline
         processed = self.preprocess_data(image)
 
@@ -191,7 +210,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
     def _build_input_parameters(
         self, auxiliary_data: Optional[Dict] = None
     ) -> Dict[str, Any]:
-        """Build input parameters dictionary.
+        """Build input parameters dictionary including metadata from data loading.
 
         Parameters
         ----------
@@ -201,7 +220,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
         Returns
         -------
         dict
-            Input parameters dictionary
+            Input parameters dictionary with metadata
         """
         params = {
             "line_name": self.line_config.name,
@@ -209,6 +228,10 @@ class Standard1DAnalyzer(ImageAnalyzer):
             "config_name": self.line_config_name,
             "data_format": self.line_config.data_format,
         }
+
+        # Add metadata from read_1d_data if available
+        if self.data_metadata is not None:
+            params.update(self.data_metadata)
 
         if auxiliary_data:
             params.update(auxiliary_data)
@@ -261,14 +284,39 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         # Set labels if available
         if input_params_dict:
-            data_format = input_params_dict.get("data_format", "x vs y")
-            # Try to parse format string like "wavelength (nm) vs intensity (a.u.)"
-            if " vs " in data_format:
-                parts = data_format.split(" vs ")
-                ax.set_xlabel(parts[0].strip())
-                ax.set_ylabel(parts[1].strip())
+            # Try to use metadata labels first (from read_1d_data)
+            x_label = input_params_dict.get("x_label")
+            y_label = input_params_dict.get("y_label")
+            x_units = input_params_dict.get("x_units")
+            y_units = input_params_dict.get("y_units")
+
+            # Build axis labels with units if available
+            if x_label:
+                xlabel = f"{x_label} ({x_units})" if x_units else x_label
+                ax.set_xlabel(xlabel)
+            elif "data_format" in input_params_dict:
+                # Fallback to parsing data_format string
+                data_format = input_params_dict.get("data_format", "x vs y")
+                if " vs " in data_format:
+                    parts = data_format.split(" vs ")
+                    ax.set_xlabel(parts[0].strip())
+                else:
+                    ax.set_xlabel("X")
             else:
                 ax.set_xlabel("X")
+
+            if y_label:
+                ylabel = f"{y_label} ({y_units})" if y_units else y_label
+                ax.set_ylabel(ylabel)
+            elif "data_format" in input_params_dict:
+                # Fallback to parsing data_format string
+                data_format = input_params_dict.get("data_format", "x vs y")
+                if " vs " in data_format:
+                    parts = data_format.split(" vs ")
+                    ax.set_ylabel(parts[1].strip())
+                else:
+                    ax.set_ylabel("Y")
+            else:
                 ax.set_ylabel("Y")
 
             # Add title if line name is available

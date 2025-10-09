@@ -540,6 +540,20 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             # Get renderer_kwargs if available (for Array1DScanAnalyzer, etc.)
             renderer_kwargs = getattr(self, "renderer_kwargs", {})
 
+            # Extract metadata from first bin for axis labels
+            metadata_kwargs = {}
+            if binned_data:
+                first_bin = next(iter(binned_data.values()))
+                input_params = first_bin["result"].get("analyzer_input_parameters", {})
+
+                # Extract metadata fields if they exist
+                for key in ["x_label", "y_label", "x_units", "y_units"]:
+                    if key in input_params:
+                        metadata_kwargs[key] = input_params[key]
+
+            # Merge metadata with renderer_kwargs (renderer_kwargs takes precedence)
+            combined_kwargs = {**metadata_kwargs, **renderer_kwargs}
+
             self.renderer.create_summary_figure(
                 binned_data,
                 plot_scale=plot_scale,
@@ -547,7 +561,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 device_name=self.device_name,
                 scan_parameter=self.scan_parameter,
                 render_fn=render_fn,
-                **renderer_kwargs,
+                **combined_kwargs,
             )
         self.binned_data = binned_data
 
