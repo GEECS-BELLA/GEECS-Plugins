@@ -1,14 +1,13 @@
 # Example configuration for 1D spectrum/lineout processing
 # This demonstrates the array1d processing module
 
-name: "U_BCaveICT"
+name: "U_BCaveMagSpec-interpSpec"
 description: "Example configuration for processing 1D spectral data or lineouts"
-data_format: "volts (V) vs time (s)"
+data_format: "Charge density vs Energy"
 
 # Data loading configuration
 data_loading:
-  data_type: "tdms_scope"           # Options: "tek_scope_hdf5", "tdms_scope", "csv", "tsv", "npy"
-  trace_index: 0             # For scope files: which trace/channel to read
+  data_type: "tsv"           # Options: "tek_scope_hdf5", "tdms_scope", "csv", "tsv", "npy"
 
 # Data type settings
 processing_dtype: "float64"  # Use high precision during processing
@@ -40,5 +39,4 @@ roi:
 pipeline:
   steps:
     - "background"
-    - "roi"
     - "thresholding"
