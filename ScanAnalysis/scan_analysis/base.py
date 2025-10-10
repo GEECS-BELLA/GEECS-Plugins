@@ -40,6 +40,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from geecs_data_utils import ScanData, ScanPaths
 
+logger = logging.getLogger(__name__)
+
 
 # %% classes
 class ScanAnalyzerInfo(NamedTuple):
@@ -208,17 +210,17 @@ class ScanAnalyzer:
         self.auxiliary_file_path: Path = (
             self.scan_path.parent / f"s{self.scan_tag.number}.txt"
         )
-        logging.info(f"analysis path is : {self.scan_path}")
+        logger.info(f"analysis path is : {self.scan_path}")
 
         try:
             # Extract the scan parameter
             self.scan_parameter = self.extract_scan_parameter_from_ini()
 
-            logging.info(f"Scan parameter is: {self.scan_parameter}.")
+            logger.info(f"Scan parameter is: {self.scan_parameter}.")
             s_param = self.scan_parameter.lower()
 
             if s_param == "noscan" or s_param == "shotnumber":
-                logging.warning(
+                logger.warning(
                     "No parameter varied during the scan, setting noscan flag."
                 )
                 self.noscan = True
@@ -226,7 +228,7 @@ class ScanAnalyzer:
             self.load_auxiliary_data()
 
             if self.auxiliary_data is None:
-                logging.warning(
+                logger.warning(
                     "Scan parameter not found in auxiliary data. Possible aborted scan. Skipping analysis."
                 )
                 return  # Stop further execution cleanly
@@ -234,7 +236,7 @@ class ScanAnalyzer:
             self.total_shots = len(self.auxiliary_data)
 
         except FileNotFoundError as e:
-            logging.warning(
+            logger.warning(
                 f"{e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis."
             )
             return
@@ -301,7 +303,7 @@ class ScanAnalyzer:
                     )
 
             except (KeyError, FileNotFoundError) as e:
-                logging.warning(
+                logger.warning(
                     f"{e}. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping"
                 )
 
@@ -350,8 +352,7 @@ class ScanAnalyzer:
             # check if columns exist within dataframe
             existing_cols = set(df_copy) & set(dict_to_append.keys())
             if existing_cols:
-                # if self.flag['logging']:
-                logging.warning(
+                logger.warning(
                     f"Warning: Columns already exist in sfile: "
                     f"{existing_cols}. Overwriting existing columns."
                 )
@@ -366,14 +367,13 @@ class ScanAnalyzer:
             self.auxiliary_data = df_new.copy()
 
         except DataLengthError:
-            # if self.flag['logging']:
-            logging.error(
+            logger.error(
                 f"Error: Error appending {self.device_name} field to sfile due to "
                 f"inconsistent array lengths. Scan file not updated."
             )
 
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"Error: Unexpected error in {self.append_to_sfile.__name__}: {e}"
             )
 
@@ -427,7 +427,7 @@ class ScanAnalyzer:
                         -1
                     ].strip() if "Alias:" in column else column
 
-            logging.warning(
+            logger.warning(
                 f"Warning: Could not find column containing scan parameter: {self.scan_parameter}"
             )
             return None, None
