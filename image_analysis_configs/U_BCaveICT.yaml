@@ -1,0 +1,44 @@
+# Example configuration for 1D spectrum/lineout processing
+# This demonstrates the array1d processing module
+
+name: "U_BCaveICT"
+description: "Example configuration for processing 1D spectral data or lineouts"
+data_format: "volts (V) vs time (s)"
+
+# Data loading configuration
+data_loading:
+  data_type: "tdms_scope"           # Options: "tek_scope_hdf5", "tdms_scope", "csv", "tsv", "npy"
+  trace_index: 0             # For scope files: which trace/channel to read
+
+# Data type settings
+processing_dtype: "float64"  # Use high precision during processing
+storage_dtype: "float32"     # Save with lower precision to reduce file size
+
+# Background subtraction configuration
+background:
+  method: "constant"         # Options: "none", "constant", "from_file"
+  constant_value: 0.0    # Constant value to subtract from all y-values
+
+# Filtering configuration
+filtering:
+  method: "median"         # Options: "none", "gaussian", "median", "bilateral"
+  sigma: 2.0                 # Standard deviation for Gaussian filter
+  kernel_size: 51             # Kernel size for median filter (must be odd)
+
+# Thresholding configuration
+thresholding:
+  method: "absolute"       # Options: "none", "absolute", "percentile"
+  threshold_value: -10.0            # Clip values below 5th percentile
+  clip_below: true           # Clip values below (true) or above (false) threshold
+
+roi:
+  x_min: 7.5e-6    # 0 microseconds
+  x_max: 10.0e-6   # 10 microseconds
+
+
+# Pipeline configuration (order of processing steps)
+pipeline:
+  steps:
+    - "background"
+    - "roi"
+    - "thresholding"

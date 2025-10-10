@@ -35,6 +35,7 @@ from collections import defaultdict
 
 # --- Local / Project Imports ---
 from scan_analysis.base import ScanAnalyzer
+from scan_analysis.analyzers.renderers.config import RenderContext
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
@@ -454,101 +455,152 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         avg_data = self.average_data(data_list)
 
         if self.flag_save_data:
-            # Save average data
-            self.renderer.save_data(
-                avg_data,
-                save_dir=self.path_dict["save"],
-                save_name=f"{self.device_name}_average_processed.h5",
+            # Average scalar results
+            analysis_results = [
+                res.get("analyzer_return_dictionary", {})
+                for res in self.results.values()
+            ]
+            if analysis_results and analysis_results[0]:
+                from collections import defaultdict
+
+                sums = defaultdict(list)
+                for d in analysis_results:
+                    for k, v in d.items():
+                        sums[k].append(v)
+                avg_scalars = {k: np.mean(v, axis=0) for k, v in sums.items()}
+            else:
+                avg_scalars = {}
+
+            # Create RenderContext for average
+            avg_context = RenderContext(
+                data=avg_data,
+                input_parameters={"analyzer_return_dictionary": avg_scalars},
+                device_name=self.device_name,
+                identifier="average",
             )
 
-            # Save visualization
-            save_name = f"{self.device_name}_average_processed_visual.png"
-            self.renderer.save_visualization(
-                avg_data,
-                save_dir=self.path_dict["save"],
-                save_name=save_name,
-                label=save_name,
-            )
+            config = self._get_renderer_config()
 
-            # Create and store animation
+            # Save average using new interface
+            self.renderer.render_single(avg_context, config, self.path_dict["save"])
+
+            # Create animation from all results
+            contexts = [
+                RenderContext(
+                    data=result["processed_image"],
+                    input_parameters=result.get("analyzer_input_parameters", {}),
+                    device_name=self.device_name,
+                    identifier=f"shot_{shot_num}",
+                )
+                for shot_num, result in self.results.items()
+            ]
             animation_path = self.path_dict["save"] / "noscan.gif"
-            render_fn = getattr(self.image_analyzer, "render_image", None)
-            self.renderer.create_animation(
-                data_dict=self.results,
-                output_file=animation_path,
-                render_fn=render_fn,
-            )
-
-    def _save_bin_data(self, bin_key: int, processed_data: np.ndarray) -> None:
-        """Save per-bin averaged data in HDF5 (data) and PNG (visual) formats."""
-        save_name_data = f"{self.device_name}_{bin_key}_processed.h5"
-        save_name_visual = f"{self.device_name}_{bin_key}_processed_visual.png"
-
-        self.renderer.save_data(
-            processed_data, save_dir=self.path_dict["save"], save_name=save_name_data
-        )
-        self.saved_avg_data_paths[bin_key] = self.path_dict["save"] / save_name_data
-
-        self.renderer.save_visualization(
-            processed_data,
-            save_dir=self.path_dict["save"],
-            save_name=save_name_visual,
-        )
-
-        logger.info(
-            f"Saved bin {bin_key} data: {save_name_data} and {save_name_visual}"
-        )
+            self.renderer.render_animation(contexts, config, animation_path)
 
     def _postprocess_scan_parallel(self) -> None:
         """
         Post-process a scanned variable by binning and saving averaged data in parallel.
 
+        Uses the new RenderContext-based renderer interface for clean, type-safe rendering.
+
         The method:
         1) Bins data using ``bin_data_from_results``.
-        2) Saves each bin's HDF5 and PNG concurrently.
-        3) Generates a summary figure of binned averages if >1 bin.
+        2) Creates RenderContext objects for each bin.
+        3) Renders individual bins in parallel using renderer.render_single().
+        4) Generates a summary figure if >1 bin using renderer.render_summary().
         """
         # Bin data
-        binned_data = self.bin_data_from_results(flag_save=False)
+        binned_data = self.bin_data_from_results()
+        if not binned_data:
+            logger.warning("No binned data to postprocess")
+            return
 
-        # Save each bin's data concurrently
-        if self.flag_save_data:
-            with ThreadPoolExecutor() as executor:
-                futures = []
-                for bin_key, bin_item in binned_data.items():
-                    processed_data = bin_item["result"]["processed_image"]
-                    futures.append(
-                        executor.submit(self._save_bin_data, bin_key, processed_data)
-                    )
-                for future in as_completed(futures):
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.error(f"Error saving data for a bin: {e}")
-
-        # Create a summary figure if more than one bin exists
-        if len(binned_data) > 1 and self.flag_save_data:
-            plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get(
-                "Plot Scale", None
-            )
-            save_path = (
-                Path(self.path_dict["save"])
-                / f"{self.device_name}_averaged_data_grid.png"
-            )
-            render_fn = getattr(self.image_analyzer, "render_image", None)
-            self.renderer.create_summary_figure(
-                binned_data,
-                plot_scale=plot_scale,
-                save_path=save_path,
+        # Build render contexts from binned data
+        contexts = [
+            RenderContext.from_bin_result(
+                bin_key=bin_key,
+                bin_entry=bin_entry,
                 device_name=self.device_name,
                 scan_parameter=self.scan_parameter,
-                render_fn=render_fn,
             )
+            for bin_key, bin_entry in binned_data.items()
+        ]
+
+        # Get renderer config (subclasses should provide this)
+        config = self._get_renderer_config()
+
+        # Render individual bins in parallel
+        if self.flag_save_data:
+            with ThreadPoolExecutor() as executor:
+                futures = [
+                    executor.submit(
+                        self.renderer.render_single,
+                        ctx,
+                        config,
+                        self.path_dict["save"],
+                    )
+                    for ctx in contexts
+                ]
+                for future in as_completed(futures):
+                    try:
+                        paths = future.result()
+                        # Track saved paths for first bin (for backward compatibility)
+                        if paths and len(paths) > 0:
+                            # Extract bin_key from the first path's filename
+                            filename = paths[0].name
+                            # Parse bin_key from filename like "device_0_processed.h5"
+                            parts = filename.split("_")
+                            if len(parts) >= 2 and parts[-2].isdigit():
+                                bin_key = int(parts[-2])
+                                self.saved_avg_data_paths[bin_key] = paths[0]
+                    except Exception as e:
+                        logger.error(f"Error rendering bin data: {e}")
+
+        # Create summary figure if multiple bins exist
+        if len(contexts) > 1 and self.flag_save_data:
+            try:
+                summary_path = self.renderer.render_summary(
+                    contexts, config, self.path_dict["save"]
+                )
+                if summary_path:
+                    logger.info(f"Created summary figure at {summary_path}")
+            except Exception as e:
+                logger.error(f"Error creating summary figure: {e}")
+
         self.binned_data = binned_data
 
-    def bin_data_from_results(
-        self, flag_save: Optional[bool] = None
-    ) -> dict[int, BinDataEntry]:
+    def _get_renderer_config(self):
+        """
+        Get renderer configuration for this analyzer.
+
+        Subclasses should override this to provide their specific config type.
+        This base implementation returns a generic config with common settings.
+
+        Returns
+        -------
+        BaseRendererConfig
+            Renderer configuration object
+        """
+        from scan_analysis.analyzers.renderers.config import BaseRendererConfig
+
+        # Get renderer_kwargs if available (for backward compatibility)
+        renderer_kwargs = getattr(self, "renderer_kwargs", {})
+
+        # Handle legacy plot_scale parameter
+        plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get(
+            "Plot Scale", None
+        )
+        if plot_scale is not None and "vmax" not in renderer_kwargs:
+            renderer_kwargs["vmax"] = plot_scale
+
+        # Create config from kwargs
+        try:
+            return BaseRendererConfig(**renderer_kwargs)
+        except Exception as e:
+            logger.warning(f"Error creating renderer config: {e}. Using defaults.")
+            return BaseRendererConfig()
+
+    def bin_data_from_results(self) -> dict[int, BinDataEntry]:
         """
         Bin processed data by scan parameter and compute per-bin averages.
 
@@ -557,13 +609,6 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         - Average the data for that bin.
         - Average numeric analyzer scalar outputs across shots in the bin.
         - Optionally, average analyzer lineouts (if supplied as arrays).
-        - Save per-bin averaged data if requested.
-
-        Parameters
-        ----------
-        flag_save : bool, optional
-            Whether to save the averaged data per bin. Defaults to the instance's
-            ``flag_save_data``.
 
         Returns
         -------
@@ -572,9 +617,6 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             - ``"value"`` : representative scan parameter value for the bin (float)
             - ``"result"`` : AnalyzerResultDict with averaged data/scalars/lineout
         """
-        if flag_save is None:
-            flag_save = self.flag_save_data
-
         if "Bin #" not in self.auxiliary_data.columns:
             logger.warning("Missing 'Bin #' column in auxiliary data.")
             return {}
@@ -663,16 +705,6 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                     "analyzer_return_lineouts": average_lineouts,
                 },
             }
-
-            if flag_save:
-                save_name = f"{self.device_name}_{bin_val}.h5"
-                self.renderer.save_data(
-                    avg_data, save_dir=self.path_dict["save"], save_name=save_name
-                )
-
-                logger.info(
-                    f"Binned and averaged data for bin {bin_val} saved as {save_name}."
-                )
 
         return binned_data
 

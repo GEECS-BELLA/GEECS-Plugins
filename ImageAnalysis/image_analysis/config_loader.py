@@ -26,6 +26,7 @@ from pydantic import BaseModel, ValidationError
 
 # All config models in one namespace
 import image_analysis.processing.array2d.config_models as cfg_2d
+import image_analysis.processing.array1d.config_models as cfg_1d
 
 if TYPE_CHECKING:
     from .types import Array2D
@@ -38,6 +39,7 @@ __all__ = [
     "set_config_base_dir",
     "get_config_base_dir",
     "load_camera_config",
+    "load_line_config",
     "find_config_file",
     "create_processing_configs",
     "save_config_to_yaml",
@@ -224,6 +226,38 @@ def load_camera_config(
         return cfg_2d.CameraConfig.model_validate(data)
     except ValidationError as e:
         raise ValueError(f"Invalid camera configuration: {e}") from e
+
+
+def load_line_config(
+    config_source: Union[str, Path, Dict[str, Any]],
+    *,
+    config_dir: Optional[Path] = None,
+    **overrides: Any,
+) -> cfg_1d.Line1DConfig:
+    r"""
+    Load and validate a Line1DConfig model from name/path/dict, with __ overrides.
+
+    Parameters
+    ----------
+    config_source : Union[str, Path, Dict[str, Any]]
+        - str: line config name (file stem) under the base directory
+        - Path: explicit .yaml/.yml file path
+        - dict: already-loaded configuration dictionary
+    config_dir : Optional[Path]
+        Directory containing YAML config files. If omitted, uses the global base dir.
+    **overrides : Any
+        Nested overrides using double-underscore syntax (e.g., data_loading__data_type="csv").
+
+    Returns
+    -------
+    cfg_1d.Line1DConfig
+        Validated line configuration model.
+    """
+    data = _load_camera_config_dict(config_source, config_dir=config_dir, **overrides)
+    try:
+        return cfg_1d.Line1DConfig.model_validate(data)
+    except ValidationError as e:
+        raise ValueError(f"Invalid line configuration: {e}") from e
 
 
 # ----------------------------------------------------------------------

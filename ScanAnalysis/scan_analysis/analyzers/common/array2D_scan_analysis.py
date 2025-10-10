@@ -21,7 +21,7 @@ from __future__ import annotations
 
 # --- Standard Library ---
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Dict, Any
 
 # --- Local / Project Imports ---
 from scan_analysis.analyzers.common.single_device_scan_analyzer import (
@@ -34,7 +34,7 @@ from image_analysis.base import ImageAnalyzer
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
-    from geecs_data_utils import ScanTag
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +85,40 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
         file_tail: Optional[str] = ".png",
         skip_plt_show: bool = True,
         flag_save_images: bool = True,
+        renderer_kwargs: Optional[Dict[str, Any]] = None,
     ):
-        """Initialize the analyzer with an ImageAnalyzer and Image2DRenderer."""
+        """Initialize the analyzer with an ImageAnalyzer and Image2DRenderer.
+
+        Parameters
+        ----------
+        renderer_kwargs : dict, optional
+            Additional keyword arguments to pass to the renderer's methods.
+            Useful options include:
+
+            - ``colormap_mode`` : str, default="sequential"
+                Colormap normalization mode:
+
+                - "sequential": Standard 0 to max (default, uses 'plasma')
+                - "diverging": Symmetric around zero for bipolar data (uses 'RdBu_r')
+                - "custom": User-defined vmin/vmax and cmap
+
+            - ``cmap`` : str, optional
+                Matplotlib colormap name (e.g., 'plasma', 'RdBu_r', 'coolwarm')
+            - ``vmax`` : float, optional
+                Maximum value for colormap (replaces legacy 'plot_scale')
+            - ``vmin`` : float, optional
+                Minimum value for colormap
+            - ``figsize`` : tuple, optional
+                Panel width and height in inches for grid montages
+            - ``figsize_inches`` : float, optional
+                Width/height for square animation frames
+
+        """
         if not device_name:
             raise ValueError("Array2DScanAnalyzer requires a device_name.")
+
+        # Store renderer kwargs for later use
+        self.renderer_kwargs = renderer_kwargs or {}
 
         # Create image analyzer if not provided
         image_analyzer = image_analyzer or ImageAnalyzer()
@@ -106,36 +136,33 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
             flag_save_data=flag_save_images,
         )
 
-        # Backward compatibility: map flag_save_images to flag_save_data
-        self.flag_save_images = flag_save_images
+    def _get_renderer_config(self):
+        """
+        Get Image2DRendererConfig for this analyzer.
 
+        Returns
+        -------
+        Image2DRendererConfig
+            Renderer configuration with 2D-specific settings
+        """
+        from scan_analysis.analyzers.renderers.config import Image2DRendererConfig
 
-if __name__ == "__main__":
-    from scan_analysis.base import ScanAnalyzerInfo as Info
-    from scan_analysis.execute_scan_analysis import instantiate_scan_analyzer
-    from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
-    from image_analysis.config_loader import set_config_base_dir
-    from geecs_data_utils import ScanTag
-    from pathlib import Path
+        # Get renderer_kwargs if available
+        renderer_kwargs = getattr(self, "renderer_kwargs", {})
 
-    current_dir = Path(__file__).resolve().parent.parent
-    geecs_plugins_dir = current_dir.parent.parent.parent
-    set_config_base_dir(geecs_plugins_dir / "image_analysis_configs")
+        # Handle legacy plot_scale parameter from camera_analysis_settings
+        plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get(
+            "Plot Scale", None
+        )
+        if plot_scale is not None and "vmax" not in renderer_kwargs:
+            renderer_kwargs["vmax"] = plot_scale
 
-    dev_name = "UC_ALineEBeam3"
-    config_dict = {"camera_config_name": dev_name}
-    analyzer_info = Info(
-        scan_analyzer_class=Array2DScanAnalyzer,
-        requirements={dev_name},
-        device_name=dev_name,
-        scan_analyzer_kwargs={"image_analyzer": BeamAnalyzer(**config_dict)},
-    )
-
-    import time
-
-    t0 = time.monotonic()
-    test_tag = ScanTag(year=2025, month=6, day=10, number=29, experiment="Undulator")
-    scan_analyzer = instantiate_scan_analyzer(scan_analyzer_info=analyzer_info)
-    scan_analyzer.run_analysis(scan_tag=test_tag)
-    t1 = time.monotonic()
-    logger.info(f"execution time: {t1 - t0}")
+        # Create config from kwargs
+        try:
+            return Image2DRendererConfig(**renderer_kwargs)
+        except Exception as e:
+            logger.warning(
+                f"Error creating Image2DRendererConfig from {renderer_kwargs}: {e}. "
+                f"Using defaults."
+            )
+            return Image2DRendererConfig()

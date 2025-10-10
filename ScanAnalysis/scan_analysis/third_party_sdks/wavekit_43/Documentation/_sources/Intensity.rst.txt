@@ -1,6 +1,0 @@
-
-
-Wavekit_Python::Intensity
-=========================
-.. automodule:: wavekit_py.io_wavekit_intensity
-   :members:

@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Union, Dict, Any, Optional, Tuple
+from typing import List, Tuple
 import numpy as np
 from numpy.typing import NDArray
 import matplotlib.pyplot as plt
@@ -11,6 +11,7 @@ import h5py
 from mpl_toolkits.axes_grid1 import ImageGrid
 
 from .base_renderer import BaseRenderer
+from .config import RenderContext, Image2DRendererConfig
 from image_analysis.tools.rendering import base_render_image
 
 logger = logging.getLogger(__name__)
@@ -30,23 +31,190 @@ class Image2DRenderer(BaseRenderer):
         """Initialize the 2D image renderer."""
         self.display_contents = []
 
-    def save_data(
-        self, data: NDArray, save_dir: Union[str, Path], save_name: str
-    ) -> None:
+    def render_single(
+        self,
+        context: RenderContext,
+        config: Image2DRendererConfig,
+        save_dir: Path,
+    ) -> List[Path]:
         """
-        Save image data as HDF5 with gzip compression.
+        Render a single 2D image dataset (data file + visualization).
+
+        Parameters
+        ----------
+        context : RenderContext
+            Complete context containing data, metadata, and identification
+        config : Image2DRendererConfig
+            Rendering configuration
+        save_dir : Path
+            Directory to save outputs
+
+        Returns
+        -------
+        list of Path
+            Paths to created files [data_file, visualization_file]
+        """
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        created_files = []
+
+        # Save data file
+        data_filename = context.get_filename("processed", "h5")
+        data_path = self._save_data_file(context.data, save_dir, data_filename)
+        created_files.append(data_path)
+
+        # Save visualization
+        viz_filename = context.get_filename("processed_visual", "png")
+        viz_path = self._save_visualization_file(
+            context, config, save_dir, viz_filename
+        )
+        created_files.append(viz_path)
+
+        return created_files
+
+    def render_summary(
+        self,
+        contexts: List[RenderContext],
+        config: Image2DRendererConfig,
+        save_dir: Path,
+    ) -> Path:
+        """
+        Render summary figure from multiple 2D images.
+
+        Creates a grid montage of all images with shared colorbar.
+
+        Parameters
+        ----------
+        contexts : list of RenderContext
+            List of contexts to include in summary
+        config : Image2DRendererConfig
+            Rendering configuration
+        save_dir : Path
+            Directory to save the summary figure
+
+        Returns
+        -------
+        Path
+            Path to the created summary figure
+        """
+        if not contexts:
+            logger.warning("No contexts provided for summary figure")
+            return None
+
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get device name and scan parameter from first context
+        device_name = contexts[0].device_name
+        scan_param = contexts[0].scan_parameter or "parameter"
+
+        # Generate filename
+        summary_filename = f"{device_name}_averaged_image_grid.png"
+        summary_path = save_dir / summary_filename
+
+        self._create_image_grid(contexts, config, summary_path, scan_param)
+
+        logger.info(f"Saved summary figure to {summary_path}")
+        self.display_contents.append(str(summary_path))
+        return summary_path
+
+    def render_animation(
+        self,
+        contexts: List[RenderContext],
+        config: Image2DRendererConfig,
+        output_file: Path,
+    ) -> Path:
+        """
+        Render animation from a sequence of 2D images.
+
+        Creates an animated GIF from the image sequence.
+
+        Parameters
+        ----------
+        contexts : list of RenderContext
+            List of contexts in sequence order
+        config : Image2DRendererConfig
+            Rendering configuration
+        output_file : Path
+            Path for the output animation file
+
+        Returns
+        -------
+        Path
+            Path to the created animation file
+        """
+        if not contexts:
+            logger.warning("No contexts provided for animation")
+            return None
+
+        output_file = Path(output_file)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Determine vmin/vmax across all frames
+        vmin, vmax = self._get_global_colormap_limits(
+            [ctx.data for ctx in contexts], config
+        )
+
+        # Render each frame
+        gif_images = []
+        for ctx in contexts:
+            fig, ax = base_render_image(
+                image=ctx.data,
+                analysis_results_dict=ctx.input_parameters.get(
+                    "analyzer_return_dictionary", {}
+                ),
+                input_params_dict=ctx.input_parameters,
+                lineouts=ctx.input_parameters.get("analyzer_return_lineouts", []),
+                vmin=vmin,
+                vmax=vmax,
+                figsize=(config.figsize_inches, config.figsize_inches),
+                dpi=config.dpi,
+            )
+
+            # Add title
+            if ctx.parameter_value is not None and ctx.scan_parameter:
+                ax.set_title(
+                    f"{ctx.scan_parameter}={ctx.parameter_value:.3f}", fontsize=10
+                )
+            else:
+                ax.set_title(f"{ctx.identifier}", fontsize=10)
+
+            # Convert to RGB array
+            fig.canvas.draw()
+            rgb = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
+            rgb = rgb.reshape(fig.canvas.get_width_height()[::-1] + (4,))[:, :, :3]
+            gif_images.append(rgb)
+
+            plt.close(fig)
+
+        # Save GIF
+        io.mimsave(
+            str(output_file), gif_images, duration=config.duration / 1000.0, loop=0
+        )
+
+        logger.info(f"Saved animation to {output_file}")
+        self.display_contents.append(str(output_file))
+        return output_file
+
+    def _save_data_file(self, data: NDArray, save_dir: Path, filename: str) -> Path:
+        """Save image data as HDF5 with gzip compression.
 
         Parameters
         ----------
         data : NDArray
             Image data to save
-        save_dir : str or Path
+        save_dir : Path
             Output directory
-        save_name : str
-            File name, typically ending with .h5
+        filename : str
+            Output filename
+
+        Returns
+        -------
+        Path
+            Path to saved file
         """
-        save_path = Path(save_dir) / save_name
-        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path = save_dir / filename
 
         with h5py.File(save_path, "w") as f:
             f.create_dataset(
@@ -56,220 +224,109 @@ class Image2DRenderer(BaseRenderer):
                 compression_opts=4,
             )
 
-        logger.info(f"HDF5 image saved with compression at {save_path}")
+        logger.info(f"Saved HDF5 image to {save_path}")
+        return save_path
 
-    def save_visualization(
+    def _save_visualization_file(
         self,
-        data: NDArray,
-        save_dir: Union[str, Path],
-        save_name: str,
-        label: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        """
-        Save a PNG visualization of an image using min/max normalization.
+        context: RenderContext,
+        config: Image2DRendererConfig,
+        save_dir: Path,
+        filename: str,
+    ) -> Path:
+        """Save visualization of 2D image.
 
         Parameters
         ----------
-        data : NDArray
-            Image to visualize
-        save_dir : str or Path
+        context : RenderContext
+            Context containing data and metadata
+        config : Image2DRendererConfig
+            Rendering configuration
+        save_dir : Path
             Output directory
-        save_name : str
-            File name (e.g., something_visual.png)
-        label : str, optional
-            Title to render in the figure
-        **kwargs
-            Additional rendering parameters
+        filename : str
+            Output filename
+
+        Returns
+        -------
+        Path
+            Path to saved visualization
         """
-        max_val = np.max(data)
-        fig, ax = plt.subplots()
-        im = ax.imshow(data, cmap="plasma", vmin=0, vmax=max_val)
+        save_path = save_dir / filename
+
+        # Determine colormap and normalization
+        vmin, vmax, cmap = self._get_colormap_params(context.data, config)
+
+        fig, ax = plt.subplots(dpi=config.dpi)
+        im = ax.imshow(context.data, cmap=cmap, vmin=vmin, vmax=vmax)
         fig.colorbar(im, ax=ax)
-        ax.axis("off")
 
-        if label:
-            ax.set_title(label, fontsize=12, pad=10)
+        # Set pixel-based axis labels
+        ax.set_xlabel("X (pixels)", fontsize=10)
+        ax.set_ylabel("Y (pixels)", fontsize=10)
 
-        save_path = Path(save_dir) / save_name
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, bbox_inches="tight", pad_inches=0)
+        # Add title if we have parameter value
+        if context.parameter_value is not None and context.scan_parameter:
+            ax.set_title(
+                f"{context.scan_parameter} = {context.parameter_value:.3f}",
+                fontsize=12,
+                pad=10,
+            )
+
+        fig.savefig(save_path, bbox_inches="tight", pad_inches=0, dpi=config.dpi)
         plt.close(fig)
 
-        logger.info(f"Image saved at {save_path}")
-        self.display_contents.append(str(save_path))
+        logger.info(f"Saved image visualization to {save_path}")
+        return save_path
 
-    def create_animation(
+    def _create_image_grid(
         self,
-        data_dict: Dict[Union[int, float], Any],
-        output_file: Union[str, Path],
-        sort_keys: bool = True,
-        duration: float = 100,
-        dpi: int = 150,
-        figsize_inches: float = 4.0,
-        render_fn: Optional[callable] = None,
-        **kwargs,
+        contexts: List[RenderContext],
+        config: Image2DRendererConfig,
+        save_path: Path,
+        scan_param: str,
     ) -> None:
-        """
-        Create an animated GIF from a set of AnalyzerResultDicts.
+        """Create grid montage of images.
 
         Parameters
         ----------
-        data_dict : dict
-            Mapping from ID (e.g., shot number) to AnalyzerResultDict
-        output_file : str or Path
-            Destination GIF path
-        sort_keys : bool, default=True
-            If True, iterate frames in sorted key order
-        duration : float, default=100
-            Duration per frame in milliseconds
-        dpi : int, default=150
-            DPI for matplotlib rendering
-        figsize_inches : float, default=4.0
-            Width/height (square) of each rendered frame in inches
-        render_fn : callable, optional
-            Custom rendering function. If None, uses base_render_image
-        **kwargs
-            Additional rendering parameters
+        contexts : list of RenderContext
+            Contexts to plot
+        config : Image2DRendererConfig
+            Rendering configuration
+        save_path : Path
+            Output path
+        scan_param : str
+            Scan parameter name
         """
-        output_file = Path(output_file)
-
-        if render_fn is None:
-            render_fn = base_render_image
-
-        frames = self.prepare_render_frames(data_dict, sort_keys=sort_keys)
-        if not frames:
-            logger.warning("No valid frames to render into GIF.")
-            return
-
-        # Extract images from frames
-        images = []
-        for frame in frames:
-            result = frame["data"]
-            img = result.get("processed_image")
-            if img is not None:
-                images.append(img)
-
-        if not images:
-            logger.warning("No images found in frames.")
-            return
-
-        vmin = 0
-        vmax = max(float(img.max()) for img in images)
-
-        gif_images = []
-        for frame in frames:
-            result = frame["data"]
-            img = result.get("processed_image")
-            if img is None:
-                continue
-
-            fig, ax = render_fn(
-                image=img,
-                analysis_results_dict=result.get("analyzer_return_dictionary", {}),
-                input_params_dict=result.get("analyzer_input_parameters", {}),
-                lineouts=result.get("analyzer_return_lineouts", []),
-                vmin=vmin,
-                vmax=vmax,
-                figsize=(figsize_inches, figsize_inches),
-                dpi=dpi,
-            )
-            ax.set_title(f"{frame['key']}", fontsize=10)
-
-            # Convert rendered fig to RGB array
-            fig.canvas.draw()
-            rgb = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
-            rgb = rgb.reshape(fig.canvas.get_width_height()[::-1] + (4,))[:, :, :3]
-            gif_images.append(rgb)
-
-            plt.close(fig)
-
-        # Save GIF
-        io.mimsave(str(output_file), gif_images, duration=duration / 1000.0, loop=0)
-
-        logger.info(f"Saved GIF to {output_file.name}.")
-        self.display_contents.append(str(output_file))
-
-    def create_summary_figure(
-        self,
-        binned_data: Dict[Union[int, float], Any],
-        save_path: Optional[Path] = None,
-        plot_scale: Optional[float] = None,
-        figsize: Tuple[float, float] = (6, 6),
-        dpi: int = 150,
-        device_name: str = "device",
-        scan_parameter: str = "parameter",
-        render_fn: Optional[callable] = None,
-        **kwargs,
-    ) -> None:
-        """
-        Arrange per-bin averaged images into a labeled grid montage.
-
-        Parameters
-        ----------
-        binned_data : dict
-            Mapping from bin number to aggregated results
-        save_path : Path, optional
-            Path to save the summary figure
-        plot_scale : float, optional
-            Maximum value for colormap scaling
-        figsize : tuple, default=(6, 6)
-            Panel width and height in inches
-        dpi : int, default=150
-            DPI for the figure
-        device_name : str, default="device"
-            Device name for the figure filename
-        scan_parameter : str, default="parameter"
-            Scan parameter name for the figure title
-        render_fn : callable, optional
-            Custom rendering function. If None, uses base_render_image
-        **kwargs
-            Additional rendering parameters
-        """
-        if not binned_data:
-            logger.warning("No averaged images to arrange into an array.")
-            return
-
-        if render_fn is None:
-            render_fn = base_render_image
-
-        # Stable order by bin value
-        items = sorted(binned_data.items(), key=lambda kv: kv[0])
-
-        images = []
+        images = [ctx.data for ctx in contexts]
         titles = []
         metas = []
-        for bin_val, entry in items:
-            img = entry["result"].get("processed_image")
-            if img is None:
-                continue
-            images.append(img)
-            titles.append(f"{entry.get('value', bin_val):.2f}")
-            metas.append(entry["result"])
 
-        if not images:
-            logger.warning("No images found in binned_data results.")
-            return
+        for ctx in contexts:
+            if ctx.parameter_value is not None:
+                titles.append(f"{ctx.parameter_value:.2f}")
+            else:
+                titles.append(f"{ctx.identifier}")
+            metas.append(ctx.input_parameters)
 
-        # vmin/vmax (shared)
-        vmin = 0
-        vmax = (
-            plot_scale
-            if plot_scale is not None
-            else max(float(img.max()) for img in images)
-        )
+        # Determine vmin/vmax (shared across all images)
+        vmin, vmax, cmap = self._get_colormap_params(images[0], config)
+
+        # Use vmax from config if provided, otherwise compute from all images
+        if config.vmax is None:
+            vmax = max(float(img.max()) for img in images)
 
         # Assume consistent shape
         shapes = {img.shape[:2] for img in images}
         if len(shapes) > 1:
             logger.warning(
-                "Images have varying shapes: %s; layout will use the first shape.",
-                shapes,
+                f"Images have varying shapes: {shapes}; layout will use the first shape."
             )
         h0, w0 = images[0].shape[:2]
 
         # Figure size from panel width and image aspect
-        panel_w_in = float(figsize[0])
+        panel_w_in = float(config.figsize[0])
         panel_h_in = panel_w_in * (h0 / float(w0))
         rows, cols = self._grid_dims(len(images))
 
@@ -278,7 +335,7 @@ class Image2DRenderer(BaseRenderer):
         fig_w_in = cols * panel_w_in + cbar_extra_w
         fig_h_in = rows * panel_h_in
 
-        fig = plt.figure(figsize=(fig_w_in, fig_h_in), dpi=dpi)
+        fig = plt.figure(figsize=(fig_w_in, fig_h_in), dpi=config.dpi)
 
         grid = ImageGrid(
             fig,
@@ -298,10 +355,10 @@ class Image2DRenderer(BaseRenderer):
         # Plot panels
         first_im_artist = None
         for ax, img, title, meta in zip(axes, images, titles, metas):
-            render_fn(
+            base_render_image(
                 image=img,
                 analysis_results_dict=meta.get("analyzer_return_dictionary", {}),
-                input_params_dict=meta.get("analyzer_input_parameters", {}),
+                input_params_dict=meta,
                 lineouts=meta.get("analyzer_return_lineouts", []),
                 vmin=vmin,
                 vmax=vmax,
@@ -338,61 +395,105 @@ class Image2DRenderer(BaseRenderer):
             cb = cax.colorbar(sm)
             cb.set_label("")
 
-        fig.suptitle(f"Scan parameter: {scan_parameter}", fontsize=12)
-
-        # Save
-        if save_path is None:
-            save_path = Path(f"{device_name}_averaged_image_grid.png")
-        fig.savefig(save_path, bbox_inches="tight")
+        fig.suptitle(f"Scan parameter: {scan_param}", fontsize=12)
+        fig.savefig(save_path, bbox_inches="tight", dpi=config.dpi)
         plt.close(fig)
 
-        logger.info("Saved final image grid as %s.", save_path.name)
-        self.display_contents.append(str(save_path))
-
     @staticmethod
-    def prepare_render_frames(
-        data_dict: Dict[Union[int, float], Any], sort_keys: bool = True
-    ) -> list:
+    def _get_colormap_params(
+        data: NDArray, config: Image2DRendererConfig
+    ) -> Tuple[float, float, str]:
         """
-        Convert a mapping of results into a list of renderable frames.
+        Determine colormap parameters based on colormap_mode.
 
         Parameters
         ----------
-        data_dict : dict
-            Mapping of IDs (e.g., shot/bin numbers) to AnalyzerResultDicts
-        sort_keys : bool, default=True
-            If True, iterate IDs in sorted order
+        data : NDArray
+            Image data to determine limits from
+        config : Image2DRendererConfig
+            Rendering configuration
 
         Returns
         -------
-        list of dict
-            Each frame dict contains:
-            - image : np.ndarray
-            - title : str (key rendered as text)
-            - analysis_results_dict : dict (optional)
-            - input_params_dict : dict (optional)
-            - return_lineouts : list/array (optional)
+        vmin : float
+            Minimum colormap value
+        vmax : float
+            Maximum colormap value
+        cmap : str
+            Colormap name
         """
-        keys = sorted(data_dict) if sort_keys else data_dict.keys()
-        frames = []
-
-        for key in keys:
-            result = data_dict[key]
-            img = result.get("processed_image")
-            if img is None:
-                continue
-
-            frames.append(
-                {
-                    "key": key,
-                    "data": result,
-                }
+        if config.colormap_mode == "diverging":
+            # Symmetric around zero for bipolar data
+            vmax = max(abs(data.min()), abs(data.max()))
+            vmin = -vmax
+            cmap = config.cmap or "RdBu_r"
+            logger.info(
+                f"Using diverging colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
             )
+        elif config.colormap_mode == "sequential":
+            # Standard: 0 to max (default behavior)
+            vmin = 0
+            vmax = config.vmax if config.vmax is not None else data.max()
+            cmap = config.cmap or "plasma"
+            logger.info(
+                f"Using sequential colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
+            )
+        else:  # "custom"
+            # User-defined limits
+            vmin = config.vmin if config.vmin is not None else data.min()
+            vmax = config.vmax if config.vmax is not None else data.max()
+            cmap = config.cmap or "plasma"
+            logger.info(f"Using custom colormap with vmin={vmin:.2e}, vmax={vmax:.2e}")
 
-        return frames
+        return float(vmin), float(vmax), cmap
 
     @staticmethod
-    def _grid_dims(n: int) -> tuple[int, int]:
+    def _get_global_colormap_limits(
+        images: List[NDArray], config: Image2DRendererConfig
+    ) -> Tuple[float, float]:
+        """
+        Determine global colormap limits across multiple images.
+
+        Parameters
+        ----------
+        images : list of NDArray
+            List of images
+        config : Image2DRendererConfig
+            Rendering configuration
+
+        Returns
+        -------
+        vmin : float
+            Global minimum value
+        vmax : float
+            Global maximum value
+        """
+        if config.colormap_mode == "diverging":
+            vmax = max(max(abs(img.min()), abs(img.max())) for img in images)
+            vmin = -vmax
+        elif config.colormap_mode == "sequential":
+            vmin = 0
+            vmax = (
+                config.vmax
+                if config.vmax is not None
+                else max(img.max() for img in images)
+            )
+        else:  # "custom"
+            vmin = (
+                config.vmin
+                if config.vmin is not None
+                else min(img.min() for img in images)
+            )
+            vmax = (
+                config.vmax
+                if config.vmax is not None
+                else max(img.max() for img in images)
+            )
+
+        return float(vmin), float(vmax)
+
+    @staticmethod
+    def _grid_dims(n: int) -> Tuple[int, int]:
         """Calculate grid dimensions for n items."""
         cols = int(np.ceil(np.sqrt(n)))
         rows = int(np.ceil(n / cols))

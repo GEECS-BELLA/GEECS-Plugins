@@ -97,11 +97,14 @@ def create_variation_analyzer(
         additional_constant=additional_constant,
     )
 
-    return BeamAnalyzer(
+    analyzer = BeamAnalyzer(
         camera_config_name=camera_config_name,
-        config_overrides={"background": variation_bg_config},
         name_suffix=name_suffix,
     )
+
+    analyzer.update_config(background=variation_bg_config)
+
+    return analyzer
 
 
 class BeamAnalyzer(StandardAnalyzer):

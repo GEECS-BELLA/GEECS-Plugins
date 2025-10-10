@@ -1,0 +1,43 @@
+# Example configuration for 1D spectrum/lineout processing
+# This demonstrates the array1d processing module
+
+name: "U_BCaveMagSpec-interpSpec"
+description: "Example configuration for processing 1D spectral data or lineouts"
+data_format: "Charge density vs Energy"
+
+# Data loading configuration
+data_loading:
+  data_type: "tsv"           # Options: "tek_scope_hdf5", "tdms_scope", "csv", "tsv", "npy"
+
+# Data type settings
+processing_dtype: "float64"  # Use high precision during processing
+storage_dtype: "float32"     # Save with lower precision to reduce file size
+
+# Background subtraction configuration
+background:
+  method: "constant"         # Options: "none", "constant", "from_file"
+  constant_value: 0.0    # Constant value to subtract from all y-values
+
+# Filtering configuration
+filtering:
+  method: "median"         # Options: "none", "gaussian", "median", "bilateral"
+  sigma: 2.0                 # Standard deviation for Gaussian filter
+  kernel_size: 51             # Kernel size for median filter (must be odd)
+
+# Thresholding configuration
+thresholding:
+  method: "absolute"       # Options: "none", "absolute", "percentile"
+  threshold_value: -10.0            # Clip values below 5th percentile
+  clip_below: true           # Clip values below (true) or above (false) threshold
+
+roi:
+  x_min: 0.005    # 0 microseconds
+  x_max: 0.05   # 10 microseconds
+
+
+# Pipeline configuration (order of processing steps)
+pipeline:
+  steps:
+    - "background"
+    - "roi"
+    - "thresholding"

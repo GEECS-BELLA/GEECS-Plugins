@@ -9,63 +9,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 from typing import Optional, Union
 
 import numpy as np
 
-
-class Data1DType(Enum):
-    """Enumeration of supported 1D data formats.
-
-    All formats return Nx2 arrays where column 0 is x values and column 1 is y values.
-
-    Attributes
-    ----------
-    TEK_SCOPE_HDF5 : str
-        Tektronix oscilloscope HDF5 files (.dat format)
-    TDMS_SCOPE : str
-        TDMS oscilloscope files (.tdms format)
-    CSV : str
-        Comma-separated values
-    TSV : str
-        Tab-separated values
-    NPY : str
-        NumPy saved arrays
-    """
-
-    TEK_SCOPE_HDF5 = "tek_scope_hdf5"
-    TDMS_SCOPE = "tdms_scope"
-    CSV = "csv"
-    TSV = "tsv"
-    NPY = "npy"
-
-
-@dataclass
-class Data1DConfig:
-    r"""Configuration for reading 1D data files.
-
-    Parameters
-    ----------
-    data_type : Data1DType
-        The type of data format to read
-    trace_index : int, default=0
-        Trace/channel index for scope files (Tek HDF5, TDMS)
-    delimiter : str, optional
-        Delimiter for CSV/TSV files (defaults to ',' for CSV, '\\t' for TSV)
-    x_column : int, default=0
-        Column index for x values in delimited files
-    y_column : int, default=1
-        Column index for y values in delimited files
-
-    """
-
-    data_type: Data1DType
-    trace_index: int = 0
-    delimiter: Optional[str] = None
-    x_column: int = 0
-    y_column: int = 1
+# Import config models from the centralized location
+from image_analysis.processing.array1d.config_models import Data1DType, Data1DConfig
 
 
 @dataclass
