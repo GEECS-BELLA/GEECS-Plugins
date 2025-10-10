@@ -257,24 +257,9 @@ class Image2DRenderer(BaseRenderer):
         # Determine colormap and normalization
         vmin, vmax, cmap = self._get_colormap_params(context.data, config)
 
-        # Extract metadata for axis labels
-        metadata = context.get_metadata_kwargs()
-        x_label = metadata.get("x_label", "X")
-        y_label = metadata.get("y_label", "Y")
-        x_units = metadata.get("x_units", "")
-        y_units = metadata.get("y_units", "")
-
-        # Build axis labels with units
-        xlabel = f"{x_label} ({x_units})" if x_units else x_label
-        ylabel = f"{y_label} ({y_units})" if y_units else y_label
-
         fig, ax = plt.subplots(dpi=config.dpi)
-        im = ax.imshow(data=context.data, cmap=cmap, vmin=vmin, vmax=vmax)
+        im = ax.imshow(context.data, cmap=cmap, vmin=vmin, vmax=vmax)
         fig.colorbar(im, ax=ax)
-
-        # Set axis labels
-        ax.set_xlabel(xlabel, fontsize=10)
-        ax.set_ylabel(ylabel, fontsize=10)
 
         # Add title if we have parameter value
         if context.parameter_value is not None and context.scan_parameter:
