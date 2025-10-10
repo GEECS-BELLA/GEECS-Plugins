@@ -1,6 +1,0 @@
-
-
-Wavekit_Python::WavefrontCorrectorSet
-=====================================
-.. automodule:: wavekit_py.io_wavekit_wavefrontcorrectorset
-   :members:

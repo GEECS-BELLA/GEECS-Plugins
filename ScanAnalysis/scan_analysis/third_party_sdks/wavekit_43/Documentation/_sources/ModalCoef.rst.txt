@@ -1,6 +1,0 @@
-
-
-Wavekit_Python::ModalCoef
-=========================
-.. automodule:: wavekit_py.io_wavekit_modalcoef
-   :members:
