@@ -166,3 +166,131 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
                 f"Using defaults."
             )
             return Image2DRendererConfig()
+
+    def _postprocess_noscan(self) -> None:
+        """
+        Post-process noscan 2D data: create average image + animated GIF.
+
+        For 2D image data without a scanned parameter, this creates:
+        - An averaged image across all shots
+        - An animated GIF showing temporal evolution
+        """
+        from scan_analysis.analyzers.renderers.config import RenderContext
+        from collections import defaultdict
+        import numpy as np
+
+        # Extract processed data from results dict
+        data_list = [res["processed_image"] for res in self.results.values()]
+        avg_data = self.average_data(data_list)
+
+        if self.flag_save_data:
+            # Average scalar results
+            analysis_results = [
+                res.get("analyzer_return_dictionary", {})
+                for res in self.results.values()
+            ]
+            if analysis_results and analysis_results[0]:
+                sums = defaultdict(list)
+                for d in analysis_results:
+                    for k, v in d.items():
+                        sums[k].append(v)
+                avg_scalars = {k: np.mean(v, axis=0) for k, v in sums.items()}
+            else:
+                avg_scalars = {}
+
+            # Create RenderContext for average
+            avg_context = RenderContext(
+                data=avg_data,
+                input_parameters={"analyzer_return_dictionary": avg_scalars},
+                device_name=self.device_name,
+                identifier="average",
+            )
+
+            config = self._get_renderer_config()
+
+            # Save average using renderer
+            self.renderer.render_single(avg_context, config, self.path_dict["save"])
+
+            # Create animation from all results
+            contexts = [
+                RenderContext(
+                    data=result["processed_image"],
+                    input_parameters=result.get("analyzer_input_parameters", {}),
+                    device_name=self.device_name,
+                    identifier=f"shot_{shot_num}",
+                )
+                for shot_num, result in self.results.items()
+            ]
+            animation_path = self.path_dict["save"] / "noscan.gif"
+            self.renderer.render_animation(contexts, config, animation_path)
+
+    def _postprocess_scan(self) -> None:
+        """
+        Post-process scanned 2D data: create image grid from binned data.
+
+        For 2D image data with a scanned parameter, this creates:
+        - Individual averaged images per bin
+        - A grid montage showing all bins
+        """
+        from scan_analysis.analyzers.renderers.config import RenderContext
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Bin data
+        binned_data = self.bin_data_from_results()
+        if not binned_data:
+            logger.warning("No binned data to postprocess")
+            return
+
+        # Build render contexts from binned data
+        contexts = [
+            RenderContext.from_bin_result(
+                bin_key=bin_key,
+                bin_entry=bin_entry,
+                device_name=self.device_name,
+                scan_parameter=self.scan_parameter,
+            )
+            for bin_key, bin_entry in binned_data.items()
+        ]
+
+        # Get renderer config
+        config = self._get_renderer_config()
+
+        # Render individual bins in parallel
+        if self.flag_save_data:
+            with ThreadPoolExecutor() as executor:
+                futures = [
+                    executor.submit(
+                        self.renderer.render_single,
+                        ctx,
+                        config,
+                        self.path_dict["save"],
+                    )
+                    for ctx in contexts
+                ]
+                for future in as_completed(futures):
+                    try:
+                        paths = future.result()
+                        # Track saved paths for first bin (for backward compatibility)
+                        if paths and len(paths) > 0:
+                            # Extract bin_key from the first path's filename
+                            filename = paths[0].name
+                            # Parse bin_key from filename like "device_0_processed.h5"
+                            parts = filename.split("_")
+                            if len(parts) >= 2 and parts[-2].isdigit():
+                                bin_key = int(parts[-2])
+                                self.saved_avg_data_paths[bin_key] = paths[0]
+                    except Exception as e:
+                        logger.error(f"Error rendering bin data: {e}")
+
+        # Create summary figure (grid montage) if multiple bins exist
+        if len(contexts) > 1 and self.flag_save_data:
+            try:
+                summary_path = self.renderer.render_summary(
+                    contexts, config, self.path_dict["save"]
+                )
+                if summary_path:
+                    logger.info(f"Created summary figure at {summary_path}")
+            except Exception as e:
+                logger.error(f"Error creating summary figure: {e}")
+
+        self.binned_data = binned_data
