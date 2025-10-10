@@ -261,6 +261,10 @@ class Image2DRenderer(BaseRenderer):
         im = ax.imshow(context.data, cmap=cmap, vmin=vmin, vmax=vmax)
         fig.colorbar(im, ax=ax)
 
+        # Set pixel-based axis labels
+        ax.set_xlabel("X (pixels)", fontsize=10)
+        ax.set_ylabel("Y (pixels)", fontsize=10)
+
         # Add title if we have parameter value
         if context.parameter_value is not None and context.scan_parameter:
             ax.set_title(
