@@ -13,6 +13,7 @@ from .config import (
     BaseRendererConfig,
     Line1DRendererConfig,
     Image2DRendererConfig,
+    RenderContext,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "BaseRendererConfig",
     "Line1DRendererConfig",
     "Image2DRendererConfig",
+    "RenderContext",
 ]

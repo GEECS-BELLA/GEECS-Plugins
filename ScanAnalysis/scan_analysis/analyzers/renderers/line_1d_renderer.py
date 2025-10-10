@@ -1,589 +1,538 @@
-"""1D line data renderer for scan analysis visualization.
-
-This module provides :class:`Line1DRenderer`, a renderer for 1D line/spectrum data
-from scan analysis. It handles visualization of Nx2 array data (x, y pairs) including:
-- Saving data as CSV files
-- Creating line plot visualizations
-- Generating animated GIFs from line sequences
-- Creating waterfall heatmap plots of binned data
-"""
+"""1D line plot renderer for scan analysis visualization."""
 
 import logging
 from pathlib import Path
-from typing import Union, Dict, Any, Optional, Tuple
+from typing import List
 import numpy as np
-from numpy.typing import NDArray
 import matplotlib.pyplot as plt
-import imageio as io
+import h5py
 
 from .base_renderer import BaseRenderer
+from .config import RenderContext, Line1DRendererConfig
 
 logger = logging.getLogger(__name__)
 
 
 class Line1DRenderer(BaseRenderer):
     """
-    Renderer for 1D line/spectrum data from scan analysis.
+    Renderer for 1D line plot data from scan analysis.
 
-    Handles visualization of 1D array data (Nx2 format: x, y pairs) including:
-    - Saving data as CSV (human-readable format)
+    Handles visualization of 1D array data including:
+    - Saving data as HDF5 and CSV
     - Creating line plot visualizations
-    - Generating animated GIFs from sequences
-    - Creating waterfall heatmap plots for binned data
-
-    Notes
-    -----
-    This renderer assumes all 1D data in a scan has identical x-axes.
-    For more complex scenarios requiring interpolation or x-axis alignment,
-    preprocessing should be handled in the ImageAnalyzer.
+    - Generating summary figures (waterfall, overlay, or grid modes)
     """
 
     def __init__(self):
         """Initialize the 1D line renderer."""
         self.display_contents = []
 
-    def save_data(
-        self, data: NDArray, save_dir: Union[str, Path], save_name: str
-    ) -> None:
-        """
-        Save 1D line data as CSV file.
-
-        Parameters
-        ----------
-        data : NDArray
-            1D data in Nx2 format (x, y)
-        save_dir : str or Path
-            Output directory
-        save_name : str
-            File name, typically ending with .csv
-        """
-        save_path = Path(save_dir) / save_name
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Save as CSV with header
-        np.savetxt(
-            save_path,
-            data,
-            delimiter=",",
-            header="x,y",
-            comments="",
-            fmt="%.6e",
-        )
-
-        logger.info(f"CSV data saved at {save_path}")
-
-    def save_visualization(
+    def render_single(
         self,
-        data: NDArray,
-        save_dir: Union[str, Path],
-        save_name: str,
-        label: Optional[str] = None,
-        **kwargs,
-    ) -> None:
+        context: RenderContext,
+        config: Line1DRendererConfig,
+        save_dir: Path,
+    ) -> List[Path]:
         """
-        Save a PNG visualization of 1D line data.
+        Render a single 1D dataset (data file + visualization).
 
         Parameters
         ----------
-        data : NDArray
-            1D data in Nx2 format (x, y)
-        save_dir : str or Path
-            Output directory
-        save_name : str
-            File name (e.g., something_visual.png)
-        label : str, optional
-            Title to render in the figure
-        **kwargs
-            Additional rendering parameters including:
-            - xlabel, ylabel: Axis labels
-            - x_label, y_label: Alternative axis labels (from metadata)
-            - x_units, y_units: Units for axis labels (from metadata)
+        context : RenderContext
+            Complete context containing data, metadata, and identification
+        config : Line1DRendererConfig
+            Rendering configuration
+        save_dir : Path
+            Directory to save outputs
+
+        Returns
+        -------
+        list of Path
+            Paths to created files [data_file, visualization_file]
         """
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ax.plot(data[:, 0], data[:, 1], linewidth=1.5)
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
 
-        # Use metadata labels if available, otherwise fall back to kwargs
-        x_label = kwargs.get("x_label")
-        y_label = kwargs.get("y_label")
-        x_units = kwargs.get("x_units")
-        y_units = kwargs.get("y_units")
+        created_files = []
 
-        if x_label:
-            xlabel = f"{x_label} ({x_units})" if x_units else x_label
-            ax.set_xlabel(xlabel)
+        # Save data file
+        data_filename = context.get_filename("processed", "h5")
+        data_path = self._save_data_file(context.data, save_dir, data_filename)
+        created_files.append(data_path)
+
+        # Save visualization
+        viz_filename = context.get_filename("processed_visual", "png")
+        viz_path = self._save_visualization_file(
+            context, config, save_dir, viz_filename
+        )
+        created_files.append(viz_path)
+
+        return created_files
+
+    def render_summary(
+        self,
+        contexts: List[RenderContext],
+        config: Line1DRendererConfig,
+        save_dir: Path,
+    ) -> Path:
+        """
+        Render summary figure from multiple 1D datasets.
+
+        Creates a composite visualization based on config.mode:
+        - "waterfall": Heatmap with scan parameter on y-axis
+        - "overlay": All lines plotted on same axes
+        - "grid": Subplot grid with one plot per bin
+
+        Parameters
+        ----------
+        contexts : list of RenderContext
+            List of contexts to include in summary
+        config : Line1DRendererConfig
+            Rendering configuration
+        save_dir : Path
+            Directory to save the summary figure
+
+        Returns
+        -------
+        Path
+            Path to the created summary figure
+        """
+        if not contexts:
+            logger.warning("No contexts provided for summary figure")
+            return None
+
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get device name and scan parameter from first context
+        device_name = contexts[0].device_name
+        scan_param = contexts[0].scan_parameter or "parameter"
+
+        # Generate filename
+        summary_filename = f"{device_name}_summary_{config.mode}.png"
+        summary_path = save_dir / summary_filename
+
+        # Render based on mode
+        if config.mode == "waterfall":
+            self._create_waterfall_plot(contexts, config, summary_path, scan_param)
+        elif config.mode == "overlay":
+            self._create_overlay_plot(contexts, config, summary_path, scan_param)
+        elif config.mode == "grid":
+            self._create_grid_plot(contexts, config, summary_path, scan_param)
         else:
-            ax.set_xlabel(kwargs.get("xlabel", "x"))
+            logger.error(f"Unknown mode: {config.mode}")
+            return None
 
-        if y_label:
-            ylabel = f"{y_label} ({y_units})" if y_units else y_label
-            ax.set_ylabel(ylabel)
+        logger.info(f"Saved summary figure to {summary_path}")
+        self.display_contents.append(str(summary_path))
+        return summary_path
+
+    def render_animation(
+        self,
+        contexts: List[RenderContext],
+        config: Line1DRendererConfig,
+        output_file: Path,
+    ) -> Path:
+        """
+        Render animation from a sequence of 1D datasets.
+
+        Note: Animation support for 1D data is limited. This method
+        creates a simple animated line plot.
+
+        Parameters
+        ----------
+        contexts : list of RenderContext
+            List of contexts in sequence order
+        config : Line1DRendererConfig
+            Rendering configuration
+        output_file : Path
+            Path for the output animation file
+
+        Returns
+        -------
+        Path
+            Path to the created animation file
+        """
+        logger.warning("Animation rendering for 1D data is not fully implemented")
+        return output_file
+
+    def _save_data_file(self, data: np.ndarray, save_dir: Path, filename: str) -> Path:
+        """Save 1D data as HDF5 file.
+
+        Parameters
+        ----------
+        data : np.ndarray
+            1D data array (Nx2: x and y values)
+        save_dir : Path
+            Output directory
+        filename : str
+            Output filename
+
+        Returns
+        -------
+        Path
+            Path to saved file
+        """
+        save_path = save_dir / filename
+
+        with h5py.File(save_path, "w") as f:
+            f.create_dataset("data", data=data, compression="gzip", compression_opts=4)
+
+        logger.info(f"Saved 1D data to {save_path}")
+        return save_path
+
+    def _save_visualization_file(
+        self,
+        context: RenderContext,
+        config: Line1DRendererConfig,
+        save_dir: Path,
+        filename: str,
+    ) -> Path:
+        """Save visualization of 1D data.
+
+        Parameters
+        ----------
+        context : RenderContext
+            Context containing data and metadata
+        config : Line1DRendererConfig
+            Rendering configuration
+        save_dir : Path
+            Output directory
+        filename : str
+            Output filename
+
+        Returns
+        -------
+        Path
+            Path to saved visualization
+        """
+        save_path = save_dir / filename
+
+        # Extract metadata
+        metadata = context.get_metadata_kwargs()
+        x_label = metadata.get("x_label", "X")
+        y_label = metadata.get("y_label", "Y")
+        x_units = metadata.get("x_units", "")
+        y_units = metadata.get("y_units", "")
+
+        # Build axis labels with units
+        xlabel = f"{x_label} ({x_units})" if x_units else x_label
+        ylabel = f"{y_label} ({y_units})" if y_units else y_label
+
+        # Create plot
+        fig, ax = plt.subplots(figsize=(8, 6), dpi=config.dpi)
+
+        if context.data.ndim == 2 and context.data.shape[1] == 2:
+            # Nx2 array: x and y values
+            ax.plot(context.data[:, 0], context.data[:, 1], linewidth=2)
         else:
-            ax.set_ylabel(kwargs.get("ylabel", "y"))
+            # 1D array: just y values, use indices for x
+            ax.plot(context.data, linewidth=2)
 
+        ax.set_xlabel(xlabel, fontsize=12)
+        ax.set_ylabel(ylabel, fontsize=12)
         ax.grid(True, alpha=0.3)
 
-        if label:
-            ax.set_title(label, fontsize=12)
+        # Add title if we have parameter value
+        if context.parameter_value is not None and context.scan_parameter:
+            ax.set_title(
+                f"{context.scan_parameter} = {context.parameter_value:.3f}", fontsize=14
+            )
 
-        save_path = Path(save_dir) / save_name
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, bbox_inches="tight", dpi=150)
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=config.dpi, bbox_inches="tight")
         plt.close(fig)
 
-        logger.info(f"Line plot saved at {save_path}")
-        self.display_contents.append(str(save_path))
+        logger.info(f"Saved visualization to {save_path}")
+        return save_path
 
-    def create_animation(
-        self,
-        data_dict: Dict[Union[int, float], Any],
-        output_file: Union[str, Path],
-        sort_keys: bool = True,
-        duration: float = 100,
-        dpi: int = 150,
-        figsize: Tuple[float, float] = (8, 5),
-        **kwargs,
-    ) -> None:
+    def _get_colormap_params_1d(
+        self, data: np.ndarray, config: Line1DRendererConfig
+    ) -> tuple:
         """
-        Create an animated GIF from a set of 1D line data.
+        Determine colormap parameters based on colormap_mode.
 
         Parameters
         ----------
-        data_dict : dict
-            Mapping from ID (e.g., shot number) to AnalyzerResultDict
-        output_file : str or Path
-            Destination GIF path
-        sort_keys : bool, default=True
-            If True, iterate frames in sorted key order
-        duration : float, default=100
-            Duration per frame in milliseconds
-        dpi : int, default=150
-            DPI for matplotlib rendering
-        figsize : tuple, default=(8, 5)
-            Figure size in inches (width, height)
-        **kwargs
-            Additional rendering parameters (e.g., xlabel, ylabel)
+        data : np.ndarray
+            Data to determine limits from
+        config : Line1DRendererConfig
+            Rendering configuration
+
+        Returns
+        -------
+        vmin : float
+            Minimum colormap value
+        vmax : float
+            Maximum colormap value
+        cmap : str
+            Colormap name
         """
-        output_file = Path(output_file)
-
-        frames = self.prepare_render_frames(data_dict, sort_keys=sort_keys)
-        if not frames:
-            logger.warning("No valid frames to render into GIF.")
-            return
-
-        # Extract all y-values to determine shared y-limits
-        all_y_values = []
-        for frame in frames:
-            result = frame["data"]
-            line_data = result.get("processed_image")
-            if line_data is not None:
-                all_y_values.extend(line_data[:, 1])
-
-        if not all_y_values:
-            logger.warning("No data found in frames.")
-            return
-
-        y_min = min(all_y_values)
-        y_max = max(all_y_values)
-        y_range = y_max - y_min
-        y_min -= 0.05 * y_range  # Add 5% padding
-        y_max += 0.05 * y_range
-
-        # Get x-limits from first frame
-        first_data = frames[0]["data"].get("processed_image")
-        x_min, x_max = first_data[0, 0], first_data[-1, 0]
-
-        gif_images = []
-        for frame in frames:
-            result = frame["data"]
-            line_data = result.get("processed_image")
-            if line_data is None:
-                continue
-
-            fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-            ax.plot(line_data[:, 0], line_data[:, 1], linewidth=1.5)
-            ax.set_xlim(x_min, x_max)
-            ax.set_ylim(y_min, y_max)
-            ax.set_xlabel(kwargs.get("xlabel", "x"))
-            ax.set_ylabel(kwargs.get("ylabel", "y"))
-            ax.set_title(f"Shot {frame['key']}", fontsize=10)
-            ax.grid(True, alpha=0.3)
-
-            # Convert rendered fig to RGB array
-            fig.canvas.draw()
-            rgb = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
-            rgb = rgb.reshape(fig.canvas.get_width_height()[::-1] + (4,))[:, :, :3]
-            gif_images.append(rgb)
-
-            plt.close(fig)
-
-        # Save GIF
-        io.mimsave(str(output_file), gif_images, duration=duration / 1000.0, loop=0)
-
-        logger.info(f"Saved GIF to {output_file.name}.")
-        self.display_contents.append(str(output_file))
-
-    def create_summary_figure(
-        self,
-        binned_data: Dict[Union[int, float], Any],
-        save_path: Optional[Path] = None,
-        device_name: str = "device",
-        scan_parameter: str = "parameter",
-        mode: str = "waterfall",
-        colormap_mode: str = "sequential",
-        cmap: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        """
-        Create a summary figure showing all bins.
-
-        Parameters
-        ----------
-        binned_data : dict
-            Mapping from bin number to aggregated results
-        save_path : Path, optional
-            Path to save the summary figure
-        device_name : str, default="device"
-            Device name for the figure filename
-        scan_parameter : str, default="parameter"
-            Scan parameter name for the figure title
-        mode : str, default="waterfall"
-            Visualization mode: "waterfall" (heatmap), "overlay", or "grid"
-        colormap_mode : str, default="sequential"
-            Colormap normalization mode (only applies to waterfall mode):
-
-            - "sequential": Standard 0 to max (default, uses 'plasma')
-            - "diverging": Symmetric around zero for bipolar data (uses 'RdBu_r')
-            - "custom": User-defined vmin/vmax and cmap
-
-        cmap : str, optional
-            Matplotlib colormap name. If not provided, defaults are:
-            'plasma' for sequential, 'RdBu_r' for diverging
-        **kwargs
-            Additional rendering parameters (e.g., vmin, vmax for custom mode)
-        """
-        if not binned_data:
-            logger.warning("No data to create summary figure.")
-            return
-
-        if mode == "waterfall":
-            self._create_waterfall_plot(
-                binned_data,
-                save_path,
-                device_name,
-                scan_parameter,
-                colormap_mode=colormap_mode,
-                cmap=cmap,
-                **kwargs,
-            )
-        elif mode == "overlay":
-            self._create_overlay_plot(
-                binned_data, save_path, device_name, scan_parameter, **kwargs
-            )
-        elif mode == "grid":
-            self._create_grid_plot(
-                binned_data, save_path, device_name, scan_parameter, **kwargs
-            )
-        else:
-            logger.warning(f"Unknown mode '{mode}'. Using 'waterfall'.")
-            self._create_waterfall_plot(
-                binned_data,
-                save_path,
-                device_name,
-                scan_parameter,
-                colormap_mode=colormap_mode,
-                cmap=cmap,
-                **kwargs,
-            )
-
-    def _create_waterfall_plot(
-        self,
-        binned_data: Dict[Union[int, float], Any],
-        save_path: Optional[Path],
-        device_name: str,
-        scan_parameter: str,
-        colormap_mode: str = "sequential",
-        cmap: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        """
-        Create a waterfall heatmap plot (like mag_spec_stitcher).
-
-        The plot shows:
-        - X-axis: x-values from 1D data (e.g., energy, wavelength)
-        - Y-axis: Scan parameter values (one row per bin)
-        - Color: y-values from 1D data (e.g., intensity, charge density)
-
-        Parameters
-        ----------
-        colormap_mode : str, default="sequential"
-            Colormap normalization mode:
-            - "sequential": Standard 0 to max (uses 'plasma')
-            - "diverging": Symmetric around zero for bipolar data (uses 'RdBu_r')
-            - "custom": User-defined vmin/vmax and cmap
-        cmap : str, optional
-            Matplotlib colormap name. Overrides defaults if provided.
-        """
-        # Sort bins by bin number
-        items = sorted(binned_data.items(), key=lambda kv: kv[0])
-
-        # Extract x-axis from first bin (all should be identical)
-        first_data = items[0][1]["result"]["processed_image"]
-        x_axis = first_data[:, 0]
-
-        # Stack y-values into 2D matrix (one row per bin)
-        y_matrix = np.vstack(
-            [entry["result"]["processed_image"][:, 1] for _, entry in items]
-        )
-
-        # Get scan parameter values for y-axis labels
-        param_values = [entry["value"] for _, entry in items]
-
-        # Determine colormap and normalization based on mode
-        if colormap_mode == "diverging":
-            # Symmetric around zero for bipolar data (e.g., scope traces)
-            vmax = max(abs(y_matrix.min()), abs(y_matrix.max()))
+        if config.colormap_mode == "diverging":
+            # Symmetric around zero for bipolar data
+            vmax = np.abs(data).max()
             vmin = -vmax
-            cmap = cmap or "RdBu_r"  # Red-white-blue (reversed)
+            cmap = config.cmap or "RdBu_r"
             logger.info(
                 f"Using diverging colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
             )
-        elif colormap_mode == "sequential":
-            # Standard: 0 to max (current default behavior)
+        elif config.colormap_mode == "sequential":
+            # Standard: 0 to max (default behavior)
             vmin = 0
-            vmax = y_matrix.max()
-            cmap = cmap or "plasma"
+            vmax = config.vmax if config.vmax is not None else data.max()
+            cmap = config.cmap or "plasma"
             logger.info(
                 f"Using sequential colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
             )
         else:  # "custom"
             # User-defined limits
-            vmin = kwargs.get("vmin", y_matrix.min())
-            vmax = kwargs.get("vmax", y_matrix.max())
-            cmap = cmap or "plasma"
+            vmin = config.vmin if config.vmin is not None else data.min()
+            vmax = config.vmax if config.vmax is not None else data.max()
+            cmap = config.cmap or "plasma"
             logger.info(f"Using custom colormap with vmin={vmin:.2e}, vmax={vmax:.2e}")
 
-        # Create figure
-        fig, ax = plt.subplots(figsize=(10, 6))
+        return float(vmin), float(vmax), cmap
 
-        # Create heatmap with determined colormap and normalization
-        extent = [
-            float(x_axis[0]),
-            float(x_axis[-1]),
-            len(param_values) + 0.5,
-            0.5,
-        ]
-        im = ax.imshow(
-            y_matrix,
-            aspect="auto",
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            extent=extent,
-            interpolation="none",
-        )
-
-        # Colorbar
-        cbar = plt.colorbar(im, ax=ax)
-
-        # Use metadata for colorbar label if available
-        y_label = kwargs.get("y_label")
-        y_units = kwargs.get("y_units")
-        if y_label:
-            colorbar_label = f"{y_label} ({y_units})" if y_units else y_label
-            cbar.set_label(colorbar_label)
-        else:
-            cbar.set_label(kwargs.get("colorbar_label", "Intensity"))
-
-        # Axis labels - use metadata if available
-        x_label = kwargs.get("x_label")
-        x_units = kwargs.get("x_units")
-        if x_label:
-            xlabel = f"{x_label} ({x_units})" if x_units else x_label
-            ax.set_xlabel(xlabel)
-        else:
-            ax.set_xlabel(kwargs.get("xlabel", "x"))
-
-        ax.set_ylabel(scan_parameter)
-
-        # Y-axis ticks at bin positions
-        y_ticks = np.arange(1, len(param_values) + 1)
-        ax.set_yticks(y_ticks)
-        ax.set_yticklabels([f"{v:.2f}" for v in param_values])
-
-        # Title
-        ax.set_title(f"Scan parameter: {scan_parameter}", fontsize=12)
-
-        # Save
-        if save_path is None:
-            save_path = Path(f"{device_name}_waterfall.png")
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, bbox_inches="tight", dpi=150)
-        plt.close(fig)
-
-        logger.info(f"Saved waterfall plot to {save_path.name}.")
-        self.display_contents.append(str(save_path))
-
-    def _create_overlay_plot(
+    def _create_waterfall_plot(
         self,
-        binned_data: Dict[Union[int, float], Any],
-        save_path: Optional[Path],
-        device_name: str,
-        scan_parameter: str,
-        **kwargs,
+        contexts: List[RenderContext],
+        config: Line1DRendererConfig,
+        save_path: Path,
+        scan_param: str,
     ) -> None:
-        """Create an overlay plot with all bins on the same axes."""
-        items = sorted(binned_data.items(), key=lambda kv: kv[0])
-
-        fig, ax = plt.subplots(figsize=(10, 6))
-
-        for _, entry in items:
-            line_data = entry["result"]["processed_image"]
-            param_value = entry["value"]
-            ax.plot(
-                line_data[:, 0],
-                line_data[:, 1],
-                label=f"{param_value:.2f}",
-                linewidth=1.5,
-            )
-
-        # Use metadata labels if available
-        x_label = kwargs.get("x_label")
-        y_label = kwargs.get("y_label")
-        x_units = kwargs.get("x_units")
-        y_units = kwargs.get("y_units")
-
-        if x_label:
-            xlabel = f"{x_label} ({x_units})" if x_units else x_label
-            ax.set_xlabel(xlabel)
-        else:
-            ax.set_xlabel(kwargs.get("xlabel", "x"))
-
-        if y_label:
-            ylabel = f"{y_label} ({y_units})" if y_units else y_label
-            ax.set_ylabel(ylabel)
-        else:
-            ax.set_ylabel(kwargs.get("ylabel", "y"))
-
-        ax.set_title(f"Scan parameter: {scan_parameter}", fontsize=12)
-        ax.legend(title=scan_parameter, bbox_to_anchor=(1.05, 1), loc="upper left")
-        ax.grid(True, alpha=0.3)
-
-        if save_path is None:
-            save_path = Path(f"{device_name}_overlay.png")
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, bbox_inches="tight", dpi=150)
-        plt.close(fig)
-
-        logger.info(f"Saved overlay plot to {save_path.name}.")
-        self.display_contents.append(str(save_path))
-
-    def _create_grid_plot(
-        self,
-        binned_data: Dict[Union[int, float], Any],
-        save_path: Optional[Path],
-        device_name: str,
-        scan_parameter: str,
-        **kwargs,
-    ) -> None:
-        """Create a grid of subplots, one per bin."""
-        items = sorted(binned_data.items(), key=lambda kv: kv[0])
-        n_bins = len(items)
-
-        # Calculate grid dimensions
-        cols = int(np.ceil(np.sqrt(n_bins)))
-        rows = int(np.ceil(n_bins / cols))
-
-        fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 3 * rows))
-        if n_bins == 1:
-            axes = np.array([axes])
-        axes = axes.flatten()
-
-        # Get shared y-limits
-        all_y = []
-        for _, entry in items:
-            all_y.extend(entry["result"]["processed_image"][:, 1])
-        y_min, y_max = min(all_y), max(all_y)
-        y_range = y_max - y_min
-        y_min -= 0.05 * y_range
-        y_max += 0.05 * y_range
-
-        # Extract metadata labels if available
-        x_label = kwargs.get("x_label")
-        y_label = kwargs.get("y_label")
-        x_units = kwargs.get("x_units")
-        y_units = kwargs.get("y_units")
-
-        # Build axis labels with units
-        if x_label:
-            xlabel = f"{x_label} ({x_units})" if x_units else x_label
-        else:
-            xlabel = kwargs.get("xlabel", "x")
-
-        if y_label:
-            ylabel = f"{y_label} ({y_units})" if y_units else y_label
-        else:
-            ylabel = kwargs.get("ylabel", "y")
-
-        # Plot each bin
-        for idx, (_, entry) in enumerate(items):
-            ax = axes[idx]
-            line_data = entry["result"]["processed_image"]
-            param_value = entry["value"]
-
-            ax.plot(line_data[:, 0], line_data[:, 1], linewidth=1.5)
-            ax.set_ylim(y_min, y_max)
-            ax.set_title(f"{param_value:.2f}", fontsize=10)
-            ax.grid(True, alpha=0.3)
-
-            if idx >= (rows - 1) * cols:  # Bottom row
-                ax.set_xlabel(xlabel)
-            if idx % cols == 0:  # Left column
-                ax.set_ylabel(ylabel)
-
-        # Hide unused subplots
-        for idx in range(n_bins, len(axes)):
-            axes[idx].set_visible(False)
-
-        fig.suptitle(f"Scan parameter: {scan_parameter}", fontsize=12)
-        fig.tight_layout()
-
-        if save_path is None:
-            save_path = Path(f"{device_name}_grid.png")
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, bbox_inches="tight", dpi=150)
-        plt.close(fig)
-
-        logger.info(f"Saved grid plot to {save_path.name}.")
-        self.display_contents.append(str(save_path))
-
-    @staticmethod
-    def prepare_render_frames(
-        data_dict: Dict[Union[int, float], Any], sort_keys: bool = True
-    ) -> list:
-        """
-        Convert a mapping of results into a list of renderable frames.
+        """Create waterfall (heatmap) plot of all bins.
 
         Parameters
         ----------
-        data_dict : dict
-            Mapping of IDs (e.g., shot/bin numbers) to AnalyzerResultDicts
-        sort_keys : bool, default=True
-            If True, iterate IDs in sorted order
-
-        Returns
-        -------
-        list of dict
-            Each frame dict contains 'key' and 'data' (AnalyzerResultDict)
+        contexts : list of RenderContext
+            Contexts to plot
+        config : Line1DRendererConfig
+            Rendering configuration
+        save_path : Path
+            Output path
+        scan_param : str
+            Scan parameter name
         """
-        keys = sorted(data_dict) if sort_keys else data_dict.keys()
-        frames = []
+        # Extract data and parameter values
+        data_arrays = []
+        param_values = []
 
-        for key in keys:
-            result = data_dict[key]
-            line_data = result.get("processed_image")
-            if line_data is None:
-                continue
+        for ctx in contexts:
+            if ctx.data.ndim == 2 and ctx.data.shape[1] == 2:
+                data_arrays.append(ctx.data[:, 1])  # y values only
+            else:
+                data_arrays.append(ctx.data)
+            param_values.append(ctx.parameter_value or ctx.identifier)
 
-            frames.append({"key": key, "data": result})
+        # Stack into 2D array
+        waterfall_data = np.array(data_arrays)
 
-        return frames
+        # Get x-axis values from first context
+        if contexts[0].data.ndim == 2 and contexts[0].data.shape[1] == 2:
+            x_values = contexts[0].data[:, 0]
+        else:
+            x_values = np.arange(len(contexts[0].data))
+
+        # Extract metadata from first context
+        metadata = contexts[0].get_metadata_kwargs()
+        x_label = metadata.get("x_label", "X")
+        y_label = metadata.get("y_label", "Intensity")
+        x_units = metadata.get("x_units", "")
+        y_units = metadata.get("y_units", "")
+
+        xlabel = f"{x_label} ({x_units})" if x_units else x_label
+        ylabel = f"{y_label} ({y_units})" if y_units else y_label
+
+        # Determine colormap parameters based on mode
+        vmin, vmax, cmap = self._get_colormap_params_1d(waterfall_data, config)
+
+        # Create plot
+        fig, ax = plt.subplots(figsize=(10, 8), dpi=config.dpi)
+
+        # Use pcolormesh for proper discrete bin representation
+        # Create meshgrid for pcolormesh (need bin edges)
+        x_edges = np.concatenate(
+            [
+                [x_values[0] - (x_values[1] - x_values[0]) / 2],
+                (x_values[:-1] + x_values[1:]) / 2,
+                [x_values[-1] + (x_values[-1] - x_values[-2]) / 2],
+            ]
+        )
+
+        # For y-axis, create edges between parameter values
+        y_edges = np.zeros(len(param_values) + 1)
+        y_edges[0] = (
+            param_values[0] - (param_values[1] - param_values[0]) / 2
+            if len(param_values) > 1
+            else param_values[0] - 0.5
+        )
+        y_edges[-1] = (
+            param_values[-1] + (param_values[-1] - param_values[-2]) / 2
+            if len(param_values) > 1
+            else param_values[-1] + 0.5
+        )
+        for i in range(1, len(param_values)):
+            y_edges[i] = (param_values[i - 1] + param_values[i]) / 2
+
+        im = ax.pcolormesh(
+            x_edges,
+            y_edges,
+            waterfall_data,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            shading="flat",
+        )
+
+        # Set y-ticks to actual parameter values
+        ax.set_yticks(param_values)
+        ax.set_yticklabels([f"{val:.3f}" for val in param_values])
+
+        ax.set_xlabel(xlabel, fontsize=12)
+        ax.set_ylabel(f"{scan_param}", fontsize=12)
+        ax.set_title(f"Waterfall Plot: {scan_param} Scan", fontsize=14)
+
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label(ylabel, fontsize=12)
+
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=config.dpi, bbox_inches="tight")
+        plt.close(fig)
+
+    def _create_overlay_plot(
+        self,
+        contexts: List[RenderContext],
+        config: Line1DRendererConfig,
+        save_path: Path,
+        scan_param: str,
+    ) -> None:
+        """Create overlay plot with all bins on same axes.
+
+        Parameters
+        ----------
+        contexts : list of RenderContext
+            Contexts to plot
+        config : Line1DRendererConfig
+            Rendering configuration
+        save_path : Path
+            Output path
+        scan_param : str
+            Scan parameter name
+        """
+        # Extract metadata from first context
+        metadata = contexts[0].get_metadata_kwargs()
+        x_label = metadata.get("x_label", "X")
+        y_label = metadata.get("y_label", "Y")
+        x_units = metadata.get("x_units", "")
+        y_units = metadata.get("y_units", "")
+
+        xlabel = f"{x_label} ({x_units})" if x_units else x_label
+        ylabel = f"{y_label} ({y_units})" if y_units else y_label
+
+        # Create plot
+        fig, ax = plt.subplots(figsize=(10, 8), dpi=config.dpi)
+
+        # Use colormap for different lines
+        cmap = plt.get_cmap(config.cmap or "plasma")
+        colors = [cmap(i / len(contexts)) for i in range(len(contexts))]
+
+        for ctx, color in zip(contexts, colors):
+            if ctx.data.ndim == 2 and ctx.data.shape[1] == 2:
+                x_vals, y_vals = ctx.data[:, 0], ctx.data[:, 1]
+            else:
+                x_vals = np.arange(len(ctx.data))
+                y_vals = ctx.data
+
+            label = (
+                f"{scan_param}={ctx.parameter_value:.3f}"
+                if ctx.parameter_value is not None
+                else f"Bin {ctx.identifier}"
+            )
+            ax.plot(x_vals, y_vals, color=color, linewidth=2, label=label, alpha=0.7)
+
+        ax.set_xlabel(xlabel, fontsize=12)
+        ax.set_ylabel(ylabel, fontsize=12)
+        ax.set_title(f"Overlay Plot: {scan_param} Scan", fontsize=14)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=10, loc="best")
+
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=config.dpi, bbox_inches="tight")
+        plt.close(fig)
+
+    def _create_grid_plot(
+        self,
+        contexts: List[RenderContext],
+        config: Line1DRendererConfig,
+        save_path: Path,
+        scan_param: str,
+    ) -> None:
+        """Create grid of subplots, one per bin.
+
+        Parameters
+        ----------
+        contexts : list of RenderContext
+            Contexts to plot
+        config : Line1DRendererConfig
+            Rendering configuration
+        save_path : Path
+            Output path
+        scan_param : str
+            Scan parameter name
+        """
+        # Calculate grid dimensions
+        n_plots = len(contexts)
+        n_cols = int(np.ceil(np.sqrt(n_plots)))
+        n_rows = int(np.ceil(n_plots / n_cols))
+
+        # Extract metadata from first context
+        metadata = contexts[0].get_metadata_kwargs()
+        x_label = metadata.get("x_label", "X")
+        y_label = metadata.get("y_label", "Y")
+        x_units = metadata.get("x_units", "")
+        y_units = metadata.get("y_units", "")
+
+        xlabel = f"{x_label} ({x_units})" if x_units else x_label
+        ylabel = f"{y_label} ({y_units})" if y_units else y_label
+
+        # Create figure
+        fig, axes = plt.subplots(
+            n_rows, n_cols, figsize=(4 * n_cols, 3 * n_rows), dpi=config.dpi
+        )
+
+        # Flatten axes array for easier iteration
+        if n_plots == 1:
+            axes = [axes]
+        else:
+            axes = axes.flatten()
+
+        # Plot each context
+        for idx, ctx in enumerate(contexts):
+            ax = axes[idx]
+
+            if ctx.data.ndim == 2 and ctx.data.shape[1] == 2:
+                x_vals, y_vals = ctx.data[:, 0], ctx.data[:, 1]
+            else:
+                x_vals = np.arange(len(ctx.data))
+                y_vals = ctx.data
+
+            ax.plot(x_vals, y_vals, linewidth=2)
+            ax.set_xlabel(xlabel, fontsize=10)
+            ax.set_ylabel(ylabel, fontsize=10)
+            ax.grid(True, alpha=0.3)
+
+            title = (
+                f"{scan_param}={ctx.parameter_value:.3f}"
+                if ctx.parameter_value is not None
+                else f"Bin {ctx.identifier}"
+            )
+            ax.set_title(title, fontsize=11)
+
+        # Hide unused subplots
+        for idx in range(n_plots, len(axes)):
+            axes[idx].set_visible(False)
+
+        fig.suptitle(f"Grid Plot: {scan_param} Scan", fontsize=14)
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=config.dpi, bbox_inches="tight")
+        plt.close(fig)

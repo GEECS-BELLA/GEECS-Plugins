@@ -2,9 +2,12 @@
 
 This module provides Pydantic models for configuring renderer behavior,
 including colormap options, visualization modes, and rendering parameters.
+It also provides RenderContext for bundling data with metadata.
 """
 
-from typing import Optional, Literal, Tuple
+from typing import Optional, Literal, Tuple, Dict, Any, Union
+from dataclasses import dataclass
+import numpy as np
 from pydantic import BaseModel, Field
 
 
@@ -137,3 +140,128 @@ class Image2DRendererConfig(BaseRendererConfig):
         default="plasma",
         description="Matplotlib colormap name (default: plasma for 2D)",
     )
+
+
+@dataclass
+class RenderContext:
+    """Complete context for rendering a single dataset.
+
+    Bundles data, metadata, and identification info needed for rendering.
+    Separates "what to render" (context) from "how to render" (config).
+
+    Attributes
+    ----------
+    data : np.ndarray
+        The processed data to render (1D or 2D array)
+    input_parameters : dict
+        Analyzer input parameters including labels, units, etc.
+    device_name : str
+        Name of the device being analyzed
+    identifier : int or str
+        Unique identifier (bin_key, shot_number, etc.)
+    scan_parameter : str, optional
+        Name of the scan parameter (for scan context)
+    parameter_value : float, optional
+        Value of the scan parameter for this data
+    """
+
+    data: np.ndarray
+    input_parameters: Dict[str, Any]
+    device_name: str
+    identifier: Union[int, str]
+    scan_parameter: Optional[str] = None
+    parameter_value: Optional[float] = None
+
+    @classmethod
+    def from_bin_result(
+        cls,
+        bin_key: int,
+        bin_entry: Dict[str, Any],
+        device_name: str,
+        scan_parameter: Optional[str] = None,
+    ) -> "RenderContext":
+        """Create RenderContext from binned_data entry.
+
+        Parameters
+        ----------
+        bin_key : int
+            The bin number/key
+        bin_entry : dict
+            Entry from binned_data dict containing 'result' and 'value'
+        device_name : str
+            Name of the device
+        scan_parameter : str, optional
+            Name of the scan parameter
+
+        Returns
+        -------
+        RenderContext
+            Initialized context ready for rendering
+        """
+        result = bin_entry["result"]
+        return cls(
+            data=result["processed_image"],
+            input_parameters=result.get("analyzer_input_parameters", {}),
+            device_name=device_name,
+            identifier=bin_key,
+            scan_parameter=scan_parameter,
+            parameter_value=bin_entry.get("value"),
+        )
+
+    @classmethod
+    def from_analyzer_result(
+        cls, shot_number: int, result: Dict[str, Any], device_name: str
+    ) -> "RenderContext":
+        """Create RenderContext from single shot result.
+
+        Parameters
+        ----------
+        shot_number : int
+            The shot number
+        result : dict
+            Analyzer result dict
+        device_name : str
+            Name of the device
+
+        Returns
+        -------
+        RenderContext
+            Initialized context ready for rendering
+        """
+        return cls(
+            data=result["processed_image"],
+            input_parameters=result.get("analyzer_input_parameters", {}),
+            device_name=device_name,
+            identifier=shot_number,
+        )
+
+    def get_metadata_kwargs(self) -> Dict[str, str]:
+        """Extract visualization metadata (labels, units) from input_parameters.
+
+        Returns
+        -------
+        dict
+            Dictionary containing x_label, y_label, x_units, y_units if present
+        """
+        return {
+            k: self.input_parameters.get(k)
+            for k in ["x_label", "y_label", "x_units", "y_units"]
+            if k in self.input_parameters
+        }
+
+    def get_filename(self, suffix: str, extension: str = "png") -> str:
+        """Generate consistent filename for this context.
+
+        Parameters
+        ----------
+        suffix : str
+            Suffix to add to filename (e.g., 'processed', 'visual')
+        extension : str, default='png'
+            File extension
+
+        Returns
+        -------
+        str
+            Formatted filename
+        """
+        return f"{self.device_name}_{self.identifier}_{suffix}.{extension}"

@@ -35,6 +35,7 @@ from collections import defaultdict
 
 # --- Local / Project Imports ---
 from scan_analysis.base import ScanAnalyzer
+from scan_analysis.analyzers.renderers.config import RenderContext
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
@@ -503,67 +504,104 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         """
         Post-process a scanned variable by binning and saving averaged data in parallel.
 
+        Uses the new RenderContext-based renderer interface for clean, type-safe rendering.
+
         The method:
         1) Bins data using ``bin_data_from_results``.
-        2) Saves each bin's HDF5 and PNG concurrently.
-        3) Generates a summary figure of binned averages if >1 bin.
+        2) Creates RenderContext objects for each bin.
+        3) Renders individual bins in parallel using renderer.render_single().
+        4) Generates a summary figure if >1 bin using renderer.render_summary().
         """
         # Bin data
         binned_data = self.bin_data_from_results(flag_save=False)
+        if not binned_data:
+            logger.warning("No binned data to postprocess")
+            return
 
-        # Save each bin's data concurrently
-        if self.flag_save_data:
-            with ThreadPoolExecutor() as executor:
-                futures = []
-                for bin_key, bin_item in binned_data.items():
-                    processed_data = bin_item["result"]["processed_image"]
-                    futures.append(
-                        executor.submit(self._save_bin_data, bin_key, processed_data)
-                    )
-                for future in as_completed(futures):
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.error(f"Error saving data for a bin: {e}")
-
-        # Create a summary figure if more than one bin exists
-        if len(binned_data) > 1 and self.flag_save_data:
-            plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get(
-                "Plot Scale", None
-            )
-            save_path = (
-                Path(self.path_dict["save"])
-                / f"{self.device_name}_averaged_data_grid.png"
-            )
-            render_fn = getattr(self.image_analyzer, "render_image", None)
-
-            # Get renderer_kwargs if available (for Array1DScanAnalyzer, etc.)
-            renderer_kwargs = getattr(self, "renderer_kwargs", {})
-
-            # Extract metadata from first bin for axis labels
-            metadata_kwargs = {}
-            if binned_data:
-                first_bin = next(iter(binned_data.values()))
-                input_params = first_bin["result"].get("analyzer_input_parameters", {})
-
-                # Extract metadata fields if they exist
-                for key in ["x_label", "y_label", "x_units", "y_units"]:
-                    if key in input_params:
-                        metadata_kwargs[key] = input_params[key]
-
-            # Merge metadata with renderer_kwargs (renderer_kwargs takes precedence)
-            combined_kwargs = {**metadata_kwargs, **renderer_kwargs}
-
-            self.renderer.create_summary_figure(
-                binned_data,
-                plot_scale=plot_scale,
-                save_path=save_path,
+        # Build render contexts from binned data
+        contexts = [
+            RenderContext.from_bin_result(
+                bin_key=bin_key,
+                bin_entry=bin_entry,
                 device_name=self.device_name,
                 scan_parameter=self.scan_parameter,
-                render_fn=render_fn,
-                **combined_kwargs,
             )
+            for bin_key, bin_entry in binned_data.items()
+        ]
+
+        # Get renderer config (subclasses should provide this)
+        config = self._get_renderer_config()
+
+        # Render individual bins in parallel
+        if self.flag_save_data:
+            with ThreadPoolExecutor() as executor:
+                futures = [
+                    executor.submit(
+                        self.renderer.render_single,
+                        ctx,
+                        config,
+                        self.path_dict["save"],
+                    )
+                    for ctx in contexts
+                ]
+                for future in as_completed(futures):
+                    try:
+                        paths = future.result()
+                        # Track saved paths for first bin (for backward compatibility)
+                        if paths and len(paths) > 0:
+                            # Extract bin_key from the first path's filename
+                            filename = paths[0].name
+                            # Parse bin_key from filename like "device_0_processed.h5"
+                            parts = filename.split("_")
+                            if len(parts) >= 2 and parts[-2].isdigit():
+                                bin_key = int(parts[-2])
+                                self.saved_avg_data_paths[bin_key] = paths[0]
+                    except Exception as e:
+                        logger.error(f"Error rendering bin data: {e}")
+
+        # Create summary figure if multiple bins exist
+        if len(contexts) > 1 and self.flag_save_data:
+            try:
+                summary_path = self.renderer.render_summary(
+                    contexts, config, self.path_dict["save"]
+                )
+                if summary_path:
+                    logger.info(f"Created summary figure at {summary_path}")
+            except Exception as e:
+                logger.error(f"Error creating summary figure: {e}")
+
         self.binned_data = binned_data
+
+    def _get_renderer_config(self):
+        """
+        Get renderer configuration for this analyzer.
+
+        Subclasses should override this to provide their specific config type.
+        This base implementation returns a generic config with common settings.
+
+        Returns
+        -------
+        BaseRendererConfig
+            Renderer configuration object
+        """
+        from scan_analysis.analyzers.renderers.config import BaseRendererConfig
+
+        # Get renderer_kwargs if available (for backward compatibility)
+        renderer_kwargs = getattr(self, "renderer_kwargs", {})
+
+        # Handle legacy plot_scale parameter
+        plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get(
+            "Plot Scale", None
+        )
+        if plot_scale is not None and "vmax" not in renderer_kwargs:
+            renderer_kwargs["vmax"] = plot_scale
+
+        # Create config from kwargs
+        try:
+            return BaseRendererConfig(**renderer_kwargs)
+        except Exception as e:
+            logger.warning(f"Error creating renderer config: {e}. Using defaults.")
+            return BaseRendererConfig()
 
     def bin_data_from_results(
         self, flag_save: Optional[bool] = None

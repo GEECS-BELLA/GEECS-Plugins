@@ -136,5 +136,33 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
             flag_save_data=flag_save_images,
         )
 
-        # Backward compatibility: map flag_save_images to flag_save_data
-        self.flag_save_images = flag_save_images
+    def _get_renderer_config(self):
+        """
+        Get Image2DRendererConfig for this analyzer.
+
+        Returns
+        -------
+        Image2DRendererConfig
+            Renderer configuration with 2D-specific settings
+        """
+        from scan_analysis.analyzers.renderers.config import Image2DRendererConfig
+
+        # Get renderer_kwargs if available
+        renderer_kwargs = getattr(self, "renderer_kwargs", {})
+
+        # Handle legacy plot_scale parameter from camera_analysis_settings
+        plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get(
+            "Plot Scale", None
+        )
+        if plot_scale is not None and "vmax" not in renderer_kwargs:
+            renderer_kwargs["vmax"] = plot_scale
+
+        # Create config from kwargs
+        try:
+            return Image2DRendererConfig(**renderer_kwargs)
+        except Exception as e:
+            logger.warning(
+                f"Error creating Image2DRendererConfig from {renderer_kwargs}: {e}. "
+                f"Using defaults."
+            )
+            return Image2DRendererConfig()

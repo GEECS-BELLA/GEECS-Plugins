@@ -172,3 +172,24 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             skip_plt_show=skip_plt_show,
             flag_save_data=flag_save_data,
         )
+
+    def _get_renderer_config(self):
+        """
+        Get Line1DRendererConfig for this analyzer.
+
+        Returns
+        -------
+        Line1DRendererConfig
+            Renderer configuration with 1D-specific settings
+        """
+        from scan_analysis.analyzers.renderers.config import Line1DRendererConfig
+
+        # Create config from renderer_kwargs
+        try:
+            return Line1DRendererConfig(**self.renderer_kwargs)
+        except Exception as e:
+            logger.warning(
+                f"Error creating Line1DRendererConfig from {self.renderer_kwargs}: {e}. "
+                f"Using defaults."
+            )
+            return Line1DRendererConfig()
