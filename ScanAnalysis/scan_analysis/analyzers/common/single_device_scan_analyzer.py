@@ -35,7 +35,6 @@ from collections import defaultdict
 
 # --- Local / Project Imports ---
 from scan_analysis.base import ScanAnalyzer
-from scan_analysis.analyzers.renderers.config import RenderContext
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
@@ -183,15 +182,15 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             self.path_dict["save"].mkdir(parents=True)
 
         try:
-            # Run the data analyzer on every shot in parallel
-            self._process_all_shots_parallel()
+            # Run the data analyzer on every shot
+            self._process_all_shots()
 
             # Depending on the scan type, perform additional processing
             if len(self.results) > 2:
                 if self.noscan:
                     self._postprocess_noscan()
                 else:
-                    self._postprocess_scan_parallel()
+                    self._postprocess_scan()
 
             if not self.live_analysis:
                 self.auxiliary_data.to_csv(
@@ -205,11 +204,11 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             logger.warning(f"Warning: Data analysis failed due to: {e}")
             return
 
-    def _process_all_shots_parallel(self):
+    def _process_all_shots(self):
         """Load data files, run batch analysis (optional), then per-shot analysis."""
-        self._load_all_data_parallel()
+        self._load_all_data()
         self._run_batch_analysis()
-        self._run_data_analysis_parallel()
+        self._run_data_analysis()
 
     def _build_data_file_map(self) -> None:
         """
@@ -257,7 +256,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         for m in sorted(expected_shots - found_shots):
             logger.warning(f"No file found for shot {m}")
 
-    def _load_all_data_parallel(self) -> None:
+    def _load_all_data(self) -> None:
         """
         Load all data files in parallel and store them in ``self.raw_data``.
 
@@ -311,7 +310,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             If the returned number of processed images does not match the input.
         """
         if not hasattr(self, "raw_data") or not self.raw_data:
-            raise RuntimeError("No data loaded. Run _load_all_data_parallel first.")
+            raise RuntimeError("No data loaded. Run _load_all_data first.")
 
         # Resolve {scan_dir} placeholders in background config BEFORE batch processing
         self._resolve_background_paths()
@@ -384,7 +383,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             bg_config.dynamic_computation.auto_save_path = Path(resolved)
             logger.info(f"Resolved background auto_save_path: {resolved}")
 
-    def _run_data_analysis_parallel(self) -> None:
+    def _run_data_analysis(self) -> None:
         """
         Analyze each image in parallel (threaded or multi-processed).
 
@@ -449,125 +448,38 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                     logger.error(f"Analysis failed for shot {shot_num}: {e}")
 
     def _postprocess_noscan(self) -> None:
-        """Average over shots and create an animation when no parameter is scanned."""
-        # Extract processed data from results dict
-        data_list = [res["processed_image"] for res in self.results.values()]
-        avg_data = self.average_data(data_list)
-
-        if self.flag_save_data:
-            # Average scalar results
-            analysis_results = [
-                res.get("analyzer_return_dictionary", {})
-                for res in self.results.values()
-            ]
-            if analysis_results and analysis_results[0]:
-                from collections import defaultdict
-
-                sums = defaultdict(list)
-                for d in analysis_results:
-                    for k, v in d.items():
-                        sums[k].append(v)
-                avg_scalars = {k: np.mean(v, axis=0) for k, v in sums.items()}
-            else:
-                avg_scalars = {}
-
-            # Create RenderContext for average
-            avg_context = RenderContext(
-                data=avg_data,
-                input_parameters={"analyzer_return_dictionary": avg_scalars},
-                device_name=self.device_name,
-                identifier="average",
-            )
-
-            config = self._get_renderer_config()
-
-            # Save average using new interface
-            self.renderer.render_single(avg_context, config, self.path_dict["save"])
-
-            # Create animation from all results
-            contexts = [
-                RenderContext(
-                    data=result["processed_image"],
-                    input_parameters=result.get("analyzer_input_parameters", {}),
-                    device_name=self.device_name,
-                    identifier=f"shot_{shot_num}",
-                )
-                for shot_num, result in self.results.items()
-            ]
-            animation_path = self.path_dict["save"] / "noscan.gif"
-            self.renderer.render_animation(contexts, config, animation_path)
-
-    def _postprocess_scan_parallel(self) -> None:
         """
-        Post-process a scanned variable by binning and saving averaged data in parallel.
+        Post-process noscan data (dimension-specific).
 
-        Uses the new RenderContext-based renderer interface for clean, type-safe rendering.
+        Must be implemented by subclasses to handle dimension-specific visualization:
+        - 1D: average with std dev + waterfall plot
+        - 2D: average image + animated GIF
 
-        The method:
-        1) Bins data using ``bin_data_from_results``.
-        2) Creates RenderContext objects for each bin.
-        3) Renders individual bins in parallel using renderer.render_single().
-        4) Generates a summary figure if >1 bin using renderer.render_summary().
+        Raises
+        ------
+        NotImplementedError
+            If not implemented by subclass
         """
-        # Bin data
-        binned_data = self.bin_data_from_results()
-        if not binned_data:
-            logger.warning("No binned data to postprocess")
-            return
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement _postprocess_noscan()"
+        )
 
-        # Build render contexts from binned data
-        contexts = [
-            RenderContext.from_bin_result(
-                bin_key=bin_key,
-                bin_entry=bin_entry,
-                device_name=self.device_name,
-                scan_parameter=self.scan_parameter,
-            )
-            for bin_key, bin_entry in binned_data.items()
-        ]
+    def _postprocess_scan(self) -> None:
+        """
+        Post-process scan data (dimension-specific).
 
-        # Get renderer config (subclasses should provide this)
-        config = self._get_renderer_config()
+        Must be implemented by subclasses to handle dimension-specific visualization:
+        - 1D: waterfall plot from binned data
+        - 2D: image grid from binned data
 
-        # Render individual bins in parallel
-        if self.flag_save_data:
-            with ThreadPoolExecutor() as executor:
-                futures = [
-                    executor.submit(
-                        self.renderer.render_single,
-                        ctx,
-                        config,
-                        self.path_dict["save"],
-                    )
-                    for ctx in contexts
-                ]
-                for future in as_completed(futures):
-                    try:
-                        paths = future.result()
-                        # Track saved paths for first bin (for backward compatibility)
-                        if paths and len(paths) > 0:
-                            # Extract bin_key from the first path's filename
-                            filename = paths[0].name
-                            # Parse bin_key from filename like "device_0_processed.h5"
-                            parts = filename.split("_")
-                            if len(parts) >= 2 and parts[-2].isdigit():
-                                bin_key = int(parts[-2])
-                                self.saved_avg_data_paths[bin_key] = paths[0]
-                    except Exception as e:
-                        logger.error(f"Error rendering bin data: {e}")
-
-        # Create summary figure if multiple bins exist
-        if len(contexts) > 1 and self.flag_save_data:
-            try:
-                summary_path = self.renderer.render_summary(
-                    contexts, config, self.path_dict["save"]
-                )
-                if summary_path:
-                    logger.info(f"Created summary figure at {summary_path}")
-            except Exception as e:
-                logger.error(f"Error creating summary figure: {e}")
-
-        self.binned_data = binned_data
+        Raises
+        ------
+        NotImplementedError
+            If not implemented by subclass
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement _postprocess_scan()"
+        )
 
     def _get_renderer_config(self):
         """

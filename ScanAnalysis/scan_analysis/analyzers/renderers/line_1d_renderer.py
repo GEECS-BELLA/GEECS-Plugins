@@ -384,9 +384,17 @@ class Line1DRenderer(BaseRenderer):
             shading="flat",
         )
 
-        # Set y-ticks to actual parameter values
-        ax.set_yticks(param_values)
-        ax.set_yticklabels([f"{val:.3f}" for val in param_values])
+        # Set y-ticks to actual parameter values (downsample if too many)
+        max_ticks = 40
+        if len(param_values) > max_ticks:
+            # Evenly spaced indices (always include first & last)
+            idx = np.linspace(0, len(param_values) - 1, max_ticks, dtype=int)
+            tick_positions = np.array(param_values)[idx]
+        else:
+            tick_positions = param_values
+
+        ax.set_yticks(tick_positions)
+        ax.set_yticklabels([f"{val:.3f}" for val in tick_positions])
 
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel(f"{scan_param}", fontsize=12)

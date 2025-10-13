@@ -15,7 +15,7 @@ the StandardAnalyzer for all image processing pipeline functionality.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union, List, Tuple, Dict, Any
+from typing import Optional, Union, List, Tuple, Dict
 from pathlib import Path
 
 import numpy as np
@@ -125,14 +125,11 @@ class BeamAnalyzer(StandardAnalyzer):
     ----------
     camera_config_name : str
         Name of the camera configuration to load (e.g., "undulator_exit_cam")
-    config_overrides : dict, optional
-        Runtime overrides for configuration parameters
     """
 
     def __init__(
         self,
         camera_config_name: str,
-        config_overrides: Optional[Dict[str, Any]] = None,
         name_suffix: Optional[str] = None,
     ):
         """Initialize the beam analyzer with external configuration.
@@ -141,9 +138,6 @@ class BeamAnalyzer(StandardAnalyzer):
         ----------
         camera_config_name : str
             Name of the camera configuration to load (e.g., "UC_ALineEBeam3")
-        config_overrides : dict, optional
-            Runtime overrides for configuration parameters. Can contain Pydantic
-            model instances or dictionaries for any configuration section.
         name_suffix : str, optional
             Suffix to append to camera name for scalar result prefixes.
             Useful for distinguishing multiple analysis passes on the same camera.
@@ -151,7 +145,7 @@ class BeamAnalyzer(StandardAnalyzer):
             from standard analysis results.
         """
         # Initialize parent class
-        super().__init__(camera_config_name, config_overrides)
+        super().__init__(camera_config_name)
 
         # Apply name suffix if provided
         if name_suffix:

@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Optional, Dict, Any
 from scan_analysis.analyzers.common.single_device_scan_analyzer import (
     SingleDeviceScanAnalyzer,
 )
-from scan_analysis.analyzers.renderers import Line1DRenderer
+from scan_analysis.analyzers.renderers import Line1DRenderer, Line1DRendererConfig
 from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
 
 # --- Type-Checking Imports ---
@@ -193,3 +193,146 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
                 f"Using defaults."
             )
             return Line1DRendererConfig()
+
+    def _postprocess_noscan(self) -> None:
+        """
+        Post-process noscan 1D data: create average with std dev + waterfall plot.
+
+        For 1D line/spectrum data without a scanned parameter, this creates:
+        - An averaged spectrum (for now, just the average line)
+        - A waterfall plot showing all shots in chronological order
+
+        TODO: Add standard deviation visualization to the average plot
+        """
+        from scan_analysis.analyzers.renderers.config import RenderContext
+        from collections import defaultdict
+        import numpy as np
+
+        # Extract processed data from results dict
+        data_list = [res["processed_image"] for res in self.results.values()]
+        avg_data = self.average_data(data_list)
+
+        if self.flag_save_data:
+            # Average scalar results
+            analysis_results = [
+                res.get("analyzer_return_dictionary", {})
+                for res in self.results.values()
+            ]
+            if analysis_results and analysis_results[0]:
+                sums = defaultdict(list)
+                for d in analysis_results:
+                    for k, v in d.items():
+                        sums[k].append(v)
+                avg_scalars = {k: np.mean(v, axis=0) for k, v in sums.items()}
+            else:
+                avg_scalars = {}
+
+            # Create RenderContext for average
+            avg_context = RenderContext(
+                data=avg_data,
+                input_parameters={"analyzer_return_dictionary": avg_scalars},
+                device_name=self.device_name,
+                identifier="average",
+            )
+
+            config = self._get_renderer_config()
+
+            # Save average using renderer
+            self.renderer.render_single(avg_context, config, self.path_dict["save"])
+
+            # Create waterfall plot from all results (chronological order)
+            contexts = [
+                RenderContext(
+                    data=result["processed_image"],
+                    input_parameters=result.get("analyzer_input_parameters", {}),
+                    device_name=self.device_name,
+                    identifier=shot_num,
+                    parameter_value=float(shot_num),  # Use shot number as y-axis
+                    scan_parameter="Shot Number",
+                )
+                for shot_num, result in sorted(self.results.items())
+            ]
+
+            # Use waterfall mode for summary
+            waterfall_config = Line1DRendererConfig(
+                **{**self.renderer_kwargs, "mode": "waterfall"}
+            )
+            # Save to parent directory and let render_summary create the file
+            self.renderer.render_summary(
+                contexts, waterfall_config, self.path_dict["save"]
+            )
+
+    def _postprocess_scan(self) -> None:
+        """
+        Post-process scanned 1D data: create waterfall plot from binned data.
+
+        For 1D line/spectrum data with a scanned parameter, this creates:
+        - Individual averaged spectra per bin
+        - A waterfall plot showing all bins sorted by scan parameter
+        """
+        from scan_analysis.analyzers.renderers.config import RenderContext
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Bin data
+        binned_data = self.bin_data_from_results()
+        if not binned_data:
+            logger.warning("No binned data to postprocess")
+            return
+
+        # Build render contexts from binned data
+        contexts = [
+            RenderContext.from_bin_result(
+                bin_key=bin_key,
+                bin_entry=bin_entry,
+                device_name=self.device_name,
+                scan_parameter=self.scan_parameter,
+            )
+            for bin_key, bin_entry in binned_data.items()
+        ]
+
+        # Get renderer config with waterfall mode
+        config = self._get_renderer_config()
+        # Ensure waterfall mode for scans
+        waterfall_config = Line1DRendererConfig(
+            **{**self.renderer_kwargs, "mode": "waterfall"}
+        )
+
+        # Render individual bins in parallel
+        if self.flag_save_data:
+            with ThreadPoolExecutor() as executor:
+                futures = [
+                    executor.submit(
+                        self.renderer.render_single,
+                        ctx,
+                        config,
+                        self.path_dict["save"],
+                    )
+                    for ctx in contexts
+                ]
+                for future in as_completed(futures):
+                    try:
+                        paths = future.result()
+                        # Track saved paths for first bin (for backward compatibility)
+                        if paths and len(paths) > 0:
+                            # Extract bin_key from the first path's filename
+                            filename = paths[0].name
+                            # Parse bin_key from filename like "device_0_processed.h5"
+                            parts = filename.split("_")
+                            if len(parts) >= 2 and parts[-2].isdigit():
+                                bin_key = int(parts[-2])
+                                self.saved_avg_data_paths[bin_key] = paths[0]
+                    except Exception as e:
+                        logger.error(f"Error rendering bin data: {e}")
+
+        # Create waterfall summary figure if multiple bins exist
+        if len(contexts) > 1 and self.flag_save_data:
+            try:
+                summary_path = self.renderer.render_summary(
+                    contexts, waterfall_config, self.path_dict["save"]
+                )
+                if summary_path:
+                    logger.info(f"Created waterfall summary at {summary_path}")
+            except Exception as e:
+                logger.error(f"Error creating waterfall summary: {e}")
+
+        self.binned_data = binned_data

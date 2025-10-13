@@ -60,14 +60,11 @@ class StandardAnalyzer(ImageAnalyzer):
     ----------
     camera_config_name : str
         Name of the camera configuration to load (e.g., "undulator_exit_cam")
-    config_overrides : dict, optional
-        Runtime overrides for configuration parameters
     """
 
     def __init__(
         self,
         camera_config_name: str,
-        config_overrides: Optional[Dict[str, Any]] = None,
     ):
         """Initialize the standard analyzer with external configuration."""
         # Load camera configuration
@@ -78,11 +75,6 @@ class StandardAnalyzer(ImageAnalyzer):
             raise ValueError(
                 f"Failed to load camera configuration '{camera_config_name}': {e}"
             )
-
-        # Apply runtime overrides if provided
-        if config_overrides:
-            self._apply_config_overrides(config_overrides)
-            logger.info("Applied configuration overrides: %s", config_overrides)
 
         # Create background manager if background processing is configured
         self.background_manager = create_background_manager_from_config(
@@ -95,37 +87,6 @@ class StandardAnalyzer(ImageAnalyzer):
 
         # Initialize base class with the background manager
         super().__init__(background_manager=self.background_manager)
-
-    def _apply_config_overrides(self, overrides: Dict[str, Any]) -> None:
-        """Apply runtime configuration overrides.
-
-        Supports both Pydantic model instances and dictionaries for each section.
-        """
-        for section, params in overrides.items():
-            if hasattr(self.camera_config, section):
-                # If params is a Pydantic model, set it directly
-                if isinstance(params, BaseModel):
-                    setattr(self.camera_config, section, params)
-                    logger.info(f"Set {section} to Pydantic model instance")
-                # If params is a dict, update individual fields
-                elif isinstance(params, dict):
-                    config_obj = getattr(self.camera_config, section)
-                    if config_obj is not None:
-                        for key, value in params.items():
-                            if hasattr(config_obj, key):
-                                setattr(config_obj, key, value)
-                            else:
-                                logger.warning(
-                                    "Unknown parameter '%s' in section %s", key, section
-                                )
-                    else:
-                        logger.warning("Configuration section %s is None", section)
-                else:
-                    logger.warning(
-                        f"Override for {section} must be a Pydantic model or dict, got {type(params)}"
-                    )
-            else:
-                logger.warning("Unknown configuration section %s", section)
 
     def preprocess_image(self, image: np.ndarray) -> np.ndarray:
         """

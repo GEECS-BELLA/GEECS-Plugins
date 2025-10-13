@@ -10,7 +10,7 @@ instantiate for a given scan. Each entry specifies:
 - `scan_analyzer_kwargs`: constructor kwargs forwarded to the analyzer.
 """
 
-from geecs_data_utils import ScanData
+from geecs_data_utils import ScanData, ScanPaths
 
 from scan_analysis.base import ScanAnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
@@ -47,17 +47,16 @@ from image_analysis.offline_analyzers.density_from_phase_analysis import (
 )
 
 from image_analysis.config_loader import set_config_base_dir
-from pathlib import Path
-current_dir = Path(__file__).resolve().parent.parent
-geecs_plugins_dir = current_dir.parent.parent
-set_config_base_dir(geecs_plugins_dir / "image_analysis_configs")
-
 from dataclasses import asdict
+
+set_config_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
 
 
 def get_path_to_bkg_file():
     """Return a default background TSV for HASO phase processing (Undulator example)."""
-    s_data = ScanData.from_date(year=2025, month=3, day=6, number=15, experiment="Undulator")
+    s_data = ScanData.from_date(
+        year=2025, month=3, day=6, number=15, experiment="Undulator"
+    )
     path_to_file = s_data.paths.get_folder() / "U_HasoLift" / "average_phase.tsv"
     return path_to_file
 

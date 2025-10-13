@@ -1,20 +1,21 @@
 """Test suite for ScanAnalyzers."""
 
 import unittest
+from pathlib import Path
+import logging
 
 from geecs_data_utils import ScanData, ScanTag, ScanPaths
 from scan_analysis.execute_scan_analysis import analyze_scan, instantiate_scan_analyzer
-from pathlib import Path
 from dataclasses import asdict
 
 from scan_analysis.base import ScanAnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 
 from image_analysis.config_loader import set_config_base_dir
-from pathlib import Path
-current_dir = Path(__file__).resolve().parent.parent
-geecs_plugins_dir = current_dir.parent
-set_config_base_dir(geecs_plugins_dir / "image_analysis_configs")
+
+logging.getLogger("image_analysis").setLevel(logging.INFO)
+
+set_config_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
 
 
 class TestExecuteAnalysis(unittest.TestCase):
@@ -178,7 +179,11 @@ class TestExecuteAnalysis(unittest.TestCase):
             scan_analyzer_class=Array2DScanAnalyzer,
             requirements={"UC_HiResMagCam"},
             device_name="UC_HiResMagCam",
-            scan_analyzer_kwargs={"image_analyzer": HiResMagCamAnalyzer(camera_config_name="UC_HiResMagCam")},
+            scan_analyzer_kwargs={
+                "image_analyzer": HiResMagCamAnalyzer(
+                    camera_config_name="UC_HiResMagCam"
+                )
+            },
         )
 
         test_tag = ScanTag(year=2025, month=8, day=19, number=4, experiment="Undulator")

@@ -46,14 +46,11 @@ class Standard1DAnalyzer(ImageAnalyzer):
     ----------
     line_config_name : str
         Name of the line configuration to load (e.g., "example_spectrum_1d")
-    config_overrides : dict, optional
-        Runtime overrides for configuration parameters
     """
 
     def __init__(
         self,
         line_config_name: str,
-        config_overrides: Optional[Dict[str, Any]] = None,
     ):
         """Initialize the standard 1D analyzer with external configuration."""
         # Load line configuration
@@ -65,11 +62,6 @@ class Standard1DAnalyzer(ImageAnalyzer):
                 f"Failed to load line configuration '{line_config_name}': {e}"
             ) from e
 
-        # Apply runtime overrides if provided
-        if config_overrides:
-            self._apply_config_overrides(config_overrides)
-            logger.info("Applied configuration overrides: %s", config_overrides)
-
         # Store analyzer state
         self.line_config_name = line_config_name
         self.run_analyze_image_asynchronously = False
@@ -79,38 +71,6 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         # Initialize base class
         super().__init__()
-
-    def _apply_config_overrides(self, overrides: Dict[str, Any]) -> None:
-        """Apply runtime configuration overrides.
-
-        Parameters
-        ----------
-        overrides : dict
-            Dictionary of configuration overrides. Can contain Pydantic model
-            instances or dictionaries for any configuration section.
-        """
-        for key, value in overrides.items():
-            if hasattr(self.line_config, key):
-                # Get the current attribute
-                current_attr = getattr(self.line_config, key)
-
-                # If value is a dict and current attr is a Pydantic model, update it
-                if isinstance(value, dict) and hasattr(current_attr, "model_validate"):
-                    # Merge with existing config
-                    current_dict = current_attr.model_dump() if current_attr else {}
-                    current_dict.update(value)
-                    # Validate and set
-                    model_class = type(current_attr)
-                    setattr(
-                        self.line_config, key, model_class.model_validate(current_dict)
-                    )
-                else:
-                    # Direct assignment
-                    setattr(self.line_config, key, value)
-
-                logger.debug("Updated config.%s", key)
-            else:
-                logger.warning("Unknown config key in overrides: %s", key)
 
     def load_image(self, file_path: Path) -> Array1D:
         """Load 1D data from file using configured data loader.
