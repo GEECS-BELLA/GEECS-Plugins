@@ -9,7 +9,7 @@ This version uses a single, explicit base directory for YAML configs:
   or environment variable `IMAGE_ANALYSIS_CONFIG_DIR`.
 - Or pass `config_dir=Path(...)` per call.
 
-No multi-location "search"; resolution is deterministic.
+Supports recursive search in subdirectories for organized config structures.
 Supports nested overrides via double-underscore keys, e.g., background__method="mean".
 """
 
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import logging
+import configparser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, TypeVar, Union
 
@@ -47,13 +48,46 @@ __all__ = [
     "get_config_schema",
     "convert_from_processing_dtype",
     "list_available_configs",
+    "clear_config_cache",
 ]
 
 # ----------------------------------------------------------------------
-# Base directory management (Option B)
+# Base directory management
 # ----------------------------------------------------------------------
 
 _DEFAULT_CONFIG_DIR: Optional[Path] = None
+_CONFIG_CACHE: Dict[str, Path] = {}  # Cache for resolved config paths
+
+
+def _resolve_config_dir_from_ini() -> Optional[Path]:
+    """
+    Resolve config directory from ~/.config/geecs_python_api/config.ini.
+
+    Returns
+    -------
+    Optional[Path]
+        Path to image_analysis configs if found in config file, None otherwise
+    """
+    config_path = Path("~/.config/geecs_python_api/config.ini").expanduser()
+    if not config_path.exists():
+        return None
+
+    try:
+        config = configparser.ConfigParser()
+        config.read(config_path)
+        if config_root := config.get("Paths", "config_root", fallback=None):
+            if config_root:  # Not empty string
+                image_dir = (
+                    Path(config_root).expanduser().resolve()
+                    / "image_analysis"
+                    / "cameras"
+                )
+                if image_dir.exists():
+                    return image_dir
+    except Exception as e:
+        logger.warning(f"Error reading config from {config_path}: {e}")
+
+    return None
 
 
 def set_config_base_dir(path: Union[str, Path]) -> None:
@@ -64,6 +98,7 @@ def set_config_base_dir(path: Union[str, Path]) -> None:
     ----------
     path : Union[str, Path]
         Directory containing YAML config files (e.g., "UC_VisaEBeam1.yaml").
+        Can contain subdirectories - recursive search is supported.
     """
     global _DEFAULT_CONFIG_DIR
     p = Path(path).expanduser().resolve()
@@ -72,6 +107,7 @@ def set_config_base_dir(path: Union[str, Path]) -> None:
     if not p.is_dir():
         raise NotADirectoryError(f"Config base dir is not a directory: {p}")
     _DEFAULT_CONFIG_DIR = p
+    clear_config_cache()  # Clear cache when base dir changes
     logger.info("Config base dir set to %s", p)
 
 
@@ -80,13 +116,30 @@ def get_config_base_dir() -> Optional[Path]:
     return _DEFAULT_CONFIG_DIR
 
 
-# Initialize from environment, if present
+def clear_config_cache() -> None:
+    """Clear the config file path cache. Useful after adding new configs."""
+    global _CONFIG_CACHE
+    _CONFIG_CACHE.clear()
+    logger.info("Config cache cleared")
+
+
+# Initialize from environment or config file
 _env_dir = os.getenv("IMAGE_ANALYSIS_CONFIG_DIR")
 if _env_dir:
     try:
         set_config_base_dir(_env_dir)
+        logger.info(f"Loaded config dir from IMAGE_ANALYSIS_CONFIG_DIR: {_env_dir}")
     except Exception as e:
         logger.warning("IMAGE_ANALYSIS_CONFIG_DIR invalid: %s", e)
+else:
+    # Try config file
+    config_dir = _resolve_config_dir_from_ini()
+    if config_dir:
+        try:
+            set_config_base_dir(config_dir)
+            logger.info(f"Loaded config dir from config.ini: {config_dir}")
+        except Exception as e:
+            logger.warning(f"Config dir from ini invalid: {e}")
 
 # ----------------------------------------------------------------------
 # Core helpers
@@ -112,9 +165,16 @@ def _apply_nested_overrides(
     return result
 
 
-def find_config_file(camera_name: str, *, config_dir: Optional[Path] = None) -> Path:
+def find_config_file(
+    camera_name: str, *, config_dir: Optional[Path] = None, use_cache: bool = True
+) -> Path:
     r"""
-    Resolve `<base>/<camera_name>.{yaml|yml}` (and default_* variants) deterministically.
+    Resolve config file by name, searching recursively if needed.
+
+    Search order:
+    1. Check cache (if enabled)
+    2. Direct children of base directory (fast path)
+    3. Recursive search in subdirectories
 
     Parameters
     ----------
@@ -122,6 +182,8 @@ def find_config_file(camera_name: str, *, config_dir: Optional[Path] = None) -> 
         Logical name of the camera configuration (file stem).
     config_dir : Optional[Path]
         Directory containing YAML config files. If None, uses the global base dir.
+    use_cache : bool, default=True
+        Whether to use cached paths for performance.
 
     Returns
     -------
@@ -134,6 +196,11 @@ def find_config_file(camera_name: str, *, config_dir: Optional[Path] = None) -> 
         If no base directory is available.
     FileNotFoundError
         If the file is not found under the base directory.
+
+    Notes
+    -----
+    If multiple configs with the same name exist in different subdirectories,
+    the first one found (alphabetically) is used and a warning is logged.
     """
     base = config_dir or _DEFAULT_CONFIG_DIR
     if base is None:
@@ -142,23 +209,58 @@ def find_config_file(camera_name: str, *, config_dir: Optional[Path] = None) -> 
             "Call set_config_base_dir(...) or set IMAGE_ANALYSIS_CONFIG_DIR."
         )
 
+    # Check cache first
+    cache_key = f"{base}::{camera_name}"
+    if use_cache and cache_key in _CONFIG_CACHE:
+        cached_path = _CONFIG_CACHE[cache_key]
+        if cached_path.exists():
+            return cached_path
+        else:
+            # File was deleted, remove from cache
+            del _CONFIG_CACHE[cache_key]
+
     patterns = [
         f"{camera_name}.yaml",
         f"{camera_name}.yml",
         f"default_{camera_name}_settings.yaml",
         f"default_{camera_name}_settings.yml",
     ]
-    tried: List[str] = []
+
+    # Fast path: check direct children first
     for pat in patterns:
         p = base / pat
-        tried.append(str(p))
         if p.exists():
-            logger.info("Found configuration file: %s", p)
+            logger.info(f"Found config (direct): {p}")
+            _CONFIG_CACHE[cache_key] = p
             return p
 
-    raise FileNotFoundError(
-        "Config not found. Tried:\n" + "\n".join(f"  - {t}" for t in tried)
-    )
+    # Recursive search
+    all_matches = []
+    for pat in patterns:
+        matches = list(base.rglob(pat))
+        all_matches.extend(matches)
+
+    if not all_matches:
+        raise FileNotFoundError(
+            f"Config '{camera_name}' not found under {base}\n"
+            f"Searched recursively for patterns:\n"
+            + "\n".join(f"  - {pat}" for pat in patterns)
+        )
+
+    # Sort for deterministic behavior
+    all_matches.sort()
+
+    if len(all_matches) > 1:
+        logger.warning(
+            f"Multiple configs found for '{camera_name}':\n"
+            + "\n".join(f"  - {m}" for m in all_matches)
+            + f"\nUsing: {all_matches[0]}"
+        )
+
+    result = all_matches[0]
+    logger.info(f"Found config (recursive): {result}")
+    _CONFIG_CACHE[cache_key] = result
+    return result
 
 
 def _load_camera_config_dict(
@@ -342,8 +444,25 @@ def convert_from_processing_dtype(image: "Array2D", target_dtype: str) -> "Array
     raise ValueError(f"Unsupported target dtype: {target_dtype}")
 
 
-def list_available_configs(config_dir: Optional[Path] = None) -> List[str]:
-    """List YAML config filenames (stems) in the base directory (no recursion)."""
+def list_available_configs(
+    config_dir: Optional[Path] = None, recursive: bool = True
+) -> Dict[str, List[Path]]:
+    """
+    List available configs, optionally searching recursively.
+
+    Parameters
+    ----------
+    config_dir : Optional[Path]
+        Directory to search. If None, uses global base dir.
+    recursive : bool, default=True
+        Whether to search subdirectories recursively.
+
+    Returns
+    -------
+    Dict[str, List[Path]]
+        Mapping from config name (stem) to list of paths.
+        If multiple configs have same name, all paths are listed.
+    """
     base = config_dir or _DEFAULT_CONFIG_DIR
     if base is None:
         raise ValueError(
@@ -351,9 +470,17 @@ def list_available_configs(config_dir: Optional[Path] = None) -> List[str]:
             "Call set_config_base_dir(...) or set IMAGE_ANALYSIS_CONFIG_DIR."
         )
 
-    names: set[str] = set()
-    for p in base.glob("*.yaml"):
-        names.add(p.stem)
-    for p in base.glob("*.yml"):
-        names.add(p.stem)
-    return sorted(names)
+    configs: Dict[str, List[Path]] = {}
+
+    if recursive:
+        for p in base.rglob("*.yaml"):
+            configs.setdefault(p.stem, []).append(p)
+        for p in base.rglob("*.yml"):
+            configs.setdefault(p.stem, []).append(p)
+    else:
+        for p in base.glob("*.yaml"):
+            configs.setdefault(p.stem, []).append(p)
+        for p in base.glob("*.yml"):
+            configs.setdefault(p.stem, []).append(p)
+
+    return {k: sorted(v) for k, v in sorted(configs.items())}
