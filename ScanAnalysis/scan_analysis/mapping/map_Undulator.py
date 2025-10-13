@@ -52,10 +52,11 @@ from dataclasses import asdict
 set_config_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
 
 
-
 def get_path_to_bkg_file():
     """Return a default background TSV for HASO phase processing (Undulator example)."""
-    s_data = ScanData.from_date(year=2025, month=3, day=6, number=15, experiment="Undulator")
+    s_data = ScanData.from_date(
+        year=2025, month=3, day=6, number=15, experiment="Undulator"
+    )
     path_to_file = s_data.paths.get_folder() / "U_HasoLift" / "average_phase.tsv"
     return path_to_file
 

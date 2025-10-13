@@ -179,7 +179,11 @@ class TestExecuteAnalysis(unittest.TestCase):
             scan_analyzer_class=Array2DScanAnalyzer,
             requirements={"UC_HiResMagCam"},
             device_name="UC_HiResMagCam",
-            scan_analyzer_kwargs={"image_analyzer": HiResMagCamAnalyzer(camera_config_name="UC_HiResMagCam")},
+            scan_analyzer_kwargs={
+                "image_analyzer": HiResMagCamAnalyzer(
+                    camera_config_name="UC_HiResMagCam"
+                )
+            },
         )
 
         test_tag = ScanTag(year=2025, month=8, day=19, number=4, experiment="Undulator")
