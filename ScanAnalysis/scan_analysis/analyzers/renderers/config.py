@@ -207,7 +207,7 @@ class RenderContext:
         if data is None:
             # Try to get from lineouts (for 1D analyzers)
             lineouts = result.get("analyzer_return_lineouts")
-            if lineouts:
+            if lineouts is not None:
                 # Reconstruct Nx2 array from lineouts [x_array, y_array]
                 data = np.column_stack([lineouts[0], lineouts[1]])
 

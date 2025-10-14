@@ -214,7 +214,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         data_list = []
         for res in self.results.values():
             lineouts = res.get("analyzer_return_lineouts")
-            if lineouts:
+            if lineouts is not None:
                 # Reconstruct Nx2 array from lineouts [x_array, y_array]
                 data = np.column_stack([lineouts[0], lineouts[1]])
                 data_list.append(data)
@@ -253,7 +253,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             contexts = []
             for shot_num, result in sorted(self.results.items()):
                 lineouts = result.get("analyzer_return_lineouts")
-                if lineouts:
+                if lineouts is not None:
                     # Reconstruct Nx2 array from lineouts
                     data = np.column_stack([lineouts[0], lineouts[1]])
                     contexts.append(
