@@ -145,7 +145,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
         Returns
         -------
         AnalyzerResultDict
-            Dictionary containing processed data and metadata
+            Dictionary containing processed data in lineouts (not processed_image)
         """
         # If metadata not already cached AND file_path is available, load it
         if (
@@ -161,9 +161,14 @@ class Standard1DAnalyzer(ImageAnalyzer):
         # Build input parameters
         input_params = self._build_input_parameters(auxiliary_data)
 
-        # Build and return result dictionary
+        # Split Nx2 array into x and y for lineouts
+        x_data = processed[:, 0]
+        y_data = processed[:, 1]
+
+        # Build and return result dictionary with data in lineouts
         return self.build_return_dictionary(
-            return_image=processed,
+            return_image=None,  # No 2D image for 1D data
+            return_lineouts=[x_data, y_data],  # Data goes here
             input_parameters=input_params,
         )
 

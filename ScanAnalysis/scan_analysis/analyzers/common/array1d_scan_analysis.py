@@ -210,8 +210,15 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         from collections import defaultdict
         import numpy as np
 
-        # Extract processed data from results dict
-        data_list = [res["processed_image"] for res in self.results.values()]
+        # Extract data from lineouts (1D analyzers store data there)
+        data_list = []
+        for res in self.results.values():
+            lineouts = res.get("analyzer_return_lineouts")
+            if lineouts:
+                # Reconstruct Nx2 array from lineouts [x_array, y_array]
+                data = np.column_stack([lineouts[0], lineouts[1]])
+                data_list.append(data)
+
         avg_data = self.average_data(data_list)
 
         if self.flag_save_data:
@@ -243,17 +250,26 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             self.renderer.render_single(avg_context, config, self.path_dict["save"])
 
             # Create waterfall plot from all results (chronological order)
-            contexts = [
-                RenderContext(
-                    data=result["processed_image"],
-                    input_parameters=result.get("analyzer_input_parameters", {}),
-                    device_name=self.device_name,
-                    identifier=shot_num,
-                    parameter_value=float(shot_num),  # Use shot number as y-axis
-                    scan_parameter="Shot Number",
-                )
-                for shot_num, result in sorted(self.results.items())
-            ]
+            contexts = []
+            for shot_num, result in sorted(self.results.items()):
+                lineouts = result.get("analyzer_return_lineouts")
+                if lineouts:
+                    # Reconstruct Nx2 array from lineouts
+                    data = np.column_stack([lineouts[0], lineouts[1]])
+                    contexts.append(
+                        RenderContext(
+                            data=data,
+                            input_parameters=result.get(
+                                "analyzer_input_parameters", {}
+                            ),
+                            device_name=self.device_name,
+                            identifier=shot_num,
+                            parameter_value=float(
+                                shot_num
+                            ),  # Use shot number as y-axis
+                            scan_parameter="Shot Number",
+                        )
+                    )
 
             # Use waterfall mode for summary
             waterfall_config = Line1DRendererConfig(

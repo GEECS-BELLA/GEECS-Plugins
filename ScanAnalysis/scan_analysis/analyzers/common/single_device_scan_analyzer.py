@@ -459,6 +459,29 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         return units
 
+    def _has_valid_result(self, result: AnalyzerResultDict) -> bool:
+        """
+        Check if analyzer result contains valid data.
+
+        Valid data can be in:
+        - processed_image (for 2D analyzers)
+        - analyzer_return_lineouts (for 1D analyzers)
+
+        Parameters
+        ----------
+        result : AnalyzerResultDict
+            Result dictionary from analyzer
+
+        Returns
+        -------
+        bool
+            True if result contains valid data
+        """
+        return (
+            result.get("processed_image") is not None
+            or result.get("analyzer_return_lineouts") is not None
+        )
+
     def _analyze_units(self, analysis_units: dict) -> None:
         """
         Analyze units in parallel (threaded or multi-processed).
@@ -505,17 +528,18 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 unit_key, sfile_keys = futures[future]
                 try:
                     result: AnalyzerResultDict = future.result()
-                    processed_data = result.get("processed_image")
                     analysis_results = result.get("analyzer_return_dictionary", {})
 
-                    if processed_data is not None:
+                    if self._has_valid_result(result):
                         self.results[unit_key] = result
-                        logger.info(f"Unit {unit_key}: processed data stored.")
+                        logger.info(f"Unit {unit_key}: valid data stored.")
                         logger.info(
                             f"Analyzed unit {unit_key} and got {analysis_results}"
                         )
                     else:
-                        logger.info(f"Unit {unit_key}: no data returned from analysis.")
+                        logger.info(
+                            f"Unit {unit_key}: no valid data returned from analysis."
+                        )
 
                     # Update s-file for all relevant shots
                     for shot_num in sfile_keys:
@@ -677,12 +701,11 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 "Shotnumber"
             ].values
 
-            # Filter shot numbers that have valid results
+            # Filter shot numbers that have valid results (either 2D or 1D data)
             valid_shots = [
                 sn
                 for sn in bin_shots
-                if sn in self.results
-                and self.results[sn].get("processed_image") is not None
+                if sn in self.results and self._has_valid_result(self.results[sn])
             ]
 
             if not valid_shots:
@@ -690,7 +713,10 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 continue
 
             # Collect data and scalar results
-            data_list = [self.results[sn]["processed_image"] for sn in valid_shots]
+            # For 2D analyzers, collect processed_image; for 1D, it will be None
+            data_list = [self.results[sn].get("processed_image") for sn in valid_shots]
+            # Filter out None values (for 1D analyzers that use lineouts)
+            data_list = [d for d in data_list if d is not None]
             analysis_results = [
                 self.results[sn].get("analyzer_return_dictionary", {})
                 for sn in valid_shots
@@ -703,9 +729,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 "analyzer_input_parameters", {}
             )
 
-            avg_data = self.average_data(data_list)
-            if avg_data is None:
-                continue
+            # Average 2D data if present, otherwise None (for 1D analyzers)
+            avg_data = self.average_data(data_list) if data_list else None
 
             # Calculate the average value for each key in analysis_results dict
             sums = defaultdict(list)
