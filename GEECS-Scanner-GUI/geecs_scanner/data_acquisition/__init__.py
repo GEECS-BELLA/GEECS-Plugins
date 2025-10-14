@@ -13,7 +13,6 @@ __all__ = [
     "DatabaseDictLookup",
     "ScanDataManager",
     "ScanManager",
-    "ConsoleLogger",
     "get_full_config_path",
     "visa_config_generator",
 ]
@@ -25,4 +24,4 @@ from .scan_executor import ScanStepExecutor
 from .database_dict_lookup import DatabaseDictLookup
 from .scan_data_manager import ScanDataManager
 from .scan_manager import ScanManager
-from .utils import ConsoleLogger, get_full_config_path, visa_config_generator
+from .utils import get_full_config_path, visa_config_generator
