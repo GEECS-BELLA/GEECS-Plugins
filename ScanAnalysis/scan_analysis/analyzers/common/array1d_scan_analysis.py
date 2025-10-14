@@ -21,7 +21,7 @@ from __future__ import annotations
 
 # --- Standard Library ---
 import logging
-from typing import TYPE_CHECKING, Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict, Any, Literal
 
 # --- Local / Project Imports ---
 from scan_analysis.analyzers.common.single_device_scan_analyzer import (
@@ -107,6 +107,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         skip_plt_show: bool = True,
         flag_save_data: bool = True,
         renderer_kwargs: Optional[Dict[str, Any]] = None,
+        analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
     ):
         """Initialize the analyzer with an ImageAnalyzer and Line1DRenderer.
 
@@ -171,6 +172,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             file_tail=file_tail,
             skip_plt_show=skip_plt_show,
             flag_save_data=flag_save_data,
+            analysis_mode=analysis_mode,
         )
 
     def _get_renderer_config(self):
