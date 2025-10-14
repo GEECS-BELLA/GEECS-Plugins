@@ -36,10 +36,6 @@ class ApplicationPaths:
         -------
         Path
             The resolved base path for scanner configurations.
-
-        Examples
-        --------
-        >>> del ApplicationPaths.BASE_PATH  # Force re-resolution
         """
         # 1. Try environment variable
         if env_path := os.getenv("GEECS_SCANNER_CONFIG_DIR"):
@@ -50,9 +46,13 @@ class ApplicationPaths:
         if cls.CONFIG_PATH.exists():
             config = configparser.ConfigParser()
             config.read(cls.CONFIG_PATH)
-            if config_root := config.get("Paths", "config_root", fallback=None):
+            if scanner_config_root_path := config.get(
+                "Paths", "scanner_config_root_path", fallback=None
+            ):
                 scanner_path = (
-                    Path(config_root).expanduser().resolve() / "scanner" / "experiments"
+                    Path(scanner_config_root_path).expanduser().resolve()
+                    / "scanner_configs"
+                    / "experiments"
                 )
                 if scanner_path.exists():
                     return scanner_path
