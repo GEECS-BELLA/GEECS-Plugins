@@ -1,5 +1,0 @@
-Devices:
-  Z_Test_Scope:
-    save_nonscalar_data: true
-    synchronous: true
-    variable_list: []
