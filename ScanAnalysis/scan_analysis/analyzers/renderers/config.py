@@ -182,6 +182,8 @@ class RenderContext:
     ) -> "RenderContext":
         """Create RenderContext from binned_data entry.
 
+        Handles both 2D data (in processed_image) and 1D data (in lineouts).
+
         Parameters
         ----------
         bin_key : int
@@ -199,8 +201,18 @@ class RenderContext:
             Initialized context ready for rendering
         """
         result = bin_entry["result"]
+
+        # Extract data from either processed_image (2D) or lineouts (1D)
+        data = result.get("processed_image")
+        if data is None:
+            # Try to get from lineouts (for 1D analyzers)
+            lineouts = result.get("analyzer_return_lineouts")
+            if lineouts is not None:
+                # Reconstruct Nx2 array from lineouts [x_array, y_array]
+                data = np.column_stack([lineouts[0], lineouts[1]])
+
         return cls(
-            data=result["processed_image"],
+            data=data,
             input_parameters=result.get("analyzer_input_parameters", {}),
             device_name=device_name,
             identifier=bin_key,
