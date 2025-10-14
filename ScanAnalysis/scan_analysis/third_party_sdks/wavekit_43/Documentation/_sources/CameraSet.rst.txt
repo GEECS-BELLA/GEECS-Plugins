@@ -1,6 +1,0 @@
-
-
-Wavekit_Python::CameraSet
-=========================
-.. automodule:: wavekit_py.io_wavekit_cameraset
-   :members:

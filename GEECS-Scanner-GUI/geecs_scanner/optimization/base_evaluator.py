@@ -42,6 +42,9 @@ import logging
 import pandas as pd
 from pathlib import Path
 
+# Module-level logger
+logger = logging.getLogger(__name__)
+
 
 class BaseEvaluator(ABC):
     """
@@ -137,14 +140,14 @@ class BaseEvaluator(ABC):
         self.current_shot_numbers: Optional[List] = None
         self.objective_tag: str = "default"
 
-        self.scan_tag = self.scan_data_manager.scan_data.get_tag()
+        self.scan_tag = self.scan_data_manager.scan_paths.get_tag()
 
         # Validate required keys if provided
         if self.required_keys:
             try:
                 self.validate_variable_keys_against_requirements(self.required_keys)
             except ValueError as e:
-                logging.warning(f"Key validation failed: {e}")
+                logger.warning("Key validation failed: %s", e)
 
     def get_device_shot_path(
         self, device_name: str, shot_number: int, file_extension: str = ".png"
@@ -176,7 +179,7 @@ class BaseEvaluator(ABC):
         >>> print(path)
         /path/to/scan/data/camera1/shot_042.tiff
         """
-        return self.scan_data_manager.scan_data.get_device_shot_path(
+        return self.scan_data_manager.scan_paths.get_device_shot_path(
             device_name=device_name,
             shot_number=shot_number,
             tag=self.scan_tag,
@@ -307,18 +310,22 @@ class BaseEvaluator(ABC):
                 self.current_data_bin["Shotnumber"] == shot
             ]
             if shot_row.empty:
-                logging.warning(f"No row found for shot number {shot}")
+                logger.warning("No entry in data table found for shot number %s", shot)
             else:
                 for short_name, full_key in scalar_variables.items():
                     if full_key in shot_row.columns:
                         value = shot_row[full_key].values[0]
                         entry["scalars"][short_name] = value
-                        logging.info(
-                            f"Scalar for '{short_name}' from '{full_key}' on shot {shot}: {value}"
+                        logger.info(
+                            "Scalar for '%s' from '%s' on shot %s: %s",
+                            short_name,
+                            full_key,
+                            shot,
+                            value,
                         )
                     else:
-                        logging.warning(
-                            f"Key '{full_key}' not found in current_data_bin columns"
+                        logger.warning(
+                            "Key '%s' not found in current_data_bin columns", full_key
                         )
 
             # Image paths
@@ -362,16 +369,16 @@ class BaseEvaluator(ABC):
         """
         device_reqs = self.device_requirements.get("Devices", {})
 
-        logging.info(f"device reqs pass to evaluator: {device_reqs}")
+        logger.info("Device requirements passed to evaluator: %s", device_reqs)
 
         declared_vars = {
             f"{device}:{var}"
             for device, req in device_reqs.items()
             for var in req.get("variable_list", [])
         }
-        logging.info(f"declared variables in evaluator: {declared_vars}")
-        logging.info(
-            f"looking for matches in variable_map.values() {variable_map.values()}"
+        logger.info("Declared variables in evaluator: %s", declared_vars)
+        logger.info(
+            "Looking for matches in variable_map.values(): %s", variable_map.values()
         )
         missing = [key for key in variable_map.values() if key not in declared_vars]
         if missing:
@@ -484,16 +491,19 @@ class BaseEvaluator(ABC):
                 self.current_data_bin["Shotnumber"] == shot_num, "Elapsed Time"
             ].values[0]
         except Exception as e:
-            logging.warning(f"Could not extract Elapsed Time for shot {shot_num}: {e}")
+            logger.warning(
+                "Could not extract Elapsed Time for shot %s: %s", shot_num, e
+            )
             return
 
         if elapsed_time:
             key = f"Objective:{self.objective_tag}"
             self.data_logger.log_entries[elapsed_time][key] = scalar_value
-            logging.info(f"Logged {key} = {scalar_value} for shot {shot_num}")
+            logger.info("Logged %s = %s for shot %s", key, scalar_value, shot_num)
         else:
-            logging.warning(
-                f"Cannot log result: no valid data_logger or elapsed_time={elapsed_time}"
+            logger.warning(
+                "Cannot log result: no valid data_logger or elapsed_time=%s",
+                elapsed_time,
             )
 
     @abstractmethod

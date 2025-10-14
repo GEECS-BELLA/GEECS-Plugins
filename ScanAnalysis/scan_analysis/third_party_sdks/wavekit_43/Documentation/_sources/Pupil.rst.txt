@@ -1,6 +1,0 @@
-
-
-Wavekit_Python::Pupil
-=====================
-.. automodule:: wavekit_py.io_wavekit_pupil
-   :members:

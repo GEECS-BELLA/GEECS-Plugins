@@ -1,0 +1,31 @@
+Devices:
+  UC_ALineEBeam3:
+    add_all_variables: false
+    save_nonscalar_data: false
+    synchronous: true
+    variable_list: []
+  UC_DiagnosticsPhosphor:
+    add_all_variables: false
+    save_nonscalar_data: false
+    synchronous: true
+    variable_list: []
+  UC_HiResMagCam:
+    add_all_variables: false
+    save_nonscalar_data: false
+    synchronous: true
+    variable_list: []
+  UC_VisaEBeam1:
+    add_all_variables: false
+    save_nonscalar_data: false
+    synchronous: true
+    variable_list: []
+  U_BCaveICT:
+    add_all_variables: false
+    save_nonscalar_data: false
+    synchronous: true
+    variable_list: []
+  U_FROG_Grenouille:
+    add_all_variables: false
+    save_nonscalar_data: false
+    synchronous: true
+    variable_list: []

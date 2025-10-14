@@ -1,8 +1,8 @@
 """
-System test to try the basic functionality of scan manager.  Uses the `get_default_scan_manager` tool to get a basic
-instance of Scan Manager that can
+System test to try the basic functionality of scan manager.
 
--Chris
+Uses the `get_default_scan_manager` tool to get a basic
+instance of Scan Manager that can
 """
 
 import pytest
@@ -13,24 +13,28 @@ from geecs_scanner.data_acquisition.default_scan_manager import get_default_scan
 
 
 def test_noscan_from_default_scan_manager():
-    """
-     Run a basic noscan scan
-    """
-
+    """Run a basic noscan scan."""
     manager = get_default_scan_manager("Undulator")
-    config_filename = Path(__file__).parents[1] / "test_configs" / "Test" / "aux_configs" / "test_noscan.yaml"
+    config_filename = (
+        Path(__file__).parents[1]
+        / "test_configs"
+        / "Test"
+        / "aux_configs"
+        / "test_noscan.yaml"
+    )
     success = manager.reinitialize(config_path=config_filename)
 
     if success is False:
         raise AssertionError("Scan Manager unable to reinitialize")
 
     scan_config = {
-        'device_var': 'noscan',
-        'start': 0,
-        'end': 0,
-        'step': 1,
-        'wait_time': 2.5,
-        'additional_description': 'System test for a noscan'}
+        "device_var": "noscan",
+        "start": 0,
+        "end": 0,
+        "step": 1,
+        "wait_time": 2.5,
+        "additional_description": "System test for a noscan",
+    }
 
     manager.start_scan_thread(scan_config=scan_config)
     manager.data_logger.sound_player.stop()  # Turn off sounds
@@ -38,7 +42,7 @@ def test_noscan_from_default_scan_manager():
 
     while manager.is_scanning_active():
         if test_scan_data is None:
-            test_scan_data = manager.scan_data_manager.scan_data
+            test_scan_data = manager.scan_data_manager.scan_paths
         pass
 
     if test_scan_data is None:

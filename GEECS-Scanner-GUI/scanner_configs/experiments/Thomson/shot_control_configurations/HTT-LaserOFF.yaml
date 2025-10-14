@@ -1,0 +1,16 @@
+device: HTT-DG645_6_B
+variables:
+  Delay.Ch D:
+    'OFF': '0.00'
+    SCAN: '0.005'
+    SINGLESHOT: ''
+    STANDBY: '0.00'
+  Trigger.ExecuteSingleShot:
+    'OFF': ''
+    SCAN: ''
+    SINGLESHOT: 'on'
+    STANDBY: ''
+  Trigger.Source:
+    'OFF': Single shot
+    SCAN: Internal
+    STANDBY: External rising edges

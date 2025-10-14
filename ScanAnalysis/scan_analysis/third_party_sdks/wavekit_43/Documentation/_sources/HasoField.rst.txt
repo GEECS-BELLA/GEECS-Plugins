@@ -1,6 +1,0 @@
-
-
-Wavekit_Python::HasoField
-=========================
-.. automodule:: wavekit_py.io_wavekit_hasofield
-   :members:

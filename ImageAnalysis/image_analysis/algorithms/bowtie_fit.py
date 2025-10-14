@@ -4,22 +4,20 @@ This module provides:
 - `BowtieFitResult`: Dataclass container for fitted parameters and diagnostics.
 - `BowtieFitAlgorithm`: Column-wise size extraction and Gaussian-beam model fit
   for "bowtie"-shaped beam profiles in 2D images.
-
-Typical usage
--------------
->>> algo = BowtieFitAlgorithm(n_beam_size_clearance=4, min_total_counts=2500, threshold_factor=10)
->>> result = algo.evaluate(image)  # image: np.ndarray, shape (H, W)
->>> result.score, result.w0, result.theta, result.x0
 """
 
-# # File: algorithms/bowtie_fit.py
-
 import numpy as np
+
+import logging
+import warnings
+
 from typing import Tuple, Optional, Callable
 from dataclasses import dataclass
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, OptimizeWarning
 from lcls_tools.common.data.fit.methods import GaussianModel
 from lcls_tools.common.data.fit.projection import ProjectionFit
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -226,50 +224,51 @@ class BowtieFitAlgorithm:
         try:
             weights_fit_safe = np.clip(weights_fit, 1e-6, None)
             sigma_err = 1.0 / np.sqrt(weights_fit_safe)
-
-            popt, pcov = curve_fit(
-                self._beam_model,
-                x_fit,
-                sigma_fit,
-                sigma=sigma_err,
-                absolute_sigma=True,
-                p0=[np.min(sigma_fit), 0.1, np.median(x_fit)],
-            )
-
-            w0, theta, x0 = popt
-            residuals = sigma_fit - self._beam_model(x_fit, *popt)
-            ss_res = np.sum(residuals**2)
-            ss_tot = np.sum((sigma_fit - np.mean(sigma_fit)) ** 2)
-            r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else float("-inf")
-
-            perr = (
-                np.sqrt(np.diag(pcov))
-                if np.all(np.isfinite(pcov))
-                else (np.nan, np.nan, np.nan)
-            )
-
-            # Additional check: ensure enough weight around the waist.
-            waist_window = 10  # pixels
-            in_waist_region = (x_fit >= (x0 - waist_window)) & (
-                x_fit <= (x0 + waist_window)
-            )
-            total_weight_waist = np.sum(weights_fit[in_waist_region])
-            total_weight_all = np.sum(weights_fit)
-
-            if total_weight_waist < 0.004 * total_weight_all:
-                print(
-                    f"⚠️ Insufficient weight near waist: x0={x0:.1f}, waist weight = {total_weight_waist:.1f}, total = {total_weight_all:.1f}"
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", OptimizeWarning)
+                popt, pcov = curve_fit(
+                    self._beam_model,
+                    x_fit,
+                    sigma_fit,
+                    sigma=sigma_err,
+                    absolute_sigma=True,
+                    p0=[np.min(sigma_fit), 0.1, np.median(x_fit)],
                 )
-                return BowtieFitResult(
-                    score=1e6,
-                    w0=1e6,
-                    theta=1e6,
-                    x0=1e6,
-                    r_squared=-np.inf,
-                    param_errors=(np.nan,) * 3,
-                    sizes=sizes,
-                    weights=weights,
+
+                w0, theta, x0 = popt
+                residuals = sigma_fit - self._beam_model(x_fit, *popt)
+                ss_res = np.sum(residuals**2)
+                ss_tot = np.sum((sigma_fit - np.mean(sigma_fit)) ** 2)
+                r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else float("-inf")
+
+                perr = (
+                    np.sqrt(np.diag(pcov))
+                    if np.all(np.isfinite(pcov))
+                    else (np.nan, np.nan, np.nan)
                 )
+
+                # Additional check: ensure enough weight around the waist.
+                waist_window = 10  # pixels
+                in_waist_region = (x_fit >= (x0 - waist_window)) & (
+                    x_fit <= (x0 + waist_window)
+                )
+                total_weight_waist = np.sum(weights_fit[in_waist_region])
+                total_weight_all = np.sum(weights_fit)
+
+                if total_weight_waist < 0.004 * total_weight_all:
+                    logger.warning(
+                        f"⚠️ Insufficient weight near waist: x0={x0:.1f}, waist weight = {total_weight_waist:.1f}, total = {total_weight_all:.1f}"
+                    )
+                    return BowtieFitResult(
+                        score=1e6,
+                        w0=1e6,
+                        theta=1e6,
+                        x0=1e6,
+                        r_squared=-np.inf,
+                        param_errors=(np.nan,) * 3,
+                        sizes=sizes,
+                        weights=weights,
+                    )
 
             return BowtieFitResult(
                 score=w0 * abs(theta),
@@ -283,7 +282,7 @@ class BowtieFitAlgorithm:
             )
 
         except Exception as e:
-            print(f"[EXCEPTION] Fit failed: {e}")
+            logger.warning(f"[EXCEPTION] Fit failed: {e}")
             return BowtieFitResult(
                 score=np.nan,
                 w0=np.nan,

@@ -1,0 +1,4 @@
+single_scan_devices:
+  Assert-Ctrl-BProfiler-LRes: Assert-Ctrl_BProfiler-LRes:Position.Ch1
+  ChamberModeScan: HTT-LPModeStage:position
+  DriveModeScan: HTT-ESP06:Position.Axis 1

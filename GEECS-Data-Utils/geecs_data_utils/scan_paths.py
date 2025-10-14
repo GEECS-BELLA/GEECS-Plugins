@@ -26,6 +26,9 @@ from geecs_data_utils.utils import SysPath, ConfigurationError, month_to_int
 from geecs_data_utils.type_defs import ScanTag
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
 
+# Acceptable extensions (lowercase, no dot)
+_ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms", "himg"}
+
 # from geecs_data_utils.types import ScanConfig, ScanMode
 
 # module‐level logger
@@ -106,6 +109,7 @@ class ScanPaths:
         config_path: Optional[Path] = None,
         default_experiment: Optional[str] = None,
         set_base_path: Optional[Union[Path, str]] = None,
+        image_analysis_configs_path: Optional[Union[Path, str]] = None,
     ):
         """Use by GEECS Scanner to fix scan_data_manager in case experiment name has changed."""
         try:
@@ -113,13 +117,16 @@ class ScanPaths:
                 config_path is None
             ):  # Then don't explicitly pass config_path so that it uses the default location
                 cls.paths_config = GeecsPathsConfig(
-                    default_experiment=default_experiment, set_base_path=set_base_path
+                    default_experiment=default_experiment,
+                    set_base_path=set_base_path,
+                    image_analysis_configs_path=image_analysis_configs_path,
                 )
             else:
                 cls.paths_config = GeecsPathsConfig(
                     config_path=config_path,
                     default_experiment=default_experiment,
                     set_base_path=set_base_path,
+                    image_analysis_configs_path=image_analysis_configs_path,
                 )
         except ConfigurationError as e:
             logger.error(f"Configuration Error in ScanData: {e}")
@@ -708,6 +715,69 @@ class ScanPaths:
             rows.append(row)
 
         return pd.DataFrame(rows)
+
+    # ---- Minimal naming + discovery primitives (no shot loops) -------------------
+
+    @staticmethod
+    def _shot_str(shot: int) -> str:
+        """Zero-pad to at least 3 digits; expand naturally beyond 999."""
+        return f"{shot:03d}" if shot < 1000 else str(shot)
+
+    def list_device_folders(self) -> list[str]:
+        """Return device subfolder names from this scan folder."""
+        try:
+            return self.get_folders_and_files().get("devices", [])
+        except Exception:
+            root = self.get_folder()
+            return (
+                [p.name for p in root.iterdir() if p.is_dir()]
+                if root and root.exists()
+                else []
+            )
+
+    def device_folder(self, device: str) -> Path:
+        """Resolve '<scan>/<device>'."""
+        return self.get_folder() / device
+
+    @staticmethod
+    def build_asset_filename(
+        *, scan: int, shot: int, device: str, ext: str, variant: Optional[str] = None
+    ) -> str:
+        """Build canonical expected file naming."""
+        ext = ext.lstrip(".").lower()
+        shot_str = ScanPaths._shot_str(shot)
+        variant_seg = "" if not variant else f"{variant}"
+        return f"Scan{scan:03d}_{device}_{shot_str}{variant_seg}.{ext}"
+
+    def build_asset_path(
+        self, *, shot: int, device: str, ext: str, variant: Optional[str] = None
+    ) -> Path:
+        """Full expected path for one asset."""
+        tag = self.get_tag()
+        fname = self.build_asset_filename(
+            scan=tag.number, shot=shot, device=device, ext=ext, variant=variant
+        )
+        return self.device_folder(device) / fname
+
+    def infer_device_ext(self, device: str, *, max_files: int = 5) -> str:
+        """Peek at up to `max_files` files to find proper file extension."""
+        from collections import Counter
+
+        dpath = self.device_folder(device)
+        if not dpath.exists():
+            return "png"
+
+        counts = Counter()
+        seen = 0
+        for f in dpath.iterdir():
+            if f.is_file():
+                ext = f.suffix.lower().lstrip(".")
+                if ext in _ACCEPTABLE_EXTS:
+                    counts[ext] += 1
+                    seen += 1
+                    if seen >= max_files:
+                        break
+        return counts.most_common(1)[0][0] if counts else "png"
 
 
 ScanPaths.reload_paths_config()

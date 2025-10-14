@@ -1,6 +1,0 @@
-
-
-Wavekit_Python::ComputePhaseSet
-===============================
-.. automodule:: wavekit_py.io_wavekit_computephaseset
-   :members:

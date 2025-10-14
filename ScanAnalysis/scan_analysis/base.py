@@ -38,7 +38,9 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from geecs_data_utils import ScanData
+from geecs_data_utils import ScanData, ScanPaths
+
+logger = logging.getLogger(__name__)
 
 
 # %% classes
@@ -66,21 +68,6 @@ class ScanAnalyzerInfo(NamedTuple):
         Whether this analyzer is enabled in the current configuration.
     scan_analyzer_kwargs : dict[str, Any], default={}
         Extra keyword arguments forwarded to the analyzer constructor.
-
-    Examples
-    --------
-    >>> ScanAnalyzerInfo(
-    ...     scan_analyzer_class=Rad2SpecAnalysis,
-    ...     requirements={"tdms": ["U_BCaveICT"], "image": ["UC_UndulatorRad2"]},
-    ...     device_name="UC_UndulatorRad2",
-    ...     scan_analyzer_kwargs={"debug_mode": False, "force_background_mode": True},
-    ... )
-    >>> ScanAnalyzerInfo(
-    ...     scan_analyzer_class=Array2DScanAnalyzer,
-    ...     requirements={"image": ["U_HasoLift"]},
-    ...     device_name="U_HasoLift",
-    ...     scan_analyzer_kwargs={"image_analyzer": MyCustomImageAnalyzer()},
-    ... )
     """
 
     scan_analyzer_class: Type[ScanAnalyzer]
@@ -212,27 +199,28 @@ class ScanAnalyzer:
     def _handle_scan_tag(self, scan_tag: ScanTag):
         """Resolve paths, read `.ini`, load auxiliary data, and set flags."""
         self.scan_tag = scan_tag
-        self.scan_data = ScanData(tag=self.scan_tag, load_scalars=False, read_mode=True)
-        self.scan_directory = self.scan_data.get_folder()
+        self.scan_paths = ScanPaths(tag=self.scan_tag, read_mode=True)
+        self.scan_data = ScanData(paths=self.scan_paths)
+        self.scan_directory = self.scan_data.paths.get_folder()
         self.experiment_dir = self.scan_tag.experiment
         self.ini_file_path = (
             self.scan_directory / f"ScanInfo{self.scan_directory.name}.ini"
         )
-        self.scan_path: Path = self.scan_data.get_analysis_folder()
+        self.scan_path: Path = self.scan_data.paths.get_analysis_folder()
         self.auxiliary_file_path: Path = (
             self.scan_path.parent / f"s{self.scan_tag.number}.txt"
         )
-        logging.info(f"analysis path is : {self.scan_path}")
+        logger.info(f"analysis path is : {self.scan_path}")
 
         try:
             # Extract the scan parameter
             self.scan_parameter = self.extract_scan_parameter_from_ini()
 
-            logging.info(f"Scan parameter is: {self.scan_parameter}.")
+            logger.info(f"Scan parameter is: {self.scan_parameter}.")
             s_param = self.scan_parameter.lower()
 
             if s_param == "noscan" or s_param == "shotnumber":
-                logging.warning(
+                logger.warning(
                     "No parameter varied during the scan, setting noscan flag."
                 )
                 self.noscan = True
@@ -240,7 +228,7 @@ class ScanAnalyzer:
             self.load_auxiliary_data()
 
             if self.auxiliary_data is None:
-                logging.warning(
+                logger.warning(
                     "Scan parameter not found in auxiliary data. Possible aborted scan. Skipping analysis."
                 )
                 return  # Stop further execution cleanly
@@ -248,7 +236,7 @@ class ScanAnalyzer:
             self.total_shots = len(self.auxiliary_data)
 
         except FileNotFoundError as e:
-            logging.warning(
+            logger.warning(
                 f"{e}. Could not find auxiliary or .ini file in {self.scan_directory}. Skipping analysis."
             )
             return
@@ -263,7 +251,7 @@ class ScanAnalyzer:
             unless `use_colon_scan_param` is set to True. Optimization scans with
             a "Shotnumber" parameter are mapped to "Bin #".
         """
-        ini_contents = self.scan_data.load_scan_info()
+        ini_contents = self.scan_data.paths.load_scan_info()
         # A MasterControl scan saves the scalar data columns with spaces between device
         # and variable, rather than use the basic device:variable configuration. If
         # dealing with live data, the device:variable convention is preserved
@@ -315,7 +303,7 @@ class ScanAnalyzer:
                     )
 
             except (KeyError, FileNotFoundError) as e:
-                logging.warning(
+                logger.warning(
                     f"{e}. Scan parameter not found in auxiliary data. Possible aborted scan. Skipping"
                 )
 
@@ -364,8 +352,7 @@ class ScanAnalyzer:
             # check if columns exist within dataframe
             existing_cols = set(df_copy) & set(dict_to_append.keys())
             if existing_cols:
-                # if self.flag['logging']:
-                logging.warning(
+                logger.warning(
                     f"Warning: Columns already exist in sfile: "
                     f"{existing_cols}. Overwriting existing columns."
                 )
@@ -380,14 +367,13 @@ class ScanAnalyzer:
             self.auxiliary_data = df_new.copy()
 
         except DataLengthError:
-            # if self.flag['logging']:
-            logging.error(
+            logger.error(
                 f"Error: Error appending {self.device_name} field to sfile due to "
                 f"inconsistent array lengths. Scan file not updated."
             )
 
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"Error: Unexpected error in {self.append_to_sfile.__name__}: {e}"
             )
 
@@ -441,7 +427,7 @@ class ScanAnalyzer:
                         -1
                     ].strip() if "Alias:" in column else column
 
-            logging.warning(
+            logger.warning(
                 f"Warning: Could not find column containing scan parameter: {self.scan_parameter}"
             )
             return None, None

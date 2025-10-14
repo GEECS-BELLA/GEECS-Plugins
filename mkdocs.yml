@@ -67,26 +67,29 @@ nav:
   - Image Analysis:
       - Overview: image_analysis/overview.md
       - Installation & Setup: image_analysis/installation.md
-      - Integration Guide: image_analysis/integration.md
       - API Reference:
-          - Core Modules:
-              - Base: image_analysis/api/base.md
-              - Types: image_analysis/api/types.md
-              - Utils: image_analysis/api/utils.md
-              - LabVIEW Adapters: image_analysis/api/labview_adapters.md
-          - Algorithms: image_analysis/api/algorithms.md
-          - Analyzers: image_analysis/api/analyzers.md
-          - Offline Analyzers: image_analysis/api/offline_analyzers.md
-          - Tools: image_analysis/api/tools.md
+          - Core Modules: image_analysis/api/core_modules.md
+#              - Base: image_analysis/api/base.md
+#              - Types: image_analysis/api/types.md
+#              - Utils: image_analysis/api/utils.md
+#              - LabVIEW Adapters: image_analysis/api/labview_adapters.md
+#          - Algorithms: image_analysis/api/algorithms.md
+#          - Analyzers: image_analysis/api/analyzers.md
+#          - Offline Analyzers: image_analysis/api/offline_analyzers.md
+#          - Tools: image_analysis/api/tools.md
+      - Examples:
+          - Basic Usage: image_analysis/examples/basic_offline_analysis.ipynb
+          - Scan Database Utils: image_analysis/examples/understanding_configurations.ipynb
   - Scan Analysis:
       - Overview: scan_analysis/overview.md
-      - Installation & Setup: scan_analysis/installation.md
-      - Creating Analyzers: scan_analysis/creating_analyzers.md
       - API Reference:
-          - Core Modules:
-              - Base: scan_analysis/api/base.md
-              - Execute Analysis: scan_analysis/api/execute_scan_analysis.md
-          - Analyzers: scan_analysis/api/analyzers.md
+          - Core Modules: scan_analysis/api/base.md
+#              - Base: scan_analysis/api/base.md
+#              - Execute Analysis: scan_analysis/api/execute_scan_analysis.md
+#          - Analyzers: scan_analysis/api/analyzers.md
+      - Examples:
+          - Basic Usage with Array2DAnalysis: scan_analysis/examples/basic_usage.ipynb
+          - Variational analysis: scan_analysis/examples/variational_analysis.ipynb
   - GEECS Python API:
       - Overview: geecs_python_api/overview.md
       - API Reference:

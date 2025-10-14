@@ -1,84 +1,52 @@
-"""General-purpose scan analyzer for 2D array data.
+"""Scan analyzer for 2D array (image) data.
 
-This module provides :class:`Array2DScanAnalyzer`, a robust child of
-:class:`scan_analysis.base.ScanAnalyzer` that orchestrates running an
-:class:`image_analysis.base.ImageAnalyzer` over all shots in a scan, handling:
+This module provides :class:`Array2DScanAnalyzer`, a specialized scan analyzer
+for processing 2D image data across all shots in a scan. It inherits from
+:class:`SingleDeviceScanAnalyzer` and adds 2D-specific rendering via
+:class:`Image2DRenderer`.
 
-- Robust image discovery per shot via filename pattern matching.
-- Parallelized loading and per-shot analysis (threaded vs. process pools).
-- Optional batch-level preprocessing via the ImageAnalyzer API.
-- Binning by scan parameter and per‑bin averaging of images and scalars.
+The analyzer handles:
+- Robust image discovery per shot via filename pattern matching
+- Parallelized loading and per-shot analysis (threaded vs. process pools)
+- Optional batch-level preprocessing via the ImageAnalyzer API
+- Binning by scan parameter and per-bin averaging of images and scalars
 - Turnkey post-processing outputs:
-  - For "noscan": averaged image + animated GIF over shots.
-  - For parameter scans: averaged image per bin + grid montage.
+  - For "noscan": averaged image + animated GIF over shots
+  - For parameter scans: averaged image per bin + grid montage
 - Saving outputs (HDF5 for data, PNG for visualization) and updating the
-  scan's auxiliary s-file with analyzer scalar results.
-
-Notes
------
-- Concurrency backend is selected automatically based on whether the
-  provided ImageAnalyzer instance is pickleable. Unpickleable analyzers
-  (e.g., those holding active handles) trigger a fallback to threads by
-  setting ``image_analyzer.run_analyze_image_asynchronously = True``.
-- The analyzer expects the wrapped ImageAnalyzer to return results using
-  :meth:`image_analysis.base.ImageAnalyzer.build_return_dictionary`.
-- Binning requires a "Bin #" column in the auxiliary s-file.
+  scan's auxiliary s-file with analyzer scalar results
 """
 
 from __future__ import annotations
 
 # --- Standard Library ---
 import logging
-import re
-import traceback
-import pickle
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from pathlib import Path
-from typing import TYPE_CHECKING, Union, Optional, TypedDict, Tuple, Dict
-
-# --- Third-Party Libraries ---
-import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
-import imageio as io
-import h5py
-from collections import defaultdict
+from typing import TYPE_CHECKING, Optional, Dict, Any, Literal
 
 # --- Local / Project Imports ---
-from scan_analysis.base import ScanAnalyzer
+from scan_analysis.analyzers.common.single_device_scan_analyzer import (
+    SingleDeviceScanAnalyzer,
+)
+
+
+from scan_analysis.analyzers.renderers import Image2DRenderer
 from image_analysis.base import ImageAnalyzer
-from image_analysis.tools.rendering import base_render_image
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
-    from geecs_data_utils import ScanTag
-    from numpy.typing import NDArray
-    from image_analysis.types import AnalyzerResultDict
+    pass
 
-# --- Global Config ---
-use_interactive = False
-if not use_interactive:
-    matplotlib.use("Agg")
-
-
-PRINT_TRACEBACK = True
-
-
-# --- TypedDict Definitions ---
-class BinImageEntry(TypedDict):
-    """Container for per‑bin aggregates."""
-
-    value: float
-    result: Optional[AnalyzerResultDict]
+logger = logging.getLogger(__name__)
 
 
 # %% classes
-class Array2DScanAnalyzer(ScanAnalyzer):
-    """Scan analyzer for generic 2D array images.
+class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
+    """
+    Scan analyzer for generic 2D array images.
 
     This class adapts any :class:`ImageAnalyzer` to run across a scan. It handles
-    parallelized I/O and per‑shot analysis, optional batch preprocessing, binning
-    and averaging, and post‑processing visualizations.
+    parallelized I/O and per-shot analysis, optional batch preprocessing, binning
+    and averaging, and post-processing visualizations using :class:`Image2DRenderer`.
 
     The ImageAnalyzer must implement:
 
@@ -99,8 +67,6 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         "_postprocessed.tsv"). Only files ending with this literal tail are used.
     skip_plt_show : bool, default=True
         Passed to :class:`ScanAnalyzer` to control interactive plotting in parents.
-    flag_logging : bool, default=True
-        If True, logs informative messages and warnings.
     flag_save_images : bool, default=True
         If True, saves HDF5/PNG outputs to the analysis directory.
 
@@ -108,6 +74,8 @@ class Array2DScanAnalyzer(ScanAnalyzer):
     -----
     - If ``image_analyzer`` cannot be pickled (e.g., due to open handles), the analyzer
       automatically switches to threaded execution instead of multiprocessing.
+    - This class is a thin wrapper around :class:`SingleDeviceScanAnalyzer` that
+      provides the :class:`Image2DRenderer` for 2D-specific visualization.
     """
 
     def __init__(
@@ -116,912 +84,215 @@ class Array2DScanAnalyzer(ScanAnalyzer):
         image_analyzer: Optional[ImageAnalyzer] = None,
         file_tail: Optional[str] = ".png",
         skip_plt_show: bool = True,
-        flag_logging: bool = True,
         flag_save_images: bool = True,
+        renderer_kwargs: Optional[Dict[str, Any]] = None,
+        analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
     ):
-        """Initialize the analyzer and validate concurrency constraints."""
+        """Initialize the analyzer with an ImageAnalyzer and Image2DRenderer.
+
+        Parameters
+        ----------
+        renderer_kwargs : dict, optional
+            Additional keyword arguments to pass to the renderer's methods.
+            Useful options include:
+
+            - ``colormap_mode`` : str, default="sequential"
+                Colormap normalization mode:
+
+                - "sequential": Standard 0 to max (default, uses 'plasma')
+                - "diverging": Symmetric around zero for bipolar data (uses 'RdBu_r')
+                - "custom": User-defined vmin/vmax and cmap
+
+            - ``cmap`` : str, optional
+                Matplotlib colormap name (e.g., 'plasma', 'RdBu_r', 'coolwarm')
+            - ``vmax`` : float, optional
+                Maximum value for colormap (replaces legacy 'plot_scale')
+            - ``vmin`` : float, optional
+                Minimum value for colormap
+            - ``figsize`` : tuple, optional
+                Panel width and height in inches for grid montages
+            - ``figsize_inches`` : float, optional
+                Width/height for square animation frames
+
+        """
         if not device_name:
             raise ValueError("Array2DScanAnalyzer requires a device_name.")
 
-        super().__init__(device_name=device_name, skip_plt_show=skip_plt_show)
+        # Store renderer kwargs for later use
+        self.renderer_kwargs = renderer_kwargs or {}
 
-        self.image_analyzer = image_analyzer or ImageAnalyzer()
+        # Create image analyzer if not provided
+        image_analyzer = image_analyzer or ImageAnalyzer()
 
-        self.max_workers = 16
-        self.saved_avg_image_paths: Dict[int, Path] = {}
+        # Create 2D renderer
+        renderer = Image2DRenderer()
 
-        # define flags
-        self.flag_logging = flag_logging
-        self.flag_save_images = flag_save_images
+        # Initialize base class with the analyzer and renderer
+        super().__init__(
+            device_name=device_name,
+            image_analyzer=image_analyzer,
+            renderer=renderer,
+            file_tail=file_tail,
+            skip_plt_show=skip_plt_show,
+            flag_save_data=flag_save_images,
+            analysis_mode=analysis_mode,
+        )
 
-        self.file_tail = file_tail
-
-        try:
-            pickle.dumps(self.image_analyzer)
-        except (pickle.PicklingError, TypeError) as e:
-            # Mark that we cannot send the ImageAnalyzer through multiprocessing,
-            # so we’ll fall back to threading instead.
-            self.image_analyzer.run_analyze_image_asynchronously = True
-            if self.flag_logging:
-                logging.warning(
-                    f"[Array2DScanAnalyzer] ImageAnalyzer instance is not pickleable "
-                    f"(reason: {e}). Falling back to threaded analysis."
-                )
-
-    def _establish_additional_paths(self):
-        """Compute input/output paths and validate data presence."""
-        # organize various paths for location of saved data
-        self.path_dict = {
-            "data_img": Path(self.scan_directory) / f"{self.device_name}",
-            "save": (
-                self.scan_directory.parents[1]
-                / "analysis"
-                / self.scan_directory.name
-                / f"{self.device_name}"
-                / "Array2DScanAnalyzer"
-            ),
-        }
-
-        # Check if data directory exists and is not empty
-        if not self.path_dict["data_img"].exists() or not any(
-            self.path_dict["data_img"].iterdir()
-        ):
-            if self.flag_logging:
-                logging.warning(
-                    f"Data directory '{self.path_dict['data_img']}' does not exist or is empty. Skipping"
-                )
-
-        if self.path_dict["data_img"] is None or self.auxiliary_data is None:
-            if self.flag_logging:
-                logging.info("Skipping analysis due to missing data or auxiliary file.")
-            return
-
-    def _run_analysis_core(self):
-        """Main analysis pipeline executed by the orchestrator.
-
-        Workflow
-        --------
-        1. Establish paths and create the output directory (if saving is enabled).
-        2. Load all images in parallel (threaded/process).
-        3. Optionally run batch-level preprocessing via ``analyze_image_batch``.
-        4. Run per-shot ``analyze_image`` in parallel and collect results.
-        5. Post-process:
-           - If ``noscan``: average + GIF.
-           - Else: per‑bin averaging + grid montage.
-        6. Persist auxiliary s-file updates and return list of display artifacts.
+    def _get_renderer_config(self):
+        """
+        Get Image2DRendererConfig for this analyzer.
 
         Returns
         -------
-        list[str | pathlib.Path] or None
-            Paths to generated artifacts to display (e.g., images/GIFs), or None on failure.
+        Image2DRendererConfig
+            Renderer configuration with 2D-specific settings
         """
-        self._establish_additional_paths()
+        from scan_analysis.analyzers.renderers.config import Image2DRendererConfig
 
-        if self.flag_save_images and not self.path_dict["save"].exists():
-            self.path_dict["save"].mkdir(parents=True)
+        # Get renderer_kwargs if available
+        renderer_kwargs = getattr(self, "renderer_kwargs", {})
 
-        try:
-            # Run the image analyzer on every shot in parallel.
-            self._process_all_shots_parallel()
-
-            # Depending on the scan type, perform additional processing.
-            # self.results is a dict that only gets updated if the ImageAnalyzer
-            # returns an image.
-            if len(self.results) > 2:
-                if self.noscan:
-                    self._postprocess_noscan()
-                else:
-                    if use_interactive:
-                        self._postprocess_scan_interactive()
-                    else:
-                        self._postprocess_scan_parallel()
-            if not self.live_analysis:
-                self.auxiliary_data.to_csv(
-                    self.auxiliary_file_path, sep="\t", index=False
-                )
-            return self.display_contents
-
-        except Exception as e:
-            if PRINT_TRACEBACK:
-                print(traceback.format_exc())
-            if self.flag_logging:
-                logging.warning(f"Warning: Image analysis failed due to: {e}")
-            return
-
-    def _process_all_shots_parallel(self):
-        """Load images, run batch analysis (optional), then per‑shot analysis."""
-        self._load_all_images_parallel()
-        self._run_batch_analysis()
-        self._run_image_analysis_parallel()
-
-    def _build_image_file_map(self) -> None:
-        """
-        Build a mapping from shot number to image file path using a flexible filename regex.
-
-        Only files whose suffix + format matches ``file_tail`` exactly are included.
-
-        Notes
-        -----
-        Expected filename pattern::
-
-            Scan<scan_number>_<device_subject>_<shot_number><file_tail>
-
-        Examples
-        --------
-        ``Scan012_UC_ALineEBeam3_005.png`` or ``Scan016_U_HasoLift_001_postprocessed.tsv``
-        """
-        self._image_file_map = {}
-
-        logging.info(f"self.file_tail: {self.file_tail}")
-        image_filename_regex = re.compile(
-            r"Scan(?P<scan_number>\d{3,})_"  # scan number
-            r"(?P<device_subject>.*?)_"  # non-greedy subject
-            r"(?P<shot_number>\d{3,})"  # shot number
-            + re.escape(self.file_tail)
-            + r"$"  # literal suffix+format
+        # Handle legacy plot_scale parameter from camera_analysis_settings
+        plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get(
+            "Plot Scale", None
         )
+        if plot_scale is not None and "vmax" not in renderer_kwargs:
+            renderer_kwargs["vmax"] = plot_scale
 
-        logging.info("mapping matched files")
-        for file in self.path_dict["data_img"].iterdir():
-            if not file.is_file():
-                continue
-
-            m = image_filename_regex.match(file.name)
-            if m:
-                shot_num = int(m.group("shot_number"))
-                if shot_num in self.auxiliary_data["Shotnumber"].values:
-                    self._image_file_map[shot_num] = file
-                    logging.info(f"Mapped file for shot {shot_num}: {file}")
-            else:
-                logging.debug(f"Filename {file.name} does not match expected pattern.")
-
-        expected_shots = set(self.auxiliary_data["Shotnumber"].values)
-        found_shots = set(self._image_file_map.keys())
-        for m in sorted(expected_shots - found_shots):
-            logging.warning(f"No file found for shot {m}")
-
-    def _load_all_images_parallel(self) -> None:
-        """
-        Load all images in parallel (threaded or multi-processed) and store them in ``self.raw_images``.
-
-        This identifies the image file path for each shot number using the configured filename
-        pattern, then loads images via :meth:`ImageAnalyzer.load_image`.
-
-        Concurrency is selected by the analyzer's ``run_analyze_image_asynchronously`` flag.
-
-        Side Effects
-        ------------
-        Populates:
-
-        - ``self._image_file_map`` : ``{shot_number: Path}``
-        - ``self.raw_images`` : ``{shot_number: (np.ndarray, Path)}``
-        """
-        self.raw_images = {}
-        self._build_image_file_map()
-
-        use_threads = self.image_analyzer.run_analyze_image_asynchronously
-        Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
-
-        with Executor(max_workers=self.max_workers) as executor:
-            futures = {
-                executor.submit(self.image_analyzer.load_image, path): shot_num
-                for shot_num, path in self._image_file_map.items()
-            }
-
-            for future in as_completed(futures):
-                shot_num = futures[future]
-                try:
-                    image = future.result()
-                    if image is not None:
-                        file_path = self._image_file_map[shot_num]
-                        self.raw_images[shot_num] = (image, file_path)
-                except Exception as e:
-                    logging.error(f"Error loading image for shot {shot_num}: {e}")
-
-    def _run_batch_analysis(self) -> None:
-        """
-        Optionally run batch-level preprocessing across all loaded images.
-
-        Calls :meth:`ImageAnalyzer.analyze_image_batch` with the list of raw images.
-        If it returns a list of processed images and a state dict, those processed
-        images replace the originals for subsequent per‑shot analysis, and the
-        state dict is forwarded via the auxiliary_data argument to each
-        :meth:`ImageAnalyzer.analyze_image` call.
-
-        Raises
-        ------
-        RuntimeError
-            If no images have been loaded yet.
-        ValueError
-            If the returned number of processed images does not match the input.
-        """
-        if not hasattr(self, "raw_images") or not self.raw_images:
-            raise RuntimeError("No images loaded. Run _load_all_images_parallel first.")
-
+        # Create config from kwargs
         try:
-            # Extract keys and separate image + path tuples
-            shot_nums = list(self.raw_images.keys())
-            image_path_tuples = list(self.raw_images.values())
-            image_list = [img for img, _ in image_path_tuples]  # extract only images
-            file_paths = [
-                path for _, path in image_path_tuples
-            ]  # Reconstruct raw_images keeping original paths
-
-            # Run batch analysis. This returns the processed images which will get handled
-            # by analyze_image. It also returns additional otherwise stateful config type
-            # results that should be used by analyze_image, but which are not explicitly
-            # available to the multiprocessing based instances of the analyzer. Thus, they need
-            # to be passed with the aux data
-            processed_images, stateful_results = (
-                self.image_analyzer.analyze_image_batch(image_list)
+            return Image2DRendererConfig(**renderer_kwargs)
+        except Exception as e:
+            logger.warning(
+                f"Error creating Image2DRendererConfig from {renderer_kwargs}: {e}. "
+                f"Using defaults."
             )
-            self.stateful_results = stateful_results
-
-            if processed_images is None:
-                logging.warning("analyze_image_batch() returned None. Skipping.")
-                self.raw_images = {}
-                return
-
-            if len(processed_images) != len(shot_nums):
-                raise ValueError(
-                    f"analyze_image_batch() returned {len(processed_images)} images, "
-                    f"but {len(shot_nums)} were expected."
-                )
-
-            self.raw_images = dict(zip(shot_nums, zip(processed_images, file_paths)))
-
-        except Exception as e:
-            logging.warning(f"Batch analysis skipped or failed: {e}")
-
-    def _run_image_analysis_parallel(self) -> None:
-        """
-        Analyze each image in parallel (threaded or multi-processed).
-
-        Uses :meth:`ImageAnalyzer.analyze_image` per shot, forwarding the file path and
-        any batch‑state via ``auxiliary_data``. Numeric scalars from the analyzer's
-        return dictionary are persisted into the s-file for the shot.
-
-        Notes
-        -----
-        Concurrency backend follows ``run_analyze_image_asynchronously`` on
-        the ImageAnalyzer instance.
-        """
-        logging.info("Starting the individual image analysis")
-        self.results: dict[int, AnalyzerResultDict] = {}
-
-        use_threads = self.image_analyzer.run_analyze_image_asynchronously
-        Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
-        logging.info(
-            f"Using {'ThreadPoolExecutor' if use_threads else 'ProcessPoolExecutor'}"
-        )
-
-        with Executor(max_workers=self.max_workers) as executor:
-            futures = {
-                executor.submit(
-                    self.image_analyzer.analyze_image,
-                    img,
-                    {"file_path": path, **self.stateful_results},
-                ): shot_num
-                for shot_num, (img, path) in self.raw_images.items()
-            }
-
-            logging.info("Submitted image analysis tasks.")
-
-            for future in as_completed(futures):
-                shot_num = futures[future]
-                try:
-                    result: AnalyzerResultDict = future.result()
-                    processed_image = result.get("processed_image")
-                    analysis_results = result.get("analyzer_return_dictionary", {})
-
-                    if processed_image is not None:
-                        self.results[shot_num] = result
-                        logging.info(f"Shot {shot_num}: processed image stored.")
-                        logging.info(
-                            f"analyzed shot {shot_num} and got {analysis_results}"
-                        )
-
-                    else:
-                        logging.info(
-                            f"Shot {shot_num}: no image returned from analysis."
-                        )
-
-                    for key, value in analysis_results.items():
-                        if not isinstance(value, (int, float, np.number)):
-                            logging.warning(
-                                f"[{self.__class__.__name__} using {self.image_analyzer.__class__.__name__}] "
-                                f"Analysis result for shot {shot_num} key '{key}' is not numeric (got {type(value).__name__}). Skipping."
-                            )
-                        else:
-                            self.auxiliary_data.loc[
-                                self.auxiliary_data["Shotnumber"] == shot_num, key
-                            ] = value
-
-                except Exception as e:
-                    logging.error(f"Analysis failed for shot {shot_num}: {e}")
+            return Image2DRendererConfig()
 
     def _postprocess_noscan(self) -> None:
-        """Average over shots and create a GIF when no parameter is scanned."""
-        # Extract processed images and shot numbers from results dict
-        images = [res["processed_image"] for res in self.results.values()]
-        avg_image = self.average_images(images)
-
-        if self.flag_save_images:
-            # Save average image as HDF5
-            self.save_image_as_h5(
-                avg_image,
-                save_dir=self.path_dict["save"],
-                save_name=f"{self.device_name}_average_processed.h5",
-            )
-
-            # Save normalized PNG
-            save_name = f"{self.device_name}_average_processed_visual.png"
-            self.save_normalized_image(
-                avg_image,
-                save_dir=self.path_dict["save"],
-                save_name=save_name,
-                label=save_name,
-            )
-
-            # Track for display
-            display_content_path = Path(self.path_dict["save"]) / save_name
-            self.display_contents.append(str(display_content_path))
-
-            # Create and store GIF
-            gif_path = self.path_dict["save"] / "noscan.gif"
-            self.create_gif(data_dict=self.results, output_file=gif_path)
-            self.display_contents.append(str(gif_path))
-
-    def _save_bin_images(self, bin_key: int, processed_image: np.ndarray) -> None:
-        """Save per‑bin averaged image in HDF5 (data) and PNG (visual) formats."""
-        save_name_scaled = f"{self.device_name}_{bin_key}_processed.h5"
-        save_name_normalized = f"{self.device_name}_{bin_key}_processed_visual.png"
-        self.save_image_as_h5(
-            processed_image, save_dir=self.path_dict["save"], save_name=save_name_scaled
-        )
-        self.saved_avg_image_paths[bin_key] = self.path_dict["save"] / save_name_scaled
-
-        self.save_normalized_image(
-            processed_image,
-            save_dir=self.path_dict["save"],
-            save_name=save_name_normalized,
-        )
-        if self.flag_logging:
-            logging.info(
-                f"Saved bin {bin_key} images: {save_name_scaled} and {save_name_normalized}"
-            )
-
-    def _postprocess_scan_parallel(self) -> None:
         """
-        Post-process a scanned variable by binning and saving averaged images in parallel.
+        Post-process noscan 2D data: create average image + animated GIF.
 
-        The method:
-        1) Bins images using ``bin_images_from_data``.
-        2) Saves each bin’s HDF5 and PNG concurrently.
-        3) Generates a grid montage of binned averages if >1 bin.
+        For 2D image data without a scanned parameter, this creates:
+        - An averaged image across all shots
+        - An animated GIF showing temporal evolution
         """
-        # Use your existing parallel (or sequential) binning method to create binned_data.
-        binned_data = self.bin_images_from_data(flag_save=False)
+        from scan_analysis.analyzers.renderers.config import RenderContext
+        from collections import defaultdict
+        import numpy as np
 
-        # Save each bin's images concurrently using a thread pool.
-        if self.flag_save_images:
-            with ThreadPoolExecutor() as executor:
-                futures = []
-                for bin_key, bin_item in binned_data.items():
-                    processed_image = bin_item["result"]["processed_image"]
-                    futures.append(
-                        executor.submit(self._save_bin_images, bin_key, processed_image)
-                    )
-                for future in as_completed(futures):
-                    # Optionally handle exceptions:
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logging.error(f"Error saving images for a bin: {e}")
+        # Extract processed data from results dict
+        data_list = [res["processed_image"] for res in self.results.values()]
+        avg_data = self.average_data(data_list)
 
-        # Create an image grid if more than one bin exists.
-        if len(binned_data) > 1 and self.flag_save_images:
-            plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get(
-                "Plot Scale", None
-            )
-            save_path = (
-                Path(self.path_dict["save"])
-                / f"{self.device_name}_averaged_image_grid.png"
-            )
-            self.create_image_array(
-                binned_data, plot_scale=plot_scale, save_path=save_path
-            )
-            self.display_contents.append(str(save_path))
-        self.binned_data = binned_data
-
-    def _postprocess_scan_interactive(self) -> None:
-        """Post-process a scanned variable (sequential save; useful for interactive runs)."""
-        # Bin images from the already processed data.
-        binned_data = self.bin_images_from_data(flag_save=False)
-
-        # Process each bin sequentially.
-        for bin_key, bin_item in binned_data.items():
-            processed_image = bin_item["result"].get("processed_image")
-            if self.flag_save_images and processed_image is not None:
-                self._save_bin_images(bin_key, processed_image)
-            elif processed_image is None:
-                logging.warning(
-                    f"Bin {bin_key} has no processed image; skipping saving for this bin."
-                )
-
-        # If more than one bin exists, create an image grid.
-        if len(binned_data) > 1 and self.flag_save_images:
-            plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get(
-                "Plot Scale", None
-            )
-            save_path = (
-                Path(self.path_dict["save"])
-                / f"{self.device_name}_averaged_image_grid.png"
-            )
-            self.create_image_array(
-                binned_data, plot_scale=plot_scale, save_path=save_path
-            )
-            self.display_contents.append(str(save_path))
-
-        self.binned_data = binned_data
-
-    def bin_images_from_data(
-        self, flag_save: Optional[bool] = None
-    ) -> dict[int, BinImageEntry]:
-        """
-        Bin processed images by scan parameter and compute per‑bin averages.
-
-        For each unique "Bin #" value in the auxiliary s-file:
-        - Select shots with valid processed images.
-        - Average the images for that bin.
-        - Average numeric analyzer scalar outputs across shots in the bin.
-        - Optionally, average analyzer lineouts (if supplied as arrays).
-        - Save per‑bin averaged images if requested.
-
-        Parameters
-        ----------
-        flag_save : bool, optional
-            Whether to save the averaged image per bin. Defaults to the instance's
-            ``flag_save_images``.
-
-        Returns
-        -------
-        dict[int, BinImageEntry]
-            Mapping from bin number to a dictionary with:
-            - ``"value"`` : representative scan parameter value for the bin (float)
-            - ``"result"`` : AnalyzerResultDict with averaged image/scalars/lineout
-        """
-        if flag_save is None:
-            flag_save = self.flag_save_images
-
-        if "Bin #" not in self.auxiliary_data.columns:
-            logging.warning("Missing 'Bin #' column in auxiliary data.")
-            return {}
-
-        unique_bins = [int(b) for b in np.unique(self.auxiliary_data["Bin #"].values)]
-        if self.flag_logging:
-            logging.info(f"Unique bins from auxiliary data: {unique_bins}")
-
-        binned_data: dict[int, BinImageEntry] = {}
-
-        for bin_val in unique_bins:
-            # Get shot numbers in this bin
-            bin_shots = self.auxiliary_data[self.auxiliary_data["Bin #"] == bin_val][
-                "Shotnumber"
-            ].values
-
-            # Filter shot numbers that have valid results
-            valid_shots = [
-                sn
-                for sn in bin_shots
-                if sn in self.results
-                and self.results[sn].get("processed_image") is not None
-            ]
-
-            if not valid_shots:
-                if self.flag_logging:
-                    logging.warning(f"No images found for bin {bin_val}.")
-                continue
-
-            # Collect images and scalar results
-            images = [self.results[sn]["processed_image"] for sn in valid_shots]
+        if self.flag_save_data:
+            # Average scalar results
             analysis_results = [
-                self.results[sn].get("analyzer_return_dictionary", {})
-                for sn in valid_shots
+                res.get("analyzer_return_dictionary", {})
+                for res in self.results.values()
             ]
-            lineouts = [
-                self.results[sn].get("analyzer_return_lineouts")
-                for sn in valid_shots
-                if isinstance(
-                    self.results[sn].get("analyzer_return_lineouts"), np.ndarray
-                )
-            ]
-            # just extract the first entry in the input parameters, as it isn't expected to change
-            input_params = self.results[valid_shots[0]].get(
-                "analyzer_input_parameters", {}
-            )
-
-            avg_image = self.average_images(images)
-            if avg_image is None:
-                continue
-
-            # calculate the average value for each key,item in analysis_results dict for the bin
-            sums = defaultdict(list)
-            for d in analysis_results:
-                for k, v in d.items():
-                    sums[k].append(v)
-            avg_vals = {k: np.mean(v, axis=0) for k, v in sums.items()}
-
-            if lineouts:
-                lineouts_array = np.stack(lineouts)
-                average_lineout = np.mean(lineouts_array, axis=0)
+            if analysis_results and analysis_results[0]:
+                sums = defaultdict(list)
+                for d in analysis_results:
+                    for k, v in d.items():
+                        sums[k].append(v)
+                avg_scalars = {k: np.mean(v, axis=0) for k, v in sums.items()}
             else:
-                average_lineout = None
+                avg_scalars = {}
 
-            # Get representative scan parameter value
-            column_full_name, _ = self.find_scan_param_column()
-            param_value = self.auxiliary_data.loc[
-                self.auxiliary_data["Bin #"] == bin_val, column_full_name
-            ].mean()
+            # Create RenderContext for average
+            avg_context = RenderContext(
+                data=avg_data,
+                input_parameters={"analyzer_return_dictionary": avg_scalars},
+                device_name=self.device_name,
+                identifier="average",
+            )
 
-            binned_data[bin_val] = {
-                "value": float(param_value),
-                "result": {
-                    "processed_image": avg_image,
-                    "analyzer_return_dictionary": avg_vals,
-                    "analyzer_input_parameters": input_params,
-                    "analyzer_return_lineouts": average_lineout,
-                },
-            }
+            config = self._get_renderer_config()
 
-            if flag_save:
-                save_name = f"{self.device_name}_{bin_val}.h5"
-                self.save_image_as_h5(
-                    avg_image, save_dir=self.path_dict["save"], save_name=save_name
+            # Save average using renderer
+            self.renderer.render_single(avg_context, config, self.path_dict["save"])
+
+            # Create animation from all results
+            contexts = [
+                RenderContext(
+                    data=result["processed_image"],
+                    input_parameters=result.get("analyzer_input_parameters", {}),
+                    device_name=self.device_name,
+                    identifier=f"shot_{shot_num}",
                 )
-                if self.flag_logging:
-                    logging.info(
-                        f"Binned and averaged images for bin {bin_val} saved as {save_name}."
-                    )
+                for shot_num, result in self.results.items()
+            ]
+            animation_path = self.path_dict["save"] / "noscan.gif"
+            self.renderer.render_animation(contexts, config, animation_path)
 
-        return binned_data
-
-    def save_image_as_h5(
-        self, image: NDArray, save_dir: Union[str, Path], save_name: str
-    ):
+    def _postprocess_scan(self) -> None:
         """
-        Save an image to HDF5 with gzip compression.
+        Post-process scanned 2D data: create image grid from binned data.
 
-        Parameters
-        ----------
-        image : np.ndarray
-            Image data to save.
-        save_dir : str or Path
-            Output directory.
-        save_name : str
-            File name, typically ending with ``.h5``.
+        For 2D image data with a scanned parameter, this creates:
+        - Individual averaged images per bin
+        - A grid montage showing all bins
         """
-        save_path = Path(save_dir) / save_name
-        save_path.parent.mkdir(parents=True, exist_ok=True)
+        from scan_analysis.analyzers.renderers.config import RenderContext
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        with h5py.File(save_path, "w") as f:
-            f.create_dataset(
-                "image",
-                data=image,
-                compression="gzip",  # Use GZIP compression
-                compression_opts=4,  # Compression level: 0 (none) to 9 (max)
-            )
-
-        if self.flag_logging:
-            logging.info(f"HDF5 image saved with compression at {save_path}")
-
-    def save_normalized_image(
-        self,
-        image: np.ndarray,
-        save_dir: Union[str, Path],
-        save_name: str,
-        label: Optional[str] = None,
-    ):
-        """
-        Save a PNG visualization of an image using min/max normalization.
-
-        A local Figure/Axes is used (no global state), which is safer under
-        multi-threaded usage.
-
-        Parameters
-        ----------
-        image : np.ndarray
-            Image to visualize.
-        save_dir : str or Path
-            Output directory.
-        save_name : str
-            File name (e.g., ``something_visual.png``).
-        label : str, optional
-            Title to render in the figure.
-        """
-        max_val = np.max(image)
-        # Create a new figure and axes locally
-        fig, ax = plt.subplots()
-        im = ax.imshow(image, cmap="plasma", vmin=0, vmax=max_val)
-        fig.colorbar(im, ax=ax)  # Adds a color scale bar to the current axes
-        ax.axis("off")  # Hide axes for a cleaner look
-
-        # Add a label if provided
-        if label:
-            ax.set_title(label, fontsize=12, pad=10)
-
-        # Ensure the directory exists and save the figure
-        save_path = Path(save_dir) / save_name
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, bbox_inches="tight", pad_inches=0)
-        plt.close(fig)  # Close the figure to free up memory
-        if self.flag_logging:
-            logging.info(f"Image saved at {save_path}")
-
-    def create_image_array(
-        self,
-        binned_data: dict[Union[int, float], BinImageEntry],
-        plot_scale: Optional[float] = None,
-        save_path: Optional[Path] = None,
-        figsize: Tuple[float, float] = (4, 4),
-        dpi: int = 150,
-    ):
-        """
-        Arrange per‑bin averaged images into a labeled grid montage.
-
-        Parameters
-        ----------
-        binned_data : dict
-            Mapping from bin number to :class:`BinImageEntry` with an averaged
-            ``processed_image`` and optional metadata.
-        plot_scale : float, optional
-            Colorbar max (vmax). If omitted, uses the global maximum across images.
-        save_path : Path, optional
-            Output path of the montage PNG. If omitted, a default filename is used.
-        figsize : tuple of float, default=(4, 4)
-            Size of each image panel in inches.
-        dpi : int, default=150
-            Render DPI.
-        """
+        # Get binned data (handles both per_shot and per_bin modes)
+        binned_data = self.get_binned_data()
         if not binned_data:
-            if self.flag_logging:
-                logging.warning("No averaged images to arrange into an array.")
+            logger.warning("No binned data to postprocess")
             return
 
-        num_images = len(binned_data)
-        grid_cols = int(np.ceil(np.sqrt(num_images)))
-        grid_rows = int(np.ceil(num_images / grid_cols))
-
-        # Extract valid images from the result dicts
-        images = [
-            entry["result"]["processed_image"]
-            for entry in binned_data.values()
-            if entry["result"].get("processed_image") is not None
+        # Build render contexts from binned data
+        contexts = [
+            RenderContext.from_bin_result(
+                bin_key=bin_key,
+                bin_entry=bin_entry,
+                device_name=self.device_name,
+                scan_parameter=self.scan_parameter,
+            )
+            for bin_key, bin_entry in binned_data.items()
         ]
-        vmin = 0
-        vmax = (
-            plot_scale
-            if plot_scale is not None
-            else np.max([img.max() for img in images])
-        )
 
-        render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
+        # Get renderer config
+        config = self._get_renderer_config()
 
-        fig, axs = plt.subplots(
-            grid_rows,
-            grid_cols,
-            figsize=(grid_cols * figsize[0], grid_rows * figsize[1]),
-            dpi=dpi,
-            constrained_layout=True,
-        )
-        axs = axs.flatten()
-        fig.suptitle(f"Scan parameter: {self.scan_parameter}", fontsize=12)
+        # Render individual bins in parallel
+        if self.flag_save_data:
+            with ThreadPoolExecutor() as executor:
+                futures = [
+                    executor.submit(
+                        self.renderer.render_single,
+                        ctx,
+                        config,
+                        self.path_dict["save"],
+                    )
+                    for ctx in contexts
+                ]
+                for future in as_completed(futures):
+                    try:
+                        paths = future.result()
+                        # Track saved paths for first bin (for backward compatibility)
+                        if paths and len(paths) > 0:
+                            # Extract bin_key from the first path's filename
+                            filename = paths[0].name
+                            # Parse bin_key from filename like "device_0_processed.h5"
+                            parts = filename.split("_")
+                            if len(parts) >= 2 and parts[-2].isdigit():
+                                bin_key = int(parts[-2])
+                                self.saved_avg_data_paths[bin_key] = paths[0]
+                    except Exception as e:
+                        logger.error(f"Error rendering bin data: {e}")
 
-        img_handle = None
-        for idx, (bin_val, entry) in enumerate(binned_data.items()):
-            if idx >= len(axs):
-                break
+        # Create summary figure (grid montage) if multiple bins exist
+        if len(contexts) > 1 and self.flag_save_data:
+            try:
+                summary_path = self.renderer.render_summary(
+                    contexts, config, self.path_dict["save"]
+                )
+                if summary_path:
+                    logger.info(f"Created summary figure at {summary_path}")
+            except Exception as e:
+                logger.error(f"Error creating summary figure: {e}")
 
-            result = entry["result"]
-            img = result.get("processed_image")
-            if img is None:
-                continue
-
-            result = entry["result"]
-            img = result.get("processed_image")
-            analysis_results = result.get("analyzer_return_dictionary", {})
-            input_params = result.get("analyzer_input_parameters", {})
-            lineouts = result.get("analyzer_return_lineouts", [])
-            param_val = entry.get("value", 0)
-
-            render_fn(
-                image=img,
-                analysis_results_dict=analysis_results,
-                input_params_dict=input_params,
-                lineouts=lineouts,
-                vmin=vmin,
-                vmax=vmax,
-                ax=axs[idx],
-            )
-            axs[idx].set_title(f"{param_val:.2f}", fontsize=10)
-
-            if img_handle is None and axs[idx].images:
-                img_handle = axs[idx].images[0]
-
-        if img_handle:
-            fig.colorbar(
-                img_handle,
-                ax=axs,
-                orientation="horizontal",
-                label="Intensity",
-                shrink=0.8,
-                pad=0.01,
-                aspect=40,
-            )
-
-        if save_path is None:
-            filename = f"{self.device_name}_averaged_image_grid.png"
-            save_path = Path(self.path_dict["save"]) / filename
-
-        fig.savefig(save_path, bbox_inches="tight")
-        plt.close(fig)
-
-        if self.flag_logging:
-            logging.info(f"Saved final image grid as {save_path.name}.")
-        self.display_contents.append(str(save_path))
-
-    def create_gif(
-        self,
-        data_dict: dict[Union[int, float], AnalyzerResultDict],
-        output_file: Union[str, Path],
-        sort_keys: bool = True,
-        duration: float = 100,
-        dpi: int = 150,
-        figsize_inches: float = 4.0,
-    ):
-        """
-        Create an animated GIF from a set of AnalyzerResultDicts.
-
-        Parameters
-        ----------
-        data_dict : dict
-            Mapping from ID (e.g., shot number) to AnalyzerResultDict. Frames without
-            ``processed_image`` are skipped.
-        output_file : str or Path
-            Destination GIF path.
-        sort_keys : bool, default=True
-            If True, iterate frames in sorted key order.
-        duration : float, default=100
-            Duration per frame in milliseconds.
-        dpi : int, default=150
-            DPI for matplotlib rendering.
-        figsize_inches : float, default=4.0
-            Width/height (square) of each rendered frame in inches.
-        """
-        output_file = Path(output_file)
-
-        render_fn = getattr(self.image_analyzer, "render_image", base_render_image)
-
-        frames = self.prepare_render_frames(data_dict, sort_keys=sort_keys)
-        if not frames:
-            if self.flag_logging:
-                logging.warning("No valid frames to render into GIF.")
-            return
-
-        vmin = 0
-        vmax = max(frame["image"].max() for frame in frames)
-
-        gif_images = []
-        for frame in frames:
-            fig, ax = render_fn(
-                image=frame["image"],
-                analysis_results_dict=frame.get("analysis_results_dict", {}),
-                input_params_dict=frame.get("input_params_dict", {}),
-                lineouts=frame.get("return_lineouts", []),
-                vmin=vmin,
-                vmax=vmax,
-                figsize=(figsize_inches, figsize_inches),
-                dpi=dpi,
-            )
-            ax.set_title(frame["title"], fontsize=10)
-
-            # Convert rendered fig to RGB array
-            fig.canvas.draw()
-            rgb = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
-            rgb = rgb.reshape(fig.canvas.get_width_height()[::-1] + (4,))[
-                :, :, :3
-            ]  # drop alpha
-            gif_images.append(rgb)
-
-            plt.close(fig)
-
-        # Save GIF
-        io.mimsave(str(output_file), gif_images, duration=duration / 1000.0, loop=0)
-
-        if self.flag_logging:
-            logging.info(f"Saved GIF to {output_file.name}.")
-
-        self.display_contents.append(str(output_file))
-
-    @staticmethod
-    def prepare_render_frames(
-        data_dict: dict[Union[int, float], AnalyzerResultDict], sort_keys: bool = True
-    ) -> list[dict]:
-        """
-        Convert a mapping of results into a list of renderable frames.
-
-        Parameters
-        ----------
-        data_dict : dict
-            Mapping of IDs (e.g., shot/bin numbers) to AnalyzerResultDicts.
-        sort_keys : bool, default=True
-            If True, iterate IDs in sorted order.
-
-        Returns
-        -------
-        list of dict
-            Each frame dict contains:
-            - ``image`` : np.ndarray
-            - ``title`` : str (key rendered as text)
-            - ``analysis_results_dict`` : dict (optional)
-            - ``input_params_dict`` : dict (optional)
-            - ``return_lineouts`` : list/array (optional)
-        """
-        keys = sorted(data_dict) if sort_keys else data_dict.keys()
-        frames = []
-
-        for key in keys:
-            result = data_dict[key]
-            img = result.get("processed_image")
-            if img is None:
-                continue
-
-            frames.append(
-                {
-                    "image": img,
-                    "title": f"{key}",
-                    "analysis_results_dict": result.get(
-                        "analyzer_return_dictionary", {}
-                    ),
-                    "input_params_dict": result.get("analyzer_input_parameters", {}),
-                    "return_lineouts": result.get("analyzer_return_lineouts", []),
-                }
-            )
-
-        return frames
-
-    @staticmethod
-    def average_images(images: list[np.ndarray]) -> Optional[np.ndarray]:
-        """Return the pixelwise mean of a list of images."""
-        if len(images) == 0:
-            return None
-
-        return np.mean(images, axis=0)
-
-
-if __name__ == "__main__":
-    from scan_analysis.base import ScanAnalyzerInfo as Info
-    from scan_analysis.execute_scan_analysis import instantiate_scan_analyzer
-    from image_analysis.offline_analyzers.Undulator.EBeamProfile import (
-        EBeamProfileAnalyzer,
-    )
-
-    from geecs_data_utils import ScanTag
-
-    dev_name = "UC_ALineEBeam3"
-    config_dict = {"camera_name": dev_name}
-    analyzer_info = Info(
-        scan_analyzer_class=Array2DScanAnalyzer,
-        requirements={dev_name},
-        device_name=dev_name,
-        scan_analyzer_kwargs={"image_analyzer": EBeamProfileAnalyzer(**config_dict)},
-    )
-
-    import time
-
-    t0 = time.monotonic()
-    test_tag = ScanTag(year=2025, month=6, day=10, number=29, experiment="Undulator")
-    scan_analyzer = instantiate_scan_analyzer(scan_analyzer_info=analyzer_info)
-    scan_analyzer.run_analysis(scan_tag=test_tag)
-    t1 = time.monotonic()
-    logging.info(f"execution time: {t1 - t0}")
+        self.binned_data = binned_data

@@ -1,0 +1,45 @@
+vocs:
+  variables:
+#    U_ESP_JetXYZ:Position.Axis 2: [ -8, -7 ]
+    U_ESP_JetXYZ:Position.Axis 3: [ 3, 7]
+    U_HP_Daq:AnalogOutput.Channel 1: [ 1.5, 2.5]
+    U_ModeImagerESP:Position.Axis 2: [-17.15,-17.0]
+    U_ESP_JetXYZ:Position.Axis 2: [-8.5,-6.5]
+    U_CompAerotech:Position.Axis1: [42000,42400]
+    U_1HzShiftedBox:delay.Channel_C: [ .00058, 0.00066 ]
+
+  objectives:
+    f: MINIMIZE
+
+  constraints:
+    UC_HiResMagCam:total_counts: ["GREATER_THAN", 100000.]
+    UC_HiResMagCam:emittance_proxy: ["LESS_THAN", 10.]
+
+evaluator:
+  module: geecs_scanner.optimization.evaluators.HiResMagCam
+  class: HiResMagCam
+
+generator:
+  name: bayes_turbo_HTU_e_beam_brightness
+
+device_requirements:
+  Devices:
+    UC_HiResMagCam:
+      add_all_variables: false
+      save_nonscalar_data: true
+      synchronous: true
+      variable_list:
+        - acq_timestamp
+    U_BCaveICT:
+      add_all_variables: false
+      save_nonscalar_data: true
+      synchronous: true
+      variable_list:
+        - acq_timestamp
+        - Python Results.ChA
+    U_BCaveMagSpec:
+      add_all_variables: false
+      save_nonscalar_data: true
+      synchronous: true
+      variable_list:
+        - acq_timestamp

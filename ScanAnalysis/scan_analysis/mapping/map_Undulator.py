@@ -8,16 +8,9 @@ instantiate for a given scan. Each entry specifies:
 - `requirements`: devices/data that must be present (supports sets and nested AND/OR dicts).
 - `device_name`: optional device association used by the analyzer.
 - `scan_analyzer_kwargs`: constructor kwargs forwarded to the analyzer.
-
-Examples
---------
->>> from geecs_data_utils import ScanData
->>> from scan_analysis.mapping.map_Undulator import undulator_analyzers
->>> tag = ScanData.get_scan_tag(2025, 4, 3, number=2, experiment='Undulator')
->>> # Pass `undulator_analyzers` into your orchestrator (see execute_analysis.analyze_scan).
 """
 
-from geecs_data_utils import ScanData, ScanTag
+from geecs_data_utils import ScanData, ScanPaths
 
 from scan_analysis.base import ScanAnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
@@ -41,7 +34,7 @@ from scan_analysis.analyzers.Undulator.aline3_dispersion_analysis import (
 )
 
 
-from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
+from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
 from image_analysis.offline_analyzers.Undulator.ACaveMagCam3 import (
     ACaveMagCam3ImageAnalyzer,
 )
@@ -53,14 +46,18 @@ from image_analysis.offline_analyzers.density_from_phase_analysis import (
     PhaseDownrampProcessor,
 )
 
+from image_analysis.config_loader import set_config_base_dir
 from dataclasses import asdict
+
+set_config_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
 
 
 def get_path_to_bkg_file():
     """Return a default background TSV for HASO phase processing (Undulator example)."""
-    st = ScanTag(year=2025, month=3, day=6, number=15, experiment="Undulator")
-    s_data = ScanData(tag=st)
-    path_to_file = s_data.get_folder() / "U_HasoLift" / "average_phase.tsv"
+    s_data = ScanData.from_date(
+        year=2025, month=3, day=6, number=15, experiment="Undulator"
+    )
+    path_to_file = s_data.paths.get_folder() / "U_HasoLift" / "average_phase.tsv"
     return path_to_file
 
 
@@ -95,7 +92,7 @@ e_beam_profile_camera_analyzers = [
         requirements={device},
         device_name=device,
         scan_analyzer_kwargs={
-            "image_analyzer": EBeamProfileAnalyzer(camera_name=device)
+            "image_analyzer": BeamAnalyzer(camera_config_name=device)
         },
     )
     for device in e_beam_profile_camera_devices
