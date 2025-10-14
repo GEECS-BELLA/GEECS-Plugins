@@ -21,7 +21,7 @@ from __future__ import annotations
 
 # --- Standard Library ---
 import logging
-from typing import TYPE_CHECKING, Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict, Any, Literal
 
 # --- Local / Project Imports ---
 from scan_analysis.analyzers.common.single_device_scan_analyzer import (
@@ -86,6 +86,7 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
         skip_plt_show: bool = True,
         flag_save_images: bool = True,
         renderer_kwargs: Optional[Dict[str, Any]] = None,
+        analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
     ):
         """Initialize the analyzer with an ImageAnalyzer and Image2DRenderer.
 
@@ -134,6 +135,7 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
             file_tail=file_tail,
             skip_plt_show=skip_plt_show,
             flag_save_data=flag_save_images,
+            analysis_mode=analysis_mode,
         )
 
     def _get_renderer_config(self):
@@ -235,8 +237,8 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
         from scan_analysis.analyzers.renderers.config import RenderContext
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # Bin data
-        binned_data = self.bin_data_from_results()
+        # Get binned data (handles both per_shot and per_bin modes)
+        binned_data = self.get_binned_data()
         if not binned_data:
             logger.warning("No binned data to postprocess")
             return

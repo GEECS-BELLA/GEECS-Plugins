@@ -21,7 +21,7 @@ from __future__ import annotations
 
 # --- Standard Library ---
 import logging
-from typing import TYPE_CHECKING, Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict, Any, Literal
 
 # --- Local / Project Imports ---
 from scan_analysis.analyzers.common.single_device_scan_analyzer import (
@@ -107,6 +107,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         skip_plt_show: bool = True,
         flag_save_data: bool = True,
         renderer_kwargs: Optional[Dict[str, Any]] = None,
+        analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
     ):
         """Initialize the analyzer with an ImageAnalyzer and Line1DRenderer.
 
@@ -171,6 +172,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             file_tail=file_tail,
             skip_plt_show=skip_plt_show,
             flag_save_data=flag_save_data,
+            analysis_mode=analysis_mode,
         )
 
     def _get_renderer_config(self):
@@ -208,8 +210,15 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         from collections import defaultdict
         import numpy as np
 
-        # Extract processed data from results dict
-        data_list = [res["processed_image"] for res in self.results.values()]
+        # Extract data from lineouts (1D analyzers store data there)
+        data_list = []
+        for res in self.results.values():
+            lineouts = res.get("analyzer_return_lineouts")
+            if lineouts is not None:
+                # Reconstruct Nx2 array from lineouts [x_array, y_array]
+                data = np.column_stack([lineouts[0], lineouts[1]])
+                data_list.append(data)
+
         avg_data = self.average_data(data_list)
 
         if self.flag_save_data:
@@ -241,17 +250,26 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             self.renderer.render_single(avg_context, config, self.path_dict["save"])
 
             # Create waterfall plot from all results (chronological order)
-            contexts = [
-                RenderContext(
-                    data=result["processed_image"],
-                    input_parameters=result.get("analyzer_input_parameters", {}),
-                    device_name=self.device_name,
-                    identifier=shot_num,
-                    parameter_value=float(shot_num),  # Use shot number as y-axis
-                    scan_parameter="Shot Number",
-                )
-                for shot_num, result in sorted(self.results.items())
-            ]
+            contexts = []
+            for shot_num, result in sorted(self.results.items()):
+                lineouts = result.get("analyzer_return_lineouts")
+                if lineouts is not None:
+                    # Reconstruct Nx2 array from lineouts
+                    data = np.column_stack([lineouts[0], lineouts[1]])
+                    contexts.append(
+                        RenderContext(
+                            data=data,
+                            input_parameters=result.get(
+                                "analyzer_input_parameters", {}
+                            ),
+                            device_name=self.device_name,
+                            identifier=shot_num,
+                            parameter_value=float(
+                                shot_num
+                            ),  # Use shot number as y-axis
+                            scan_parameter="Shot Number",
+                        )
+                    )
 
             # Use waterfall mode for summary
             waterfall_config = Line1DRendererConfig(
@@ -273,8 +291,8 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         from scan_analysis.analyzers.renderers.config import RenderContext
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # Bin data
-        binned_data = self.bin_data_from_results()
+        # Get binned data (handles both per_shot and per_bin modes)
+        binned_data = self.get_binned_data()
         if not binned_data:
             logger.warning("No binned data to postprocess")
             return

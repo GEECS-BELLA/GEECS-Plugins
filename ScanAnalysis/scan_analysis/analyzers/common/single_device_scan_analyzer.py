@@ -27,7 +27,7 @@ import pickle
 from abc import ABC
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, TypedDict, Dict
+from typing import TYPE_CHECKING, Optional, TypedDict, Dict, Literal
 
 # --- Third-Party Libraries ---
 import numpy as np
@@ -97,6 +97,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         file_tail: Optional[str] = ".png",
         skip_plt_show: bool = True,
         flag_save_data: bool = True,
+        analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
     ):
         """Initialize the analyzer and validate concurrency constraints."""
         if not device_name:
@@ -113,6 +114,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         # Define flags
         self.flag_save_data = flag_save_data
         self.file_tail = file_tail
+        self.analysis_mode = analysis_mode
 
         # Check if image_analyzer is pickleable
         try:
@@ -205,10 +207,18 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             return
 
     def _process_all_shots(self):
-        """Load data files, run batch analysis (optional), then per-shot analysis."""
+        """Load data files, run batch analysis (optional), then mode-based analysis."""
         self._load_all_data()
         self._run_batch_analysis()
-        self._run_data_analysis()
+
+        # Prepare analysis units based on mode
+        if self.analysis_mode == "per_shot":
+            analysis_units = self._prepare_per_shot_units()
+        else:  # per_bin
+            analysis_units = self._prepare_per_bin_units()
+
+        # Run unified analysis loop
+        self._analyze_units(analysis_units)
 
     def _build_data_file_map(self) -> None:
         """
@@ -383,20 +393,117 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             bg_config.dynamic_computation.auto_save_path = Path(resolved)
             logger.info(f"Resolved background auto_save_path: {resolved}")
 
-    def _run_data_analysis(self) -> None:
+    def _prepare_per_shot_units(self) -> dict:
         """
-        Analyze each image in parallel (threaded or multi-processed).
+        Prepare per-shot analysis units (current behavior).
 
-        Uses the ImageAnalyzer's ``analyze_image`` method per shot, forwarding the
-        file path and any batch-state via ``auxiliary_data``. Numeric scalars from
-        the analyzer's return dictionary are persisted into the s-file for the shot.
+        Returns
+        -------
+        dict
+            Dictionary mapping shot numbers to unit data containing:
+            - 'image': image data to analyze
+            - 'auxiliary': auxiliary data dict for analyzer
+            - 'sfile_keys': list containing just this shot number
+        """
+        return {
+            shot_num: {
+                "image": data,
+                "auxiliary": {"file_path": path, **self.stateful_results},
+                "sfile_keys": [shot_num],
+            }
+            for shot_num, (data, path) in self.raw_data.items()
+        }
+
+    def _prepare_per_bin_units(self) -> dict:
+        """
+        Prepare per-bin analysis units (bin first, then analyze).
+
+        Returns
+        -------
+        dict
+            Dictionary mapping bin numbers to unit data containing:
+            - 'image': averaged image data for the bin
+            - 'auxiliary': auxiliary data dict for analyzer
+            - 'sfile_keys': list of all shot numbers in this bin
+        """
+        if "Bin #" not in self.auxiliary_data.columns:
+            # Noscan: treat all as one bin
+            all_images = [data for data, _ in self.raw_data.values()]
+            all_shots = list(self.raw_data.keys())
+            return {
+                0: {
+                    "image": self.average_data(all_images),
+                    "auxiliary": self.stateful_results,
+                    "sfile_keys": all_shots,
+                }
+            }
+
+        units = {}
+        for bin_num in self.auxiliary_data["Bin #"].unique():
+            # Get shots in this bin
+            bin_shots = self.auxiliary_data[self.auxiliary_data["Bin #"] == bin_num][
+                "Shotnumber"
+            ].values
+
+            # Collect images for these shots
+            images = [
+                self.raw_data[shot][0] for shot in bin_shots if shot in self.raw_data
+            ]
+
+            if images:
+                units[int(bin_num)] = {
+                    "image": self.average_data(images),
+                    "auxiliary": self.stateful_results,
+                    "sfile_keys": bin_shots.tolist(),
+                }
+
+        return units
+
+    def _has_valid_result(self, result: AnalyzerResultDict) -> bool:
+        """
+        Check if analyzer result contains valid data.
+
+        Valid data can be in:
+        - processed_image (for 2D analyzers)
+        - analyzer_return_lineouts (for 1D analyzers)
+
+        Parameters
+        ----------
+        result : AnalyzerResultDict
+            Result dictionary from analyzer
+
+        Returns
+        -------
+        bool
+            True if result contains valid data
+        """
+        return (
+            result.get("processed_image") is not None
+            or result.get("analyzer_return_lineouts") is not None
+        )
+
+    def _analyze_units(self, analysis_units: dict) -> None:
+        """
+        Analyze units in parallel (threaded or multi-processed).
+
+        Uses the ImageAnalyzer's ``analyze_image`` method on each unit, forwarding
+        auxiliary data. Numeric scalars from the analyzer's return dictionary are
+        persisted into the s-file for all relevant shots.
+
+        Parameters
+        ----------
+        analysis_units : dict
+            Dictionary mapping unit keys to unit data containing:
+            - 'image': image data to analyze
+            - 'auxiliary': auxiliary data dict for analyzer
+            - 'sfile_keys': list of shot numbers to update in s-file
 
         Notes
         -----
         Concurrency backend follows ``run_analyze_image_asynchronously`` on
         the ImageAnalyzer instance.
         """
-        logger.info("Starting the individual image analysis")
+        logger.info(f"Starting analysis in {self.analysis_mode} mode")
         self.results: dict[int, AnalyzerResultDict] = {}
 
         use_threads = self.image_analyzer.run_analyze_image_asynchronously
@@ -409,43 +516,46 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             futures = {
                 executor.submit(
                     self.image_analyzer.analyze_image,
-                    data,
-                    {"file_path": path, **self.stateful_results},
-                ): shot_num
-                for shot_num, (data, path) in self.raw_data.items()
+                    unit["image"],
+                    unit["auxiliary"],
+                ): (unit_key, unit["sfile_keys"])
+                for unit_key, unit in analysis_units.items()
             }
 
-            logger.info("Submitted data analysis tasks.")
+            logger.info("Submitted analysis tasks.")
 
             for future in as_completed(futures):
-                shot_num = futures[future]
+                unit_key, sfile_keys = futures[future]
                 try:
                     result: AnalyzerResultDict = future.result()
-                    processed_data = result.get("processed_image")
                     analysis_results = result.get("analyzer_return_dictionary", {})
 
-                    if processed_data is not None:
-                        self.results[shot_num] = result
-                        logger.info(f"Shot {shot_num}: processed data stored.")
+                    if self._has_valid_result(result):
+                        self.results[unit_key] = result
+                        logger.info(f"Unit {unit_key}: valid data stored.")
                         logger.info(
-                            f"Analyzed shot {shot_num} and got {analysis_results}"
+                            f"Analyzed unit {unit_key} and got {analysis_results}"
                         )
                     else:
-                        logger.info(f"Shot {shot_num}: no data returned from analysis.")
+                        logger.info(
+                            f"Unit {unit_key}: no valid data returned from analysis."
+                        )
 
-                    for key, value in analysis_results.items():
-                        if not isinstance(value, (int, float, np.number)):
-                            logger.warning(
-                                f"[{self.__class__.__name__} using {self.image_analyzer.__class__.__name__}] "
-                                f"Analysis result for shot {shot_num} key '{key}' is not numeric (got {type(value).__name__}). Skipping."
-                            )
-                        else:
-                            self.auxiliary_data.loc[
-                                self.auxiliary_data["Shotnumber"] == shot_num, key
-                            ] = value
+                    # Update s-file for all relevant shots
+                    for shot_num in sfile_keys:
+                        for key, value in analysis_results.items():
+                            if not isinstance(value, (int, float, np.number)):
+                                logger.warning(
+                                    f"[{self.__class__.__name__} using {self.image_analyzer.__class__.__name__}] "
+                                    f"Analysis result for unit {unit_key} key '{key}' is not numeric (got {type(value).__name__}). Skipping."
+                                )
+                            else:
+                                self.auxiliary_data.loc[
+                                    self.auxiliary_data["Shotnumber"] == shot_num, key
+                                ] = value
 
                 except Exception as e:
-                    logger.error(f"Analysis failed for shot {shot_num}: {e}")
+                    logger.error(f"Analysis failed for unit {unit_key}: {e}")
 
     def _postprocess_noscan(self) -> None:
         """
@@ -512,6 +622,52 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             logger.warning(f"Error creating renderer config: {e}. Using defaults.")
             return BaseRendererConfig()
 
+    def get_binned_data(self) -> dict[int, BinDataEntry]:
+        """
+        Get binned data, handling both per_shot and per_bin analysis modes.
+
+        In per_shot mode: bins and averages the per-shot results.
+        In per_bin mode: reformats the already-binned results.
+
+        Returns
+        -------
+        dict[int, BinDataEntry]
+            Binned data ready for rendering.
+        """
+        if self.analysis_mode == "per_bin":
+            # Results are already binned, just reformat
+            return self._convert_per_bin_results_to_binned_format()
+        else:
+            # Results are per-shot, need to bin them
+            return self.bin_data_from_results()
+
+    def _convert_per_bin_results_to_binned_format(self) -> dict[int, BinDataEntry]:
+        """
+        Convert per_bin results to binned_data format.
+
+        In per_bin mode, self.results is already keyed by bin numbers with
+        averaged data. This method just adds the scan parameter values.
+
+        Returns
+        -------
+        dict[int, BinDataEntry]
+            Binned data with scan parameter values.
+        """
+        binned_data = {}
+
+        # Sort bin numbers to ensure consistent ordering
+        for bin_num in sorted(self.results.keys()):
+            result = self.results[bin_num]
+            # Get the scan parameter value for this bin
+            column_full_name, _ = self.find_scan_param_column()
+            param_value = self.auxiliary_data.loc[
+                self.auxiliary_data["Bin #"] == bin_num, column_full_name
+            ].mean()
+
+            binned_data[bin_num] = {"value": float(param_value), "result": result}
+
+        return binned_data
+
     def bin_data_from_results(self) -> dict[int, BinDataEntry]:
         """
         Bin processed data by scan parameter and compute per-bin averages.
@@ -545,12 +701,11 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 "Shotnumber"
             ].values
 
-            # Filter shot numbers that have valid results
+            # Filter shot numbers that have valid results (either 2D or 1D data)
             valid_shots = [
                 sn
                 for sn in bin_shots
-                if sn in self.results
-                and self.results[sn].get("processed_image") is not None
+                if sn in self.results and self._has_valid_result(self.results[sn])
             ]
 
             if not valid_shots:
@@ -558,7 +713,10 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 continue
 
             # Collect data and scalar results
-            data_list = [self.results[sn]["processed_image"] for sn in valid_shots]
+            # For 2D analyzers, collect processed_image; for 1D, it will be None
+            data_list = [self.results[sn].get("processed_image") for sn in valid_shots]
+            # Filter out None values (for 1D analyzers that use lineouts)
+            data_list = [d for d in data_list if d is not None]
             analysis_results = [
                 self.results[sn].get("analyzer_return_dictionary", {})
                 for sn in valid_shots
@@ -571,9 +729,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 "analyzer_input_parameters", {}
             )
 
-            avg_data = self.average_data(data_list)
-            if avg_data is None:
-                continue
+            # Average 2D data if present, otherwise None (for 1D analyzers)
+            avg_data = self.average_data(data_list) if data_list else None
 
             # Calculate the average value for each key in analysis_results dict
             sums = defaultdict(list)
