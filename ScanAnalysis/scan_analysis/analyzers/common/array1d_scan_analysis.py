@@ -275,8 +275,8 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         from scan_analysis.analyzers.renderers.config import RenderContext
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # Bin data
-        binned_data = self.bin_data_from_results()
+        # Get binned data (handles both per_shot and per_bin modes)
+        binned_data = self.get_binned_data()
         if not binned_data:
             logger.warning("No binned data to postprocess")
             return

@@ -598,6 +598,50 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             logger.warning(f"Error creating renderer config: {e}. Using defaults.")
             return BaseRendererConfig()
 
+    def get_binned_data(self) -> dict[int, BinDataEntry]:
+        """
+        Get binned data, handling both per_shot and per_bin analysis modes.
+
+        In per_shot mode: bins and averages the per-shot results.
+        In per_bin mode: reformats the already-binned results.
+
+        Returns
+        -------
+        dict[int, BinDataEntry]
+            Binned data ready for rendering.
+        """
+        if self.analysis_mode == "per_bin":
+            # Results are already binned, just reformat
+            return self._convert_per_bin_results_to_binned_format()
+        else:
+            # Results are per-shot, need to bin them
+            return self.bin_data_from_results()
+
+    def _convert_per_bin_results_to_binned_format(self) -> dict[int, BinDataEntry]:
+        """
+        Convert per_bin results to binned_data format.
+
+        In per_bin mode, self.results is already keyed by bin numbers with
+        averaged data. This method just adds the scan parameter values.
+
+        Returns
+        -------
+        dict[int, BinDataEntry]
+            Binned data with scan parameter values.
+        """
+        binned_data = {}
+
+        for bin_num, result in self.results.items():
+            # Get the scan parameter value for this bin
+            column_full_name, _ = self.find_scan_param_column()
+            param_value = self.auxiliary_data.loc[
+                self.auxiliary_data["Bin #"] == bin_num, column_full_name
+            ].mean()
+
+            binned_data[bin_num] = {"value": float(param_value), "result": result}
+
+        return binned_data
+
     def bin_data_from_results(self) -> dict[int, BinDataEntry]:
         """
         Bin processed data by scan parameter and compute per-bin averages.
