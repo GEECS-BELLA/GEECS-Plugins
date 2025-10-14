@@ -631,7 +631,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         """
         binned_data = {}
 
-        for bin_num, result in self.results.items():
+        # Sort bin numbers to ensure consistent ordering
+        for bin_num in sorted(self.results.keys()):
+            result = self.results[bin_num]
             # Get the scan parameter value for this bin
             column_full_name, _ = self.find_scan_param_column()
             param_value = self.auxiliary_data.loc[
