@@ -32,6 +32,10 @@ from geecs_scanner.optimization.config_models import (
     MultiDeviceScanEvaluatorConfig,
     SingleDeviceScanAnalyzerConfig,
 )
+from geecs_data_utils import ScanPaths
+from image_analysis.config_loader import set_config_base_dir
+
+set_config_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +110,7 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             analyzers=self.analyzer_configs
         )
         device_requirements = evaluator_config.generate_device_requirements()
-
+        logger.info('Device requirements parsed from config: %s',device_requirements)
         # Initialize base evaluator
         super().__init__(
             device_requirements=device_requirements,
@@ -178,7 +182,7 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             image_analyzer=image_analyzer,
             file_tail=config.file_tail,
             analysis_mode=config.analysis_mode,
-            flag_save_data=False,  # Don't save outputs during optimization
+            # flag_save_data=False,  # Don't save outputs during optimization
         )
 
         # Configure for live analysis during optimization
