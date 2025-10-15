@@ -261,42 +261,36 @@ class BaseOptimizer:
             Fully configured optimizer instance ready for use.
         """
         import importlib
-        from xopt import VOCS
+        from geecs_scanner.optimization.config_models import BaseOptimizerConfig
 
+        # Load and validate config using Pydantic model
         with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
+            config_dict = yaml.safe_load(f)
 
-        vocs = VOCS(**config["vocs"])
+        # This handles all validation AND auto-generates device_requirements!
+        config = BaseOptimizerConfig.model_validate(config_dict)
 
-        evaluator_cfg = config["evaluator"]
-        evaluator_module = evaluator_cfg["module"]
-        evaluator_class_name = evaluator_cfg["class"]
-        evaluator_init_kwargs = evaluator_cfg.get("kwargs", {})
-        device_requirements = config.get("device_requirements", {})
-        evaluator_init_kwargs["device_requirements"] = device_requirements
+        # Dynamically import and instantiate evaluator
+        evaluator_init_kwargs = config.evaluator.kwargs.copy()
+        evaluator_init_kwargs["device_requirements"] = config.device_requirements
         if scan_data_manager:
             evaluator_init_kwargs["scan_data_manager"] = scan_data_manager
         if data_logger:
             evaluator_init_kwargs["data_logger"] = data_logger
 
-        module = importlib.import_module(evaluator_module)
-        evaluator_class = getattr(module, evaluator_class_name)
+        module = importlib.import_module(config.evaluator.module)
+        evaluator_class = getattr(module, config.evaluator.class_)
         evaluator = evaluator_class(**evaluator_init_kwargs)
 
-        generator_name = config["generator"]["name"]
-
-        evaluation_mode = config.get("evaluation_mode", "per_shot")
-
-        xopt_config_overrides = config.get("xopt_config_overrides", {})
-
+        # Create optimizer using validated config
         return cls(
-            vocs=vocs,
+            vocs=config.vocs,
             evaluate_function=evaluator.get_value,
-            evaluation_mode=evaluation_mode,
-            generator_name=generator_name,
-            xopt_config_overrides=xopt_config_overrides,
+            evaluation_mode=config.evaluation_mode,
+            generator_name=config.generator.name,
+            xopt_config_overrides=config.xopt_config_overrides,
             evaluator=evaluator,
-            device_requirements=device_requirements,
+            device_requirements=config.device_requirements,
             scan_data_manager=scan_data_manager,
             data_logger=data_logger,
         )
