@@ -296,6 +296,7 @@ class ScanManager:
         """
         self.initial_state = None
         self.initialization_success = False
+        self.optimizer: Optional[BaseOptimizer] = None
 
         try:
             self.device_manager.reinitialize(
