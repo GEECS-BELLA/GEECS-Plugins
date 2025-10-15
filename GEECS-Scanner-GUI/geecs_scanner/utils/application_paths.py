@@ -2,7 +2,7 @@
 
 import configparser
 import os
-from functools import cached_property
+from functools import lru_cache
 from pathlib import Path
 from typing import ClassVar
 
@@ -25,7 +25,7 @@ class ApplicationPaths:
     )
 
     @classmethod
-    @cached_property
+    @lru_cache(maxsize=1)
     def BASE_PATH(cls) -> Path:
         """
         Resolve and cache the scanner config base path.
@@ -82,7 +82,7 @@ class ApplicationPaths:
         if not experiment:
             raise ValueError("Cannot set empty experiment in Application Paths")
 
-        self.exp_path = self.BASE_PATH / experiment
+        self.exp_path = self.base_path() / experiment
         self.exp_save_devices = self.exp_path / self.SAVE_DEVICES_FOLDER
         self.exp_scan_devices = self.exp_path / self.SCAN_DEVICES_FOLDER
         self.exp_presets = self.exp_path / self.PRESET_FOLDER
@@ -139,7 +139,7 @@ class ApplicationPaths:
     @classmethod
     def base_path(cls) -> Path:
         """Return root folder for all experiment config files."""
-        return cls.BASE_PATH
+        return cls.BASE_PATH()
 
     def experiment(self) -> Path:
         """Return root folder for all config files in given experiment."""
