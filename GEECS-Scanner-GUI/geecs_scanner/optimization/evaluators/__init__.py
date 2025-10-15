@@ -9,36 +9,6 @@ The evaluators integrate with the GEECS scan analysis framework to process
 experimental data and compute objective function values for optimization
 algorithms.
 
-Available Evaluators
---------------------
-ALine3SizeEval
-    Electron beam size optimization using UC_ALineEBeam3 camera.
-    Minimizes beam size based on FWHM measurements.
-
-HiResMagCam
-    Beam quality optimization using UC_HiResMagCam device.
-    Maximizes the ratio of total counts to emittance proxy.
-
-Examples
---------
-Using an evaluator in optimization:
-
->>> from geecs_scanner.optimization.evaluators.ALine3_FWHM import ALine3SizeEval
->>> evaluator = ALine3SizeEval(
-...     scan_data_manager=sdm,
-...     data_logger=logger
-... )
->>> result = evaluator.get_value(input_parameters)
-
-Loading evaluator from configuration:
-
->>> from geecs_scanner.optimization.base_optimizer import BaseOptimizer
->>> optimizer = BaseOptimizer.from_config_file(
-...     "optimization_config.yaml",
-...     scan_data_manager=sdm,
-...     data_logger=logger
-... )
-
 Notes
 -----
 All evaluators in this package:
@@ -48,7 +18,13 @@ All evaluators in this package:
 - Integrate with GEECS data acquisition and analysis systems
 - Provide proper logging and result tracking
 
-To create a new evaluator, inherit from BaseEvaluator and implement
-the required abstract methods. See the existing evaluators for examples
-of proper implementation patterns.
+To create a new evaluator, inherit from MultiDeviceScanEvaluator and implement
+the compute_objective method. See multi_device_scan_evaluator.py for detailed
+documentation and examples.
 """
+
+from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
+    MultiDeviceScanEvaluator,
+)
+
+__all__ = ["MultiDeviceScanEvaluator"]
