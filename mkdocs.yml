@@ -89,6 +89,7 @@ nav:
 #          - Analyzers: scan_analysis/api/analyzers.md
       - Examples:
           - Basic Usage with Array2DAnalysis: scan_analysis/examples/basic_usage.ipynb
+          - Basic Usage with Array1DAnalysis: scan_analysis/examples/basic_usage_1D.ipynb
           - Variational analysis: scan_analysis/examples/variational_analysis.ipynb
   - GEECS Python API:
       - Overview: geecs_python_api/overview.md
