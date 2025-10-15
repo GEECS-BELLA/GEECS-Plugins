@@ -110,7 +110,7 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             analyzers=self.analyzer_configs
         )
         device_requirements = evaluator_config.generate_device_requirements()
-        logger.info('Device requirements parsed from config: %s',device_requirements)
+        logger.info("Device requirements parsed from config: %s", device_requirements)
         # Initialize base evaluator
         super().__init__(
             device_requirements=device_requirements,
