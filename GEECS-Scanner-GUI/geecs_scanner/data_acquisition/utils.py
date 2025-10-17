@@ -58,17 +58,12 @@ Notes
 - Provides cross-platform file and logging utilities
 - Designed for flexibility and ease of use in scientific computing environments
 
-See Also
---------
-- geecs_scanner.data_acquisition.device_manager.DeviceManager
-- geecs_scanner.data_acquisition.scan_manager.ScanManager
 """
 
-import logging
 from pathlib import Path
-import shutil
 import yaml
 
+from geecs_scanner.utils.application_paths import ApplicationPaths
 
 def get_full_config_path(experiment: str, config_type: str, config_file: str) -> Path:
     """
@@ -111,27 +106,15 @@ def get_full_config_path(experiment: str, config_type: str, config_file: str) ->
     - Supports flexible configuration file management
     - Ensures configuration files are located consistently across the project
 
-    Examples
-    --------
-    >>> config_path = get_full_config_path('Undulator', 'aux_configs', 'visa_config.yaml')
-    >>> print(config_path)
-    /path/to/GEECS-Plugins/GEECS-Scanner-GUI/scanner_configs/experiments/Undulator/aux_configs/visa_config.yaml
-
-    >>> config_path = get_full_config_path('Laser', 'save_devices', 'device_settings.yaml')
-    >>> print(config_path)
-    /path/to/GEECS-Plugins/GEECS-Scanner-GUI/scanner_configs/experiments/Laser/save_devices/device_settings.yaml
-
     Raises
     ------
     FileNotFoundError
         If any part of the configuration path is invalid or missing.
 
-    See Also
-    --------
-    pathlib.Path : Used for robust path manipulation and resolution
     """
     # Set the base directory to be the 'configs' directory relative to the current directory
-    base_dir = Path(__file__).parents[2] / "scanner_configs" / "experiments"
+    # base_dir = Path(__file__).parents[2] / "scanner_configs" / "experiments"
+    base_dir = ApplicationPaths.base_path()
 
     # Ensure base_dir exists
     if not base_dir.exists():
@@ -149,6 +132,7 @@ def get_full_config_path(experiment: str, config_type: str, config_file: str) ->
         raise FileNotFoundError(f"The config file {config_path} does not exist.")
 
     return config_path
+
 
 
 def visa_config_generator(visa_key: str, diagnostic_type: str) -> Path:
@@ -191,19 +175,6 @@ def visa_config_generator(visa_key: str, diagnostic_type: str) -> Path:
     - 'energy': Configures devices for energy measurement
     - 'spectrometer': Sets up devices for spectrometer data collection
 
-    Examples
-    --------
-    >>> config_path = visa_config_generator('Visa1', 'energy')
-    >>> print(config_path)
-    /path/to/Visa1_energy_setup.yaml
-
-    >>> config_path = visa_config_generator('Visa2', 'spectrometer')
-    >>> print(config_path)
-    /path/to/Visa2_spectrometer_setup.yaml
-
-    See Also
-    --------
-    get_full_config_path : Utility for resolving configuration file paths
     """
     # Load configuration file
     input_filename = get_full_config_path(
@@ -317,213 +288,3 @@ def visa_config_generator(visa_key: str, diagnostic_type: str) -> Path:
         yaml.dump(output_data, outfile, default_flow_style=False)
 
     return output_filename
-
-
-class ConsoleLogger:
-    """
-    A comprehensive logging utility for managing system-wide logging operations.
-
-    Provides advanced logging capabilities with support for file and console
-    output, dynamic log level configuration, and robust handler management.
-    Designed to support complex logging requirements in scientific computing
-    and experimental control systems.
-
-    Attributes
-    ----------
-    log_file : str
-        Path to the log file where logs will be written. Defaults to 'system_log.log'.
-    level : int
-        Logging level (e.g., logging.INFO, logging.DEBUG). Determines the verbosity of logging.
-    console : bool
-        Flag to enable console output in addition to file logging. Defaults to False.
-    logging_active : bool
-        Indicates whether a logging session is currently active.
-
-    Methods
-    -------
-    setup_logging()
-        Initialize and configure logging handlers for file and optional console output.
-    stop_logging()
-        Terminate the current logging session and clean up handlers.
-    move_log_file(dest_dir)
-        Relocate the log file to a specified directory, handling cross-device moves.
-    is_logging_active()
-        Check the current status of logging.
-
-    Examples
-    --------
-    >>> logger = ConsoleLogger(log_file='experiment.log', console=True, level=logging.DEBUG)
-    >>> logger.setup_logging()
-    >>> logging.info("Experiment initialization started")
-    >>> logging.debug("Detailed diagnostic information")
-    >>> logger.stop_logging()
-
-    Notes
-    -----
-    - Supports both file and console logging
-    - Prevents handler duplication
-    - Provides safe logging session management
-    - Cross-platform file movement support
-    - Configurable log levels and output destinations
-
-    See Also
-    --------
-    logging : Python's built-in logging module
-    shutil : High-level file operations
-    """
-
-    def __init__(
-        self,
-        log_file: str = "system_log.log",
-        level: int = logging.INFO,
-        console: bool = False,
-    ):
-        """
-        Initialize the ConsoleLogger with specified configuration.
-
-        Parameters
-        ----------
-        log_file : str, optional
-            Path to the log file. Defaults to 'system_log.log'.
-        level : int, optional
-            Logging level. Defaults to logging.INFO.
-            Use logging constants like logging.DEBUG, logging.INFO, logging.WARNING, etc.
-        console : bool, optional
-            Enable console logging. Defaults to False.
-        """
-        self.log_file = log_file
-        self.level = level
-        self.console = console
-        self.logging_active = False
-
-    def setup_logging(self):
-        """
-        Configure logging handlers for file and optional console output.
-
-        Sets up logging with a file handler and optionally a stream handler.
-        Removes any pre-existing handlers to prevent duplication.
-
-        Raises
-        ------
-        RuntimeWarning
-            If an attempt is made to start logging when a session is already active.
-
-        Notes
-        -----
-        - Clears existing logging handlers
-        - Configures file logging
-        - Optionally enables console logging
-        - Sets logging format and level
-        - Logs the start of the logging session
-        """
-        if self.logging_active:
-            logging.warning("Logging is already active, cannot start a new session.")
-            return
-
-        # Remove any previously configured handlers to prevent duplication
-        for handler in logging.root.handlers[:]:
-            logging.root.removeHandler(handler)
-
-        # Configure logging with both file and optional console handlers
-        handlers = [logging.FileHandler(self.log_file, encoding="utf-8")]
-        if self.console:
-            handlers.append(logging.StreamHandler())
-
-        logging.basicConfig(
-            level=self.level,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-            handlers=handlers,
-        )
-        self.logging_active = True
-        logging.info(
-            "Logging session started with configuration: "
-            f"file={self.log_file}, level={logging.getLevelName(self.level)}, "
-            f"console_output={'enabled' if self.console else 'disabled'}"
-        )
-
-    def stop_logging(self):
-        """
-        Terminate the current logging session and clean up logging handlers.
-
-        Safely stops logging by closing and removing all active handlers.
-        Prevents resource leaks and ensures clean logging shutdown.
-
-        Notes
-        -----
-        - Checks if a logging session is active before stopping
-        - Closes and removes all logging handlers
-        - Logs the termination of the logging session
-        - Resets logging state
-        - Provides console output about logging termination
-        """
-        if not self.logging_active:
-            logging.warning("No active logging session to stop.")
-            return
-
-        logging.info("Stopping logging session and cleaning up handlers.")
-
-        for handler in logging.root.handlers[:]:
-            handler.flush()  # Ensure all log messages are written
-            handler.close()
-            logging.root.removeHandler(handler)
-
-        self.logging_active = False
-        print(f"Logging session terminated. Log file: {self.log_file}")
-
-    def move_log_file(self, dest_dir: Path):
-        """
-        Move the log file to a specified destination directory.
-
-        Handles cross-device file moves using shutil, ensuring robust file relocation.
-
-        Parameters
-        ----------
-        dest_dir : Path
-            Destination directory where the log file should be moved.
-
-        Notes
-        -----
-        - Uses shutil for cross-device file movement
-        - Provides detailed console and logging output about move operation
-        - Handles potential exceptions during file move
-        - Logs the result of the file move operation
-
-        Raises
-        ------
-        Exception
-            If file move operation fails due to permission, disk space, or other issues.
-        """
-        src_path = Path(self.log_file)
-        dest_path = Path(dest_dir) / src_path.name
-
-        logging.info(f"Attempting to move log file from {src_path} to {dest_path}")
-
-        try:
-            shutil.move(str(src_path), str(dest_path))
-            logging.info(f"Successfully moved log file to {dest_path}")
-            print(f"Moved log file to {dest_path}")
-
-            # Update log_file path to reflect the new location
-            self.log_file = str(dest_path)
-        except Exception as e:
-            logging.error(f"Failed to move {src_path} to {dest_path}: {e}")
-            print(f"Failed to move {src_path} to {dest_path}: {e}")
-            raise
-
-    def is_logging_active(self) -> bool:
-        """
-        Check the current status of the logging session.
-
-        Returns
-        -------
-        bool
-            True if a logging session is active, False otherwise.
-
-        Notes
-        -----
-        - Provides a simple way to check logging state
-        - Useful for determining whether logging can be started or stopped
-        - Can be used in conditional logic for logging management
-        """
-        return self.logging_active
