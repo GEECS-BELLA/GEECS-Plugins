@@ -296,6 +296,7 @@ class ScanManager:
         """
         self.initial_state = None
         self.initialization_success = False
+        self.optimizer: Optional[BaseOptimizer] = None
 
         try:
             self.device_manager.reinitialize(
@@ -726,6 +727,11 @@ class ScanManager:
 
             # Step 8: create sfile in analysis folder
             self.scan_data_manager._make_sFile(log_df)
+
+        if self.scan_config.scan_mode == ScanMode.OPTIMIZATION:
+            scan_dir = self.scan_data_manager.data_txt_path.parent
+            xopt_dump_str = str(scan_dir / "xopt_dump.yaml")
+            self.optimizer.xopt.dump(xopt_dump_str)
 
         self.scan_step_start_time = 0
         self.scan_step_end_time = 0

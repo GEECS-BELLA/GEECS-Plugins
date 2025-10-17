@@ -15,18 +15,6 @@ Classes
 ALine3SizeEval
     Evaluator for ALine3 electron beam size optimization.
 
-Examples
---------
-Basic usage in optimization:
-
->>> evaluator = ALine3SizeEval(
-...     device_requirements=device_reqs,
-...     scan_data_manager=sdm,
-...     data_logger=logger
-... )
->>> result = evaluator.get_value(input_parameters)
->>> beam_size_metric = result['f']
-
 Notes
 -----
 This evaluator requires the UC_ALineEBeam3 camera device and uses a spatial
@@ -47,7 +35,7 @@ from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 from image_analysis.utils import read_imaq_image
-from image_analysis.offline_analyzers.Undulator.EBeamProfile import EBeamProfileAnalyzer
+from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
 
 
 class ALine3SizeEval(BaseEvaluator):
@@ -92,15 +80,6 @@ class ALine3SizeEval(BaseEvaluator):
     objective_fn(x, y)
         Static method computing objective function from FWHM values.
 
-    Examples
-    --------
-    >>> evaluator = ALine3SizeEval(
-    ...     scan_data_manager=sdm,
-    ...     data_logger=logger
-    ... )
-    >>> result = evaluator.get_value({"focus_strength": 120.5})
-    >>> beam_size_metric = result['f']
-
     Notes
     -----
     - Requires UC_ALineEBeam3 camera device to be available
@@ -125,10 +104,9 @@ class ALine3SizeEval(BaseEvaluator):
         )
 
         self.dev_name = "UC_ALineEBeam3"
-        config_dict = {"camera_name": self.dev_name}
         self.scan_analyzer = Array2DScanAnalyzer(
             device_name=self.dev_name,
-            image_analyzer=EBeamProfileAnalyzer(**config_dict),
+            image_analyzer=BeamAnalyzer(camera_config_name=self.dev_name),
         )
 
         # use live_analysis option for the scan_analyzer so that it knows not to try to load
@@ -163,26 +141,6 @@ class ALine3SizeEval(BaseEvaluator):
         float
             Computed objective value combining x and y FWHM measurements
             with spatial calibration.
-
-        Notes
-        -----
-        This method:
-        1. Sets auxiliary data for the scan analyzer
-        2. Runs analysis to create averaged image
-        3. Loads the averaged image from disk
-        4. Analyzes the averaged image for beam profile
-        5. Extracts FWHM measurements
-        6. Computes objective function
-        7. Logs results for each shot
-
-        The objective function is: (x_fwhm * cal)² + (y_fwhm * cal)²
-        where cal = 24.4e-3 mm/pixel.
-
-        Examples
-        --------
-        >>> shot_entries = evaluator._gather_shot_entries(...)
-        >>> objective_value = evaluator.evaluate_all_shots(shot_entries)
-        >>> print(f"Beam size metric: {objective_value:.3f}")
         """
         # set the 'aux' data manually to isolate the current bin to get analyzed by the ScanAnalyzer
         self.scan_analyzer.auxiliary_data = self.current_data_bin
@@ -218,40 +176,7 @@ class ALine3SizeEval(BaseEvaluator):
 
     @staticmethod
     def objective_fn(x, y):
-        """
-        Compute beam size objective function from FWHM measurements.
-
-        Combines x and y full-width half-maximum measurements with spatial
-        calibration to produce a single objective metric for optimization.
-        The function computes the sum of squares of the calibrated FWHM values.
-
-        Parameters
-        ----------
-        x : float
-            X-direction FWHM measurement in pixels.
-        y : float
-            Y-direction FWHM measurement in pixels.
-
-        Returns
-        -------
-        float
-            Objective function value: (x*cal)² + (y*cal)² where
-            cal = 24.4e-3 mm/pixel is the spatial calibration.
-
-        Examples
-        --------
-        >>> x_fwhm = 50.2  # pixels
-        >>> y_fwhm = 45.8  # pixels
-        >>> objective = ALine3SizeEval.objective_fn(x_fwhm, y_fwhm)
-        >>> print(f"Beam size metric: {objective:.6f}")
-
-        Notes
-        -----
-        The spatial calibration of 24.4 μm/pixel converts pixel measurements
-        to physical units. The sum of squares formulation treats x and y
-        contributions equally and provides a single metric that decreases
-        as the beam becomes more focused.
-        """
+        """Compute beam size objective function from FWHM measurements."""
         calibration = 24.4e-3  # spatial calibration in um/pixel
         return (x * calibration) ** 2 + (y * calibration) ** 2
 
@@ -275,11 +200,6 @@ class ALine3SizeEval(BaseEvaluator):
         dict
             Dictionary containing the objective function result with key 'f'.
 
-        Examples
-        --------
-        >>> input_params = {"focus_strength": 120.5, "beam_energy": 150.0}
-        >>> result = evaluator._get_value(input_params)
-        >>> print(result)
         {'f': 0.00234}
 
         Notes

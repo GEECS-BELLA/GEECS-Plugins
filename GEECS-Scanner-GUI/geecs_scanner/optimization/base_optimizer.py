@@ -13,25 +13,8 @@ Classes
 -------
 BaseOptimizer
     Main optimizer class that wraps Xopt functionality.
-
-Examples
---------
-Basic optimizer usage:
-
->>> from xopt import VOCS
->>> vocs = VOCS(variables={"x": [0, 10]}, objectives={"y": "MINIMIZE"})
->>> optimizer = BaseOptimizer(vocs=vocs, evaluate_function=my_func, generator_name="random")
->>> optimizer.initialize(num_initial=5)
->>> candidates = optimizer.generate(n=3)
->>> optimizer.evaluate(candidates)
-
-Notes
------
-The optimizer integrates with the GEECS data acquisition system through ScanDataManager
-and DataLogger instances, enabling real-time optimization during experimental runs.
 """
 
-# optimization/base_optimizer.py
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Optional, List, Any, Dict
@@ -122,38 +105,6 @@ class BaseOptimizer:
     from_config_file(config_path, scan_data_manager, data_logger)
         Create optimizer instance from YAML configuration file.
 
-    Examples
-    --------
-    Basic optimization setup:
-
-    >>> from xopt import VOCS
-    >>> vocs = VOCS(
-    ...     variables={"laser_power": [50, 150], "focus_pos": [-5, 5]},
-    ...     objectives={"beam_size": "MINIMIZE"}
-    ... )
-    >>> optimizer = BaseOptimizer(
-    ...     vocs=vocs,
-    ...     evaluate_function=my_evaluator,
-    ...     generator_name="random"
-    ... )
-    >>> optimizer.initialize(num_initial=10)
-    >>> candidates = optimizer.generate(n=5)
-    >>> optimizer.evaluate(candidates)
-    >>> best_result = optimizer.get_best()
-
-    Loading from configuration file:
-
-    >>> optimizer = BaseOptimizer.from_config_file(
-    ...     "config.yaml",
-    ...     scan_data_manager=sdm,
-    ...     data_logger=logger
-    ... )
-
-    Notes
-    -----
-    The optimizer automatically sets up the underlying Xopt instance with the
-    specified generator and evaluation function. The integration with GEECS
-    data acquisition components enables real-time optimization during experiments.
     """
 
     def __init__(
@@ -204,17 +155,6 @@ class BaseOptimizer:
         ----------
         num_initial : int, default=1
             Number of random evaluations to perform for initialization.
-
-        Examples
-        --------
-        >>> optimizer.initialize(num_initial=10)
-        # Performs 10 random evaluations to seed the optimizer
-
-        Notes
-        -----
-        The random evaluations are performed using the underlying Xopt
-        random_evaluate method, which respects the variable bounds
-        defined in the VOCS specification.
         """
         self.xopt.random_evaluate(num_initial)
 
@@ -236,18 +176,6 @@ class BaseOptimizer:
         list of dict
             List of parameter dictionaries, each representing a set of
             control variable values to be evaluated.
-
-        Examples
-        --------
-        >>> candidates = optimizer.generate(n=5)
-        >>> print(candidates[0])
-        {"laser_power": 120.5, "focus_position": 2.3}
-
-        Notes
-        -----
-        The generation strategy depends on the configured generator algorithm.
-        Random generators produce uniform samples, while more sophisticated
-        algorithms like Bayesian optimization use acquisition functions.
         """
         return self.xopt.generator.generate(n)
 
@@ -264,18 +192,6 @@ class BaseOptimizer:
         inputs : list of dict
             List of parameter dictionaries to evaluate, typically generated
             by the `generate()` method.
-
-        Examples
-        --------
-        >>> candidates = optimizer.generate(n=3)
-        >>> optimizer.evaluate(candidates)
-        # Evaluates all 3 candidates and stores results
-
-        Notes
-        -----
-        The evaluation results are automatically stored in the Xopt data
-        structure and become available for subsequent optimization steps.
-        The evaluation function is called for each input parameter set.
         """
         self.xopt.evaluate_data(inputs)
 
@@ -291,20 +207,6 @@ class BaseOptimizer:
         pandas.DataFrame
             Complete results DataFrame with columns for all variables,
             objectives, and constraints that have been evaluated.
-
-        Examples
-        --------
-        >>> results = optimizer.get_results()
-        >>> print(results.columns)
-        Index(['laser_power', 'focus_position', 'beam_size', 'constraint1'], dtype='object')
-        >>> print(f"Total evaluations: {len(results)}")
-        Total evaluations: 25
-
-        Notes
-        -----
-        The DataFrame includes both the input parameters and the computed
-        objective/constraint values for all evaluations performed during
-        the optimization run.
         """
         return self.xopt.data
 
@@ -322,19 +224,6 @@ class BaseOptimizer:
             Single-row DataFrame containing the best parameter set and
             its corresponding objective and constraint values.
 
-        Examples
-        --------
-        >>> best = optimizer.get_best()
-        >>> print(best)
-           laser_power  focus_position  beam_size
-        0        125.3             1.8       0.45
-
-        Notes
-        -----
-        For multi-objective problems, this returns the point with the
-        best value for the first objective. For more sophisticated
-        multi-objective analysis, use get_results() and apply custom
-        selection criteria.
         """
         return self.xopt.data.sort_values(by=list(self.vocs.objectives.keys()))[:1]
 
@@ -353,6 +242,10 @@ class BaseOptimizer:
         This method provides a convenient way to set up complex optimization
         problems without manual instantiation.
 
+
+        The evaluator class is dynamically imported based on the module
+        and class name specified in the configuration file.
+
         Parameters
         ----------
         config_path : str
@@ -366,67 +259,38 @@ class BaseOptimizer:
         -------
         BaseOptimizer
             Fully configured optimizer instance ready for use.
-
-        Examples
-        --------
-        >>> optimizer = BaseOptimizer.from_config_file(
-        ...     "optimization_config.yaml",
-        ...     scan_data_manager=sdm,
-        ...     data_logger=logger
-        ... )
-        >>> optimizer.initialize(num_initial=10)
-        >>> candidates = optimizer.generate(n=5)
-
-        Notes
-        -----
-        The YAML configuration file should contain the following sections:
-        - vocs: Variables, objectives, and constraints specification
-        - evaluator: Module, class, and initialization parameters
-        - generator: Optimization algorithm configuration
-        - device_requirements: Required devices and variables
-        - evaluation_mode: 'per_shot' or 'aggregate'
-        - xopt_config_overrides: Optional Xopt parameter overrides
-
-        The evaluator class is dynamically imported based on the module
-        and class name specified in the configuration file.
         """
         import importlib
-        from xopt import VOCS
+        from geecs_scanner.optimization.config_models import BaseOptimizerConfig
 
+        # Load and validate config using Pydantic model
         with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
+            config_dict = yaml.safe_load(f)
 
-        vocs = VOCS(**config["vocs"])
+        # This handles all validation AND auto-generates device_requirements!
+        config = BaseOptimizerConfig.model_validate(config_dict)
 
-        evaluator_cfg = config["evaluator"]
-        evaluator_module = evaluator_cfg["module"]
-        evaluator_class_name = evaluator_cfg["class"]
-        evaluator_init_kwargs = evaluator_cfg.get("kwargs", {})
-        device_requirements = config.get("device_requirements", {})
-        evaluator_init_kwargs["device_requirements"] = device_requirements
+        # Dynamically import and instantiate evaluator
+        evaluator_init_kwargs = config.evaluator.kwargs.copy()
+        evaluator_init_kwargs["device_requirements"] = config.device_requirements
         if scan_data_manager:
             evaluator_init_kwargs["scan_data_manager"] = scan_data_manager
         if data_logger:
             evaluator_init_kwargs["data_logger"] = data_logger
 
-        module = importlib.import_module(evaluator_module)
-        evaluator_class = getattr(module, evaluator_class_name)
+        module = importlib.import_module(config.evaluator.module)
+        evaluator_class = getattr(module, config.evaluator.class_)
         evaluator = evaluator_class(**evaluator_init_kwargs)
 
-        generator_name = config["generator"]["name"]
-
-        evaluation_mode = config.get("evaluation_mode", "per_shot")
-
-        xopt_config_overrides = config.get("xopt_config_overrides", {})
-
+        # Create optimizer using validated config
         return cls(
-            vocs=vocs,
+            vocs=config.vocs,
             evaluate_function=evaluator.get_value,
-            evaluation_mode=evaluation_mode,
-            generator_name=generator_name,
-            xopt_config_overrides=xopt_config_overrides,
+            evaluation_mode=config.evaluation_mode,
+            generator_name=config.generator.name,
+            xopt_config_overrides=config.xopt_config_overrides,
             evaluator=evaluator,
-            device_requirements=device_requirements,
+            device_requirements=config.device_requirements,
             scan_data_manager=scan_data_manager,
             data_logger=data_logger,
         )

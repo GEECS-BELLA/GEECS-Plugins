@@ -13,15 +13,6 @@ Classes
 BaseEvaluator
     Abstract base class for all optimization evaluators.
 
-Examples
---------
-Creating a custom evaluator:
-
->>> class MyEvaluator(BaseEvaluator):
-...     def _get_value(self, input_data):
-...         # Custom evaluation logic
-...         return {"objective": computed_value}
-
 Notes
 -----
 All evaluators must implement the abstract `_get_value` method and should define
@@ -99,20 +90,6 @@ class BaseEvaluator(ABC):
     log_objective_result(shot_num, scalar_value)
         Log computed objective values.
 
-    Examples
-    --------
-    Implementing a custom evaluator:
-
-    >>> class BeamSizeEvaluator(BaseEvaluator):
-    ...     def _get_value(self, input_data):
-    ...         # Get current shot data
-    ...         self.get_current_data()
-    ...
-    ...         # Compute beam size from image analysis
-    ...         beam_size = self.analyze_beam_images()
-    ...
-    ...         return {"beam_size": beam_size}
-
     Notes
     -----
     - Subclasses must implement the abstract `_get_value` method
@@ -172,12 +149,6 @@ class BaseEvaluator(ABC):
         Path
             Complete path to the device's data file for the specified shot.
 
-        Examples
-        --------
-        >>> evaluator = MyEvaluator(scan_data_manager=sdm)
-        >>> path = evaluator.get_device_shot_path("camera1", 42, ".tiff")
-        >>> print(path)
-        /path/to/scan/data/camera1/shot_042.tiff
         """
         return self.scan_data_manager.scan_paths.get_device_shot_path(
             device_name=device_name,
@@ -287,18 +258,6 @@ class BaseEvaluator(ABC):
             - 'shot_number' : int - The shot number
             - 'scalars' : dict - Scalar measurements for this shot
             - 'image_paths' : dict - File paths to device images
-
-        Examples
-        --------
-        >>> scalar_vars = {"energy": "LaserEnergy:value", "power": "LaserPower:value"}
-        >>> non_scalar_vars = ["camera1", "camera2"]
-        >>> entries = evaluator._gather_shot_entries([1, 2], scalar_vars, non_scalar_vars)
-        >>> print(entries[0])
-        {
-            'shot_number': 1,
-            'scalars': {'energy': 1.5, 'power': 100.0},
-            'image_paths': {'camera1': '/path/to/camera1_001.png', ...}
-        }
         """
         entries = []
 
@@ -357,15 +316,6 @@ class BaseEvaluator(ABC):
         ------
         ValueError
             If any variable in the map is not found in device_requirements.
-
-        Examples
-        --------
-        >>> device_reqs = {"Devices": {"laser": {"variable_list": ["power", "energy"]}}}
-        >>> evaluator = MyEvaluator(device_requirements=device_reqs)
-        >>> var_map = {"pwr": "laser:power", "eng": "laser:energy"}
-        >>> evaluator.validate_variable_keys_against_requirements(var_map)  # No error
-        >>> bad_map = {"temp": "laser:temperature"}  # temperature not in variable_list
-        >>> evaluator.validate_variable_keys_against_requirements(bad_map)  # Raises ValueError
         """
         device_reqs = self.device_requirements.get("Devices", {})
 
@@ -407,17 +357,6 @@ class BaseEvaluator(ABC):
         -------
         list of dict
             List of log entry dictionaries that belong to the specified bin.
-
-        Examples
-        --------
-        >>> log_data = {
-        ...     1.0: {"Bin #": 1, "value": 10},
-        ...     2.0: {"Bin #": 1, "value": 15},
-        ...     3.0: {"Bin #": 2, "value": 20}
-        ... }
-        >>> bin1_entries = BaseEvaluator.filter_log_entries_by_bin(log_data, 1)
-        >>> len(bin1_entries)
-        2
         """
         return [
             entry for entry in log_entries.values() if entry.get("Bin #") == bin_num
@@ -446,18 +385,6 @@ class BaseEvaluator(ABC):
             Dictionary containing evaluated objective(s) and constraint(s).
             The exact structure depends on the specific evaluator implementation.
 
-        Examples
-        --------
-        >>> evaluator = MyEvaluator(...)
-        >>> input_vars = {"laser_power": 100.0, "focus_position": 5.2}
-        >>> result = evaluator.get_value(input_vars)
-        >>> print(result)
-        {"objective": 0.85, "constraint": 0.1}
-
-        See Also
-        --------
-        _get_value : Abstract method implemented by subclasses.
-        get_current_data : Method that updates current data bin.
         """
         self.get_current_data()
         return self._get_value(input_data=input_data)
@@ -481,10 +408,6 @@ class BaseEvaluator(ABC):
         The objective value is stored with a key format "Objective:{objective_tag}"
         where objective_tag is the evaluator's objective identifier.
 
-        Examples
-        --------
-        >>> evaluator.log_objective_result(42, 0.85)
-        # Logs objective value 0.85 for shot 42
         """
         try:
             elapsed_time = self.current_data_bin.loc[
@@ -532,22 +455,6 @@ class BaseEvaluator(ABC):
         Subclasses must implement this method to define their specific
         evaluation logic. The method should assume that current_data_bin
         and related attributes have been updated with the latest data.
-
-        Examples
-        --------
-        Example implementation in a subclass:
-
-        >>> def _get_value(self, input_data):
-        ...     # Process current shot data
-        ...     beam_sizes = []
-        ...     for shot in self.current_shot_numbers:
-        ...         image_path = self.get_device_shot_path("camera", shot)
-        ...         beam_size = analyze_beam_image(image_path)
-        ...         beam_sizes.append(beam_size)
-        ...
-        ...     # Compute objective
-        ...     avg_beam_size = np.mean(beam_sizes)
-        ...     return {"beam_size": avg_beam_size}
         """
         pass
 
@@ -569,18 +476,5 @@ class BaseEvaluator(ABC):
         dict
             Dictionary containing results of objective function calculation.
 
-        Examples
-        --------
-        >>> evaluator = MyEvaluator(...)
-        >>> input_vars = {"laser_power": 100.0}
-        >>>
-        >>> # These two calls are equivalent:
-        >>> result1 = evaluator.get_value(input_vars)
-        >>> result2 = evaluator(input_vars)
-        >>> assert result1 == result2
-
-        See Also
-        --------
-        get_value : The main evaluation method.
         """
         return self.get_value(input_data)
