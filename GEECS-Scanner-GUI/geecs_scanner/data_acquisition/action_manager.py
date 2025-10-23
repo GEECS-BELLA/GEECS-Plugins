@@ -160,18 +160,6 @@ class ActionManager:
         FileNotFoundError
             If the actions configuration file cannot be located in the specified directory.
 
-        Examples
-        --------
-        >>> # Standard initialization with experiment directory
-        >>> action_mgr = ActionManager('/path/to/experiment')
-        >>> # Initialization with optional actions loading
-        >>> action_mgr = ActionManager(None)  # No automatic actions loading
-
-        >>> # Dynamic action library management
-        >>> action_mgr = ActionManager('Laser_Experiment')
-        >>> print(len(action_mgr.actions))  # Number of loaded action sequences
-        3
-
         See Also
         --------
         load_actions : Method for loading action sequences from configuration
@@ -590,11 +578,6 @@ class ActionManager:
             If the retrieved value differs from the expected value and
             the user chooses to abort the action.
 
-        Examples
-        --------
-        >>> device = ScanDevice('Spectrometer')
-        >>> action_mgr._get_device(device, 'status', 'ready')
-        # Retrieves and validates spectrometer status
         """
         value = device.get(variable)
         if value == expected_value:

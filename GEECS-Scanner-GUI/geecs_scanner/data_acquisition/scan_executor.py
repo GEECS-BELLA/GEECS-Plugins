@@ -32,14 +32,6 @@ Workflow Components:
 - Optimization strategies
 - Pause and stop event handling
 
-Example Workflow:
->>> executor = ScanStepExecutor(
-...     device_manager, data_logger, scan_data_manager,
-...     optimizer, shot_control, options_dict,
-...     stop_scanning_thread_event, pause_scan_event
-... )
->>> executor.execute_scan_loop(scan_steps)
-
 Dependencies:
 - geecs_python_api.controls.devices.geecs_device
 - numpy
@@ -127,15 +119,6 @@ class ScanStepExecutor:
     - Provides precise timing control for data acquisition
     - Supports external interruption and pausing of scan sequences
     - Integrates with various experimental control components
-
-    Examples
-    --------
-    >>> executor = ScanStepExecutor(
-    ...     device_manager, data_logger, scan_data_manager,
-    ...     optimizer, shot_control, options_dict,
-    ...     stop_scanning_thread_event, pause_scan_event
-    ... )
-    >>> executor.execute_scan_loop(scan_steps)
 
     See Also
     --------
@@ -246,19 +229,6 @@ class ScanStepExecutor:
         ------
         No explicit exceptions, but logs potential interruption events
 
-        Examples
-        --------
-        >>> scan_steps = [
-        ...     {
-        ...         'variables': {'LaserController:power': 5.0},
-        ...         'wait_time': 1.0,
-        ...         'is_composite': False
-        ...     },
-        ...     # Additional scan steps...
-        ... ]
-        >>> executor.execute_scan_loop(scan_steps)
-        # Executes a sequence of scan steps with device interactions
-
         See Also
         --------
         execute_step : Method for executing individual scan steps
@@ -321,16 +291,6 @@ class ScanStepExecutor:
         - Log device movement
         - Log acquisition waiting
         - Provide detailed information about step execution
-
-        Examples
-        --------
-        >>> step = {
-        ...     'variables': {'LaserController:power': 5.0},
-        ...     'is_composite': False,
-        ...     'wait_time': 1.0
-        ... }
-        >>> executor.execute_step(step, 0)
-        # Executes a single scan step with device configuration
 
         See Also
         --------
@@ -735,11 +695,6 @@ class ScanStepExecutor:
         - Provides insights into data evaluation process
         - Supports debugging and experimental analysis
 
-        Examples
-        --------
-        >>> executor.evaluate_acquired_data(0)  # First step evaluation
-        >>> executor.evaluate_acquired_data(1)  # Subsequent step evaluation
-
         See Also
         --------
         get_control_values_from_log : Extracts control values from logged data
@@ -795,12 +750,6 @@ class ScanStepExecutor:
         - Warns about variables with no logged data
         - Provides detailed insights into data collection
         - Supports experimental workflow analysis
-
-        Examples
-        --------
-        >>> control_values = executor.get_control_values_from_log()
-        >>> print(control_values)
-        {'LaserPower': 5.2, 'BeamWidth': 3.7, 'Temperature': np.nan}
 
         See Also
         --------
@@ -882,11 +831,6 @@ class ScanStepExecutor:
         - Robust error management during step generation
         - Graceful handling of optimization failures
         - Prevents interruption of experimental workflow
-
-        Examples
-        --------
-        >>> executor.generate_next_step(1)  # Generate first optimization step
-        >>> executor.generate_next_step(4)  # Generate advanced optimization step
 
         Raises
         ------
@@ -973,11 +917,6 @@ class ScanStepExecutor:
         - Prevents workflow interruption
         - Supports flexible experimental setup
 
-        Examples
-        --------
-        >>> # Assuming a trigger function is defined during executor initialization
-        >>> executor.trigger_on()
-        # Activates data acquisition trigger if configured
 
         See Also
         --------
@@ -1021,12 +960,6 @@ class ScanStepExecutor:
         - Silently skips trigger deactivation if no trigger function is defined
         - Prevents workflow interruption
         - Supports flexible experimental setup
-
-        Examples
-        --------
-        >>> # Assuming a trigger function is defined during executor initialization
-        >>> executor.trigger_off()
-        # Deactivates data acquisition trigger if configured
 
         See Also
         --------
@@ -1075,13 +1008,6 @@ class ScanStepExecutor:
         - Graceful execution with comprehensive logging
         - Prevents workflow interruption
         - Supports various duration configurations
-
-        Examples
-        --------
-        >>> executor.save_hiatus(2.5)
-        # Waits 2.5 seconds before proceeding with data saving
-        >>> executor.save_hiatus(0.1)
-        # Short 100 millisecond pause for fine-tuned control
 
         See Also
         --------

@@ -26,17 +26,6 @@ Internal Modules
     geecs_python_api.controls.interface.GeecsDatabase
     geecs_data_utils (ScanData, ScanMode, ScanConfig)
 
-Usage
------
-This class is designed to be used primarily with the ScanManager during scan execution.
-
->>> from geecs_scanner.data_acquisition import ScanDataManager
->>> scan_data_mgr = ScanDataManager(device_manager, scan_paths, database_dict)
->>> scan_data_mgr.initialize_scan_data_and_output_files()
->>> scan_data_mgr.configure_device_save_paths(save_local=True)
->>> # ... during scan execution ...
->>> results_df = scan_data_mgr.process_results(scan_results)
-
 Notes
 -----
 The class works closely with DeviceManager to coordinate device configurations
@@ -322,9 +311,6 @@ class ScanDataManager:
         OSError
             If the specified path is not writable
 
-        Examples
-        --------
-        >>> scan_data_mgr.initialize_tdms_writers('/path/to/output/scan_paths.tdms')
         """
         try:
             self.tdms_writer = TdmsWriter(tdms_output_path, index_file=True)
@@ -375,19 +361,6 @@ class ScanDataManager:
         ValueError
             If scan configuration is incomplete or invalid
 
-        Examples
-        --------
-        >>> scan_config = ScanConfig(
-        ...     device_var='LaserPower',
-        ...     start=1.0,
-        ...     end=10.0,
-        ...     step=1.0,
-        ...     wait_time=5,
-        ...     background=False,
-        ...     scan_mode=ScanMode.LINEAR,
-        ...     additional_description='Laser power sweep experiment'
-        ... )
-        >>> scan_data_mgr.write_scan_info_ini(scan_config)
         # Creates ScanInfo{scan_folder}.ini with detailed scan metadata
 
         See Also
@@ -463,11 +436,6 @@ class ScanDataManager:
         ValueError
             If input DataFrame is empty or improperly formatted
 
-        Examples
-        --------
-        >>> processed_df = scan_data_mgr.convert_to_dataframe(log_entries)
-        >>> scan_data_mgr.save_to_txt_and_h5(processed_df)
-        # Saves processed data to text file at data_txt_path
 
         See Also
         --------
@@ -519,11 +487,6 @@ class ScanDataManager:
         ValueError
             If input DataFrame is empty or improperly formatted
 
-        Examples
-        --------
-        >>> processed_df = scan_data_mgr.convert_to_dataframe(log_entries)
-        >>> scan_data_mgr._make_sFile(processed_df)
-        # Saves processed data to s-file at sFile_txt_path
 
         See Also
         --------
@@ -585,15 +548,6 @@ class ScanDataManager:
             If data cannot be converted to TDMS format
         IOError
             If TDMS file writing encounters issues
-
-        Examples
-        --------
-        >>> df = pd.DataFrame({
-        ...     'Laser Power': [1.0, 2.0, 3.0],
-        ...     'Detector Temperature Alias:temp_sensor': [22.3, 22.5, 22.7]
-        ... })
-        >>> scan_data_mgr.dataframe_to_tdms(df)
-        # Saves DataFrame to TDMS file with device and alias information
 
         See Also
         --------
@@ -670,18 +624,6 @@ class ScanDataManager:
             If log_entries cannot be converted to a DataFrame
         TypeError
             If log_entries is not a dictionary or contains invalid data types
-
-        Examples
-        --------
-        >>> log_entries = {
-        ...     0.0: {'Laser:Power': 5.5, 'Detector:Temperature': 22.3},
-        ...     1.0: {'Laser:Power': 6.0, 'Detector:Temperature': 22.5}
-        ... }
-        >>> processed_df = scan_data_mgr.convert_to_dataframe(log_entries)
-        >>> print(processed_df)
-           Laser Power  Detector Temperature  Shotnumber
-        0          5.5                 22.3           1
-        1          6.0                 22.5           2
 
         See Also
         --------
@@ -804,14 +746,6 @@ class ScanDataManager:
             If results dictionary contains improperly formatted data
         TypeError
             If results is not a dictionary
-
-        Examples
-        --------
-        >>> results = {
-        ...     0.0: {'Device1': 10, 'Device2': 20},
-        ...     1.0: {'Device1': 15, 'Device2': 25}
-        ... }
-        >>> processed_df = scan_data_mgr.process_results(results)
         """
         if not isinstance(results, dict):
             raise TypeError("Results must be a dictionary of timestamp-data pairs")
@@ -882,16 +816,6 @@ class ScanDataManager:
         Logging:
         - Warns about columns consisting entirely of NaN values
         - Logs the fill value used for remaining NaNs
-
-        Examples
-        --------
-        >>> df = pd.DataFrame({
-        ...     'Device1': [1, np.nan, np.nan, 4],
-        ...     'Device2': ['', 20, 30, 40]
-        ... })
-        >>> async_cols = ['Device1', 'Device2']
-        >>> processed_df = ScanDataManager.fill_async_nans(df, async_cols)
-        # Fills NaNs in Device1 and Device2 columns
 
         Raises
         ------

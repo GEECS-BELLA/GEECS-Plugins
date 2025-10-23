@@ -19,11 +19,9 @@ from geecs_data_utils.utils import ConfigurationError
 
 # Module-level logger
 logger = logging.getLogger(__name__)
-if not logging.getLogger().hasHandlers():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+logger.addHandler(logging.NullHandler())
+logger.propagate = False
+
 
 EXPERIMENT_TO_SERVER_DICT: dict[str, Path] = {
     "Undulator": Path("Z:/data"),
