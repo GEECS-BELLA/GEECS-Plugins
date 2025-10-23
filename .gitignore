@@ -1,49 +1,100 @@
-LogMaker 4 GoogleDocs/source/HTTplaceholders.ini
-LogMaker 4 GoogleDocs/source/HTTparameters.ini
-LogMaker 4 GoogleDocs/source/HTTcurrentvalues.ini
-LogMaker 4 GoogleDocs/source/HTTplaceholders.ini
-LogMaker 4 GoogleDocs/source/HTTparameters.ini
-LogMaker 4 GoogleDocs/source/HTTcurrentvalues.ini
-LogMaker 4 GoogleDocs/source/frontpanel.png
-GEECS-PythonAPI/*.xml
-*.pyc
-.env
-.vscode/
-.DS_Store
-.ipynb_checkpoints
-.idea
-Xopt-GEECS/config.lnk
+# -----------------------------
+# Python / Poetry
+# -----------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dylib
+
+# Virtual environments
+.venv/
+venv/
+.env/
+.env*/
+# Poetry local machine config (keep poetry.lock tracked)
+poetry.toml
+.poetry-lock-hash
+
+# Build / packaging artifacts
+dist/
+build/
+*.egg-info/
+*.egg
+.wheelhouse/
+
+# -----------------------------
+# Documentation / MkDocs
+# -----------------------------
+site/
+
+# -----------------------------
+# Jupyter
+# -----------------------------
+.ipynb_checkpoints/
+# (keep notebooks by default; ignore only known scratch ones)
 Xopt-GEECS/testing nb.ipynb
+GEECS-Scanner-GUI/xopt optimizer tests.ipynb
+GEECS-Scanner-GUI/testing.ipynb
+
+# -----------------------------
+# Editors / OS files
+# -----------------------------
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# -----------------------------
+# Logs / scratch output
+# -----------------------------
 *.log
+**/log_dll_load.txt
+**/single_shot_estimated_legendre.txt
+
+# -----------------------------
+# Secrets / credentials (common patterns)
+# -----------------------------
+**/credentials.json
+**/token.pickle
+
+# -----------------------------
+# Project-specific ignores
+# -----------------------------
+
+# LogMaker 4 GoogleDocs (various ini/png and entire built output folder)
+LogMaker 4 GoogleDocs/source/HTTplaceholders.ini
+LogMaker 4 GoogleDocs/source/HTTparameters.ini
+LogMaker 4 GoogleDocs/source/HTTcurrentvalues.ini
 LogMaker 4 GoogleDocs/source/HTUcurrentvalues.ini
 LogMaker 4 GoogleDocs/source/HTUparameters.ini
-*.spyproject
-GEECS-PythonAPI/htu_scripts/test_scripts/credentials.json
-LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in
+LogMaker 4 GoogleDocs/source/frontpanel.png
 LogMaker 4 GoogleDocs/source/credentials.json
 LogMaker 4 GoogleDocs/source/token.pickle
-GEECS-Scanner-GUI/testing.ipynb
-ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat
-ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/WFSL_HASO4_LIFT_680_8244_MC.lift
-GEECS-Scanner-GUI/log_dll_load.txt
-.poetry-lock-hash
-ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFSL_HASO4_LIFT_680_8244_MC.lift
-ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat
-ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/dlls/x64/log_dll_load.txt
+/LogMaker4GoogleDocs/logmaker_4_googledocs/
+LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in
+LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in
+
+# GEECS-PythonAPI
+GEECS-PythonAPI/*.xml
+GEECS-PythonAPI/htu_scripts/test_scripts/credentials.json
+
+# Xopt-GEECS
+Xopt-GEECS/config.lnk
+
+# ScanAnalysis / ImageAnalysis third-party SDK blobs
+ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/**
+ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/**
 ImageAnalysis/image_analysis/analyzers/log_dll_load.txt
 ImageAnalysis/image_analysis/analyzers/single_shot_estimated_legendre.txt
-GEECS-Scanner-GUI/xopt optimizer tests.ipynb
+ImageAnalysis/image_analysis/offline_analyzers/log_dll_load.txt
 ImageAnalysis/image_analysis/offline_analyzers/single_shot_estimated_legendre.txt
-ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFSL_HASO_LIFT_680_4980_MC.lift
 ScanAnalysis/tests/log_dll_load.txt
 ScanAnalysis/tests/single_shot_estimated_legendre.txt
-ImageAnalysis/image_analysis/offline_analyzers/log_dll_load.txt
+ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/dlls/x64/log_dll_load.txt
 
-# MkDocs output
-/site
-/scripts
-LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in
-ScanAnalysis/log_dll_load.txt
-ScanAnalysis/single_shot_estimated_legendre.txt
-/LogMaker4GoogleDocs/logmaker_4_googledocs
-LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in
+# GEECS-Data-Utils local scripts
+GEECS-Data-Utils/scripts/release_mac.sh
+GEECS-Data-Utils/dist/
