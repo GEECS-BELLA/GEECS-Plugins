@@ -129,12 +129,13 @@ class BaseOptimizer:
         self.scan_data_manager = scan_data_manager
         self.data_logger = data_logger
 
-        self._setup_xopt(xopt_config_overrides or {})
+        self.xopt_config_overrides: dict[str, Any] = dict(xopt_config_overrides or {})
+        self._setup_xopt(self.xopt_config_overrides)
 
     def _setup_xopt(self, overrides: dict[str, Any]):
-        generator = build_generator_from_config(
-            config={"name": self.generator_name}, vocs=self.vocs
-        )
+        generator_config: dict[str, Any] = {"name": self.generator_name}
+        generator_config.update(overrides)
+        generator = build_generator_from_config(config=generator_config, vocs=self.vocs)
 
         self.xopt = Xopt(
             evaluator={"function": self.evaluate_function},
