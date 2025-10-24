@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Dict
 if TYPE_CHECKING:
     pass
 
+import numpy as np
 import logging
 
 from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
@@ -166,7 +167,9 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         control_val = input_data.get("U_S1H:Current")
         measurement_val = input_data.get("U_EMQTripletBipolar:Current_Limit.Ch1")
 
-        centroid_pixels = (measurement_val - 1) * (control_val - 1)
+        centroid_pixels = (measurement_val - 1) * (control_val - 1) + np.random.normal(
+            0, 0.05
+        )
 
         return centroid_pixels * self.calibration
 
