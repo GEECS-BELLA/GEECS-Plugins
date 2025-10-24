@@ -270,7 +270,8 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         Returns
         -------
         dict
-            Dictionary containing the objective function result with key 'f'.
+            Dictionary containing the objective function result with key 'f'
+            plus any additional observables returned by ``compute_observables``.
         """
         # Update current data from logger
         self.get_current_data()
@@ -314,7 +315,23 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         for shot_num in self.current_shot_numbers:
             self.log_objective_result(shot_num=shot_num, scalar_value=objective_value)
 
-        return {self.output_key: objective_value}
+        outputs: Dict[str, float] = {self.output_key: objective_value}
+        extra_observables = self.compute_observables(
+            scalar_results=all_scalar_results, bin_number=self.bin_number
+        )
+        if extra_observables:
+            # Avoid silent overwrites of the primary objective key
+            if self.output_key in extra_observables:
+                logger.warning(
+                    "compute_observables returned key '%s'; overriding is not allowed",
+                    self.output_key,
+                )
+                extra_observables = {
+                    k: v for k, v in extra_observables.items() if k != self.output_key
+                }
+            outputs.update(extra_observables)
+
+        return outputs
 
     @abstractmethod
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
@@ -351,3 +368,28 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         - The sign convention depends on your VOCS (MINIMIZE vs MAXIMIZE)
         """
         pass
+
+    def compute_observables(
+        self, scalar_results: dict, bin_number: int
+    ) -> Dict[str, float]:
+        """
+        Compute additional observables to include in the evaluator output.
+
+        Subclasses can override this hook to return a dictionary of extra
+        scalar quantities (e.g., beam centroid positions) that should be
+        passed through to Xopt alongside the primary objective.
+
+        Parameters
+        ----------
+        scalar_results : dict
+            Combined analyzer_return_dictionary from all analyzers.
+        bin_number : int
+            Current bin number being evaluated.
+
+        Returns
+        -------
+        dict
+            Mapping of observable names to scalar values. The default
+            implementation returns an empty dict.
+        """
+        return {}
