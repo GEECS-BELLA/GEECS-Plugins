@@ -269,6 +269,15 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         return virt
 
 
+# ---------- custom generator wrapper ----------------------------------------
+
+
+class MultipointBAXGenerator(BaxGenerator):
+    """Variant of ``BaxGenerator`` that allows single-objective optimisation."""
+
+    supports_single_objective: bool = True
+
+
 # ---------- factory ----------------------------------------------------------
 
 
@@ -310,7 +319,7 @@ def make_bax_multipoint_alignment_generator(
         raise ValueError(f"observable '{cfg.observable_name}' not in VOCS.observables")
 
     algo = MultipointBAXAlignmentAlgorithm(vocs, cfg)
-    gen = BaxGenerator(vocs=vocs, algorithm=algo)
+    gen = MultipointBAXGenerator(vocs=vocs, algorithm=algo)
     gen.n_monte_carlo_samples = cfg.n_monte_carlo_samples
     gen.gp_constructor.use_low_noise_prior = cfg.use_low_noise_prior
     return gen
