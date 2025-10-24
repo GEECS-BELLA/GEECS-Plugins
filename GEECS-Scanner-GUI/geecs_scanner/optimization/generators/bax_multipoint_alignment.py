@@ -49,7 +49,7 @@ class MultipointBAXAlignmentConfig(BaseModel):
 
     The alignment procedure treats the correctors as control variables ``u``,
     the quadrupole current as the measurement variable ``v``, and an observable
-    ``y(u, v)`` (for example the beam centroid ``x_cen``) returned by the evaluator.
+    ``y(u, v)`` (for example the beam centroid ``x_CoM``) returned by the evaluator.
 
     A virtual objective ``g(u) = | d y(u, v) / d v |`` is constructed by querying
     the Gaussian Process along a virtual probe grid near a nominal value of
@@ -65,7 +65,7 @@ class MultipointBAXAlignmentConfig(BaseModel):
     measurement_name: str = Field(
         ..., description="measurement variable name (quadrupole)"
     )
-    observable_name: str = Field("x_cen", description="observable key in VOCS.outputs")
+    observable_name: str = Field("x_CoM", description="observable key in VOCS.outputs")
 
     # virtual probe grid
     probe_nominal: Optional[float] = Field(

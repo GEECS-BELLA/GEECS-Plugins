@@ -87,7 +87,7 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         self.calibration = calibration
         # Get device name from first analyzer config
         self.device_name = self.analyzer_configs[0].device_name
-        self.observable_key = "x_cen"
+        self.observable_key = "x_CoM"
         self.simulate = simulate
         self.simulation_model = simulation_model
         self.simulation_control_key = simulation_control_key
@@ -144,7 +144,7 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         """
         Provide calibrated centroid observables required by downstream generators.
 
-        Returns a dictionary containing ``x_cen`` (and optionally ``y_cen``) expressed
+        Returns a dictionary containing ``x_CoM`` (and optionally ``y_CoM``) expressed
         in physical units. These observable keys must match the VOCS configuration.
         """
         observables: Dict[str, float] = {}
@@ -157,7 +157,7 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
 
         # y centroid is optional; include if available
         try:
-            observables["y_cen"] = self._extract_position(scalar_results, axis="y")
+            observables["y_CoM"] = self._extract_position(scalar_results, axis="y")
         except KeyError:
             # silently ignore missing y centroid
             pass
