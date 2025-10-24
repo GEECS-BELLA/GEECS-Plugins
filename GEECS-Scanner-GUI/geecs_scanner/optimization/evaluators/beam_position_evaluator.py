@@ -28,71 +28,39 @@ logger = logging.getLogger(__name__)
 
 class BeamPositionEvaluator(MultiDeviceScanEvaluator):
     """
-    Evaluator for tracking beam position.
+    Minimal evaluator that publishes an x_CoM observable.
 
-    Parameters
-    ----------
-    calibration : float, default=24.4e-3
-        Spatial calibration factor in mm/pixel (or desired units/pixel).
-    simulate : bool, default=False
-        If True, skip analyzer execution and synthesize observables from the
-        setpoints provided to ``get_value`` using a fixed linear model.
-    **kwargs
-        Additional keyword arguments passed to MultiDeviceScanEvaluator,
-        including 'analyzers', 'scan_data_manager', and 'data_logger'.
+    Objective is a constant (0.0); use this when the optimizer needs observables only.
     """
 
-    def __init__(
-        self,
-        calibration: float = 1,
-        simulate: bool = True,
-        **kwargs,
-    ):
-        """Initialize the beam position evaluator."""
+    def __init__(self, calibration: float = 1.0, **kwargs):
         super().__init__(**kwargs)
         self.calibration = calibration
-        # Get device name from first analyzer config
-        self.device_name = self.analyzer_configs[0].device_name
-        self.observable_key = "x_CoM"
-        self.simulate = simulate
+        self.device_name = self.analyzer_configs[
+            0
+        ].device_name  # unused, but kept for consistency
+        self.objective_tag = "BeamPosition"  # shows as "Objective:BeamPosition"
 
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
-        """
-        Compute beam position objective from CoM measurements.
-
-        Parameters
-        ----------
-        scalar_results : dict
-            Dictionary of scalar results from all analyzers.
-            Expected to contain x_CoM and y_CoM metrics.
-        bin_number : int
-            Current bin number being evaluated (not used in this implementation).
-
-        Returns
-        -------
-        float
-            Beam position observable value
-        """
-
-        return 1
+        """Dummy placeholder."""
+        # No objective here—just pass observables
+        return 0.0
 
     def compute_observables(
         self, scalar_results: dict, bin_number: int
     ) -> Dict[str, float]:
-        """
-        Provide calibrated centroid observables required by downstream generators.
+        """Publish calibrated centroid x_CoM derived from current_data_bin."""
+        try:
+            control_val = float(np.mean(self.current_data_bin["U_S1H:Current"]))
+            measure_val = float(
+                np.mean(self.current_data_bin["U_EMQTripletBipolar:Current_Limit.Ch1"])
+            )
+        except Exception as e:
+            logger.warning("Failed to compute x_CoM from current_data_bin: %s", e)
+            return {}
 
-        Returns a dictionary containing ``x_CoM`` (and optionally ``y_CoM``) expressed
-        in physical units. These observable keys must match the VOCS configuration.
-        """
-        observables: Dict[str, float] = {}
+        # Simple deterministic affine relation (tight & reproducible)
+        centroid_pixels = (measure_val - 1.0) * (control_val - 1.0)
 
-
-        control_val = np.mean(self.current_data_bin['U_S1H:Current'])
-        measurement_val = np.mean(self.current_data_bin["U_EMQTripletBipolar:Current_Limit.Ch1"])
-
-        centroid_pixels = (measurement_val - 1) * (control_val - 1) + np.random.normal(
-            0, 0.05
-        )
-
-        return {"x_CoM":centroid_pixels}
+        # Calibrated output expected by VOCS/schema
+        return {"x_CoM": float(centroid_pixels * self.calibration)}

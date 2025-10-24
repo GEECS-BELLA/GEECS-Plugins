@@ -20,47 +20,34 @@ from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
 
 
 class BeamSizeEvaluator(MultiDeviceScanEvaluator):
-    """
-    Evaluator for minimizing beam size based on FWHM measurements.
-
-    Parameters
-    ----------
-    calibration : float, default=24.4e-3
-        Spatial calibration factor in mm/pixel (or desired units/pixel).
-    **kwargs
-        Additional keyword arguments passed to MultiDeviceScanEvaluator,
-        including 'analyzers', 'scan_data_manager', and 'data_logger'.
-    """
+    """Minimize beam size from FWHM: (x_fwhm * cal)^2 + (y_fwhm * cal)^2."""
 
     def __init__(self, calibration: float = 24.4e-3, **kwargs):
-        """Initialize the beam size evaluator."""
         super().__init__(**kwargs)
         self.calibration = calibration
-        # Get device name from first analyzer config
         self.device_name = self.analyzer_configs[0].device_name
+        self.objective_tag = "BeamSize"  # shows up as "Objective:BeamSize"
+        # self.output_key = "f"              # already set in BaseEvaluator; keep default
 
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
-        """
-        Compute beam size objective from FWHM measurements.
-
-        Parameters
-        ----------
-        scalar_results : dict
-            Dictionary of scalar results from all analyzers.
-            Expected to contain x_fwhm and y_fwhm metrics.
-        bin_number : int
-            Current bin number being evaluated (not used in this implementation).
-
-        Returns
-        -------
-        float
-            Beam size objective value: (x_fwhm * cal)² + (y_fwhm * cal)²
-        """
-        # Use get_scalar() helper for flexible key lookup
+        """Compute objective."""
         x_fwhm = self.get_scalar(self.device_name, "x_fwhm", scalar_results)
         y_fwhm = self.get_scalar(self.device_name, "y_fwhm", scalar_results)
+        return (x_fwhm * self.calibration) ** 2 + (y_fwhm * self.calibration) ** 2
 
-        # Compute sum of squares with calibration
-        objective = (x_fwhm * self.calibration) ** 2 + (y_fwhm * self.calibration) ** 2
-
-        return objective
+    def compute_observables(
+        self, scalar_results: dict, bin_number: int
+    ) -> dict[str, float]:
+        """Compute observables."""
+        # Optional: more visibility in logs
+        x = self.get_scalar(self.device_name, "x_fwhm", scalar_results)
+        y = self.get_scalar(self.device_name, "y_fwhm", scalar_results)
+        x_cal = x * self.calibration
+        y_cal = y * self.calibration
+        return {
+            "x_fwhm_px": x,
+            "y_fwhm_px": y,
+            "x_fwhm_units": x_cal,
+            "y_fwhm_units": y_cal,
+            "size_quadrature_units2": x_cal**2 + y_cal**2,  # equals objective
+        }

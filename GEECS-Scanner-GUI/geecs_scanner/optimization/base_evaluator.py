@@ -116,6 +116,7 @@ class BaseEvaluator(ABC):
         self.current_data_bin: Optional[pd.DataFrame] = None
         self.current_shot_numbers: Optional[List] = None
         self.objective_tag: str = "default"
+        self.output_key: str = "f"  # required objective key name used for logging
 
         self.scan_tag = self.scan_data_manager.scan_paths.get_tag()
 
@@ -362,53 +363,39 @@ class BaseEvaluator(ABC):
             entry for entry in log_entries.values() if entry.get("Bin #") == bin_num
         ]
 
-    def get_value(self, input_data: Dict) -> Dict:
+    # Replace BaseEvaluator.get_value with:
+    def get_value(self, input_data: Dict) -> Dict[str, float]:
         """
-        Evaluate the objective function with current data.
+        get_value function used by xopt.
 
-        This is the main evaluation method that first retrieves the most recent
-        data from the DataLogger and then delegates the actual evaluation logic
-        to the subclass-defined `_get_value()` method.
-
-        Parameters
-        ----------
-        input_data : dict
-            Specification of control variable settings. Can be one of:
-            - A pandas DataFrame of input rows
-            - A list of dictionaries mapping variable names to values
-            - A dictionary of variable names to lists of values
-            - A dictionary of variable names to single float values
-
-        Returns
-        -------
-        dict
-            Dictionary containing evaluated objective(s) and constraint(s).
-            The exact structure depends on the specific evaluator implementation.
+        - refresh data
+        - compute results via _get_value()
+        - validate/normalize numeric types
+        - log for all shots in current bin
 
         """
         self.get_current_data()
-        return self._get_value(input_data=input_data)
 
-    def log_objective_result(self, shot_num: int, scalar_value: float):
-        """
-        Log computed objective value for a specific shot.
+        results = self._get_value(input_data=input_data)
+        if not isinstance(results, dict):
+            raise TypeError(
+                f"{self.__class__.__name__}._get_value must return Dict[str, float]; "
+                f"got {type(results)}"
+            )
+        if self.output_key not in results:
+            raise KeyError(
+                f"{self.__class__.__name__}._get_value must include the objective key "
+                f"'{self.output_key}' in its returned dict."
+            )
 
-        Adds the computed scalar objective value to the log_entries dictionary
-        under the appropriate elapsed time key for the specified shot number.
+        # normalize to plain floats (avoid numpy types)
+        results = {str(k): float(v) for k, v in results.items()}
 
-        Parameters
-        ----------
-        shot_num : int
-            The shot number being processed.
-        scalar_value : float
-            The computed objective value to log.
+        self._log_results_for_current_bin(results)
+        return results
 
-        Notes
-        -----
-        The objective value is stored with a key format "Objective:{objective_tag}"
-        where objective_tag is the evaluator's objective identifier.
-
-        """
+    # Add private logging helpers (no legacy shims):
+    def _log_results_for_shot(self, shot_num: int, results: Dict[str, float]) -> None:
         try:
             elapsed_time = self.current_data_bin.loc[
                 self.current_data_bin["Shotnumber"] == shot_num, "Elapsed Time"
@@ -418,21 +405,32 @@ class BaseEvaluator(ABC):
                 "Could not extract Elapsed Time for shot %s: %s", shot_num, e
             )
             return
-
-        if elapsed_time:
-            key = f"Objective:{self.objective_tag}"
-            self.data_logger.log_entries[elapsed_time][key] = scalar_value
-            logger.info("Logged %s = %s for shot %s", key, scalar_value, shot_num)
-        else:
+        if not elapsed_time:
             logger.warning(
-                "Cannot log result: no valid data_logger or elapsed_time=%s",
-                elapsed_time,
+                "Cannot log results: no valid elapsed_time for shot %s", shot_num
             )
+            return
+
+        for k, v in results.items():
+            # Objective under "Objective:{objective_tag}", everything else as "Observable:{key}"
+            key = (
+                f"Objective:{self.objective_tag}"
+                if k == self.output_key
+                else f"Observable:{k}"
+            )
+            self.data_logger.log_entries[elapsed_time][key] = v
+            logger.info("Logged %s = %s for shot %s", key, v, shot_num)
+
+    def _log_results_for_current_bin(self, results: Dict[str, float]) -> None:
+        if not self.current_shot_numbers:
+            logger.warning("No shots found for current bin %s", self.bin_number)
+            return
+        for shot_num in self.current_shot_numbers:
+            self._log_results_for_shot(shot_num, results)
 
     @abstractmethod
-    def _get_value(self, input_data: Dict) -> Dict:
-        """
-        Abstract method for computing objectives and constraints.
+    def _get_value(self, input_data: Dict) -> Dict[str, float]:
+        """Compute and return a dict of results. Must include self.output_key.
 
         This method must be implemented by subclasses and contains the core logic
         for evaluating the objective function. It is called by `get_value()` after
@@ -455,6 +453,7 @@ class BaseEvaluator(ABC):
         Subclasses must implement this method to define their specific
         evaluation logic. The method should assume that current_data_bin
         and related attributes have been updated with the latest data.
+
         """
         pass
 
