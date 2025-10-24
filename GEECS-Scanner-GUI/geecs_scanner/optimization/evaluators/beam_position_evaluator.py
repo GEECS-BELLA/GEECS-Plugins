@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     pass
 
 import logging
+import random
 
 from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
     MultiDeviceScanEvaluator,
@@ -40,6 +41,25 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         Optional callable ``f(input_data) -> dict | float`` used in simulation mode.
         When omitted, a simple placeholder model based on the provided setpoints
         is used.
+    simulation_control_key : str, optional
+        Name of the control variable to use in the default simulation model.
+    simulation_measurement_key : str, optional
+        Name of the measurement variable to use in the default simulation model.
+    simulation_control_nominal : float, default=0.0
+        Nominal value for the control variable used by the placeholder model.
+    simulation_measurement_nominal : float, default=1.0
+        Nominal value for the measurement variable used by the placeholder model.
+    simulation_base_offset : float, default=0.0
+        Baseline centroid (in pixels) when both variables sit at their nominal values.
+    simulation_base_slope : float, default=1.0
+        Baseline slope (in pixels per measurement unit) relating the measurement
+        variable to the centroid.
+    simulation_control_slope_gain : float, default=0.5
+        Linear gain (in pixels per measurement unit per control unit) that modulates
+        the slope as the control variable moves away from its nominal value.
+    simulation_noise_std : float, default=0.0
+        Standard deviation of optional Gaussian noise (in pixels) added to the
+        simulated centroid.
     **kwargs
         Additional keyword arguments passed to MultiDeviceScanEvaluator,
         including 'analyzers', 'scan_data_manager', and 'data_logger'.
@@ -48,10 +68,18 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
     def __init__(
         self,
         calibration: float = 24.4e-3,
-        simulate: bool = False,
+        simulate: bool = True,
         simulation_model: Optional[
             Callable[[Dict[str, float]], Dict[str, float] | float]
         ] = None,
+        simulation_control_key: Optional[str] = None,
+        simulation_measurement_key: Optional[str] = None,
+        simulation_control_nominal: float = 0.0,
+        simulation_measurement_nominal: float = 1.0,
+        simulation_base_offset: float = 0.0,
+        simulation_base_slope: float = 1.0,
+        simulation_control_slope_gain: float = 0.5,
+        simulation_noise_std: float = 0.0,
         **kwargs,
     ):
         """Initialize the beam position evaluator."""
@@ -62,6 +90,14 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         self.observable_key = "x_cen"
         self.simulate = simulate
         self.simulation_model = simulation_model
+        self.simulation_control_key = simulation_control_key
+        self.simulation_measurement_key = simulation_measurement_key
+        self.simulation_control_nominal = simulation_control_nominal
+        self.simulation_measurement_nominal = simulation_measurement_nominal
+        self.simulation_base_offset = simulation_base_offset
+        self.simulation_base_slope = simulation_base_slope
+        self.simulation_control_slope_gain = simulation_control_slope_gain
+        self.simulation_noise_std = max(0.0, simulation_noise_std)
 
     def get_value(self, input_data: Dict) -> Dict:
         """
@@ -173,12 +209,51 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         ]
         if not numeric_items:
             return 0.0
+        control_val: Optional[float] = None
+        measurement_val: Optional[float] = None
 
-        numeric_items.sort(key=lambda item: item[0])
-        primary = numeric_items[0][1]
-        secondary = numeric_items[1][1] if len(numeric_items) > 1 else 0.0
-        centroid = primary - secondary
-        return centroid * self.calibration
+        if self.simulation_control_key:
+            control_val = self._safe_fetch_value(
+                input_data, self.simulation_control_key
+            )
+        if self.simulation_measurement_key:
+            measurement_val = self._safe_fetch_value(
+                input_data, self.simulation_measurement_key
+            )
+
+        if control_val is None or measurement_val is None:
+            numeric_items.sort(key=lambda item: item[0])
+            if control_val is None:
+                control_val = numeric_items[0][1]
+            if measurement_val is None:
+                measurement_val = numeric_items[1][1] if len(numeric_items) > 1 else 0.0
+
+        if control_val is None:
+            control_val = self.simulation_control_nominal
+        if measurement_val is None:
+            measurement_val = self.simulation_measurement_nominal
+
+        slope = self.simulation_base_slope + self.simulation_control_slope_gain * (
+            control_val - self.simulation_control_nominal
+        )
+        delta_measurement = measurement_val - self.simulation_measurement_nominal
+        centroid_pixels = self.simulation_base_offset + slope * delta_measurement
+
+        if self.simulation_noise_std > 0.0:
+            centroid_pixels += random.gauss(0.0, self.simulation_noise_std)
+
+        # Convert simulated pixels to physical units for parity with live data
+        return centroid_pixels * self.calibration
+
+    @staticmethod
+    def _safe_fetch_value(data: Dict[str, float], key: str) -> Optional[float]:
+        """Attempt to retrieve and cast a numeric value from ``data``."""
+        if key not in data:
+            return None
+        try:
+            return float(data[key])
+        except (TypeError, ValueError):
+            return None
 
     def _extract_position(self, scalar_results: dict, axis: str = "x") -> float:
         """
