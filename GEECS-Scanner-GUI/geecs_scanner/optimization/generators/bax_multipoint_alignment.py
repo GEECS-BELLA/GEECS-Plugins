@@ -102,14 +102,16 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
     """
 
     # expose the observable to BAX (must match VOCS output name)
-    observable_names_ordered: List[str]
+    observable_names_ordered: List[str] = Field(default_factory=list)
 
     # config & bookkeeping
-    control_names: List[str]
-    measurement_name: str
-    probe_grid_abs: Tensor  # absolute v values used for virtual VO (shape [P])
-    all_vars: List[str]  # VOCS variable order
-    n_control_mesh: int
+    control_names: List[str] = Field(default_factory=list)
+    measurement_name: str = ""
+    probe_grid_abs: Tensor = Field(
+        default_factory=lambda: torch.zeros(0, dtype=torch.double)
+    )  # absolute v values used for virtual VO (shape [P])
+    all_vars: List[str] = Field(default_factory=list)  # VOCS variable order
+    n_control_mesh: int = 0
     minimize: bool = True
 
     def __init__(self, vocs: VOCS, cfg: MultipointBAXAlignmentConfig):
