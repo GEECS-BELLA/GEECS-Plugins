@@ -65,7 +65,9 @@ class MultipointBAXAlignmentConfig(BaseModel):
     measurement_name: str = Field(
         ..., description="measurement variable name (quadrupole)"
     )
-    observable_name: str = Field("x_CoM", description="observable key in VOCS.outputs")
+    observable_name: str = Field(
+        "x_CoM", description="observable key in VOCS.observables"
+    )
 
     # virtual probe grid
     probe_nominal: Optional[float] = Field(
@@ -297,8 +299,8 @@ def make_bax_multipoint_alignment_generator(
             raise ValueError(f"control '{n}' not in VOCS.variables")
     if cfg.measurement_name not in vocs.variable_names:
         raise ValueError(f"measurement '{cfg.measurement_name}' not in VOCS.variables")
-    if cfg.observable_name not in vocs.output_names:
-        raise ValueError(f"observable '{cfg.observable_name}' not in VOCS.outputs")
+    if cfg.observable_name not in vocs.observable_names:
+        raise ValueError(f"observable '{cfg.observable_name}' not in VOCS.observables")
 
     algo = MultipointBAXAlignmentAlgorithm(vocs, cfg)
     gen = BaxGenerator(vocs=vocs, algorithm=algo)
