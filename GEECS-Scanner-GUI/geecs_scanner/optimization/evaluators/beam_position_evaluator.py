@@ -44,7 +44,7 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
 
     def __init__(
         self,
-        calibration: float = 24.4e-3,
+        calibration: float = 1,
         simulate: bool = True,
         **kwargs,
     ):
@@ -55,24 +55,6 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         self.device_name = self.analyzer_configs[0].device_name
         self.observable_key = "x_CoM"
         self.simulate = simulate
-
-    def get_value(self, input_data: Dict) -> Dict:
-        """
-        Evaluate the objective or, if requested, simulate it from setpoints.
-
-        When ``simulate`` is True, bypass analyzer execution and instead
-        derive the observable(s) directly from the provided ``input_data``.
-        """
-        if self.simulate:
-            simulated = self._simulate_from_setpoints(input_data or {})
-            logger.info(
-                "Simulated observables %s from input data %s",
-                simulated,
-                input_data,
-            )
-            return simulated
-
-        return super().get_value(input_data)
 
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
         """
@@ -91,9 +73,8 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         float
             Beam position observable value
         """
-        x_mm = self._extract_position(scalar_results, axis="x")
-        # Return calibrated position as the optimization objective (can be overridden if needed)
-        return x_mm
+
+        return 1
 
     def compute_observables(
         self, scalar_results: dict, bin_number: int
@@ -105,93 +86,13 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         in physical units. These observable keys must match the VOCS configuration.
         """
         observables: Dict[str, float] = {}
-        try:
-            observables[self.observable_key] = self._extract_position(
-                scalar_results, axis="x"
-            )
-        except KeyError as err:
-            logger.warning("Unable to extract x centroid for observables: %s", err)
 
-        # y centroid is optional; include if available
-        try:
-            observables["y_CoM"] = self._extract_position(scalar_results, axis="y")
-        except KeyError:
-            # silently ignore missing y centroid
-            pass
 
-        return observables
-
-    def _simulate_from_setpoints(
-        self, input_data: Dict[str, float]
-    ) -> Dict[str, float]:
-        """
-        Build simulated outputs from control setpoints.
-
-        Parameters
-        ----------
-        input_data : dict
-            Mapping of control/measurment names to their proposed setpoints.
-
-        Returns
-        -------
-        dict
-            Dictionary containing at least ``self.output_key`` and
-            ``self.observable_key`` entries.
-        """
-        outputs = {self.observable_key: self._default_simulation_model(input_data)}
-        outputs.setdefault(self.output_key, outputs[self.observable_key])
-        return outputs
-
-    def _default_simulation_model(self, input_data: Dict[str, float]) -> float:
-        """
-        Fallback simulation that derives a centroid from the provided setpoints.
-
-        The placeholder model implements a simple linear relation:
-
-        ``x_CoM = offset + (base_amplitude + gain * (control - control_nominal)) * (measurement - measurement_nominal)``.
-
-        Control and measurement values are inferred from the first two numeric
-        entries in ``input_data`` (sorted by key). The result is converted to
-        physical units using the evaluator calibration.
-        """
-        numeric_items = sorted(
-            (key, float(value))
-            for key, value in input_data.items()
-            if isinstance(value, (int, float))
-        )
-        if len(numeric_items) < 2:
-            raise KeyError(
-                "Simulation mode requires at least two numeric setpoints to infer control and measurement values."
-            )
-
-        control_val = input_data.get("U_S1H:Current")
-        measurement_val = input_data.get("U_EMQTripletBipolar:Current_Limit.Ch1")
+        control_val = np.mean(self.current_data_bin['U_S1H:Current'])
+        measurement_val = np.mean(self.current_data_bin["U_EMQTripletBipolar:Current_Limit.Ch1"])
 
         centroid_pixels = (measurement_val - 1) * (control_val - 1) + np.random.normal(
             0, 0.05
         )
 
-        return centroid_pixels * self.calibration
-
-    def _extract_position(self, scalar_results: dict, axis: str = "x") -> float:
-        """
-        Extract the calibrated beam centroid along the requested axis.
-
-        Parameters
-        ----------
-        scalar_results : dict
-            Analyzer scalar results.
-        axis : {"x", "y"}
-            Axis for which to obtain the centroid.
-
-        Returns
-        -------
-        float
-            Calibrated centroid position in physical units.
-        """
-        axis = axis.lower()
-        if axis not in {"x", "y"}:
-            raise ValueError(f"Unsupported axis '{axis}'. Expected 'x' or 'y'.")
-        metric = f"{axis}_CoM"
-        raw_value = self.get_scalar(self.device_name, metric, scalar_results)
-        return raw_value * self.calibration
+        return {"x_CoM":centroid_pixels}
