@@ -20,26 +20,13 @@ Constants
 PREDEFINED_GENERATORS : dict
     Dictionary mapping generator names to factory functions.
 
-Examples
---------
-Creating a random generator:
-
->>> from xopt import VOCS
->>> vocs = VOCS(variables={"x": [0, 10]}, objectives={"y": "MINIMIZE"})
->>> config = {"name": "random"}
->>> generator = build_generator_from_config(config, vocs)
-
-Creating a Bayesian optimization generator:
-
->>> config = {"name": "bayes_default"}
->>> generator = build_generator_from_config(config, vocs)
-
 Notes
 -----
 The factory supports the following predefined generators:
 - "random": Random sampling generator
 - "bayes_default": Expected improvement Bayesian optimization
 - "bayes_cheetah": Cheetah-based Bayesian optimization (requires cheetah package)
+- "multipoint_bax_alignment": Multipoint BAX alignment (requires configuration overrides)
 
 New generators can be added by extending the PREDEFINED_GENERATORS dictionary
 with appropriate factory functions.
@@ -55,15 +42,17 @@ from xopt.generators.bayesian import ExpectedImprovementGenerator
 from xopt.generators.bayesian.models.standard import StandardModelConstructor
 from xopt.generators.bayesian.turbo import OptimizeTurboController
 
+from .bax_multipoint_alignment import make_bax_multipoint_alignment_generator
+
 # Explicitly defined generators dictionary
-PREDEFINED_GENERATORS: dict[str, Callable[[VOCS], Any]] = {
-    "random": lambda vocs: RandomGenerator(vocs=vocs),
-    "bayes_default": lambda vocs: ExpectedImprovementGenerator(
+PREDEFINED_GENERATORS: dict[str, Callable[[VOCS, Dict[str, Any]], Any]] = {
+    "random": lambda vocs, overrides: RandomGenerator(vocs=vocs),
+    "bayes_default": lambda vocs, overrides: ExpectedImprovementGenerator(
         vocs=vocs, gp_constructor=StandardModelConstructor(use_low_noise_prior=False)
     ),
-    "bayes_cheetah": lambda vocs: _load_cheetah_generator(vocs),
-    "bayes_turbo_standard": lambda vocs: _make_bayes_turbo(vocs),
-    "bayes_turbo_HTU_e_beam_brightness": lambda vocs: _make_bayes_turbo(
+    "bayes_cheetah": lambda vocs, overrides: _load_cheetah_generator(vocs),
+    "bayes_turbo_standard": lambda vocs, overrides: _make_bayes_turbo(vocs),
+    "bayes_turbo_HTU_e_beam_brightness": lambda vocs, overrides: _make_bayes_turbo(
         vocs,
         success_tolerance=2,
         failure_tolerance=2,
@@ -72,8 +61,15 @@ PREDEFINED_GENERATORS: dict[str, Callable[[VOCS], Any]] = {
         length_min=0.0078125,
         scale_factor=2.0,
     ),
+    "multipoint_bax_alignment": lambda vocs,
+    overrides: make_bax_multipoint_alignment_generator(vocs, overrides),
     # Add more explicit named generators here if needed
 }
+
+# Backwards-compatible alias
+PREDEFINED_GENERATORS["bax_multipoint_alignment"] = PREDEFINED_GENERATORS[
+    "multipoint_bax_alignment"
+]
 
 
 def build_generator_from_config(config: Dict[str, Any], vocs: VOCS):
@@ -106,34 +102,25 @@ def build_generator_from_config(config: Dict[str, Any], vocs: VOCS):
     KeyError
         If the configuration dictionary is missing required fields.
 
-    Examples
-    --------
-    Creating a random sampling generator:
-
-    >>> from xopt import VOCS
-    >>> vocs = VOCS(variables={"x": [0, 10]}, objectives={"y": "MINIMIZE"})
-    >>> config = {"name": "random"}
-    >>> generator = build_generator_from_config(config, vocs)
-
-    Creating a Bayesian optimization generator:
-
-    >>> config = {"name": "bayes_default"}
-    >>> generator = build_generator_from_config(config, vocs)
-
     Notes
     -----
     Supported generator names:
     - "random": Uniform random sampling within variable bounds
     - "bayes_default": Expected improvement Bayesian optimization
     - "bayes_cheetah": Cheetah-based Bayesian optimization (requires cheetah)
+    - "multipoint_bax_alignment": Multipoint BAX alignment with custom overrides
 
     The generator instances are created using lambda functions stored in
     the PREDEFINED_GENERATORS dictionary, allowing for easy extension
-    with new generator types.
+    with new generator types. Any keys in `config` other than ``name``
+    are passed to the corresponding factory function as generator-specific
+    overrides.
     """
     generator_name = config["name"]
+    overrides = dict(config)
+    overrides.pop("name", None)
     try:
-        return PREDEFINED_GENERATORS[generator_name](vocs)
+        return PREDEFINED_GENERATORS[generator_name](vocs, overrides)
     except KeyError:
         raise ValueError(f"Unsupported or undefined generator name: '{generator_name}'")
 
