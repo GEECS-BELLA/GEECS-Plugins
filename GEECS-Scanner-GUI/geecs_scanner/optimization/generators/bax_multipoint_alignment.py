@@ -114,8 +114,8 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
 
     def __init__(self, vocs: VOCS, cfg: MultipointBAXAlignmentConfig):
         # Build probe grid (absolute values) once
-        v_lo, v_hi = vocs.variables[cfg.measurement_name]
-        v_lo, v_hi = float(v_lo), float(v_hi)
+        v_lo_raw, v_hi_raw = vocs.variables[cfg.measurement_name]
+        v_lo, v_hi = float(v_lo_raw), float(v_hi_raw)
         v_mid = 0.5 * (v_lo + v_hi)
         v_nom = cfg.probe_nominal if cfg.probe_nominal is not None else v_mid
 
@@ -136,17 +136,22 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         if grid.numel() < 2:
             raise ValueError("Virtual probe grid must have at least 2 distinct points.")
 
+        all_vars = list(vocs.variable_names)
+        control_names = list(cfg.control_names)
+        n_control_mesh = int(cfg.n_control_mesh)
+        minimize = bool(cfg.minimize)
+
+        # initialize base class first (required for Pydantic models)
+        super().__init__(n_mesh_points=n_control_mesh)
+
         # store fields
         self.observable_names_ordered = [cfg.observable_name]
-        self.control_names = list(cfg.control_names)
+        self.control_names = control_names
         self.measurement_name = cfg.measurement_name
         self.probe_grid_abs = grid
-        self.all_vars = list(vocs.variable_names)
-        self.n_control_mesh = int(cfg.n_control_mesh)
-        self.minimize = bool(cfg.minimize)
-
-        # base class fields
-        super().__init__(n_mesh_points=self.n_control_mesh)
+        self.all_vars = all_vars
+        self.n_control_mesh = n_control_mesh
+        self.minimize = minimize
 
     # ---------- mesh over CONTROL dims only, return full-D points ------------
     def create_mesh(self, bounds: Tensor) -> Tensor:
