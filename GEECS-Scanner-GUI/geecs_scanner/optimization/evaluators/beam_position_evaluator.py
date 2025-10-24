@@ -163,16 +163,10 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
                 "Simulation mode requires at least two numeric setpoints to infer control and measurement values."
             )
 
-        control_val = numeric_items[0][1]
-        measurement_val = numeric_items[1][1]
+        control_val = input_data.get("U_S1H:Current")
+        measurement_val = input_data.get("U_EMQTripletBipolar:Current_Limit.Ch1")
 
-        nominal_measurement = 1.0
-        nominal_control = 0.0
-        base_amplitude = 1.0
-        control_gain = 0.5
-
-        amplitude = base_amplitude + control_gain * (control_val - nominal_control)
-        centroid_pixels = amplitude * (measurement_val - nominal_measurement)
+        centroid_pixels = (measurement_val - 1) * (control_val - 1)
 
         return centroid_pixels * self.calibration
 
