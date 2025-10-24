@@ -51,10 +51,10 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         Nominal value for the measurement variable used by the placeholder model.
     simulation_base_offset : float, default=0.0
         Baseline centroid (in pixels) when both variables sit at their nominal values.
-    simulation_base_slope : float, default=1.0
+    simulation_base_amplitude : float, default=1.0
         Baseline slope (in pixels per measurement unit) relating the measurement
         variable to the centroid.
-    simulation_control_slope_gain : float, default=0.5
+    simulation_control_amplitude_gain : float, default=0.5
         Linear gain (in pixels per measurement unit per control unit) that modulates
         the slope as the control variable moves away from its nominal value.
     simulation_noise_std : float, default=0.0
@@ -77,8 +77,8 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         simulation_control_nominal: float = 0.0,
         simulation_measurement_nominal: float = 1.0,
         simulation_base_offset: float = 0.0,
-        simulation_base_slope: float = 1.0,
-        simulation_control_slope_gain: float = 0.5,
+        simulation_base_amplitude: float = 1.0,
+        simulation_control_amplitude_gain: float = 0.5,
         simulation_noise_std: float = 0.0,
         **kwargs,
     ):
@@ -95,9 +95,17 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         self.simulation_control_nominal = simulation_control_nominal
         self.simulation_measurement_nominal = simulation_measurement_nominal
         self.simulation_base_offset = simulation_base_offset
-        self.simulation_base_slope = simulation_base_slope
-        self.simulation_control_slope_gain = simulation_control_slope_gain
+        self.simulation_base_amplitude = simulation_base_amplitude
+        self.simulation_control_amplitude_gain = simulation_control_amplitude_gain
         self.simulation_noise_std = max(0.0, simulation_noise_std)
+
+        if self.simulate and (
+            self.simulation_control_key is None
+            or self.simulation_measurement_key is None
+        ):
+            raise ValueError(
+                "simulation_control_key and simulation_measurement_key must be provided when simulate=True."
+            )
 
     def get_value(self, input_data: Dict) -> Dict:
         """
@@ -197,47 +205,31 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         """
         Fallback simulation that derives a centroid from the provided setpoints.
 
-        This default implementation takes the first numeric value (sorted by key)
-        as the primary drive term, subtracts the second if available, and applies
-        the evaluator calibration. It is intended only as a placeholder; supply
-        ``simulation_model`` for realistic behaviour.
+        The placeholder model implements a simple linear relation:
+
+        ``x_CoM = offset + (base_amplitude + gain * (control - control_nominal)) * (measurement - measurement_nominal)``.
+
+        The result is converted to physical units by applying the evaluator
+        calibration. Provide ``simulation_model`` if a different relationship is
+        desired.
         """
-        numeric_items = [
-            (key, float(value))
-            for key, value in input_data.items()
-            if isinstance(value, (int, float))
-        ]
-        if not numeric_items:
-            return 0.0
-        control_val: Optional[float] = None
-        measurement_val: Optional[float] = None
-
-        if self.simulation_control_key:
-            control_val = self._safe_fetch_value(
-                input_data, self.simulation_control_key
-            )
-        if self.simulation_measurement_key:
-            measurement_val = self._safe_fetch_value(
-                input_data, self.simulation_measurement_key
-            )
-
-        if control_val is None or measurement_val is None:
-            numeric_items.sort(key=lambda item: item[0])
-            if control_val is None:
-                control_val = numeric_items[0][1]
-            if measurement_val is None:
-                measurement_val = numeric_items[1][1] if len(numeric_items) > 1 else 0.0
-
-        if control_val is None:
-            control_val = self.simulation_control_nominal
-        if measurement_val is None:
-            measurement_val = self.simulation_measurement_nominal
-
-        slope = self.simulation_base_slope + self.simulation_control_slope_gain * (
-            control_val - self.simulation_control_nominal
+        control_val = self._safe_fetch_value(input_data, self.simulation_control_key)
+        measurement_val = self._safe_fetch_value(
+            input_data, self.simulation_measurement_key
         )
-        delta_measurement = measurement_val - self.simulation_measurement_nominal
-        centroid_pixels = self.simulation_base_offset + slope * delta_measurement
+        if control_val is None or measurement_val is None:
+            raise KeyError(
+                "Simulation mode requires both control and measurement setpoints."
+            )
+
+        amplitude = (
+            self.simulation_base_amplitude
+            + self.simulation_control_amplitude_gain
+            * (control_val - self.simulation_control_nominal)
+        )
+        centroid_pixels = self.simulation_base_offset + amplitude * (
+            measurement_val - self.simulation_measurement_nominal
+        )
 
         if self.simulation_noise_std > 0.0:
             centroid_pixels += random.gauss(0.0, self.simulation_noise_std)
@@ -246,9 +238,11 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         return centroid_pixels * self.calibration
 
     @staticmethod
-    def _safe_fetch_value(data: Dict[str, float], key: str) -> Optional[float]:
+    def _safe_fetch_value(
+        data: Dict[str, float], key: Optional[str]
+    ) -> Optional[float]:
         """Attempt to retrieve and cast a numeric value from ``data``."""
-        if key not in data:
+        if key is None or key not in data:
             return None
         try:
             return float(data[key])
