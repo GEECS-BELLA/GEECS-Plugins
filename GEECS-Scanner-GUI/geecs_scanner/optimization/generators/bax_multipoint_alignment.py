@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Dict, List, Optional, Sequence
 
 import torch
@@ -12,6 +13,8 @@ from xopt.vocs import VOCS
 from xopt.generators.bayesian.bax_generator import BaxGenerator
 from xopt.generators.bayesian.bax.algorithms import GridOptimize
 from botorch.models.model import Model
+
+logger = logging.getLogger(__name__)
 
 # ---------- helpers ----------------------------------------------------------
 
@@ -289,6 +292,28 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
 
         slopes = _ls_slope(grid_v, Y)  # [S, N]
         virt = torch.abs(slopes).unsqueeze(-1)  # [S, N, 1]
+
+        # DEBUG LOGGING
+        logger.info("=== DEBUG: evaluate_virtual_objective ===")
+        logger.info(f"grid_v (EMQ probe values): {grid_v}")
+        logger.info(f"Y shape (GP predictions): {Y.shape}")
+        logger.info(f"slopes shape: {slopes.shape}")
+        logger.info("Example slopes for first 3 mesh points (sample 0):")
+        for i in range(min(3, N)):
+            logger.info(
+                f"  Mesh point {i}: slope = {slopes[0, i]:.6f}, |slope| = {virt[0, i, 0]:.6f}"
+            )
+        logger.info("Example Y values for mesh point 0 (sample 0):")
+        logger.info(f"  Y[0, 0, :] = {Y[0, 0, :]}")
+        logger.info(
+            "  Expected slope ≈ (Y[0,0,-1] - Y[0,0,0]) / (grid_v[-1] - grid_v[0])"
+        )
+        logger.info(
+            f"  Manual calc: {(Y[0, 0, -1] - Y[0, 0, 0]) / (grid_v[-1] - grid_v[0]):.6f}"
+        )
+        logger.info(f"  LS slope: {slopes[0, 0]:.6f}")
+        logger.info("=" * 50)
+
         return virt
 
 
