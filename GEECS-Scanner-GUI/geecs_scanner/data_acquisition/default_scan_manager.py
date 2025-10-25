@@ -8,7 +8,11 @@ TODO Move or copy the `if __name__ == "__main__" block to a test case
 from __future__ import annotations
 from pathlib import Path
 import yaml
+
 from geecs_scanner.data_acquisition import ScanManager
+from geecs_scanner.utils import ApplicationPaths
+
+
 
 
 def get_default_scan_manager(experiment: str) -> ScanManager:
@@ -30,8 +34,12 @@ def get_default_scan_manager(experiment: str) -> ScanManager:
         }
     }
     default_settings = defaults["Undulator"]
-    shot_control = (Path(__file__).parents[2] / "scanner_configs" / "experiments" / experiment
-                    / "shot_control_configurations" / default_settings["shot_control_config"])
+
+    app_paths = ApplicationPaths(experiment="Undulator")
+    shot_control = app_paths.exp_shot_control / default_settings["shot_control_config"]
+
+    # shot_control = (Path(__file__).parents[2] / "scanner_configs" / "experiments" / experiment
+    #                 / "shot_control_configurations" / default_settings["shot_control_config"])
 
     with open(shot_control) as file:
         shot_control_information = yaml.safe_load(file)
