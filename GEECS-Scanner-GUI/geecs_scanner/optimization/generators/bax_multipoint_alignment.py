@@ -351,11 +351,13 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         logger.info(f"Y shape (GP predictions): {Y.shape}")
         logger.info(f"slopes shape: {slopes.shape}")
 
-        # Show S1H values for first few mesh points
+        # Show S1H and EMQ values for first few mesh points
         s1h_idx = self.all_vars.index(self.control_names[0])
-        logger.info("S1H values for first 3 mesh points:")
-        for i in range(min(3, N)):
-            logger.info(f"  Mesh point {i}: S1H = {x[i, s1h_idx]:.6f}")
+        logger.info("Mesh point values (S1H, EMQ) for first 5 points:")
+        for i in range(min(5, N)):
+            logger.info(
+                f"  Mesh point {i}: S1H = {x[i, s1h_idx]:.6f}, EMQ = {x[i, meas_idx]:.6f}"
+            )
 
         logger.info("Example slopes for first 3 mesh points (sample 0):")
         for i in range(min(3, N)):
@@ -372,14 +374,21 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         )
         logger.info(f"  LS slope: {slopes[0, 0]:.6f}")
 
-        # Calculate expected slope based on NEW simulation formula
-        # x_CoM = 1000×(S1H-1)×(1 + 0.001×EMQ)
-        # d(x_CoM)/d(EMQ) = 1000×(S1H-1)×0.001 = (S1H-1)
+        # Calculate expected slope based on simulation formula
+        # From BeamPositionEvaluator: x_CoM = 1000 * (s1h - 1.0) * (1 + 0.001 * emq)
+        # Taking derivative: d(x_CoM)/d(EMQ) = 1000 * (s1h - 1.0) * 0.001 = (s1h - 1.0)
+        # But we're probing around the mesh EMQ value, not the actual EMQ
+        # So the slope depends on which EMQ we're probing around
         s1h_val = x[0, s1h_idx].item()
+        emq_mesh_val = x[0, meas_idx].item()
+        # The probe grid overwrites the mesh EMQ, so we probe around grid_v values
+        # Expected slope at the probe grid center
         expected_slope = s1h_val - 1.0
+        logger.info(f"  Mesh point 0: S1H={s1h_val:.6f}, EMQ_mesh={emq_mesh_val:.6f}")
         logger.info(
-            f"  Expected slope from formula d(x_CoM)/d(EMQ) = (S1H-1.0) = ({s1h_val:.6f}-1.0) = {expected_slope:.6f}"
+            f"  Expected slope d(x_CoM)/d(EMQ) = (S1H - 1.0) = {expected_slope:.6f}"
         )
+        logger.info(f"  Note: Probe grid {grid_v.tolist()} overwrites mesh EMQ value")
         logger.info("=" * 50)
 
         return virt
