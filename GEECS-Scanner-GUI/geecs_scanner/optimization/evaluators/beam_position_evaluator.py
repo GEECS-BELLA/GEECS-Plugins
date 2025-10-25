@@ -44,7 +44,7 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
         """Dummy placeholder."""
         # No objective here—just pass observables
-        return 0.0
+        return 1.2
 
     def compute_observables(
         self, scalar_results: dict, bin_number: int
@@ -60,7 +60,7 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
             return {}
 
         # Simple deterministic affine relation (tight & reproducible)
-        centroid_pixels = (measure_val - 1.0) * (control_val - 1.0)
+        centroid_pixels = (measure_val - 1.0) * (control_val - 1.0) + np.random.random_sample()*.05
 
         # Calibrated output expected by VOCS/schema
         return {"x_CoM": float(centroid_pixels * self.calibration)}
