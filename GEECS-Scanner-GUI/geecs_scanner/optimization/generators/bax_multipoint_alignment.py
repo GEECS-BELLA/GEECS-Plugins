@@ -85,6 +85,17 @@ class MultipointBAXAlignmentConfig(BaseModel):
 
     # mesh & MC
     n_control_mesh: int = Field(33, ge=3, description="mesh points per control dim")
+    mesh_measurement: bool = Field(
+        default=False,
+        description="Whether to mesh over measurement dimension (EMQ) in addition to control. "
+        "If True, creates 2D mesh exploring both S1H and EMQ. "
+        "If False, only meshes over S1H (faster but less exploration).",
+    )
+    n_measurement_mesh: int = Field(
+        11,
+        ge=3,
+        description="mesh points for measurement dim (only used if mesh_measurement=True)",
+    )
     n_monte_carlo_samples: int = Field(128, ge=16)
     minimize: bool = True  # BAX will minimize g(u)
     use_low_noise_prior: bool = False
@@ -117,6 +128,10 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
     )  # absolute v values used for virtual VO (shape [P])
     all_vars: List[str] = Field(default_factory=list)  # VOCS variable order
     n_control_mesh: int = 0
+    mesh_measurement: bool = False  # whether to mesh over measurement dimension
+    n_measurement_mesh: int = (
+        0  # mesh points for measurement (if mesh_measurement=True)
+    )
     minimize: bool = True
 
     def __init__(self, vocs: VOCS, cfg: MultipointBAXAlignmentConfig):
@@ -146,6 +161,8 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         all_vars = list(vocs.variable_names)
         control_names = list(cfg.control_names)
         n_control_mesh = int(cfg.n_control_mesh)
+        mesh_measurement = bool(cfg.mesh_measurement)
+        n_measurement_mesh = int(cfg.n_measurement_mesh)
         minimize = bool(cfg.minimize)
 
         # initialize base class first (required for Pydantic models)
@@ -158,6 +175,8 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         self.probe_grid_abs = grid
         self.all_vars = all_vars
         self.n_control_mesh = n_control_mesh
+        self.mesh_measurement = mesh_measurement
+        self.n_measurement_mesh = n_measurement_mesh
         self.minimize = minimize
 
         # Compute the observable index in the GP model
@@ -172,9 +191,9 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
                 f"{list(vocs.observable_names)}"
             )
 
-    # ---------- mesh over CONTROL dims only, return full-D points ------------
+    # ---------- mesh over CONTROL dims (and optionally MEASUREMENT) ----------
     def create_mesh(self, bounds: Tensor) -> Tensor:
-        """Build a Cartesian mesh over the control dimensions only.
+        """Build a Cartesian mesh over the control dimensions (and optionally measurement).
 
         Parameters
         ----------
@@ -185,9 +204,11 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         Returns
         -------
         torch.Tensor
-            Tensor of shape ``[N, D_total]`` containing the mesh points. Control
-            variables follow a Cartesian grid, and the measurement variable is set
-            to its mid-range placeholder value.
+            Tensor of shape ``[N, D_total]`` containing the mesh points.
+            - If mesh_measurement=False: Control variables follow a Cartesian grid,
+              and the measurement variable is set to its mid-range placeholder value.
+            - If mesh_measurement=True: Both control and measurement variables follow
+              a Cartesian grid (2D mesh).
         """
         # indices
         ctrl_idxs = [self.all_vars.index(n) for n in self.control_names]
@@ -207,19 +228,50 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
             )
             for d in range(dim_u)
         ]
-        mesh = torch.meshgrid(*linspaces, indexing="ij")
-        U = torch.stack(mesh).flatten(start_dim=1).T  # [N, D_u]
 
-        # pack to full-D points with measurement at nominal mid (not used in VO)
-        full = torch.zeros((U.shape[0], len(self.all_vars)), dtype=torch.double)
-        for j, name in enumerate(self.control_names):
-            full[:, self.all_vars.index(name)] = U[:, j]
+        if self.mesh_measurement:
+            # Add measurement dimension to the mesh
+            v_lo, v_hi = bounds[:, meas_idx]
+            meas_linspace = torch.linspace(
+                float(v_lo),
+                float(v_hi),
+                self.n_measurement_mesh,
+                dtype=torch.double,
+            )
+            linspaces.append(meas_linspace)
 
-        # set measurement to mid-range (placeholder; VO uses its own grid)
-        # (we still need a full-D tensor for Xopt interface consistency)
-        # choose mid-range to keep inside bounds
-        v_lo, v_hi = bounds[:, meas_idx]
-        full[:, meas_idx] = 0.5 * (v_lo + v_hi)
+            # Create 2D mesh (control + measurement)
+            mesh = torch.meshgrid(*linspaces, indexing="ij")
+            mesh_flat = torch.stack(mesh).flatten(start_dim=1).T  # [N, D_u+1]
+
+            # Pack to full-D points
+            full = torch.zeros(
+                (mesh_flat.shape[0], len(self.all_vars)), dtype=torch.double
+            )
+            for j, name in enumerate(self.control_names):
+                full[:, self.all_vars.index(name)] = mesh_flat[:, j]
+            full[:, meas_idx] = mesh_flat[:, -1]  # measurement is last column
+
+            logger.info(
+                f"Created 2D mesh: {self.n_mesh_points} control × {self.n_measurement_mesh} measurement = {full.shape[0]} total points"
+            )
+        else:
+            # 1D mesh (control only)
+            mesh = torch.meshgrid(*linspaces, indexing="ij")
+            U = torch.stack(mesh).flatten(start_dim=1).T  # [N, D_u]
+
+            # pack to full-D points with measurement at nominal mid (not used in VO)
+            full = torch.zeros((U.shape[0], len(self.all_vars)), dtype=torch.double)
+            for j, name in enumerate(self.control_names):
+                full[:, self.all_vars.index(name)] = U[:, j]
+
+            # set measurement to mid-range (placeholder; VO uses its own grid)
+            v_lo, v_hi = bounds[:, meas_idx]
+            full[:, meas_idx] = 0.5 * (v_lo + v_hi)
+
+            logger.info(
+                f"Created 1D mesh: {self.n_mesh_points} control points (measurement fixed at mid-range)"
+            )
 
         return full  # [N, D_total]
 
