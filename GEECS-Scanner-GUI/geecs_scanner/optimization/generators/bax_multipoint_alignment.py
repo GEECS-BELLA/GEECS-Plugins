@@ -13,7 +13,6 @@ from xopt.generators.bayesian.bax_generator import BaxGenerator
 from xopt.generators.bayesian.bax.algorithms import GridOptimize
 from botorch.models.model import Model
 
-
 # ---------- helpers ----------------------------------------------------------
 
 
@@ -87,6 +86,9 @@ class MultipointBAXAlignmentConfig(BaseModel):
     minimize: bool = True  # BAX will minimize g(u)
     use_low_noise_prior: bool = False
 
+    algorithm_results_file: str = Field(
+        "bax_algo_res", description="per shot logs"
+    )
 
 # ---------- Algorithm --------------------------------------------------------
 
@@ -106,6 +108,7 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
 
     # config & bookkeeping
     control_names: List[str] = Field(default_factory=list)
+    output_names: List[str] = Field(default_factory=list)
     measurement_name: str = ""
     probe_grid_abs: Tensor = Field(
         default_factory=lambda: torch.zeros(0, dtype=torch.double)
@@ -149,6 +152,7 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         # store fields
         self.observable_names_ordered = [cfg.observable_name]
         self.control_names = control_names
+        self.output_names = list(vocs.output_names)
         self.measurement_name = cfg.measurement_name
         self.probe_grid_abs = grid
         self.all_vars = all_vars
@@ -208,63 +212,71 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
 
     # ---------- virtual objective: |slope_v y(u,v)| --------------------------
     def evaluate_virtual_objective(
-        self,
-        model: Model,
-        x: Tensor,  # [N, D_total] (controls populated; measurement placeholder)
-        bounds: Tensor,  # [2, D_total]
-        n_samples: int,
-        tkwargs: dict | None = None,
+            self,
+            model: Model,
+            x: Tensor,  # [N, D_total] (controls populated; measurement placeholder)
+            bounds: Tensor,  # [2, D_total]
+            n_samples: int,
+            tkwargs: dict | None = None,
     ) -> Tensor:
-        """Evaluate the virtual objective for a batch of control points.
-
-        Parameters
-        ----------
-        model : botorch.models.model.Model
-            Gaussian Process surrogate model used for posterior sampling.
-        x : torch.Tensor
-            Tensor of shape ``[N, D_total]`` containing control mesh points.
-        bounds : torch.Tensor
-            Tensor of shape ``[2, D_total]`` with variable bounds. Included for API
-            compatibility and not used directly.
-        n_samples : int
-            Number of Monte Carlo samples drawn from the posterior.
-        tkwargs : dict, optional
-            Additional keyword arguments forwarded to ``model.posterior``.
+        """
+        Virtual objective g(u) = | d/dv y(u, v) |, computed by probing the GP along
+        the measurement axis at a fixed control u (per row of `x`).
 
         Returns
         -------
-        torch.Tensor
-            Tensor with shape ``[n_samples, N, 1]`` containing absolute slope samples.
+        Tensor
+            Shape [n_samples, N, 1] of absolute slope samples.
         """
-        # which columns correspond to control & measurement
-        meas_idx = self.all_vars.index(self.measurement_name)
+        # ---- 1) Subset to the single observable GP (avoid multi-output shape issues)
+        obs_name = self.observable_names_ordered[0]  # e.g. "x_CoM"
+        if not hasattr(self, "output_names"):
+            raise RuntimeError("MultipointBAXAlignmentAlgorithm must set self.output_names in __init__")
+        try:
+            obs_idx = self.output_names.index(obs_name)
+        except ValueError:
+            raise RuntimeError(f"Observable '{obs_name}' not found in outputs {self.output_names}")
 
+        single_model = model
+        from botorch.models import ModelListGP  # ensure imported at file top in your code
+        if isinstance(model, ModelListGP):
+            single_model = model.models[obs_idx]
+        else:
+            # If it's not a ModelList, try to subset; if already single-output, this is a no-op
+            try:
+                single_model = model.subset_output([obs_idx])
+            except Exception:
+                pass
+
+        # ---- 2) Shapes & dtype/device
         N = x.shape[0]
         P = int(self.probe_grid_abs.numel())
-        device = (
-            next(model.parameters()).device
-            if hasattr(model, "parameters")
-            else torch.device("cpu")
-        )
 
-        # Build expanded batch [N*P, D_total] where measurement dim sweeps probe grid
-        X_full = (
-            x.clone().to(dtype=torch.double, device=device).repeat_interleave(P, dim=0)
-        )
+        # Use model's dtype/device for consistency with input transforms
+        try:
+            base = next(single_model.parameters())
+            device = base.device
+            dtype = base.dtype
+        except StopIteration:
+            device = x.device
+            dtype = x.dtype
+
+        # ---- 3) Build expanded input [N*P, D_total] sweeping the measurement dim over probe grid
+        meas_idx = self.all_vars.index(self.measurement_name)
+
+        X_full = x.to(device=device, dtype=dtype).clone().repeat_interleave(P, dim=0)  # [N*P, D_total]
+        grid_v = self.probe_grid_abs.to(device=device, dtype=dtype)  # [P]
         for i in range(N):
-            start = i * P
-            X_full[start : start + P, meas_idx] = self.probe_grid_abs.to(
-                device=device, dtype=torch.double
-            )
+            s = i * P
+            X_full[s: s + P, meas_idx] = grid_v
 
-        # posterior samples of y at (u_i, v_p)
+        # ---- 4) Sample the observable along v and compute least-squares slope wrt v
         with torch.no_grad():
-            post = model.posterior(X_full)
-            Y = post.rsample(torch.Size([n_samples]))  # [S, N*P, 1]
+            post = single_model.posterior(X_full)  # posterior over y(u_i, v_p)
+            Y = post.rsample(torch.Size([n_samples]))  # [S, N*P, 1] or [S, N*P]
         Y = Y.squeeze(-1).view(n_samples, N, P)  # [S, N, P]
 
-        # LS slope per (sample, control), then absolute value and add singleton outcome dim
-        slopes = _ls_slope(self.probe_grid_abs.to(Y.device), Y)  # [S, N]
+        slopes = _ls_slope(grid_v, Y)  # [S, N]
         virt = torch.abs(slopes).unsqueeze(-1)  # [S, N, 1]
         return virt
 
@@ -276,7 +288,6 @@ class MultipointBAXGenerator(BaxGenerator):
     """Variant of ``BaxGenerator`` that allows single-objective optimisation."""
 
     supports_single_objective: bool = True
-
 
 # ---------- factory ----------------------------------------------------------
 
@@ -319,7 +330,12 @@ def make_bax_multipoint_alignment_generator(
         raise ValueError(f"observable '{cfg.observable_name}' not in VOCS.observables")
 
     algo = MultipointBAXAlignmentAlgorithm(vocs, cfg)
-    gen = MultipointBAXGenerator(vocs=vocs, algorithm=algo)
+    gen = MultipointBAXGenerator(vocs=vocs,
+                                 algorithm=algo,
+                                 algorithm_results_file=cfg.algorithm_results_file
+                                 )
     gen.n_monte_carlo_samples = cfg.n_monte_carlo_samples
     gen.gp_constructor.use_low_noise_prior = cfg.use_low_noise_prior
+
+
     return gen
