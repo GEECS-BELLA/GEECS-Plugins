@@ -844,7 +844,7 @@ class ScanStepExecutor:
         evaluate_acquired_data : Data evaluation method preceding step generation
         """
         # Define number of initialization steps
-        num_initialization_steps = 1
+        num_initialization_steps = 3
 
         try:
             # Determine generation strategy based on step index
