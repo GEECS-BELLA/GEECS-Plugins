@@ -311,8 +311,17 @@ class BaseOptimizerConfig(BaseModel):
         # Validate VOCS
         if not self.vocs.variables:
             raise ValueError("vocs.variables must not be empty.")
-        if not self.vocs.objectives:
-            raise ValueError("vocs.objectives must not be empty.")
+
+        # BAX generators don't require objectives (they model observables only)
+        # Only validate objectives for non-BAX generators
+        if (
+            not self.vocs.objectives
+            and self.generator.name != "multipoint_bax_alignment"
+        ):
+            raise ValueError(
+                "vocs.objectives must not be empty for non-BAX generators. "
+                "BAX generators (e.g., multipoint_bax_alignment) model observables only."
+            )
 
         return self
 
