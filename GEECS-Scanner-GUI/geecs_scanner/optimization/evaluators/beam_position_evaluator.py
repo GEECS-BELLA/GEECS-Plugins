@@ -68,10 +68,16 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
             logger.warning("Failed to compute x_CoM from current_data_bin: %s", e)
             return {}
 
-        # Simple deterministic affine relation (tight & reproducible)
-        centroid_pixels = (measure_val - 1.0) * (
-            control_val - 1.0
-        ) + np.random.random_sample() * 0.05
+        # Realistic ray-tracing simulation:
+        # x_CoM = offset × (1 + quad_kick)
+        # where offset = (S1H - 1.0) and quad_kick = 0.001 × EMQ
+        # Expanded: x_CoM = 1000×(S1H-1) + (S1H-1)×EMQ
+        offset = control_val - 1.0
+        quad_kick_factor = 0.001 * measure_val
+        centroid_pixels = 1000.0 * offset * (1.0 + quad_kick_factor)
+
+        # Add small noise for realism
+        centroid_pixels += np.random.random_sample() * 0.05
 
         # Calibrated output expected by VOCS/schema
         return {"x_CoM": float(centroid_pixels * self.calibration)}

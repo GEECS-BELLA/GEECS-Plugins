@@ -320,11 +320,13 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         )
         logger.info(f"  LS slope: {slopes[0, 0]:.6f}")
 
-        # Calculate expected slope based on simulation formula
+        # Calculate expected slope based on NEW simulation formula
+        # x_CoM = 1000×(S1H-1)×(1 + 0.001×EMQ)
+        # d(x_CoM)/d(EMQ) = 1000×(S1H-1)×0.001 = (S1H-1)
         s1h_val = x[0, s1h_idx].item()
-        expected_slope = 1000 * (s1h_val - 1.0)
+        expected_slope = s1h_val - 1.0
         logger.info(
-            f"  Expected slope from formula 1000*(S1H-1.0) = 1000*({s1h_val:.6f}-1.0) = {expected_slope:.6f}"
+            f"  Expected slope from formula d(x_CoM)/d(EMQ) = (S1H-1.0) = ({s1h_val:.6f}-1.0) = {expected_slope:.6f}"
         )
         logger.info("=" * 50)
 
