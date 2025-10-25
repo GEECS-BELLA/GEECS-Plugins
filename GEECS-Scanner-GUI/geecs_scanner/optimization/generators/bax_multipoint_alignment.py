@@ -298,6 +298,13 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         logger.info(f"grid_v (EMQ probe values): {grid_v}")
         logger.info(f"Y shape (GP predictions): {Y.shape}")
         logger.info(f"slopes shape: {slopes.shape}")
+
+        # Show S1H values for first few mesh points
+        s1h_idx = self.all_vars.index(self.control_names[0])
+        logger.info("S1H values for first 3 mesh points:")
+        for i in range(min(3, N)):
+            logger.info(f"  Mesh point {i}: S1H = {x[i, s1h_idx]:.6f}")
+
         logger.info("Example slopes for first 3 mesh points (sample 0):")
         for i in range(min(3, N)):
             logger.info(
@@ -312,6 +319,13 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
             f"  Manual calc: {(Y[0, 0, -1] - Y[0, 0, 0]) / (grid_v[-1] - grid_v[0]):.6f}"
         )
         logger.info(f"  LS slope: {slopes[0, 0]:.6f}")
+
+        # Calculate expected slope based on simulation formula
+        s1h_val = x[0, s1h_idx].item()
+        expected_slope = 1000 * (s1h_val - 1.0)
+        logger.info(
+            f"  Expected slope from formula 1000*(S1H-1.0) = 1000*({s1h_val:.6f}-1.0) = {expected_slope:.6f}"
+        )
         logger.info("=" * 50)
 
         return virt
