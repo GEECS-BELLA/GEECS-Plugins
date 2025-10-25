@@ -115,8 +115,8 @@ class BaseEvaluator(ABC):
         )
         self.current_data_bin: Optional[pd.DataFrame] = None
         self.current_shot_numbers: Optional[List] = None
-        self.objective_tag: str = "default"
-        self.output_key: str = "f"  # required objective key name used for logging
+        self.objective_tag = "BeamPosition"
+        self.output_key = None          # <-- no objective for BAX
 
         self.scan_tag = self.scan_data_manager.scan_paths.get_tag()
 
@@ -199,7 +199,7 @@ class BaseEvaluator(ABC):
         """
         self.current_shot_numbers = self.log_df[self.log_df["Bin #"] == bin_number][
             "Shotnumber"
-        ].values
+        ].values.tolist()
 
     def get_current_data(self) -> None:
         """
@@ -382,16 +382,18 @@ class BaseEvaluator(ABC):
                 f"{self.__class__.__name__}._get_value must return Dict[str, float]; "
                 f"got {type(results)}"
             )
-        if self.output_key not in results:
-            raise KeyError(
-                f"{self.__class__.__name__}._get_value must include the objective key "
-                f"'{self.output_key}' in its returned dict."
-            )
 
         # normalize to plain floats (avoid numpy types)
         results = {str(k): float(v) for k, v in results.items()}
 
-        self._log_results_for_current_bin(results)
+        # if output_key is set, optionally ensure it's present (for objective-based generators)
+        if self.output_key is not None and self.output_key not in results:
+            raise KeyError(
+                f"{self.__class__.__name__} requires objective key '{self.output_key}' in results, "
+                "or set self.output_key = None for observables-only evaluators."
+            )
+
+        self.log_results_for_current_bin(results)
         return results
 
     # Add private logging helpers (no legacy shims):
@@ -412,17 +414,15 @@ class BaseEvaluator(ABC):
             return
 
         for k, v in results.items():
-            # Objective under "Objective:{objective_tag}", everything else as "Observable:{key}"
-            key = (
-                f"Objective:{self.objective_tag}"
-                if k == self.output_key
-                else f"Observable:{k}"
-            )
+            if self.output_key is not None and k == self.output_key:
+                key = f"Objective:{self.objective_tag}"
+            else:
+                key = f"Observable:{k}"
             self.data_logger.log_entries[elapsed_time][key] = v
             logger.info("Logged %s = %s for shot %s", key, v, shot_num)
 
-    def _log_results_for_current_bin(self, results: Dict[str, float]) -> None:
-        if not self.current_shot_numbers:
+    def log_results_for_current_bin(self, results: Dict[str, float]) -> None:
+        if self.current_shot_numbers is None or len(self.current_shot_numbers) == 0:
             logger.warning("No shots found for current bin %s", self.bin_number)
             return
         for shot_num in self.current_shot_numbers:
