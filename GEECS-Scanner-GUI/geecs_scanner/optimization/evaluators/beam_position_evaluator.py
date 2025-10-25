@@ -73,7 +73,7 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         # where offset = (S1H - 1.0) and quad_kick = 0.001 × EMQ
         # Expanded: x_CoM = 1000×(S1H-1) + (S1H-1)×EMQ
         offset = control_val - 1.0
-        quad_kick_factor = 0.001 * measure_val
+        quad_kick_factor = 1.0 * measure_val
         centroid_pixels = 1000.0 * offset * (1.0 + quad_kick_factor)
 
         # Add small noise for realism
