@@ -351,13 +351,37 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         logger.info(f"Y shape (GP predictions): {Y.shape}")
         logger.info(f"slopes shape: {slopes.shape}")
 
-        # Show S1H and EMQ values for first few mesh points
+        # Show comprehensive mesh structure
         s1h_idx = self.all_vars.index(self.control_names[0])
-        logger.info("Mesh point values (S1H, EMQ) for first 5 points:")
+
+        # Get unique values
+        s1h_values = x[:, s1h_idx].unique()
+        emq_values = x[:, meas_idx].unique()
+        logger.info(
+            f"Mesh structure: {len(s1h_values)} unique S1H × {len(emq_values)} unique EMQ = {N} total points"
+        )
+        logger.info(f"S1H range: [{s1h_values.min():.3f}, {s1h_values.max():.3f}]")
+        logger.info(f"EMQ range: [{emq_values.min():.3f}, {emq_values.max():.3f}]")
+
+        # Show first few points (should all have same S1H, varying EMQ)
+        logger.info("First 5 mesh points (first S1H slice):")
         for i in range(min(5, N)):
             logger.info(
-                f"  Mesh point {i}: S1H = {x[i, s1h_idx]:.6f}, EMQ = {x[i, meas_idx]:.6f}"
+                f"  Point {i}: S1H = {x[i, s1h_idx]:.6f}, EMQ = {x[i, meas_idx]:.6f}"
             )
+
+        # Show points from different S1H slices to verify S1H is changing
+        if len(emq_values) > 0:
+            n_emq = len(emq_values)
+            logger.info(
+                f"Sample points from different S1H slices (every {n_emq} points):"
+            )
+            for slice_idx in range(min(4, len(s1h_values))):
+                point_idx = slice_idx * n_emq
+                if point_idx < N:
+                    logger.info(
+                        f"  Point {point_idx} (S1H slice {slice_idx}): S1H = {x[point_idx, s1h_idx]:.6f}, EMQ = {x[point_idx, meas_idx]:.6f}"
+                    )
 
         logger.info("Example slopes for first 3 mesh points (sample 0):")
         for i in range(min(3, N)):
