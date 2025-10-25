@@ -41,10 +41,19 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         ].device_name  # unused, but kept for consistency
         self.objective_tag = "BeamPosition"  # shows as "Objective:BeamPosition"
 
+        # BAX doesn't use objectives - override parent's output_key
+        self.output_key = None
+
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
-        """Dummy placeholder."""
-        # No objective here—just pass observables
-        return 1.2
+        """
+        BAX doesn't use objectives - it only models observables.
+
+        This method is kept for compatibility but should not be called
+        when using BAX generators. If you see this being called, check
+        that your VOCS has an empty objectives dict.
+        """
+        # Return None to indicate no objective (BAX doesn't use it)
+        return None
 
     def compute_observables(
         self, scalar_results: dict, bin_number: int
@@ -60,7 +69,9 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
             return {}
 
         # Simple deterministic affine relation (tight & reproducible)
-        centroid_pixels = (measure_val - 1.0) * (control_val - 1.0) + np.random.random_sample()*.05
+        centroid_pixels = (measure_val - 1.0) * (
+            control_val - 1.0
+        ) + np.random.random_sample() * 0.05
 
         # Calibrated output expected by VOCS/schema
         return {"x_CoM": float(centroid_pixels * self.calibration)}

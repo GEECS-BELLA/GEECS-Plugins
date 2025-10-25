@@ -86,9 +86,8 @@ class MultipointBAXAlignmentConfig(BaseModel):
     minimize: bool = True  # BAX will minimize g(u)
     use_low_noise_prior: bool = False
 
-    algorithm_results_file: str = Field(
-        "bax_algo_res", description="per shot logs"
-    )
+    algorithm_results_file: str = Field("bax_algo_res", description="per shot logs")
+
 
 # ---------- Algorithm --------------------------------------------------------
 
@@ -108,8 +107,8 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
 
     # config & bookkeeping
     control_names: List[str] = Field(default_factory=list)
-    output_names: List[str] = Field(default_factory=list)
     measurement_name: str = ""
+    observable_index: int = 0  # index of observable in the GP model
     probe_grid_abs: Tensor = Field(
         default_factory=lambda: torch.zeros(0, dtype=torch.double)
     )  # absolute v values used for virtual VO (shape [P])
@@ -152,12 +151,23 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         # store fields
         self.observable_names_ordered = [cfg.observable_name]
         self.control_names = control_names
-        self.output_names = list(vocs.output_names)
         self.measurement_name = cfg.measurement_name
         self.probe_grid_abs = grid
         self.all_vars = all_vars
         self.n_control_mesh = n_control_mesh
         self.minimize = minimize
+
+        # Compute the observable index in the GP model
+        # BAX models observables, so we look up the index in the observable list
+        try:
+            self.observable_index = list(vocs.observable_names).index(
+                cfg.observable_name
+            )
+        except ValueError:
+            raise ValueError(
+                f"Observable '{cfg.observable_name}' not found in VOCS.observables: "
+                f"{list(vocs.observable_names)}"
+            )
 
     # ---------- mesh over CONTROL dims only, return full-D points ------------
     def create_mesh(self, bounds: Tensor) -> Tensor:
@@ -212,14 +222,16 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
 
     # ---------- virtual objective: |slope_v y(u,v)| --------------------------
     def evaluate_virtual_objective(
-            self,
-            model: Model,
-            x: Tensor,  # [N, D_total] (controls populated; measurement placeholder)
-            bounds: Tensor,  # [2, D_total]
-            n_samples: int,
-            tkwargs: dict | None = None,
+        self,
+        model: Model,
+        x: Tensor,  # [N, D_total] (controls populated; measurement placeholder)
+        bounds: Tensor,  # [2, D_total]
+        n_samples: int,
+        tkwargs: dict | None = None,
     ) -> Tensor:
         """
+        Calculate virtual objective.
+
         Virtual objective g(u) = | d/dv y(u, v) |, computed by probing the GP along
         the measurement axis at a fixed control u (per row of `x`).
 
@@ -228,25 +240,22 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         Tensor
             Shape [n_samples, N, 1] of absolute slope samples.
         """
-        # ---- 1) Subset to the single observable GP (avoid multi-output shape issues)
-        obs_name = self.observable_names_ordered[0]  # e.g. "x_CoM"
-        if not hasattr(self, "output_names"):
-            raise RuntimeError("MultipointBAXAlignmentAlgorithm must set self.output_names in __init__")
-        try:
-            obs_idx = self.output_names.index(obs_name)
-        except ValueError:
-            raise RuntimeError(f"Observable '{obs_name}' not found in outputs {self.output_names}")
+        # ---- 1) Subset to the single observable GP
+        # BAX models observables, so we use the observable_index to access the correct GP
+        from botorch.models import ModelListGP
 
-        single_model = model
-        from botorch.models import ModelListGP  # ensure imported at file top in your code
         if isinstance(model, ModelListGP):
-            single_model = model.models[obs_idx]
+            # Multiple observables - get the model for our observable
+            if self.observable_index >= len(model.models):
+                raise RuntimeError(
+                    f"Observable index {self.observable_index} out of range. "
+                    f"Model has {len(model.models)} outputs. "
+                    f"Observable: {self.observable_names_ordered[0]}"
+                )
+            single_model = model.models[self.observable_index]
         else:
-            # If it's not a ModelList, try to subset; if already single-output, this is a no-op
-            try:
-                single_model = model.subset_output([obs_idx])
-            except Exception:
-                pass
+            # Single observable - the model IS the observable model
+            single_model = model
 
         # ---- 2) Shapes & dtype/device
         N = x.shape[0]
@@ -264,11 +273,13 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         # ---- 3) Build expanded input [N*P, D_total] sweeping the measurement dim over probe grid
         meas_idx = self.all_vars.index(self.measurement_name)
 
-        X_full = x.to(device=device, dtype=dtype).clone().repeat_interleave(P, dim=0)  # [N*P, D_total]
+        X_full = (
+            x.to(device=device, dtype=dtype).clone().repeat_interleave(P, dim=0)
+        )  # [N*P, D_total]
         grid_v = self.probe_grid_abs.to(device=device, dtype=dtype)  # [P]
         for i in range(N):
             s = i * P
-            X_full[s: s + P, meas_idx] = grid_v
+            X_full[s : s + P, meas_idx] = grid_v
 
         # ---- 4) Sample the observable along v and compute least-squares slope wrt v
         with torch.no_grad():
@@ -288,6 +299,7 @@ class MultipointBAXGenerator(BaxGenerator):
     """Variant of ``BaxGenerator`` that allows single-objective optimisation."""
 
     supports_single_objective: bool = True
+
 
 # ---------- factory ----------------------------------------------------------
 
@@ -330,12 +342,10 @@ def make_bax_multipoint_alignment_generator(
         raise ValueError(f"observable '{cfg.observable_name}' not in VOCS.observables")
 
     algo = MultipointBAXAlignmentAlgorithm(vocs, cfg)
-    gen = MultipointBAXGenerator(vocs=vocs,
-                                 algorithm=algo,
-                                 algorithm_results_file=cfg.algorithm_results_file
-                                 )
+    gen = MultipointBAXGenerator(
+        vocs=vocs, algorithm=algo, algorithm_results_file=cfg.algorithm_results_file
+    )
     gen.n_monte_carlo_samples = cfg.n_monte_carlo_samples
     gen.gp_constructor.use_low_noise_prior = cfg.use_low_noise_prior
-
 
     return gen
