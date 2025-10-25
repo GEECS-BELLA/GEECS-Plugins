@@ -252,60 +252,48 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
     def _get_value(self, input_data: Dict) -> Dict[str, float]:
         """
         Assumes BaseEvaluator.get_value() already refreshed current data and will log results.
-
-        Returns a dict that MUST include self.output_key ('f' by default).
+        Returns a dict of outputs. If `self.output_key` is not None, the dict will include it.
         """
         all_scalar_results: Dict[str, float] = {}
 
         for device_name, analyzer in self.scan_analyzers.items():
-            logger.info(
-                "Running analyzer for device '%s' on bin %s",
-                device_name,
-                self.bin_number,
-            )
+            logger.info("Running analyzer for device '%s' on bin %s", device_name, self.bin_number)
 
             analyzer.auxiliary_data = self.current_data_bin
             analyzer.run_analysis(scan_tag=self.scan_tag)
 
-            if self.bin_number in analyzer.results:
-                scalars = analyzer.results[self.bin_number].get(
-                    "analyzer_return_dictionary", {}
-                )
+            result = analyzer.results.get(self.bin_number)
+            if result:
+                scalars = result.get("analyzer_return_dictionary", {})
                 all_scalar_results.update(scalars)
-                logger.info(
-                    "Extracted %d scalar results from '%s'", len(scalars), device_name
-                )
+                logger.info("Extracted %d scalar results from '%s'", len(scalars), device_name)
             else:
-                logger.warning(
-                    "No results found for bin %s from '%s'",
-                    self.bin_number,
-                    device_name,
-                )
+                logger.warning("No results found for bin %s from '%s'", self.bin_number, device_name)
 
-        # Required objective
-        objective_value = float(
-            self.compute_objective(
-                scalar_results=all_scalar_results, bin_number=self.bin_number
+        outputs: Dict[str, float] = {}
+
+        # Optional objective
+        output_key = getattr(self, "output_key", None)
+        if output_key is not None:
+            objective_value = float(
+                self.compute_objective(scalar_results=all_scalar_results, bin_number=self.bin_number)
             )
-        )
-        outputs: Dict[str, float] = {self.output_key: objective_value}
+            outputs[output_key] = objective_value
 
         # Optional extras
-        extra = (
-            self.compute_observables(
-                scalar_results=all_scalar_results, bin_number=self.bin_number
-            )
-            or {}
-        )
+        extra = self.compute_observables(
+            scalar_results=all_scalar_results, bin_number=self.bin_number
+        ) or {}
 
-        if self.output_key in extra:
+        # Prevent overriding the objective key
+        if output_key is not None and output_key in extra:
             logger.warning(
                 "compute_observables returned key '%s'; removing to avoid overriding the objective",
-                self.output_key,
+                output_key,
             )
-            extra.pop(self.output_key, None)
+            extra = {k: v for k, v in extra.items() if k != output_key}
 
-        # ensure floatable types
+        # Ensure plain floats
         outputs.update({str(k): float(v) for k, v in extra.items()})
         return outputs
 
