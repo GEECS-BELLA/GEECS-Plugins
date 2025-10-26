@@ -430,7 +430,7 @@ class MultipointBAXGenerator(BaxGenerator):
 # ---------- factory ----------------------------------------------------------
 
 
-def make_bax_multipoint_alignment_generator(
+def make_bax_simulated_multipoint_alignment_generator(
     vocs: VOCS, overrides: Dict
 ) -> BaxGenerator:
     """Create a BAX generator configured for multipoint alignment.
