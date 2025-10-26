@@ -346,10 +346,10 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         virt = torch.abs(slopes).unsqueeze(-1)  # [S, N, 1]
 
         # DEBUG LOGGING
-        logger.info("=== DEBUG: evaluate_virtual_objective ===")
-        logger.info(f"grid_v (EMQ probe values): {grid_v}")
-        logger.info(f"Y shape (GP predictions): {Y.shape}")
-        logger.info(f"slopes shape: {slopes.shape}")
+        logger.debug("=== DEBUG: evaluate_virtual_objective ===")
+        logger.debug(f"grid_v (EMQ probe values): {grid_v}")
+        logger.debug(f"Y shape (GP predictions): {Y.shape}")
+        logger.debug(f"slopes shape: {slopes.shape}")
 
         # Show comprehensive mesh structure
         s1h_idx = self.all_vars.index(self.control_names[0])
@@ -357,63 +357,63 @@ class MultipointBAXAlignmentAlgorithm(GridOptimize):
         # Get unique values
         s1h_values = x[:, s1h_idx].unique()
         emq_values = x[:, meas_idx].unique()
-        logger.info(
+        logger.debug(
             f"Mesh structure: {len(s1h_values)} unique S1H × {len(emq_values)} unique EMQ = {N} total points"
         )
-        logger.info(f"S1H range: [{s1h_values.min():.3f}, {s1h_values.max():.3f}]")
-        logger.info(f"EMQ range: [{emq_values.min():.3f}, {emq_values.max():.3f}]")
+        logger.debug(f"S1H range: [{s1h_values.min():.3f}, {s1h_values.max():.3f}]")
+        logger.debug(f"EMQ range: [{emq_values.min():.3f}, {emq_values.max():.3f}]")
 
         # Show first few points (should all have same S1H, varying EMQ)
-        logger.info("First 5 mesh points (first S1H slice):")
+        logger.debug("First 5 mesh points (first S1H slice):")
         for i in range(min(5, N)):
-            logger.info(
+            logger.debug(
                 f"  Point {i}: S1H = {x[i, s1h_idx]:.6f}, EMQ = {x[i, meas_idx]:.6f}"
             )
 
         # Show points from different S1H slices to verify S1H is changing
         if len(emq_values) > 0:
             n_emq = len(emq_values)
-            logger.info(
+            logger.debug(
                 f"Sample points from different S1H slices (every {n_emq} points):"
             )
             for slice_idx in range(min(4, len(s1h_values))):
                 point_idx = slice_idx * n_emq
                 if point_idx < N:
-                    logger.info(
+                    logger.debug(
                         f"  Point {point_idx} (S1H slice {slice_idx}): S1H = {x[point_idx, s1h_idx]:.6f}, EMQ = {x[point_idx, meas_idx]:.6f}"
                     )
 
-        logger.info("Example slopes for first 3 mesh points (sample 0):")
+        logger.debug("Example slopes for first 3 mesh points (sample 0):")
         for i in range(min(3, N)):
-            logger.info(
+            logger.debug(
                 f"  Mesh point {i}: slope = {slopes[0, i]:.6f}, |slope| = {virt[0, i, 0]:.6f}"
             )
-        logger.info("Example Y values for mesh point 0 (sample 0):")
-        logger.info(f"  Y[0, 0, :] = {Y[0, 0, :]}")
-        logger.info(
+        logger.debug("Example Y values for mesh point 0 (sample 0):")
+        logger.debug(f"  Y[0, 0, :] = {Y[0, 0, :]}")
+        logger.debug(
             "  Expected slope ≈ (Y[0,0,-1] - Y[0,0,0]) / (grid_v[-1] - grid_v[0])"
         )
-        logger.info(
+        logger.debug(
             f"  Manual calc: {(Y[0, 0, -1] - Y[0, 0, 0]) / (grid_v[-1] - grid_v[0]):.6f}"
         )
-        logger.info(f"  LS slope: {slopes[0, 0]:.6f}")
+        logger.debug(f"  LS slope: {slopes[0, 0]:.6f}")
 
         # Calculate expected slope based on simulation formula
-        # From BeamPositionEvaluator: x_CoM = 1000 * (s1h - 1.0) * (1 + 0.001 * emq)
-        # Taking derivative: d(x_CoM)/d(EMQ) = 1000 * (s1h - 1.0) * 0.001 = (s1h - 1.0)
+        # From BeamPositionEvaluator: x_CoM = 1000 * (s1h - 1.0) * (1 + emq)
+        # Taking derivative: d(x_CoM)/d(EMQ) = 1000 * (s1h - 1.0)
         # But we're probing around the mesh EMQ value, not the actual EMQ
         # So the slope depends on which EMQ we're probing around
         s1h_val = x[0, s1h_idx].item()
         emq_mesh_val = x[0, meas_idx].item()
         # The probe grid overwrites the mesh EMQ, so we probe around grid_v values
         # Expected slope at the probe grid center
-        expected_slope = s1h_val - 1.0
-        logger.info(f"  Mesh point 0: S1H={s1h_val:.6f}, EMQ_mesh={emq_mesh_val:.6f}")
-        logger.info(
-            f"  Expected slope d(x_CoM)/d(EMQ) = (S1H - 1.0) = {expected_slope:.6f}"
+        expected_slope = 1000.0 * (s1h_val - 1.0)
+        logger.debug(f"  Mesh point 0: S1H={s1h_val:.6f}, EMQ_mesh={emq_mesh_val:.6f}")
+        logger.debug(
+            f"  Expected slope d(x_CoM)/d(EMQ) = 1000 * (S1H - 1.0) = {expected_slope:.6f}"
         )
-        logger.info(f"  Note: Probe grid {grid_v.tolist()} overwrites mesh EMQ value")
-        logger.info("=" * 50)
+        logger.debug(f"  Note: Probe grid {grid_v.tolist()} overwrites mesh EMQ value")
+        logger.debug("=" * 50)
 
         return virt
 
