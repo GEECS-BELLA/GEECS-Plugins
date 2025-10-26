@@ -44,7 +44,7 @@ class MultipointProbeConfig(BaseModel):
         ..., description="Variable swept for the virtual probe"
     )
     observable_names: Sequence[str] = Field(
-        default=("x_CoM",),
+        default=(["x_CoM"],),
         description="Observable names consumed by the virtual objective",
     )
 
