@@ -1,14 +1,13 @@
-"""Slope-minimisation BAX algorithm for multipoint probing.
+"""Utilities for BAX multipoint probe algorithms.
 
-The algorithm meshes over one or more control variables, sweeps a measurement
-variable along a virtual probe grid, and computes the absolute slope of an
-observable with respect to that measurement. Minimising that slope aligns the
-system so the observable is insensitive to the probe.
+These helpers mesh over one or more control variables, sweep a measurement
+variable along a virtual probe grid, and delegate the virtual objective
+calculation to a user-provided callable.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 
 import torch
 from torch import Tensor
@@ -31,15 +30,22 @@ def _ls_slope(x: Tensor, y: Tensor) -> Tensor:
     return coeffs[..., 0]
 
 
+def slope_virtual_objective(grid_v: Tensor, samples: Tensor) -> Tensor:
+    """Return absolute slope magnitudes for a single observable."""
+    slopes = _ls_slope(grid_v, samples)
+    return torch.abs(slopes).unsqueeze(-1)
+
+
 class MultipointProbeConfig(BaseModel):
-    """Configuration for the slope-minimisation probe algorithm."""
+    """Configuration for multipoint BAX probing."""
 
     control_names: Sequence[str] = Field(..., description="Variables optimised by BAX")
     measurement_name: str = Field(
         ..., description="Variable swept for the virtual probe"
     )
-    observable_name: str = Field(
-        "x_CoM", description="Observable whose slope is minimised"
+    observable_names: Sequence[str] = Field(
+        default=("x_CoM",),
+        description="Observable names consumed by the virtual objective",
     )
 
     probe_nominal: Optional[float] = Field(
@@ -64,11 +70,26 @@ class MultipointProbeConfig(BaseModel):
     )
 
     n_monte_carlo_samples: int = Field(128, ge=16, description="Monte Carlo samples")
-    minimize: bool = Field(True, description="Minimise (True) or maximise the slope")
+    minimize: bool = Field(
+        True, description="Minimise (True) or maximise the virtual objective"
+    )
     use_low_noise_prior: bool = Field(False, description="Toggle low-noise GP prior")
     algorithm_results_file: str = Field(
         "bax_probe_results", description="Name prefix for saved algorithm results"
     )
+
+    @model_validator(mode="before")
+    def _coerce_observable_names(cls, values):
+        if isinstance(values, dict):
+            data = dict(values)
+            if "observable_names" not in data and "observable_name" in data:
+                data["observable_names"] = [data.pop("observable_name")]
+            elif "observable_names" in data and isinstance(
+                data["observable_names"], str
+            ):
+                data["observable_names"] = [data["observable_names"]]
+            values = data
+        return values
 
     @model_validator(mode="after")
     def _validate_probe_grid(
@@ -84,8 +105,8 @@ class MultipointProbeConfig(BaseModel):
         return values
 
 
-class SlopeMinimisationProbe(GridOptimize):
-    """Grid-based BAX algorithm that minimises |d observable / d measurement|.
+class MultipointProbeAlgorithm(GridOptimize):
+    """Generic multipoint probe algorithm for BAX (virtual objective supplied externally).
 
     Parameters
     ----------
@@ -93,12 +114,22 @@ class SlopeMinimisationProbe(GridOptimize):
         Optimisation problem definition.
     cfg : MultipointProbeConfig
         Configuration describing controls, measurement, and probe grid.
+    virtual_objective : Callable[[Tensor, Tensor], Tensor]
+        Function mapping ``(grid_v, samples)`` to the desired virtual objective.
     """
 
     observable_names_ordered: List[str] = Field(default_factory=list)
 
-    def __init__(self, vocs: VOCS, cfg: MultipointProbeConfig):
+    def __init__(
+        self,
+        vocs: VOCS,
+        cfg: MultipointProbeConfig,
+        virtual_objective: Callable[[Tensor, Tensor], Tensor],
+    ):
         self._validate_names(vocs, cfg)
+
+        if not callable(virtual_objective):
+            raise TypeError("virtual_objective must be callable")
 
         measurement_bounds = vocs.variables[cfg.measurement_name]
         lo, hi = float(measurement_bounds[0]), float(measurement_bounds[1])
@@ -123,7 +154,8 @@ class SlopeMinimisationProbe(GridOptimize):
 
         super().__init__(n_mesh_points=cfg.n_control_mesh)
 
-        self.observable_names_ordered = [cfg.observable_name]
+        self._virtual_objective: Callable[[Tensor, Tensor], Tensor] = virtual_objective
+        self.observable_names_ordered = list(cfg.observable_names)
         self._control_names = list(cfg.control_names)
         self._measurement_name = cfg.measurement_name
         self._probe_grid = probe_grid
@@ -150,9 +182,12 @@ class SlopeMinimisationProbe(GridOptimize):
             raise ValueError(
                 f"Measurement variable '{cfg.measurement_name}' not in VOCS variables."
             )
-        if cfg.observable_name not in vocs.observable_names:
+        missing_observables = [
+            name for name in cfg.observable_names if name not in vocs.observable_names
+        ]
+        if missing_observables:
             raise ValueError(
-                f"Observable '{cfg.observable_name}' not in VOCS observables."
+                f"Observable names not in VOCS observables: {missing_observables}"
             )
 
     # ------------------------------------------------------------------- mesh
@@ -238,15 +273,21 @@ class SlopeMinimisationProbe(GridOptimize):
         Returns
         -------
         torch.Tensor
-            Samples of absolute slope with shape ``[n_samples, n_points, 1]``.
+            Virtual objective samples with shape
+            ``[n_samples, n_points, len(observable_names_ordered)]``.
         """
         if isinstance(model, ModelListGP):
-            single_model = model.models[0]
+            models = model.models
         else:
-            single_model = model
+            models = [model]
+
+        if len(models) != len(self.observable_names_ordered):
+            raise ValueError(
+                "Number of GP sub-models does not match observable_names_ordered."
+            )
 
         try:
-            param = next(single_model.parameters())
+            param = next(models[0].parameters())
             device, dtype = param.device, param.dtype
         except StopIteration:
             device, dtype = x.device, x.dtype
@@ -261,13 +302,17 @@ class SlopeMinimisationProbe(GridOptimize):
             start = i * num_probe
             expanded[start : start + num_probe, self._measurement_index] = grid_v
 
-        with torch.no_grad():
-            posterior = single_model.posterior(expanded)
-            samples = posterior.rsample(torch.Size([n_samples]))
+        outputs = []
+        for sub_model in models:
+            with torch.no_grad():
+                posterior = sub_model.posterior(expanded)
+                samples = posterior.rsample(torch.Size([n_samples]))
 
-        samples = samples.squeeze(-1).view(n_samples, num_points, num_probe)
-        slopes = _ls_slope(grid_v, samples)
-        return torch.abs(slopes).unsqueeze(-1)
+            samples = samples.squeeze(-1).view(n_samples, num_points, num_probe)
+            processed = self._virtual_objective(grid_v, samples)
+            outputs.append(processed)
+
+        return torch.cat(outputs, dim=-1)
 
 
 class MultipointBAXGenerator(BaxGenerator):
@@ -277,11 +322,11 @@ class MultipointBAXGenerator(BaxGenerator):
 
 
 def make_multipoint_bax_alignment(vocs: VOCS, overrides: Dict) -> BaxGenerator:
-    """Factory function used by ``generator_factory``."""
+    """Factory function for the slope-minimisation variant."""
     cfg = MultipointProbeConfig.model_validate(
         overrides.get("multipoint_bax_alignment", {})
     )
-    algorithm = SlopeMinimisationProbe(vocs, cfg)
+    algorithm = MultipointProbeAlgorithm(vocs, cfg, slope_virtual_objective)
     generator = MultipointBAXGenerator(
         vocs=vocs,
         algorithm=algorithm,

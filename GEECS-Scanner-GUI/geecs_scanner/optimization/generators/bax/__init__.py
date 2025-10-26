@@ -1,15 +1,17 @@
 """BAX algorithms for the GEECS optimization framework."""
 
-from .slope_minimization import (
+from .multipoint_probe_algorithm import (
     MultipointBAXGenerator,
+    MultipointProbeAlgorithm,
     MultipointProbeConfig,
-    SlopeMinimisationProbe,
     make_multipoint_bax_alignment,
+    slope_virtual_objective,
 )
 
 __all__ = [
     "MultipointBAXGenerator",
+    "MultipointProbeAlgorithm",
     "MultipointProbeConfig",
-    "SlopeMinimisationProbe",
     "make_multipoint_bax_alignment",
+    "slope_virtual_objective",
 ]
