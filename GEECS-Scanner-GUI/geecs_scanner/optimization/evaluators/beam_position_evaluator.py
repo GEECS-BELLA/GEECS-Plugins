@@ -77,7 +77,7 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         centroid_pixels = 1000.0 * offset * (1.0 + quad_kick_factor)
 
         # Add small noise for realism
-        centroid_pixels += np.random.random_sample() * 0.05
+        centroid_pixels += (np.random.random_sample() - 0.5) * 250.0  # -0.05 to +0.05
 
         # Calibrated output expected by VOCS/schema
         return {"x_CoM": float(centroid_pixels * self.calibration)}
