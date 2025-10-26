@@ -42,7 +42,10 @@ from xopt.generators.bayesian import ExpectedImprovementGenerator
 from xopt.generators.bayesian.models.standard import StandardModelConstructor
 from xopt.generators.bayesian.turbo import OptimizeTurboController
 
-from .bax_multipoint_alignment_simulation import make_bax_multipoint_alignment_generator
+from .bax import make_multipoint_bax_alignment
+from .bax.multipoint_alignment_simulation import (
+    make_bax_simulated_multipoint_alignment_generator,
+)
 
 # Explicitly defined generators dictionary
 PREDEFINED_GENERATORS: dict[str, Callable[[VOCS, Dict[str, Any]], Any]] = {
@@ -61,15 +64,13 @@ PREDEFINED_GENERATORS: dict[str, Callable[[VOCS, Dict[str, Any]], Any]] = {
         length_min=0.0078125,
         scale_factor=2.0,
     ),
-    "multipoint_bax_alignment": lambda vocs,
-    overrides: make_bax_multipoint_alignment_generator(vocs, overrides),
+    "multipoint_bax_alignment": lambda vocs, overrides: make_multipoint_bax_alignment(
+        vocs, overrides
+    ),
+    "multipoint_bax_alignment_simluated": lambda vocs,
+    overrides: make_bax_simulated_multipoint_alignment_generator(vocs, overrides),
     # Add more explicit named generators here if needed
 }
-
-# Backwards-compatible alias
-PREDEFINED_GENERATORS["bax_multipoint_alignment"] = PREDEFINED_GENERATORS[
-    "multipoint_bax_alignment"
-]
 
 
 def build_generator_from_config(config: Dict[str, Any], vocs: VOCS):
