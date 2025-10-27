@@ -312,13 +312,43 @@ class BaseOptimizer:
         evaluator_class = getattr(module, config.evaluator.class_)
         evaluator = evaluator_class(**evaluator_init_kwargs)
 
+        # Prepare generator overrides, ensuring any relative output paths are rooted in the scan folder
+        overrides = dict(config.xopt_config_overrides)
+        if scan_data_manager:
+            try:
+                scan_folder = scan_data_manager.scan_paths.get_folder()
+            except AttributeError:
+                scan_folder = None
+            else:
+                from pathlib import Path
+
+                scan_folder = Path(scan_folder)
+                scan_folder.mkdir(parents=True, exist_ok=True)
+
+                for key, block in list(overrides.items()):
+                    if not isinstance(block, dict):
+                        continue
+
+                    file_value = block.get("algorithm_results_file")
+                    if file_value is None:
+                        # Provide a sensible default within the scan directory
+                        block["algorithm_results_file"] = str(
+                            scan_folder / f"{key}_algo_results"
+                        )
+                    else:
+                        path = Path(file_value)
+                        if not path.is_absolute():
+                            block["algorithm_results_file"] = str(
+                                (scan_folder / path).resolve()
+                            )
+
         # Create optimizer using validated config
         return cls(
             vocs=config.vocs,
             evaluate_function=evaluator.get_value,
             evaluation_mode=config.evaluation_mode,
             generator_name=config.generator.name,
-            xopt_config_overrides=config.xopt_config_overrides,
+            xopt_config_overrides=overrides,
             evaluator=evaluator,
             device_requirements=config.device_requirements,
             scan_data_manager=scan_data_manager,
