@@ -196,6 +196,35 @@ class BaseOptimizer:
         """
         self.xopt.evaluate_data(inputs)
 
+        # If the generator provides diagnostic metadata (e.g., BAX), log it
+        metadata: Dict[str, float] = {}
+        generator = getattr(self.xopt, "generator", None)
+        algo_results = getattr(generator, "algorithm_results", None)
+
+        if isinstance(algo_results, dict):
+            center = algo_results.get("solution_center")
+            if center is not None:
+                try:
+                    center_values = list(center)
+                except TypeError:
+                    center_values = [center]
+
+                for name, value in zip(self.vocs.variable_names, center_values):
+                    try:
+                        metadata[f"BAX_solution_center[{name}]"] = float(value)
+                    except (TypeError, ValueError):
+                        continue
+
+            entropy = algo_results.get("solution_entropy")
+            if entropy is not None:
+                try:
+                    metadata["BAX_solution_entropy"] = float(entropy)
+                except (TypeError, ValueError):
+                    pass
+
+        if metadata and self.evaluator is not None:
+            self.evaluator.log_results_for_current_bin(metadata)
+
     def get_results(self):
         """
         Return complete optimization results.
