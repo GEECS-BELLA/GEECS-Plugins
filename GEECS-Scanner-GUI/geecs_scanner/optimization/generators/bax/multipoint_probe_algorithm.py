@@ -41,8 +41,7 @@ def slope_virtual_objective(grid_v: Tensor, samples: Tensor) -> Tensor:
 def l2_slope_virtual_objective(grid_v: Tensor, samples: Tensor) -> Tensor:
     """Return the L2 norm of slope magnitudes across observables."""
     slopes = slope_virtual_objective(grid_v, samples)
-    norm = torch.linalg.norm(slopes, dim=-1, keepdim=True)
-    return norm.expand_as(slopes)
+    return torch.linalg.norm(slopes, dim=-1, keepdim=True)
 
 
 class MultipointProbeConfig(BaseModel):
