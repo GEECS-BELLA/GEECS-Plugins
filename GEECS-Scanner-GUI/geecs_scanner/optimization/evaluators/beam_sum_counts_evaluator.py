@@ -30,7 +30,7 @@ class MaxCountsEvaluator(MultiDeviceScanEvaluator):
 
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
         """Compute objective."""
-        total = self.get_scalar(self.device_name, "total", scalar_results)
+        total = self.get_scalar(self.device_name, "image_total", scalar_results)
         return -total
 
     def compute_observables(
@@ -40,10 +40,10 @@ class MaxCountsEvaluator(MultiDeviceScanEvaluator):
         # Optional: more visibility in logs
         x_CoM = self.get_scalar(self.device_name, "x_CoM", scalar_results)
         y_CoM = self.get_scalar(self.device_name, "y_CoM", scalar_results)
-        peak_value = self.get_scalar(self.device_name, "peak_value", scalar_results)
+        peak_value = self.get_scalar(self.device_name, "image_peak_value", scalar_results)
 
         return {
             "x_CoM": x_CoM,
             "y_CoM": y_CoM,
-            "peak_value": peak_value
+            "image_peak_value": peak_value
         }
