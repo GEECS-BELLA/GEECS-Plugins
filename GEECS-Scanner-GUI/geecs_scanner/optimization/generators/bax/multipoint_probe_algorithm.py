@@ -31,9 +31,17 @@ def _ls_slope(x: Tensor, y: Tensor) -> Tensor:
 
 
 def slope_virtual_objective(grid_v: Tensor, samples: Tensor) -> Tensor:
-    """Return absolute slope magnitudes for a single observable."""
-    slopes = _ls_slope(grid_v, samples)
-    return torch.abs(slopes).unsqueeze(-1)
+    """Return absolute slope magnitudes per observable."""
+    slopes = []
+    for obs_idx in range(samples.shape[-1]):
+        slopes.append(torch.abs(_ls_slope(grid_v, samples[..., obs_idx])))
+    return torch.stack(slopes, dim=-1)
+
+
+def l2_slope_virtual_objective(grid_v: Tensor, samples: Tensor) -> Tensor:
+    """Return the L2 norm of slope magnitudes across observables."""
+    slopes = slope_virtual_objective(grid_v, samples)
+    return torch.linalg.norm(slopes, dim=-1, keepdim=True)
 
 
 class MultipointProbeConfig(BaseModel):
@@ -44,7 +52,7 @@ class MultipointProbeConfig(BaseModel):
         ..., description="Variable swept for the virtual probe"
     )
     observable_names: Sequence[str] = Field(
-        default=(["x_CoM"],),
+        default=("x_CoM",),
         description="Observable names consumed by the virtual objective",
     )
 
@@ -274,7 +282,7 @@ class MultipointProbeAlgorithm(GridOptimize):
         -------
         torch.Tensor
             Virtual objective samples with shape
-            ``[n_samples, n_points, len(observable_names_ordered)]``.
+            ``[n_samples, n_points, k]`` where ``k`` is determined by the objective.
         """
         if isinstance(model, ModelListGP):
             models = model.models
@@ -302,17 +310,22 @@ class MultipointProbeAlgorithm(GridOptimize):
             start = i * num_probe
             expanded[start : start + num_probe, self._measurement_index] = grid_v
 
-        outputs = []
+        sample_list = []
         for sub_model in models:
             with torch.no_grad():
                 posterior = sub_model.posterior(expanded)
-                samples = posterior.rsample(torch.Size([n_samples]))
+                draws = posterior.rsample(torch.Size([n_samples]))
 
-            samples = samples.squeeze(-1).view(n_samples, num_points, num_probe)
-            processed = self._virtual_objective(grid_v, samples)
-            outputs.append(processed)
+            draws = draws.squeeze(-1).view(n_samples, num_points, num_probe)
+            sample_list.append(draws)
 
-        return torch.cat(outputs, dim=-1)
+        stacked = torch.stack(
+            sample_list, dim=-1
+        )  # [n_samples, n_points, probe, n_obs]
+        result = self._virtual_objective(grid_v, stacked)
+        if result.ndim == 2:
+            result = result.unsqueeze(-1)
+        return result
 
 
 class MultipointBAXGenerator(BaxGenerator):
@@ -327,6 +340,22 @@ def make_multipoint_bax_alignment(vocs: VOCS, overrides: Dict) -> BaxGenerator:
         overrides.get("multipoint_bax_alignment", {})
     )
     algorithm = MultipointProbeAlgorithm(vocs, cfg, slope_virtual_objective)
+    generator = MultipointBAXGenerator(
+        vocs=vocs,
+        algorithm=algorithm,
+        algorithm_results_file=cfg.algorithm_results_file,
+    )
+    generator.n_monte_carlo_samples = cfg.n_monte_carlo_samples
+    generator.gp_constructor.use_low_noise_prior = cfg.use_low_noise_prior
+    return generator
+
+
+def make_multipoint_bax_alignment_l2(vocs: VOCS, overrides: Dict) -> BaxGenerator:
+    """Factory function for the L2 slope minimisation variant."""
+    cfg = MultipointProbeConfig.model_validate(
+        overrides.get("multipoint_bax_alignment_l2", {})
+    )
+    algorithm = MultipointProbeAlgorithm(vocs, cfg, l2_slope_virtual_objective)
     generator = MultipointBAXGenerator(
         vocs=vocs,
         algorithm=algorithm,

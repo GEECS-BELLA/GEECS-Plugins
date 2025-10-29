@@ -316,7 +316,8 @@ class BaseOptimizerConfig(BaseModel):
         # Define known BAX generator names (supports multiple variants)
         BAX_GENERATORS = {
             "multipoint_bax_alignment",
-            "multipoint_bax_alignment_simluated",
+            "multipoint_bax_alignment_simulated",
+            "multipoint_bax_alignment_l2",
         }
 
         # Only validate objectives for non-BAX generators
