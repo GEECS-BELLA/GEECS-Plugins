@@ -175,15 +175,10 @@ class Image2DRenderer(BaseRenderer):
             # Add title
             if ctx.parameter_value is not None and ctx.scan_parameter:
                 ax.set_title(
-                    f"{ctx.scan_parameter}={ctx.parameter_value:.3f}",
-                    fontsize=config.title_fontsize,
+                    f"{ctx.scan_parameter}={ctx.parameter_value:.3f}", fontsize=10
                 )
             else:
-                ax.set_title(f"{ctx.identifier}", fontsize=config.title_fontsize)
-
-            ax.set_xlabel(ax.get_xlabel(), fontsize=config.axis_label_fontsize)
-            ax.set_ylabel(ax.get_ylabel(), fontsize=config.axis_label_fontsize)
-            ax.tick_params(axis="both", labelsize=config.tick_label_fontsize)
+                ax.set_title(f"{ctx.identifier}", fontsize=10)
 
             # Convert to RGB array
             fig.canvas.draw()
@@ -264,23 +259,17 @@ class Image2DRenderer(BaseRenderer):
 
         fig, ax = plt.subplots(dpi=config.dpi)
         im = ax.imshow(context.data, cmap=cmap, vmin=vmin, vmax=vmax)
-        cbar = fig.colorbar(im, ax=ax)
-        cbar.set_label(
-            config.colorbar_label,
-            fontsize=config.colorbar_label_fontsize,
-        )
-        cbar.ax.tick_params(labelsize=config.tick_label_fontsize)
+        fig.colorbar(im, ax=ax)
 
         # Set pixel-based axis labels
-        ax.set_xlabel("X (pixels)", fontsize=config.axis_label_fontsize)
-        ax.set_ylabel("Y (pixels)", fontsize=config.axis_label_fontsize)
-        ax.tick_params(axis="both", labelsize=config.tick_label_fontsize)
+        ax.set_xlabel("X (pixels)", fontsize=10)
+        ax.set_ylabel("Y (pixels)", fontsize=10)
 
         # Add title if we have parameter value
         if context.parameter_value is not None and context.scan_parameter:
             ax.set_title(
                 f"{context.scan_parameter} = {context.parameter_value:.3f}",
-                fontsize=config.title_fontsize,
+                fontsize=12,
                 pad=10,
             )
 
@@ -375,10 +364,7 @@ class Image2DRenderer(BaseRenderer):
                 vmax=vmax,
                 ax=ax,
             )
-            ax.set_title(title, fontsize=config.title_fontsize)
-            ax.set_xlabel(ax.get_xlabel(), fontsize=config.axis_label_fontsize)
-            ax.set_ylabel(ax.get_ylabel(), fontsize=config.axis_label_fontsize)
-            ax.tick_params(axis="both", labelsize=config.tick_label_fontsize)
+            ax.set_title(title, fontsize=10)
             if first_im_artist is None and ax.images:
                 first_im_artist = ax.images[0]
 
@@ -395,10 +381,9 @@ class Image2DRenderer(BaseRenderer):
             if c > 0:
                 ax.set_ylabel("")
                 ax.tick_params(labelleft=False)
-            ax.set_title(ax.get_title(), pad=2, fontsize=config.title_fontsize)
+            ax.set_title(ax.get_title(), pad=2)
             ax.xaxis.labelpad = 1
-            ax.tick_params(axis="x", pad=1, labelsize=config.tick_label_fontsize)
-            ax.tick_params(axis="y", labelsize=config.tick_label_fontsize)
+            ax.tick_params(axis="x", pad=1)
 
         # Shared colorbar
         if first_im_artist is not None:
@@ -408,13 +393,9 @@ class Image2DRenderer(BaseRenderer):
             sm.set_array([])
             cax = grid.cbar_axes[0]
             cb = cax.colorbar(sm)
-            cb.set_label(
-                config.colorbar_label,
-                fontsize=config.colorbar_label_fontsize,
-            )
-            cb.ax.tick_params(labelsize=config.tick_label_fontsize)
+            cb.set_label("")
 
-        fig.suptitle(f"Scan parameter: {scan_param}", fontsize=config.title_fontsize)
+        fig.suptitle(f"Scan parameter: {scan_param}", fontsize=12)
         fig.savefig(save_path, bbox_inches="tight", dpi=config.dpi)
         plt.close(fig)
 
