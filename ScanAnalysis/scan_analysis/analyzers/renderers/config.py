@@ -141,6 +141,30 @@ class Image2DRendererConfig(BaseRendererConfig):
         description="Matplotlib colormap name (default: plasma for 2D)",
     )
 
+    title_fontsize: float = Field(
+        default=12.0,
+        description="Font size for titles and suptitles",
+        gt=0,
+    )
+
+    axis_label_fontsize: float = Field(
+        default=12.0,
+        description="Font size for axis labels",
+        gt=0,
+    )
+
+    tick_label_fontsize: float = Field(
+        default=12.0,
+        description="Font size for tick labels",
+        gt=0,
+    )
+
+    colorbar_label_fontsize: float = Field(
+        default=12.0,
+        description="Font size for colorbar label",
+        gt=0,
+    )
+
 
 @dataclass
 class RenderContext:
