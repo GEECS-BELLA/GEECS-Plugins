@@ -128,9 +128,8 @@ class Image2DRendererConfig(BaseRendererConfig):
 
     """
 
-    panel_size: Tuple[float, float] = Field(
-        default=(4.0, 4.0),
-        description="Desired panel width/height (inches) before clamping to max figure width",
+    figsize: Tuple[float, float] = Field(
+        default=(6, 6), description="Panel width and height in inches for grid montages"
     )
 
     figsize_inches: float = Field(
@@ -140,30 +139,6 @@ class Image2DRendererConfig(BaseRendererConfig):
     cmap: Optional[str] = Field(
         default="plasma",
         description="Matplotlib colormap name (default: plasma for 2D)",
-    )
-
-    max_figure_width: float = Field(
-        default=7.0,
-        description="Maximum summary figure width in inches (Word-friendly)",
-        gt=0,
-    )
-
-    downsample_factor: Optional[int] = Field(
-        default=None,
-        description="Integer factor to downsample images before plotting (>=1)",
-        ge=1,
-    )
-
-    summary_dpi: Optional[int] = Field(
-        default=None,
-        description="Override DPI for summary figure (otherwise BaseRendererConfig.dpi)",
-        gt=0,
-    )
-
-    bin_stride: int = Field(
-        default=1,
-        description="Include every Nth bin in the summary grid (1 = use all bins)",
-        ge=1,
     )
 
 
