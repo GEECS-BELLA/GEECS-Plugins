@@ -220,6 +220,7 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
                     input_parameters=result.get("analyzer_input_parameters", {}),
                     device_name=self.device_name,
                     identifier=f"shot_{shot_num}",
+                    overlay_lineouts=result.get("analyzer_return_lineouts"),
                 )
                 for shot_num, result in self.results.items()
             ]

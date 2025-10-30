@@ -5,7 +5,7 @@ including colormap options, visualization modes, and rendering parameters.
 It also provides RenderContext for bundling data with metadata.
 """
 
-from typing import Optional, Literal, Tuple, Dict, Any, Union
+from typing import Optional, Literal, Tuple, Dict, Any, Union, List
 from dataclasses import dataclass
 import numpy as np
 from pydantic import BaseModel, Field
@@ -163,6 +163,8 @@ class RenderContext:
         Name of the scan parameter (for scan context)
     parameter_value : float, optional
         Value of the scan parameter for this data
+    overlay_lineouts : list[np.ndarray], optional
+        Lineouts to overlay on rendered images
     """
 
     data: np.ndarray
@@ -171,6 +173,7 @@ class RenderContext:
     identifier: Union[int, str]
     scan_parameter: Optional[str] = None
     parameter_value: Optional[float] = None
+    overlay_lineouts: Optional[List[np.ndarray]] = None
 
     @classmethod
     def from_bin_result(
@@ -204,12 +207,11 @@ class RenderContext:
 
         # Extract data from either processed_image (2D) or lineouts (1D)
         data = result.get("processed_image")
-        if data is None:
-            # Try to get from lineouts (for 1D analyzers)
-            lineouts = result.get("analyzer_return_lineouts")
-            if lineouts is not None:
-                # Reconstruct Nx2 array from lineouts [x_array, y_array]
-                data = np.column_stack([lineouts[0], lineouts[1]])
+        lineouts = result.get("analyzer_return_lineouts")
+
+        if data is None and lineouts is not None:
+            # Reconstruct Nx2 array from lineouts [x_array, y_array]
+            data = np.column_stack([lineouts[0], lineouts[1]])
 
         return cls(
             data=data,
@@ -218,6 +220,7 @@ class RenderContext:
             identifier=bin_key,
             scan_parameter=scan_parameter,
             parameter_value=bin_entry.get("value"),
+            overlay_lineouts=lineouts,
         )
 
     @classmethod
@@ -240,11 +243,17 @@ class RenderContext:
         RenderContext
             Initialized context ready for rendering
         """
+        data = result.get("processed_image")
+        lineouts = result.get("analyzer_return_lineouts")
+        if data is None and lineouts is not None:
+            data = np.column_stack([lineouts[0], lineouts[1]])
+
         return cls(
-            data=result["processed_image"],
+            data=data,
             input_parameters=result.get("analyzer_input_parameters", {}),
             device_name=device_name,
             identifier=shot_number,
+            overlay_lineouts=lineouts,
         )
 
     def get_metadata_kwargs(self) -> Dict[str, str]:

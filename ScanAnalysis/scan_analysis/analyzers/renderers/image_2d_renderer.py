@@ -165,7 +165,7 @@ class Image2DRenderer(BaseRenderer):
                     "analyzer_return_dictionary", {}
                 ),
                 input_params_dict=ctx.input_parameters,
-                lineouts=ctx.input_parameters.get("analyzer_return_lineouts", []),
+                lineouts=ctx.overlay_lineouts or [],
                 vmin=vmin,
                 vmax=vmax,
                 figsize=(config.figsize_inches, config.figsize_inches),
@@ -301,14 +301,12 @@ class Image2DRenderer(BaseRenderer):
         """
         images = [ctx.data for ctx in contexts]
         titles = []
-        metas = []
 
         for ctx in contexts:
             if ctx.parameter_value is not None:
                 titles.append(f"{ctx.parameter_value:.2f}")
             else:
                 titles.append(f"{ctx.identifier}")
-            metas.append(ctx.input_parameters)
 
         # Determine vmin/vmax (shared across all images)
         vmin, vmax, cmap = self._get_colormap_params(images[0], config)
@@ -354,12 +352,14 @@ class Image2DRenderer(BaseRenderer):
 
         # Plot panels
         first_im_artist = None
-        for ax, img, title, meta in zip(axes, images, titles, metas):
+        for ax, ctx, img, title in zip(axes, contexts, images, titles):
             base_render_image(
                 image=img,
-                analysis_results_dict=meta.get("analyzer_return_dictionary", {}),
-                input_params_dict=meta,
-                lineouts=meta.get("analyzer_return_lineouts", []),
+                analysis_results_dict=ctx.input_parameters.get(
+                    "analyzer_return_dictionary", {}
+                ),
+                input_params_dict=ctx.input_parameters,
+                lineouts=ctx.overlay_lineouts or [],
                 vmin=vmin,
                 vmax=vmax,
                 ax=ax,
