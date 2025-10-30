@@ -166,6 +166,24 @@ class Image2DRendererConfig(BaseRendererConfig):
         ge=1,
     )
 
+    max_columns: Optional[int] = Field(
+        default=None,
+        description="Maximum number of panels per row in summary grids",
+        ge=1,
+    )
+
+    min_panel_width: float = Field(
+        default=2.5,
+        description="Minimum acceptable panel width (inches) before adding extra rows",
+        gt=0,
+    )
+
+    font_size: float = Field(
+        default=10.0,
+        description="Base font size (points) for titles, labels, and ticks",
+        gt=0,
+    )
+
 
 @dataclass
 class RenderContext:

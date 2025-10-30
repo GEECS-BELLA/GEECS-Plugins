@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import numpy as np
 from numpy.typing import NDArray
 import matplotlib.pyplot as plt
@@ -176,13 +176,16 @@ class Image2DRenderer(BaseRenderer):
                 dpi=config.dpi,
             )
 
-            # Add title
+            # Add title with consistent font size
             if ctx.parameter_value is not None and ctx.scan_parameter:
                 ax.set_title(
-                    f"{ctx.scan_parameter}={ctx.parameter_value:.3f}", fontsize=10
+                    f"{ctx.scan_parameter}={ctx.parameter_value:.3f}",
+                    fontsize=config.font_size,
                 )
             else:
-                ax.set_title(f"{ctx.identifier}", fontsize=10)
+                ax.set_title(f"{ctx.identifier}", fontsize=config.font_size)
+
+            self._apply_axis_font(ax, config.font_size)
 
             # Convert to RGB array
             fig.canvas.draw()
@@ -279,6 +282,17 @@ class Image2DRenderer(BaseRenderer):
             dpi=config.dpi,
         )
 
+        if context.parameter_value is not None and context.scan_parameter:
+            ax.set_title(
+                f"{context.scan_parameter} = {context.parameter_value:.3f}",
+                fontsize=config.font_size,
+                pad=10,
+            )
+        else:
+            ax.set_title(str(context.identifier), fontsize=config.font_size)
+
+        self._apply_axis_font(ax, config.font_size)
+
         fig.savefig(save_path, bbox_inches="tight", pad_inches=0, dpi=config.dpi)
         plt.close(fig)
 
@@ -329,10 +343,13 @@ class Image2DRenderer(BaseRenderer):
             )
         h0, w0 = images[0].shape[:2]
 
-        panel_w_in, panel_h_in, cbar_extra_w = self._compute_panel_dimensions(
-            w0, h0, len(images), config
-        )
-        rows, cols = self._grid_dims(len(images))
+        (
+            panel_w_in,
+            panel_h_in,
+            cbar_extra_w,
+            rows,
+            cols,
+        ) = self._choose_grid_layout(w0, h0, len(images), config)
 
         fig_w_in = cols * panel_w_in + cbar_extra_w
         fig_h_in = rows * panel_h_in
@@ -373,7 +390,8 @@ class Image2DRenderer(BaseRenderer):
                 vmax=vmax,
                 ax=ax,
             )
-            ax.set_title(title, fontsize=10)
+            ax.set_title(title, fontsize=config.font_size)
+            self._apply_axis_font(ax, config.font_size)
             if first_im_artist is None and ax.images:
                 first_im_artist = ax.images[0]
 
@@ -390,9 +408,10 @@ class Image2DRenderer(BaseRenderer):
             if c > 0:
                 ax.set_ylabel("")
                 ax.tick_params(labelleft=False)
-            ax.set_title(ax.get_title(), pad=2)
+            ax.set_title(ax.get_title(), pad=2, fontsize=config.font_size)
             ax.xaxis.labelpad = 1
-            ax.tick_params(axis="x", pad=1)
+            ax.tick_params(axis="x", pad=1, labelsize=config.font_size)
+            ax.tick_params(axis="y", labelsize=config.font_size)
 
         # Shared colorbar
         if first_im_artist is not None:
@@ -402,10 +421,10 @@ class Image2DRenderer(BaseRenderer):
             sm.set_array([])
             cax = grid.cbar_axes[0]
             cb = cax.colorbar(sm)
-            cb.set_label(config.colorbar_label)
-            cb.ax.tick_params(labelsize=10)
+            cb.set_label(config.colorbar_label, fontsize=config.font_size)
+            cb.ax.tick_params(labelsize=config.font_size)
 
-        fig.suptitle(f"Scan parameter: {scan_param}", fontsize=12)
+        fig.suptitle(f"Scan parameter: {scan_param}", fontsize=config.font_size)
         fig.savefig(save_path, bbox_inches="tight", dpi=figure_dpi)
         plt.close(fig)
 
@@ -419,28 +438,52 @@ class Image2DRenderer(BaseRenderer):
         return [ctx for idx, ctx in enumerate(contexts) if idx % stride == 0]
 
     @staticmethod
-    def _compute_panel_dimensions(
+    def _choose_grid_layout(
         width_px: int,
         height_px: int,
         num_images: int,
         config: Image2DRendererConfig,
-    ) -> Tuple[float, float, float]:
-        # Compute panel and colorbar dimensions (in inches) respecting max width.
-        panel_w_in = float(config.panel_size[0])
-        panel_h_in = panel_w_in * (height_px / float(width_px))
-        rows, cols = Image2DRenderer._grid_dims(num_images)
+    ) -> Tuple[float, float, float, int, int]:
+        aspect = height_px / float(width_px)
+        base_panel_w = float(config.panel_size[0])
+        max_cols_limit = config.max_columns or num_images
+        max_cols = max(1, min(max_cols_limit, num_images))
 
-        cbar_extra_w = panel_w_in * 0.28
-        total_width = cols * panel_w_in + cbar_extra_w
+        best_valid: Optional[Tuple[float, float, float, int, int]] = None
+        best_any: Optional[Tuple[float, float, float, int, int]] = None
 
-        max_width = config.max_figure_width
-        if total_width > max_width:
-            scale = max_width / total_width
-            panel_w_in *= scale
-            panel_h_in *= scale
-            cbar_extra_w *= scale
+        for cols in range(1, max_cols + 1):
+            rows = int(np.ceil(num_images / cols))
+            panel_w = base_panel_w
+            panel_h = panel_w * aspect
+            cbar_extra = panel_w * 0.28
 
-        return panel_w_in, panel_h_in, cbar_extra_w
+            total_width = cols * panel_w + cbar_extra
+            if total_width > config.max_figure_width:
+                scale = config.max_figure_width / total_width
+                panel_w *= scale
+                panel_h *= scale
+                cbar_extra *= scale
+
+            candidate = (panel_w, panel_h, cbar_extra, rows, cols)
+
+            if best_any is None or panel_w > best_any[0]:
+                best_any = candidate
+
+            if panel_w >= config.min_panel_width:
+                if best_valid is None or panel_w > best_valid[0]:
+                    best_valid = candidate
+
+        chosen = best_valid or best_any
+        if chosen is None:
+            panel_w = min(base_panel_w, config.max_figure_width)
+            panel_h = panel_w * aspect
+            cbar_extra = panel_w * 0.28
+            rows = num_images
+            cols = 1
+            chosen = (panel_w, panel_h, cbar_extra, rows, cols)
+
+        return chosen
 
     @staticmethod
     def _prepare_plot_data(
@@ -566,8 +609,7 @@ class Image2DRenderer(BaseRenderer):
         return float(vmin), float(vmax)
 
     @staticmethod
-    def _grid_dims(n: int) -> Tuple[int, int]:
-        # Calculate grid dimensions for n items.
-        cols = int(np.ceil(np.sqrt(n)))
-        rows = int(np.ceil(n / cols))
-        return rows, cols
+    def _apply_axis_font(ax: plt.Axes, font_size: float) -> None:
+        ax.set_xlabel(ax.get_xlabel(), fontsize=font_size)
+        ax.set_ylabel(ax.get_ylabel(), fontsize=font_size)
+        ax.tick_params(axis="both", labelsize=font_size)

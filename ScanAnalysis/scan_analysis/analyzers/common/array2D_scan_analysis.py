@@ -123,6 +123,12 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
                 DPI override for summary grids (default: renderer dpi)
             - ``bin_stride`` : int, optional
                 Include every Nth bin in the summary figure (default: 1)
+            - ``max_columns`` : int, optional
+                Maximum number of panels per row in the summary figure
+            - ``min_panel_width`` : float, optional
+                Minimum panel width (inches) before increasing row count (default: 2.5)
+            - ``font_size`` : float, optional
+                Font size in points for titles, axes, ticks, colorbars (default: 10)
 
         """
         if not device_name:
