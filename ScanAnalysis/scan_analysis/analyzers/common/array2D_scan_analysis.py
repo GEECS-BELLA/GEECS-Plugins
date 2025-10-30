@@ -215,10 +215,11 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
 
             # Create animation from all results
             contexts = [
-                RenderContext.from_analyzer_result(
-                    shot_number=shot_num,
-                    result=result,
+                RenderContext(
+                    data=result["processed_image"],
+                    input_parameters=result.get("analyzer_input_parameters", {}),
                     device_name=self.device_name,
+                    identifier=f"shot_{shot_num}",
                 )
                 for shot_num, result in self.results.items()
             ]

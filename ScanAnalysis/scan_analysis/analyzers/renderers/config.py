@@ -207,20 +207,13 @@ class RenderContext:
         if data is None:
             # Try to get from lineouts (for 1D analyzers)
             lineouts = result.get("analyzer_return_lineouts")
-            if (
-                lineouts is not None
-                and len(lineouts) >= 2
-                and lineouts[0] is not None
-                and lineouts[1] is not None
-            ):
+            if lineouts is not None:
                 # Reconstruct Nx2 array from lineouts [x_array, y_array]
                 data = np.column_stack([lineouts[0], lineouts[1]])
 
-        input_parameters = cls._build_input_parameters(result)
-
         return cls(
             data=data,
-            input_parameters=input_parameters,
+            input_parameters=result.get("analyzer_input_parameters", {}),
             device_name=device_name,
             identifier=bin_key,
             scan_parameter=scan_parameter,
@@ -247,22 +240,9 @@ class RenderContext:
         RenderContext
             Initialized context ready for rendering
         """
-        data = result.get("processed_image")
-        if data is None:
-            lineouts = result.get("analyzer_return_lineouts")
-            if (
-                lineouts is not None
-                and len(lineouts) >= 2
-                and lineouts[0] is not None
-                and lineouts[1] is not None
-            ):
-                data = np.column_stack([lineouts[0], lineouts[1]])
-
-        input_parameters = cls._build_input_parameters(result)
-
         return cls(
-            data=data,
-            input_parameters=input_parameters,
+            data=result["processed_image"],
+            input_parameters=result.get("analyzer_input_parameters", {}),
             device_name=device_name,
             identifier=shot_number,
         )
@@ -297,22 +277,3 @@ class RenderContext:
             Formatted filename
         """
         return f"{self.device_name}_{self.identifier}_{suffix}.{extension}"
-
-    @staticmethod
-    def _build_input_parameters(result: Dict[str, Any]) -> Dict[str, Any]:
-        """Merge analyzer metadata with derived outputs for rendering overlays."""
-        base_params = dict(result.get("analyzer_input_parameters") or {})
-
-        # Ensure downstream renderers can access scalar outputs
-        return_dict = result.get("analyzer_return_dictionary")
-        if return_dict is not None:
-            base_params["analyzer_return_dictionary"] = return_dict
-        elif "analyzer_return_dictionary" not in base_params:
-            base_params["analyzer_return_dictionary"] = {}
-
-        # Propagate lineouts for overlay rendering when available
-        lineouts = result.get("analyzer_return_lineouts")
-        if lineouts is not None:
-            base_params["analyzer_return_lineouts"] = lineouts
-
-        return base_params
