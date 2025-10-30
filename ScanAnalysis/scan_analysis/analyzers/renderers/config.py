@@ -5,7 +5,7 @@ including colormap options, visualization modes, and rendering parameters.
 It also provides RenderContext for bundling data with metadata.
 """
 
-from typing import Optional, Literal, Tuple, Dict, Any, Union, List
+from typing import Optional, Literal, Tuple, Dict, Any, Union, List, Callable
 from dataclasses import dataclass
 import numpy as np
 from pydantic import BaseModel, Field
@@ -165,6 +165,9 @@ class RenderContext:
         Value of the scan parameter for this data
     overlay_lineouts : list[np.ndarray], optional
         Lineouts to overlay on rendered images
+    render_function : callable, optional
+        Custom render function (e.g., ImageAnalyzer.render_image) to use when
+        creating visualizations
     """
 
     data: np.ndarray
@@ -174,6 +177,7 @@ class RenderContext:
     scan_parameter: Optional[str] = None
     parameter_value: Optional[float] = None
     overlay_lineouts: Optional[List[np.ndarray]] = None
+    render_function: Optional[Callable[..., Any]] = None
 
     @classmethod
     def from_bin_result(
@@ -182,6 +186,7 @@ class RenderContext:
         bin_entry: Dict[str, Any],
         device_name: str,
         scan_parameter: Optional[str] = None,
+        render_function: Optional[Callable[..., Any]] = None,
     ) -> "RenderContext":
         """Create RenderContext from binned_data entry.
 
@@ -221,11 +226,16 @@ class RenderContext:
             scan_parameter=scan_parameter,
             parameter_value=bin_entry.get("value"),
             overlay_lineouts=lineouts,
+            render_function=render_function,
         )
 
     @classmethod
     def from_analyzer_result(
-        cls, shot_number: int, result: Dict[str, Any], device_name: str
+        cls,
+        shot_number: int,
+        result: Dict[str, Any],
+        device_name: str,
+        render_function: Optional[Callable[..., Any]] = None,
     ) -> "RenderContext":
         """Create RenderContext from single shot result.
 
@@ -254,6 +264,7 @@ class RenderContext:
             device_name=device_name,
             identifier=shot_number,
             overlay_lineouts=lineouts,
+            render_function=render_function,
         )
 
     def get_metadata_kwargs(self) -> Dict[str, str]:

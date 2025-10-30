@@ -206,6 +206,7 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
                 input_parameters={"analyzer_return_dictionary": avg_scalars},
                 device_name=self.device_name,
                 identifier="average",
+                render_function=self.image_analyzer.render_image,
             )
 
             config = self._get_renderer_config()
@@ -215,12 +216,11 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
 
             # Create animation from all results
             contexts = [
-                RenderContext(
-                    data=result["processed_image"],
-                    input_parameters=result.get("analyzer_input_parameters", {}),
+                RenderContext.from_analyzer_result(
+                    shot_number=shot_num,
+                    result=result,
                     device_name=self.device_name,
-                    identifier=f"shot_{shot_num}",
-                    overlay_lineouts=result.get("analyzer_return_lineouts"),
+                    render_function=self.image_analyzer.render_image,
                 )
                 for shot_num, result in self.results.items()
             ]
@@ -251,6 +251,7 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
                 bin_entry=bin_entry,
                 device_name=self.device_name,
                 scan_parameter=self.scan_parameter,
+                render_function=self.image_analyzer.render_image,
             )
             for bin_key, bin_entry in binned_data.items()
         ]
