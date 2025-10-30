@@ -160,16 +160,13 @@ class Image2DRenderer(BaseRenderer):
         gif_images = []
         for ctx in contexts:
             render_func = ctx.render_function or base_render_image
-            image, lineouts = self._prepare_plot_data(
-                ctx, config, allow_downsample=config.downsample_factor is not None
-            )
             fig, ax = render_func(
-                image=image,
+                image=ctx.data,
                 analysis_results_dict=ctx.input_parameters.get(
                     "analyzer_return_dictionary", {}
                 ),
                 input_params_dict=ctx.input_parameters,
-                lineouts=lineouts,
+                lineouts=ctx.overlay_lineouts or [],
                 vmin=vmin,
                 vmax=vmax,
                 figsize=(config.figsize_inches, config.figsize_inches),
@@ -259,19 +256,16 @@ class Image2DRenderer(BaseRenderer):
         save_path = save_dir / filename
 
         # Determine colormap and normalization
-        image, lineouts = self._prepare_plot_data(
-            context, config, allow_downsample=config.downsample_factor is not None
-        )
-        vmin, vmax, cmap = self._get_colormap_params(image, config)
+        vmin, vmax, cmap = self._get_colormap_params(context.data, config)
 
         render_func = context.render_function or base_render_image
         fig, ax = render_func(
-            image=image,
+            image=context.data,
             analysis_results_dict=context.input_parameters.get(
                 "analyzer_return_dictionary", {}
             ),
             input_params_dict=context.input_parameters,
-            lineouts=lineouts,
+            lineouts=context.overlay_lineouts or [],
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,
@@ -292,22 +286,22 @@ class Image2DRenderer(BaseRenderer):
         save_path: Path,
         scan_param: str,
     ) -> None:
-        """Create grid montage of images."""
-        contexts = self._stride_contexts(contexts, config)
-        if not contexts:
-            logger.warning("No contexts available after applying bin_stride filter.")
-            return
+        """Create grid montage of images.
 
-        prepared = [
-            self._prepare_plot_data(
-                ctx, config, allow_downsample=config.downsample_factor is not None
-            )
-            for ctx in contexts
-        ]
-        images = [img for img, _ in prepared]
-        lineouts_list = [lo for _, lo in prepared]
-
+        Parameters
+        ----------
+        contexts : list of RenderContext
+            Contexts to plot
+        config : Image2DRendererConfig
+            Rendering configuration
+        save_path : Path
+            Output path
+        scan_param : str
+            Scan parameter name
+        """
+        images = [ctx.data for ctx in contexts]
         titles = []
+
         for ctx in contexts:
             if ctx.parameter_value is not None:
                 titles.append(f"{ctx.parameter_value:.2f}")
@@ -329,17 +323,17 @@ class Image2DRenderer(BaseRenderer):
             )
         h0, w0 = images[0].shape[:2]
 
-        panel_w_in, panel_h_in, cbar_extra_w = self._compute_panel_dimensions(
-            w0, h0, len(images), config
-        )
+        # Figure size from panel width and image aspect
+        panel_w_in = float(config.figsize[0])
+        panel_h_in = panel_w_in * (h0 / float(w0))
         rows, cols = self._grid_dims(len(images))
 
+        # Reserve space for the right-side colorbar
+        cbar_extra_w = panel_w_in * 0.28
         fig_w_in = cols * panel_w_in + cbar_extra_w
         fig_h_in = rows * panel_h_in
 
-        figure_dpi = config.summary_dpi or config.dpi
-
-        fig = plt.figure(figsize=(fig_w_in, fig_h_in), dpi=figure_dpi)
+        fig = plt.figure(figsize=(fig_w_in, fig_h_in), dpi=config.dpi)
 
         grid = ImageGrid(
             fig,
@@ -358,9 +352,7 @@ class Image2DRenderer(BaseRenderer):
 
         # Plot panels
         first_im_artist = None
-        for ax, ctx, img, lineouts, title in zip(
-            axes, contexts, images, lineouts_list, titles
-        ):
+        for ax, ctx, img, title in zip(axes, contexts, images, titles):
             render_func = ctx.render_function or base_render_image
             render_func(
                 image=img,
@@ -368,7 +360,7 @@ class Image2DRenderer(BaseRenderer):
                     "analyzer_return_dictionary", {}
                 ),
                 input_params_dict=ctx.input_parameters,
-                lineouts=lineouts,
+                lineouts=ctx.overlay_lineouts or [],
                 vmin=vmin,
                 vmax=vmax,
                 ax=ax,
@@ -402,75 +394,11 @@ class Image2DRenderer(BaseRenderer):
             sm.set_array([])
             cax = grid.cbar_axes[0]
             cb = cax.colorbar(sm)
-            cb.set_label(config.colorbar_label)
-            cb.ax.tick_params(labelsize=10)
+            cb.set_label("")
 
         fig.suptitle(f"Scan parameter: {scan_param}", fontsize=12)
-        fig.savefig(save_path, bbox_inches="tight", dpi=figure_dpi)
+        fig.savefig(save_path, bbox_inches="tight", dpi=config.dpi)
         plt.close(fig)
-
-    @staticmethod
-    def _stride_contexts(
-        contexts: List[RenderContext], config: Image2DRendererConfig
-    ) -> List[RenderContext]:
-        stride = max(1, config.bin_stride)
-        if stride == 1:
-            return contexts
-        return [ctx for idx, ctx in enumerate(contexts) if idx % stride == 0]
-
-    @staticmethod
-    def _compute_panel_dimensions(
-        width_px: int,
-        height_px: int,
-        num_images: int,
-        config: Image2DRendererConfig,
-    ) -> Tuple[float, float, float]:
-        # Compute panel and colorbar dimensions (in inches) respecting max width.
-        panel_w_in = float(config.panel_size[0])
-        panel_h_in = panel_w_in * (height_px / float(width_px))
-        rows, cols = Image2DRenderer._grid_dims(num_images)
-
-        cbar_extra_w = panel_w_in * 0.28
-        total_width = cols * panel_w_in + cbar_extra_w
-
-        max_width = config.max_figure_width
-        if total_width > max_width:
-            scale = max_width / total_width
-            panel_w_in *= scale
-            panel_h_in *= scale
-            cbar_extra_w *= scale
-
-        return panel_w_in, panel_h_in, cbar_extra_w
-
-    @staticmethod
-    def _prepare_plot_data(
-        context: RenderContext,
-        config: Image2DRendererConfig,
-        allow_downsample: bool = False,
-    ) -> Tuple[np.ndarray, List[np.ndarray]]:
-        # Return image and lineouts ready for rendering (optionally downsampled).
-        image = context.data
-        lineouts: List[np.ndarray] = list(context.overlay_lineouts or [])
-
-        if (
-            allow_downsample
-            and config.downsample_factor
-            and config.downsample_factor > 1
-            and context.render_function is None
-        ):
-            factor = int(config.downsample_factor)
-            image = image[::factor, ::factor]
-
-            if lineouts:
-                downsampled = []
-                for lo in lineouts:
-                    if lo is None:
-                        downsampled.append(None)
-                    else:
-                        downsampled.append(lo[::factor])
-                lineouts = downsampled
-
-        return image, lineouts
 
     @staticmethod
     def _get_colormap_params(
@@ -567,7 +495,7 @@ class Image2DRenderer(BaseRenderer):
 
     @staticmethod
     def _grid_dims(n: int) -> Tuple[int, int]:
-        # Calculate grid dimensions for n items.
+        """Calculate grid dimensions for n items."""
         cols = int(np.ceil(np.sqrt(n)))
         rows = int(np.ceil(n / cols))
         return rows, cols
