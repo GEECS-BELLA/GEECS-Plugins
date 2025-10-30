@@ -110,9 +110,19 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
             - ``vmin`` : float, optional
                 Minimum value for colormap
             - ``figsize`` : tuple, optional
-                Panel width and height in inches for grid montages
+                (Deprecated) Panel size; prefer ``panel_size`` below
             - ``figsize_inches`` : float, optional
                 Width/height for square animation frames
+            - ``panel_size`` : tuple, optional
+                Base panel width/height in inches before width clamping (default: (4, 4))
+            - ``max_figure_width`` : float, optional
+                Clamp summary figure width in inches (default: 7.0)
+            - ``downsample_factor`` : int, optional
+                Integer factor for downsampling images prior to plotting (base renderer only)
+            - ``summary_dpi`` : int, optional
+                DPI override for summary grids (default: renderer dpi)
+            - ``bin_stride`` : int, optional
+                Include every Nth bin in the summary figure (default: 1)
 
         """
         if not device_name:
@@ -151,6 +161,10 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
 
         # Get renderer_kwargs if available
         renderer_kwargs = getattr(self, "renderer_kwargs", {})
+
+        # Backward compatibility: map legacy figsize to panel_size
+        if "figsize" in renderer_kwargs and "panel_size" not in renderer_kwargs:
+            renderer_kwargs["panel_size"] = renderer_kwargs.pop("figsize")
 
         # Handle legacy plot_scale parameter from camera_analysis_settings
         plot_scale = (getattr(self, "camera_analysis_settings", {}) or {}).get(
