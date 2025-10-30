@@ -184,6 +184,11 @@ class Image2DRendererConfig(BaseRendererConfig):
         gt=0,
     )
 
+    analyzer_render_kwargs: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Extra keyword arguments forwarded to analyzer-specific render functions",
+    )
+
 
 @dataclass
 class RenderContext:

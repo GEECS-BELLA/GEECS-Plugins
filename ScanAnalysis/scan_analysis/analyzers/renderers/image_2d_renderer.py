@@ -163,6 +163,7 @@ class Image2DRenderer(BaseRenderer):
             image, lineouts = self._prepare_plot_data(
                 ctx, config, allow_downsample=config.downsample_factor is not None
             )
+            extra_kwargs = config.analyzer_render_kwargs if ctx.render_function else {}
             fig, ax = render_func(
                 image=image,
                 analysis_results_dict=ctx.input_parameters.get(
@@ -174,6 +175,7 @@ class Image2DRenderer(BaseRenderer):
                 vmax=vmax,
                 figsize=(config.figsize_inches, config.figsize_inches),
                 dpi=config.dpi,
+                **extra_kwargs,
             )
 
             # Add title with consistent font size
@@ -268,6 +270,7 @@ class Image2DRenderer(BaseRenderer):
         vmin, vmax, cmap = self._get_colormap_params(image, config)
 
         render_func = context.render_function or base_render_image
+        extra_kwargs = config.analyzer_render_kwargs if context.render_function else {}
         fig, ax = render_func(
             image=image,
             analysis_results_dict=context.input_parameters.get(
@@ -280,6 +283,7 @@ class Image2DRenderer(BaseRenderer):
             cmap=cmap,
             figsize=(config.figsize_inches, config.figsize_inches),
             dpi=config.dpi,
+            **extra_kwargs,
         )
 
         if context.parameter_value is not None and context.scan_parameter:
@@ -379,6 +383,7 @@ class Image2DRenderer(BaseRenderer):
             axes, contexts, images, lineouts_list, titles
         ):
             render_func = ctx.render_function or base_render_image
+            extra_kwargs = config.analyzer_render_kwargs if ctx.render_function else {}
             render_func(
                 image=img,
                 analysis_results_dict=ctx.input_parameters.get(
@@ -389,6 +394,7 @@ class Image2DRenderer(BaseRenderer):
                 vmin=vmin,
                 vmax=vmax,
                 ax=ax,
+                **extra_kwargs,
             )
             ax.set_title(title, fontsize=config.font_size)
             self._apply_axis_font(ax, config.font_size)
@@ -514,6 +520,12 @@ class Image2DRenderer(BaseRenderer):
                 lineouts = downsampled
 
         return image, lineouts
+
+    @staticmethod
+    def _apply_axis_font(ax: plt.Axes, font_size: float) -> None:
+        ax.set_xlabel(ax.get_xlabel(), fontsize=font_size)
+        ax.set_ylabel(ax.get_ylabel(), fontsize=font_size)
+        ax.tick_params(axis="both", labelsize=font_size)
 
     @staticmethod
     def _get_colormap_params(

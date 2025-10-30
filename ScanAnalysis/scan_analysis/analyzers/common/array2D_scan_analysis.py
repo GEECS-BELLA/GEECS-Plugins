@@ -129,6 +129,8 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
                 Minimum panel width (inches) before increasing row count (default: 2.5)
             - ``font_size`` : float, optional
                 Font size in points for titles, axes, ticks, colorbars (default: 10)
+            - ``analyzer_render_kwargs`` : dict, optional
+                Extra keyword arguments forwarded to the ImageAnalyzer.render_image function
 
         """
         if not device_name:
