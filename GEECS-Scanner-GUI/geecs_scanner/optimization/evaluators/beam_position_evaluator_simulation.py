@@ -60,7 +60,8 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
     ) -> Dict[str, float]:
         """Publish calibrated centroid x_CoM derived from current_data_bin."""
         try:
-            control_val = float(np.mean(self.current_data_bin["U_S1H:Current"]))
+            control_val_x = float(np.mean(self.current_data_bin["U_S1H:Current"]))
+            # control_val_y = float(np.mean(self.current_data_bin["U_S1V:Current"]))
             measure_val = float(
                 np.mean(self.current_data_bin["U_EMQTripletBipolar:Current_Limit.Ch1"])
             )
@@ -72,12 +73,21 @@ class BeamPositionEvaluator(MultiDeviceScanEvaluator):
         # x_CoM = offset × (1 + quad_kick)
         # where offset = (S1H - 1.0) and quad_kick = 0.001 × EMQ
         # Expanded: x_CoM = 1000×(S1H-1) + (S1H-1)×EMQ
-        offset = control_val - 1.0
         quad_kick_factor = 1.0 * measure_val
-        centroid_pixels = 1000.0 * offset * (1.0 + quad_kick_factor)
 
-        # Add small noise for realism
-        centroid_pixels += (np.random.random_sample() - 0.5) * 250.0  # -0.05 to +0.05
+        offset_x = control_val_x - 1.0
+        centroid_pixels_x = 1000.0 * offset_x * (1.0 + quad_kick_factor)
+        centroid_pixels_x += (np.random.random_sample() - 0.5) * 25.0  # -0.05 to +0.05
+        centroid_pixels_x = float(centroid_pixels_x * self.calibration)
+
+        # offset_y = control_val_y + 1.0
+        # centroid_pixels_y = 1000.0 * offset_y * (1.0 + quad_kick_factor)
+        # centroid_pixels_y += (np.random.random_sample() - 0.5) * 25.0  # -0.05 to +0.05
+        # centroid_pixels_y = float(centroid_pixels_y * self.calibration)
+        #
+        # result = {"x_CoM": centroid_pixels_x, "y_CoM": centroid_pixels_y}
+
+        result = {"x_CoM": centroid_pixels_x}
 
         # Calibrated output expected by VOCS/schema
-        return {"x_CoM": float(centroid_pixels * self.calibration)}
+        return result
