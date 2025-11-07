@@ -129,12 +129,13 @@ class BaseOptimizer:
         self.scan_data_manager = scan_data_manager
         self.data_logger = data_logger
 
-        self._setup_xopt(xopt_config_overrides or {})
+        self.xopt_config_overrides: dict[str, Any] = dict(xopt_config_overrides or {})
+        self._setup_xopt(self.xopt_config_overrides)
 
     def _setup_xopt(self, overrides: dict[str, Any]):
-        generator = build_generator_from_config(
-            config={"name": self.generator_name}, vocs=self.vocs
-        )
+        generator_config: dict[str, Any] = {"name": self.generator_name}
+        generator_config.update(overrides)
+        generator = build_generator_from_config(config=generator_config, vocs=self.vocs)
 
         self.xopt = Xopt(
             evaluator={"function": self.evaluate_function},
@@ -194,6 +195,35 @@ class BaseOptimizer:
             by the `generate()` method.
         """
         self.xopt.evaluate_data(inputs)
+
+        # If the generator provides diagnostic metadata (e.g., BAX), log it
+        metadata: Dict[str, float] = {}
+        generator = getattr(self.xopt, "generator", None)
+        algo_results = getattr(generator, "algorithm_results", None)
+
+        if isinstance(algo_results, dict):
+            center = algo_results.get("solution_center")
+            if center is not None:
+                try:
+                    center_values = list(center)
+                except TypeError:
+                    center_values = [center]
+
+                for name, value in zip(self.vocs.variable_names, center_values):
+                    try:
+                        metadata[f"BAX_solution_center[{name}]"] = float(value)
+                    except (TypeError, ValueError):
+                        continue
+
+            entropy = algo_results.get("solution_entropy")
+            if entropy is not None:
+                try:
+                    metadata["BAX_solution_entropy"] = float(entropy)
+                except (TypeError, ValueError):
+                    pass
+
+        if metadata and self.evaluator is not None:
+            self.evaluator.log_results_for_current_bin(metadata)
 
     def get_results(self):
         """
@@ -282,13 +312,43 @@ class BaseOptimizer:
         evaluator_class = getattr(module, config.evaluator.class_)
         evaluator = evaluator_class(**evaluator_init_kwargs)
 
+        # Prepare generator overrides, ensuring any relative output paths are rooted in the scan folder
+        overrides = dict(config.xopt_config_overrides)
+        if scan_data_manager:
+            try:
+                scan_folder = scan_data_manager.scan_paths.get_folder()
+            except AttributeError:
+                scan_folder = None
+            else:
+                from pathlib import Path
+
+                scan_folder = Path(scan_folder)
+                scan_folder.mkdir(parents=True, exist_ok=True)
+
+                for key, block in list(overrides.items()):
+                    if not isinstance(block, dict):
+                        continue
+
+                    file_value = block.get("algorithm_results_file")
+                    if file_value is None:
+                        # Provide a sensible default within the scan directory
+                        block["algorithm_results_file"] = str(
+                            scan_folder / f"{key}_algo_results"
+                        )
+                    else:
+                        path = Path(file_value)
+                        if not path.is_absolute():
+                            block["algorithm_results_file"] = str(
+                                (scan_folder / path).resolve()
+                            )
+
         # Create optimizer using validated config
         return cls(
             vocs=config.vocs,
             evaluate_function=evaluator.get_value,
             evaluation_mode=config.evaluation_mode,
             generator_name=config.generator.name,
-            xopt_config_overrides=config.xopt_config_overrides,
+            xopt_config_overrides=overrides,
             evaluator=evaluator,
             device_requirements=config.device_requirements,
             scan_data_manager=scan_data_manager,

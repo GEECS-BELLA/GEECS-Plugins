@@ -249,72 +249,70 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             f"Available keys: {list(scalar_results.keys())}"
         )
 
-    def _get_value(self, input_data: Dict) -> Dict:
+    def _get_value(self, input_data: Dict) -> Dict[str, float]:
         """
-        Main evaluation method called by the optimization framework.
+        Execute ScanAnalyzers for relevant diagnostics, use reults to compute objective.
 
-        This method orchestrates the evaluation process:
-        1. Updates current data from the data logger
-        2. Runs all configured scan analyzers on the current bin
-        3. Collects scalar results from all analyzers
-        4. Calls compute_objective() to get the final objective value
-        5. Logs the result for all shots in the bin
-
-        Parameters
-        ----------
-        input_data : dict
-            Dictionary of input parameter values for the current optimization
-            step. Not directly used by this evaluator as it operates on
-            acquired data.
-
-        Returns
-        -------
-        dict
-            Dictionary containing the objective function result with key 'f'.
+        Assumes BaseEvaluator.get_value() already refreshed current data and will log results.
+        Returns a dict of outputs. If `self.output_key` is not None, the dict will include it.
         """
-        # Update current data from logger
-        self.get_current_data()
-
-        # Run all analyzers and collect results
-        all_scalar_results = {}
+        all_scalar_results: Dict[str, float] = {}
 
         for device_name, analyzer in self.scan_analyzers.items():
             logger.info(
-                f"Running analyzer for device '{device_name}' on bin {self.bin_number}"
+                "Running analyzer for device '%s' on bin %s",
+                device_name,
+                self.bin_number,
             )
 
-            # Set auxiliary data for current bin
             analyzer.auxiliary_data = self.current_data_bin
             analyzer.run_analysis(scan_tag=self.scan_tag)
 
-            # Extract scalar results from the bin
-            # With per_bin mode, results are keyed by bin_number
-            if self.bin_number in analyzer.results:
-                result = analyzer.results[self.bin_number]
+            result = analyzer.results.get(self.bin_number)
+            if result:
                 scalars = result.get("analyzer_return_dictionary", {})
                 all_scalar_results.update(scalars)
                 logger.info(
-                    f"Extracted {len(scalars)} scalar results from '{device_name}'"
+                    "Extracted %d scalar results from '%s'", len(scalars), device_name
                 )
             else:
                 logger.warning(
-                    f"No results found for bin {self.bin_number} from '{device_name}'"
+                    "No results found for bin %s from '%s'",
+                    self.bin_number,
+                    device_name,
                 )
 
-        # Compute objective from all scalar results
-        objective_value = self.compute_objective(
-            scalar_results=all_scalar_results, bin_number=self.bin_number
+        outputs: Dict[str, float] = {}
+
+        # Optional objective
+        output_key = getattr(self, "output_key", None)
+        if output_key is not None:
+            objective_value = float(
+                self.compute_objective(
+                    scalar_results=all_scalar_results, bin_number=self.bin_number
+                )
+            )
+            outputs[output_key] = objective_value
+
+        # Optional extras
+        extra = (
+            self.compute_observables(
+                scalar_results=all_scalar_results, bin_number=self.bin_number
+            )
+            or {}
         )
 
-        logger.info(
-            f"Computed objective value: {objective_value} for bin {self.bin_number}"
-        )
+        # Prevent overriding the objective key
+        if output_key is not None and output_key in extra:
+            logger.warning(
+                "compute_observables returned key '%s'; removing to avoid overriding the objective",
+                output_key,
+            )
+            extra = {k: v for k, v in extra.items() if k != output_key}
 
-        # Log for all shots in bin
-        for shot_num in self.current_shot_numbers:
-            self.log_objective_result(shot_num=shot_num, scalar_value=objective_value)
-
-        return {self.output_key: objective_value}
+        # Ensure plain floats
+        outputs.update({str(k): float(v) for k, v in extra.items()})
+        return outputs
 
     @abstractmethod
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
@@ -351,3 +349,28 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         - The sign convention depends on your VOCS (MINIMIZE vs MAXIMIZE)
         """
         pass
+
+    def compute_observables(
+        self, scalar_results: dict, bin_number: int
+    ) -> Dict[str, float]:
+        """
+        Compute additional observables to include in the evaluator output.
+
+        Subclasses can override this hook to return a dictionary of extra
+        scalar quantities (e.g., beam centroid positions) that should be
+        passed through to Xopt alongside the primary objective.
+
+        Parameters
+        ----------
+        scalar_results : dict
+            Combined analyzer_return_dictionary from all analyzers.
+        bin_number : int
+            Current bin number being evaluated.
+
+        Returns
+        -------
+        dict
+            Mapping of observable names to scalar values. The default
+            implementation returns an empty dict.
+        """
+        return {}

@@ -20,17 +20,6 @@ Classes
 CheetahPrior
     PyTorch module implementing physics-informed prior using Cheetah simulations.
 
-Examples
---------
-Creating a Cheetah-based generator:
-
->>> from xopt import VOCS
->>> vocs = VOCS(
-...     variables={"EMQ1H": [-10, 10], "EMQ2V": [-10, 10], "EMQ3H": [-10, 10]},
-...     objectives={"f": "MINIMIZE"}
-... )
->>> generator = get_cheetah_generator(vocs)
-
 Notes
 -----
 This generator requires:
@@ -75,19 +64,6 @@ def get_cheetah_generator(vocs):
     ------
     ImportError
         If Cheetah package or HTU lattice modules cannot be imported.
-
-    Examples
-    --------
-    >>> from xopt import VOCS
-    >>> vocs = VOCS(
-    ...     variables={
-    ...         "EMQ1H": [-10, 10],
-    ...         "EMQ2V": [-10, 10],
-    ...         "EMQ3H": [-10, 10]
-    ...     },
-    ...     objectives={"f": "MINIMIZE"}
-    ... )
-    >>> generator = get_cheetah_generator(vocs)
 
     Notes
     -----

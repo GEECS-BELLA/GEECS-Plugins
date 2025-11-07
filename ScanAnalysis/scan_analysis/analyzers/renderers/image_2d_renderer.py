@@ -159,13 +159,14 @@ class Image2DRenderer(BaseRenderer):
         # Render each frame
         gif_images = []
         for ctx in contexts:
-            fig, ax = base_render_image(
+            render_func = ctx.render_function or base_render_image
+            fig, ax = render_func(
                 image=ctx.data,
                 analysis_results_dict=ctx.input_parameters.get(
                     "analyzer_return_dictionary", {}
                 ),
                 input_params_dict=ctx.input_parameters,
-                lineouts=ctx.input_parameters.get("analyzer_return_lineouts", []),
+                lineouts=ctx.overlay_lineouts or [],
                 vmin=vmin,
                 vmax=vmax,
                 figsize=(config.figsize_inches, config.figsize_inches),
@@ -257,21 +258,20 @@ class Image2DRenderer(BaseRenderer):
         # Determine colormap and normalization
         vmin, vmax, cmap = self._get_colormap_params(context.data, config)
 
-        fig, ax = plt.subplots(dpi=config.dpi)
-        im = ax.imshow(context.data, cmap=cmap, vmin=vmin, vmax=vmax)
-        fig.colorbar(im, ax=ax)
-
-        # Set pixel-based axis labels
-        ax.set_xlabel("X (pixels)", fontsize=10)
-        ax.set_ylabel("Y (pixels)", fontsize=10)
-
-        # Add title if we have parameter value
-        if context.parameter_value is not None and context.scan_parameter:
-            ax.set_title(
-                f"{context.scan_parameter} = {context.parameter_value:.3f}",
-                fontsize=12,
-                pad=10,
-            )
+        render_func = context.render_function or base_render_image
+        fig, ax = render_func(
+            image=context.data,
+            analysis_results_dict=context.input_parameters.get(
+                "analyzer_return_dictionary", {}
+            ),
+            input_params_dict=context.input_parameters,
+            lineouts=context.overlay_lineouts or [],
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
+            figsize=(config.figsize_inches, config.figsize_inches),
+            dpi=config.dpi,
+        )
 
         fig.savefig(save_path, bbox_inches="tight", pad_inches=0, dpi=config.dpi)
         plt.close(fig)
@@ -301,14 +301,12 @@ class Image2DRenderer(BaseRenderer):
         """
         images = [ctx.data for ctx in contexts]
         titles = []
-        metas = []
 
         for ctx in contexts:
             if ctx.parameter_value is not None:
                 titles.append(f"{ctx.parameter_value:.2f}")
             else:
                 titles.append(f"{ctx.identifier}")
-            metas.append(ctx.input_parameters)
 
         # Determine vmin/vmax (shared across all images)
         vmin, vmax, cmap = self._get_colormap_params(images[0], config)
@@ -354,12 +352,15 @@ class Image2DRenderer(BaseRenderer):
 
         # Plot panels
         first_im_artist = None
-        for ax, img, title, meta in zip(axes, images, titles, metas):
-            base_render_image(
+        for ax, ctx, img, title in zip(axes, contexts, images, titles):
+            render_func = ctx.render_function or base_render_image
+            render_func(
                 image=img,
-                analysis_results_dict=meta.get("analyzer_return_dictionary", {}),
-                input_params_dict=meta,
-                lineouts=meta.get("analyzer_return_lineouts", []),
+                analysis_results_dict=ctx.input_parameters.get(
+                    "analyzer_return_dictionary", {}
+                ),
+                input_params_dict=ctx.input_parameters,
+                lineouts=ctx.overlay_lineouts or [],
                 vmin=vmin,
                 vmax=vmax,
                 ax=ax,
