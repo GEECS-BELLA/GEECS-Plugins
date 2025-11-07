@@ -13,6 +13,9 @@ import logging
 # Expose 1D data utilities
 from .data_1d_utils import read_1d_data, Data1DConfig, Data1DType, Data1DResult
 
+# Expose modern result model
+from .types import ImageAnalyzerResult
+
 ureg = pint.UnitRegistry()
 pint.set_application_registry(ureg)
 Quantity = Q_ = ureg.Quantity
@@ -29,4 +32,5 @@ __all__ = [
     "Data1DConfig",
     "Data1DType",
     "Data1DResult",
+    "ImageAnalyzerResult",
 ]
