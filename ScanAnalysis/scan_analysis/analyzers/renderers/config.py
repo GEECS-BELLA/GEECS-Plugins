@@ -5,10 +5,14 @@ including colormap options, visualization modes, and rendering parameters.
 It also provides RenderContext for bundling data with metadata.
 """
 
+from __future__ import annotations
+
 from typing import Optional, Literal, Tuple, Dict, Any, Union, List, Callable
 from dataclasses import dataclass
 import numpy as np
 from pydantic import BaseModel, Field
+
+from image_analysis.types import ImageAnalyzerResult
 
 
 class BaseRendererConfig(BaseModel):
@@ -190,7 +194,7 @@ class RenderContext:
     ) -> "RenderContext":
         """Create RenderContext from binned_data entry.
 
-        Handles both 2D data (in processed_image) and 1D data (in lineouts).
+        Handles both 2D data (in processed_image) and 1D data (in line_data).
 
         Parameters
         ----------
@@ -202,6 +206,8 @@ class RenderContext:
             Name of the device
         scan_parameter : str, optional
             Name of the scan parameter
+        render_function : Callable
+            function to render the data
 
         Returns
         -------
@@ -210,22 +216,22 @@ class RenderContext:
         """
         result = bin_entry["result"]
 
-        # Extract data from either processed_image (2D) or lineouts (1D)
-        data = result.get("processed_image")
-        lineouts = result.get("analyzer_return_lineouts")
+        # Extract data from either processed_image (2D) or line_data (1D)
+        data = result.processed_image
+        line_data = result.line_data
 
-        if data is None and lineouts is not None:
-            # Reconstruct Nx2 array from lineouts [x_array, y_array]
-            data = np.column_stack([lineouts[0], lineouts[1]])
+        # For 1D data, line_data is already Nx2 array
+        if data is None and line_data is not None:
+            data = line_data
 
         return cls(
             data=data,
-            input_parameters=result.get("analyzer_input_parameters", {}),
+            input_parameters=result.metadata,
             device_name=device_name,
             identifier=bin_key,
             scan_parameter=scan_parameter,
             parameter_value=bin_entry.get("value"),
-            overlay_lineouts=lineouts,
+            overlay_lineouts=line_data,
             render_function=render_function,
         )
 
@@ -233,7 +239,7 @@ class RenderContext:
     def from_analyzer_result(
         cls,
         shot_number: int,
-        result: Dict[str, Any],
+        result: ImageAnalyzerResult,
         device_name: str,
         render_function: Optional[Callable[..., Any]] = None,
     ) -> "RenderContext":
@@ -243,8 +249,8 @@ class RenderContext:
         ----------
         shot_number : int
             The shot number
-        result : dict
-            Analyzer result dict
+        result : ImageAnalyzerResult
+            Analyzer result object
         device_name : str
             Name of the device
 
@@ -253,17 +259,19 @@ class RenderContext:
         RenderContext
             Initialized context ready for rendering
         """
-        data = result.get("processed_image")
-        lineouts = result.get("analyzer_return_lineouts")
-        if data is None and lineouts is not None:
-            data = np.column_stack([lineouts[0], lineouts[1]])
+        data = result.processed_image
+        line_data = result.line_data
+
+        # For 1D data, line_data is already Nx2 array
+        if data is None and line_data is not None:
+            data = line_data
 
         return cls(
             data=data,
-            input_parameters=result.get("analyzer_input_parameters", {}),
+            input_parameters=result.metadata,
             device_name=device_name,
             identifier=shot_number,
-            overlay_lineouts=lineouts,
+            overlay_lineouts=line_data,
             render_function=render_function,
         )
 
