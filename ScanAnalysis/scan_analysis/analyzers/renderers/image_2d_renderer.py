@@ -13,6 +13,7 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 from .base_renderer import BaseRenderer
 from .config import RenderContext, Image2DRendererConfig
 from image_analysis.tools.rendering import base_render_image
+from image_analysis.types import ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
 
@@ -159,14 +160,19 @@ class Image2DRenderer(BaseRenderer):
         # Render each frame
         gif_images = []
         for ctx in contexts:
+            # Create ImageAnalyzerResult from context
+            result = ImageAnalyzerResult(
+                data_type="2d",
+                processed_image=ctx.data,
+                scalars={},
+                metadata=ctx.input_parameters,
+            )
+            if ctx.overlay_lineouts is not None:
+                result.line_data = ctx.overlay_lineouts
+
             render_func = ctx.render_function or base_render_image
             fig, ax = render_func(
-                image=ctx.data,
-                analysis_results_dict=ctx.input_parameters.get(
-                    "analyzer_return_dictionary", {}
-                ),
-                input_params_dict=ctx.input_parameters,
-                lineouts=ctx.overlay_lineouts or [],
+                result=result,
                 vmin=vmin,
                 vmax=vmax,
                 figsize=(config.figsize_inches, config.figsize_inches),
@@ -258,14 +264,19 @@ class Image2DRenderer(BaseRenderer):
         # Determine colormap and normalization
         vmin, vmax, cmap = self._get_colormap_params(context.data, config)
 
+        # Create ImageAnalyzerResult from context
+        result = ImageAnalyzerResult(
+            data_type="2d",
+            processed_image=context.data,
+            scalars={},
+            metadata=context.input_parameters,
+        )
+        if context.overlay_lineouts is not None:
+            result.line_data = context.overlay_lineouts
+
         render_func = context.render_function or base_render_image
         fig, ax = render_func(
-            image=context.data,
-            analysis_results_dict=context.input_parameters.get(
-                "analyzer_return_dictionary", {}
-            ),
-            input_params_dict=context.input_parameters,
-            lineouts=context.overlay_lineouts or [],
+            result=result,
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,
@@ -353,14 +364,19 @@ class Image2DRenderer(BaseRenderer):
         # Plot panels
         first_im_artist = None
         for ax, ctx, img, title in zip(axes, contexts, images, titles):
+            # Create ImageAnalyzerResult from context
+            result = ImageAnalyzerResult(
+                data_type="2d",
+                processed_image=img,
+                scalars={},
+                metadata=ctx.input_parameters,
+            )
+            if ctx.overlay_lineouts is not None:
+                result.line_data = ctx.overlay_lineouts
+
             render_func = ctx.render_function or base_render_image
             render_func(
-                image=img,
-                analysis_results_dict=ctx.input_parameters.get(
-                    "analyzer_return_dictionary", {}
-                ),
-                input_params_dict=ctx.input_parameters,
-                lineouts=ctx.overlay_lineouts or [],
+                result=result,
                 vmin=vmin,
                 vmax=vmax,
                 ax=ax,
