@@ -213,20 +213,16 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         # Extract data from lineouts (1D analyzers store data there)
         data_list = []
         for res in self.results.values():
-            lineouts = res.get("analyzer_return_lineouts")
+            lineouts = res.line_data
             if lineouts is not None:
-                # Reconstruct Nx2 array from lineouts [x_array, y_array]
-                data = np.column_stack([lineouts[0], lineouts[1]])
-                data_list.append(data)
+                # line_data is already Nx2 array
+                data_list.append(lineouts)
 
         avg_data = self.average_data(data_list)
 
         if self.flag_save_data:
             # Average scalar results
-            analysis_results = [
-                res.get("analyzer_return_dictionary", {})
-                for res in self.results.values()
-            ]
+            analysis_results = [res.scalars for res in self.results.values()]
             if analysis_results and analysis_results[0]:
                 sums = defaultdict(list)
                 for d in analysis_results:
@@ -252,16 +248,13 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             # Create waterfall plot from all results (chronological order)
             contexts = []
             for shot_num, result in sorted(self.results.items()):
-                lineouts = result.get("analyzer_return_lineouts")
+                lineouts = result.line_data
                 if lineouts is not None:
-                    # Reconstruct Nx2 array from lineouts
-                    data = np.column_stack([lineouts[0], lineouts[1]])
+                    # line_data is already Nx2 array
                     contexts.append(
                         RenderContext(
-                            data=data,
-                            input_parameters=result.get(
-                                "analyzer_input_parameters", {}
-                            ),
+                            data=lineouts,
+                            input_parameters=result.metadata,
                             device_name=self.device_name,
                             identifier=shot_num,
                             parameter_value=float(

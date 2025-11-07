@@ -38,7 +38,7 @@ from scan_analysis.base import ScanAnalyzer
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
-    from image_analysis.types import AnalyzerResultDict
+    from image_analysis.types import ImageAnalyzerResult
     from image_analysis.base import ImageAnalyzer
     from scan_analysis.analyzers.renderers import BaseRenderer
 
@@ -52,7 +52,7 @@ class BinDataEntry(TypedDict):
     """Container for per-bin aggregates."""
 
     value: float
-    result: Optional[AnalyzerResultDict]
+    result: Optional[ImageAnalyzerResult]
 
 
 # %% Base Class
@@ -459,28 +459,25 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         return units
 
-    def _has_valid_result(self, result: AnalyzerResultDict) -> bool:
+    def _has_valid_result(self, result: ImageAnalyzerResult) -> bool:
         """
         Check if analyzer result contains valid data.
 
         Valid data can be in:
         - processed_image (for 2D analyzers)
-        - analyzer_return_lineouts (for 1D analyzers)
+        - line_data (for 1D analyzers)
 
         Parameters
         ----------
-        result : AnalyzerResultDict
-            Result dictionary from analyzer
+        result : ImageAnalyzerResult
+            Result from analyzer
 
         Returns
         -------
         bool
             True if result contains valid data
         """
-        return (
-            result.get("processed_image") is not None
-            or result.get("analyzer_return_lineouts") is not None
-        )
+        return result.processed_image is not None or result.line_data is not None
 
     def _analyze_units(self, analysis_units: dict) -> None:
         """
@@ -504,7 +501,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         the ImageAnalyzer instance.
         """
         logger.info(f"Starting analysis in {self.analysis_mode} mode")
-        self.results: dict[int, AnalyzerResultDict] = {}
+        self.results: dict[int, ImageAnalyzerResult] = {}
 
         use_threads = self.image_analyzer.run_analyze_image_asynchronously
         Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
@@ -527,8 +524,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             for future in as_completed(futures):
                 unit_key, sfile_keys = futures[future]
                 try:
-                    result: AnalyzerResultDict = future.result()
-                    analysis_results = result.get("analyzer_return_dictionary", {})
+                    result: ImageAnalyzerResult = future.result()
+                    analysis_results = result.scalars
 
                     if self._has_valid_result(result):
                         self.results[unit_key] = result
@@ -714,20 +711,13 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
             # Collect data and scalar results
             # For 2D analyzers, collect processed_image; for 1D, it will be None
-            data_list = [self.results[sn].get("processed_image") for sn in valid_shots]
+            data_list = [self.results[sn].processed_image for sn in valid_shots]
             # Filter out None values (for 1D analyzers that use lineouts)
             data_list = [d for d in data_list if d is not None]
-            analysis_results = [
-                self.results[sn].get("analyzer_return_dictionary", {})
-                for sn in valid_shots
-            ]
-            lineouts = [
-                self.results[sn].get("analyzer_return_lineouts") for sn in valid_shots
-            ]
+            analysis_results = [self.results[sn].scalars for sn in valid_shots]
+            lineouts = [self.results[sn].line_data for sn in valid_shots]
             # Extract the first entry in the input parameters
-            input_params = self.results[valid_shots[0]].get(
-                "analyzer_input_parameters", {}
-            )
+            input_params = self.results[valid_shots[0]].metadata
 
             # Average 2D data if present, otherwise None (for 1D analyzers)
             avg_data = self.average_data(data_list) if data_list else None
@@ -739,25 +729,18 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                     sums[k].append(v)
             avg_vals = {k: np.mean(v, axis=0) for k, v in sums.items()}
 
-            if lineouts:
-                # Unzip into two lists: all x-lineouts, all y-lineouts
+            # For 1D data, average the line_data (stored as Nx2 arrays)
+            avg_line_data = None
+            if lineouts and lineouts[0] is not None:
                 try:
-                    x_list = [lo[0] for lo in lineouts if lo is not None]
-                    y_list = [lo[1] for lo in lineouts if lo is not None]
-
-                    avg_x = (
-                        np.mean(np.stack(x_list, axis=0), axis=0) if x_list else None
+                    # Stack all line data and average
+                    stacked = np.stack(
+                        [lo for lo in lineouts if lo is not None], axis=0
                     )
-                    avg_y = (
-                        np.mean(np.stack(y_list, axis=0), axis=0) if y_list else None
-                    )
-
-                    average_lineouts = [avg_x, avg_y]
-                except IndexError:
-                    logger.warning("Lineouts do not have expected shape for overlays")
-                    average_lineouts = None
-            else:
-                average_lineouts = None
+                    avg_line_data = np.mean(stacked, axis=0)
+                except (IndexError, ValueError) as e:
+                    logger.warning(f"Could not average line data: {e}")
+                    avg_line_data = None
 
             # Get representative scan parameter value
             column_full_name, _ = self.find_scan_param_column()
@@ -765,14 +748,29 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 self.auxiliary_data["Bin #"] == bin_val, column_full_name
             ].mean()
 
+            # Import ImageAnalyzerResult to create proper result object
+            from image_analysis.types import ImageAnalyzerResult
+
+            # Determine data_type based on what data is present
+            if avg_data is not None:
+                data_type = "2d"
+            elif avg_line_data is not None:
+                data_type = "1d"
+            else:
+                data_type = "scalars_only"
+
+            # Create ImageAnalyzerResult object
+            binned_result = ImageAnalyzerResult(
+                data_type=data_type,
+                processed_image=avg_data,
+                line_data=avg_line_data,
+                scalars=avg_vals,
+                metadata=input_params,
+            )
+
             binned_data[bin_val] = {
                 "value": float(param_value),
-                "result": {
-                    "processed_image": avg_data,
-                    "analyzer_return_dictionary": avg_vals,
-                    "analyzer_input_parameters": input_params,
-                    "analyzer_return_lineouts": average_lineouts,
-                },
+                "result": binned_result,
             }
 
         return binned_data

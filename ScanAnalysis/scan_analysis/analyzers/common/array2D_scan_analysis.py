@@ -182,15 +182,12 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
         import numpy as np
 
         # Extract processed data from results dict
-        data_list = [res["processed_image"] for res in self.results.values()]
+        data_list = [res.processed_image for res in self.results.values()]
         avg_data = self.average_data(data_list)
 
         if self.flag_save_data:
             # Average scalar results
-            analysis_results = [
-                res.get("analyzer_return_dictionary", {})
-                for res in self.results.values()
-            ]
+            analysis_results = [res.scalars for res in self.results.values()]
             if analysis_results and analysis_results[0]:
                 sums = defaultdict(list)
                 for d in analysis_results:
