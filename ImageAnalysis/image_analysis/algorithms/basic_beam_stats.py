@@ -66,6 +66,7 @@ class BeamStats(NamedTuple):
         Statistics of the +45° “row-after-rotation” projection
         (implemented via NE–SW anti-diagonal sums with no resampling).
     """
+
     image: ImageStats
     x: ProjectionStats
     y: ProjectionStats
@@ -195,11 +196,13 @@ def compute_peak_location(profile: np.ndarray) -> float:
         return np.nan
     return int(np.argmax(profile))
 
+
 def _diag_projection(img: np.ndarray) -> np.ndarray:
     """NW–SE diagonal sums (equivalent to column projection after +45° rotate)."""
     img = np.asarray(img, dtype=float)
     h, w = img.shape
     return np.array([np.diag(img, k=k).sum() for k in range(-(h - 1), w)])
+
 
 def _antidiag_projection(img: np.ndarray) -> np.ndarray:
     """NE–SW anti-diagonal sums (equivalent to row projection after +45° rotate)."""
@@ -207,6 +210,7 @@ def _antidiag_projection(img: np.ndarray) -> np.ndarray:
     flipped = np.fliplr(img)
     h, w = flipped.shape
     return np.array([np.diag(flipped, k=k).sum() for k in range(-(h - 1), w)])
+
 
 def beam_profile_stats(img: np.ndarray) -> BeamStats:
     """Compute beam profile statistics from a 2-D image."""
@@ -219,15 +223,17 @@ def beam_profile_stats(img: np.ndarray) -> BeamStats:
         )
         nan_proj = ProjectionStats(np.nan, np.nan, np.nan, np.nan)
         nan_img = ImageStats(total=total_counts, peak_value=np.nan)
-        return BeamStats(image=nan_img, x=nan_proj, y=nan_proj, x_45=nan_proj, y_45=nan_proj)
+        return BeamStats(
+            image=nan_img, x=nan_proj, y=nan_proj, x_45=nan_proj, y_45=nan_proj
+        )
 
     # Base projections
     x_proj = img.sum(axis=0)
     y_proj = img.sum(axis=1)
 
     # Exact 45° projections via diagonal sums (no padding bias, no interpolation)
-    x45_proj = _diag_projection(img)       # NW–SE
-    y45_proj = _antidiag_projection(img)   # NE–SW
+    x45_proj = _diag_projection(img)  # NW–SE
+    y45_proj = _antidiag_projection(img)  # NE–SW
 
     return BeamStats(
         image=ImageStats(total=total_counts, peak_value=np.max(img)),
