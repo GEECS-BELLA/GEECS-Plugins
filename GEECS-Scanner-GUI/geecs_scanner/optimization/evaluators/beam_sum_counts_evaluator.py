@@ -40,10 +40,8 @@ class MaxCountsEvaluator(MultiDeviceScanEvaluator):
         # Optional: more visibility in logs
         x_CoM = self.get_scalar(self.device_name, "x_CoM", scalar_results)
         y_CoM = self.get_scalar(self.device_name, "y_CoM", scalar_results)
-        peak_value = self.get_scalar(self.device_name, "image_peak_value", scalar_results)
+        peak_value = self.get_scalar(
+            self.device_name, "image_peak_value", scalar_results
+        )
 
-        return {
-            "x_CoM": x_CoM,
-            "y_CoM": y_CoM,
-            "image_peak_value": peak_value
-        }
+        return {"x_CoM": x_CoM, "y_CoM": y_CoM, "image_peak_value": peak_value}
