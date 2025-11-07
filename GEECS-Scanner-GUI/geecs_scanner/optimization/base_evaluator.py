@@ -116,7 +116,7 @@ class BaseEvaluator(ABC):
         self.current_data_bin: Optional[pd.DataFrame] = None
         self.current_shot_numbers: Optional[List] = None
         self.objective_tag = "BeamPosition"
-        self.output_key = None          # <-- no objective for BAX
+        self.output_key = None  # <-- no objective for BAX
 
         self.scan_tag = self.scan_data_manager.scan_paths.get_tag()
 
@@ -422,6 +422,7 @@ class BaseEvaluator(ABC):
             logger.info("Logged %s = %s for shot %s", key, v, shot_num)
 
     def log_results_for_current_bin(self, results: Dict[str, float]) -> None:
+        """Add results to the sfile data, duplicating results across each shot in the bin."""
         if self.current_shot_numbers is None or len(self.current_shot_numbers) == 0:
             logger.warning("No shots found for current bin %s", self.bin_number)
             return

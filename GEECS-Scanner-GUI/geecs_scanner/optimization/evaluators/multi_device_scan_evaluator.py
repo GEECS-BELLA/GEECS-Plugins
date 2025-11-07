@@ -251,13 +251,19 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
 
     def _get_value(self, input_data: Dict) -> Dict[str, float]:
         """
+        Execute ScanAnalyzers for relevant diagnostics, use reults to compute objective.
+
         Assumes BaseEvaluator.get_value() already refreshed current data and will log results.
         Returns a dict of outputs. If `self.output_key` is not None, the dict will include it.
         """
         all_scalar_results: Dict[str, float] = {}
 
         for device_name, analyzer in self.scan_analyzers.items():
-            logger.info("Running analyzer for device '%s' on bin %s", device_name, self.bin_number)
+            logger.info(
+                "Running analyzer for device '%s' on bin %s",
+                device_name,
+                self.bin_number,
+            )
 
             analyzer.auxiliary_data = self.current_data_bin
             analyzer.run_analysis(scan_tag=self.scan_tag)
@@ -266,9 +272,15 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             if result:
                 scalars = result.get("analyzer_return_dictionary", {})
                 all_scalar_results.update(scalars)
-                logger.info("Extracted %d scalar results from '%s'", len(scalars), device_name)
+                logger.info(
+                    "Extracted %d scalar results from '%s'", len(scalars), device_name
+                )
             else:
-                logger.warning("No results found for bin %s from '%s'", self.bin_number, device_name)
+                logger.warning(
+                    "No results found for bin %s from '%s'",
+                    self.bin_number,
+                    device_name,
+                )
 
         outputs: Dict[str, float] = {}
 
@@ -276,14 +288,19 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         output_key = getattr(self, "output_key", None)
         if output_key is not None:
             objective_value = float(
-                self.compute_objective(scalar_results=all_scalar_results, bin_number=self.bin_number)
+                self.compute_objective(
+                    scalar_results=all_scalar_results, bin_number=self.bin_number
+                )
             )
             outputs[output_key] = objective_value
 
         # Optional extras
-        extra = self.compute_observables(
-            scalar_results=all_scalar_results, bin_number=self.bin_number
-        ) or {}
+        extra = (
+            self.compute_observables(
+                scalar_results=all_scalar_results, bin_number=self.bin_number
+            )
+            or {}
+        )
 
         # Prevent overriding the objective key
         if output_key is not None and output_key in extra:
