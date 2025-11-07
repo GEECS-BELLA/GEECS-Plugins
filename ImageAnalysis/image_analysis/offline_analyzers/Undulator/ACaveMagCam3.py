@@ -7,11 +7,12 @@ of rectangular regions in ACaveMagCam3 images.
 
 from __future__ import annotations
 
-from typing import Union, Optional
+from typing import Optional
 from pathlib import Path
 
 import numpy as np
 from image_analysis.base import ImageAnalyzer
+from image_analysis.types import ImageAnalyzerResult
 
 
 class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
@@ -35,7 +36,7 @@ class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[dict] = None
-    ) -> dict[str, Union[float, int, str, np.ndarray]]:
+    ) -> ImageAnalyzerResult:
         """Analyze an ACaveMagCam3 image by computing fixed ROI statistics.
 
         Parameters
@@ -47,12 +48,8 @@ class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
 
         Returns
         -------
-        dict
-            Standard `ImageAnalyzer` result dictionary containing:
-            - ROI averages (float64)
-            - ROI totals
-            - ROI maxima
-            - The last ROI image (if available)
+        ImageAnalyzerResult
+            Result containing ROI statistics and the last extracted ROI image.
         """
         rois = {
             "ACaveMagCam3 High Energy ROI": (665, 130, 110, 110),
@@ -69,16 +66,15 @@ class ACaveMagCam3ImageAnalyzer(ImageAnalyzer):
             roi_analysis_result[f"{roi_name}:total"] = total
             roi_analysis_result[f"{roi_name}:max"] = max_val
 
-        if roi_image is None:
-            return_dictionary = self.build_return_dictionary(
-                return_scalars=roi_analysis_result
-            )
-        else:
-            return_dictionary = self.build_return_dictionary(
-                return_image=roi_image, return_scalars=roi_analysis_result
-            )
+        # Create result with ROI image (or original if no ROI extracted)
+        result = ImageAnalyzerResult(
+            data_type="2d",
+            processed_image=roi_image if roi_image is not None else image,
+            scalars=roi_analysis_result,
+            metadata=auxiliary_data if auxiliary_data else {},
+        )
 
-        return return_dictionary
+        return result
 
 
 if __name__ == "__main__":

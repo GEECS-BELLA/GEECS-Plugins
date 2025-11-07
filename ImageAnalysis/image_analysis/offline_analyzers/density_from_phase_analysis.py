@@ -30,6 +30,7 @@ import logging
 
 from image_analysis.base import ImageAnalyzer
 from image_analysis.utils import read_imaq_image
+from image_analysis.types import ImageAnalyzerResult
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -486,8 +487,8 @@ class PhaseDownrampProcessor(ImageAnalyzer):
 
     def analyze_image(
         self, image: np.array, auxiliary_data: Optional[dict] = None
-    ) -> dict[str, Union[float, int, str, np.ndarray]]:
-        """Analyze a phase map for downramp features and return results dictionary.
+    ) -> ImageAnalyzerResult:
+        """Analyze a phase map for downramp features and return ImageAnalyzerResult.
 
         Parameters
         ----------
@@ -498,8 +499,8 @@ class PhaseDownrampProcessor(ImageAnalyzer):
 
         Returns
         -------
-        dict
-            Standard `ImageAnalyzer` return dictionary with processed image and scalars.
+        ImageAnalyzerResult
+            Result with processed phase image and shock analysis scalars.
         """
         self.file_path = (
             Path(auxiliary_data["file_path"])
@@ -520,11 +521,15 @@ class PhaseDownrampProcessor(ImageAnalyzer):
         phase_converted = phase_scale_16bit_scale * phase_converted
         phase_converted = phase_converted.astype(np.uint16)
 
-        return_dictionary = self.build_return_dictionary(
-            return_image=phase_converted, return_scalars=scalar_results_dict
+        # Create ImageAnalyzerResult
+        result = ImageAnalyzerResult(
+            data_type="2d",
+            processed_image=phase_converted,
+            scalars=scalar_results_dict,
+            metadata=auxiliary_data if auxiliary_data else {},
         )
 
-        return return_dictionary
+        return result
 
     def compile_shock_analysis(
         self, phase_array: NDArray, window_size: int = 20
