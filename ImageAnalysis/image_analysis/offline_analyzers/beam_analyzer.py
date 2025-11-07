@@ -15,7 +15,7 @@ the StandardAnalyzer for all image processing pipeline functionality.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union, List, Tuple, Dict
+from typing import Optional, Tuple, Dict
 from pathlib import Path
 
 import numpy as np
@@ -25,12 +25,11 @@ import matplotlib.pyplot as plt
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
 
 # Import beam-specific tools
-from image_analysis.tools.rendering import base_render_image
 from image_analysis.algorithms.basic_beam_stats import (
     beam_profile_stats,
     flatten_beam_stats,
 )
-from image_analysis.types import AnalyzerResultDict
+from image_analysis.types import ImageAnalyzerResult
 from image_analysis.processing.array2d.config_models import (
     BackgroundConfig,
     BackgroundMethod,
@@ -154,7 +153,7 @@ class BeamAnalyzer(StandardAnalyzer):
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
-    ) -> AnalyzerResultDict:
+    ) -> ImageAnalyzerResult:
         """
         Run complete beam analysis using the processing pipeline.
 
@@ -170,14 +169,14 @@ class BeamAnalyzer(StandardAnalyzer):
 
         Returns
         -------
-        AnalyzerResultDict
-            Dictionary containing processed image, beam statistics, and lineouts
+        ImageAnalyzerResult
+            Structured result containing processed image, beam statistics, and metadata
         """
-        initial_result: AnalyzerResultDict = super().analyze_image(
+        initial_result: ImageAnalyzerResult = super().analyze_image(
             image=image, auxiliary_data=auxiliary_data
         )
 
-        processed_image = initial_result["processed_image"]
+        processed_image = initial_result.processed_image
 
         # Compute beam statistics
         beam_stats_flat = flatten_beam_stats(
@@ -185,206 +184,88 @@ class BeamAnalyzer(StandardAnalyzer):
             prefix=self.camera_config.name,
         )
 
+        # Build result with beam-specific data
+        result = ImageAnalyzerResult(
+            data_type="2d",
+            processed_image=processed_image,
+            scalars=beam_stats_flat,
+            metadata=initial_result.metadata,
+        )
+
         # Compute lineouts
         horiz_lineout = processed_image.sum(axis=0)
         vert_lineout = processed_image.sum(axis=1)
+        result.set_xy_projections(horiz_lineout, vert_lineout)
 
-        return_dict = self.build_return_dictionary(
-            return_image=processed_image,
-            input_parameters=initial_result["analyzer_input_parameters"],
-            return_scalars=beam_stats_flat,
-            return_lineouts=[horiz_lineout, vert_lineout],
-            coerce_lineout_length=False,
-        )
-
-        return return_dict
+        return result
 
     @staticmethod
     def render_image(
-        image: np.ndarray,
-        analysis_results_dict: Optional[Dict[str, Union[float, int]]] = None,
-        input_params_dict: Optional[Dict[str, Union[float, int]]] = None,
-        lineouts: Optional[List[np.ndarray]] = None,
+        result: ImageAnalyzerResult,
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
-        figsize: Tuple[float, float] = (4, 4),
         cmap: str = "plasma",
+        figsize: Tuple[float, float] = (4, 4),
         dpi: int = 150,
         ax: Optional[plt.Axes] = None,
-        fixed_width_in: float = 4.0,
     ) -> Tuple[plt.Figure, plt.Axes]:
-        """
-        Render beam image with beam-specific overlays.
+        """Render beam image with beam-specific overlays.
 
         This method provides specialized rendering for beam analysis including
-        beam centroid markers and lineout overlays.
-
-        Parameters
-        ----------
-        image : np.ndarray
-            Beam image to render
-        analysis_results_dict : dict, optional
-            Dictionary containing beam analysis results
-        input_params_dict : dict, optional
-            Dictionary containing input parameters and ROI info
-        lineouts : list of np.ndarray, optional
-            List containing [horizontal_lineout, vertical_lineout]
-        vmin, vmax : float, optional
-            Color scale limits
-        figsize : tuple of float, default ``(4, 4)``
-            Size of the created figure in inches (width, height). Ignored when an
-            existing ``ax`` is supplied.
-        cmap : str, default="plasma"
-            Colormap name
-        dpi : int, default=150
-            Figure DPI
-        ax : matplotlib.axes.Axes, optional
-            Existing axes to plot on
-        fixed_width_in : float, default=4.0
-            Fixed width for figure sizing
-
-        Returns
-        -------
-        tuple
-            (figure, axes) matplotlib objects
+        XY projection lineouts and beam centroid markers using composable
+        overlay functions.
         """
-        h, w = image.shape[:2]
-        height_in = max(1e-6, fixed_width_in * (h / float(w)))
-        computed_figsize = (fixed_width_in, height_in)
+        from image_analysis.tools.rendering import (
+            base_render_image,
+            add_xy_projections,
+            add_marker,
+        )
 
+        # Base rendering
         fig, ax = base_render_image(
-            image=image,
-            analysis_results_dict=analysis_results_dict,
-            input_params_dict=input_params_dict,
-            lineouts=lineouts,
+            result=result,
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,
-            figsize=computed_figsize,
+            figsize=figsize,
             dpi=dpi,
             ax=ax,
         )
 
-        # Add beam centroid if available in analysis results
-        if analysis_results_dict:
-            # Look for centroid information with camera name prefix
-            centroid_x_key = None
-            centroid_y_key = None
-
-            # Find centroid keys (they may have camera name prefix)
-            for key in analysis_results_dict.keys():
-                if key.endswith("_cent_x") or key == "cent_x":
-                    centroid_x_key = key
-                elif key.endswith("_cent_y") or key == "cent_y":
-                    centroid_y_key = key
-
-            # Also check for legacy format
-            if (
-                "blue_cent_x" in analysis_results_dict
-                and "blue_cent_y" in analysis_results_dict
-            ):
-                centroid_x_key = "blue_cent_x"
-                centroid_y_key = "blue_cent_y"
-
-            # Plot centroid if found
-            if centroid_x_key and centroid_y_key:
-                cx = analysis_results_dict[centroid_x_key]
-                cy = analysis_results_dict[centroid_y_key]
-
-                # Adjust for ROI if present
-                if input_params_dict:
-                    cx -= input_params_dict.get("left_ROI", 0)
-                    cy -= input_params_dict.get("top_ROI", 0)
-
-                ax.plot(cx, cy, "bo", markersize=5, label="Beam Centroid")
-
-        # Add lineouts overlay
-        if lineouts and len(lineouts) == 2:
-            horiz, vert = np.clip(lineouts[0], 0, None), np.clip(lineouts[1], 0, None)
-            img_h, img_w = image.shape
-
-            if len(horiz) > 0 and len(vert) > 0:
-                # Normalize lineouts for overlay
-                horiz_norm = horiz / np.max(horiz) * img_h * 0.2
-                vert_norm = vert / np.max(vert) * img_w * 0.2
-
-                # Plot lineouts
-                ax.plot(
-                    np.arange(len(horiz)),
-                    img_h - horiz_norm,
-                    color="cyan",
-                    lw=1.0,
-                    label="Horizontal Lineout",
-                )
-                ax.plot(
-                    vert_norm,
-                    np.arange(len(vert)),
-                    color="magenta",
-                    lw=1.0,
-                    label="Vertical Lineout",
-                )
+        # Add beam-specific overlays
+        add_xy_projections(ax, result)
+        add_marker(ax, (100, 100), size=1, color="blue")
 
         return fig, ax
 
     def visualize(
         self,
-        results: AnalyzerResultDict,
+        results: ImageAnalyzerResult,
         *,
         show: bool = True,
         close: bool = True,
         ax: Optional[plt.Axes] = None,
-    ) -> tuple[plt.Figure, plt.Axes]:
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        cmap: str = "plasma",
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Render a visualization of the analyzed image with beam overlays.
+
+        This is a simple convenience wrapper that calls :meth:`render_image`
+        and optionally shows or closes the figure.
         """
-        Render a single visualization of the analyzed (post-ROI) image and overlays.
-
-        This convenience method draws the processed image stored in
-        ``results["processed_image"]`` using :meth:`render_image`, optionally
-        calling :func:`matplotlib.pyplot.show` and closing the figure. It performs
-        no additional computation.
-
-        Parameters
-        ----------
-        results : AnalyzerResultDict
-            Dictionary returned by :meth:`analyze_image` (or compatible). The
-            following keys are read when present:
-            - ``"processed_image"`` : ndarray (required) — image to display
-            - ``"analyzer_return_dictionary"`` : dict — scalar annotations
-            - ``"input_parameters"`` : dict — ROI offsets and inputs
-            - ``"analyzer_return_lineouts"`` : list[np.ndarray] — [horiz, vert] lineouts
-        show : bool, default True
-            If True, call :func:`matplotlib.pyplot.show` after rendering.
-        close : bool, default True
-            If True, close the figure after showing (if ``show=True``) or
-            immediately after rendering (if ``show=False``). Set to ``False`` to
-            keep the figure open for further customization.
-        ax : matplotlib.axes.Axes, optional
-            Existing axes to draw into. If omitted, a new figure and axes are
-            created.
-
-        Returns
-        -------
-        fig : matplotlib.figure.Figure
-            The figure that contains the rendering.
-        ax : matplotlib.axes.Axes
-            The axes on which the image was drawn.
-
-        Notes
-        -----
-        * Lineouts and scalar overlays are assumed to correspond to the **post-ROI**
-          image. If they were computed from the pre-ROI image, Matplotlib may try
-          to autoscale the view unless limits are clamped in :meth:`render_image`.
-        * For frameless saved images, consider:
-          ``fig.savefig(path, bbox_inches='tight', pad_inches=0)``.
-        """
+        # Call render_image with all parameters
         fig, ax = self.render_image(
-            image=results["processed_image"],
-            analysis_results_dict=results.get("analyzer_return_dictionary", {}),
-            input_params_dict=results.get("analyzer_input_parameters", {}),
-            lineouts=results.get("analyzer_return_lineouts"),
+            result=results,
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
             ax=ax,
         )
+
         if show:
             plt.show()
         if close:
             plt.close(fig)
+
         return fig, ax

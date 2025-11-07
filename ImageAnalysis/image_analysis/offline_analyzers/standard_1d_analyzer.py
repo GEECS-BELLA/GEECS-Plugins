@@ -24,7 +24,7 @@ from image_analysis.base import ImageAnalyzer
 from image_analysis.config_loader import load_line_config
 from image_analysis.data_1d_utils import read_1d_data
 from image_analysis.processing.array1d.pipeline import apply_line_processing_pipeline
-from image_analysis.types import Array1D, AnalyzerResultDict
+from image_analysis.types import Array1D, ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None
-    ) -> AnalyzerResultDict:
+    ) -> ImageAnalyzerResult:
         """Analyze 1D data.
 
         Note: Method is named 'analyze_image' for compatibility with base class,
@@ -144,8 +144,8 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         Returns
         -------
-        AnalyzerResultDict
-            Dictionary containing processed data in lineouts (not processed_image)
+        ImageAnalyzerResult
+            Structured result containing processed 1D data and metadata
         """
         # If metadata not already cached AND file_path is available, load it
         if (
@@ -161,16 +161,15 @@ class Standard1DAnalyzer(ImageAnalyzer):
         # Build input parameters
         input_params = self._build_input_parameters(auxiliary_data)
 
-        # Split Nx2 array into x and y for lineouts
-        x_data = processed[:, 0]
-        y_data = processed[:, 1]
-
-        # Build and return result dictionary with data in lineouts
-        return self.build_return_dictionary(
-            return_image=None,  # No 2D image for 1D data
-            return_lineouts=[x_data, y_data],  # Data goes here
-            input_parameters=input_params,
+        # Build and return result with 1D data
+        result = ImageAnalyzerResult(
+            data_type="1d",
+            line_data=processed,  # Nx2 array
+            scalars={},  # No scalars by default, subclasses can add them
+            metadata=input_params,
         )
+
+        return result
 
     def _build_input_parameters(
         self, auxiliary_data: Optional[Dict] = None
