@@ -7,9 +7,8 @@ It also provides RenderContext for bundling data with metadata.
 
 from __future__ import annotations
 
-from typing import Optional, Literal, Tuple, Dict, Any, Union, List, Callable
+from typing import Optional, Literal, Tuple, Dict, Any, Union, Callable
 from dataclasses import dataclass
-import numpy as np
 from pydantic import BaseModel, Field
 
 from image_analysis.types import ImageAnalyzerResult
@@ -150,15 +149,16 @@ class Image2DRendererConfig(BaseRendererConfig):
 class RenderContext:
     """Complete context for rendering a single dataset.
 
-    Bundles data, metadata, and identification info needed for rendering.
+    Bundles the complete ImageAnalyzerResult with scan metadata.
     Separates "what to render" (context) from "how to render" (config).
+
+    This design preserves all analyzer output (render_data, custom fields, etc.)
+    by passing the complete result object instead of extracting pieces.
 
     Attributes
     ----------
-    data : np.ndarray
-        The processed data to render (1D or 2D array)
-    input_parameters : dict
-        Analyzer input parameters including labels, units, etc.
+    result : ImageAnalyzerResult
+        The complete analyzer result with all data, scalars, metadata, and render_data
     device_name : str
         Name of the device being analyzed
     identifier : int or str
@@ -167,21 +167,13 @@ class RenderContext:
         Name of the scan parameter (for scan context)
     parameter_value : float, optional
         Value of the scan parameter for this data
-    overlay_lineouts : list[np.ndarray], optional
-        Lineouts to overlay on rendered images
-    render_function : callable, optional
-        Custom render function (e.g., ImageAnalyzer.render_image) to use when
-        creating visualizations
     """
 
-    data: np.ndarray
-    input_parameters: Dict[str, Any]
+    result: ImageAnalyzerResult
     device_name: str
     identifier: Union[int, str]
     scan_parameter: Optional[str] = None
     parameter_value: Optional[float] = None
-    overlay_lineouts: Optional[List[np.ndarray]] = None
-    render_function: Optional[Callable[..., Any]] = None
 
     @classmethod
     def from_bin_result(
@@ -194,7 +186,8 @@ class RenderContext:
     ) -> "RenderContext":
         """Create RenderContext from binned_data entry.
 
-        Handles both 2D data (in processed_image) and 1D data (in line_data).
+        Passes the complete ImageAnalyzerResult to preserve all data
+        including render_data and custom fields.
 
         Parameters
         ----------
@@ -206,8 +199,8 @@ class RenderContext:
             Name of the device
         scan_parameter : str, optional
             Name of the scan parameter
-        render_function : Callable
-            function to render the data
+        render_function : Callable, optional
+            Custom render function (overrides result.render_function if provided)
 
         Returns
         -------
@@ -216,23 +209,16 @@ class RenderContext:
         """
         result = bin_entry["result"]
 
-        # Extract data from either processed_image (2D) or line_data (1D)
-        data = result.processed_image
-        line_data = result.line_data
-
-        # For 1D data, line_data is already Nx2 array
-        if data is None and line_data is not None:
-            data = line_data
+        # Allow override of render function if provided
+        if render_function is not None:
+            result.render_function = render_function
 
         return cls(
-            data=data,
-            input_parameters=result.metadata,
+            result=result,
             device_name=device_name,
             identifier=bin_key,
             scan_parameter=scan_parameter,
             parameter_value=bin_entry.get("value"),
-            overlay_lineouts=line_data,
-            render_function=render_function,
         )
 
     @classmethod
@@ -245,6 +231,9 @@ class RenderContext:
     ) -> "RenderContext":
         """Create RenderContext from single shot result.
 
+        Passes the complete ImageAnalyzerResult to preserve all data
+        including render_data and custom fields.
+
         Parameters
         ----------
         shot_number : int
@@ -253,30 +242,26 @@ class RenderContext:
             Analyzer result object
         device_name : str
             Name of the device
+        render_function : Callable, optional
+            Custom render function (overrides result.render_function if provided)
 
         Returns
         -------
         RenderContext
             Initialized context ready for rendering
         """
-        data = result.processed_image
-        line_data = result.line_data
-
-        # For 1D data, line_data is already Nx2 array
-        if data is None and line_data is not None:
-            data = line_data
+        # Allow override of render function if provided
+        if render_function is not None:
+            result.render_function = render_function
 
         return cls(
-            data=data,
-            input_parameters=result.metadata,
+            result=result,
             device_name=device_name,
             identifier=shot_number,
-            overlay_lineouts=line_data,
-            render_function=render_function,
         )
 
     def get_metadata_kwargs(self) -> Dict[str, str]:
-        """Extract visualization metadata (labels, units) from input_parameters.
+        """Extract visualization metadata (labels, units) from result.metadata.
 
         Returns
         -------
@@ -284,9 +269,9 @@ class RenderContext:
             Dictionary containing x_label, y_label, x_units, y_units if present
         """
         return {
-            k: self.input_parameters.get(k)
+            k: self.result.metadata.get(k)
             for k in ["x_label", "y_label", "x_units", "y_units"]
-            if k in self.input_parameters
+            if k in self.result.metadata
         }
 
     def get_filename(self, suffix: str, extension: str = "png") -> str:
