@@ -7,8 +7,19 @@ structure of results returned by analyzers.
 Also provides the modern :class:`ImageAnalyzerResult` Pydantic model for new analyzers.
 """
 
-from typing import NewType, TYPE_CHECKING, Any, Union, Optional, Callable, Dict, Literal
+from typing import (
+    NewType,
+    TYPE_CHECKING,
+    Any,
+    Union,
+    Optional,
+    Callable,
+    Dict,
+    Literal,
+    List,
+)
 from pydantic import BaseModel, Field, ConfigDict, field_validator
+import logging
 
 # exception to handle python 3.7
 try:
@@ -19,11 +30,14 @@ except ImportError:
 # Import numpy types for runtime use
 try:
     from numpy.typing import NDArray
+    import numpy as np
 except ImportError:
     # Fallback for older numpy versions
     import numpy as np
 
     NDArray = np.ndarray
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pint import Quantity
@@ -63,6 +77,9 @@ class AnalyzerResultDict(TypedDict):
 # ============================================================================
 # MODERN TYPES (Pydantic Models)
 # ============================================================================
+
+# Type alias for render_data values
+RenderDataValue = Union[float, List[float], NDArray]
 
 
 class ImageAnalyzerResult(BaseModel):
@@ -147,7 +164,13 @@ class ImageAnalyzerResult(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     # RENDERING
-    render_data: Dict[str, Any] = Field(default_factory=dict)
+    render_data: Dict[str, RenderDataValue] = Field(default_factory=dict)
+    """Rendering overlays and annotations. Flat dict of numeric data:
+
+    - Scalars: {"threshold": 0.5, "roi_size": 100}
+    - Lists: {"peak_positions": [120, 340, 560]}
+    - Arrays: {"horizontal_projection": np.ndarray, "vertical_projection": np.ndarray}
+    """
     render_function: Optional[Callable] = None
 
     # === CONFIGURATION ===
@@ -214,10 +237,8 @@ class ImageAnalyzerResult(BaseModel):
         vertical : NDArray
             Vertical (y-axis) projection of the image
         """
-        self.render_data["xy_projections"] = {
-            "horizontal": horizontal,
-            "vertical": vertical,
-        }
+        self.render_data["horizontal_projection"] = horizontal
+        self.render_data["vertical_projection"] = vertical
 
     def get_xy_projections(self) -> Optional[tuple[NDArray, NDArray]]:
         """Get xy projections if they exist.
@@ -227,7 +248,110 @@ class ImageAnalyzerResult(BaseModel):
         tuple of (horizontal, vertical) NDArrays, or None
             The projection data if set, otherwise None
         """
-        if "xy_projections" in self.render_data:
-            proj = self.render_data["xy_projections"]
-            return proj["horizontal"], proj["vertical"]
+        h = self.render_data.get("horizontal_projection")
+        v = self.render_data.get("vertical_projection")
+        if h is not None and v is not None:
+            return h, v
         return None
+
+    @classmethod
+    def average(cls, results: List["ImageAnalyzerResult"]) -> "ImageAnalyzerResult":
+        """Average multiple ImageAnalyzerResult objects.
+
+        Averages all numerical data using nanmean to handle NaN values.
+        Validates that render_data keys are consistent across results.
+
+        Parameters
+        ----------
+        results : list[ImageAnalyzerResult]
+            List of results to average (must all have same data_type)
+
+        Returns
+        -------
+        ImageAnalyzerResult
+            New result with averaged data
+
+        Raises
+        ------
+        ValueError
+            If results list is empty or data_types don't match
+
+        Warns
+        -----
+        If render_data keys are inconsistent across results
+        """
+        if not results:
+            raise ValueError("Cannot average empty list of results")
+
+        # Verify all have same data_type
+        data_types = {r.data_type for r in results}
+        if len(data_types) > 1:
+            raise ValueError(
+                f"Cannot average results with different data_types: {data_types}"
+            )
+
+        data_type = results[0].data_type
+
+        # Average primary data using nanmean
+        if data_type == "2d":
+            images = [
+                r.processed_image for r in results if r.processed_image is not None
+            ]
+            avg_image = np.nanmean(images, axis=0) if images else None
+            avg_line = None
+        elif data_type == "1d":
+            lines = [r.line_data for r in results if r.line_data is not None]
+            avg_line = np.nanmean(lines, axis=0) if lines else None
+            avg_image = None
+        else:  # scalars_only
+            avg_image = None
+            avg_line = None
+
+        # Average scalars using nanmean
+        all_scalars = [r.scalars for r in results if r.scalars]
+        avg_scalars = {}
+        if all_scalars:
+            for key in all_scalars[0].keys():
+                values = [s[key] for s in all_scalars if key in s]
+                avg_scalars[key] = float(np.nanmean(values))
+
+        # Check render_data key consistency and warn if inconsistent
+        all_keys_sets = [set(r.render_data.keys()) for r in results]
+        expected_keys = all_keys_sets[0] if all_keys_sets else set()
+        inconsistent = any(keys != expected_keys for keys in all_keys_sets)
+
+        if inconsistent:
+            all_unique_keys = set().union(*all_keys_sets)
+            logger.warning(
+                f"Inconsistent render_data keys across results. "
+                f"Expected {expected_keys}, found union of {all_unique_keys}. "
+                f"This may indicate a poorly implemented analyzer."
+            )
+
+        # Average render_data using union of all keys
+        avg_render_data = {}
+        all_keys = set().union(*all_keys_sets) if all_keys_sets else set()
+
+        for key in all_keys:
+            values = [r.render_data[key] for r in results if key in r.render_data]
+
+            if not values:
+                continue
+
+            first_val = values[0]
+            if isinstance(first_val, np.ndarray):
+                avg_render_data[key] = np.nanmean(values, axis=0)
+            elif isinstance(first_val, list):
+                avg_render_data[key] = np.nanmean(values, axis=0).tolist()
+            elif isinstance(first_val, (int, float)):
+                avg_render_data[key] = float(np.nanmean(values))
+
+        return cls(
+            data_type=data_type,
+            processed_image=avg_image,
+            line_data=avg_line,
+            scalars=avg_scalars,
+            metadata=results[0].metadata.copy() if results[0].metadata else {},
+            render_data=avg_render_data,
+            render_function=results[0].render_function,
+        )
