@@ -264,6 +264,7 @@ def add_xy_projections(
 
     horiz, vert = projections
     img_h, img_w = result.processed_image.shape
+    img_h = img_h - 1
 
     if len(horiz) == 0 or len(vert) == 0:
         return
