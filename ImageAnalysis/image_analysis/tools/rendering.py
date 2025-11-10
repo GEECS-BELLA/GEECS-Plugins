@@ -188,10 +188,11 @@ def add_line_overlay(
 
     # Plot based on direction
     if direction == "horizontal":
-        # Horizontal line: x varies, y is offset + scaled amplitude
+        # Horizontal line: x varies, y is offset - scaled amplitude
+        # (subtract because y increases downward in image coordinates)
         x_vals = np.arange(len(line_data))
         scaled_amplitude = line_data * abs(img_height) * scale
-        y_vals = offset + scaled_amplitude
+        y_vals = offset - scaled_amplitude
 
         ax.plot(
             x_vals,
