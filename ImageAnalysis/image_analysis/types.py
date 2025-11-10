@@ -313,7 +313,14 @@ class ImageAnalyzerResult(BaseModel):
         if all_scalars:
             for key in all_scalars[0].keys():
                 values = [s[key] for s in all_scalars if key in s]
-                avg_scalars[key] = float(np.nanmean(values))
+                if not values:
+                    # Key missing from all results - skip it
+                    continue
+                # Check if all values are NaN - if so, return NaN without warning
+                if all(np.isnan(v) for v in values):
+                    avg_scalars[key] = np.nan
+                else:
+                    avg_scalars[key] = float(np.nanmean(values))
 
         # Check render_data key consistency and warn if inconsistent
         all_keys_sets = [set(r.render_data.keys()) for r in results]
