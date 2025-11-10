@@ -192,10 +192,12 @@ class BeamAnalyzer(StandardAnalyzer):
             metadata=initial_result.metadata,
         )
 
-        # Compute lineouts
-        horiz_lineout = processed_image.sum(axis=0)
-        vert_lineout = processed_image.sum(axis=1)
-        result.set_xy_projections(horiz_lineout, vert_lineout)
+        # Add projection overlays for rendering
+        if processed_image is not None:
+            result.render_data = {
+                "horizontal_projection": processed_image.sum(axis=0),
+                "vertical_projection": processed_image.sum(axis=1),
+            }
 
         return result
 
