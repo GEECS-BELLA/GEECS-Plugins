@@ -119,8 +119,13 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
             metadata=initial_result.metadata,
         )
 
-        # Store bowtie weights lineout in render_data for overlay
-        result.render_data["bowtie_weights"] = np.array(bowtie_result.weights)
+        # Add render data: projections + bowtie weights
+        if initial_result.processed_image is not None:
+            result.render_data = {
+                "horizontal_projection": initial_result.processed_image.sum(axis=0),
+                "vertical_projection": initial_result.processed_image.sum(axis=1),
+                "bowtie_weights": np.array(bowtie_result.weights),
+            }
 
         return result
 
