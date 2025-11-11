@@ -964,7 +964,7 @@ all = ["flake8 (>=7.1.1)", "mypy (>=1.11.2)", "pytest (>=8.3.2)", "ruff (>=0.6.2
 
 [[package]]
 name = "imageanalysis"
-version = "0.3.0"
+version = "1.0.0"
 description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
 optional = false
 python-versions = ">=3.7,<3.11"
