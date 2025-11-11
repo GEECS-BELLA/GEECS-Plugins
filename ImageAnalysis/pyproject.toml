@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "imageanalysis"
-version = "0.3.0"
+version = "1.0.0"
 description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
 authors = ["Reinier van Mourik <reinier.vanmourik@tausystems.com>"]
 readme = "README.md"
