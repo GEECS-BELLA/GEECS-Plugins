@@ -178,6 +178,7 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
         - An animated GIF showing temporal evolution
         """
         from scan_analysis.analyzers.renderers.config import RenderContext
+        from image_analysis.types import ImageAnalyzerResult
         from collections import defaultdict
         import numpy as np
 
@@ -197,12 +198,20 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
             else:
                 avg_scalars = {}
 
+            # Create ImageAnalyzerResult for averaged data
+            avg_result = ImageAnalyzerResult(
+                data_type="2d",
+                processed_image=avg_data,
+                scalars=avg_scalars,
+                metadata={"analyzer_return_dictionary": avg_scalars},
+                render_function=self.image_analyzer.render_image,
+            )
+
             # Create RenderContext for average
-            avg_context = RenderContext(
-                data=avg_data,
-                input_parameters={"analyzer_return_dictionary": avg_scalars},
+            avg_context = RenderContext.from_analyzer_result(
+                shot_number="average",
+                result=avg_result,
                 device_name=self.device_name,
-                identifier="average",
                 render_function=self.image_analyzer.render_image,
             )
 

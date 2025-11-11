@@ -207,6 +207,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         TODO: Add standard deviation visualization to the average plot
         """
         from scan_analysis.analyzers.renderers.config import RenderContext
+        from image_analysis.types import ImageAnalyzerResult
         from collections import defaultdict
         import numpy as np
 
@@ -232,12 +233,19 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             else:
                 avg_scalars = {}
 
+            # Create ImageAnalyzerResult for averaged data
+            avg_result = ImageAnalyzerResult(
+                data_type="1d",
+                line_data=avg_data,
+                scalars=avg_scalars,
+                metadata={"analyzer_return_dictionary": avg_scalars},
+            )
+
             # Create RenderContext for average
-            avg_context = RenderContext(
-                data=avg_data,
-                input_parameters={"analyzer_return_dictionary": avg_scalars},
+            avg_context = RenderContext.from_analyzer_result(
+                shot_number="average",
+                result=avg_result,
                 device_name=self.device_name,
-                identifier="average",
             )
 
             config = self._get_renderer_config()
@@ -248,21 +256,17 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             # Create waterfall plot from all results (chronological order)
             contexts = []
             for shot_num, result in sorted(self.results.items()):
-                lineouts = result.line_data
-                if lineouts is not None:
-                    # line_data is already Nx2 array
-                    contexts.append(
-                        RenderContext(
-                            data=lineouts,
-                            input_parameters=result.metadata,
-                            device_name=self.device_name,
-                            identifier=shot_num,
-                            parameter_value=float(
-                                shot_num
-                            ),  # Use shot number as y-axis
-                            scan_parameter="Shot Number",
-                        )
+                if result.line_data is not None:
+                    # Create context with parameter_value for waterfall y-axis
+                    ctx = RenderContext.from_analyzer_result(
+                        shot_number=shot_num,
+                        result=result,
+                        device_name=self.device_name,
                     )
+                    # Add scan parameter info for waterfall
+                    ctx.parameter_value = float(shot_num)
+                    ctx.scan_parameter = "Shot Number"
+                    contexts.append(ctx)
 
             # Use waterfall mode for summary
             waterfall_config = Line1DRendererConfig(
