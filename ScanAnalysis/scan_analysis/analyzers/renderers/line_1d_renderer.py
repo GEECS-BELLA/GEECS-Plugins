@@ -211,9 +211,10 @@ class Line1DRenderer(BaseRenderer):
         save_path = save_dir / filename
 
         # Try to use analyzer's render_image method if available
-        if context.render_function is not None:
+        render_func = context.result.render_function
+        if render_func is not None:
             try:
-                fig, ax = context.render_function(
+                fig, ax = render_func(
                     result=context.result,
                     figsize=(8, 6),
                     dpi=config.dpi,
