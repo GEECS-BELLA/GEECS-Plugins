@@ -18,6 +18,7 @@ import numpy as np
 from .background import compute_background, subtract_background
 from .config_models import Line1DConfig, PipelineStepType
 from .filtering import apply_filtering
+from .interpolation import apply_interpolation
 from .roi import apply_roi_1d
 from .thresholding import apply_thresholding
 
@@ -75,9 +76,11 @@ def apply_line_processing_pipeline(
     if config.pipeline is None:
         # Default pipeline order
         steps = [
+            PipelineStepType.ROI,
             PipelineStepType.BACKGROUND,
             PipelineStepType.FILTERING,
             PipelineStepType.THRESHOLDING,
+            PipelineStepType.INTERPOLATION,
         ]
     else:
         steps = config.pipeline.steps
@@ -115,6 +118,13 @@ def apply_line_processing_pipeline(
                     intermediate["thresholded"] = processed.copy()
                 logger.debug("Applied thresholding")
 
+        elif step == PipelineStepType.INTERPOLATION:
+            if config.interpolation is not None:
+                processed = apply_interpolation(processed, config.interpolation)
+                if return_intermediate:
+                    intermediate["interpolation"] = processed.copy()
+                logger.debug("Applied interpolation")
+
         else:
             logger.warning(f"Unknown pipeline step: {step}")
 
@@ -148,6 +158,12 @@ def validate_pipeline_config(config: Line1DConfig) -> list[str]:
         for step in config.pipeline.steps:
             if step == PipelineStepType.ROI and config.roi is None:
                 warnings.append("Pipeline includes ROI step but no ROI config provided")
+            elif (
+                step == PipelineStepType.INTERPOLATION and config.interpolation is None
+            ):
+                warnings.append(
+                    "Pipeline includes INTERPOLATION step but no interpolation config provided"
+                )
             elif step == PipelineStepType.BACKGROUND and config.background is None:
                 warnings.append(
                     "Pipeline includes BACKGROUND step but no background config provided"

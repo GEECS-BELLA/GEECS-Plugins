@@ -25,8 +25,11 @@ from .background import (
 from .config_models import (
     BackgroundConfig,
     BackgroundMethod,
+    Data1DConfig,
+    Data1DType,
     FilteringConfig,
     FilterMethod,
+    InterpolationConfig,
     Line1DConfig,
     PipelineConfig,
     PipelineStepType,
@@ -40,6 +43,7 @@ from .filtering import (
     apply_gaussian_filter,
     apply_median_filter,
 )
+from .interpolation import apply_interpolation, check_spacing_uniformity
 from .pipeline import apply_line_processing_pipeline, validate_pipeline_config
 from .roi import apply_roi_1d
 from .thresholding import apply_thresholding, find_threshold_crossings
@@ -47,10 +51,13 @@ from .thresholding import apply_thresholding, find_threshold_crossings
 __all__ = [
     # Configuration models
     "Line1DConfig",
+    "Data1DConfig",
+    "Data1DType",
     "BackgroundConfig",
     "BackgroundMethod",
     "FilteringConfig",
     "FilterMethod",
+    "InterpolationConfig",
     "ROI1DConfig",
     "ThresholdingConfig",
     "ThresholdMethod",
@@ -66,6 +73,9 @@ __all__ = [
     "apply_gaussian_filter",
     "apply_median_filter",
     "apply_bilateral_filter",
+    # Interpolation operations
+    "apply_interpolation",
+    "check_spacing_uniformity",
     # ROI operations
     "apply_roi_1d",
     # Thresholding operations
