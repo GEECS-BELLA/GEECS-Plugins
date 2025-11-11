@@ -210,7 +210,32 @@ class Line1DRenderer(BaseRenderer):
         """
         save_path = save_dir / filename
 
-        # Extract metadata
+        # Try to use analyzer's render_image method if available
+        if context.render_function is not None:
+            try:
+                fig, ax = context.render_function(
+                    result=context.result,
+                    figsize=(8, 6),
+                    dpi=config.dpi,
+                )
+
+                # Add title if we have parameter value
+                if context.parameter_value is not None and context.scan_parameter:
+                    ax.set_title(
+                        f"{context.scan_parameter} = {context.parameter_value:.3f}",
+                        fontsize=14,
+                    )
+
+                fig.savefig(save_path, dpi=config.dpi, bbox_inches="tight")
+                plt.close(fig)
+                logger.info(f"Saved visualization to {save_path} (using render_image)")
+                return save_path
+            except Exception as e:
+                logger.warning(
+                    f"Failed to use render_function, falling back to default: {e}"
+                )
+
+        # Fallback: Create plot manually
         metadata = context.get_metadata_kwargs()
         x_label = metadata.get("x_label", "X")
         y_label = metadata.get("y_label", "Y")
