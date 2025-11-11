@@ -183,13 +183,14 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
 
         # Overlay bowtie weight lineout if available
         bowtie_weights = result.render_data.get("bowtie_weights")
+        img_height = result.processed_image.shape[0] - 1
         if bowtie_weights is not None:
             add_line_overlay(
                 ax=ax,
                 lineout=bowtie_weights,
                 direction="horizontal",
                 scale=0.3,
-                offset=0.0,
+                offset=img_height,
                 color="cyan",
                 linewidth=1.0,
                 normalize=True,
