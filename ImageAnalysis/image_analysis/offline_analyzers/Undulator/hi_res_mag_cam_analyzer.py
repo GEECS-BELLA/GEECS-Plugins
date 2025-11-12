@@ -143,28 +143,6 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
 
         This method provides specialized rendering for HiResMagCam analysis including
         the bowtie fit weights as a horizontal lineout overlay.
-
-        Parameters
-        ----------
-        result : ImageAnalyzerResult
-            Analyzer result containing image and bowtie fit data.
-        vmin, vmax : float, optional
-            Color limits for the image.
-        cmap : str, default "plasma"
-            Colormap for image rendering.
-        figsize : tuple of float, default (4, 4)
-            Figure size in inches.
-        dpi : int, default 150
-            Figure DPI.
-        ax : matplotlib.axes.Axes, optional
-            If provided, draw into this axes; otherwise create a new figure.
-
-        Returns
-        -------
-        fig : matplotlib.figure.Figure
-            The figure object.
-        ax : matplotlib.axes.Axes
-            The axes object.
         """
         from image_analysis.tools.rendering import (
             add_line_overlay,
@@ -214,30 +192,6 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
 
         This is a simple convenience wrapper that calls :meth:`render_image`
         and optionally shows or closes the figure.
-
-        Parameters
-        ----------
-        results : ImageAnalyzerResult
-            Result returned by :meth:`analyze_image`.
-        show : bool, default True
-            If True, call :func:`matplotlib.pyplot.show` after rendering.
-        close : bool, default True
-            If True, close the figure after showing (if ``show=True``) or
-            immediately after rendering (if ``show=False``).
-        ax : matplotlib.axes.Axes, optional
-            Existing axes to draw into. If omitted, a new figure and axes are
-            created.
-        vmin, vmax : float, optional
-            Color scale limits for the image.
-        cmap : str, default "plasma"
-            Colormap name.
-
-        Returns
-        -------
-        fig : matplotlib.figure.Figure
-            The figure that contains the rendering.
-        ax : matplotlib.axes.Axes
-            The axes on which the image was drawn.
         """
         fig, ax = self.render_image(
             result=results,
