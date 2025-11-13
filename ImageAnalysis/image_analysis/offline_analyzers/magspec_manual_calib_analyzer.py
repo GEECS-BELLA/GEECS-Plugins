@@ -159,24 +159,6 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
     - Polynomial coefficients
     - Pre-computed arrays (from file or inline)
     - Custom calibration functions
-
-    Examples
-    --------
-    Using device preset:
-
-    >>> config = MagSpecConfig.for_uc_hiresmag(mag_field="825mT", flip_horizontal=True)
-    >>> analyzer = MagSpecManualCalibAnalyzer("UC_HiResMagCam", magspec_config=config)
-
-    Custom configuration:
-
-    >>> calib = MagSpecCalibration(type="polynomial", coeffs=[89.4, 0.0184, 0.00000114])
-    >>> config = MagSpecConfig(
-    ...     mag_field="custom",
-    ...     calibration=calib,
-    ...     energy_range=(90, 110),
-    ...     flip_horizontal=True
-    ... )
-    >>> analyzer = MagSpecManualCalibAnalyzer("MyCamera", magspec_config=config)
     """
 
     def __init__(
