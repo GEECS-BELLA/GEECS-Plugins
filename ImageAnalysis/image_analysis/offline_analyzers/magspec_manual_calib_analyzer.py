@@ -7,8 +7,9 @@ conversion using device-specific calibrations.
 
 import numpy as np
 import logging
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, List, Callable
 from pathlib import Path
+from dataclasses import dataclass
 import matplotlib.pyplot as plt
 
 from image_analysis.tools.rendering import base_render_image
@@ -19,142 +20,285 @@ from image_analysis.algorithms.axis_interpolation import interpolate_image_axis
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class MagSpecCalibration:
+    """
+    Calibration specification for pixel-to-energy mapping.
+
+    Supports three calibration types:
+    - polynomial: Uses polynomial coefficients
+    - array: Uses pre-computed array (from file or inline)
+    - callable: Uses custom function
+    """
+
+    type: str  # "polynomial", "array", or "callable"
+    coeffs: Optional[List[float]] = None  # For polynomial
+    values: Optional[np.ndarray] = None  # For inline array
+    file: Optional[str] = None  # For array from file
+    function: Optional[Callable[[np.ndarray], np.ndarray]] = None  # For callable
+
+    def __post_init__(self):
+        """Validate calibration configuration."""
+        if self.type not in ["polynomial", "array", "callable"]:
+            raise ValueError(
+                f"Calibration type must be 'polynomial', 'array', or 'callable', "
+                f"got '{self.type}'"
+            )
+
+        if self.type == "polynomial" and self.coeffs is None:
+            raise ValueError("Polynomial calibration requires 'coeffs'")
+
+        if self.type == "array" and self.values is None and self.file is None:
+            raise ValueError("Array calibration requires 'values' or 'file'")
+
+        if self.type == "callable" and self.function is None:
+            raise ValueError("Callable calibration requires 'function'")
+
+
+@dataclass
+class MagSpecConfig:
+    """
+    Configuration for magnetic spectrometer analysis.
+
+    Parameters
+    ----------
+    mag_field : str
+        Magnetic field setting identifier (e.g., "825mT")
+    calibration : MagSpecCalibration
+        Pixel-to-energy calibration specification
+    energy_range : tuple of (float, float)
+        Energy range in MeV (min, max)
+    num_energy_points : int, default=500
+        Number of points in uniform energy grid
+    flip_horizontal : bool, default=False
+        Whether to flip image left-right
+    flip_vertical : bool, default=False
+        Whether to flip image up-down
+    """
+
+    mag_field: str
+    calibration: MagSpecCalibration
+    energy_range: Tuple[float, float]
+    num_energy_points: int = 500
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
+
+    @classmethod
+    def for_uc_hiresmag(
+        cls,
+        mag_field: str = "825mT",
+        energy_range: Optional[Tuple[float, float]] = None,
+        num_energy_points: int = 500,
+        flip_horizontal: bool = False,
+        flip_vertical: bool = False,
+    ) -> "MagSpecConfig":
+        """
+        Preset configuration for UC_HiResMagCam device.
+
+        Parameters
+        ----------
+        mag_field : str, default="825mT"
+            Magnetic field setting. Options: "800mT", "825mT"
+        energy_range : tuple of (float, float), optional
+            Energy range in MeV. Defaults to (20, 150)
+        num_energy_points : int, default=500
+            Number of points in uniform energy grid
+        flip_horizontal : bool, default=False
+            Whether to flip image left-right
+        flip_vertical : bool, default=False
+            Whether to flip image up-down
+
+        Returns
+        -------
+        MagSpecConfig
+            Configuration for UC_HiResMagCam
+
+        Raises
+        ------
+        ValueError
+            If mag_field is not recognized
+        """
+        # Calibration coefficients for UC_HiResMagCam
+        calibrations = {
+            "800mT": [8.66599527e01, 1.78007126e-02, 1.10546749e-06],
+            "825mT": [8.93681013e01, 1.83568540e-02, 1.14012869e-06],
+        }
+
+        if mag_field not in calibrations:
+            raise ValueError(
+                f"Mag field '{mag_field}' not available for UC_HiResMagCam. "
+                f"Available: {list(calibrations.keys())}"
+            )
+
+        return cls(
+            mag_field=mag_field,
+            calibration=MagSpecCalibration(
+                type="polynomial", coeffs=calibrations[mag_field]
+            ),
+            energy_range=energy_range or (20, 150),
+            num_energy_points=num_energy_points,
+            flip_horizontal=flip_horizontal,
+            flip_vertical=flip_vertical,
+        )
+
+
 class MagSpecManualCalibAnalyzer(BeamAnalyzer):
     """
     Analyzer for magnetic spectrometer with device-specific calibrations.
 
-    Supports multiple calibration formats:
-    - 'polynomial': Polynomial coefficients [p0, p1, p2, ...]
-    - 'array': Pre-computed pixel-to-energy array
-    - 'callable': Custom calibration function
-    """
+    Supports multiple calibration formats through MagSpecConfig:
+    - Polynomial coefficients
+    - Pre-computed arrays (from file or inline)
+    - Custom calibration functions
 
-    # Device-specific configurations
-    DEVICE_CONFIGS: Dict[str, Dict[str, Any]] = {
-        "UC_HiResMagCam": {
-            "default_mag_field": "825mT",
-            "calibrations": {
-                "800mT": {
-                    "type": "polynomial",
-                    "coeffs": [8.66599527e01, 1.78007126e-02, 1.10546749e-06],
-                },
-                "825mT": {
-                    "type": "polynomial",
-                    "coeffs": [8.93681013e01, 1.83568540e-02, 1.14012869e-06],
-                },
-            },
-            "default_energy_range": (20, 150),
-        },
-    }
+    Examples
+    --------
+    Using device preset:
+
+    >>> config = MagSpecConfig.for_uc_hiresmag(mag_field="825mT", flip_horizontal=True)
+    >>> analyzer = MagSpecManualCalibAnalyzer("UC_HiResMagCam", magspec_config=config)
+
+    Custom configuration:
+
+    >>> calib = MagSpecCalibration(type="polynomial", coeffs=[89.4, 0.0184, 0.00000114])
+    >>> config = MagSpecConfig(
+    ...     mag_field="custom",
+    ...     calibration=calib,
+    ...     energy_range=(90, 110),
+    ...     flip_horizontal=True
+    ... )
+    >>> analyzer = MagSpecManualCalibAnalyzer("MyCamera", magspec_config=config)
+    """
 
     def __init__(
         self,
-        camera_config_name,
-        mag_field: Optional[str] = None,
-        energy_range: Optional[Tuple[float, float]] = None,
-        num_energy_points: int = 500,
+        camera_config_name: str,
+        magspec_config: Optional[MagSpecConfig] = None,
     ):
         """
         Initialize magnetic spectrometer analyzer.
 
         Parameters
         ----------
-        camera_config_name : CameraConfig
-            Standard camera configuration (includes device name).
-        mag_field : str, optional
-            Magnetic field setting. If None, uses device default.
-        energy_range : tuple of float, optional
-            Energy range in GeV (min, max). If None, uses device default.
-        num_energy_points : int, default=500
-            Number of points in uniform energy grid.
+        camera_config_name : str
+            Camera configuration name (loaded from config system)
+        magspec_config : MagSpecConfig, optional
+            Magnetic spectrometer configuration. If None, attempts to use
+            UC_HiResMagCam preset with default settings.
 
         Raises
         ------
         ValueError
-            If device is not found in DEVICE_CONFIGS or mag_field is invalid.
+            If magspec_config is None and camera is not UC_HiResMagCam
         """
         super().__init__(camera_config_name)
 
-        # Get device name from config
-        device_name = self.camera_name
+        # Use provided config or create default for UC_HiResMagCam
+        if magspec_config is None:
+            if self.camera_name == "UC_HiResMagCam":
+                self.magspec_config = MagSpecConfig.for_uc_hiresmag()
+                logger.info("Using default UC_HiResMagCam configuration")
+            else:
+                raise ValueError(
+                    f"magspec_config required for camera '{self.camera_name}'. "
+                    f"Use MagSpecConfig.for_uc_hiresmag() or create custom config."
+                )
+        else:
+            self.magspec_config = magspec_config
 
-        # Look up device configuration
-        if device_name not in self.DEVICE_CONFIGS:
-            raise ValueError(
-                f"No calibration found for device '{device_name}'. "
-                f"Available devices: {list(self.DEVICE_CONFIGS.keys())}"
-            )
+        logger.info(
+            f"Initialized {self.camera_name} with mag_field={self.magspec_config.mag_field}, "
+            f"energy_range={self.magspec_config.energy_range} MeV"
+        )
 
-        self.device_config = self.DEVICE_CONFIGS[device_name]
+    def _build_energy_calibration(self, image: np.ndarray) -> np.ndarray:
+        """
+        Build pixel-to-energy mapping for current configuration.
 
-        # Use provided mag_field or device default
-        self.mag_field = mag_field or self.device_config["default_mag_field"]
+        Parameters
+        ----------
+        image : np.ndarray
+            Image to build calibration for (used to get width)
 
-        # Validate mag field for this device
-        if self.mag_field not in self.device_config["calibrations"]:
-            raise ValueError(
-                f"Mag field '{self.mag_field}' not available for {device_name}. "
-                f"Available: {list(self.device_config['calibrations'].keys())}"
-            )
+        Returns
+        -------
+        np.ndarray
+            Array mapping pixel index to energy value
+        """
+        cal = self.magspec_config.calibration
 
-        # Use provided energy_range or device default
-        self.energy_range = energy_range or self.device_config["default_energy_range"]
-        self.num_energy_points = num_energy_points
-
-    def _build_energy_calibration(self, image: np.ndarray):
-        """Build pixel-to-energy mapping for current configuration."""
-        cal = self.device_config["calibrations"][self.mag_field]
-
-        # Get image width from config
+        # Get image width
         image_width = image.shape[1]
 
         # Create pixel axis
         pixel_axis = np.arange(image_width)
 
-        cal_type = cal["type"]
-
-        if cal_type == "polynomial":
+        if cal.type == "polynomial":
             # Polynomial calibration: sum(coeffs[i] * x^i)
-            coeffs = cal["coeffs"]
-            self.pixel_to_energy = np.zeros_like(pixel_axis, dtype=float)
-            for i, coeff in enumerate(coeffs):
-                self.pixel_to_energy += coeff * np.power(pixel_axis, i)
+            pixel_to_energy = np.zeros_like(pixel_axis, dtype=float)
+            for i, coeff in enumerate(cal.coeffs):
+                pixel_to_energy += coeff * np.power(pixel_axis, i)
             logger.debug(
-                f"Built polynomial calibration with {len(coeffs)} coefficients"
+                f"Built polynomial calibration with {len(cal.coeffs)} coefficients"
             )
 
-        elif cal_type == "array":
+        elif cal.type == "array":
             # Pre-computed array calibration
-            if "file" in cal:
+            if cal.file is not None:
                 # Load from file
-                cal_path = Path(cal["file"])
+                cal_path = Path(cal.file)
                 if not cal_path.is_absolute():
                     # Try to resolve relative to package
                     cal_path = Path(__file__).parent.parent / cal_path
-                self.pixel_to_energy = np.load(cal_path)
+                pixel_to_energy = np.load(cal_path)
                 logger.debug(f"Loaded calibration array from {cal_path}")
-            elif "values" in cal:
-                # Use inline array
-                self.pixel_to_energy = np.array(cal["values"])
-                logger.debug("Using inline calibration array")
             else:
-                raise ValueError("Array calibration must have 'file' or 'values'")
+                # Use inline array
+                pixel_to_energy = cal.values
+                logger.debug("Using inline calibration array")
 
             # Validate length
-            if len(self.pixel_to_energy) != image_width:
+            if len(pixel_to_energy) != image_width:
                 raise ValueError(
-                    f"Calibration array length ({len(self.pixel_to_energy)}) "
+                    f"Calibration array length ({len(pixel_to_energy)}) "
                     f"doesn't match image width ({image_width})"
                 )
 
-        elif cal_type == "callable":
+        elif cal.type == "callable":
             # Custom function calibration
-            func = cal["function"]
-            self.pixel_to_energy = func(pixel_axis)
+            pixel_to_energy = cal.function(pixel_axis)
             logger.debug("Applied callable calibration function")
 
         else:
-            raise ValueError(f"Unknown calibration type: {cal_type}")
+            raise ValueError(f"Unknown calibration type: {cal.type}")
+
+        return pixel_to_energy
+
+    def _apply_flips(self, image: np.ndarray) -> np.ndarray:
+        """
+        Apply horizontal and/or vertical flips to image.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            Input image
+
+        Returns
+        -------
+        np.ndarray
+            Flipped image
+        """
+        flipped = image
+
+        if self.magspec_config.flip_horizontal:
+            flipped = flipped[:, ::-1]
+            logger.debug("Applied horizontal flip")
+
+        if self.magspec_config.flip_vertical:
+            flipped = flipped[::-1, :]
+            logger.debug("Applied vertical flip")
+
+        return flipped
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
@@ -164,33 +308,42 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
 
         Parameters
         ----------
-        image : NDArray
-            Path to the image file to analyze.
-        auxiliary_data : Dict
-            Additional arguments passed to parent analyze method.
+        image : np.ndarray
+            Image array to analyze
+        auxiliary_data : dict, optional
+            Additional data (unused)
 
         Returns
         -------
         ImageAnalyzerResult
-            Analysis result with energy-calibrated image and metadata.
+            Analysis result with energy-calibrated image and metadata
         """
+        # Standard processing from BeamAnalyzer
         initial_result: ImageAnalyzerResult = super().analyze_image(
             image=image, auxiliary_data=auxiliary_data
         )
 
-        # Apply threshold at 10 counts (specific to this analyzer)
+        # Get processed image
         final_image = initial_result.processed_image.copy()
 
-        self._build_energy_calibration(image=final_image)
+        # Apply flips if configured
+        final_image = self._apply_flips(final_image)
+
+        # Build energy calibration
+        pixel_to_energy = self._build_energy_calibration(image=final_image)
+
+        # Apply flips to calibration if horizontal flip is enabled
+        if self.magspec_config.flip_horizontal:
+            pixel_to_energy = pixel_to_energy[::-1]
 
         # Apply energy axis interpolation
         interp_image, energy_axis = interpolate_image_axis(
             final_image,
-            self.pixel_to_energy,
+            pixel_to_energy,
             axis=1,  # Horizontal = energy
-            num_points=self.num_energy_points,
-            physical_min=self.energy_range[0],
-            physical_max=self.energy_range[1],
+            num_points=self.magspec_config.num_energy_points,
+            physical_min=self.magspec_config.energy_range[0],
+            physical_max=self.magspec_config.energy_range[1],
         )
 
         # Compute analysis metrics
@@ -202,8 +355,10 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
             processed_image=interp_image,
             scalars=scalars,
             metadata={
-                "energy_units": "GeV",
-                "mag_field": self.mag_field,
+                "energy_units": "MeV",
+                "mag_field": self.magspec_config.mag_field,
+                "flip_horizontal": self.magspec_config.flip_horizontal,
+                "flip_vertical": self.magspec_config.flip_vertical,
             },
         )
 
@@ -222,14 +377,14 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         Parameters
         ----------
         image : np.ndarray
-            Energy-calibrated image.
+            Energy-calibrated image
         energy_axis : np.ndarray
-            Energy axis values.
+            Energy axis values in MeV
 
         Returns
         -------
         dict
-            Dictionary of scalar metrics.
+            Dictionary of scalar metrics
         """
         # Vertical projection (sum over vertical to get energy spectrum)
         energy_spectrum = np.sum(image, axis=0)
@@ -253,8 +408,8 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
             mean_energy = np.nan
 
         metrics = {
-            "peak_energy_GeV": peak_energy,
-            "mean_energy_GeV": mean_energy,
+            "peak_energy_MeV": peak_energy,
+            "mean_energy_MeV": mean_energy,
             "total_charge_au": total_charge,
             "max_intensity": np.max(image),
         }
@@ -271,7 +426,31 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         dpi: int = 150,
         ax: Optional[plt.Axes] = None,
     ) -> Tuple[plt.Figure, plt.Axes]:
-        """Custom render function for energy-calibrated spectra."""
+        """
+        Custom render function for energy-calibrated spectra.
+
+        Parameters
+        ----------
+        result : ImageAnalyzerResult
+            Analysis result containing energy-calibrated image
+        vmin : float, optional
+            Minimum value for colormap
+        vmax : float, optional
+            Maximum value for colormap
+        cmap : str, default="plasma"
+            Colormap name
+        figsize : tuple, default=(4, 4)
+            Figure size in inches
+        dpi : int, default=150
+            Figure DPI
+        ax : matplotlib.axes.Axes, optional
+            Axes to plot on. If None, creates new figure
+
+        Returns
+        -------
+        tuple of (Figure, Axes)
+            The matplotlib figure and axes objects
+        """
         # Base rendering
         fig, ax = base_render_image(
             result=result,
@@ -287,17 +466,14 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         energy_axis = result.render_data.get("energy_axis")
 
         if energy_axis is not None:
-            # Don't mess with extent - keep image in pixel coordinates
-            # Just update the tick labels to show energy values
-
-            # Create a few evenly-spaced ticks across the image width
-            num_ticks = 5  # or 6, whatever looks good
+            # Update tick labels to show energy values (not pixels)
+            num_ticks = 5
             tick_positions = np.linspace(0, len(energy_axis) - 1, num_ticks)
-            tick_labels = [f"{energy_axis[int(pos)]:.2f}" for pos in tick_positions]
+            tick_labels = [f"{energy_axis[int(pos)]:.1f}" for pos in tick_positions]
 
             ax.set_xticks(tick_positions)
             ax.set_xticklabels(tick_labels)
-            ax.set_xlabel("Energy (GeV)")
+            ax.set_xlabel("Energy (MeV)")
             ax.set_ylabel("Vertical Position (pixels)")
 
         return fig, ax
