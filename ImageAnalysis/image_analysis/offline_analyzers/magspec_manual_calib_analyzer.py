@@ -65,15 +65,24 @@ class MagSpecConfig:
     mag_field : str
         Magnetic field setting identifier (e.g., "825mT")
     calibration : MagSpecCalibration
-        Pixel-to-energy calibration specification
+        Pixel-to-energy calibration specification (always in canonical orientation)
     energy_range : tuple of (float, float)
         Energy range in MeV (min, max)
     num_energy_points : int, default=500
         Number of points in uniform energy grid
     flip_horizontal : bool, default=False
-        Whether to flip image left-right
+        Flip raw image horizontally to align with canonical calibration.
+        Set to True if camera is mounted backwards relative to calibration.
     flip_vertical : bool, default=False
-        Whether to flip image up-down
+        Flip raw image vertically to align with canonical calibration.
+        Set to True if camera is mounted upside-down.
+
+    Notes
+    -----
+    The calibration defines the canonical orientation (energy increasing
+    left-to-right). Flip parameters correct for camera mounting, ensuring
+    the raw image aligns with this canonical orientation before interpolation.
+    The output is always in canonical orientation.
     """
 
     mag_field: str
@@ -274,32 +283,6 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
 
         return pixel_to_energy
 
-    def _apply_flips(self, image: np.ndarray) -> np.ndarray:
-        """
-        Apply horizontal and/or vertical flips to image.
-
-        Parameters
-        ----------
-        image : np.ndarray
-            Input image
-
-        Returns
-        -------
-        np.ndarray
-            Flipped image
-        """
-        flipped = image
-
-        if self.magspec_config.flip_horizontal:
-            flipped = flipped[:, ::-1]
-            logger.debug("Applied horizontal flip")
-
-        if self.magspec_config.flip_vertical:
-            flipped = flipped[::-1, :]
-            logger.debug("Applied vertical flip")
-
-        return flipped
-
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
     ) -> ImageAnalyzerResult:
@@ -317,6 +300,17 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         -------
         ImageAnalyzerResult
             Analysis result with energy-calibrated image and metadata
+
+        Notes
+        -----
+        The calibration is always defined in canonical orientation (increasing
+        left-to-right). The flip parameters correct for camera mounting:
+        - flip_horizontal: Camera is mounted backwards relative to calibration
+        - flip_vertical: Camera is mounted upside-down
+
+        Flips are applied to the raw image BEFORE interpolation to align it
+        with the canonical calibration. The output is always in canonical
+        orientation.
         """
         # Standard processing from BeamAnalyzer
         initial_result: ImageAnalyzerResult = super().analyze_image(
@@ -326,17 +320,21 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         # Get processed image
         final_image = initial_result.processed_image.copy()
 
-        # Apply flips if configured
-        final_image = self._apply_flips(final_image)
+        # Apply flips to align image with canonical calibration orientation
+        # These correct for camera mounting - NOT post-processing effects
+        if self.magspec_config.flip_horizontal:
+            final_image = final_image[:, ::-1]
+            logger.debug("Applied horizontal flip to align with canonical calibration")
 
-        # Build energy calibration
+        if self.magspec_config.flip_vertical:
+            final_image = final_image[::-1, :]
+            logger.debug("Applied vertical flip to align with canonical calibration")
+
+        # Build energy calibration (always canonical/increasing)
         pixel_to_energy = self._build_energy_calibration(image=final_image)
 
-        # Apply flips to calibration if horizontal flip is enabled
-        if self.magspec_config.flip_horizontal:
-            pixel_to_energy = pixel_to_energy[::-1]
-
         # Apply energy axis interpolation
+        # Both image and calibration are now in canonical orientation
         interp_image, energy_axis = interpolate_image_axis(
             final_image,
             pixel_to_energy,
