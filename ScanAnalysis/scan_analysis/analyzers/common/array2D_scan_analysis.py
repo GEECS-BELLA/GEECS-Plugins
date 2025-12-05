@@ -178,19 +178,17 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
         - An animated GIF showing temporal evolution
         """
         from scan_analysis.analyzers.renderers.config import RenderContext
+        from image_analysis.types import ImageAnalyzerResult
         from collections import defaultdict
         import numpy as np
 
         # Extract processed data from results dict
-        data_list = [res["processed_image"] for res in self.results.values()]
+        data_list = [res.processed_image for res in self.results.values()]
         avg_data = self.average_data(data_list)
 
         if self.flag_save_data:
             # Average scalar results
-            analysis_results = [
-                res.get("analyzer_return_dictionary", {})
-                for res in self.results.values()
-            ]
+            analysis_results = [res.scalars for res in self.results.values()]
             if analysis_results and analysis_results[0]:
                 sums = defaultdict(list)
                 for d in analysis_results:
@@ -200,13 +198,24 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
             else:
                 avg_scalars = {}
 
+            # Safely get render_image method if it exists
+            render_func = getattr(self.image_analyzer, "render_image", None)
+
+            # Create ImageAnalyzerResult for averaged data
+            avg_result = ImageAnalyzerResult(
+                data_type="2d",
+                processed_image=avg_data,
+                scalars=avg_scalars,
+                metadata={"analyzer_return_dictionary": avg_scalars},
+                render_function=render_func,
+            )
+
             # Create RenderContext for average
-            avg_context = RenderContext(
-                data=avg_data,
-                input_parameters={"analyzer_return_dictionary": avg_scalars},
+            avg_context = RenderContext.from_analyzer_result(
+                shot_number="average",
+                result=avg_result,
                 device_name=self.device_name,
-                identifier="average",
-                render_function=self.image_analyzer.render_image,
+                render_function=render_func,
             )
 
             config = self._get_renderer_config()
@@ -220,7 +229,7 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
                     shot_number=shot_num,
                     result=result,
                     device_name=self.device_name,
-                    render_function=self.image_analyzer.render_image,
+                    render_function=render_func,
                 )
                 for shot_num, result in self.results.items()
             ]
@@ -244,6 +253,9 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
             logger.warning("No binned data to postprocess")
             return
 
+        # Safely get render_image method if it exists
+        render_func = getattr(self.image_analyzer, "render_image", None)
+
         # Build render contexts from binned data
         contexts = [
             RenderContext.from_bin_result(
@@ -251,7 +263,7 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
                 bin_entry=bin_entry,
                 device_name=self.device_name,
                 scan_parameter=self.scan_parameter,
-                render_function=self.image_analyzer.render_image,
+                render_function=render_func,
             )
             for bin_key, bin_entry in binned_data.items()
         ]

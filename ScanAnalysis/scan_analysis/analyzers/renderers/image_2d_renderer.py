@@ -61,7 +61,9 @@ class Image2DRenderer(BaseRenderer):
 
         # Save data file
         data_filename = context.get_filename("processed", "h5")
-        data_path = self._save_data_file(context.data, save_dir, data_filename)
+        data_path = self._save_data_file(
+            context.result.get_primary_data(), save_dir, data_filename
+        )
         created_files.append(data_path)
 
         # Save visualization
@@ -153,20 +155,16 @@ class Image2DRenderer(BaseRenderer):
 
         # Determine vmin/vmax across all frames
         vmin, vmax = self._get_global_colormap_limits(
-            [ctx.data for ctx in contexts], config
+            [ctx.result.get_primary_data() for ctx in contexts], config
         )
 
         # Render each frame
         gif_images = []
         for ctx in contexts:
-            render_func = ctx.render_function or base_render_image
+            # Use the complete result from context (preserves render_data, etc.)
+            render_func = ctx.result.render_function or base_render_image
             fig, ax = render_func(
-                image=ctx.data,
-                analysis_results_dict=ctx.input_parameters.get(
-                    "analyzer_return_dictionary", {}
-                ),
-                input_params_dict=ctx.input_parameters,
-                lineouts=ctx.overlay_lineouts or [],
+                result=ctx.result,
                 vmin=vmin,
                 vmax=vmax,
                 figsize=(config.figsize_inches, config.figsize_inches),
@@ -240,7 +238,7 @@ class Image2DRenderer(BaseRenderer):
         Parameters
         ----------
         context : RenderContext
-            Context containing data and metadata
+            Context containing complete analyzer result
         config : Image2DRendererConfig
             Rendering configuration
         save_dir : Path
@@ -256,16 +254,14 @@ class Image2DRenderer(BaseRenderer):
         save_path = save_dir / filename
 
         # Determine colormap and normalization
-        vmin, vmax, cmap = self._get_colormap_params(context.data, config)
+        vmin, vmax, cmap = self._get_colormap_params(
+            context.result.get_primary_data(), config
+        )
 
-        render_func = context.render_function or base_render_image
+        # Use the complete result from context (preserves render_data, etc.)
+        render_func = context.result.render_function or base_render_image
         fig, ax = render_func(
-            image=context.data,
-            analysis_results_dict=context.input_parameters.get(
-                "analyzer_return_dictionary", {}
-            ),
-            input_params_dict=context.input_parameters,
-            lineouts=context.overlay_lineouts or [],
+            result=context.result,
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,
@@ -299,7 +295,7 @@ class Image2DRenderer(BaseRenderer):
         scan_param : str
             Scan parameter name
         """
-        images = [ctx.data for ctx in contexts]
+        images = [ctx.result.get_primary_data() for ctx in contexts]
         titles = []
 
         for ctx in contexts:
@@ -353,14 +349,10 @@ class Image2DRenderer(BaseRenderer):
         # Plot panels
         first_im_artist = None
         for ax, ctx, img, title in zip(axes, contexts, images, titles):
-            render_func = ctx.render_function or base_render_image
+            # Use the complete result from context (preserves render_data, etc.)
+            render_func = ctx.result.render_function or base_render_image
             render_func(
-                image=img,
-                analysis_results_dict=ctx.input_parameters.get(
-                    "analyzer_return_dictionary", {}
-                ),
-                input_params_dict=ctx.input_parameters,
-                lineouts=ctx.overlay_lineouts or [],
+                result=ctx.result,
                 vmin=vmin,
                 vmax=vmax,
                 ax=ax,

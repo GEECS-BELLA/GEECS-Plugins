@@ -57,7 +57,9 @@ class Line1DRenderer(BaseRenderer):
 
         # Save data file
         data_filename = context.get_filename("processed", "h5")
-        data_path = self._save_data_file(context.data, save_dir, data_filename)
+        data_path = self._save_data_file(
+            context.result.get_primary_data(), save_dir, data_filename
+        )
         created_files.append(data_path)
 
         # Save visualization
@@ -208,7 +210,33 @@ class Line1DRenderer(BaseRenderer):
         """
         save_path = save_dir / filename
 
-        # Extract metadata
+        # Try to use analyzer's render_image method if available
+        render_func = context.result.render_function
+        if render_func is not None:
+            try:
+                fig, ax = render_func(
+                    result=context.result,
+                    figsize=(8, 6),
+                    dpi=config.dpi,
+                )
+
+                # Add title if we have parameter value
+                if context.parameter_value is not None and context.scan_parameter:
+                    ax.set_title(
+                        f"{context.scan_parameter} = {context.parameter_value:.3f}",
+                        fontsize=14,
+                    )
+
+                fig.savefig(save_path, dpi=config.dpi, bbox_inches="tight")
+                plt.close(fig)
+                logger.info(f"Saved visualization to {save_path} (using render_image)")
+                return save_path
+            except Exception as e:
+                logger.warning(
+                    f"Failed to use render_function, falling back to default: {e}"
+                )
+
+        # Fallback: Create plot manually
         metadata = context.get_metadata_kwargs()
         x_label = metadata.get("x_label", "X")
         y_label = metadata.get("y_label", "Y")
@@ -222,12 +250,13 @@ class Line1DRenderer(BaseRenderer):
         # Create plot
         fig, ax = plt.subplots(figsize=(8, 6), dpi=config.dpi)
 
-        if context.data.ndim == 2 and context.data.shape[1] == 2:
+        data = context.result.get_primary_data()
+        if data.ndim == 2 and data.shape[1] == 2:
             # Nx2 array: x and y values
-            ax.plot(context.data[:, 0], context.data[:, 1], linewidth=2)
+            ax.plot(data[:, 0], data[:, 1], linewidth=2)
         else:
             # 1D array: just y values, use indices for x
-            ax.plot(context.data, linewidth=2)
+            ax.plot(data, linewidth=2)
 
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel(ylabel, fontsize=12)
@@ -318,20 +347,22 @@ class Line1DRenderer(BaseRenderer):
         param_values = []
 
         for ctx in contexts:
-            if ctx.data.ndim == 2 and ctx.data.shape[1] == 2:
-                data_arrays.append(ctx.data[:, 1])  # y values only
+            data = ctx.result.get_primary_data()
+            if data.ndim == 2 and data.shape[1] == 2:
+                data_arrays.append(data[:, 1])  # y values only
             else:
-                data_arrays.append(ctx.data)
+                data_arrays.append(data)
             param_values.append(ctx.parameter_value or ctx.identifier)
 
         # Stack into 2D array
         waterfall_data = np.array(data_arrays)
 
         # Get x-axis values from first context
-        if contexts[0].data.ndim == 2 and contexts[0].data.shape[1] == 2:
-            x_values = contexts[0].data[:, 0]
+        first_data = contexts[0].result.get_primary_data()
+        if first_data.ndim == 2 and first_data.shape[1] == 2:
+            x_values = first_data[:, 0]
         else:
-            x_values = np.arange(len(contexts[0].data))
+            x_values = np.arange(len(first_data))
 
         # Extract metadata from first context
         metadata = contexts[0].get_metadata_kwargs()
@@ -445,11 +476,12 @@ class Line1DRenderer(BaseRenderer):
         colors = [cmap(i / len(contexts)) for i in range(len(contexts))]
 
         for ctx, color in zip(contexts, colors):
-            if ctx.data.ndim == 2 and ctx.data.shape[1] == 2:
-                x_vals, y_vals = ctx.data[:, 0], ctx.data[:, 1]
+            data = ctx.result.get_primary_data()
+            if data.ndim == 2 and data.shape[1] == 2:
+                x_vals, y_vals = data[:, 0], data[:, 1]
             else:
-                x_vals = np.arange(len(ctx.data))
-                y_vals = ctx.data
+                x_vals = np.arange(len(data))
+                y_vals = data
 
             label = (
                 f"{scan_param}={ctx.parameter_value:.3f}"
@@ -518,11 +550,12 @@ class Line1DRenderer(BaseRenderer):
         for idx, ctx in enumerate(contexts):
             ax = axes[idx]
 
-            if ctx.data.ndim == 2 and ctx.data.shape[1] == 2:
-                x_vals, y_vals = ctx.data[:, 0], ctx.data[:, 1]
+            data = ctx.result.get_primary_data()
+            if data.ndim == 2 and data.shape[1] == 2:
+                x_vals, y_vals = data[:, 0], data[:, 1]
             else:
-                x_vals = np.arange(len(ctx.data))
-                y_vals = ctx.data
+                x_vals = np.arange(len(data))
+                y_vals = data
 
             ax.plot(x_vals, y_vals, linewidth=2)
             ax.set_xlabel(xlabel, fontsize=10)

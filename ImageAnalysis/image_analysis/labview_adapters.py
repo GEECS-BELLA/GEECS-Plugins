@@ -14,7 +14,6 @@ from .analyzers.UC_GenericMagSpecCam import UC_GenericMagSpecCamAnalyzer as MagS
 from .analyzers.UC_GenericLightSpecCam import (
     UC_LightSpectrometerCamAnalyzer as LightSpec,
 )
-from .analyzers.UC_ALineEBeamCam import UC_ALineEBeamCamAnalyzer as ALineCam
 from .analyzers.generic_beam_analyzer import BeamSpotAnalyzer as BeamSpot
 
 
@@ -67,11 +66,6 @@ DEVICE_FUNCTIONS = {
         labview_analyzer_class=BeamSpot,
         key_list_name="BeamSpot",
         default_settings_filename="default_amp2input_settings.ini",
-    ),
-    "UC_ALineEBeam3": DeviceConfig(
-        labview_analyzer_class=ALineCam,
-        key_list_name="ALineCam",
-        default_settings_filename="default_alineebeam3_settings.ini",
     ),
 }
 

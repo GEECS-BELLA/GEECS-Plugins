@@ -31,7 +31,7 @@ from image_analysis.processing.array2d import (
 from image_analysis.processing.array2d import (
     create_background_manager_from_config,
 )
-from image_analysis.types import AnalyzerResultDict
+from image_analysis.types import ImageAnalyzerResult
 
 # Import existing tools and base classes
 import image_analysis.processing.array2d.config_models as cfg_2d
@@ -269,7 +269,7 @@ class StandardAnalyzer(ImageAnalyzer):
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
-    ) -> AnalyzerResultDict:
+    ) -> ImageAnalyzerResult:
         """
         Analyze a single image using the full processing pipeline.
 
@@ -286,8 +286,8 @@ class StandardAnalyzer(ImageAnalyzer):
 
         Returns
         -------
-        AnalyzerResultDict
-            Dictionary containing processed image and analysis results
+        ImageAnalyzerResult
+            Structured result containing processed image and metadata
         """
         file_path = (
             auxiliary_data.get("file_path", "Unknown") if auxiliary_data else "Unknown"
@@ -301,10 +301,12 @@ class StandardAnalyzer(ImageAnalyzer):
         # Build input parameters dictionary
         input_params = self._build_input_parameters()
 
-        # Build return dictionary
-        return_dict = self.build_return_dictionary(
-            return_image=final_image,
-            input_parameters=input_params,
+        # Build and return result
+        result = ImageAnalyzerResult(
+            data_type="2d",
+            processed_image=final_image,
+            scalars={},  # No scalars by default, subclasses can add them
+            metadata=input_params,
         )
 
-        return return_dict
+        return result

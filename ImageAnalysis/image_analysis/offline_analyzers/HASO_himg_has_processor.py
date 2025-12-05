@@ -15,7 +15,7 @@ Notes
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Union, NamedTuple
+from typing import TYPE_CHECKING, Optional, NamedTuple
 from pathlib import Path
 
 from dataclasses import dataclass, asdict
@@ -35,6 +35,7 @@ except ModuleNotFoundError as e:
     raise
 
 from image_analysis.base import ImageAnalyzer
+from image_analysis.types import ImageAnalyzerResult
 
 
 class SlopesMask(NamedTuple):
@@ -273,8 +274,8 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
     def analyze_image(
         self, image: Array2D, auxiliary_data: Optional[dict] = None
-    ) -> dict[str, Union[float, int, str, np.ndarray]]:
-        """Return the analysis result dictionary for the provided (processed) image.
+    ) -> ImageAnalyzerResult:
+        """Return the analysis result for the provided (processed) image.
 
         Parameters
         ----------
@@ -286,15 +287,23 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
         Returns
         -------
-        dict of {str: Union[float, int, str, numpy.ndarray]}
-            Standard `ImageAnalyzer` result dictionary.
+        ImageAnalyzerResult
+            Result containing the processed phase image.
 
         Notes
         -----
-        This method delegates to `build_return_dictionary` and does not perform
+        This method creates an ImageAnalyzerResult and does not perform
         further computation.
         """
-        return self.build_return_dictionary(return_image=image)
+        # Create ImageAnalyzerResult
+        result = ImageAnalyzerResult(
+            data_type="2d",
+            processed_image=image,
+            scalars={},
+            metadata=auxiliary_data if auxiliary_data else {},
+        )
+
+        return result
 
     def create_slopes_object_from_himg(self, image_file_path: Path) -> wkpy.HasoSlopes:
         """Create slopes from a `.himg` image using WaveKit.

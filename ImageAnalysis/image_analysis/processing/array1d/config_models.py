@@ -120,6 +120,7 @@ class PipelineStepType(str, Enum):
     """Types of processing steps available in the pipeline."""
 
     ROI = "roi"
+    INTERPOLATION = "interpolation"
     BACKGROUND = "background"
     FILTERING = "filtering"
     THRESHOLDING = "thresholding"
@@ -238,6 +239,70 @@ class ThresholdingConfig(BaseModel):
         return v
 
 
+class InterpolationConfig(BaseModel):
+    """Configuration for x-axis interpolation to uniform grid.
+
+    This configuration enables mapping unevenly-spaced 1D data onto
+    a uniformly-spaced x-axis. This is particularly useful for waterfall
+    plot rendering where all traces should share the same x-axis.
+
+    Attributes
+    ----------
+    enabled : bool
+        If True, apply interpolation; if False, pass through original data
+    num_points : int
+        Number of points in the interpolated x-axis
+    x_min : float, optional
+        Minimum x-value for interpolation. If None, uses data minimum.
+    x_max : float, optional
+        Maximum x-value for interpolation. If None, uses data maximum.
+
+    Examples
+    --------
+    Enable interpolation with auto-detected range::
+
+        config = InterpolationConfig(enabled=True, num_points=1500)
+
+    Specify custom x-range for energy spectrum::
+
+        config = InterpolationConfig(
+            enabled=True,
+            num_points=1500,
+            x_min=0.06,
+            x_max=0.3
+        )
+    """
+
+    enabled: bool = Field(
+        default=False, description="Enable interpolation to uniform x-axis"
+    )
+    num_points: int = Field(
+        default=1500, ge=10, description="Number of points in interpolated axis"
+    )
+    x_min: Optional[float] = Field(
+        default=None,
+        description="Minimum x-value (auto-detected from data if None)",
+    )
+    x_max: Optional[float] = Field(
+        default=None,
+        description="Maximum x-value (auto-detected from data if None)",
+    )
+
+    @field_validator("x_min", "x_max")
+    @classmethod
+    def validate_x_range(cls, v, info):
+        """Validate x_min and x_max are consistent if both provided."""
+        field_name = info.field_name
+        data = info.data
+
+        # Only validate if both x_min and x_max are provided
+        if field_name == "x_max" and data.get("x_min") is not None and v is not None:
+            if v <= data["x_min"]:
+                raise ValueError("x_max must be greater than x_min")
+
+        return v
+
+
 class PipelineConfig(BaseModel):
     """Configuration for the 1D processing pipeline.
 
@@ -308,6 +373,7 @@ class Line1DConfig(BaseModel):
 
     # Processing configurations
     roi: Optional[ROI1DConfig] = None
+    interpolation: Optional[InterpolationConfig] = None
     background: Optional[BackgroundConfig] = None
     filtering: Optional[FilteringConfig] = None
     thresholding: Optional[ThresholdingConfig] = None

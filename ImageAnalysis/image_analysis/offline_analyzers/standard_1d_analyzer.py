@@ -24,7 +24,7 @@ from image_analysis.base import ImageAnalyzer
 from image_analysis.config_loader import load_line_config
 from image_analysis.data_1d_utils import read_1d_data
 from image_analysis.processing.array1d.pipeline import apply_line_processing_pipeline
-from image_analysis.types import Array1D, AnalyzerResultDict
+from image_analysis.types import Array1D, ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None
-    ) -> AnalyzerResultDict:
+    ) -> ImageAnalyzerResult:
         """Analyze 1D data.
 
         Note: Method is named 'analyze_image' for compatibility with base class,
@@ -144,8 +144,8 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         Returns
         -------
-        AnalyzerResultDict
-            Dictionary containing processed data in lineouts (not processed_image)
+        ImageAnalyzerResult
+            Structured result containing processed 1D data and metadata
         """
         # If metadata not already cached AND file_path is available, load it
         if (
@@ -161,16 +161,15 @@ class Standard1DAnalyzer(ImageAnalyzer):
         # Build input parameters
         input_params = self._build_input_parameters(auxiliary_data)
 
-        # Split Nx2 array into x and y for lineouts
-        x_data = processed[:, 0]
-        y_data = processed[:, 1]
-
-        # Build and return result dictionary with data in lineouts
-        return self.build_return_dictionary(
-            return_image=None,  # No 2D image for 1D data
-            return_lineouts=[x_data, y_data],  # Data goes here
-            input_parameters=input_params,
+        # Build and return result with 1D data
+        result = ImageAnalyzerResult(
+            data_type="1d",
+            line_data=processed,  # Nx2 array
+            scalars={},  # No scalars by default, subclasses can add them
+            metadata=input_params,
         )
+
+        return result
 
     def _build_input_parameters(
         self, auxiliary_data: Optional[Dict] = None
@@ -202,6 +201,88 @@ class Standard1DAnalyzer(ImageAnalyzer):
             params.update(auxiliary_data)
 
         return params
+
+    def render_image(
+        self,
+        result: ImageAnalyzerResult,
+        figsize: Tuple[float, float] = (8, 4),
+        dpi: int = 150,
+        ax: Optional[plt.Axes] = None,
+        **plot_kwargs,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Render 1D data from ImageAnalyzerResult.
+
+        Parameters
+        ----------
+        result : ImageAnalyzerResult
+            Complete analysis result with line_data and metadata
+        figsize : tuple, default=(8, 4)
+            Figure size in inches (width, height)
+        dpi : int, default=150
+            Figure DPI
+        ax : matplotlib.axes.Axes, optional
+            Existing axes to plot on. If None, creates new figure.
+        **plot_kwargs
+            Additional keyword arguments passed to ax.plot()
+
+        Returns
+        -------
+        tuple
+            (figure, axes) matplotlib objects
+
+        Raises
+        ------
+        ValueError
+            If result.data_type is not "1d" or line_data is None.
+        """
+        # Validate input
+        if result.data_type != "1d":
+            raise ValueError(
+                f"render_image requires data_type='1d', got '{result.data_type}'"
+            )
+
+        if result.line_data is None:
+            raise ValueError("line_data cannot be None for 1d data_type")
+
+        # Create figure/axes if needed
+        if ax is None:
+            fig, ax = plt.subplots(figsize=figsize, dpi=dpi, constrained_layout=True)
+        else:
+            fig = ax.figure
+
+        # Extract data
+        x_data = result.line_data[:, 0]
+        y_data = result.line_data[:, 1]
+
+        # Plot
+        ax.plot(x_data, y_data, **plot_kwargs)
+
+        # Set labels from metadata
+        metadata = result.metadata or {}
+
+        # Build axis labels with units
+        x_label = metadata.get("x_label", "X")
+        x_units = metadata.get("x_units")
+        if x_units:
+            x_label = f"{x_label} ({x_units})"
+
+        y_label = metadata.get("y_label", "Y")
+        y_units = metadata.get("y_units")
+        if y_units:
+            y_label = f"{y_label} ({y_units})"
+
+        ax.set_xlabel(x_label, fontsize=10)
+        ax.set_ylabel(y_label, fontsize=10)
+        ax.tick_params(axis="both", labelsize=9)
+
+        # Optional title from line name
+        line_name = metadata.get("line_name")
+        if line_name:
+            ax.set_title(line_name)
+
+        ax.grid(True, alpha=0.3)
+
+        return fig, ax
 
     @staticmethod
     def render_data(

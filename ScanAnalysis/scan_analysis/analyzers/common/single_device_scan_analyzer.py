@@ -31,14 +31,13 @@ from typing import TYPE_CHECKING, Optional, TypedDict, Dict, Literal
 
 # --- Third-Party Libraries ---
 import numpy as np
-from collections import defaultdict
 
 # --- Local / Project Imports ---
 from scan_analysis.base import ScanAnalyzer
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
-    from image_analysis.types import AnalyzerResultDict
+    from image_analysis.types import ImageAnalyzerResult
     from image_analysis.base import ImageAnalyzer
     from scan_analysis.analyzers.renderers import BaseRenderer
 
@@ -52,7 +51,7 @@ class BinDataEntry(TypedDict):
     """Container for per-bin aggregates."""
 
     value: float
-    result: Optional[AnalyzerResultDict]
+    result: Optional[ImageAnalyzerResult]
 
 
 # %% Base Class
@@ -459,28 +458,25 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         return units
 
-    def _has_valid_result(self, result: AnalyzerResultDict) -> bool:
+    def _has_valid_result(self, result: ImageAnalyzerResult) -> bool:
         """
         Check if analyzer result contains valid data.
 
         Valid data can be in:
         - processed_image (for 2D analyzers)
-        - analyzer_return_lineouts (for 1D analyzers)
+        - line_data (for 1D analyzers)
 
         Parameters
         ----------
-        result : AnalyzerResultDict
-            Result dictionary from analyzer
+        result : ImageAnalyzerResult
+            Result from analyzer
 
         Returns
         -------
         bool
             True if result contains valid data
         """
-        return (
-            result.get("processed_image") is not None
-            or result.get("analyzer_return_lineouts") is not None
-        )
+        return result.processed_image is not None or result.line_data is not None
 
     def _analyze_units(self, analysis_units: dict) -> None:
         """
@@ -504,7 +500,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         the ImageAnalyzer instance.
         """
         logger.info(f"Starting analysis in {self.analysis_mode} mode")
-        self.results: dict[int, AnalyzerResultDict] = {}
+        self.results: dict[int, ImageAnalyzerResult] = {}
 
         use_threads = self.image_analyzer.run_analyze_image_asynchronously
         Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
@@ -527,8 +523,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             for future in as_completed(futures):
                 unit_key, sfile_keys = futures[future]
                 try:
-                    result: AnalyzerResultDict = future.result()
-                    analysis_results = result.get("analyzer_return_dictionary", {})
+                    result: ImageAnalyzerResult = future.result()
+                    analysis_results = result.scalars
 
                     if self._has_valid_result(result):
                         self.results[unit_key] = result
@@ -673,24 +669,24 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         Bin processed data by scan parameter and compute per-bin averages.
 
         For each unique "Bin #" value in the auxiliary s-file:
-        - Select shots with valid processed data.
-        - Average the data for that bin.
-        - Average numeric analyzer scalar outputs across shots in the bin.
-        - Optionally, average analyzer lineouts (if supplied as arrays).
+        - Select shots with valid processed data
+        - Average all ImageAnalyzerResult objects for the bin
+        - Preserve all render_data including projections and overlays
 
         Returns
         -------
         dict[int, BinDataEntry]
             Mapping from bin number to a dictionary with:
             - ``"value"`` : representative scan parameter value for the bin (float)
-            - ``"result"`` : AnalyzerResultDict with averaged data/scalars/lineout
+            - ``"result"`` : ImageAnalyzerResult with averaged data
         """
         if "Bin #" not in self.auxiliary_data.columns:
             logger.warning("Missing 'Bin #' column in auxiliary data.")
             return {}
 
-        unique_bins = [int(b) for b in np.unique(self.auxiliary_data["Bin #"].values)]
+        from image_analysis.types import ImageAnalyzerResult
 
+        unique_bins = [int(b) for b in np.unique(self.auxiliary_data["Bin #"].values)]
         logger.info(f"Unique bins from auxiliary data: {unique_bins}")
 
         binned_data: dict[int, BinDataEntry] = {}
@@ -701,7 +697,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 "Shotnumber"
             ].values
 
-            # Filter shot numbers that have valid results (either 2D or 1D data)
+            # Filter to shots with valid results
             valid_shots = [
                 sn
                 for sn in bin_shots
@@ -712,54 +708,11 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 logger.warning(f"No data found for bin {bin_val}.")
                 continue
 
-            # Collect data and scalar results
-            # For 2D analyzers, collect processed_image; for 1D, it will be None
-            data_list = [self.results[sn].get("processed_image") for sn in valid_shots]
-            # Filter out None values (for 1D analyzers that use lineouts)
-            data_list = [d for d in data_list if d is not None]
-            analysis_results = [
-                self.results[sn].get("analyzer_return_dictionary", {})
-                for sn in valid_shots
-            ]
-            lineouts = [
-                self.results[sn].get("analyzer_return_lineouts") for sn in valid_shots
-            ]
-            # Extract the first entry in the input parameters
-            input_params = self.results[valid_shots[0]].get(
-                "analyzer_input_parameters", {}
-            )
+            # Simply average the ImageAnalyzerResult objects!
+            results_to_average = [self.results[sn] for sn in valid_shots]
+            binned_result = ImageAnalyzerResult.average(results_to_average)
 
-            # Average 2D data if present, otherwise None (for 1D analyzers)
-            avg_data = self.average_data(data_list) if data_list else None
-
-            # Calculate the average value for each key in analysis_results dict
-            sums = defaultdict(list)
-            for d in analysis_results:
-                for k, v in d.items():
-                    sums[k].append(v)
-            avg_vals = {k: np.mean(v, axis=0) for k, v in sums.items()}
-
-            if lineouts:
-                # Unzip into two lists: all x-lineouts, all y-lineouts
-                try:
-                    x_list = [lo[0] for lo in lineouts if lo is not None]
-                    y_list = [lo[1] for lo in lineouts if lo is not None]
-
-                    avg_x = (
-                        np.mean(np.stack(x_list, axis=0), axis=0) if x_list else None
-                    )
-                    avg_y = (
-                        np.mean(np.stack(y_list, axis=0), axis=0) if y_list else None
-                    )
-
-                    average_lineouts = [avg_x, avg_y]
-                except IndexError:
-                    logger.warning("Lineouts do not have expected shape for overlays")
-                    average_lineouts = None
-            else:
-                average_lineouts = None
-
-            # Get representative scan parameter value
+            # Get scan parameter value for this bin
             column_full_name, _ = self.find_scan_param_column()
             param_value = self.auxiliary_data.loc[
                 self.auxiliary_data["Bin #"] == bin_val, column_full_name
@@ -767,12 +720,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
             binned_data[bin_val] = {
                 "value": float(param_value),
-                "result": {
-                    "processed_image": avg_data,
-                    "analyzer_return_dictionary": avg_vals,
-                    "analyzer_input_parameters": input_params,
-                    "analyzer_return_lineouts": average_lineouts,
-                },
+                "result": binned_result,
             }
 
         return binned_data
