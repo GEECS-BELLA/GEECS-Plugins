@@ -1569,11 +1569,9 @@ class GEECSScannerWindow(QMainWindow):
                 logger.error(f"Unknown scan variable: {variable_name}")
                 return
 
-            # Update button states: disable Connect, enable Get/Set/Close
+            # Update button states: disable Connect, enable Set/Close
             if hasattr(self.ui, "buttonConnectScanVariable"):
                 self.ui.buttonConnectScanVariable.setEnabled(False)
-            if hasattr(self.ui, "buttonGetVariableValue"):
-                self.ui.buttonGetVariableValue.setEnabled(True)
             if hasattr(self.ui, "buttonSetVariableValue"):
                 self.ui.buttonSetVariableValue.setEnabled(True)
             if hasattr(self.ui, "buttonCloseScanDevice"):
@@ -1584,45 +1582,6 @@ class GEECSScannerWindow(QMainWindow):
             self.connected_scan_device = None
             self.connected_device_name = None
             self.connected_variable_name = None
-
-    def get_variable_value(self):
-        """Get the current value(s) of the connected scan device."""
-        if self.connected_scan_device is None or self.connected_variable_name is None:
-            logger.warning("No scan device connected")
-            return
-
-        try:
-            # Get the value using the proper variable name
-            # For composite variables: self.connected_variable_name = "composite_var"
-            # For regular variables: self.connected_variable_name = the actual variable name
-            result = self.connected_scan_device.get(self.connected_variable_name)
-
-            # Display the value
-            if hasattr(self.ui, "lineCurrentVariableValue"):
-                # For composite variables, result is a dict with "composite_var" and component keys
-                if isinstance(result, dict):
-                    # Show the composite_var value
-                    value = result.get("composite_var", result)
-                    value_str = (
-                        f"{value:.4f}" if isinstance(value, float) else str(value)
-                    )
-                elif isinstance(result, (list, tuple)):
-                    # Format multiple values
-                    value_str = ", ".join(
-                        [f"{v:.4f}" if isinstance(v, float) else str(v) for v in result]
-                    )
-                else:
-                    value_str = (
-                        f"{result:.4f}" if isinstance(result, float) else str(result)
-                    )
-                self.ui.lineCurrentVariableValue.setText(value_str)
-
-            logger.info(f"Current value for {self.connected_variable_name}: {result}")
-
-        except Exception as e:
-            logger.error(f"Error getting variable value: {e}")
-            if hasattr(self.ui, "lineCurrentVariableValue"):
-                self.ui.lineCurrentVariableValue.setText("Error")
 
     def set_variable_value(self):
         """Set the connected scan device to the specified value."""
@@ -1649,9 +1608,6 @@ class GEECSScannerWindow(QMainWindow):
             self.connected_scan_device.set(self.connected_variable_name, value)
             logger.info(f"Set {self.connected_variable_name} to: {value}")
 
-            # Auto-refresh by calling get
-            self.get_variable_value()
-
         except ValueError:
             logger.error(f"Invalid value format: {self.ui.lineSetVariableValue.text()}")
             QMessageBox.warning(self, "Invalid Input", "Please enter a valid number")
@@ -1671,19 +1627,13 @@ class GEECSScannerWindow(QMainWindow):
             finally:
                 self.connected_scan_device = None
 
-        # Update button states: enable Connect, disable Get/Set/Close
+        # Update button states: enable Connect, disable Set/Close
         if hasattr(self.ui, "buttonConnectScanVariable"):
             self.ui.buttonConnectScanVariable.setEnabled(True)
-        if hasattr(self.ui, "buttonGetVariableValue"):
-            self.ui.buttonGetVariableValue.setEnabled(False)
         if hasattr(self.ui, "buttonSetVariableValue"):
             self.ui.buttonSetVariableValue.setEnabled(False)
         if hasattr(self.ui, "buttonCloseScanDevice"):
             self.ui.buttonCloseScanDevice.setEnabled(False)
-
-        # Clear display fields
-        if hasattr(self.ui, "lineCurrentVariableValue"):
-            self.ui.lineCurrentVariableValue.setText("")
 
     def setup_scan_device_connections(self):
         """Wire up the scan device connection buttons to their methods."""
@@ -1692,8 +1642,6 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.buttonConnectScanVariable.clicked.connect(
                 self.connect_to_scan_variable
             )
-        if hasattr(self.ui, "buttonGetVariableValue"):
-            self.ui.buttonGetVariableValue.clicked.connect(self.get_variable_value)
         if hasattr(self.ui, "buttonSetVariableValue"):
             self.ui.buttonSetVariableValue.clicked.connect(self.set_variable_value)
         if hasattr(self.ui, "buttonCloseScanDevice"):
@@ -1702,8 +1650,6 @@ class GEECSScannerWindow(QMainWindow):
         # Set initial button states: only Connect enabled, others disabled
         if hasattr(self.ui, "buttonConnectScanVariable"):
             self.ui.buttonConnectScanVariable.setEnabled(True)
-        if hasattr(self.ui, "buttonGetVariableValue"):
-            self.ui.buttonGetVariableValue.setEnabled(False)
         if hasattr(self.ui, "buttonSetVariableValue"):
             self.ui.buttonSetVariableValue.setEnabled(False)
         if hasattr(self.ui, "buttonCloseScanDevice"):
