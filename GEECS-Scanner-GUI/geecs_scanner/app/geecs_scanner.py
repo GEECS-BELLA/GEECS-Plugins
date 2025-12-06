@@ -1291,30 +1291,49 @@ class GEECSScannerWindow(QMainWindow):
 
     def check_scan_device(self):
         """
-        Validate the scan variable entry and update labels/mode hints.
+        Validate the scan variable entry, update labels, and auto-connect.
 
         Notes
         -----
         - Sets `scan_variable` to an empty string on invalid entry.
         - Updates label suffixes based on composite mode (abs/rel).
+        - Automatically connects to the selected variable.
+        - Enables/disables Set button based on connection status.
         """
         scan_device = self.ui.lineScanVariable.text()
+
+        # If empty, close any connection and disable Set button
         if not scan_device:
+            self.close_scan_device()
+            if hasattr(self.ui, "buttonSetVariableValue"):
+                self.ui.buttonSetVariableValue.setEnabled(False)
             return
-        elif scan_device in self.scan_variable_list:
+
+        # Validate the variable selection
+        if scan_device in self.scan_variable_list:
             self.scan_variable = scan_device
             self.ui.labelStartValue.setText("Start Value: (abs)")
             self.ui.labelStopValue.setText("Stop Value: (abs)")
+            # Auto-connect to the variable
+            self.connect_to_scan_variable()
+
         elif scan_device in self.scan_composite_list:
             self.scan_variable = scan_device
             mode = self.scan_composite_data[scan_device]["mode"][:3]
             self.ui.labelStartValue.setText(f"Start Value: ({mode})")
             self.ui.labelStopValue.setText(f"Stop Value: ({mode})")
+            # Auto-connect to the variable
+            self.connect_to_scan_variable()
+
         else:
+            # Invalid selection - clear and disconnect
             self.scan_variable = ""
             self.ui.lineScanVariable.setText("")
             self.ui.labelStartValue.setText("Start Value:")
             self.ui.labelStopValue.setText("Stop Value:")
+            self.close_scan_device()
+            if hasattr(self.ui, "buttonSetVariableValue"):
+                self.ui.buttonSetVariableValue.setEnabled(False)
 
     def calculate_num_shots(self):
         """
@@ -1569,13 +1588,9 @@ class GEECSScannerWindow(QMainWindow):
                 logger.error(f"Unknown scan variable: {variable_name}")
                 return
 
-            # Update button states: disable Connect, enable Set/Close
-            if hasattr(self.ui, "buttonConnectScanVariable"):
-                self.ui.buttonConnectScanVariable.setEnabled(False)
+            # Enable the Set button after successful connection
             if hasattr(self.ui, "buttonSetVariableValue"):
                 self.ui.buttonSetVariableValue.setEnabled(True)
-            if hasattr(self.ui, "buttonCloseScanDevice"):
-                self.ui.buttonCloseScanDevice.setEnabled(True)
 
         except Exception as e:
             logger.error(f"Error connecting to scan variable: {e}")
@@ -1638,23 +1653,17 @@ class GEECSScannerWindow(QMainWindow):
 
     def setup_scan_device_connections(self):
         """Wire up the scan device connection buttons to their methods."""
-        # Connect button signals if they exist
+        # Hide Connect and Close buttons - auto-connection handles this now
         if hasattr(self.ui, "buttonConnectScanVariable"):
-            self.ui.buttonConnectScanVariable.clicked.connect(
-                self.connect_to_scan_variable
-            )
+            self.ui.buttonConnectScanVariable.setVisible(False)
+        if hasattr(self.ui, "buttonCloseScanDevice"):
+            self.ui.buttonCloseScanDevice.setVisible(False)
+
+        # Connect Set button signal
         if hasattr(self.ui, "buttonSetVariableValue"):
             self.ui.buttonSetVariableValue.clicked.connect(self.set_variable_value)
-        if hasattr(self.ui, "buttonCloseScanDevice"):
-            self.ui.buttonCloseScanDevice.clicked.connect(self.close_scan_device)
-
-        # Set initial button states: only Connect enabled, others disabled
-        if hasattr(self.ui, "buttonConnectScanVariable"):
-            self.ui.buttonConnectScanVariable.setEnabled(True)
-        if hasattr(self.ui, "buttonSetVariableValue"):
+            # Initially disabled until a variable is selected
             self.ui.buttonSetVariableValue.setEnabled(False)
-        if hasattr(self.ui, "buttonCloseScanDevice"):
-            self.ui.buttonCloseScanDevice.setEnabled(False)
 
     # ------------------------------------------------------------------ #
     # Presets                                                            #
