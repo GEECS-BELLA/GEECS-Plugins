@@ -201,21 +201,44 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             self._timing_info["rendering"] = render_elapsed
             logger.debug(f"[{self.device_name}] Rendering took {render_elapsed:.2f}s")
 
-            # Log timing summary
+            # Log timing summary at WARNING level for visibility
             if self._timing_info:
                 total = sum(self._timing_info.values())
-                logger.info(
+
+                # Build breakdown with file mapping details if available
+                breakdown_lines = []
+
+                # Show file mapping separately if measured
+                if "file_mapping" in self._timing_info:
+                    breakdown_lines.append(
+                        f"  File Mapping:{self._timing_info.get('file_mapping', 0):7.2f}s "
+                        f"({100 * self._timing_info.get('file_mapping', 0) / total:5.1f}%)"
+                    )
+                    breakdown_lines.append(
+                        f"  Image I/O:   {self._timing_info.get('image_io', 0):7.2f}s "
+                        f"({100 * self._timing_info.get('image_io', 0) / total:5.1f}%)"
+                    )
+                else:
+                    breakdown_lines.append(
+                        f"  Loading:     {self._timing_info.get('loading', 0):7.2f}s "
+                        f"({100 * self._timing_info.get('loading', 0) / total:5.1f}%)"
+                    )
+
+                breakdown_lines.extend(
+                    [
+                        f"  Batch Prep:  {self._timing_info.get('batch_prep', 0):7.2f}s "
+                        f"({100 * self._timing_info.get('batch_prep', 0) / total:5.1f}%)",
+                        f"  Analysis:    {self._timing_info.get('analysis', 0):7.2f}s "
+                        f"({100 * self._timing_info.get('analysis', 0) / total:5.1f}%)",
+                        f"  Rendering:   {self._timing_info.get('rendering', 0):7.2f}s "
+                        f"({100 * self._timing_info.get('rendering', 0) / total:5.1f}%)",
+                    ]
+                )
+
+                logger.warning(
                     f"\n{'=' * 60}\n"
                     f"TIMING BREAKDOWN: {self.device_name}\n"
-                    f"{'=' * 60}\n"
-                    f"  Loading:     {self._timing_info.get('loading', 0):7.2f}s "
-                    f"({100 * self._timing_info.get('loading', 0) / total:5.1f}%)\n"
-                    f"  Batch Prep:  {self._timing_info.get('batch_prep', 0):7.2f}s "
-                    f"({100 * self._timing_info.get('batch_prep', 0) / total:5.1f}%)\n"
-                    f"  Analysis:    {self._timing_info.get('analysis', 0):7.2f}s "
-                    f"({100 * self._timing_info.get('analysis', 0) / total:5.1f}%)\n"
-                    f"  Rendering:   {self._timing_info.get('rendering', 0):7.2f}s "
-                    f"({100 * self._timing_info.get('rendering', 0) / total:5.1f}%)\n"
+                    f"{'=' * 60}\n" + "\n".join(breakdown_lines) + "\n"
                     f"  {'─' * 58}\n"
                     f"  TOTAL:       {total:7.2f}s\n"
                     f"{'=' * 60}"
@@ -265,6 +288,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         """
         self._data_file_map = {}
 
+        # Convert to set for O(1) lookup instead of O(n) DataFrame lookup
+        valid_shots = set(self.auxiliary_data["Shotnumber"].values)
+
         logger.info(f"self.file_tail: {self.file_tail}")
         data_filename_regex = re.compile(
             r"Scan(?P<scan_number>\d{3,})_"  # scan number
@@ -282,15 +308,16 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             m = data_filename_regex.match(file.name)
             if m:
                 shot_num = int(m.group("shot_number"))
-                if shot_num in self.auxiliary_data["Shotnumber"].values:
+                if (
+                    shot_num in valid_shots
+                ):  # O(1) set lookup instead of O(n) DataFrame lookup
                     self._data_file_map[shot_num] = file
                     logger.info(f"Mapped file for shot {shot_num}: {file}")
             else:
                 logger.debug(f"Filename {file.name} does not match expected pattern.")
 
-        expected_shots = set(self.auxiliary_data["Shotnumber"].values)
         found_shots = set(self._data_file_map.keys())
-        for m in sorted(expected_shots - found_shots):
+        for m in sorted(valid_shots - found_shots):
             logger.warning(f"No file found for shot {m}")
 
     def _load_all_data(self) -> None:
@@ -312,8 +339,18 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         start_time = time.time()
 
         self.raw_data = {}
-        self._build_data_file_map()
 
+        # Time file mapping separately
+        map_start = time.time()
+        self._build_data_file_map()
+        map_elapsed = time.time() - map_start
+        self._timing_info["file_mapping"] = map_elapsed
+        logger.debug(
+            f"[{self.device_name}] File mapping took {map_elapsed:.2f}s ({len(self._data_file_map)} files)"
+        )
+
+        # Time image I/O separately
+        io_start = time.time()
         use_threads = self.image_analyzer.run_analyze_image_asynchronously
         Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
 
@@ -333,11 +370,14 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 except Exception as e:
                     logger.error(f"Error loading data for shot {shot_num}: {e}")
 
-        elapsed = time.time() - start_time
-        self._timing_info["loading"] = elapsed
+        io_elapsed = time.time() - io_start
+        self._timing_info["image_io"] = io_elapsed
         logger.debug(
-            f"[{self.device_name}] Image loading took {elapsed:.2f}s ({len(self.raw_data)} files)"
+            f"[{self.device_name}] Image I/O took {io_elapsed:.2f}s ({len(self.raw_data)} files)"
         )
+
+        total_elapsed = time.time() - start_time
+        self._timing_info["loading"] = total_elapsed
 
     def _run_batch_analysis(self) -> None:
         """
