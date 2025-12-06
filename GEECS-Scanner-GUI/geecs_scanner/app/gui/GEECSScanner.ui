@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>682</width>
-    <height>683</height>
+    <width>677</width>
+    <height>684</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -594,13 +594,13 @@
     <property name="geometry">
      <rect>
       <x>10</x>
-      <y>460</y>
+      <y>450</y>
       <width>311</width>
-      <height>61</height>
+      <height>101</height>
      </rect>
     </property>
     <property name="currentIndex">
-     <number>2</number>
+     <number>1</number>
     </property>
     <widget class="QWidget" name="pageNoScan"/>
     <widget class="QWidget" name="page1DScan">
@@ -608,9 +608,9 @@
       <property name="geometry">
        <rect>
         <x>11</x>
-        <y>11</y>
+        <y>0</y>
         <width>291</width>
-        <height>41</height>
+        <height>101</height>
        </rect>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout_12">
@@ -623,6 +623,38 @@
        </item>
        <item>
         <widget class="QLineEdit" name="lineScanVariable"/>
+       </item>
+       <item>
+        <widget class="Line" name="line">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_7">
+         <property name="text">
+          <string>Manual variable control</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_14">
+         <item>
+          <widget class="QLineEdit" name="lineSetVariableValue">
+           <property name="text">
+            <string>Enter value to set </string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="buttonSetVariableValue">
+           <property name="text">
+            <string>Set</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
        </item>
       </layout>
      </widget>
@@ -677,7 +709,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>682</width>
+     <width>677</width>
      <height>21</height>
     </rect>
    </property>

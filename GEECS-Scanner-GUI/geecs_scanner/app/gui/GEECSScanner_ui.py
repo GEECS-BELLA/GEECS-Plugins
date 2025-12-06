@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file '.\GEECSScanner.ui'
+# Form implementation generated from reading ui file 'GEECSScanner.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.9
 #
@@ -14,7 +14,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
-        MainWindow.resize(682, 683)
+        MainWindow.resize(677, 684)
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.logDisplay = QtWidgets.QPlainTextEdit(self.centralwidget)
@@ -312,7 +312,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_12.addWidget(self.lineNumShots)
         self.verticalLayout_13.addLayout(self.horizontalLayout_12)
         self.stackScanMode = QtWidgets.QStackedWidget(self.centralwidget)
-        self.stackScanMode.setGeometry(QtCore.QRect(10, 460, 311, 61))
+        self.stackScanMode.setGeometry(QtCore.QRect(10, 450, 311, 101))
         self.stackScanMode.setObjectName("stackScanMode")
         self.pageNoScan = QtWidgets.QWidget()
         self.pageNoScan.setObjectName("pageNoScan")
@@ -320,7 +320,7 @@ class Ui_MainWindow(object):
         self.page1DScan = QtWidgets.QWidget()
         self.page1DScan.setObjectName("page1DScan")
         self.layoutWidget3 = QtWidgets.QWidget(self.page1DScan)
-        self.layoutWidget3.setGeometry(QtCore.QRect(11, 11, 291, 41))
+        self.layoutWidget3.setGeometry(QtCore.QRect(11, 0, 291, 101))
         self.layoutWidget3.setObjectName("layoutWidget3")
         self.verticalLayout_12 = QtWidgets.QVBoxLayout(self.layoutWidget3)
         self.verticalLayout_12.setContentsMargins(0, 0, 0, 0)
@@ -331,6 +331,23 @@ class Ui_MainWindow(object):
         self.lineScanVariable = QtWidgets.QLineEdit(self.layoutWidget3)
         self.lineScanVariable.setObjectName("lineScanVariable")
         self.verticalLayout_12.addWidget(self.lineScanVariable)
+        self.line = QtWidgets.QFrame(self.layoutWidget3)
+        self.line.setFrameShape(QtWidgets.QFrame.HLine)
+        self.line.setFrameShadow(QtWidgets.QFrame.Sunken)
+        self.line.setObjectName("line")
+        self.verticalLayout_12.addWidget(self.line)
+        self.label_7 = QtWidgets.QLabel(self.layoutWidget3)
+        self.label_7.setObjectName("label_7")
+        self.verticalLayout_12.addWidget(self.label_7)
+        self.horizontalLayout_14 = QtWidgets.QHBoxLayout()
+        self.horizontalLayout_14.setObjectName("horizontalLayout_14")
+        self.lineSetVariableValue = QtWidgets.QLineEdit(self.layoutWidget3)
+        self.lineSetVariableValue.setObjectName("lineSetVariableValue")
+        self.horizontalLayout_14.addWidget(self.lineSetVariableValue)
+        self.buttonSetVariableValue = QtWidgets.QPushButton(self.layoutWidget3)
+        self.buttonSetVariableValue.setObjectName("buttonSetVariableValue")
+        self.horizontalLayout_14.addWidget(self.buttonSetVariableValue)
+        self.verticalLayout_12.addLayout(self.horizontalLayout_14)
         self.stackScanMode.addWidget(self.page1DScan)
         self.pageOptimize = QtWidgets.QWidget()
         self.pageOptimize.setObjectName("pageOptimize")
@@ -363,7 +380,7 @@ class Ui_MainWindow(object):
         self.statusBar.setObjectName("statusBar")
         MainWindow.setStatusBar(self.statusBar)
         self.menuBar = QtWidgets.QMenuBar(MainWindow)
-        self.menuBar.setGeometry(QtCore.QRect(0, 0, 682, 21))
+        self.menuBar.setGeometry(QtCore.QRect(0, 0, 677, 21))
         self.menuBar.setObjectName("menuBar")
         self.menuOptions = QtWidgets.QMenu(self.menuBar)
         self.menuOptions.setObjectName("menuOptions")
@@ -403,7 +420,7 @@ class Ui_MainWindow(object):
         self.menuBar.addAction(self.menuPreferences.menuAction())
 
         self.retranslateUi(MainWindow)
-        self.stackScanMode.setCurrentIndex(2)
+        self.stackScanMode.setCurrentIndex(1)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
 
     def retranslateUi(self, MainWindow):
@@ -444,6 +461,9 @@ class Ui_MainWindow(object):
         self.label_13.setText(_translate("MainWindow", "Shots Per Step:"))
         self.labelLineNumShots.setText(_translate("MainWindow", "# of Shots:"))
         self.label_6.setText(_translate("MainWindow", "Scan Variable:"))
+        self.label_7.setText(_translate("MainWindow", "Manual variable control"))
+        self.lineSetVariableValue.setText(_translate("MainWindow", "Enter value to set "))
+        self.buttonSetVariableValue.setText(_translate("MainWindow", "Set"))
         self.labelOptimizationConfig.setText(_translate("MainWindow", "Optimization config:"))
         self.menuOptions.setTitle(_translate("MainWindow", "Options"))
         self.menuOpen.setTitle(_translate("MainWindow", "Open"))
