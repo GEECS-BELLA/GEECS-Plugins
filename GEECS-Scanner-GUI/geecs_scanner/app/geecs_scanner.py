@@ -1585,6 +1585,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def set_variable_value(self):
         """Set the connected scan device to the specified value."""
+        logger.info("DEBUG: Set button was clicked!")  # <-- Add this
         if self.connected_scan_device is None or self.connected_variable_name is None:
             logger.warning("No scan device connected")
             return
