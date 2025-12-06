@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>682</width>
-    <height>683</height>
+    <width>676</width>
+    <height>722</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -18,7 +18,7 @@
     <property name="geometry">
      <rect>
       <x>30</x>
-      <y>560</y>
+      <y>600</y>
       <width>591</width>
       <height>81</height>
      </rect>
@@ -594,13 +594,13 @@
     <property name="geometry">
      <rect>
       <x>10</x>
-      <y>460</y>
+      <y>450</y>
       <width>311</width>
-      <height>61</height>
+      <height>141</height>
      </rect>
     </property>
     <property name="currentIndex">
-     <number>2</number>
+     <number>1</number>
     </property>
     <widget class="QWidget" name="pageNoScan"/>
     <widget class="QWidget" name="page1DScan">
@@ -610,7 +610,7 @@
         <x>11</x>
         <y>11</y>
         <width>291</width>
-        <height>41</height>
+        <height>131</height>
        </rect>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout_12">
@@ -623,6 +623,56 @@
        </item>
        <item>
         <widget class="QLineEdit" name="lineScanVariable"/>
+       </item>
+       <item>
+        <widget class="Line" name="line">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_7">
+         <property name="text">
+          <string>Manual variable control</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_13">
+         <item>
+          <widget class="QPushButton" name="buttonConnectScanVariable">
+           <property name="text">
+            <string>Connect</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="buttonCloseScanDevice">
+           <property name="text">
+            <string>Close</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_14">
+         <item>
+          <widget class="QLineEdit" name="lineSetVariableValue">
+           <property name="text">
+            <string>Enter value to set </string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="pushButton">
+           <property name="text">
+            <string>Set</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
        </item>
       </layout>
      </widget>
@@ -677,7 +727,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>682</width>
+     <width>676</width>
      <height>21</height>
     </rect>
    </property>
