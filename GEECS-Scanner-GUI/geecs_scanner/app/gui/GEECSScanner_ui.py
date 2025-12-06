@@ -51,9 +51,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout = QtWidgets.QHBoxLayout(self.groupBox)
         self.horizontalLayout.setObjectName("horizontalLayout")
         self.widget = QtWidgets.QWidget(self.groupBox)
-        sizePolicy = QtWidgets.QSizePolicy(
-            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred
-        )
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.widget.sizePolicy().hasHeightForWidth())
@@ -71,9 +69,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_2.addWidget(self.experimentDisplay)
         self.horizontalLayout.addWidget(self.widget)
         self.widget_2 = QtWidgets.QWidget(self.groupBox)
-        sizePolicy = QtWidgets.QSizePolicy(
-            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred
-        )
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
         sizePolicy.setHorizontalStretch(3)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.widget_2.sizePolicy().hasHeightForWidth())
@@ -92,9 +88,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_3.addWidget(self.repititionRateDisplay)
         self.horizontalLayout.addWidget(self.widget_2)
         self.widget_3 = QtWidgets.QWidget(self.groupBox)
-        sizePolicy = QtWidgets.QSizePolicy(
-            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred
-        )
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.widget_3.sizePolicy().hasHeightForWidth())
@@ -164,9 +158,7 @@ class Ui_MainWindow(object):
         self.NoScansToday = QtWidgets.QHBoxLayout()
         self.NoScansToday.setObjectName("NoScansToday")
         self.labelScanNumber = QtWidgets.QLabel(self.layoutWidget1)
-        self.labelScanNumber.setAlignment(
-            QtCore.Qt.AlignRight | QtCore.Qt.AlignTrailing | QtCore.Qt.AlignVCenter
-        )
+        self.labelScanNumber.setAlignment(QtCore.Qt.AlignRight|QtCore.Qt.AlignTrailing|QtCore.Qt.AlignVCenter)
         self.labelScanNumber.setObjectName("labelScanNumber")
         self.NoScansToday.addWidget(self.labelScanNumber)
         self.lineLastScan = QtWidgets.QLineEdit(self.layoutWidget1)
@@ -409,15 +401,11 @@ class Ui_MainWindow(object):
         self.actionLog = QtWidgets.QAction(MainWindow)
         self.actionLog.setObjectName("actionLog")
         self.action_open_Experiment_Config_Folder = QtWidgets.QAction(MainWindow)
-        self.action_open_Experiment_Config_Folder.setObjectName(
-            "action_open_Experiment_Config_Folder"
-        )
+        self.action_open_Experiment_Config_Folder.setObjectName("action_open_Experiment_Config_Folder")
         self.action_open_User_Config_File = QtWidgets.QAction(MainWindow)
         self.action_open_User_Config_File.setObjectName("action_open_User_Config_File")
         self.action_open_Daily_Scan_Folder = QtWidgets.QAction(MainWindow)
-        self.action_open_Daily_Scan_Folder.setObjectName(
-            "action_open_Daily_Scan_Folder"
-        )
+        self.action_open_Daily_Scan_Folder.setObjectName("action_open_Daily_Scan_Folder")
         self.action_open_Github_Page = QtWidgets.QAction(MainWindow)
         self.action_open_Github_Page.setObjectName("action_open_Github_Page")
         self.actionDarkMode = QtWidgets.QAction(MainWindow)
@@ -485,29 +473,17 @@ class Ui_MainWindow(object):
         self.label_7.setText(_translate("MainWindow", "Manual variable control"))
         self.buttonConnectScanVariable.setText(_translate("MainWindow", "Connect"))
         self.buttonCloseScanDevice.setText(_translate("MainWindow", "Close"))
-        self.lineSetVariableValue.setText(
-            _translate("MainWindow", "Enter value to set ")
-        )
+        self.lineSetVariableValue.setText(_translate("MainWindow", "Enter value to set "))
         self.pushButton.setText(_translate("MainWindow", "Set"))
-        self.labelOptimizationConfig.setText(
-            _translate("MainWindow", "Optimization config:")
-        )
+        self.labelOptimizationConfig.setText(_translate("MainWindow", "Optimization config:"))
         self.menuOptions.setTitle(_translate("MainWindow", "Options"))
         self.menuOpen.setTitle(_translate("MainWindow", "Open"))
         self.menuPreferences.setTitle(_translate("MainWindow", "Preferences"))
         self.actionLog.setText(_translate("MainWindow", "Log"))
-        self.action_open_Experiment_Config_Folder.setText(
-            _translate("MainWindow", "Experiment Config Folder")
-        )
-        self.action_open_User_Config_File.setText(
-            _translate("MainWindow", "User Config File")
-        )
-        self.action_open_Daily_Scan_Folder.setText(
-            _translate("MainWindow", "Daily Scan Folder")
-        )
+        self.action_open_Experiment_Config_Folder.setText(_translate("MainWindow", "Experiment Config Folder"))
+        self.action_open_User_Config_File.setText(_translate("MainWindow", "User Config File"))
+        self.action_open_Daily_Scan_Folder.setText(_translate("MainWindow", "Daily Scan Folder"))
         self.action_open_Github_Page.setText(_translate("MainWindow", "Github Page"))
         self.actionDarkMode.setText(_translate("MainWindow", "Dark Mode"))
         self.actionRandomizedBeeps.setText(_translate("MainWindow", "Randomized Beeps"))
-        self.actionExperiment_Scanlog.setText(
-            _translate("MainWindow", "Experiment Scanlog")
-        )
+        self.actionExperiment_Scanlog.setText(_translate("MainWindow", "Experiment Scanlog"))
