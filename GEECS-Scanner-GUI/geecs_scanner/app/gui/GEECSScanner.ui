@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>676</width>
-    <height>722</height>
+    <width>677</width>
+    <height>684</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -18,7 +18,7 @@
     <property name="geometry">
      <rect>
       <x>30</x>
-      <y>600</y>
+      <y>560</y>
       <width>591</width>
       <height>81</height>
      </rect>
@@ -596,7 +596,7 @@
       <x>10</x>
       <y>450</y>
       <width>311</width>
-      <height>141</height>
+      <height>101</height>
      </rect>
     </property>
     <property name="currentIndex">
@@ -608,9 +608,9 @@
       <property name="geometry">
        <rect>
         <x>11</x>
-        <y>11</y>
+        <y>0</y>
         <width>291</width>
-        <height>131</height>
+        <height>101</height>
        </rect>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout_12">
@@ -637,24 +637,6 @@
           <string>Manual variable control</string>
          </property>
         </widget>
-       </item>
-       <item>
-        <layout class="QHBoxLayout" name="horizontalLayout_13">
-         <item>
-          <widget class="QPushButton" name="buttonConnectScanVariable">
-           <property name="text">
-            <string>Connect</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="buttonCloseScanDevice">
-           <property name="text">
-            <string>Close</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
        </item>
        <item>
         <layout class="QHBoxLayout" name="horizontalLayout_14">
@@ -727,7 +709,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>676</width>
+     <width>677</width>
      <height>21</height>
     </rect>
    </property>
