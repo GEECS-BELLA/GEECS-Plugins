@@ -22,6 +22,7 @@ from __future__ import annotations
 # --- Standard Library ---
 import logging
 import re
+import time
 import traceback
 import pickle
 from abc import ABC
@@ -115,6 +116,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.file_tail = file_tail
         self.analysis_mode = analysis_mode
 
+        # Initialize timing info dictionary
+        self._timing_info = {}
+
         # Check if image_analyzer is pickleable
         try:
             pickle.dumps(self.image_analyzer)
@@ -187,11 +191,35 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             self._process_all_shots()
 
             # Depending on the scan type, perform additional processing
+            render_start = time.time()
             if len(self.results) > 2:
                 if self.noscan:
                     self._postprocess_noscan()
                 else:
                     self._postprocess_scan()
+            render_elapsed = time.time() - render_start
+            self._timing_info["rendering"] = render_elapsed
+            logger.debug(f"[{self.device_name}] Rendering took {render_elapsed:.2f}s")
+
+            # Log timing summary
+            if self._timing_info:
+                total = sum(self._timing_info.values())
+                logger.info(
+                    f"\n{'=' * 60}\n"
+                    f"TIMING BREAKDOWN: {self.device_name}\n"
+                    f"{'=' * 60}\n"
+                    f"  Loading:     {self._timing_info.get('loading', 0):7.2f}s "
+                    f"({100 * self._timing_info.get('loading', 0) / total:5.1f}%)\n"
+                    f"  Batch Prep:  {self._timing_info.get('batch_prep', 0):7.2f}s "
+                    f"({100 * self._timing_info.get('batch_prep', 0) / total:5.1f}%)\n"
+                    f"  Analysis:    {self._timing_info.get('analysis', 0):7.2f}s "
+                    f"({100 * self._timing_info.get('analysis', 0) / total:5.1f}%)\n"
+                    f"  Rendering:   {self._timing_info.get('rendering', 0):7.2f}s "
+                    f"({100 * self._timing_info.get('rendering', 0) / total:5.1f}%)\n"
+                    f"  {'─' * 58}\n"
+                    f"  TOTAL:       {total:7.2f}s\n"
+                    f"{'=' * 60}"
+                )
 
             if not self.live_analysis:
                 self.auxiliary_data.to_csv(
@@ -281,6 +309,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         - ``self._data_file_map`` : ``{shot_number: Path}``
         - ``self.raw_data`` : ``{shot_number: (data, Path)}``
         """
+        start_time = time.time()
+
         self.raw_data = {}
         self._build_data_file_map()
 
@@ -303,6 +333,12 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 except Exception as e:
                     logger.error(f"Error loading data for shot {shot_num}: {e}")
 
+        elapsed = time.time() - start_time
+        self._timing_info["loading"] = elapsed
+        logger.debug(
+            f"[{self.device_name}] Image loading took {elapsed:.2f}s ({len(self.raw_data)} files)"
+        )
+
     def _run_batch_analysis(self) -> None:
         """
         Optionally run batch-level preprocessing across all loaded images.
@@ -318,6 +354,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         ValueError
             If the returned number of processed images does not match the input.
         """
+        start_time = time.time()
+
         if not hasattr(self, "raw_data") or not self.raw_data:
             raise RuntimeError("No data loaded. Run _load_all_data first.")
 
@@ -355,6 +393,10 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         except Exception as e:
             logger.warning(f"Batch analysis skipped or failed: {e}")
+
+        elapsed = time.time() - start_time
+        self._timing_info["batch_prep"] = elapsed
+        logger.debug(f"[{self.device_name}] Batch preprocessing took {elapsed:.2f}s")
 
     def _resolve_background_paths(self) -> None:
         """
@@ -499,6 +541,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         Concurrency backend follows ``run_analyze_image_asynchronously`` on
         the ImageAnalyzer instance.
         """
+        start_time = time.time()
+
         logger.info(f"Starting analysis in {self.analysis_mode} mode")
         self.results: dict[int, ImageAnalyzerResult] = {}
 
@@ -552,6 +596,12 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
                 except Exception as e:
                     logger.error(f"Analysis failed for unit {unit_key}: {e}")
+
+        elapsed = time.time() - start_time
+        self._timing_info["analysis"] = elapsed
+        logger.debug(
+            f"[{self.device_name}] Analysis took {elapsed:.2f}s ({len(analysis_units)} units)"
+        )
 
     def _postprocess_noscan(self) -> None:
         """
