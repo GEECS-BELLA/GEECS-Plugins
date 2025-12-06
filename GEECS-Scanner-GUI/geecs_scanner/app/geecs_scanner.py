@@ -1632,7 +1632,7 @@ class GEECSScannerWindow(QMainWindow):
             QMessageBox.warning(self, "Set Error", f"Error setting value:\n{e}")
 
     def close_scan_device(self):
-        """Close the scan device connection and reset button states."""
+        """Close the scan device connection and disable the Set button."""
         if self.connected_scan_device is not None:
             try:
                 # Unsubscribe and close
@@ -1643,22 +1643,12 @@ class GEECSScannerWindow(QMainWindow):
             finally:
                 self.connected_scan_device = None
 
-        # Update button states: enable Connect, disable Set/Close
-        if hasattr(self.ui, "buttonConnectScanVariable"):
-            self.ui.buttonConnectScanVariable.setEnabled(True)
+        # Disable the Set button since there's no active connection
         if hasattr(self.ui, "buttonSetVariableValue"):
             self.ui.buttonSetVariableValue.setEnabled(False)
-        if hasattr(self.ui, "buttonCloseScanDevice"):
-            self.ui.buttonCloseScanDevice.setEnabled(False)
 
     def setup_scan_device_connections(self):
-        """Wire up the scan device connection buttons to their methods."""
-        # Hide Connect and Close buttons - auto-connection handles this now
-        if hasattr(self.ui, "buttonConnectScanVariable"):
-            self.ui.buttonConnectScanVariable.setVisible(False)
-        if hasattr(self.ui, "buttonCloseScanDevice"):
-            self.ui.buttonCloseScanDevice.setVisible(False)
-
+        """Wire up the scan device connection button to its method."""
         # Connect Set button signal
         if hasattr(self.ui, "buttonSetVariableValue"):
             self.ui.buttonSetVariableValue.clicked.connect(self.set_variable_value)
