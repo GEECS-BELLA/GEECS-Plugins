@@ -40,7 +40,7 @@ repos:
       - id: pydocstyle
         additional_dependencies: [tomli]
         args: [--convention=numpy, --add-ignore=D401,D200,D400]
-        exclude: "(^extras/|.*/third_party_sdks/)"
+        exclude: "(^extras/|.*/third_party_sdks/|.*_ui\\.py$)"
 
   - repo: local
     hooks:
