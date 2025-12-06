@@ -29,10 +29,10 @@ repos:
       - id: ruff
         args: [--fix]
         types_or: [python, pyi, jupyter]
-        exclude: "(^extras/|.*/third_party_sdks/)"
+        exclude: "(^extras/|.*/third_party_sdks/|.*_ui\\.py$)"
       - id: ruff-format
         types_or: [python, pyi, jupyter]
-        exclude: "(^extras/|.*/third_party_sdks/)"
+        exclude: "(^extras/|.*/third_party_sdks/|.*_ui\\.py$)"
 
   - repo: https://github.com/pycqa/pydocstyle
     rev: 6.3.0
