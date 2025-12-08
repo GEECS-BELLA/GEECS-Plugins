@@ -29,6 +29,7 @@ opencv-python = "^4.9.0.80"
 pytest = "^7.4"
 
 lcls-tools = { git  = "https://github.com/slaclab/lcls-tools.git" ,  markers = "python_version >= '3.9'"}
+geecs-data-utils = { path = "../GEECS-Data-Utils", markers = "python_version >= '3.9'", develop=true }
 
 
 [tool.poetry.group.dev.dependencies]
