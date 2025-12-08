@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 import numpy as np
 from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
-from image_analysis.config_loader import set_config_base_dir
+from geecs_data_utils.config_roots import image_analysis_config
 
 
 @pytest.mark.parametrize(
@@ -22,7 +22,7 @@ def test_analyze_image_file_visaebeam(camera_name):
     current_dir = Path(__file__).resolve().parent.parent
 
     geecs_plugins_dir = current_dir.parent.parent
-    set_config_base_dir(geecs_plugins_dir / "image_analysis_configs")
+    image_analysis_config.set_base_dir(geecs_plugins_dir / "image_analysis_configs")
 
     image_name = f"{camera_name}_001.png"
     test_img_path = current_dir / "data" / "VisaEBeam_test_data" / image_name

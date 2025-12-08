@@ -211,12 +211,12 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
 
 if __name__ == "__main__":
     # Example usage
-    from image_analysis.config_loader import set_config_base_dir
+    from geecs_data_utils.config_roots import image_analysis_config
 
     current_dir = Path(__file__).resolve().parent.parent
 
     geecs_plugins_dir = current_dir.parent.parent.parent
-    set_config_base_dir(geecs_plugins_dir / "image_analysis_configs")
+    image_analysis_config.set_base_dir(geecs_plugins_dir / "image_analysis_configs")
 
     image_analyzer = HiResMagCamAnalyzer(camera_config_name="UC_HiResMagCam")
 

@@ -14,8 +14,8 @@ Quick Start
 -----------
 1. Set up config directory:
 
-    >>> from scan_analysis.config import set_config_base_dir
-    >>> set_config_base_dir("/path/to/scan_analysis_configs")
+    >>> from geecs_data_utils.config_roots import scan_analysis_config
+    >>> scan_analysis_config.set_base_dir("/path/to/scan_analysis_configs")
 
 2. Load experiment configuration:
 
@@ -50,11 +50,8 @@ Configuration Models:
 
 Config Loading:
     - load_experiment_config
-    - set_config_base_dir
-    - get_config_base_dir
     - find_config_file
     - list_available_configs
-    - clear_config_cache
 
 Analyzer Creation:
     - create_analyzer
@@ -105,13 +102,13 @@ Example YAML configuration file (undulator_analysis.yaml):
 Complete workflow example:
 
     >>> from scan_analysis.config import (
-    ...     set_config_base_dir,
     ...     load_experiment_config,
     ...     create_analyzer
     ... )
+    >>> from geecs_data_utils.config_roots import scan_analysis_config
     >>>
     >>> # Set up config directory
-    >>> set_config_base_dir("/data/configs/scan_analysis")
+    >>> scan_analysis_config.set_base_dir("/data/configs/scan_analysis")
     >>>
     >>> # Load experiment configuration
     >>> config = load_experiment_config("undulator")
@@ -144,12 +141,9 @@ from .analyzer_config_models import (
 
 # Config loading
 from .config_loader import (
-    clear_config_cache,
     find_config_file,
-    get_config_base_dir,
     list_available_configs,
     load_experiment_config,
-    set_config_base_dir,
 )
 
 # Analyzer factory
@@ -164,11 +158,8 @@ __all__ = [
     "ExperimentAnalysisConfig",
     # Config loading
     "load_experiment_config",
-    "set_config_base_dir",
-    "get_config_base_dir",
     "find_config_file",
     "list_available_configs",
-    "clear_config_cache",
     # Factory
     "create_analyzer",
     "create_image_analyzer",

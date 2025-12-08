@@ -2,26 +2,19 @@
 Configuration loader for scan analysis.
 
 Provides utilities for loading and managing experiment analysis configurations
-from YAML files. Follows the same patterns as ImageAnalysis config_loader.
-
-Single public entry point:
-    load_experiment_config(...) -> ExperimentAnalysisConfig
-
-Configuration Directory Management:
-- Set once via `set_config_base_dir("/path/to/scan_analysis_configs")`
-  or environment variable `SCAN_ANALYSIS_CONFIG_DIR`.
-- Or pass `config_dir=Path(...)` per call.
-
-Supports recursive search in subdirectories for organized config structures.
+from YAML files. Supports recursive search in subdirectories for organized
+config structures. Use environment variable ``SCAN_ANALYSIS_CONFIG_DIR`` or
+pass ``config_dir=Path(...)`` per call.
 
 Examples
 --------
 Basic usage:
 
-    >>> from scan_analysis.config import load_experiment_config, set_config_base_dir
+    >>> from scan_analysis.config import load_experiment_config
+    >>> from geecs_data_utils.config_roots import scan_analysis_config
     >>>
-    >>> # Set config directory once
-    >>> set_config_base_dir("/path/to/configs/scan_analysis")
+    >>> # Set config directory once (or set SCAN_ANALYSIS_CONFIG_DIR)
+    >>> scan_analysis_config.set_base_dir("/path/to/configs/scan_analysis")
     >>>
     >>> # Load experiment config
     >>> config = load_experiment_config("undulator")
@@ -41,71 +34,24 @@ import yaml
 from pydantic import ValidationError
 
 from .analyzer_config_models import ExperimentAnalysisConfig
-from geecs_data_utils.config_base import ConfigDirManager
+from geecs_data_utils.config_roots import scan_analysis_config
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "set_config_base_dir",
-    "get_config_base_dir",
     "find_config_file",
     "load_experiment_config",
     "list_available_configs",
-    "clear_config_cache",
 ]
 
 # ----------------------------------------------------------------------
 # Base directory management
 # ----------------------------------------------------------------------
 
-_CONFIG_MANAGER = ConfigDirManager(
-    env_var="SCAN_ANALYSIS_CONFIG_DIR",
-    logger=logger,
-    name="Scan analysis config",
-)
+_CONFIG_MANAGER = scan_analysis_config
 _CONFIG_CACHE: dict[str, Path] = (
     _CONFIG_MANAGER.cache
 )  # Cache for resolved config paths
-
-
-def set_config_base_dir(path: Union[str, Path]) -> None:
-    """
-    Set a global base directory for scan analysis config files.
-
-    Parameters
-    ----------
-    path : Union[str, Path]
-        Directory containing YAML config files (e.g., "undulator_analysis.yaml").
-        Can contain subdirectories - recursive search is supported.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the specified directory does not exist
-    NotADirectoryError
-        If the specified path is not a directory
-    """
-    _CONFIG_MANAGER.set_base_dir(path)
-
-
-def get_config_base_dir() -> Optional[Path]:
-    """
-    Return the currently configured base directory.
-
-    Returns
-    -------
-    Optional[Path]
-        Current config base directory, or None if not set
-    """
-    return _CONFIG_MANAGER.base_dir
-
-
-def clear_config_cache() -> None:
-    """Clear the config file path cache. Useful after adding new configs."""
-    _CONFIG_MANAGER.clear_cache()
-
-
-_CONFIG_MANAGER.bootstrap_from_env_or_fallback()
 
 
 # ----------------------------------------------------------------------
@@ -168,7 +114,7 @@ def find_config_file(
         use_cache=use_cache,
         missing_base_message=(
             "config_dir is required (no global base dir set). "
-            "Call set_config_base_dir(...) or set SCAN_ANALYSIS_CONFIG_DIR."
+            "Set SCAN_ANALYSIS_CONFIG_DIR or pass config_dir explicitly."
         ),
         not_found_label="Config for experiment",
     )
@@ -287,7 +233,7 @@ def list_available_configs(
     if base is None:
         raise ValueError(
             "config_dir is required (no global base dir set). "
-            "Call set_config_base_dir(...) or set SCAN_ANALYSIS_CONFIG_DIR."
+            "Set SCAN_ANALYSIS_CONFIG_DIR or pass config_dir explicitly."
         )
 
     configs: dict[str, list[Path]] = {}

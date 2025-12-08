@@ -4,10 +4,8 @@ Configuration loading utilities for image analysis.
 Single public entry point:
     load_camera_config(...) -> cfg_2d.CameraConfig
 
-This version uses a single, explicit base directory for YAML configs:
-- Set once via `set_config_base_dir("/path/to/image_analysis_configs")`
-  or environment variable `IMAGE_ANALYSIS_CONFIG_DIR`.
-- Or pass `config_dir=Path(...)` per call.
+This version uses a single, explicit base directory for YAML configs, set via
+environment variable ``IMAGE_ANALYSIS_CONFIG_DIR`` or passed per call.
 
 Supports recursive search in subdirectories for organized config structures.
 Supports nested overrides via double-underscore keys, e.g., background__method="mean".
@@ -16,7 +14,6 @@ Supports nested overrides via double-underscore keys, e.g., background__method="
 from __future__ import annotations
 
 import logging
-import configparser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, TypeVar, Union
 
@@ -27,7 +24,7 @@ from pydantic import BaseModel, ValidationError
 # All config models in one namespace
 import image_analysis.processing.array2d.config_models as cfg_2d
 import image_analysis.processing.array1d.config_models as cfg_1d
-from geecs_data_utils.config_base import ConfigDirManager
+from geecs_data_utils.config_roots import image_analysis_config
 
 if TYPE_CHECKING:
     from .types import Array2D
@@ -37,8 +34,6 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 __all__ = [
-    "set_config_base_dir",
-    "get_config_base_dir",
     "load_camera_config",
     "load_line_config",
     "find_config_file",
@@ -48,82 +43,16 @@ __all__ = [
     "get_config_schema",
     "convert_from_processing_dtype",
     "list_available_configs",
-    "clear_config_cache",
 ]
 
 # ----------------------------------------------------------------------
 # Base directory management
 # ----------------------------------------------------------------------
 
-
-def _resolve_config_dir_from_ini() -> Optional[Path]:
-    """
-    Resolve config directory from ~/.config/geecs_python_api/config.ini.
-
-    Returns
-    -------
-    Optional[Path]
-        Path to image_analysis configs if found in config file, None otherwise
-    """
-    config_path = Path("~/.config/geecs_python_api/config.ini").expanduser()
-    if not config_path.exists():
-        return None
-
-    try:
-        config = configparser.ConfigParser()
-        config.read(config_path)
-        if config_root := config.get("Paths", "config_root", fallback=None):
-            if config_root:  # Not empty string
-                image_dir = (
-                    Path(config_root).expanduser().resolve()
-                    / "image_analysis"
-                    / "cameras"
-                )
-                if image_dir.exists():
-                    return image_dir
-    except Exception as e:
-        logger.warning(f"Error reading config from {config_path}: {e}")
-
-    return None
-
-
-_CONFIG_MANAGER = ConfigDirManager(
-    env_var="IMAGE_ANALYSIS_CONFIG_DIR",
-    logger=logger,
-    name="Image analysis config",
-    fallback_resolver=_resolve_config_dir_from_ini,
-    fallback_name="config.ini Paths.config_root",
-)
-
+_CONFIG_MANAGER = image_analysis_config
 _CONFIG_CACHE: Dict[str, Path] = (
     _CONFIG_MANAGER.cache
 )  # Cache for resolved config paths
-
-
-def set_config_base_dir(path: Union[str, Path]) -> None:
-    """
-    Set a global base directory for camera config files.
-
-    Parameters
-    ----------
-    path : Union[str, Path]
-        Directory containing YAML config files (e.g., "UC_VisaEBeam1.yaml").
-        Can contain subdirectories - recursive search is supported.
-    """
-    _CONFIG_MANAGER.set_base_dir(path)
-
-
-def get_config_base_dir() -> Optional[Path]:
-    """Return the currently configured base directory (or None if unset)."""
-    return _CONFIG_MANAGER.base_dir
-
-
-def clear_config_cache() -> None:
-    """Clear the config file path cache. Useful after adding new configs."""
-    _CONFIG_MANAGER.clear_cache()
-
-
-_CONFIG_MANAGER.bootstrap_from_env_or_fallback()
 
 # ----------------------------------------------------------------------
 # Core helpers
@@ -198,7 +127,7 @@ def find_config_file(
         use_cache=use_cache,
         missing_base_message=(
             "config_dir is required (no global base dir set). "
-            "Call set_config_base_dir(...) or set IMAGE_ANALYSIS_CONFIG_DIR."
+            "Set IMAGE_ANALYSIS_CONFIG_DIR or pass config_dir explicitly."
         ),
         not_found_label="Config",
     )
@@ -408,7 +337,7 @@ def list_available_configs(
     if base is None:
         raise ValueError(
             "config_dir is required (no global base dir set). "
-            "Call set_config_base_dir(...) or set IMAGE_ANALYSIS_CONFIG_DIR."
+            "Set IMAGE_ANALYSIS_CONFIG_DIR or pass config_dir explicitly."
         )
 
     configs: Dict[str, List[Path]] = {}
