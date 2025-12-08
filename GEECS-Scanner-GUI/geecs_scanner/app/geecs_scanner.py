@@ -56,6 +56,7 @@ from ..utils.exceptions import ConflictingScanElements, ActionError
 from geecs_data_utils import ScanConfig, ScanMode
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
+from geecs_python_api.controls.devices.scan_device import ScanDevice
 
 # ---------------------------------------------------------------------------
 # Module-level logger
@@ -273,6 +274,11 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_composite_list = []
         self.scan_composite_data = {}
         self.populate_scan_variable_lists()
+
+        # Temporary scan device connection for setting variables outside of scans
+        self.connected_scan_device = None
+        self.connected_device_name = None
+        self.connected_variable_name = None
         self.ui.lineScanVariable.textChanged.connect(self.check_scan_device)
         self.ui.lineScanVariable.installEventFilter(self)
 
@@ -358,6 +364,9 @@ class GEECSScannerWindow(QMainWindow):
 
         # Set current GUI mode
         self.toggle_light_dark()
+
+        # Set up scan device connection buttons
+        self.setup_scan_device_connections()
 
     # ------------------------------------------------------------------ #
     # Generic functions used throughout the GUI                          #
@@ -1282,30 +1291,49 @@ class GEECSScannerWindow(QMainWindow):
 
     def check_scan_device(self):
         """
-        Validate the scan variable entry and update labels/mode hints.
+        Validate the scan variable entry, update labels, and auto-connect.
 
         Notes
         -----
         - Sets `scan_variable` to an empty string on invalid entry.
         - Updates label suffixes based on composite mode (abs/rel).
+        - Automatically connects to the selected variable.
+        - Enables/disables Set button based on connection status.
         """
         scan_device = self.ui.lineScanVariable.text()
+
+        # If empty, close any connection and disable Set button
         if not scan_device:
+            self.close_scan_device()
+            if hasattr(self.ui, "buttonSetVariableValue"):
+                self.ui.buttonSetVariableValue.setEnabled(False)
             return
-        elif scan_device in self.scan_variable_list:
+
+        # Validate the variable selection
+        if scan_device in self.scan_variable_list:
             self.scan_variable = scan_device
             self.ui.labelStartValue.setText("Start Value: (abs)")
             self.ui.labelStopValue.setText("Stop Value: (abs)")
+            # Auto-connect to the variable
+            self.connect_to_scan_variable()
+
         elif scan_device in self.scan_composite_list:
             self.scan_variable = scan_device
             mode = self.scan_composite_data[scan_device]["mode"][:3]
             self.ui.labelStartValue.setText(f"Start Value: ({mode})")
             self.ui.labelStopValue.setText(f"Stop Value: ({mode})")
+            # Auto-connect to the variable
+            self.connect_to_scan_variable()
+
         else:
+            # Invalid selection - clear and disconnect
             self.scan_variable = ""
             self.ui.lineScanVariable.setText("")
             self.ui.labelStartValue.setText("Start Value:")
             self.ui.labelStopValue.setText("Stop Value:")
+            self.close_scan_device()
+            if hasattr(self.ui, "buttonSetVariableValue"):
+                self.ui.buttonSetVariableValue.setEnabled(False)
 
     def calculate_num_shots(self):
         """
@@ -1509,6 +1537,123 @@ class GEECSScannerWindow(QMainWindow):
                     self.ui.lineNumShots.setText("N/A")
             except ValueError:
                 self.ui.lineNumShots.setText("N/A")
+
+    # ------------------------------------------------------------------ #
+    # Scan device connection for setting variables                      #
+    # ------------------------------------------------------------------ #
+
+    def connect_to_scan_variable(self):
+        """Connect to the currently selected scan variable for manual control."""
+        variable_name = self.ui.lineScanVariable.text()
+
+        if not variable_name:
+            logger.warning("No scan variable selected")
+            return
+
+        # Close any existing connection first
+        if self.connected_scan_device is not None:
+            self.close_scan_device()
+
+        try:
+            # Check if it's a composite variable (follow DeviceManager pattern exactly)
+            if variable_name in self.scan_composite_list:
+                # For composite variables: use the composite data dict
+                var_dict = self.scan_composite_data[variable_name]
+                self.connected_scan_device = ScanDevice(variable_name, var_dict)
+                self.connected_device_name = variable_name
+                self.connected_variable_name = (
+                    "composite_var"  # Always "composite_var" for composite variables
+                )
+                logger.info(f"Connected to composite variable: {variable_name}")
+
+            # Check if it's a regular scan variable
+            elif variable_name in self.scan_variable_list:
+                # Parse device:variable from YAML mapping
+                device_tag = self.read_device_tag_from_nickname(variable_name)
+                if ":" in device_tag:
+                    device_name, var_name = device_tag.split(":", 1)
+                    # Create ScanDevice and subscribe (follow DeviceManager pattern)
+                    self.connected_scan_device = ScanDevice(device_name)
+                    self.connected_scan_device.use_alias_in_TCP_subscription = False
+                    self.connected_scan_device.subscribe_var_values([var_name])
+                    self.connected_device_name = device_name
+                    self.connected_variable_name = var_name
+                    logger.info(
+                        f"Connected to scan variable: {variable_name} ({device_tag})"
+                    )
+                else:
+                    logger.error(f"Invalid device tag format: {device_tag}")
+                    return
+            else:
+                logger.error(f"Unknown scan variable: {variable_name}")
+                return
+
+            # Enable the Set button after successful connection
+            if hasattr(self.ui, "buttonSetVariableValue"):
+                self.ui.buttonSetVariableValue.setEnabled(True)
+
+        except Exception as e:
+            logger.error(f"Error connecting to scan variable: {e}")
+            self.connected_scan_device = None
+            self.connected_device_name = None
+            self.connected_variable_name = None
+
+    def set_variable_value(self):
+        """Set the connected scan device to the specified value."""
+        logger.info("DEBUG: Set button was clicked!")  # <-- Add this
+        if self.connected_scan_device is None or self.connected_variable_name is None:
+            logger.warning("No scan device connected")
+            return
+
+        if not hasattr(self.ui, "lineSetVariableValue"):
+            logger.error("Set value line edit not found")
+            return
+
+        try:
+            # Get value from line edit
+            value_str = self.ui.lineSetVariableValue.text()
+            if not value_str:
+                logger.warning("No value entered to set")
+                return
+
+            value = float(value_str)
+
+            # Set the value using the proper variable name
+            # For composite variables: self.connected_variable_name = "composite_var"
+            # For regular variables: self.connected_variable_name = the actual variable name
+            self.connected_scan_device.set(self.connected_variable_name, value)
+            logger.info(f"Set {self.connected_variable_name} to: {value}")
+
+        except ValueError:
+            logger.error(f"Invalid value format: {self.ui.lineSetVariableValue.text()}")
+            QMessageBox.warning(self, "Invalid Input", "Please enter a valid number")
+        except Exception as e:
+            logger.error(f"Error setting variable value: {e}")
+            QMessageBox.warning(self, "Set Error", f"Error setting value:\n{e}")
+
+    def close_scan_device(self):
+        """Close the scan device connection and disable the Set button."""
+        if self.connected_scan_device is not None:
+            try:
+                # Unsubscribe and close
+                self.connected_scan_device.close()
+                logger.info("Scan device connection closed")
+            except Exception as e:
+                logger.warning(f"Error closing scan device: {e}")
+            finally:
+                self.connected_scan_device = None
+
+        # Disable the Set button since there's no active connection
+        if hasattr(self.ui, "buttonSetVariableValue"):
+            self.ui.buttonSetVariableValue.setEnabled(False)
+
+    def setup_scan_device_connections(self):
+        """Wire up the scan device connection button to its method."""
+        # Connect Set button signal
+        if hasattr(self.ui, "buttonSetVariableValue"):
+            self.ui.buttonSetVariableValue.clicked.connect(self.set_variable_value)
+            # Initially disabled until a variable is selected
+            self.ui.buttonSetVariableValue.setEnabled(False)
 
     # ------------------------------------------------------------------ #
     # Presets                                                            #
