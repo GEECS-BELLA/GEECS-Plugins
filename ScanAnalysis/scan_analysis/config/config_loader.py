@@ -28,12 +28,18 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 from pydantic import ValidationError
 
-from .analyzer_config_models import ExperimentAnalysisConfig
+from .analyzer_config_models import (
+    Array1DAnalyzerConfig,
+    Array2DAnalyzerConfig,
+    ExperimentAnalysisConfig,
+    IncludeEntry,
+    LibraryAnalyzer,
+)
 from geecs_data_utils.config_roots import scan_analysis_config
 
 logger = logging.getLogger(__name__)
@@ -52,6 +58,108 @@ _CONFIG_MANAGER = scan_analysis_config
 _CONFIG_CACHE: dict[str, Path] = (
     _CONFIG_MANAGER.cache
 )  # Cache for resolved config paths
+
+# ----------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------
+
+
+def _deep_merge(base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge two dictionaries (updates win)."""
+    result = base.copy()
+    for key, value in updates.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _load_library_analyzers(base_dir: Path) -> Dict[str, LibraryAnalyzer]:
+    """Load analyzer definitions from library/analyzers."""
+    lib_dir = base_dir / "library" / "analyzers"
+    analyzers: Dict[str, LibraryAnalyzer] = {}
+    if not lib_dir.exists():
+        raise FileNotFoundError(f"Analyzer library not found: {lib_dir}")
+
+    for path in list(lib_dir.glob("*.yaml")) + list(lib_dir.glob("*.yml")):
+        with open(path, "r") as f:
+            data = yaml.safe_load(f) or {}
+        lib_an = LibraryAnalyzer.model_validate(data)
+        analyzers[lib_an.id] = lib_an
+    if not analyzers:
+        raise ValueError(f"No analyzers found in library: {lib_dir}")
+    return analyzers
+
+
+def _load_groups(base_dir: Path) -> Dict[str, List[str]]:
+    """Load group definitions from library/groups.yaml if present."""
+    groups_path_yaml = base_dir / "library" / "groups.yaml"
+    groups_path_yml = base_dir / "library" / "groups.yml"
+    path = None
+    if groups_path_yaml.exists():
+        path = groups_path_yaml
+    elif groups_path_yml.exists():
+        path = groups_path_yml
+
+    if not path:
+        return {}
+
+    with open(path, "r") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict) or "groups" not in data:
+        raise ValueError(f"Invalid groups file (missing 'groups'): {path}")
+    groups = data.get("groups", {})
+    if not isinstance(groups, dict):
+        raise ValueError(f"Invalid groups structure in {path}")
+    return groups
+
+
+def _validate_analyzer(data: Dict[str, Any]):
+    """Validate analyzer dict into the correct Pydantic model."""
+    analyzer_type = data.get("type")
+    if analyzer_type == "array1d":
+        return Array1DAnalyzerConfig.model_validate(data)
+    if analyzer_type == "array2d":
+        return Array2DAnalyzerConfig.model_validate(data)
+    raise ValueError(f"Unknown analyzer type '{analyzer_type}' in {data}")
+
+
+def _resolve_includes(
+    include_entries: List[IncludeEntry],
+    library: Dict[str, LibraryAnalyzer],
+    groups: Dict[str, List[str]],
+) -> List[Union[Array1DAnalyzerConfig, Array2DAnalyzerConfig]]:
+    """Resolve include directives into concrete analyzer configs."""
+    resolved = []
+    for entry in include_entries:
+        targets: List[str] = []
+        if entry.ref:
+            targets = [entry.ref]
+        elif entry.group:
+            if entry.group not in groups:
+                raise ValueError(f"Group '{entry.group}' not defined in groups file.")
+            targets = groups[entry.group]
+
+        for analyzer_id in targets:
+            if analyzer_id not in library:
+                raise ValueError(f"Analyzer id '{analyzer_id}' not found in library.")
+            base_model = library[analyzer_id].analyzer
+            data = base_model.model_dump(deep=True)
+            if entry.overrides:
+                data = _deep_merge(data, entry.overrides)
+
+            if entry.priority is not None:
+                data["priority"] = entry.priority
+            else:
+                default_priority = data.get("priority", 100)
+                data["priority"] = default_priority + entry.priority_offset
+
+            resolved.append(_validate_analyzer(data))
+
+    # Sort for deterministic ordering (priority ascending, then device/analyzer id)
+    resolved.sort(key=lambda a: (a.priority, getattr(a, "device_name", "")))
+    return resolved
 
 
 # ----------------------------------------------------------------------
@@ -169,8 +277,15 @@ def load_experiment_config(
         ...     config_dir=Path("/custom/configs")
         ... )
     """
+    base_dir = config_dir or _CONFIG_MANAGER.base_dir
+    if base_dir is None:
+        raise ValueError(
+            "config_dir is required (no global base dir set). "
+            "Set SCAN_ANALYSIS_CONFIG_DIR or pass config_dir explicitly."
+        )
+
     if isinstance(config_source, str):
-        path = find_config_file(config_source, config_dir=config_dir)
+        path = find_config_file(config_source, config_dir=base_dir)
     else:
         path = Path(config_source)
         if not path.exists():
@@ -182,6 +297,17 @@ def load_experiment_config(
 
         if data is None:
             raise ValueError(f"Empty or invalid YAML file: {path}")
+
+        # Resolve include directives if present
+        include_entries_raw = data.get("include", [])
+        if include_entries_raw:
+            include_entries = [
+                IncludeEntry.model_validate(entry) for entry in include_entries_raw
+            ]
+            library = _load_library_analyzers(base_dir)
+            groups = _load_groups(base_dir)
+            resolved_analyzers = _resolve_includes(include_entries, library, groups)
+            data["analyzers"] = resolved_analyzers
 
         logger.info(f"Loaded experiment configuration from {path}")
         return ExperimentAnalysisConfig.model_validate(data)

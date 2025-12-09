@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,9 @@ __all__ = [
     "Array2DAnalyzerConfig",
     "Array1DAnalyzerConfig",
     "ScanAnalyzerConfig",
+    "LibraryAnalyzer",
+    "IncludeEntry",
+    "GroupsConfig",
     "ExperimentAnalysisConfig",
 ]
 
@@ -265,6 +268,67 @@ class Array1DAnalyzerConfig(BaseModel):
 ScanAnalyzerConfig = Union[Array2DAnalyzerConfig, Array1DAnalyzerConfig]
 
 
+class LibraryAnalyzer(BaseModel):
+    """Analyzer definition stored in the library with an identifier."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    analyzer: ScanAnalyzerConfig
+
+    @model_validator(mode="before")
+    @classmethod
+    def wrap_analyzer(cls, values: Any) -> Any:
+        """
+        Allow YAML to specify `id` alongside analyzer fields (without nested key).
+
+        If incoming mapping has `id` and analyzer fields, wrap them under `analyzer`.
+        """
+        if isinstance(values, dict) and "id" in values and "analyzer" not in values:
+            data = values.copy()
+            aid = data.pop("id")
+            return {"id": aid, "analyzer": data}
+        return values
+
+
+class IncludeEntry(BaseModel):
+    """
+    Include directive for experiment configs.
+
+    Exactly one of `ref` (single analyzer id) or `group` (named group of ids) must be set.
+    Optionally apply explicit `priority` or a `priority_offset` to defaults, and shallow
+    `overrides` for analyzer fields (e.g., kwargs).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ref: Optional[str] = Field(default=None, description="Analyzer id to include")
+    group: Optional[str] = Field(default=None, description="Group name to include")
+    priority: Optional[int] = Field(
+        default=None, description="Explicit priority (overrides defaults/offsets)"
+    )
+    priority_offset: int = Field(
+        default=0, description="Offset applied to library default priority"
+    )
+    overrides: Dict[str, Any] = Field(
+        default_factory=dict, description="Shallow overrides for analyzer definition"
+    )
+
+    @model_validator(mode="after")
+    def ensure_one_target(self) -> "IncludeEntry":
+        """Ensure exactly one of ref/group is provided."""
+        if bool(self.ref) == bool(self.group):
+            raise ValueError("Exactly one of 'ref' or 'group' must be provided.")
+        return self
+
+
+class GroupsConfig(BaseModel):
+    """Mapping of group name to list of analyzer ids."""
+
+    model_config = ConfigDict(extra="forbid")
+    groups: Dict[str, List[str]] = Field(default_factory=dict)
+
+
 class ExperimentAnalysisConfig(BaseModel):
     """
     Top-level configuration for an experiment's analysis setup.
@@ -285,6 +349,8 @@ class ExperimentAnalysisConfig(BaseModel):
         List of analyzer configurations (Array2D and/or Array1D)
     upload_to_scanlog : bool
         Whether to upload analysis results to scan log database
+    include : List[IncludeEntry]
+        Optional list of include directives (ref/group) for assembling analyzers
 
     Examples
     --------
@@ -312,6 +378,10 @@ class ExperimentAnalysisConfig(BaseModel):
     )
     upload_to_scanlog: bool = Field(
         default=True, description="Whether to upload results to scan log"
+    )
+    include: List[IncludeEntry] = Field(
+        default_factory=list,
+        description="Include directives (refs/groups) to assemble analyzers",
     )
 
     @property
