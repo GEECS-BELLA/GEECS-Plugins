@@ -145,7 +145,7 @@ def _resolve_includes(
             if analyzer_id not in library:
                 raise ValueError(f"Analyzer id '{analyzer_id}' not found in library.")
             base_model = library[analyzer_id].analyzer
-            data = base_model.model_dump(deep=True)
+            data = base_model.model_dump()
             if entry.overrides:
                 data = _deep_merge(data, entry.overrides)
 
