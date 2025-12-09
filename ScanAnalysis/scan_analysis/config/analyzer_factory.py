@@ -227,10 +227,14 @@ def _create_array2d_analyzer(config: Array2DAnalyzerConfig) -> "ScanAnalyzer":
     kwargs = config.kwargs.copy()
     kwargs["image_analyzer"] = image_analyzer
     kwargs["device_name"] = config.device_name
-
-    # Add requirements if specified
-    if config.requirements:
-        kwargs["requirements"] = config.requirements
+    if config.file_tail is not None:
+        kwargs["file_tail"] = config.file_tail
+    kwargs["skip_plt_show"] = config.skip_plt_show
+    kwargs["flag_save_images"] = config.flag_save_images
+    if config.renderer_kwargs:
+        kwargs["renderer_kwargs"] = config.renderer_kwargs
+    if config.analysis_mode:
+        kwargs["analysis_mode"] = config.analysis_mode
 
     try:
         logger.info(
@@ -264,10 +268,14 @@ def _create_array1d_analyzer(config: Array1DAnalyzerConfig) -> "ScanAnalyzer":
     kwargs = config.kwargs.copy()
     kwargs["image_analyzer"] = image_analyzer
     kwargs["device_name"] = config.device_name
-
-    # Add requirements if specified
-    if config.requirements:
-        kwargs["requirements"] = config.requirements
+    if config.file_tail is not None:
+        kwargs["file_tail"] = config.file_tail
+    kwargs["skip_plt_show"] = config.skip_plt_show
+    kwargs["flag_save_data"] = config.flag_save_data
+    if config.renderer_kwargs:
+        kwargs["renderer_kwargs"] = config.renderer_kwargs
+    if config.analysis_mode:
+        kwargs["analysis_mode"] = config.analysis_mode
 
     try:
         logger.info(

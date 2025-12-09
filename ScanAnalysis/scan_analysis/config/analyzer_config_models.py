@@ -120,12 +120,19 @@ class Array2DAnalyzerConfig(BaseModel):
         Default is 100 (background priority).
     image_analyzer : ImageAnalyzerConfig
         Configuration for the image analyzer to use
-    requirements : Union[Dict[str, List[str]], List[str], str]
-        Data requirements specifying which devices must be present.
-        Can be a simple list of device names, or a dict mapping
-        requirement types to device lists.
+    file_tail : Optional[str]
+        Suffix/extension used to match data files (e.g., ".png").
+        Uses analyzer default if omitted.
+    skip_plt_show : bool
+        Whether to suppress interactive plotting.
+    flag_save_images : bool
+        Whether to save images produced by the analyzer.
+    renderer_kwargs : Dict[str, Any]
+        Additional kwargs passed to the renderer.
+    analysis_mode : Literal["per_shot", "per_bin"]
+        Analysis mode for the analyzer.
     kwargs : Dict[str, Any]
-        Additional kwargs for Array2DScanAnalyzer constructor
+        Additional kwargs for Array2DScanAnalyzer constructor (advanced)
     is_active : bool
         Whether this analyzer is enabled. Set to False to temporarily
         disable without removing from config.
@@ -154,9 +161,21 @@ class Array2DAnalyzerConfig(BaseModel):
     image_analyzer: ImageAnalyzerConfig = Field(
         ..., description="Image analyzer configuration"
     )
-    requirements: Union[Dict[str, List[str]], List[str], str] = Field(
-        default_factory=list,
-        description="Data requirements (devices that must be present)",
+    file_tail: Optional[str] = Field(
+        default=None,
+        description="File suffix/extension to match (e.g., '.png'). Uses default if None.",
+    )
+    skip_plt_show: bool = Field(
+        default=True, description="Whether to suppress interactive plotting"
+    )
+    flag_save_images: bool = Field(
+        default=True, description="Whether to save images produced by the analyzer"
+    )
+    renderer_kwargs: Dict[str, Any] = Field(
+        default_factory=dict, description="Renderer kwargs"
+    )
+    analysis_mode: Literal["per_shot", "per_bin"] = Field(
+        default="per_shot", description="Analysis mode"
     )
     kwargs: Dict[str, Any] = Field(
         default_factory=dict,
@@ -165,24 +184,6 @@ class Array2DAnalyzerConfig(BaseModel):
     is_active: bool = Field(
         default=True, description="Whether this analyzer is enabled"
     )
-
-    @field_validator("requirements", mode="before")
-    @classmethod
-    def ensure_requirements_include_device(cls, v: Any, info) -> Any:
-        """Ensure requirements include the device_name."""
-        device = info.data.get("device_name")
-        if device:
-            if isinstance(v, list):
-                if device not in v:
-                    v.append(device)
-            elif isinstance(v, str):
-                v = [device]
-            elif isinstance(v, dict):
-                # Complex requirements, assume user knows what they're doing
-                pass
-            else:
-                v = [device]
-        return v
 
 
 class Array1DAnalyzerConfig(BaseModel):
@@ -203,10 +204,19 @@ class Array1DAnalyzerConfig(BaseModel):
         Default is 100 (background priority).
     image_analyzer : ImageAnalyzerConfig
         Configuration for the 1D image analyzer to use
-    requirements : Union[Dict[str, List[str]], List[str], str]
-        Data requirements specifying which devices must be present
+    file_tail : Optional[str]
+        Suffix/extension used to match data files (e.g., ".csv").
+        Uses analyzer default if omitted.
+    skip_plt_show : bool
+        Whether to suppress interactive plotting.
+    flag_save_data : bool
+        Whether to save data/plots produced by the analyzer.
+    renderer_kwargs : Dict[str, Any]
+        Additional kwargs for the renderer.
+    analysis_mode : Literal["per_shot", "per_bin"]
+        Analysis mode for the analyzer.
     kwargs : Dict[str, Any]
-        Additional kwargs for Array1DScanAnalyzer constructor
+        Additional kwargs for Array1DScanAnalyzer constructor (advanced)
     is_active : bool
         Whether this analyzer is enabled
 
@@ -234,8 +244,21 @@ class Array1DAnalyzerConfig(BaseModel):
     image_analyzer: ImageAnalyzerConfig = Field(
         ..., description="Image analyzer (1D) configuration"
     )
-    requirements: Union[Dict[str, List[str]], List[str], str] = Field(
-        default_factory=list, description="Data requirements"
+    file_tail: Optional[str] = Field(
+        default=None,
+        description="File suffix/extension to match (e.g., '.csv'). Uses default if None.",
+    )
+    skip_plt_show: bool = Field(
+        default=True, description="Whether to suppress interactive plotting"
+    )
+    flag_save_data: bool = Field(
+        default=True, description="Whether to save data/plots produced by the analyzer"
+    )
+    renderer_kwargs: Dict[str, Any] = Field(
+        default_factory=dict, description="Renderer kwargs"
+    )
+    analysis_mode: Literal["per_shot", "per_bin"] = Field(
+        default="per_shot", description="Analysis mode"
     )
     kwargs: Dict[str, Any] = Field(
         default_factory=dict,
@@ -244,24 +267,6 @@ class Array1DAnalyzerConfig(BaseModel):
     is_active: bool = Field(
         default=True, description="Whether this analyzer is enabled"
     )
-
-    @field_validator("requirements", mode="before")
-    @classmethod
-    def ensure_requirements_include_device(cls, v: Any, info) -> Any:
-        """Ensure requirements include the device_name."""
-        device = info.data.get("device_name")
-        if device:
-            if isinstance(v, list):
-                if device not in v:
-                    v.append(device)
-            elif isinstance(v, str):
-                v = [device]
-            elif isinstance(v, dict):
-                # Complex requirements, assume user knows what they're doing
-                pass
-            else:
-                v = [device]
-        return v
 
 
 # Union type for all analyzer configs
