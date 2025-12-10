@@ -211,6 +211,13 @@ def build_worklist(
                 include = True
             if st and st.state == "failed" and rerun_failed:
                 include = True
+            logger.info(
+                "build_worklist: scan=%s analyzer=%s state=%s include=%s",
+                tag,
+                analyzer_id,
+                st.state if st else "missing",
+                include,
+            )
             if include:
                 priority = getattr(analyzer, "priority", 100)
                 work.append((priority, tag, analyzer))
@@ -241,11 +248,24 @@ def run_worklist(
             or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
         )
 
+        logger.info(
+            "run_worklist: claiming scan=%s analyzer=%s priority=%s dry_run=%s",
+            tag,
+            analyzer_id,
+            priority,
+            dry_run,
+        )
         update_status(scan_folder, analyzer_id, priority=priority, state="claimed")
         try:
             if not dry_run:
                 analyzer.run_analysis(tag)
             update_status(scan_folder, analyzer_id, priority=priority, state="done")
+            logger.info(
+                "run_worklist: completed scan=%s analyzer=%s priority=%s",
+                tag,
+                analyzer_id,
+                priority,
+            )
         except Exception as exc:  # pragma: no cover - log failure and continue
             logger.exception("Analyzer %s failed on %s: %s", analyzer_id, tag, exc)
             update_status(
