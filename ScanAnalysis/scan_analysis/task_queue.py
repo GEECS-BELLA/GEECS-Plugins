@@ -233,13 +233,6 @@ def build_worklist(
                 include = True
             if st and st.state == "claimed" and rerun_claimed and eligible_for_rerun:
                 include = True
-            logger.info(
-                "build_worklist: scan=%s analyzer=%s state=%s include=%s",
-                tag,
-                analyzer_id,
-                st.state if st else "missing",
-                include,
-            )
             if include:
                 priority = getattr(analyzer, "priority", 100)
                 work.append((priority, tag, analyzer))
