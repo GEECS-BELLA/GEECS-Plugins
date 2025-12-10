@@ -125,8 +125,25 @@ class LiveTaskRunner:
         *,
         max_items: int = 1,
         dry_run: bool = False,
+        rerun_completed: bool = False,
+        rerun_failed: bool = True,
     ):
-        """Process up to max_items highest-priority queued tasks across known scans."""
+        """
+        Process up to max_items highest-priority queued tasks across known scans.
+
+        Parameters
+        ----------
+        base_directory : Path, optional
+            Root for data; defaults to configured base path.
+        max_items : int
+            Maximum tasks to run this call.
+        dry_run : bool
+            If True, update status but skip analyzer execution.
+        rerun_completed : bool
+            If True, requeue analyzers already marked done.
+        rerun_failed : bool
+            If True, requeue analyzers marked failed.
+        """
         # Drain queue into a set of tags
         new_tags = []
         while not self.queue.empty():
@@ -138,7 +155,13 @@ class LiveTaskRunner:
 
         # Build worklist across all scans we know about (watch folder discovery)
         tags = self._discover_scan_tags(base_directory=base_directory)
-        work = build_worklist(tags, self.analyzers, base_directory=base_directory)
+        work = build_worklist(
+            tags,
+            self.analyzers,
+            base_directory=base_directory,
+            rerun_completed=rerun_completed,
+            rerun_failed=rerun_failed,
+        )
         if work:
             run_worklist(
                 work[:max_items], base_directory=base_directory, dry_run=dry_run

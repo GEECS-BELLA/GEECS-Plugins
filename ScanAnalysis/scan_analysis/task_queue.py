@@ -139,6 +139,8 @@ def build_worklist(
     analyzers: Iterable,
     *,
     base_directory: Optional[Path] = None,
+    rerun_completed: bool = False,
+    rerun_failed: bool = True,
 ) -> List[tuple[int, ScanTag, object]]:
     """
     Build a list of (priority, scan_tag, analyzer) for tasks with state=queued.
@@ -160,7 +162,12 @@ def build_worklist(
                 or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
             )
             st = statuses.get(analyzer_id)
-            if st is None or st.state == "queued":
+            include = st is None or st.state == "queued"
+            if st and st.state == "done" and rerun_completed:
+                include = True
+            if st and st.state == "failed" and rerun_failed:
+                include = True
+            if include:
                 priority = getattr(analyzer, "priority", 100)
                 work.append((priority, tag, analyzer))
     return sorted(work, key=lambda item: (item[0], item[1].number))
