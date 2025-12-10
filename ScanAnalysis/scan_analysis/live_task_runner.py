@@ -27,7 +27,7 @@ from watchdog.observers.polling import PollingObserver
 
 logger = logging.getLogger(__name__)
 
-SFILE_REGEX = re.compile(r"s(?P<num>\d+).txt")
+SFILE_REGEX = re.compile(r"^s(?P<num>\d+)\.txt$", re.IGNORECASE)
 
 
 def extract_scan_number(filename: str) -> Optional[int]:
@@ -148,11 +148,11 @@ class LiveTaskRunner:
         self, base_directory: Optional[Path] = None
     ) -> Iterable[ScanTag]:
         """Discover scans under the watch folder's parent (analysis siblings)."""
-        # The s-files live under <date>/analysis/sXXX.txt; scan folder is sibling to analysis
-        date_folder = ScanPaths.get_daily_scan_folder(
+        # The s-files live under <date>/analysis/sXXX.txt; analysis is sibling to scans
+        daily_scans = ScanPaths.get_daily_scan_folder(
             tag=self.date_tag, base_directory=base_directory
         )
-        scan_root = date_folder / "analysis"
+        scan_root = daily_scans.parent / "analysis"
         tags = []
         if scan_root.exists():
             for f in scan_root.iterdir():
