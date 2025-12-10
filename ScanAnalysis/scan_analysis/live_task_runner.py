@@ -172,7 +172,7 @@ class LiveTaskRunner:
             tags,
             self.analyzers,
             base_directory=base_directory,
-            rerun_completed=rerun_completed,
+            rerun_completed=False,  # rerun_completed is handled by reset above
             rerun_failed=rerun_failed,
         )
         if work:
