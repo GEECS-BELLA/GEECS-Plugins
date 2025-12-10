@@ -129,6 +129,7 @@ class LiveTaskRunner:
         dry_run: bool = False,
         rerun_completed: bool = False,
         rerun_failed: bool = True,
+        rerun_claimed: bool = True,
     ):
         """
         Process up to max_items highest-priority queued tasks across known scans.
@@ -145,6 +146,8 @@ class LiveTaskRunner:
             If True, reset done analyzers to queued once per discovered scan.
         rerun_failed : bool
             If True, requeue analyzers marked failed.
+        rerun_claimed : bool
+            If True, requeue analyzers left in claimed (e.g., after interruption).
         """
         # Drain queue into a set of tags
         new_tags = []
@@ -165,7 +168,7 @@ class LiveTaskRunner:
                         t,
                         self.analyzers,
                         base_directory=base_directory,
-                        states_to_reset=("done",),
+                        states_to_reset=("done", "claimed"),
                     )
                     self._reset_done_tags.add(key)
         work = build_worklist(
@@ -174,6 +177,7 @@ class LiveTaskRunner:
             base_directory=base_directory,
             rerun_completed=False,  # rerun_completed is handled by reset above
             rerun_failed=rerun_failed,
+            rerun_claimed=rerun_claimed,
         )
         if work:
             run_worklist(

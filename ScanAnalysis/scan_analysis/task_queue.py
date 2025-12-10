@@ -139,7 +139,7 @@ def reset_status_for_scan(
     analyzers: Iterable,
     *,
     base_directory: Optional[Path] = None,
-    states_to_reset: tuple[str, ...] = ("done", "failed"),
+    states_to_reset: tuple[str, ...] = ("done", "failed", "claimed"),
 ) -> None:
     """
     Reset status files to queued for a scan, useful before re-running analyses.
@@ -185,6 +185,7 @@ def build_worklist(
     base_directory: Optional[Path] = None,
     rerun_completed: bool = False,
     rerun_failed: bool = True,
+    rerun_claimed: bool = True,
 ) -> List[tuple[int, ScanTag, object]]:
     """
     Build a list of (priority, scan_tag, analyzer) for tasks with state=queued.
@@ -210,6 +211,8 @@ def build_worklist(
             if st and st.state == "done" and rerun_completed:
                 include = True
             if st and st.state == "failed" and rerun_failed:
+                include = True
+            if st and st.state == "claimed" and rerun_claimed:
                 include = True
             logger.info(
                 "build_worklist: scan=%s analyzer=%s state=%s include=%s",
