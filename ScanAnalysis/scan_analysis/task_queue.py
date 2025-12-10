@@ -140,6 +140,8 @@ def reset_status_for_scan(
     *,
     base_directory: Optional[Path] = None,
     states_to_reset: tuple[str, ...] = ("done", "failed", "claimed"),
+    rerun_only_ids: Optional[Iterable[str]] = None,
+    rerun_skip_ids: Optional[Iterable[str]] = None,
 ) -> None:
     """
     Reset status files to queued for a scan, useful before re-running analyses.
@@ -154,7 +156,13 @@ def reset_status_for_scan(
         Root directory override.
     states_to_reset : tuple[str, ...]
         Only statuses in this set will be reset to queued.
+    rerun_only_ids : Iterable[str], optional
+        If provided, only analyzer ids in this set are reset.
+    rerun_skip_ids : Iterable[str], optional
+        Analyzer ids to skip when resetting.
     """
+    only_ids = set(rerun_only_ids) if rerun_only_ids is not None else None
+    skip_ids = set(rerun_skip_ids) if rerun_skip_ids is not None else set()
     scan_folder = ScanPaths.get_scan_folder_path(
         tag=scan_tag, base_directory=base_directory
     )
@@ -167,6 +175,10 @@ def reset_status_for_scan(
             analyzer_id
             or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
         )
+        if analyzer_id in skip_ids:
+            continue
+        if only_ids is not None and analyzer_id not in only_ids:
+            continue
         st = statuses.get(analyzer_id)
         if st and st.state in states_to_reset:
             update_status(
@@ -186,12 +198,16 @@ def build_worklist(
     rerun_completed: bool = False,
     rerun_failed: bool = True,
     rerun_claimed: bool = True,
+    rerun_only_ids: Optional[Iterable[str]] = None,
+    rerun_skip_ids: Optional[Iterable[str]] = None,
 ) -> List[tuple[int, ScanTag, object]]:
     """
     Build a list of (priority, scan_tag, analyzer) for tasks with state=queued.
 
     Sorted by (priority, scan number).
     """
+    only_ids = set(rerun_only_ids) if rerun_only_ids is not None else None
+    skip_ids = set(rerun_skip_ids) if rerun_skip_ids is not None else set()
     work: List[tuple[int, ScanTag, object]] = []
     for tag in scan_tags:
         scan_folder = ScanPaths.get_scan_folder_path(
@@ -208,11 +224,14 @@ def build_worklist(
             )
             st = statuses.get(analyzer_id)
             include = st is None or st.state == "queued"
-            if st and st.state == "done" and rerun_completed:
+            eligible_for_rerun = analyzer_id not in skip_ids and (
+                only_ids is None or analyzer_id in only_ids
+            )
+            if st and st.state == "done" and rerun_completed and eligible_for_rerun:
                 include = True
-            if st and st.state == "failed" and rerun_failed:
+            if st and st.state == "failed" and rerun_failed and eligible_for_rerun:
                 include = True
-            if st and st.state == "claimed" and rerun_claimed:
+            if st and st.state == "claimed" and rerun_claimed and eligible_for_rerun:
                 include = True
             logger.info(
                 "build_worklist: scan=%s analyzer=%s state=%s include=%s",

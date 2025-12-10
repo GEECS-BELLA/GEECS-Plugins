@@ -130,6 +130,8 @@ class LiveTaskRunner:
         rerun_completed: bool = False,
         rerun_failed: bool = True,
         rerun_claimed: bool = True,
+        rerun_only_ids: Optional[Iterable[str]] = None,
+        rerun_skip_ids: Optional[Iterable[str]] = None,
     ):
         """
         Process up to max_items highest-priority queued tasks across known scans.
@@ -148,6 +150,10 @@ class LiveTaskRunner:
             If True, requeue analyzers marked failed.
         rerun_claimed : bool
             If True, requeue analyzers left in claimed (e.g., after interruption).
+        rerun_only_ids : Iterable[str], optional
+            If provided, only these analyzer ids are eligible for rerun/reset.
+        rerun_skip_ids : Iterable[str], optional
+            Analyzer ids to exclude from rerun/reset.
         """
         # Drain queue into a set of tags
         new_tags = []
@@ -169,6 +175,8 @@ class LiveTaskRunner:
                         self.analyzers,
                         base_directory=base_directory,
                         states_to_reset=("done", "claimed"),
+                        rerun_only_ids=rerun_only_ids,
+                        rerun_skip_ids=rerun_skip_ids,
                     )
                     self._reset_done_tags.add(key)
         work = build_worklist(
@@ -178,6 +186,8 @@ class LiveTaskRunner:
             rerun_completed=False,  # rerun_completed is handled by reset above
             rerun_failed=rerun_failed,
             rerun_claimed=rerun_claimed,
+            rerun_only_ids=rerun_only_ids,
+            rerun_skip_ids=rerun_skip_ids,
         )
         if work:
             run_worklist(
