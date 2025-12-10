@@ -150,11 +150,7 @@ class LiveTaskRunner:
         """Discover scans under the watch folder's parent (analysis siblings)."""
         # The s-files live under <date>/analysis/sXXX.txt; scan folder is sibling to analysis
         date_folder = ScanPaths.get_daily_scan_folder(
-            year=self.date_tag.year,
-            month=self.date_tag.month,
-            day=self.date_tag.day,
-            experiment=self.experiment,
-            base_directory=base_directory,
+            tag=self.date_tag, base_directory=base_directory
         )
         scan_root = date_folder / "analysis"
         tags = []
