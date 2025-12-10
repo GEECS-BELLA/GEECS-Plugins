@@ -20,6 +20,7 @@ from scan_analysis.task_queue import (
     build_worklist,
     init_status_for_scan,
     load_analyzers_from_config,
+    reset_status_for_scan,
     run_worklist,
 )
 from watchdog.events import FileSystemEventHandler
@@ -100,6 +101,7 @@ class LiveTaskRunner:
         )
         self.queue: Queue = Queue()
         self.observer = PollingObserver()
+        self._reset_done_tags: set[tuple[str, int, int, int, int]] = set()
 
         # Watch today's analysis folder
         self.watch_folder = (
@@ -140,7 +142,7 @@ class LiveTaskRunner:
         dry_run : bool
             If True, update status but skip analyzer execution.
         rerun_completed : bool
-            If True, requeue analyzers already marked done.
+            If True, reset done analyzers to queued once per discovered scan.
         rerun_failed : bool
             If True, requeue analyzers marked failed.
         """
@@ -155,6 +157,17 @@ class LiveTaskRunner:
 
         # Build worklist across all scans we know about (watch folder discovery)
         tags = self._discover_scan_tags(base_directory=base_directory)
+        if rerun_completed:
+            for t in tags:
+                key = (t.experiment, t.year, t.month, t.day, t.number)
+                if key not in self._reset_done_tags:
+                    reset_status_for_scan(
+                        t,
+                        self.analyzers,
+                        base_directory=base_directory,
+                        states_to_reset=("done",),
+                    )
+                    self._reset_done_tags.add(key)
         work = build_worklist(
             tags,
             self.analyzers,

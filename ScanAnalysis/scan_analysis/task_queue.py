@@ -134,6 +134,50 @@ def update_status(
     path.write_text(yaml.safe_dump(ts.to_dict()))
 
 
+def reset_status_for_scan(
+    scan_tag: ScanTag,
+    analyzers: Iterable,
+    *,
+    base_directory: Optional[Path] = None,
+    states_to_reset: tuple[str, ...] = ("done", "failed"),
+) -> None:
+    """
+    Reset status files to queued for a scan, useful before re-running analyses.
+
+    Parameters
+    ----------
+    scan_tag : ScanTag
+        Target scan to reset.
+    analyzers : Iterable
+        Analyzer objects to consider (used to derive ids).
+    base_directory : Path, optional
+        Root directory override.
+    states_to_reset : tuple[str, ...]
+        Only statuses in this set will be reset to queued.
+    """
+    scan_folder = ScanPaths.get_scan_folder_path(
+        tag=scan_tag, base_directory=base_directory
+    )
+    statuses = {s.analyzer_id: s for s in read_statuses(scan_folder)}
+    for analyzer in analyzers:
+        analyzer_id = getattr(
+            analyzer, "id", getattr(analyzer, "device_name", "unknown")
+        )
+        analyzer_id = (
+            analyzer_id
+            or f"{analyzer.__class__.__name__}_{getattr(analyzer, 'device_name', '')}"
+        )
+        st = statuses.get(analyzer_id)
+        if st and st.state in states_to_reset:
+            update_status(
+                scan_folder,
+                analyzer_id,
+                priority=st.priority,
+                state="queued",
+                error=None,
+            )
+
+
 def build_worklist(
     scan_tags: Iterable[ScanTag],
     analyzers: Iterable,
