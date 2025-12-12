@@ -236,6 +236,12 @@ def reset_status_for_scan(
             continue
         st = statuses.get(analyzer_id)
         if st and st.state in states_to_reset:
+            # When a task is claimed, only reset it if its heartbeat is stale.
+            if st.state == "claimed":
+                now = datetime.now(timezone.utc)
+                if not _is_stale(st, now):
+                    # Live claimed task – do not reset to queued.
+                    continue
             update_status(
                 scan_folder,
                 analyzer_id,
