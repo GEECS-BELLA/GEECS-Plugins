@@ -12,7 +12,11 @@ States: queued -> claimed -> done/failed.
 from __future__ import annotations
 
 import logging
+import os
+import socket
+import threading
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
@@ -25,6 +29,8 @@ from scan_analysis.config.config_loader import load_experiment_config
 logger = logging.getLogger(__name__)
 
 STATUS_DIR_NAME = "analysis_status"
+HEARTBEAT_INTERVAL_SECONDS = 30
+CLAIM_STALE_AFTER_SECONDS = 180
 
 
 @dataclass
@@ -35,6 +41,9 @@ class TaskStatus:
     priority: int
     state: str  # queued, claimed, done, failed
     error: Optional[str] = None
+    claimed_by: Optional[str] = None
+    claimed_at: Optional[str] = None
+    last_heartbeat: Optional[str] = None
 
     def to_dict(self) -> Dict[str, object]:
         """Serialize this status to a dict for YAML storage."""
@@ -43,6 +52,9 @@ class TaskStatus:
             "priority": self.priority,
             "state": self.state,
             "error": self.error,
+            "claimed_by": self.claimed_by,
+            "claimed_at": self.claimed_at,
+            "last_heartbeat": self.last_heartbeat,
         }
 
     @staticmethod
@@ -50,10 +62,13 @@ class TaskStatus:
         """Create a TaskStatus from a YAML file on disk."""
         data = yaml.safe_load(path.read_text()) or {}
         return TaskStatus(
-            analyzer_id=data["analyzer_id"],
-            priority=int(data["priority"]),
+            analyzer_id=data.get("analyzer_id", ""),
+            priority=int(data.get("priority", 0)),
             state=data.get("state", "queued"),
             error=data.get("error"),
+            claimed_by=data.get("claimed_by"),
+            claimed_at=data.get("claimed_at"),
+            last_heartbeat=data.get("last_heartbeat"),
         )
 
 
@@ -63,6 +78,27 @@ def _status_dir(scan_folder: Path) -> Path:
 
 def _status_path(scan_folder: Path, analyzer_id: str) -> Path:
     return _status_dir(scan_folder) / f"{analyzer_id}.yaml"
+
+
+def _parse_ts(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+
+def _is_stale(status: TaskStatus, now: datetime) -> bool:
+    if status.state != "claimed":
+        return False
+    last = _parse_ts(status.last_heartbeat) or _parse_ts(status.claimed_at)
+    if last is None:
+        return True
+    return (now - last).total_seconds() > CLAIM_STALE_AFTER_SECONDS
 
 
 def init_status_for_scan(
@@ -120,17 +156,36 @@ def update_status(
     scan_folder: Path,
     analyzer_id: str,
     *,
-    priority: int,
-    state: str,
+    priority: Optional[int] = None,
+    state: Optional[str] = None,
     error: Optional[str] = None,
+    claimed_by: Optional[str] = None,
+    claimed_at: Optional[str] = None,
+    last_heartbeat: Optional[str] = None,
 ) -> None:
     """Update status file for a given analyzer in a scan folder."""
     status_dir = _status_dir(scan_folder)
     status_dir.mkdir(parents=True, exist_ok=True)
     path = _status_path(scan_folder, analyzer_id)
-    ts = TaskStatus(
-        analyzer_id=analyzer_id, priority=priority, state=state, error=error
+    if path.exists():
+        current = TaskStatus.from_file(path)
+    else:
+        current = TaskStatus(
+            analyzer_id=analyzer_id,
+            priority=priority or 0,
+            state=state or "queued",
+        )
+
+    current.priority = priority if priority is not None else current.priority
+    current.state = state if state is not None else current.state
+    current.error = error if error is not None else current.error
+    current.claimed_by = claimed_by if claimed_by is not None else current.claimed_by
+    current.claimed_at = claimed_at if claimed_at is not None else current.claimed_at
+    current.last_heartbeat = (
+        last_heartbeat if last_heartbeat is not None else current.last_heartbeat
     )
+
+    ts = current
     path.write_text(yaml.safe_dump(ts.to_dict()))
 
 
@@ -187,6 +242,9 @@ def reset_status_for_scan(
                 priority=st.priority,
                 state="queued",
                 error=None,
+                claimed_by=None,
+                claimed_at=None,
+                last_heartbeat=None,
             )
 
 
@@ -209,6 +267,7 @@ def build_worklist(
     only_ids = set(rerun_only_ids) if rerun_only_ids is not None else None
     skip_ids = set(rerun_skip_ids) if rerun_skip_ids is not None else set()
     work: List[tuple[int, ScanTag, object]] = []
+    now = datetime.now(timezone.utc)
     for tag in scan_tags:
         scan_folder = ScanPaths.get_scan_folder_path(
             tag=tag, base_directory=base_directory
@@ -232,6 +291,8 @@ def build_worklist(
             if st and st.state == "failed" and rerun_failed and eligible_for_rerun:
                 include = True
             if st and st.state == "claimed" and rerun_claimed and eligible_for_rerun:
+                include = _is_stale(st, now)
+            if st and st.state == "claimed" and rerun_completed and eligible_for_rerun:
                 include = True
             if include:
                 priority = getattr(analyzer, "priority", 100)
@@ -270,11 +331,37 @@ def run_worklist(
             priority,
             dry_run,
         )
-        update_status(scan_folder, analyzer_id, priority=priority, state="claimed")
+        owner = f"{socket.gethostname()}:{os.getpid()}"
+        now_iso = datetime.now(timezone.utc).isoformat()
+        update_status(
+            scan_folder,
+            analyzer_id,
+            priority=priority,
+            state="claimed",
+            claimed_by=owner,
+            claimed_at=now_iso,
+            last_heartbeat=now_iso,
+        )
+        stop_event = threading.Event()
+        hb_thread = threading.Thread(
+            target=_heartbeat_updater,
+            args=(scan_folder, analyzer_id, priority, stop_event),
+            daemon=True,
+        )
+        hb_thread.start()
         try:
             if not dry_run:
                 analyzer.run_analysis(tag)
-            update_status(scan_folder, analyzer_id, priority=priority, state="done")
+            update_status(
+                scan_folder,
+                analyzer_id,
+                priority=priority,
+                state="done",
+                error=None,
+                claimed_by=None,
+                claimed_at=None,
+                last_heartbeat=None,
+            )
             logger.info(
                 "run_worklist: completed scan=%s analyzer=%s priority=%s",
                 tag,
@@ -289,7 +376,13 @@ def run_worklist(
                 priority=priority,
                 state="failed",
                 error=str(exc),
+                claimed_by=None,
+                claimed_at=None,
+                last_heartbeat=None,
             )
+        finally:
+            stop_event.set()
+            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
 
 
 def load_analyzers_from_config(
@@ -298,3 +391,20 @@ def load_analyzers_from_config(
     """Load analyzers (sorted by priority) for an experiment config."""
     cfg = load_experiment_config(experiment, config_dir=config_dir)
     return [create_analyzer(a) for a in cfg.get_analyzers_by_priority()]
+
+
+def _heartbeat_updater(
+    scan_folder: Path,
+    analyzer_id: str,
+    priority: int,
+    stop_event: threading.Event,
+) -> None:
+    while not stop_event.wait(HEARTBEAT_INTERVAL_SECONDS):
+        hb = datetime.now(timezone.utc).isoformat()
+        update_status(
+            scan_folder,
+            analyzer_id,
+            priority=priority,
+            state="claimed",
+            last_heartbeat=hb,
+        )
