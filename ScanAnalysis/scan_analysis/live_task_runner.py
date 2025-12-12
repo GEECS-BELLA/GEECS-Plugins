@@ -128,7 +128,7 @@ class LiveTaskRunner:
         max_items: int = 1,
         dry_run: bool = False,
         rerun_completed: bool = False,
-        rerun_failed: bool = True,
+        rerun_failed: bool = False,
         rerun_only_ids: Optional[Iterable[str]] = None,
         rerun_skip_ids: Optional[Iterable[str]] = None,
     ):
