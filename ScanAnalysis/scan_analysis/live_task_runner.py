@@ -129,7 +129,6 @@ class LiveTaskRunner:
         dry_run: bool = False,
         rerun_completed: bool = False,
         rerun_failed: bool = True,
-        rerun_claimed: bool = True,
         rerun_only_ids: Optional[Iterable[str]] = None,
         rerun_skip_ids: Optional[Iterable[str]] = None,
     ):
@@ -148,8 +147,6 @@ class LiveTaskRunner:
             If True, reset done analyzers to queued once per discovered scan.
         rerun_failed : bool
             If True, requeue analyzers marked failed.
-        rerun_claimed : bool
-            If True, requeue analyzers left in claimed (e.g., after interruption).
         rerun_only_ids : Iterable[str], optional
             If provided, only these analyzer ids are eligible for rerun/reset.
         rerun_skip_ids : Iterable[str], optional
@@ -185,7 +182,6 @@ class LiveTaskRunner:
             base_directory=base_directory,
             rerun_completed=False,  # rerun_completed is handled by reset above
             rerun_failed=rerun_failed,
-            rerun_claimed=rerun_claimed,
             rerun_only_ids=rerun_only_ids,
             rerun_skip_ids=rerun_skip_ids,
         )

@@ -255,7 +255,6 @@ def build_worklist(
     base_directory: Optional[Path] = None,
     rerun_completed: bool = False,
     rerun_failed: bool = True,
-    rerun_claimed: bool = True,
     rerun_only_ids: Optional[Iterable[str]] = None,
     rerun_skip_ids: Optional[Iterable[str]] = None,
 ) -> List[tuple[int, ScanTag, object]]:
@@ -290,10 +289,8 @@ def build_worklist(
                 include = True
             if st and st.state == "failed" and rerun_failed and eligible_for_rerun:
                 include = True
-            if st and st.state == "claimed" and rerun_claimed and eligible_for_rerun:
+            if st and st.state == "claimed" and eligible_for_rerun:
                 include = _is_stale(st, now)
-            if st and st.state == "claimed" and rerun_completed and eligible_for_rerun:
-                include = True
             if include:
                 priority = getattr(analyzer, "priority", 100)
                 work.append((priority, tag, analyzer))
