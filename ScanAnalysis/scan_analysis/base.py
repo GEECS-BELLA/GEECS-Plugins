@@ -398,14 +398,24 @@ class ScanAnalyzer:
                         self.device_name,
                     )
 
-            # Concatenate and keep the last occurrence per key (updates override existing),
-            # while allowing new shot rows to be added.
-            merged = (
-                pd.concat([current, updates_clean])
-                .drop_duplicates(subset=[key], keep="last")
-                .sort_values(by=key)
-                .reset_index(drop=True)
-            )
+            # Use combine_first to merge updates into current data while preserving existing columns.
+            if current.empty:
+                merged = updates_clean.sort_values(by=key)
+            else:
+                # Align on key (Shotnumber). combine_first prioritizes values from the caller (updates_clean)
+                # but fills missing columns/values from the argument (current).
+                # This ensures we update analysis values without dropping other columns from the s-file.
+                merged = (
+                    updates_clean.set_index(key)
+                    .combine_first(current.set_index(key))
+                    .reset_index()
+                    .sort_values(by=key)
+                )
+
+                # Optional: Restore original column order for stability, appending new columns at the end
+                original_cols = [c for c in current.columns if c in merged.columns]
+                new_cols = [c for c in merged.columns if c not in original_cols]
+                merged = merged[original_cols + new_cols]
 
             merged.to_csv(self.auxiliary_file_path, sep="\t", index=False, header=True)
             self.auxiliary_data = merged
