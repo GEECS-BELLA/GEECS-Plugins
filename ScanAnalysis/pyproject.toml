@@ -6,8 +6,7 @@ authors = ["Christopher Doss <CEDoss@lbl.gov>"]
 readme = "README.md"
 packages = [{include = "scan_analysis"},
             {include = "live_watch"},
-            {include = "calibrations"},
-            {include = "multiscan_analysis"}]
+            {include = "calibrations"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9 <3.11"
@@ -16,6 +15,7 @@ pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == 'win32'" }
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }
 geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
 LogMaker4GoogleDocs = {path = "../LogMaker4GoogleDocs", develop = true}
+geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
 
 pyyaml = "^6.0.2"
 matplotlib = "^3.9.2"

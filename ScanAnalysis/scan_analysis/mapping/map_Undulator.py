@@ -25,10 +25,10 @@ from image_analysis.offline_analyzers.density_from_phase_analysis import (
     PhaseAnalysisConfig,
     PhaseDownrampProcessor,
 )
-from image_analysis.config_loader import set_config_base_dir
+from geecs_data_utils.config_roots import image_analysis_config
 from dataclasses import asdict
 
-set_config_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
+image_analysis_config.set_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
 
 
 def get_path_to_bkg_file():

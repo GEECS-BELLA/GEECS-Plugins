@@ -11,11 +11,11 @@ from dataclasses import asdict
 from scan_analysis.base import ScanAnalyzerInfo as Info
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 
-from image_analysis.config_loader import set_config_base_dir
+from geecs_data_utils.config_roots import image_analysis_config
 
 logging.getLogger("image_analysis").setLevel(logging.INFO)
 
-set_config_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
+image_analysis_config.set_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
 
 
 class TestExecuteAnalysis(unittest.TestCase):

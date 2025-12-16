@@ -1121,6 +1121,7 @@ develop = true
 
 [package.dependencies]
 boto3 = "^1.28"
+geecs-data-utils = {path = "../GEECS-Data-Utils", develop = true, markers = "python_version >= \"3.9\""}
 h5py = "*"
 imageio = "^2.31.1"
 lcls-tools = {git = "https://github.com/slaclab/lcls-tools.git", markers = "python_version >= \"3.9\""}
@@ -3752,6 +3753,7 @@ files = []
 develop = true
 
 [package.dependencies]
+geecs_data_utils = {path = "../GEECS-Data-Utils", develop = true}
 geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
 h5py = "^3.8.0"
 ImageAnalysis = {path = "../ImageAnalysis", develop = true}
@@ -4502,4 +4504,4 @@ doc = ["mkdocs", "mkdocs-jupyter", "mkdocs-macros-plugin", "mkdocs-material", "m
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.11"
-content-hash = "78cf5d0a746a92d5e22e589db2ed45f4a0196107d440be37cc74e44b1d0abc5b"
+content-hash = "f962d6a933546e41eb02176c4acf26bbd91783b30b8d26761cff555d28c590d4"

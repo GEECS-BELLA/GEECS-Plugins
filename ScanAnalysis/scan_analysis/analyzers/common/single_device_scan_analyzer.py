@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional, TypedDict, Dict, Literal
 
 # --- Third-Party Libraries ---
+import pandas as pd
 import numpy as np
 
 # --- Local / Project Imports ---
@@ -194,9 +195,12 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                     self._postprocess_scan()
 
             if not self.live_analysis:
-                self.auxiliary_data.to_csv(
-                    self.auxiliary_file_path, sep="\t", index=False
-                )
+                pending = getattr(self, "_pending_aux_updates", [])
+                if pending:
+                    df_updates = pd.DataFrame(pending)
+                    if not df_updates.empty:
+                        self.append_to_sfile(df_updates)
+                self._pending_aux_updates = []
             return self.renderer.display_contents
 
         except Exception as e:
@@ -501,6 +505,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         """
         logger.info(f"Starting analysis in {self.analysis_mode} mode")
         self.results: dict[int, ImageAnalyzerResult] = {}
+        self._pending_aux_updates: list[dict] = []
 
         use_threads = self.image_analyzer.run_analyze_image_asynchronously
         Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
@@ -537,18 +542,29 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                             f"Unit {unit_key}: no valid data returned from analysis."
                         )
 
-                    # Update s-file for all relevant shots
-                    for shot_num in sfile_keys:
-                        for key, value in analysis_results.items():
-                            if not isinstance(value, (int, float, np.number)):
-                                logger.warning(
-                                    f"[{self.__class__.__name__} using {self.image_analyzer.__class__.__name__}] "
-                                    f"Analysis result for unit {unit_key} key '{key}' is not numeric (got {type(value).__name__}). Skipping."
-                                )
-                            else:
+                    # Collect numeric scalars and update cached/queued s-file data
+                    numeric_updates = {
+                        key: value
+                        for key, value in analysis_results.items()
+                        if isinstance(value, (int, float, np.number))
+                    }
+                    non_numeric = set(analysis_results) - set(numeric_updates)
+                    if non_numeric:
+                        logger.warning(
+                            f"[{self.__class__.__name__} using {self.image_analyzer.__class__.__name__}] "
+                            f"Non-numeric scalar keys skipped: {sorted(non_numeric)}"
+                        )
+
+                    if numeric_updates:
+                        for shot_num in sfile_keys:
+                            # keep in-memory copy current for any downstream calc
+                            for key, value in numeric_updates.items():
                                 self.auxiliary_data.loc[
                                     self.auxiliary_data["Shotnumber"] == shot_num, key
                                 ] = value
+                            self._pending_aux_updates.append(
+                                {"Shotnumber": shot_num, **numeric_updates}
+                            )
 
                 except Exception as e:
                     logger.error(f"Analysis failed for unit {unit_key}: {e}")

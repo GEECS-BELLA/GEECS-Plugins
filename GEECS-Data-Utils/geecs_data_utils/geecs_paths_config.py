@@ -43,6 +43,8 @@ class GeecsPathsConfig:
         The default experiment name.
     image_analysis_configs_path : Path
         path to directory containing image analysis configs
+    scan_analysis_configs_path : Path
+        path to directory containing scan analysis configs
     """
 
     def __init__(
@@ -51,6 +53,7 @@ class GeecsPathsConfig:
         default_experiment: Optional[str] = None,
         set_base_path: Optional[Union[Path, str]] = None,
         image_analysis_configs_path: Optional[Union[Path, str]] = None,
+        scan_analysis_configs_path: Optional[Union[Path, str]] = None,
     ):
         """
         Initialize GEECS paths configuration.
@@ -69,6 +72,8 @@ class GeecsPathsConfig:
             Default path for locating GEECS data (default: Z:/data).
         image_analysis_configs_path : Path, optional
             default path to folder containing image_analysis_configs
+        scan_analysis_configs_path : Path, optional
+            default path to folder containing scan_analysis_configs
 
         Raises
         ------
@@ -118,6 +123,12 @@ class GeecsPathsConfig:
                         )
                         image_analysis_configs_path = self._validate_path(local_path)
 
+                    if scan_analysis_configs_path is None:
+                        local_path = Path(
+                            config["Paths"].get("scan_analysis_configs_path", None)
+                        )
+                        scan_analysis_configs_path = self._validate_path(local_path)
+
                 except Exception as e:
                     logger.error(f"Error reading config file {config_path}: {e}")
             else:
@@ -133,6 +144,7 @@ class GeecsPathsConfig:
         self.base_path = base_path  # .resolve()
         self.experiment = experiment
         self.image_analysis_configs_path = image_analysis_configs_path
+        self.scan_analysis_configs_path = scan_analysis_configs_path
 
     def _is_default_server_address(self) -> bool:
         """

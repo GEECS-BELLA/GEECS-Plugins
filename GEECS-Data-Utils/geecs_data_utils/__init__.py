@@ -21,6 +21,11 @@ from geecs_data_utils.scan_paths import ScanPaths
 from geecs_data_utils.utils import ConfigurationError, SysPath
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
 from geecs_data_utils.type_defs import ScanMode, ScanConfig, ScanTag
+from geecs_data_utils.config_base import ConfigDirManager
+from geecs_data_utils.config_roots import (
+    image_analysis_config,
+    scan_analysis_config,
+)
 
 __all__ = [
     "ScanData",
@@ -31,4 +36,7 @@ __all__ = [
     "GeecsPathsConfig",
     "ScanMode",
     "ScanConfig",
+    "ConfigDirManager",
+    "image_analysis_config",
+    "scan_analysis_config",
 ]

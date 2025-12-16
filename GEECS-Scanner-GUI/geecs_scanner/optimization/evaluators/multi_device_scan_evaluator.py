@@ -33,9 +33,9 @@ from geecs_scanner.optimization.config_models import (
     SingleDeviceScanAnalyzerConfig,
 )
 from geecs_data_utils import ScanPaths
-from image_analysis.config_loader import set_config_base_dir
+from geecs_data_utils.config_roots import image_analysis_config
 
-set_config_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
+image_analysis_config.set_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
 
 logger = logging.getLogger(__name__)
 

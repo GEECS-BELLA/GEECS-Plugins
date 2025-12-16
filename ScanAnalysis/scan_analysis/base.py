@@ -28,8 +28,9 @@ All analyzers must inherit from :class:`ScanAnalyzer` and implement
 
 # %% imports
 from __future__ import annotations
-from numpy.typing import NDArray
-from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple, Dict, List, Any
+import os
+import time
+from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple, Any
 
 if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
@@ -314,68 +315,186 @@ class ScanAnalyzer:
         else:
             plt.close("all")  # Ensure plots close when not using the GUI
 
-    def append_to_sfile(
-        self, dict_to_append: Dict[str, Union[List, NDArray[np.float64]]]
-    ) -> None:
-        """Append new columns to the auxiliary s-file and update in-memory DataFrame.
+    def _acquire_sfile_lock(
+        self, lock_path: Path, timeout: float = 10.0, interval: float = 0.1
+    ) -> bool:
+        """Best-effort file lock using a sidecar `.lock` file."""
+        start = time.time()
+        while True:
+            try:
+                with lock_path.open("x") as f:
+                    f.write(str(os.getpid()))
+                return True
+            except FileExistsError:
+                if (time.time() - start) >= timeout:
+                    logger.warning(
+                        "Could not acquire s-file lock %s within %.1fs",
+                        lock_path,
+                        timeout,
+                    )
+                    return False
+                time.sleep(interval)
+            except Exception as e:
+                logger.warning("Lock error on %s: %s", lock_path, e)
+                return False
 
-        Parameters
-        ----------
-        dict_to_append : dict[str, list | numpy.ndarray]
-            Mapping of new column names to data arrays (or lists). All array-like
-            values must have the same length as the existing DataFrame.
-
-        Raises
-        ------
-        DataLengthError
-            If any provided array length differs from the existing DataFrame length.
-
-        Notes
-        -----
-        - Existing columns with the same names will be overwritten (with a warning).
-        - The updated DataFrame is written back to the s-file and mirrored into
-          `self.auxiliary_data`.
-        """
+    def _release_sfile_lock(self, lock_path: Path) -> None:
+        """Remove the sidecar lock file if present."""
         try:
-            # copy auxiliary dataframe
-            df_copy = self.auxiliary_data.copy()
+            lock_path.unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning("Failed to remove lock %s: %s", lock_path, e)
 
-            # check column lengths match existing dataframe
-            lengths = {
-                len(vals)
-                for vals in dict_to_append.values()
-                if isinstance(vals, (list, np.ndarray))
-            }
-            if lengths and lengths.pop() != len(df_copy):
-                raise DataLengthError()
+    def _merge_auxiliary_data(
+        self, updates: pd.DataFrame, key: str = "Shotnumber"
+    ) -> Optional[pd.DataFrame]:
+        """
+        Merge updates into the s-file with a simple lock and in-memory refresh.
 
-            # check if columns exist within dataframe
-            existing_cols = set(df_copy) & set(dict_to_append.keys())
-            if existing_cols:
-                logger.warning(
-                    f"Warning: Columns already exist in sfile: "
-                    f"{existing_cols}. Overwriting existing columns."
+        - Aligns on ``key`` (default ``Shotnumber``)
+        - Adds new shots if they are not already present
+        - Overwrites existing columns when the same shot/key is supplied
+        """
+        if self.auxiliary_file_path is None or updates is None:
+            return None
+
+        lock_path = self.auxiliary_file_path.with_suffix(
+            self.auxiliary_file_path.suffix + ".lock"
+        )
+        if not self._acquire_sfile_lock(lock_path):
+            return None
+
+        try:
+            if key not in updates:
+                logger.warning("Updates missing key column %s; skipping merge", key)
+                return None
+
+            if self.auxiliary_file_path.exists():
+                try:
+                    current = pd.read_csv(self.auxiliary_file_path, sep="\t")
+                except Exception as e:
+                    logger.warning(
+                        "Failed reading s-file %s: %s", self.auxiliary_file_path, e
+                    )
+                    return None
+                if key not in current:
+                    logger.warning(
+                        "Existing s-file missing key column %s; skipping merge", key
+                    )
+                    return None
+            else:
+                current = pd.DataFrame()
+
+            updates_clean = updates.copy()
+            updates_clean = updates_clean.drop_duplicates(subset=[key], keep="last")
+
+            if not current.empty and key in current:
+                missing = set(current[key]) - set(updates_clean[key])
+                if missing:
+                    logger.warning(
+                        "append_to_sfile: %d shot(s) missing in update for %s; "
+                        "existing rows will be kept unchanged",
+                        len(missing),
+                        self.device_name,
+                    )
+
+            # Use combine_first to merge updates into current data while preserving existing columns.
+            if current.empty:
+                merged = updates_clean.sort_values(by=key)
+            else:
+                # Align on key (Shotnumber). combine_first prioritizes values from the caller (updates_clean)
+                # but fills missing columns/values from the argument (current).
+                # This ensures we update analysis values without dropping other columns from the s-file.
+                merged = (
+                    updates_clean.set_index(key)
+                    .combine_first(current.set_index(key))
+                    .reset_index()
+                    .sort_values(by=key)
                 )
 
-            # append new fields to df_copy
-            df_new = df_copy.assign(**dict_to_append)
+                # Optional: Restore original column order for stability, appending new columns at the end
+                original_cols = [c for c in current.columns if c in merged.columns]
+                new_cols = [c for c in merged.columns if c not in original_cols]
+                merged = merged[original_cols + new_cols]
 
-            # save updated dataframe to sfile
-            df_new.to_csv(self.auxiliary_file_path, index=False, sep="\t", header=True)
+            merged.to_csv(self.auxiliary_file_path, sep="\t", index=False, header=True)
+            self.auxiliary_data = merged
+            return merged
+        finally:
+            self._release_sfile_lock(lock_path)
 
-            # copy updated dataframe to class attribute
-            self.auxiliary_data = df_new.copy()
+    def _prepare_updates_dataframe(
+        self, data: pd.DataFrame, key: str = "Shotnumber"
+    ) -> Optional[pd.DataFrame]:
+        """Normalize updates, enforce presence of the key, and drop invalid rows."""
+        if not isinstance(data, pd.DataFrame):
+            logger.warning("append_to_sfile: expected DataFrame, got %s", type(data))
+            return None
 
-        except DataLengthError:
-            logger.error(
-                f"Error: Error appending {self.device_name} field to sfile due to "
-                f"inconsistent array lengths. Scan file not updated."
+        updates = data.copy()
+        if updates is None or updates.empty:
+            logger.warning("append_to_sfile: no data to append.")
+            return None
+
+        key_candidates = [c for c in updates.columns if c.lower() == key.lower()]
+        if not key_candidates:
+            logger.warning(
+                "append_to_sfile: missing %s column (case-insensitive); skipping append",
+                key,
+            )
+            return None
+        if len(key_candidates) > 1:
+            logger.warning(
+                "append_to_sfile: multiple Shotnumber-like columns found %s; using %s",
+                key_candidates,
+                key_candidates[0],
+            )
+        primary_key_col = key_candidates[0]
+        updates = updates.rename(columns={primary_key_col: key}).drop(
+            columns=[c for c in key_candidates if c != primary_key_col], errors="ignore"
+        )
+
+        before_drop = len(updates)
+        updates = updates.dropna(subset=[key])
+        if updates.empty:
+            logger.warning("append_to_sfile: all rows missing %s; skipping append", key)
+            return None
+        dropped = before_drop - len(updates)
+        if dropped:
+            logger.warning(
+                "append_to_sfile: dropped %d row(s) missing %s", dropped, key
             )
 
-        except Exception as e:
-            logger.error(
-                f"Error: Unexpected error in {self.append_to_sfile.__name__}: {e}"
-            )
+        return updates
+
+    def append_to_sfile(self, data: pd.DataFrame) -> None:
+        """
+        Append or overwrite s-file columns (merging on Shotnumber with a lock).
+
+        Only accepts a DataFrame and requires an explicit ``Shotnumber`` column
+        (case-insensitive match is accepted and normalized).
+        Rows without ``Shotnumber`` are dropped with a warning.
+        """
+        if self.auxiliary_file_path is None:
+            logger.warning("No auxiliary file path set; skipping s-file append.")
+            return
+
+        updates = self._prepare_updates_dataframe(data)
+        if updates is None:
+            return
+
+        key = "Shotnumber"
+        if self.auxiliary_data is not None:
+            existing_cols = set(self.auxiliary_data.columns) & set(updates.columns) - {
+                key
+            }
+            if existing_cols:
+                logger.warning(
+                    "append_to_sfile: columns already exist in s-file: %s (will overwrite)",
+                    existing_cols,
+                )
+
+        self._merge_auxiliary_data(updates, key=key)
 
     def generate_limited_shotnumber_labels(self, max_labels: int = 20) -> np.ndarray:
         """Generate evenly spaced shot-number labels with an upper bound on count.

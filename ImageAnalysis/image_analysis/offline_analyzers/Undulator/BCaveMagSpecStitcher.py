@@ -88,9 +88,8 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
         )
 
         # Compute vertical lineout (sum along vertical axis)
-        horizontal_lineout = np.sum(initial_result['processed_image'], axis=0)
-        vertical_lineout = np.sum(initial_result['processed_image'], axis=1)
-
+        horizontal_lineout = np.sum(initial_result["processed_image"], axis=0)
+        vertical_lineout = np.sum(initial_result["processed_image"], axis=1)
 
         # Apply Gaussian weighting
         x = np.arange(horizontal_lineout.shape[0])
@@ -182,12 +181,12 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
         return fig, ax
 
     def visualize(
-            self,
-            results: AnalyzerResultDict,
-            *,
-            show: bool = True,
-            close: bool = True,
-            ax: Optional[plt.Axes] = None,
+        self,
+        results: AnalyzerResultDict,
+        *,
+        show: bool = True,
+        close: bool = True,
+        ax: Optional[plt.Axes] = None,
     ) -> tuple[plt.Figure, plt.Axes]:
         """
         Render a single visualization of the analyzed (post-ROI) image and overlays.
@@ -247,12 +246,12 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
 
 if __name__ == "__main__":
     # Example usage
-    from image_analysis.config_loader import set_config_base_dir
+    from geecs_data_utils.config_roots import image_analysis_config
 
     current_dir = Path(__file__).resolve().parent.parent
 
     geecs_plugins_dir = current_dir.parent.parent.parent
-    set_config_base_dir(geecs_plugins_dir / "image_analysis_configs")
+    image_analysis_config.set_base_dir(geecs_plugins_dir / "image_analysis_configs")
 
     image_analyzer = BCaveMagSpecStitcherAnalyzer(
         camera_config_name="U_BCaveMagSpec", gaussian_sigma=20.0, gaussian_center=250.0
@@ -264,9 +263,13 @@ if __name__ == "__main__":
     )
 
     if file_path.exists():
-        results: AnalyzerResultDict = image_analyzer.analyze_image_file(image_filepath=file_path)
+        results: AnalyzerResultDict = image_analyzer.analyze_image_file(
+            image_filepath=file_path
+        )
         image_analyzer.visualize(results)
-        print(f"Optimization target: {results['analyzer_return_dictionary']['optimization_target']:.2f}")
+        print(
+            f"Optimization target: {results['analyzer_return_dictionary']['optimization_target']:.2f}"
+        )
     else:
         print(f"Test file not found: {file_path}")
         print("Create a test with your own image file.")

@@ -1,10 +1,56 @@
 """Basic functionality for finding and defining paths to necessary config files."""
 
 import configparser
-import os
-from functools import lru_cache
+import logging
 from pathlib import Path
 from typing import ClassVar
+
+from geecs_data_utils.config_base import ConfigDirManager
+
+logger = logging.getLogger(__name__)
+
+CONFIG_PATH = Path("~/.config/geecs_python_api/config.ini").expanduser()
+DEFAULT_BASE_PATH = Path(__file__).parents[2] / "scanner_configs" / "experiments"
+
+
+def _resolve_from_config_ini(config_path: Path) -> Path | None:
+    """
+    Resolve scanner config base from config.ini.
+
+    Returns resolved path if it exists, otherwise None.
+    """
+    if not config_path.exists():
+        return None
+
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    if scanner_config_root_path := config.get(
+        "Paths", "scanner_config_root_path", fallback=None
+    ):
+        scanner_path = (
+            Path(scanner_config_root_path).expanduser().resolve()
+            / "scanner_configs"
+            / "experiments"
+        )
+        if scanner_path.exists():
+            return scanner_path
+    return None
+
+
+_CONFIG_MANAGER = ConfigDirManager(
+    env_var="GEECS_SCANNER_CONFIG_DIR",
+    logger=logger,
+    name="Scanner config",
+    fallback_resolver=lambda: _resolve_from_config_ini(CONFIG_PATH),
+    fallback_name="config.ini Paths.scanner_config_root_path",
+)
+
+_CONFIG_MANAGER.bootstrap_from_env_or_fallback()
+if _CONFIG_MANAGER.base_dir is None:
+    try:
+        _CONFIG_MANAGER.set_base_dir(DEFAULT_BASE_PATH)
+    except Exception as exc:  # pragma: no cover - logging only
+        logger.warning("Unable to set default scanner config base: %s", exc)
 
 
 class ApplicationPaths:
@@ -13,52 +59,18 @@ class ApplicationPaths:
 
     Config resolution order:
         1. GEECS_SCANNER_CONFIG_DIR environment variable
-        2. ~/.config/geecs_python_api/config.ini [Paths] config_root
+        2. ~/.config/geecs_python_api/config.ini [Paths] scanner_config_root_path
         3. Local scanner_configs/experiments (fallback)
     """
 
-    CONFIG_PATH: ClassVar[Path] = Path(
-        "~/.config/geecs_python_api/config.ini"
-    ).expanduser()
-    _DEFAULT_BASE_PATH: ClassVar[Path] = (
-        Path(__file__).parents[2] / "scanner_configs" / "experiments"
-    )
+    CONFIG_PATH: ClassVar[Path] = CONFIG_PATH
+    _DEFAULT_BASE_PATH: ClassVar[Path] = DEFAULT_BASE_PATH
+    _CONFIG_MANAGER: ClassVar[ConfigDirManager] = _CONFIG_MANAGER
 
     @classmethod
-    @lru_cache(maxsize=1)
     def BASE_PATH(cls) -> Path:
-        """
-        Resolve and cache the scanner config base path.
-
-        Cached after first access. To force re-resolution, delete the cached value.
-
-        Returns
-        -------
-        Path
-            The resolved base path for scanner configurations.
-        """
-        # 1. Try environment variable
-        if env_path := os.getenv("GEECS_SCANNER_CONFIG_DIR"):
-            if (path := Path(env_path).expanduser().resolve()).exists():
-                return path
-
-        # 2. Try config file
-        if cls.CONFIG_PATH.exists():
-            config = configparser.ConfigParser()
-            config.read(cls.CONFIG_PATH)
-            if scanner_config_root_path := config.get(
-                "Paths", "scanner_config_root_path", fallback=None
-            ):
-                scanner_path = (
-                    Path(scanner_config_root_path).expanduser().resolve()
-                    / "scanner_configs"
-                    / "experiments"
-                )
-                if scanner_path.exists():
-                    return scanner_path
-
-        # 3. Fallback to local
-        return cls._DEFAULT_BASE_PATH
+        """Backward-compatible alias for the scanner config base path."""
+        return cls.base_path()
 
     SAVE_DEVICES_FOLDER = "save_devices"
     SCAN_DEVICES_FOLDER = "scan_devices"
@@ -138,8 +150,20 @@ class ApplicationPaths:
 
     @classmethod
     def base_path(cls) -> Path:
-        """Return root folder for all experiment config files."""
-        return cls.BASE_PATH()
+        """
+        Return root folder for all experiment config files.
+
+        If no base dir is set (e.g., invalid env var and missing defaults),
+        fall back to the local default path.
+        """
+        if cls._CONFIG_MANAGER.base_dir is None:
+            return cls._DEFAULT_BASE_PATH
+        return cls._CONFIG_MANAGER.base_dir
+
+    @classmethod
+    def set_base_path(cls, path: Path) -> Path:
+        """Set the scanner config base path (clears cache)."""
+        return cls._CONFIG_MANAGER.set_base_dir(path)
 
     def experiment(self) -> Path:
         """Return root folder for all config files in given experiment."""
