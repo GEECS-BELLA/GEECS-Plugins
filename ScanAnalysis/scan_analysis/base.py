@@ -6,22 +6,6 @@ parsing the `.ini` metadata, loading auxiliary data (the s-file), and exposing a
 uniform `run_analysis()` flow that concrete analyzers implement via
 `_run_analysis_core()`.
 
-It also defines :class:`ScanAnalyzerInfo`, a small declarative container used by
-pipeline drivers to map devices to analyzers and declare data requirements.
-
-Notes on `requirements` for `ScanAnalyzerInfo`
-----------------------------------------------
-To be compatible with the scan launcher/evaluator (e.g. `scan_evaluator.py`),
-the `requirements` field may be one of:
-
-- `dict[str, list]` with typed keys such as `"tdms"` and `"image"`, e.g.:
-  ``{"tdms": ["U_BCaveICT"], "image": ["UC_UndulatorRad2"]}``
-- `set[str]` or `list[str]` of devices to be present in the scan folder.
-- A single `str` keyword (e.g., `"image"`) consumed by custom logic.
-
-AND/OR logic can be expressed by nesting dictionaries with keys `"AND"` or
-`"OR"` whose values are lists/sets (recursive is supported by the evaluator).
-
 All analyzers must inherit from :class:`ScanAnalyzer` and implement
 `_run_analysis_core()`.
 """
@@ -30,7 +14,7 @@ All analyzers must inherit from :class:`ScanAnalyzer` and implement
 from __future__ import annotations
 import os
 import time
-from typing import TYPE_CHECKING, Optional, Union, Type, NamedTuple, Any
+from typing import TYPE_CHECKING, Optional, Union, NamedTuple
 
 if TYPE_CHECKING:
     from geecs_data_utils import ScanTag
@@ -42,40 +26,6 @@ import matplotlib.pyplot as plt
 from geecs_data_utils import ScanData, ScanPaths
 
 logger = logging.getLogger(__name__)
-
-
-# %% classes
-class ScanAnalyzerInfo(NamedTuple):
-    """Declarative configuration for constructing a scan analyzer.
-
-    This container is typically consumed by an external orchestrator
-    (e.g., `execute_scan_analysis.py`) to instantiate the desired analyzer with
-    the correct data sources and constructor kwargs.
-
-    Attributes
-    ----------
-    scan_analyzer_class : Type[ScanAnalyzer]
-        Concrete analyzer class to instantiate (must subclass :class:`ScanAnalyzer`).
-    requirements : dict[str, list] | set | str
-        Data requirements for the analyzer. Common forms include:
-        - ``{"tdms": ["Device1"], "image": ["Camera1"]}``
-        - ``{"Device1", "Camera1"}`` (set or list)
-        - ``"image"`` (custom keyword)
-        Nested AND/OR dictionaries are supported by the caller.
-    device_name : str, optional
-        Logical device name this analyzer is associated with (used to find files).
-        If ``None``, the analyzer is expected to determine inputs itself.
-    is_active : bool, default=True
-        Whether this analyzer is enabled in the current configuration.
-    scan_analyzer_kwargs : dict[str, Any], default={}
-        Extra keyword arguments forwarded to the analyzer constructor.
-    """
-
-    scan_analyzer_class: Type[ScanAnalyzer]
-    requirements: Union[dict[str, list], set, str]
-    device_name: Optional[str] = None
-    is_active: bool = True
-    scan_analyzer_kwargs: dict[str, Any] = {}
 
 
 # error classes
