@@ -14,7 +14,7 @@ While Master Control scans save everything but can crash or slow down when any d
 
 - **Composite Variables**: Combine multiple device parameters into single scan variables using arbitrary mathematical relations.
 
-- **Automated Actions**: Pre and post-scan automation sequences using user defined action sequences allow complex configuration chnages before/after scans.
+- **Automated Actions**: Pre and post-scan automation sequences using user defined action sequences allow complex configuration changes before/after scans.
 
 - **Timing and Synchronization**: Data synchronization handled through hardware timestamps rather than shot number.
 
