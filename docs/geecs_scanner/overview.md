@@ -38,7 +38,7 @@ The GEECS Scanner GUI is ideal for:
 - Coordinated control of multiple experimental parameters
 - Custom scan patterns and automated sequences
 - Python-based extensibility for custom features
-- Paramter optimization using Xopt
+- Paramter optimization using [Xopt](https://xopt.xopt.org/)
 
 ## Getting Started
 
