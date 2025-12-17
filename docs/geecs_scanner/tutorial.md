@@ -5,6 +5,9 @@ This tutorial will guide you through using the GEECS Scanner GUI for experimenta
 ## Getting Started
 
 *Tutorial content to be added*
+### Adding single element
+### Adding element group
+### Scanlog setup
 
 ## Basic Scanning
 
