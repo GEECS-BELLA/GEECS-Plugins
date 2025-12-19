@@ -130,6 +130,7 @@ class BeamAnalyzer(StandardAnalyzer):
         self,
         camera_config_name: str,
         name_suffix: Optional[str] = None,
+        metric_suffix: Optional[str] = None,
     ):
         """Initialize the beam analyzer with external configuration.
 
@@ -142,9 +143,17 @@ class BeamAnalyzer(StandardAnalyzer):
             Useful for distinguishing multiple analysis passes on the same camera.
             For example, use "_variation" to distinguish variation analysis results
             from standard analysis results.
+        metric_suffix : str, optional
+            Suffix to append to all metric names (underscore is auto-prepended).
+            For example, "curtis" becomes "_curtis" in the output keys.
+            Useful for tracking different analysis variations while keeping the
+            same camera name. (e.g., "camera_x_rms_curtis").
         """
         # Initialize parent class
         super().__init__(camera_config_name)
+
+        # Store metric suffix for use in analyze_image
+        self.metric_suffix = metric_suffix
 
         # Apply name suffix if provided
         if name_suffix:
@@ -182,6 +191,7 @@ class BeamAnalyzer(StandardAnalyzer):
         beam_stats_flat = flatten_beam_stats(
             beam_profile_stats(processed_image),
             prefix=self.camera_config.name,
+            suffix=self.metric_suffix,
         )
 
         # Build result with beam-specific data

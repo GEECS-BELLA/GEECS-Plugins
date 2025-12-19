@@ -265,7 +265,9 @@ def beam_profile_stats(img: np.ndarray) -> BeamStats:
 
 
 def flatten_beam_stats(
-    stats: BeamStats, prefix: Optional[Union[str, None]] = None
+    stats: BeamStats,
+    prefix: Optional[Union[str, None]] = None,
+    suffix: Optional[Union[str, None]] = None,
 ) -> dict[str, float]:
     """Flatten a :class:`BeamStats` instance into a dictionary.
 
@@ -275,18 +277,26 @@ def flatten_beam_stats(
         The beam statistics to flatten.
     prefix : str, None
         Optional prefix to prepend to each key.
+    suffix : str, None
+        Optional suffix to append to each key (underscore is auto-prepended).
+        Useful for distinguishing multiple analysis variations (e.g., "curtis"
+        becomes "_curtis" in the key).
 
     Returns
     -------
     dict[str, float]
         Dictionary mapping field names to values. Keys are of the form
-        ``"{prefix}_{section}_{field}"`` when ``prefix`` is provided,
-        otherwise ``"{section}_{field}"``.
+        ``"{prefix}_{section}_{field}{suffix}"`` when both are provided,
+        ``"{prefix}_{section}_{field}"`` when only prefix is provided,
+        ``"{section}_{field}{suffix}"`` when only suffix is provided,
+        or ``"{section}_{field}"`` when neither is provided.
     """
     flat: dict[str, float] = {}
+    suffix_str = f"_{suffix}" if suffix else ""
     for field in stats._fields:
         nested = getattr(stats, field)
         for k, v in nested._asdict().items():
             key = f"{prefix}_{field}_{k}" if prefix else f"{field}_{k}"
+            key = f"{key}{suffix_str}"
             flat[key] = v
     return flat
