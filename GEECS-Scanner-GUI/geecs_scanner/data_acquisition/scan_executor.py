@@ -53,7 +53,7 @@ framework, designed to provide flexible and powerful experimental control capabi
 from __future__ import annotations
 
 # Standard library imports
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 import logging
 import time
@@ -64,6 +64,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
+from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 
 # -----------------------------------------------------------------------------
 # Module-level logger
@@ -133,11 +134,11 @@ class ScanStepExecutor:
         device_manager,
         data_logger,
         scan_data_manager,
-        optimizer,
         shot_control,
         options_dict,
         stop_scanning_thread_event,
         pause_scan_event,
+        optimizer: Optional[BaseOptimizer] = None
     ):
         """
         Initialize the ScanStepExecutor with experimental control components.
