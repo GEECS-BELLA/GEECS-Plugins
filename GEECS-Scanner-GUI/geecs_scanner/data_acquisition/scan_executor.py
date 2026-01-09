@@ -138,7 +138,7 @@ class ScanStepExecutor:
         options_dict,
         stop_scanning_thread_event,
         pause_scan_event,
-        optimizer: Optional[BaseOptimizer] = None
+        optimizer: Optional[BaseOptimizer] = None,
     ):
         """
         Initialize the ScanStepExecutor with experimental control components.
