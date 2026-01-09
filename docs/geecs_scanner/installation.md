@@ -2,6 +2,7 @@
 
 This guide covers the complete installation and setup process for the GEECS Scanner GUI, including both basic usage and development environment setup.
 
+
 ## Prerequisites
 
 ### Required Software
