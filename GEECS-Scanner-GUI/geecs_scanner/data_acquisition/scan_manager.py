@@ -297,6 +297,7 @@ class ScanManager:
         self.initial_state = None
         self.initialization_success = False
         self.optimizer: Optional[BaseOptimizer] = None
+        self.executor.optimizer: Optional[BaseOptimizer] = None
 
         try:
             self.device_manager.reinitialize(
@@ -1049,6 +1050,7 @@ class ScanManager:
         """
         self.data_logger.bin_num = 0
         steps: List[Dict[str, Any]] = []
+        self.optimizer = None
 
         mode = self.scan_config.scan_mode
         wait_time = self.scan_config.wait_time

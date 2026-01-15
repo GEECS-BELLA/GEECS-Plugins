@@ -34,6 +34,7 @@ from geecs_scanner.optimization.config_models import (
 )
 from geecs_data_utils import ScanPaths
 from geecs_data_utils.config_roots import image_analysis_config
+from image_analysis.types import ImageAnalyzerResult
 
 image_analysis_config.set_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
 
@@ -268,9 +269,9 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             analyzer.auxiliary_data = self.current_data_bin
             analyzer.run_analysis(scan_tag=self.scan_tag)
 
-            result = analyzer.results.get(self.bin_number)
+            result: ImageAnalyzerResult = analyzer.results.get(self.bin_number)
             if result:
-                scalars = result.get("analyzer_return_dictionary", {})
+                scalars = result.scalars
                 all_scalar_results.update(scalars)
                 logger.info(
                     "Extracted %d scalar results from '%s'", len(scalars), device_name
@@ -327,7 +328,7 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         Parameters
         ----------
         scalar_results : dict
-            Combined analyzer_return_dictionary from all analyzers.
+            Combined scalar results from all analyzers.
             Keys follow various naming conventions:
             - "device_name_metric" (e.g., "UC_ALineEBeam3_x_fwhm")
             - "device_name:metric" (e.g., "UC_HiResMagCam:total_counts")
@@ -363,7 +364,7 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         Parameters
         ----------
         scalar_results : dict
-            Combined analyzer_return_dictionary from all analyzers.
+            Combined scalar results from all analyzers.
         bin_number : int
             Current bin number being evaluated.
 
