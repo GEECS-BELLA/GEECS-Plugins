@@ -9,15 +9,15 @@ and returns the weighted sum as an optimization target.
 
 from __future__ import annotations
 
-from typing import Union, Optional, Tuple, List, Dict, Any
+from typing import Optional, Tuple, Dict, Any
 from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-from image_analysis.tools.rendering import base_render_image
+from image_analysis.tools.rendering import base_render_image, add_line_overlay
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
-from image_analysis.types import AnalyzerResultDict
+from image_analysis.types import ImageAnalyzerResult
 
 import logging
 
@@ -59,7 +59,7 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[dict] = None
-    ) -> dict[str, Union[float, int, str, np.ndarray]]:
+    ) -> ImageAnalyzerResult:
         """Analyze BCaveMagSpec stitched image and compute Gaussian-weighted lineout sum.
 
         This method uses StandardAnalyzer's standard processing pipeline, then adds
@@ -76,20 +76,20 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
 
         Returns
         -------
-        dict
-            Standard `ImageAnalyzer` return dictionary containing:
-            - 'optimization_target' : float, Gaussian-weighted sum of vertical lineout
-            - 'processed_image' : numpy.ndarray, final processed image
-            - 'analyzer_return_lineouts' : array with weighted lineout
-            - All standard beam analysis results (centroid, FWHM, etc.)
+        ImageAnalyzerResult
+            Structured result containing:
+            - processed_image: Final processed image
+            - scalars: Dict with 'optimization_target' (Gaussian-weighted sum)
+            - metadata: Analysis configuration and parameters
+            - render_data: Dict with 'weighted_lineout' and 'vertical_lineout'
         """
-        initial_result: AnalyzerResultDict = super().analyze_image(
+        initial_result: ImageAnalyzerResult = super().analyze_image(
             image=image, auxiliary_data=auxiliary_data
         )
 
         # Compute vertical lineout (sum along vertical axis)
-        horizontal_lineout = np.sum(initial_result["processed_image"], axis=0)
-        vertical_lineout = np.sum(initial_result["processed_image"], axis=1)
+        horizontal_lineout = np.sum(initial_result.processed_image, axis=0)
+        vertical_lineout = np.sum(initial_result.processed_image, axis=1)
 
         # Apply Gaussian weighting
         x = np.arange(horizontal_lineout.shape[0])
@@ -99,43 +99,43 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
         weighted_lineout = horizontal_lineout * gaussian
 
         # Compute optimization target
-        optimization_target = np.sum(weighted_lineout)
+        optimization_target = float(np.sum(weighted_lineout))
 
-        return_dict = self.build_return_dictionary(
-            return_image=initial_result["processed_image"],
-            input_parameters=initial_result["analyzer_input_parameters"],
-            return_scalars={"optimization_target": optimization_target},
-            return_lineouts=[weighted_lineout, vertical_lineout],
-            coerce_lineout_length=False,
+        # Build the result using ImageAnalyzerResult
+        result = ImageAnalyzerResult(
+            data_type="2d",
+            processed_image=initial_result.processed_image,
+            scalars={"optimization_target": optimization_target},
+            metadata={
+                **initial_result.metadata,
+                "gaussian_sigma": self.gaussian_sigma,
+                "gaussian_center": self.gaussian_center,
+            },
+            render_data={
+                "weighted_lineout": weighted_lineout,
+                "vertical_lineout": vertical_lineout,
+            },
+            render_function=self.render_image,
         )
 
-        return return_dict
+        return result
 
     @staticmethod
     def render_image(
-        image: np.ndarray,
-        analysis_results_dict: Optional[dict[str, Union[float, int]]] = None,
-        input_params_dict: Optional[dict[str, Union[float, int]]] = None,
-        lineouts: Optional[List[np.array]] = None,
+        result: ImageAnalyzerResult,
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
         cmap: str = "plasma",
         figsize: Tuple[float, float] = (4, 4),
         dpi: int = 150,
         ax: Optional[plt.Axes] = None,
-    ) -> tuple[plt.Figure, plt.Axes]:
+    ) -> Tuple[plt.Figure, plt.Axes]:
         """Render image with optional overlaid normalized lineout.
 
         Parameters
         ----------
-        image : numpy.ndarray
-            Image to display.
-        analysis_results_dict : dict, optional
-            Scalar analysis results to annotate on the image.
-        input_params_dict : dict, optional
-            Input parameters to annotate on the image.
-        lineouts : list of numpy.ndarray, optional
-            List containing 1D lineout arrays for overlay; only the first is plotted.
+        result : ImageAnalyzerResult
+            The analysis result containing processed image and render data.
         vmin, vmax : float, optional
             Color scale limits.
         cmap : str, default='plasma'
@@ -153,10 +153,7 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
             Matplotlib (Figure, Axes) with rendered image and overlays.
         """
         fig, ax = base_render_image(
-            image=image,
-            analysis_results_dict=analysis_results_dict,
-            input_params_dict=input_params_dict,
-            lineouts=lineouts,
+            result=result,
             vmin=vmin,
             vmax=vmax,
             cmap=cmap,
@@ -166,45 +163,50 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
         )
 
         # Overlay the weighted lineout on the image
-        if lineouts is not None and len(lineouts) > 0:
-            lineout = lineouts[0]
-            if lineout is not None:
-                x_vals = np.arange(len(lineout))
-                max_expected_value = 1e3
-                norm_lineout = np.clip(lineout / max_expected_value, 0, 1)
-                scale = image.shape[0] * 0.3
-                y_offset = int(image.shape[0] * 0.1) * 0
-                y_vals = y_offset + norm_lineout * scale
-                ax.plot(x_vals, y_vals, color="cyan", linewidth=1.0, zorder=10)
-                ax.set_ylim([0, image.shape[0]])
+        weighted_lineout = result.render_data.get("weighted_lineout")
+        if weighted_lineout is not None and len(weighted_lineout) > 0:
+            # Get image dimensions for proper scaling
+            img_height = result.processed_image.shape[0]
+
+            # Add the weighted lineout overlay at the top of the image
+            add_line_overlay(
+                ax=ax,
+                lineout=weighted_lineout,
+                direction="horizontal",
+                scale=0.3,
+                offset=img_height * 0.1,  # Slight offset from top
+                color="cyan",
+                linewidth=1.0,
+                normalize=True,
+                clip_positive=True,
+            )
 
         return fig, ax
 
     def visualize(
         self,
-        results: AnalyzerResultDict,
+        result: ImageAnalyzerResult,
         *,
         show: bool = True,
         close: bool = True,
         ax: Optional[plt.Axes] = None,
-    ) -> tuple[plt.Figure, plt.Axes]:
+    ) -> Tuple[plt.Figure, plt.Axes]:
         """
         Render a single visualization of the analyzed (post-ROI) image and overlays.
 
         This convenience method draws the processed image stored in
-        ``results["processed_image"]`` using :meth:`render_image`, optionally
+        ``result.processed_image`` using :meth:`render_image`, optionally
         calling :func:`matplotlib.pyplot.show` and closing the figure. It performs
         no additional computation.
 
         Parameters
         ----------
-        results : AnalyzerResultDict
-            Dictionary returned by :meth:`analyze_image` (or compatible). The
-            following keys are read when present:
-            - ``"processed_image"`` : ndarray (required) — image to display
-            - ``"analyzer_return_dictionary"`` : dict — scalar annotations
-            - ``"input_parameters"`` : dict — ROI offsets and inputs
-            - ``"analyzer_return_lineouts"`` : list[np.ndarray] — [horiz, vert] lineouts
+        result : ImageAnalyzerResult
+            Result returned by :meth:`analyze_image` containing:
+            - ``processed_image`` : ndarray — image to display
+            - ``scalars`` : dict — scalar analysis results
+            - ``metadata`` : dict — ROI offsets and input parameters
+            - ``render_data`` : dict — lineouts for overlay
         show : bool, default True
             If True, call :func:`matplotlib.pyplot.show` after rendering.
         close : bool, default True
@@ -231,10 +233,7 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
           ``fig.savefig(path, bbox_inches='tight', pad_inches=0)``.
         """
         fig, ax = self.render_image(
-            image=results["processed_image"],
-            analysis_results_dict=results.get("analyzer_return_dictionary", {}),
-            input_params_dict=results.get("analyzer_input_parameters", {}),
-            lineouts=results.get("analyzer_return_lineouts"),
+            result=result,
             ax=ax,
         )
         if show:
@@ -263,13 +262,11 @@ if __name__ == "__main__":
     )
 
     if file_path.exists():
-        results: AnalyzerResultDict = image_analyzer.analyze_image_file(
+        result: ImageAnalyzerResult = image_analyzer.analyze_image_file(
             image_filepath=file_path
         )
-        image_analyzer.visualize(results)
-        print(
-            f"Optimization target: {results['analyzer_return_dictionary']['optimization_target']:.2f}"
-        )
+        image_analyzer.visualize(result)
+        print(f"Optimization target: {result.scalars['optimization_target']:.2f}")
     else:
         print(f"Test file not found: {file_path}")
         print("Create a test with your own image file.")
