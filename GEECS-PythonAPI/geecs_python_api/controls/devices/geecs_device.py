@@ -418,8 +418,8 @@ class GeecsDevice:
             cmd_str = f"set{variable}>>{value}"
             cmd_label = f"set({variable}, {value})"
         elif isinstance(value, float):
-            cmd_str = f"set{variable}>>{value:.6f}"
-            cmd_label = f"set({variable}, {value:.6f})"
+            cmd_str = f"set{variable}>>{value:.12f}"
+            cmd_label = f"set({variable}, {value:.12f})"
         elif isinstance(value, bool):
             cmd_str = f"set{variable}>>{int(value)}"
             cmd_label = f"set({variable}, {value})"
