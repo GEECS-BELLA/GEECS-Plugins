@@ -91,7 +91,7 @@ For users who only want to run the GUI:
          - Used for timing estimates
          - Example: `1` for 1 Hz operation
 
-      These settings are saved to the path defined in the pop-up window. To populate existing scan elements etc, edit this new config file to contain all the paths listed in the `Create Config File` section below.
+      These settings are saved to the path defined in the pop-up window. To populate existing scan elements etc, edit this new config file to be the same as the config template located in: `Z:\path\to\control-all-loasis\HTU\geecs_python_api`.
 
 
       Note: If the GUI configuration dialog doesn't work when you first run the GUI, create the config file manually:
