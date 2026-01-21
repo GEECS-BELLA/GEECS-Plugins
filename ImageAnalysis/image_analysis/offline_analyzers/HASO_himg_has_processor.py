@@ -3,22 +3,21 @@
 This module provides an `ImageAnalyzer` implementation that loads HASO images/slopes,
 applies masking and optional background subtraction, computes phase (zonal), and saves
 intermediate artifacts (raw/processed slopes, phases, intensity) next to the input file.
-WaveKit 4.3 is required at runtime (Windows-only). The processor accepts a dict-style
-configuration to remain multiprocessing-friendly.
+WaveKit 4.3 is required at runtime (Windows-only).
 
 Notes
 -----
 - WaveKit resources (engine, post-processor) are lazily instantiated on first use.
-- A rectangular pupil mask can be applied via `SlopesMask`.
+- A rectangular pupil mask can be applied via mask parameters.
 - All file I/O for intermediate results is performed alongside the source image.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, NamedTuple
+from typing import TYPE_CHECKING, Optional, NamedTuple, Union
 from pathlib import Path
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 import logging
 import numpy as np
@@ -59,81 +58,108 @@ class FilterParameters:
     apply_others_filter: bool = False
 
 
-@dataclass
-class HasoHimgHasConfig:
-    """Configuration parameters for `HASOHimgHasProcessor`.
-
-    Parameters
-    ----------
-    mask : SlopesMask, optional
-        Rectangular pupil mask to apply to slopes (top, bottom, left, right).
-    background_path : pathlib.Path, optional
-        Path to a `.has` slopes file used for background subtraction.
-    laser_wavelength : float, default=800
-        Probe laser wavelength in nanometers.
-    wakekit_config_file_path : pathlib.Path
-        Path to the WaveKit config file matching the HASO device.
-
-    Notes
-    -----
-    `background_path` is optional; if not provided, no reference subtraction is applied.
-    """
-
-    mask: SlopesMask = SlopesMask(top=1, bottom=-1, left=1, right=-1)
-    background_path: Path = None
-    laser_wavelength: float = 800  # in nanometer
-
-    # global path to the wavekit config file for the specific serial number of HASO
-    wakekit_config_file_path: Path = Path(
-        "C:/GEECS/Developers Version/source/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat"
-    )
-
-
 class HASOHimgHasProcessor(ImageAnalyzer):
     """Analyzer for `.himg` and `.has` files using WaveKit (HASO).
 
     This class loads raw images or slopes, runs WaveKit to compute phase,
     applies optional reference subtraction and mask, and writes intermediate
-    outputs to disk. The constructor accepts a dict and internally constructs
-    a `HasoHimgHasConfig` for compatibility with multiprocessing.
+    outputs to disk.
+
+    Parameters
+    ----------
+    wavekit_config_file_path : str or Path
+        Path to the WaveKit config file matching the HASO device.
+    mask_top : int, default=1
+        Top boundary of the rectangular pupil mask (inclusive).
+    mask_bottom : int, default=-1
+        Bottom boundary of the rectangular pupil mask (inclusive).
+    mask_left : int, default=1
+        Left boundary of the rectangular pupil mask (inclusive).
+    mask_right : int, default=-1
+        Right boundary of the rectangular pupil mask (inclusive).
+    background_path : str or Path, optional
+        Path to a `.has` slopes file used for background subtraction.
+        If not provided, no reference subtraction is applied.
+    laser_wavelength : float, default=800.0
+        Probe laser wavelength in nanometers.
 
     Notes
     -----
     - Requires WaveKit 4.3 and a valid license on Windows.
     - `run_analyze_image_asynchronously` is disabled in this implementation.
+
+    Examples
+    --------
+    Direct Python usage:
+
+        >>> analyzer = HASOHimgHasProcessor(
+        ...     wavekit_config_file_path="path/to/config.dat",
+        ...     mask_top=75,
+        ...     mask_bottom=246,
+        ...     mask_left=10,
+        ...     mask_right=670,
+        ... )
+        >>> result = analyzer.analyze_image_file(Path("scan.himg"))
+
+    YAML configuration for ScanAnalysis:
+
+        image_analyzer:
+          analyzer_class: image_analysis.offline_analyzers.HASO_himg_has_processor.HASOHimgHasProcessor
+          kwargs:
+            wavekit_config_file_path: "Z:/software/.../WFS_HASO4_LIFT_680_8244.dat"
+            mask_top: 75
+            mask_bottom: 246
+            mask_left: 10
+            mask_right: 670
+            laser_wavelength: 800.0
     """
 
     # Default filter parameters as a class attribute
     default_filter_params = FilterParameters()
 
-    def __init__(self, **config):
-        """
-        Construct HasoHimgHasProcessor.
+    def __init__(
+        self,
+        wavekit_config_file_path: Union[str, Path],
+        mask_top: int = 1,
+        mask_bottom: int = -1,
+        mask_left: int = 1,
+        mask_right: int = -1,
+        background_path: Optional[Union[str, Path]] = None,
+        laser_wavelength: float = 800.0,
+    ):
+        """Construct HASOHimgHasProcessor with explicit parameters.
 
         Parameters
         ----------
-        **config : dict
-            Key-value pairs accepted by `HasoHimgHasConfig`. Keys must match dataclass fields.
-
-        Raises
-        ------
-        ValueError
-            If provided keys/values cannot initialize `HasoHimgHasConfig`.
+        wavekit_config_file_path : str or Path
+            Path to the WaveKit config file matching the HASO device.
+        mask_top : int, default=1
+            Top boundary of the rectangular pupil mask (inclusive).
+        mask_bottom : int, default=-1
+            Bottom boundary of the rectangular pupil mask (inclusive).
+        mask_left : int, default=1
+            Left boundary of the rectangular pupil mask (inclusive).
+        mask_right : int, default=-1
+            Right boundary of the rectangular pupil mask (inclusive).
+        background_path : str or Path, optional
+            Path to a `.has` slopes file used for background subtraction.
+        laser_wavelength : float, default=800.0
+            Probe laser wavelength in nanometers.
         """
-        try:
-            self.config = HasoHimgHasConfig(**config)
-        except TypeError as e:
-            logging.error(
-                "Failed to create HasoHimgHasConfig from provided config dict."
-            )
-            logging.error(f"Provided config: {config}")
-            raise ValueError(f"Invalid config for HasoHimgHasConfig: {e}") from e
+        super().__init__()
 
-        # Assign fields from parsed config
-        self.mask = self.config.mask
-        self.background_path = self.config.background_path
-        self.laser_wavelength = self.config.laser_wavelength
-        self.wakekit_config_file_path = self.config.wakekit_config_file_path
+        # Build mask from individual parameters
+        self.mask = SlopesMask(
+            top=mask_top,
+            bottom=mask_bottom,
+            left=mask_left,
+            right=mask_right,
+        )
+
+        # Convert paths
+        self.wavekit_config_file_path = Path(wavekit_config_file_path)
+        self.background_path = Path(background_path) if background_path else None
+        self.laser_wavelength = laser_wavelength
 
         # Use default filter parameters
         self.filter_params = HASOHimgHasProcessor.default_filter_params
@@ -144,12 +170,9 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         self.raw_slopes: Optional[wkpy.HasoSlopes] = None
         self.processed_slopes: Optional[wkpy.HasoSlopes] = None
 
-        # Pass the original config to the parent class
-        super().__init__()
-
         self.run_analyze_image_asynchronously = False
 
-        self.image_file_path: Path = None
+        self.image_file_path: Optional[Path] = None
 
         self.wavekit_resources_instantiated = False
 
@@ -213,7 +236,7 @@ class HASOHimgHasProcessor(ImageAnalyzer):
                 )
                 raise
 
-    def load_image(self, file_path: Path) -> Array2D:
+    def load_image(self, file_path: Path) -> "Array2D":
         """Load `.himg`/`.has`, compute phase, and return processed phase image.
 
         Parameters
@@ -233,7 +256,7 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         """
         if not self.wavekit_resources_instantiated:
             self.instantiate_wavekit_resources(
-                config_file_path=self.wakekit_config_file_path
+                config_file_path=self.wavekit_config_file_path
             )
             self.wavekit_resources_instantiated = True
 
@@ -266,14 +289,12 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         )
         self.save_individual_results(result)
 
-        # image: Array2D = Array2D(processed_phase)
-        # for some reason the above throws an error that Array2D is undefined...
         image = processed_phase
 
         return image
 
     def analyze_image(
-        self, image: Array2D, auxiliary_data: Optional[dict] = None
+        self, image: "Array2D", auxiliary_data: Optional[dict] = None
     ) -> ImageAnalyzerResult:
         """Return the analysis result for the provided (processed) image.
 
@@ -305,7 +326,9 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
         return result
 
-    def create_slopes_object_from_himg(self, image_file_path: Path) -> wkpy.HasoSlopes:
+    def create_slopes_object_from_himg(
+        self, image_file_path: Path
+    ) -> "wkpy.HasoSlopes":
         """Create slopes from a `.himg` image using WaveKit.
 
         Parameters
@@ -342,7 +365,7 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         return hasoslopes
 
     @staticmethod
-    def load_slopes_from_has_file(slopes_file_path: Path) -> wkpy.HasoSlopes:
+    def load_slopes_from_has_file(slopes_file_path: Path) -> "wkpy.HasoSlopes":
         """Load a slopes object from a `.has` file."""
         hasoslopes = wkpy.HasoSlopes(has_file_path=str(slopes_file_path))
         return hasoslopes
@@ -427,7 +450,7 @@ class HASOHimgHasProcessor(ImageAnalyzer):
             filter_params.apply_others_filter,
         )
 
-    def compute_phase_from_slopes(self, slopes_data: wkpy.HasoSlopes) -> NDArray:
+    def compute_phase_from_slopes(self, slopes_data: "wkpy.HasoSlopes") -> "NDArray":
         """Compute zonal phase from slopes using WaveKit.
 
         Parameters
@@ -477,11 +500,11 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         )
         self.save_phase_file(phase_values=intensity, save_path=self.intensity_file_path)
 
-    def save_slopes_file(self, slopes_data: wkpy.HasoSlopes, save_path: Path):
+    def save_slopes_file(self, slopes_data: "wkpy.HasoSlopes", save_path: Path):
         """Write a `.has` slopes file to `save_path` via WaveKit."""
         slopes_data.save_to_file(str(save_path), "", "")
 
-    def save_phase_file(self, phase_values: NDArray, save_path: Path) -> None:
+    def save_phase_file(self, phase_values: "NDArray", save_path: Path) -> None:
         """Save a 2D array to TSV at `save_path`."""
         # Convert phase_values to a numpy array (if it's a scalar, it'll become a 0-d array).
         arr = np.array(phase_values)
@@ -502,13 +525,15 @@ if __name__ == "__main__":
         "Z:/data/Undulator/Y2025/02-Feb/25_0219/scans/Scan002/U_HasoLift/Scan002_U_HasoLift_001_raw.has"
     )
 
-    mask = SlopesMask(top=75, bottom=246, left=10, right=670)
-    analysis_config = HasoHimgHasConfig(mask=mask)
-    # analysis_config.wakekit_config_file_path: Path = Path('C:/Users/Loasis.loasis/Documents/GitHub/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat')
-    analysis_config.wakekit_config_file_path: Path = Path(
-        "Z:/software/control-all-loasis/HTU/Active Version/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat"
+    # Create analyzer with explicit parameters
+    haso_processor = HASOHimgHasProcessor(
+        wavekit_config_file_path=Path(
+            "Z:/software/control-all-loasis/HTU/Active Version/GEECS-Plugins/ImageAnalysis/image_analysis/third_party_sdks/wavekit_43/WFS_HASO4_LIFT_680_8244_gain_enabled.dat"
+        ),
+        mask_top=75,
+        mask_bottom=246,
+        mask_left=10,
+        mask_right=670,
     )
-
-    haso_processor = HASOHimgHasProcessor(**asdict(analysis_config))
 
     haso_processor.analyze_image_file(image_filepath=path_to_himg)
