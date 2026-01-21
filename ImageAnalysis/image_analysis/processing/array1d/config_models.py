@@ -40,7 +40,11 @@ class Data1DConfig(BaseModel):
     data_type : Data1DType
         The type of data format to read
     trace_index : int, default=0
-        Trace/channel index for scope files (Tek HDF5, TDMS)
+        Trace/channel index for y values in scope files (Tek HDF5, TDMS)
+    x_trace_index : int, optional
+        Trace/channel index for x values in scope files (TDMS). If None, x-axis
+        is derived from waveform properties (wf_start_offset, wf_increment) or
+        falls back to sample index.
     delimiter : str, optional
         Delimiter for CSV/TSV files (defaults to ',' for CSV, '\t' for TSV)
     x_column : int, default=0
@@ -50,7 +54,14 @@ class Data1DConfig(BaseModel):
     """
 
     data_type: Data1DType
-    trace_index: int = Field(default=0, ge=0, description="Trace/channel index")
+    trace_index: int = Field(
+        default=0, ge=0, description="Trace/channel index for y values"
+    )
+    x_trace_index: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Trace/channel index for x values (TDMS scope). If None, x-axis is derived from waveform properties.",
+    )
     delimiter: Optional[str] = Field(
         default=None, description="Delimiter for CSV/TSV files"
     )
