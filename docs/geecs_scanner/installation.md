@@ -8,15 +8,16 @@ This guide covers the complete installation and setup process for the GEECS Scan
 ### Required Software
 
 **Python 3.10**:
-The scanner requires Python 3.10 specifically. Download from: [Python 3.10.11](https://www.python.org/downloads/release/python-31011/). Use the "Windows installer (64-bit)" link. **Important**: Check "Add Python 3.10 to PATH" during installation. 
+The scanner requires Python 3.10 specifically. Download from: [Python 3.10.11](https://www.python.org/downloads/release/python-31011/). Use the "Windows installer (64-bit)" link. **Important**: Check "Add Python 3.10 to PATH" during installation.
+
 
 
 
 **Poetry**:
-For dependency management install using the official installer: [Poetry Installation](https://python-poetry.org/docs/#installing-with-the-official-installer). Note, there is a common issue when installing on a windows computer when using the powershell command from the official installer. You may need to change the powershell command to use 'python' rather than 'py' (as noted on the website) if there is an error in installation. After installing, add poetry to PATH. 
+For dependency management install using the official installer: [Poetry Installation](https://python-poetry.org/docs/#installing-with-the-official-installer). Note, there is a common issue when installing on a windows computer when using the powershell command from the official installer. You may need to change the powershell command to use 'python' rather than 'py' (as noted on the website) if there is an error in installation. After installing, add poetry to PATH.
 
 **GEECS-Plugins and GEECS-Plugins-Configs Repositories**:
-Clone or ensure access to the GEECS Plugings and GEECS Plugins Configuration repositories. For basic usage (run only) it is easiest to map to the 'network' repos (i.e. 'z' or 'n' drive). For Development, it is recommended to clone the repos with GitHub Desktop. The HTU workflow for development is to clone the repositories to the 'source' folder located at C:\GEECS\Developers Version\source. 
+Clone or ensure access to the GEECS Plugings and GEECS Plugins Configuration repositories. For basic usage (run only) it is easiest to map to the 'network' repos (i.e. 'z' or 'n' drive). For Development, it is recommended to clone the repos with GitHub Desktop. The HTU workflow for development is to clone the repositories to the 'source' folder located at C:\GEECS\Developers Version\source.
 
 
 
@@ -120,10 +121,10 @@ For users who only want to run the GUI:
       ```bash
       ./GEECS_Scanner.sh
       ```
-      Double-click this script every time you want to launch the GUI. If needed, edit this script and add `poetry lock` before `poetry install`. 
+      Double-click this script every time you want to launch the GUI. If needed, edit this script and add `poetry lock` before `poetry install`.
 
 
-### Option 2: Develop + Basic Usage 
+### Option 2: Develop + Basic Usage
 
 For users who want to run and develop/customize the GUI:
 
@@ -139,7 +140,7 @@ For users who want to run and develop/customize the GUI:
    poetry env info --path
    # This shows the virtual environment location for your IDE configuration.
    ```
-   
+
  3.  #### Setup Data Directory:
 
     You must copy the experiment's user data from the server to your local path if not already done:
@@ -211,7 +212,7 @@ For users who want to run and develop/customize the GUI:
       expt = YourExperimentName
       rep_rate_hz = 1
       ```
-    Modify the script if your installation path differs from the default. 
+    Modify the script if your installation path differs from the default.
 
 
  5. #### Create Shortcut to launch GUI day-to-day
