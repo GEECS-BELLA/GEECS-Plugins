@@ -168,7 +168,25 @@ def _read_tek_scope_hdf5(
 
 
 def _read_tdms_scope(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray, dict]:
-    """Read TDMS oscilloscope file, extracting time axis from waveform properties and returning Nx2 array with metadata."""
+    """Read TDMS oscilloscope file, extracting x and y data from channels or waveform properties.
+
+    The x-axis data is determined in the following priority order:
+    1. If x_trace_index is specified, use that channel's data directly as x values
+    2. If waveform properties (wf_start_offset, wf_increment) exist, construct time axis
+    3. Fall back to DataFrame index or sample index
+
+    Parameters
+    ----------
+    file_path : Path
+        Path to the TDMS file
+    config : Data1DConfig
+        Configuration specifying trace_index (for y data) and optionally x_trace_index (for x data)
+
+    Returns
+    -------
+    tuple[np.ndarray, dict]
+        Nx2 array of [x, y] data and metadata dictionary
+    """
     try:
         from nptdms import TdmsFile
     except ImportError:
@@ -193,48 +211,73 @@ def _read_tdms_scope(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray,
     if len(all_channels) == 0:
         raise ValueError("TDMS file contains no channels")
 
-    # Check if trace_index is valid
+    # Check if trace_index (y data) is valid
     if config.trace_index >= len(all_channels):
         raise ValueError(
             f"Requested trace_index {config.trace_index} but file only "
             f"contains {len(all_channels)} channels (indices 0-{len(all_channels) - 1})"
         )
 
-    # Get the channel at the specified index
-    channel = all_channels[config.trace_index]
-    channel_name = channel.name
+    # Get the y-data channel at the specified index
+    y_channel = all_channels[config.trace_index]
+    y_channel_name = y_channel.name
+    y_data = y_channel[:]
 
-    # Get channel data
-    voltage = channel[:]
+    # Determine x-axis data based on configuration
+    if config.x_trace_index is not None:
+        # Use explicit x channel
+        if config.x_trace_index >= len(all_channels):
+            raise ValueError(
+                f"Requested x_trace_index {config.x_trace_index} but file only "
+                f"contains {len(all_channels)} channels (indices 0-{len(all_channels) - 1})"
+            )
+        x_channel = all_channels[config.x_trace_index]
+        x_channel_name = x_channel.name
+        x_data = x_channel[:]
 
-    # Try to construct time axis from channel properties
-    # Look for waveform properties: wf_start_offset, wf_increment
-    props = channel.properties
+        # Verify x and y data have compatible lengths
+        if len(x_data) != len(y_data):
+            raise ValueError(
+                f"x_trace_index channel has {len(x_data)} samples but "
+                f"trace_index channel has {len(y_data)} samples. Lengths must match."
+            )
 
-    if "wf_start_offset" in props and "wf_increment" in props:
-        # Use waveform properties to construct time axis
-        t0 = props["wf_start_offset"]
-        dt = props["wf_increment"]
-        time = t0 + np.arange(len(voltage)) * dt
+        # Metadata when using explicit x channel
+        metadata = {
+            "x_units": None,  # Unknown when using explicit channel
+            "y_units": None,  # Unknown when using explicit channel
+            "x_label": x_channel_name,
+            "y_label": y_channel_name,
+        }
     else:
-        # Fall back to using DataFrame index if waveform properties not available
-        df = tdms_file.as_dataframe()
-        if channel.path in df.columns:
-            time = df.index.to_numpy()
+        # Try to construct time axis from channel properties
+        # Look for waveform properties: wf_start_offset, wf_increment
+        props = y_channel.properties
+
+        if "wf_start_offset" in props and "wf_increment" in props:
+            # Use waveform properties to construct time axis
+            t0 = props["wf_start_offset"]
+            dt = props["wf_increment"]
+            x_data = t0 + np.arange(len(y_data)) * dt
         else:
-            # Last resort: create index-based time axis
-            time = np.arange(len(voltage))
+            # Fall back to using DataFrame index if waveform properties not available
+            df = tdms_file.as_dataframe()
+            if y_channel.path in df.columns:
+                x_data = df.index.to_numpy()
+            else:
+                # Last resort: create index-based time axis
+                x_data = np.arange(len(y_data))
+
+        # Metadata for time-based x axis
+        metadata = {
+            "x_units": "s",  # Default for scope data
+            "y_units": "V",  # Default for scope data
+            "x_label": "Time",
+            "y_label": y_channel_name,
+        }
 
     # Create data array
-    data = np.column_stack([time, voltage])
-
-    # Extract metadata
-    metadata = {
-        "x_units": "s",  # Default for scope data
-        "y_units": "V",  # Default for scope data
-        "x_label": "Time",
-        "y_label": channel_name,
-    }
+    data = np.column_stack([x_data, y_data])
 
     return data, metadata
 
