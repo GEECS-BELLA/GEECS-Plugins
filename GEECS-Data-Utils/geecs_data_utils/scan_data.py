@@ -614,9 +614,17 @@ class ScanData:
             num_cols.tolist() if cfg.value_cols is None else list(cfg.value_cols)
         )
 
+        # Filter out columns that are entirely NaN for dropna purposes
+        # (but keep them in value_cols for aggregation - they'll just return NaN)
+        valid_cols_for_dropna = [col for col in value_cols if df[col].notna().any()]
+
+        # Only drop rows based on columns that have at least some valid data
+        # This prevents all-NaN columns from causing all rows to be dropped
         if cfg.dropna == "any":
-            df = df.dropna(subset=value_cols, how="any")
-        else:
+            if valid_cols_for_dropna:
+                df = df.dropna(subset=valid_cols_for_dropna, how="any")
+            # If no valid columns, don't drop any rows
+        else:  # cfg.dropna == "all"
             df = df.dropna(subset=value_cols, how="all")
 
         # NEW: compute bin key (supports numeric binning) and group on it
@@ -657,8 +665,39 @@ class ScanData:
             else:
                 qwide = qtbl.unstack(level=-1)
 
-            lo = qwide.xs(p_lo, axis=1, level=-1)
-            hi = qwide.xs(p_hi, axis=1, level=-1)
+            # Safely extract percentile levels, handling cases where they might not exist
+            # (e.g., all-NaN columns or insufficient data)
+            try:
+                # Check if the percentile levels exist in the column MultiIndex
+                if isinstance(qwide.columns, pd.MultiIndex):
+                    # Get the unique values in the last level (percentile level)
+                    percentile_level_values = qwide.columns.get_level_values(
+                        -1
+                    ).unique()
+
+                    if p_lo in percentile_level_values:
+                        lo = qwide.xs(p_lo, axis=1, level=-1)
+                    else:
+                        # Create empty DataFrame with NaN if percentile doesn't exist
+                        lo = pd.DataFrame(
+                            index=center.index, columns=value_cols, dtype=float
+                        )
+
+                    if p_hi in percentile_level_values:
+                        hi = qwide.xs(p_hi, axis=1, level=-1)
+                    else:
+                        # Create empty DataFrame with NaN if percentile doesn't exist
+                        hi = pd.DataFrame(
+                            index=center.index, columns=value_cols, dtype=float
+                        )
+                else:
+                    # Fallback if not MultiIndex (shouldn't happen, but defensive)
+                    lo = qwide.xs(p_lo, axis=1, level=-1)
+                    hi = qwide.xs(p_hi, axis=1, level=-1)
+            except KeyError:
+                # If extraction fails for any reason, use NaN-filled DataFrames
+                lo = pd.DataFrame(index=center.index, columns=value_cols, dtype=float)
+                hi = pd.DataFrame(index=center.index, columns=value_cols, dtype=float)
 
             # asymmetric offsets relative to chosen center
             err_low = (center - lo).clip(lower=0)
