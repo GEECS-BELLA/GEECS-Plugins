@@ -1252,6 +1252,27 @@ class DataLogger:
                         value,
                         elapsed_time,
                     )
+
+                    # Handle file movement for async devices that save non-scalar data
+                    if device_name in self.device_save_paths_mapping:
+                        acq_timestamp = device.state.get("acq_timestamp")
+                        if acq_timestamp is not None:
+                            cfg = self.device_save_paths_mapping[device_name]
+                            task = FileMoveTask(
+                                source_dir=cfg["source_dir"],
+                                target_dir=cfg["target_dir"],
+                                device_name=device_name,
+                                device_type=cfg["device_type"],
+                                expected_timestamp=float(acq_timestamp),
+                                shot_index=self.shot_index,
+                            )
+                            self.file_mover.move_files_by_timestamp(task)
+                            logger.info(
+                                "Created FileMoveTask for async device %s with timestamp %s for shot %s.",
+                                device_name,
+                                acq_timestamp,
+                                self.shot_index,
+                            )
             else:
                 logger.warning(
                     "Device %s not found in DeviceManager. Skipping %s.",
@@ -1308,6 +1329,11 @@ class DataLogger:
                         self.virtual_variable_value
                     )
 
+                # Increment shot index and update logging context before processing devices
+                # This ensures both sync and async devices use the same shot number
+                self.shot_index += 1
+                update_context({"shot_id": str(self.shot_index)})
+
                 # Update with async observable values
                 self._update_async_observables(
                     self.device_manager.async_observables, elapsed_time
@@ -1320,9 +1346,6 @@ class DataLogger:
 
                 # Trigger the beep in the background
                 self.sound_player.play_beep()  # Play the beep sound
-                self.shot_index += 1
-                # Stamp the current shot number into the logging context
-                update_context({"shot_id": str(self.shot_index)})
 
             self.log_entries[elapsed_time].update(
                 {
