@@ -198,7 +198,7 @@ class TcpSubscriber:
                 if self.subscribed:
                     stamp = dtime.now().isoformat(timespec="milliseconds")
                     net_msg = mh.NetworkMessage(
-                        tag=self.owner.get_name(), stamp=stamp, msg=this_msg, err=None
+                        tag=self.owner.get_name(), stamp=stamp, msg=this_msg
                     )
                     try:
                         self.owner.handle_subscription(net_msg)
