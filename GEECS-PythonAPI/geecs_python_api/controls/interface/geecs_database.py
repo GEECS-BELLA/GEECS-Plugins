@@ -12,6 +12,12 @@ import mysql.connector
 import tkinter as tk
 from tkinter import filedialog
 
+from geecs_python_api.controls.interface.geecs_database_models import (
+    Device,
+    Experiment,
+    Variable,
+)
+
 try:
     # Optional import for type checking; adjust if ExpDict moves.
     from geecs_python_api.controls.api_defs import ExpDict
@@ -118,6 +124,10 @@ class GeecsDatabase:
     except FileNotFoundError:
         logger.warning("No GEECS user data defined; skipping database initialization")
         name = ipv4 = username = password = None
+
+    # Cache for loaded experiments (Pydantic models)
+    # Key is tuple: (exp_name, enabled_devices_only, subscribed_vars_only)
+    _experiment_cache: Dict[tuple, Experiment] = {}
 
     @staticmethod
     def _get_db():
@@ -363,6 +373,325 @@ class GeecsDatabase:
         db_cursor.execute(cmd_str, (new_default, dev_name, var_name))
         db_cursor.connection.commit()
         return db_cursor.rowcount == 1
+
+    # --- New Pydantic-based API (efficient single-query loading) -------------
+    @staticmethod
+    def load_experiment(
+        exp_name: str = "Undulator",
+        use_cache: bool = True,
+        enabled_devices_only: bool = True,
+        subscribed_vars_only: bool = True,
+    ) -> Experiment:
+        """Load complete experiment configuration as a Pydantic model.
+
+        This method performs a single efficient SQL query to load all devices
+        and their variables, including device types. The result is cached
+        for subsequent calls.
+
+        Args:
+            exp_name: Name of the experiment to load (default: "Undulator")
+            use_cache: Whether to use cached result if available (default: True)
+            enabled_devices_only: Only include devices marked as enabled in
+                exp_device table (default: True). This filters out devices
+                not actively used in the experiment.
+            subscribed_vars_only: Only include variables marked with get='yes'
+                in exp_device_variable table (default: True). This filters out
+                internal variables like ComPort, IPAddress, etc.
+
+        Returns
+        -------
+            Experiment model with all devices and variables populated
+
+        Raises
+        ------
+            AttributeError: If database is not properly configured
+
+        Example:
+            >>> # Default: curated view (enabled devices, subscribed variables)
+            >>> exp = GeecsDatabase.load_experiment("Undulator")
+            >>> print(f"Found {len(exp.devices)} devices")
+
+            >>> # Full view: all devices and variables (no filtering)
+            >>> exp_full = GeecsDatabase.load_experiment(
+            ...     "Undulator",
+            ...     enabled_devices_only=False,
+            ...     subscribed_vars_only=False
+            ... )
+        """
+        # Cache key includes filter settings to avoid confusion
+        cache_key = (exp_name, enabled_devices_only, subscribed_vars_only)
+
+        # Check cache first
+        if use_cache and cache_key in GeecsDatabase._experiment_cache:
+            logger.debug(
+                "Returning cached experiment: %s (filters: enabled=%s, subscribed=%s)",
+                exp_name,
+                enabled_devices_only,
+                subscribed_vars_only,
+            )
+            return GeecsDatabase._experiment_cache[cache_key]
+
+        # Ensure database is configured
+        if GeecsDatabase.name is None:
+            try:
+                (
+                    GeecsDatabase.name,
+                    GeecsDatabase.ipv4,
+                    GeecsDatabase.username,
+                    GeecsDatabase.password,
+                ) = find_database()
+            except FileNotFoundError:
+                logger.error("No GEECS user data defined; database not initialized")
+                raise AttributeError("GEECS Database not set properly")
+
+        db = GeecsDatabase._get_db()
+        db_cursor = db.cursor(dictionary=True)
+
+        try:
+            # Build query based on filter settings
+            if enabled_devices_only or subscribed_vars_only:
+                # Filtered query using exp_device and exp_device_variable tables
+                cmd_str = GeecsDatabase._build_filtered_query(
+                    enabled_devices_only, subscribed_vars_only
+                )
+            else:
+                # Unfiltered query - all variables
+                cmd_str = """
+                    SELECT
+                        var_data.*,
+                        device.devicetype,
+                        device.description,
+                        device.ipaddress,
+                        device.commport
+                    FROM
+                        (
+                            SELECT devicename, variablename, MAX(precedence_sourcetable) AS precedence_sourcetable
+                            FROM
+                            (
+                                (SELECT `name` AS variablename, device AS devicename, '2_variable' AS precedence_sourcetable FROM variable)
+                                UNION
+                                (SELECT devicetype_variable.name AS variablename, device.name AS devicename, '1_devicetype_variable' AS precedence_sourcetable
+                                 FROM devicetype_variable JOIN device ON devicetype_variable.devicetype = device.devicetype)
+                            ) AS variable_device_from_both_tables
+                            GROUP BY devicename, variablename
+                        ) AS max_precedence
+                        LEFT JOIN
+                        (
+                            (SELECT variable.name AS variablename, variable.device AS devicename, '2_variable' AS precedence_sourcetable,
+                                    defaultvalue, `min`, `max`, stepsize, units, choice_id, tolerance, alias, `set`, default_experiment, GUIexe_default
+                             FROM variable JOIN device ON variable.device = device.name)
+                            UNION
+                            (SELECT devicetype_variable.name AS variablename, device.name AS devicename, '1_devicetype_variable' AS precedence_sourcetable,
+                                    defaultvalue, `min`, `max`, stepsize, units, choice_id, tolerance, alias, `set`, default_experiment, GUIexe_default
+                             FROM devicetype_variable JOIN device ON devicetype_variable.devicetype = device.devicetype)
+                        ) AS var_data
+                        USING (variablename, devicename, precedence_sourcetable)
+                        LEFT JOIN (SELECT id AS choice_id, choices FROM choice) AS datatype USING (choice_id)
+                        LEFT JOIN device ON var_data.devicename = device.name
+                    WHERE var_data.default_experiment = %s;
+                """
+
+            db_cursor.execute(cmd_str, (exp_name,))
+            rows = db_cursor.fetchall()
+
+            # Build devices dictionary
+            devices: Dict[str, Device] = {}
+            for row in rows:
+                dev_name = row["devicename"]
+                var_name = row["variablename"]
+
+                # Create device if not seen yet
+                if dev_name not in devices:
+                    devices[dev_name] = Device(
+                        name=dev_name,
+                        description=row.get("description"),
+                        device_type=row.get("devicetype"),
+                        ipaddress=row.get("ipaddress"),
+                        commport=row.get("commport"),
+                    )
+
+                # Add variable to device
+                variable = Variable.from_db_row(row)
+                devices[dev_name].variables[var_name] = variable
+
+            # Get experiment metadata (data path, MC port)
+            data_path = GeecsDatabase._find_exp_data_path(db_cursor, exp_name)
+            mc_port = GeecsDatabase._find_mc_port(db_cursor, exp_name)
+
+            # Create experiment model
+            experiment = Experiment(
+                name=exp_name,
+                devices=devices,
+                data_path=data_path,
+                mc_port=mc_port,
+            )
+
+            # Cache the result
+            GeecsDatabase._experiment_cache[cache_key] = experiment
+
+            filter_desc = ""
+            if enabled_devices_only or subscribed_vars_only:
+                filter_desc = f" (filtered: enabled_devices={enabled_devices_only}, subscribed_vars={subscribed_vars_only})"
+
+            logger.info(
+                "Loaded experiment '%s': %d devices, %d total variables%s",
+                exp_name,
+                len(devices),
+                sum(len(d.variables) for d in devices.values()),
+                filter_desc,
+            )
+
+            return experiment
+
+        finally:
+            GeecsDatabase._close_db(db, db_cursor)
+
+    @staticmethod
+    def _build_filtered_query(
+        enabled_devices_only: bool, subscribed_vars_only: bool
+    ) -> str:
+        """Build SQL query with optional filtering by expt_device and expt_device_variable.
+
+        Args:
+            enabled_devices_only: Filter to devices where expt_device.enabled = 'yes'
+            subscribed_vars_only: Filter to variables where expt_device_variable.get = 'yes'
+
+        Returns
+        -------
+            SQL query string (uses %s placeholder for exp_name)
+        """
+        # Base query with expt_device join for filtering
+        query = """
+            SELECT
+                var_data.*,
+                device.devicetype,
+                device.description,
+                device.ipaddress,
+                device.commport
+            FROM
+                expt_device ed
+                JOIN device ON ed.device = device.name
+                JOIN (
+                    SELECT devicename, variablename, MAX(precedence_sourcetable) AS precedence_sourcetable
+                    FROM
+                    (
+                        (SELECT `name` AS variablename, device AS devicename, '2_variable' AS precedence_sourcetable FROM variable)
+                        UNION
+                        (SELECT devicetype_variable.name AS variablename, device.name AS devicename, '1_devicetype_variable' AS precedence_sourcetable
+                         FROM devicetype_variable JOIN device ON devicetype_variable.devicetype = device.devicetype)
+                    ) AS variable_device_from_both_tables
+                    GROUP BY devicename, variablename
+                ) AS max_precedence ON max_precedence.devicename = ed.device
+                LEFT JOIN
+                (
+                    (SELECT variable.name AS variablename, variable.device AS devicename, '2_variable' AS precedence_sourcetable,
+                            defaultvalue, `min`, `max`, stepsize, units, choice_id, tolerance, alias, `set`, default_experiment, GUIexe_default
+                     FROM variable JOIN device ON variable.device = device.name)
+                    UNION
+                    (SELECT devicetype_variable.name AS variablename, device.name AS devicename, '1_devicetype_variable' AS precedence_sourcetable,
+                            defaultvalue, `min`, `max`, stepsize, units, choice_id, tolerance, alias, `set`, default_experiment, GUIexe_default
+                     FROM devicetype_variable JOIN device ON devicetype_variable.devicetype = device.devicetype)
+                ) AS var_data
+                USING (variablename, devicename, precedence_sourcetable)
+                LEFT JOIN (SELECT id AS choice_id, choices FROM choice) AS datatype USING (choice_id)
+        """
+
+        # Add expt_device_variable join if filtering by subscribed variables
+        if subscribed_vars_only:
+            query += """
+                JOIN expt_device_variable edv ON edv.expt_device_id = ed.id
+                    AND edv.variablename = var_data.variablename
+            """
+
+        # WHERE clause
+        query += """
+            WHERE ed.expt = %s
+        """
+
+        if enabled_devices_only:
+            query += " AND ed.enabled = 'yes'"
+
+        if subscribed_vars_only:
+            query += " AND edv.get = 'yes'"
+
+        return query
+
+    @staticmethod
+    def clear_experiment_cache(exp_name: Optional[str] = None) -> None:
+        """Clear cached experiment data.
+
+        Args:
+            exp_name: Specific experiment to clear, or None to clear all
+
+        Returns
+        -------
+            None
+        """
+        if exp_name is None:
+            GeecsDatabase._experiment_cache.clear()
+            logger.debug("Cleared all experiment cache")
+        else:
+            # Clear all cache entries for this experiment (any filter combination)
+            keys_to_remove = [
+                k for k in GeecsDatabase._experiment_cache if k[0] == exp_name
+            ]
+            for key in keys_to_remove:
+                del GeecsDatabase._experiment_cache[key]
+            logger.debug(
+                "Cleared cache for experiment: %s (%d entries)",
+                exp_name,
+                len(keys_to_remove),
+            )
+
+    @staticmethod
+    def find_exp_devices(exp_name: str = "Undulator") -> List[str]:
+        """Return list of device names for an experiment.
+
+        This is a convenience method that uses load_experiment() internally.
+
+        Args:
+            exp_name: Name of the experiment
+
+        Returns
+        -------
+            List of device names
+        """
+        experiment = GeecsDatabase.load_experiment(exp_name)
+        return experiment.list_device_names()
+
+    @staticmethod
+    def find_exp_variables(
+        exp_name: str = "Undulator", device_name: str = ""
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return variables for a specific device in an experiment.
+
+        This method returns data in the legacy format (nested dicts) for
+        backward compatibility. For new code, prefer using load_experiment()
+        and accessing device.variables directly.
+
+        Args:
+            exp_name: Name of the experiment
+            device_name: Name of the device
+
+        Returns
+        -------
+            Dict mapping variable name -> variable attributes dict
+        """
+        experiment = GeecsDatabase.load_experiment(exp_name)
+        device = experiment.get_device(device_name)
+
+        if device is None:
+            logger.warning(
+                "Device %s not found in experiment %s", device_name, exp_name
+            )
+            return {}
+
+        # Convert to legacy format
+        result: Dict[str, Dict[str, Any]] = {}
+        for var_name, variable in device.variables.items():
+            result[var_name] = variable.raw_data
+
+        return result
 
 
 # --- Demo / CLI entrypoint ---------------------------------------------------
