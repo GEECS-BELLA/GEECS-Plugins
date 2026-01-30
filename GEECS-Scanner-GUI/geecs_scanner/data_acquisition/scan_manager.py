@@ -566,13 +566,21 @@ class ScanManager:
                 # Execute the scan loop
                 self.executor.execute_scan_loop(self.scan_steps)
 
-                logger.info("scan %s: stopping", scan_id)
-                time.sleep(1)
-                log_df = self.stop_scan()
-                logger.info("scan %s: finished", scan_id)
+                logger.info("scan %s: completed normally", scan_id)
 
         except Exception:
-            logger.exception("Error during scanning")
+            logger.exception("Error during scan execution")
+
+        finally:
+            # ALWAYS cleanup, even on errors
+            logger.info("Executing scan cleanup...")
+            try:
+                log_df = self.stop_scan()
+            except Exception:
+                logger.exception("Error during scan cleanup - attempting to continue")
+
+            if "scan_id" in locals():
+                logger.info("scan %s: finished", scan_id)
 
         return log_df  # Return the DataFrame with the logged data
 

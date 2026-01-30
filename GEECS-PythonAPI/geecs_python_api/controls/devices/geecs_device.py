@@ -679,7 +679,7 @@ class GeecsDevice:
         """Send command and optionally start its listener thread upon ack."""
         accepted = False
         try:
-            for _ in range(attempts_max):
+            for attempt in range(attempts_max):
                 assert self.dev_udp is not None
                 sent = self.dev_udp.send_cmd(
                     ipv4=(self.dev_ip, self.dev_port), msg=cmd_str
@@ -695,6 +695,19 @@ class GeecsDevice:
         except Exception:
             logger.exception('command processing failed for "%s"', cmd_label)
 
+        # Raise exception if command was never acknowledged after all attempts
+        if not accepted:
+            from geecs_python_api.controls.interface.geecs_errors import (
+                GeecsDeviceCommandRejected,
+            )
+
+            raise GeecsDeviceCommandRejected(
+                device_name=self.get_name(),
+                command=cmd_str,
+                ipv4=(self.dev_ip, self.dev_port),
+            )
+
+        # Command accepted - start listener thread if needed
         if accepted and (thread_info[0] is not None):
             thread_info[0].start()
             self.own_threads.append(thread_info)
@@ -702,7 +715,7 @@ class GeecsDevice:
 
     # ---- Message handlers ---------------------------------------------------
     def handle_response(self, net_msg: mh.NetworkMessage) -> tuple[str, str, str, bool]:
-        """Parse UDP response, update state, and return components."""
+        """Parse UDP response, update state, and raise exception on hardware errors."""
         try:
             response = GeecsDevice._response_parser(net_msg.msg)
             if len(response) == 4:
@@ -761,7 +774,34 @@ class GeecsDevice:
                 self.state[var_alias] = coerced
 
             self.state["GEECS device error"] = err_status
+
+            # Raise exception if hardware reported an error
+            if err_status:
+                from geecs_python_api.controls.interface.geecs_errors import (
+                    GeecsDeviceCommandFailed,
+                )
+
+                # Extract error detail from message
+                error_detail = "Unknown error"
+                if ">>" in net_msg.msg:
+                    try:
+                        _, err_msg = net_msg.msg.rsplit(">>", 1)
+                        if "," in err_msg:
+                            _, error_detail = err_msg.split(",", 1)
+                    except Exception:
+                        error_detail = net_msg.msg
+
+                raise GeecsDeviceCommandFailed(
+                    device_name=dev_name,
+                    command=cmd_received,
+                    error_detail=error_detail.strip(),
+                    actual_value=dev_val,
+                )
+
             return dev_name, cmd_received, dev_val, err_status
+        except GeecsDeviceCommandFailed:
+            # Let hardware errors propagate
+            raise
         except Exception:
             logger.exception("handle_response failed")
             return "", "", "", True
