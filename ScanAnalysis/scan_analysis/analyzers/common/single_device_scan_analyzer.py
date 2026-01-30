@@ -241,6 +241,14 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         """
         self._data_file_map = {}
 
+        # Check if data directory exists
+        if not self.path_dict["data"].exists():
+            logger.warning(
+                f"Data directory does not exist: {self.path_dict['data']}. "
+                f"Skipping file mapping for device '{self.device_name}'."
+            )
+            return
+
         logger.info(f"self.file_tail: {self.file_tail}")
         data_filename_regex = re.compile(
             r"Scan(?P<scan_number>\d{3,})_"  # scan number
