@@ -20,11 +20,7 @@ from typing import Union
 
 # module‐level logger
 logger = logging.getLogger(__name__)
-if not logging.getLogger().hasHandlers():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+logger.addHandler(logging.NullHandler())
 
 # support both strings and real Path objects
 SysPath = Union[str, bytes, os.PathLike, Path]
