@@ -1252,6 +1252,27 @@ class DataLogger:
                         value,
                         elapsed_time,
                     )
+
+                    # Handle file movement for async devices that save non-scalar data
+                    if device_name in self.device_save_paths_mapping:
+                        acq_timestamp = device.state.get("acq_timestamp")
+                        if acq_timestamp is not None:
+                            cfg = self.device_save_paths_mapping[device_name]
+                            task = FileMoveTask(
+                                source_dir=cfg["source_dir"],
+                                target_dir=cfg["target_dir"],
+                                device_name=device_name,
+                                device_type=cfg["device_type"],
+                                expected_timestamp=float(acq_timestamp),
+                                shot_index=self.shot_index,
+                            )
+                            self.file_mover.move_files_by_timestamp(task)
+                            logger.info(
+                                "Created FileMoveTask for async device %s with timestamp %s for shot %s.",
+                                device_name,
+                                acq_timestamp,
+                                self.shot_index,
+                            )
             else:
                 logger.warning(
                     "Device %s not found in DeviceManager. Skipping %s.",
