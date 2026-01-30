@@ -234,9 +234,7 @@ class UdpServer:
 
         # Dispatch/publish
         try:
-            net_msg = mh.NetworkMessage(
-                tag=cmd_tag, stamp=stamp, msg=geecs_ans, err=None
-            )
+            net_msg = mh.NetworkMessage(tag=cmd_tag, stamp=stamp, msg=geecs_ans)
             if self.subscribed:
                 try:
                     self.owner.handle_response(net_msg)
