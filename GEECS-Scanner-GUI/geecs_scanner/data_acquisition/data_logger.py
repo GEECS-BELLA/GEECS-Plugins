@@ -1329,6 +1329,11 @@ class DataLogger:
                         self.virtual_variable_value
                     )
 
+                # Increment shot index and update logging context before processing devices
+                # This ensures both sync and async devices use the same shot number
+                self.shot_index += 1
+                update_context({"shot_id": str(self.shot_index)})
+
                 # Update with async observable values
                 self._update_async_observables(
                     self.device_manager.async_observables, elapsed_time
@@ -1341,9 +1346,6 @@ class DataLogger:
 
                 # Trigger the beep in the background
                 self.sound_player.play_beep()  # Play the beep sound
-                self.shot_index += 1
-                # Stamp the current shot number into the logging context
-                update_context({"shot_id": str(self.shot_index)})
 
             self.log_entries[elapsed_time].update(
                 {
