@@ -1,17 +1,17 @@
 [tool.poetry]
 name = "scananalysis"
-version = "1.1.0"
+version = "1.1.1"
 description = "Modules for performing analyses routines on full scans"
-authors = ["Christopher Doss <CEDoss@lbl.gov>"]
+authors = ["Christopher Doss <CEDoss@lbl.gov>", "Sam Barber <sbarber@lbl.gov"]
 readme = "README.md"
 packages = [{include = "scan_analysis"}]
 
 [tool.poetry.dependencies]
-python = ">=3.9 <3.11"
-PyQt5 = {version = "^5.15.9", markers = "sys_platform == 'win32'" }
-pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == 'win32'" }
+python = ">=3.10 <3.12"
+#PyQt5 = {version = "^5.15.9", markers = "sys_platform == 'win32'" }
+#pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == 'win32'" }
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }
-geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
+#geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
 LogMaker4GoogleDocs = {path = "../LogMaker4GoogleDocs", develop = true}
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
 
@@ -20,7 +20,7 @@ matplotlib = "^3.9.2"
 pandas = "^2.2.3"
 h5py = "^3.8.0"
 watchdog = "^6.0.0"
-spyder-kernels = "==3.0.*"
+
 
 
 

@@ -33,11 +33,7 @@ _ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms", "himg"}
 
 # module‐level logger
 logger = logging.getLogger(__name__)
-if not logging.getLogger().hasHandlers():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+logger.addHandler(logging.NullHandler())
 
 
 class ScanPaths:

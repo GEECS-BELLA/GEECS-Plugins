@@ -1,21 +1,24 @@
 [tool.poetry]
 name = "geecs-pythonapi"
-version = "0.2.0"
+version = "0.3.0"
 description = "Python interface to GEECS control system"
-authors = ["Guillaume Plateau <guillaume.plateau@tausystems.com>"]
+authors = ["Guillaume Plateau <guillaume.plateau@tausystems.com>", "Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
 packages = [{include = "geecs_python_api"},
             {include = "labview_interface"}]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.11"
+python = ">=3.10,<3.12"
 
 # numerical packages
-numpy = "^1.21"
+numpy = ">=2.0,<3.0"
 numexpr = "^2.8.1"
 pandas = "^2.0"
 matplotlib = "^3.7.2"
-scipy = "^1.9"
+scipy = [
+  { version = ">=1.9,<2.0", python = "<3.11" },
+  { version = ">=1.11,<2.0", python = ">=3.11" }
+]
 nptdms = "^1.7.0"
 
 # image libraries
