@@ -176,6 +176,9 @@ class ScanAnalyzer:
                 )
                 self.noscan = True
 
+            else:
+                self.noscan = False
+
             self.load_auxiliary_data()
 
             if self.auxiliary_data is None:
