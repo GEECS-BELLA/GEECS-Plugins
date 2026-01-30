@@ -1,4 +1,4 @@
-"""Thread-safe network message helpers with logging-based error handling (ErrorAPI deprecated)."""
+"""Thread-safe network message helpers with logging-based error handling."""
 
 from __future__ import annotations
 
@@ -8,26 +8,23 @@ import queue
 import threading
 from typing import Optional, List
 
-from geecs_python_api.controls.interface.geecs_errors import ErrorAPI  # deprecated shim
 from geecs_python_api.controls.interface.event_handler import EventHandler
 
 logger = logging.getLogger(__name__)
 
 
 class NetworkMessage:
-    """Lightweight container for network messages with optional legacy error shim."""
+    """Lightweight container for network messages."""
 
     def __init__(
         self,
         tag: str = "",
         stamp: str = "",
         msg: str = "",
-        err: Optional[ErrorAPI] = None,
     ) -> None:
         self.tag: str = tag
         self.stamp: str = stamp
         self.msg: str = msg
-        self.err: Optional[ErrorAPI] = err
 
 
 def next_msg(
@@ -64,27 +61,13 @@ def flush_queue(a_queue: queue.Queue) -> List[NetworkMessage]:
     return flushed
 
 
-# Legacy function maintained for backward compatibility with previous print-based handlers.
 def async_msg_handler(
     message: NetworkMessage, a_queue: Optional[queue.Queue] = None
 ) -> None:
-    """Legacy async handler that logs the message and optionally dequeues one item."""
+    """Async handler that logs the message and optionally dequeues one item."""
     try:
         if a_queue is not None:
-            _ = next_msg(a_queue)  # legacy behavior: consume one pending item
-
-        has_legacy = bool(
-            getattr(message.err, "is_error", False)
-            or getattr(message.err, "is_warning", False)
-        )
-        if has_legacy:
-            # Let the deprecated shim format/log as it used to, but prefer direct logging going forward.
-            try:
-                # Trigger the shim's handler without raising.
-                message.err.error_handler()
-            except Exception:
-                logger.exception("ErrorAPI handler raised unexpectedly")
-            return
+            _ = next_msg(a_queue)  # consume one pending item
 
         if message.stamp:
             logger.info(

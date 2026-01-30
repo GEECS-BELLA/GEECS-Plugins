@@ -510,6 +510,11 @@ class ScanStepExecutor:
         # Step 2: Define per-device setting function
         def set_device_variables(device_name, var_list):
             """Helper fucntion to set vars in threads."""
+            from geecs_python_api.controls.interface.geecs_errors import (
+                GeecsDeviceCommandRejected,
+                GeecsDeviceCommandFailed,
+            )
+
             device = self.device_manager.devices.get(device_name)
             if not device:
                 logger.warning("Device %s not found.", device_name)
@@ -528,34 +533,74 @@ class ScanStepExecutor:
                 )
                 success = False
                 for attempt in range(max_retries):
-                    ret_val = device.set(var_name, set_val)
-                    logger.info(
-                        "[%s] Attempt %d: Set %s=%s, got %s",
-                        device_name,
-                        attempt + 1,
-                        var_name,
-                        set_val,
-                        ret_val,
-                    )
-                    if ret_val - tol <= set_val <= ret_val + tol:
+                    try:
+                        ret_val = device.set(var_name, set_val)
                         logger.info(
-                            "[%s] Success: %s=%s within tolerance %s",
+                            "[%s] Attempt %d: Set %s=%s, got %s",
                             device_name,
+                            attempt + 1,
                             var_name,
-                            ret_val,
-                            tol,
-                        )
-                        success = True
-                        break
-                    else:
-                        logger.warning(
-                            "[%s] %s=%s not within tolerance of %s",
-                            device_name,
-                            var_name,
-                            ret_val,
                             set_val,
+                            ret_val,
                         )
-                        time.sleep(retry_delay)
+                        if ret_val - tol <= set_val <= ret_val + tol:
+                            logger.info(
+                                "[%s] Success: %s=%s within tolerance %s",
+                                device_name,
+                                var_name,
+                                ret_val,
+                                tol,
+                            )
+                            success = True
+                            break
+                        else:
+                            logger.warning(
+                                "[%s] %s=%s not within tolerance of %s",
+                                device_name,
+                                var_name,
+                                ret_val,
+                                set_val,
+                            )
+                            time.sleep(retry_delay)
+
+                    except GeecsDeviceCommandRejected as e:
+                        logger.error(
+                            "[%s] COMMAND REJECTED: %s (attempt %d/%d)",
+                            device_name,
+                            e,
+                            attempt + 1,
+                            max_retries,
+                        )
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay)
+                        else:
+                            logger.error(
+                                "[%s] Command rejected after all retry attempts. "
+                                "Initiating graceful scan termination.",
+                                device_name,
+                            )
+                            self.stop_scanning_thread_event.set()
+                            return
+
+                    except GeecsDeviceCommandFailed as e:
+                        logger.error(
+                            "[%s] COMMAND FAILED: %s (actual value: %s) (attempt %d/%d)",
+                            device_name,
+                            e.error_detail,
+                            e.actual_value,
+                            attempt + 1,
+                            max_retries,
+                        )
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay)
+                        else:
+                            logger.error(
+                                "[%s] Hardware error persists after all retry attempts. "
+                                "Initiating graceful scan termination.",
+                                device_name,
+                            )
+                            self.stop_scanning_thread_event.set()
+                            return
 
                 if not success:
                     logger.error(
