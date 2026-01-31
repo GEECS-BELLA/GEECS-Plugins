@@ -9,7 +9,11 @@ from typing import Callable, Literal, NamedTuple, Optional, Union
 import numpy as np
 import logging
 
-from image_analysis.algorithms.basic_line_stats import LineBasicStats
+from image_analysis.algorithms.basic_line_stats import (
+    LineBasicStats,
+    compute_center_of_mass,
+    compute_peak_location,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +48,23 @@ class ImageStats(NamedTuple):
         Sum of all pixel values (total intensity).
     peak_value : float
         Maximum pixel value in the image.
+    com_straightness_x : float
+        Weighted RMS residual of column-by-column CoM from linear fit.
+        Lower = straighter beam (less tilt/shear).
+    com_straightness_y : float
+        Weighted RMS residual of row-by-row CoM from linear fit.
+    peak_straightness_x : float
+        Weighted RMS residual of column-by-column peak location from linear fit.
+    peak_straightness_y : float
+        Weighted RMS residual of row-by-row peak location from linear fit.
     """
 
     total: float
     peak_value: float
+    com_straightness_x: float
+    com_straightness_y: float
+    peak_straightness_x: float
+    peak_straightness_y: float
 
 
 class BeamStats(NamedTuple):
@@ -171,7 +188,14 @@ def beam_profile_stats(img: np.ndarray) -> BeamStats:
             "beam_profile_stats: Image has non-positive total intensity. Returning NaNs."
         )
         nan_proj = ProjectionStats(np.nan, np.nan, np.nan, np.nan)
-        nan_img = ImageStats(total=total_counts, peak_value=np.nan)
+        nan_img = ImageStats(
+            total=total_counts,
+            peak_value=np.nan,
+            com_straightness_x=np.nan,
+            com_straightness_y=np.nan,
+            peak_straightness_x=np.nan,
+            peak_straightness_y=np.nan,
+        )
         return BeamStats(
             image=nan_img, x=nan_proj, y=nan_proj, x_45=nan_proj, y_45=nan_proj
         )
@@ -188,9 +212,22 @@ def beam_profile_stats(img: np.ndarray) -> BeamStats:
     x45_line_stats = LineBasicStats(line_data=_projection_to_line_data(x45_proj))
     y45_line_stats = LineBasicStats(line_data=_projection_to_line_data(y45_proj))
 
+    # Compute straightness metrics
+    com_x_data = extract_line_stats(img, compute_center_of_mass, axis="x")
+    com_y_data = extract_line_stats(img, compute_center_of_mass, axis="y")
+    peak_x_data = extract_line_stats(img, compute_peak_location, axis="x")
+    peak_y_data = extract_line_stats(img, compute_peak_location, axis="y")
+
     # Convert to ProjectionStats (extract 4 of 7 fields)
     return BeamStats(
-        image=ImageStats(total=total_counts, peak_value=np.max(img)),
+        image=ImageStats(
+            total=total_counts,
+            peak_value=np.max(img),
+            com_straightness_x=compute_straightness(*com_x_data),
+            com_straightness_y=compute_straightness(*com_y_data),
+            peak_straightness_x=compute_straightness(*peak_x_data),
+            peak_straightness_y=compute_straightness(*peak_y_data),
+        ),
         x=_line_stats_to_projection_stats(x_line_stats),
         y=_line_stats_to_projection_stats(y_line_stats),
         x_45=_line_stats_to_projection_stats(x45_line_stats),
@@ -249,6 +286,47 @@ def extract_line_stats(
     x_values = np.arange(len(y_values), dtype=float)
 
     return LineByLineResult(positions=x_values, values=y_values, weights=weights)
+
+
+def compute_straightness(
+    positions: np.ndarray,
+    values: np.ndarray,
+    weights: np.ndarray,
+) -> float:
+    """Weighted RMS residual after linear detrending.
+
+    Fits a line y = mx + b, then returns weighted RMS of (y - y_fit).
+    This is the "straightness" metric - lower = closer to a perfect line.
+
+    Parameters
+    ----------
+    positions : np.ndarray
+        X values (e.g., column indices)
+    values : np.ndarray
+        Y values (e.g., CoM per column)
+    weights : np.ndarray
+        Weights for each point (e.g., total counts)
+
+    Returns
+    -------
+    float
+        Weighted RMS residual from linear fit. Lower = straighter.
+    """
+    mask = np.isfinite(values) & (weights > 0)
+    if mask.sum() < 2:
+        return np.nan
+
+    x, y, w = positions[mask], values[mask], weights[mask]
+
+    # Weighted linear fit
+    coeffs = np.polyfit(x, y, 1, w=np.sqrt(w))  # [slope, intercept]
+
+    # Residuals
+    y_fit = np.polyval(coeffs, x)
+    residuals = y - y_fit
+
+    # Weighted RMS of residuals
+    return np.sqrt(np.sum(w * residuals**2) / np.sum(w))
 
 
 def flatten_beam_stats(
