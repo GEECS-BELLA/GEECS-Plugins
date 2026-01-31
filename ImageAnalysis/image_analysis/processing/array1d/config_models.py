@@ -377,6 +377,17 @@ class Line1DConfig(BaseModel):
         default="x vs y",
         description="Description of data format (e.g., 'wavelength vs intensity')",
     )
+
+    # Unit specification (overrides file metadata if provided)
+    x_units: Optional[str] = Field(
+        default=None,
+        description="X-axis units (e.g., 'nm', 'eV', 's'). If provided, overrides file metadata units.",
+    )
+    y_units: Optional[str] = Field(
+        default=None,
+        description="Y-axis units (e.g., 'a.u.', 'V', 'counts'). If provided, overrides file metadata units.",
+    )
+
     processing_dtype: str = Field(
         default="float64", description="NumPy dtype for processing"
     )
