@@ -22,19 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Core computation functions (copied from basic_beam_stats.py)
 def compute_center_of_mass(profile: np.ndarray) -> float:
-    """Compute the center of mass of a 1‑D profile.
-
-    Parameters
-    ----------
-    profile : np.ndarray
-        1‑D array containing intensity values.
-
-    Returns
-    -------
-    float
-        Center of mass value. Returns ``np.nan`` and logs a warning if the
-        total intensity is non‑positive.
-    """
+    """Compute the center of mass of a 1‑D profile."""
     profile = np.asarray(profile, dtype=float)
     total = profile.sum()
     if total <= 0:
@@ -47,19 +35,7 @@ def compute_center_of_mass(profile: np.ndarray) -> float:
 
 
 def compute_rms(profile: np.ndarray) -> float:
-    """Compute the RMS width of a 1‑D profile.
-
-    Parameters
-    ----------
-    profile : np.ndarray
-        1‑D array containing intensity values.
-
-    Returns
-    -------
-    float
-        RMS width. Returns ``np.nan`` and logs a warning if the total intensity
-        is non‑positive.
-    """
+    """Compute the RMS width of a 1‑D profile."""
     profile = np.asarray(profile, dtype=float)
     total = profile.sum()
     profile[profile < 0] = 0
@@ -74,19 +50,7 @@ def compute_rms(profile: np.ndarray) -> float:
 
 
 def compute_fwhm(profile: np.ndarray) -> float:
-    """Compute the full width at half maximum (FWHM) of a 1‑D profile.
-
-    Parameters
-    ----------
-    profile : np.ndarray
-        1‑D array containing intensity values.
-
-    Returns
-    -------
-    float
-        FWHM value. Returns ``np.nan`` and logs a warning if the profile has
-        non‑positive total intensity or cannot determine a half‑maximum.
-    """
+    """Compute the full width at half maximum (FWHM) of a 1‑D profile."""
     profile = np.asarray(profile, dtype=float)
     if profile.sum() <= 0:
         logger.warning(
@@ -124,19 +88,7 @@ def compute_fwhm(profile: np.ndarray) -> float:
 
 
 def compute_peak_location(profile: np.ndarray) -> float:
-    """Return the index of the peak value in a 1‑D profile.
-
-    Parameters
-    ----------
-    profile : np.ndarray
-        1‑D array containing intensity values.
-
-    Returns
-    -------
-    float
-        Index of the maximum value. Returns ``np.nan`` and logs a warning if the
-        profile is empty.
-    """
+    """Return the index of the peak value in a 1‑D profile."""
     profile = np.asarray(profile, dtype=float)
     if profile.size == 0:
         logger.warning("compute_peak_location: Profile is empty. Returning np.nan.")
@@ -181,30 +133,6 @@ class LineBasicStats(BaseModel):
         Total area under curve (trapezoidal integration over x)
     peak_value : Optional[float]
         Maximum y-value in the profile
-
-    Examples
-    --------
-    >>> # Spectral data with wavelength calibration
-    >>> wavelengths = np.linspace(400, 700, 1000)  # nm
-    >>> intensities = np.exp(-((wavelengths - 550)**2) / (2 * 20**2))
-    >>> spectrum_data = np.column_stack([wavelengths, intensities])
-    >>> stats = LineBasicStats(
-    ...     line_data=spectrum_data,
-    ...     x_units="nm",
-    ...     y_units="a.u."
-    ... )
-    >>> print(f"Peak at {stats.peak_location:.1f} {stats.x_units}")
-    Peak at 550.0 nm
-    >>> print(f"FWHM: {stats.fwhm:.1f} {stats.x_units}")
-    FWHM: 47.1 nm
-
-    >>> # Uncalibrated temporal trace (no units)
-    >>> time_samples = np.arange(1000)
-    >>> voltage = np.sin(2 * np.pi * time_samples / 100)
-    >>> trace_data = np.column_stack([time_samples, voltage])
-    >>> stats = LineBasicStats(line_data=trace_data)
-    >>> print(f"Peak at sample {stats.peak_location}")
-    Peak at sample 25.0
     """
 
     # Input data
@@ -246,12 +174,7 @@ class LineBasicStats(BaseModel):
             self._compute()
 
     def _compute(self):
-        """Compute all statistics from line_data using existing basic_beam_stats functions.
-
-        This method extracts the y-values and uses the original compute_* functions
-        from basic_beam_stats.py, then maps the index-based results back to
-        x-coordinates for spatial/spectral units when needed.
-        """
+        """Compute all statistics from line_data using existing basic_beam_stats functions."""
         x = self.line_data[:, 0]
         y = self.line_data[:, 1]
 
@@ -313,35 +236,7 @@ class LineBasicStats(BaseModel):
         prefix: Optional[str] = None,
         suffix: Optional[str] = None,
     ) -> dict[str, float]:
-        """Flatten statistics to a dictionary for scalar output.
-
-        Parameters
-        ----------
-        prefix : str, optional
-            Prefix to prepend to each key (e.g., device/line name).
-        suffix : str, optional
-            Suffix to append to each key (underscore is auto-prepended).
-            Useful for distinguishing analysis variations (e.g., "variation").
-
-        Returns
-        -------
-        dict[str, float]
-            Dictionary mapping field names to values. Keys are formatted as:
-            - With prefix and suffix: "{prefix}_{field}_{suffix}"
-            - With prefix only: "{prefix}_{field}"
-            - With suffix only: "{field}_{suffix}"
-            - Neither: "{field}"
-
-        Examples
-        --------
-        >>> stats.to_dict(prefix="spectrometer", suffix="calibrated")
-        {
-            "spectrometer_CoM_calibrated": 450.3,
-            "spectrometer_rms_calibrated": 12.1,
-            "spectrometer_fwhm_calibrated": 28.5,
-            ...
-        }
-        """
+        """Flatten statistics to a dictionary for scalar output."""
         fields = [
             "CoM",
             "rms",
