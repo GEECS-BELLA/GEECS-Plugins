@@ -2,12 +2,18 @@
 
 Provides data structures and functions for computing beam profile
 statistics from images. The module follows NumPy docstring conventions.
+
+This module has been refactored to use LineBasicStats as the foundation
+for all 1D projection statistics, eliminating code duplication while
+maintaining backward compatibility.
 """
 
 from __future__ import annotations
 from typing import NamedTuple, Optional, Union
 import numpy as np
 import logging
+
+from image_analysis.algorithms.basic_line_stats import LineBasicStats
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +66,10 @@ class BeamStats(NamedTuple):
     y : ProjectionStats
         Statistics of the vertical (y-axis) projection.
     x_45 : ProjectionStats
-        Statistics of the +45° “column-after-rotation” projection
+        Statistics of the +45° "column-after-rotation" projection
         (implemented via NW–SE diagonal sums with no resampling).
     y_45 : ProjectionStats
-        Statistics of the +45° “row-after-rotation” projection
+        Statistics of the +45° "row-after-rotation" projection
         (implemented via NE–SW anti-diagonal sums with no resampling).
     """
 
@@ -72,129 +78,6 @@ class BeamStats(NamedTuple):
     y: ProjectionStats
     x_45: ProjectionStats
     y_45: ProjectionStats
-
-
-def compute_center_of_mass(profile: np.ndarray) -> float:
-    """Compute the center of mass of a 1‑D profile.
-
-    Parameters
-    ----------
-    profile : np.ndarray
-        1‑D array containing intensity values.
-
-    Returns
-    -------
-    float
-        Center of mass value. Returns ``np.nan`` and logs a warning if the
-        total intensity is non‑positive.
-    """
-    profile = np.asarray(profile, dtype=float)
-    total = profile.sum()
-    if total <= 0:
-        logger.warning(
-            "compute_center_of_mass: Profile has non-positive total intensity. Returning np.nan."
-        )
-        return np.nan
-    coords = np.arange(profile.size)
-    return np.sum(coords * profile) / total
-
-
-def compute_rms(profile: np.ndarray) -> float:
-    """Compute the RMS width of a 1‑D profile.
-
-    Parameters
-    ----------
-    profile : np.ndarray
-        1‑D array containing intensity values.
-
-    Returns
-    -------
-    float
-        RMS width. Returns ``np.nan`` and logs a warning if the total intensity
-        is non‑positive.
-    """
-    profile = np.asarray(profile, dtype=float)
-    total = profile.sum()
-    profile[profile < 0] = 0
-    if total <= 0:
-        logger.warning(
-            "compute_rms: Profile has non-positive total intensity. Returning np.nan."
-        )
-        return np.nan
-    coords = np.arange(profile.size)
-    com = compute_center_of_mass(profile)
-    return np.sqrt(np.sum((coords - com) ** 2 * profile) / total)
-
-
-def compute_fwhm(profile: np.ndarray) -> float:
-    """Compute the full width at half maximum (FWHM) of a 1‑D profile.
-
-    Parameters
-    ----------
-    profile : np.ndarray
-        1‑D array containing intensity values.
-
-    Returns
-    -------
-    float
-        FWHM value. Returns ``np.nan`` and logs a warning if the profile has
-        non‑positive total intensity or cannot determine a half‑maximum.
-    """
-    profile = np.asarray(profile, dtype=float)
-    if profile.sum() <= 0:
-        logger.warning(
-            "compute_fwhm: Profile has non-positive total intensity. Returning np.nan."
-        )
-        return np.nan
-
-    profile -= profile.min()
-    max_val = profile.max()
-    if max_val <= 0:
-        logger.warning(
-            "compute_fwhm: Profile has non-positive peak after baseline shift. Returning np.nan."
-        )
-        return np.nan
-
-    half_max = max_val / 2
-    indices = np.where(profile >= half_max)[0]
-    if len(indices) < 2:
-        return np.nan
-
-    left, right = indices[0], indices[-1]
-
-    def interp_edge(i1, i2):
-        y1, y2 = profile[i1], profile[i2]
-        if y2 == y1:
-            return float(i1)
-        return i1 + (half_max - y1) / (y2 - y1)
-
-    left_edge = interp_edge(left - 1, left) if left > 0 else float(left)
-    right_edge = (
-        interp_edge(right, right + 1) if right < len(profile) - 1 else float(right)
-    )
-
-    return right_edge - left_edge
-
-
-def compute_peak_location(profile: np.ndarray) -> float:
-    """Return the index of the peak value in a 1‑D profile.
-
-    Parameters
-    ----------
-    profile : np.ndarray
-        1‑D array containing intensity values.
-
-    Returns
-    -------
-    float
-        Index of the maximum value. Returns ``np.nan`` and logs a warning if the
-        profile is empty.
-    """
-    profile = np.asarray(profile, dtype=float)
-    if profile.size == 0:
-        logger.warning("compute_peak_location: Profile is empty. Returning np.nan.")
-        return np.nan
-    return int(np.argmax(profile))
 
 
 def _diag_projection(img: np.ndarray) -> np.ndarray:
@@ -212,8 +95,60 @@ def _antidiag_projection(img: np.ndarray) -> np.ndarray:
     return np.array([np.diag(flipped, k=k).sum() for k in range(-(h - 1), w)])
 
 
+def _projection_to_line_data(projection: np.ndarray) -> np.ndarray:
+    """Convert a 1D projection array to Nx2 format for LineBasicStats.
+
+    Parameters
+    ----------
+    projection : np.ndarray
+        1D projection array
+
+    Returns
+    -------
+    np.ndarray
+        Nx2 array where column 0 is index coordinates and column 1 is projection values
+    """
+    x_coords = np.arange(len(projection))
+    return np.column_stack([x_coords, projection])
+
+
+def _line_stats_to_projection_stats(line_stats: LineBasicStats) -> ProjectionStats:
+    """Extract ProjectionStats fields from LineBasicStats.
+
+    Parameters
+    ----------
+    line_stats : LineBasicStats
+        Complete line statistics
+
+    Returns
+    -------
+    ProjectionStats
+        Projection statistics with 4 fields (subset of LineBasicStats)
+    """
+    return ProjectionStats(
+        CoM=line_stats.CoM,
+        rms=line_stats.rms,
+        fwhm=line_stats.fwhm,
+        peak_location=line_stats.peak_location,
+    )
+
+
 def beam_profile_stats(img: np.ndarray) -> BeamStats:
-    """Compute beam profile statistics from a 2-D image."""
+    """Compute beam profile statistics from a 2-D image.
+
+    This function computes statistics for 4 projections (x, y, x_45, y_45)
+    using LineBasicStats as the foundation for all 1D calculations.
+
+    Parameters
+    ----------
+    img : np.ndarray
+        2D image array
+
+    Returns
+    -------
+    BeamStats
+        Beam statistics including image-level stats and 4 projection stats
+    """
     img = np.asarray(img, dtype=float)
     total_counts = img.sum()
 
@@ -227,40 +162,25 @@ def beam_profile_stats(img: np.ndarray) -> BeamStats:
             image=nan_img, x=nan_proj, y=nan_proj, x_45=nan_proj, y_45=nan_proj
         )
 
-    # Base projections
+    # Create 4 projections
     x_proj = img.sum(axis=0)
     y_proj = img.sum(axis=1)
-
-    # Exact 45° projections via diagonal sums (no padding bias, no interpolation)
     x45_proj = _diag_projection(img)  # NW–SE
     y45_proj = _antidiag_projection(img)  # NE–SW
 
+    # Compute stats using LineBasicStats (single source of truth)
+    x_line_stats = LineBasicStats(line_data=_projection_to_line_data(x_proj))
+    y_line_stats = LineBasicStats(line_data=_projection_to_line_data(y_proj))
+    x45_line_stats = LineBasicStats(line_data=_projection_to_line_data(x45_proj))
+    y45_line_stats = LineBasicStats(line_data=_projection_to_line_data(y45_proj))
+
+    # Convert to ProjectionStats (extract 4 of 7 fields)
     return BeamStats(
         image=ImageStats(total=total_counts, peak_value=np.max(img)),
-        x=ProjectionStats(
-            CoM=compute_center_of_mass(x_proj),
-            rms=compute_rms(x_proj),
-            fwhm=compute_fwhm(x_proj),
-            peak_location=compute_peak_location(x_proj),
-        ),
-        y=ProjectionStats(
-            CoM=compute_center_of_mass(y_proj),
-            rms=compute_rms(y_proj),
-            fwhm=compute_fwhm(y_proj),
-            peak_location=compute_peak_location(y_proj),
-        ),
-        x_45=ProjectionStats(
-            CoM=compute_center_of_mass(x45_proj),
-            rms=compute_rms(x45_proj),
-            fwhm=compute_fwhm(x45_proj),
-            peak_location=compute_peak_location(x45_proj),
-        ),
-        y_45=ProjectionStats(
-            CoM=compute_center_of_mass(y45_proj),
-            rms=compute_rms(y45_proj),
-            fwhm=compute_fwhm(y45_proj),
-            peak_location=compute_peak_location(y45_proj),
-        ),
+        x=_line_stats_to_projection_stats(x_line_stats),
+        y=_line_stats_to_projection_stats(y_line_stats),
+        x_45=_line_stats_to_projection_stats(x45_line_stats),
+        y_45=_line_stats_to_projection_stats(y45_line_stats),
     )
 
 
