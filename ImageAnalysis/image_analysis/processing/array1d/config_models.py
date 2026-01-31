@@ -388,6 +388,24 @@ class Line1DConfig(BaseModel):
         description="Y-axis units (e.g., 'a.u.', 'V', 'counts'). If provided, overrides file metadata units.",
     )
 
+    # Scale factors for unit conversion
+    x_scale_factor: Optional[float] = Field(
+        default=None,
+        description=(
+            "Multiplicative scale factor for x-axis data (e.g., 1e9 to convert seconds to nanoseconds). "
+            "Applied FIRST before all other processing steps (ROI, background, filtering, etc.). "
+            "This means ROI boundaries and threshold values should be specified in the scaled units."
+        ),
+    )
+    y_scale_factor: Optional[float] = Field(
+        default=None,
+        description=(
+            "Multiplicative scale factor for y-axis data (e.g., 1e3 to convert volts to millivolts). "
+            "Applied FIRST before all other processing steps (ROI, background, filtering, etc.). "
+            "This means threshold values should be specified in the scaled units."
+        ),
+    )
+
     processing_dtype: str = Field(
         default="float64", description="NumPy dtype for processing"
     )
