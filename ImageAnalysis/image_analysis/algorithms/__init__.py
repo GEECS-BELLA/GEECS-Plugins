@@ -1,6 +1,7 @@
 """Algorithms module for image analysis utilities."""
 
 from .axis_interpolation import interpolate_image_axis
+from .basic_beam_stats import extract_line_stats
 from .basic_line_stats import LineBasicStats
 
-__all__ = ["interpolate_image_axis", "LineBasicStats"]
+__all__ = ["extract_line_stats", "interpolate_image_axis", "LineBasicStats"]
