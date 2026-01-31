@@ -389,16 +389,16 @@ class Line1DConfig(BaseModel):
     )
 
     # Scale factors for unit conversion
-    x_scale_factor: Optional[float] = Field(
-        default=None,
+    x_scale_factor: float = Field(
+        default=1.0,
         description=(
             "Multiplicative scale factor for x-axis data (e.g., 1e9 to convert seconds to nanoseconds). "
             "Applied FIRST before all other processing steps (ROI, background, filtering, etc.). "
             "This means ROI boundaries and threshold values should be specified in the scaled units."
         ),
     )
-    y_scale_factor: Optional[float] = Field(
-        default=None,
+    y_scale_factor: float = Field(
+        default=1.0,
         description=(
             "Multiplicative scale factor for y-axis data (e.g., 1e3 to convert volts to millivolts). "
             "Applied FIRST before all other processing steps (ROI, background, filtering, etc.). "
