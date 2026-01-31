@@ -176,6 +176,9 @@ class Standard1DAnalyzer(ImageAnalyzer):
     ) -> Dict[str, Any]:
         """Build input parameters dictionary including metadata from data loading.
 
+        This method implements unit resolution where config units take precedence
+        over file metadata units, allowing for override/fallback functionality.
+
         Parameters
         ----------
         auxiliary_data : dict, optional
@@ -184,7 +187,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
         Returns
         -------
         dict
-            Input parameters dictionary with metadata
+            Input parameters dictionary with metadata and resolved units
         """
         params = {
             "line_name": self.line_config.name,
@@ -193,9 +196,30 @@ class Standard1DAnalyzer(ImageAnalyzer):
             "data_format": self.line_config.data_format,
         }
 
-        # Add metadata from read_1d_data if available
+        # Add metadata from read_1d_data if available, with unit resolution
         if self.data_metadata is not None:
-            params.update(self.data_metadata)
+            # Unit resolution: config units override file metadata
+            # This allows config to provide fallback units (for NPY files)
+            # or override incorrect file metadata
+            x_units = self.line_config.x_units or self.data_metadata.get("x_units")
+            y_units = self.line_config.y_units or self.data_metadata.get("y_units")
+
+            params.update(
+                {
+                    "x_units": x_units,
+                    "y_units": y_units,
+                    "x_label": self.data_metadata.get("x_label"),
+                    "y_label": self.data_metadata.get("y_label"),
+                }
+            )
+        else:
+            # Fallback to config-only units if file wasn't loaded yet
+            params.update(
+                {
+                    "x_units": self.line_config.x_units,
+                    "y_units": self.line_config.y_units,
+                }
+            )
 
         if auxiliary_data:
             params.update(auxiliary_data)
