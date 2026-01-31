@@ -4,7 +4,8 @@ Provides Pydantic models for computing statistics from 1D line profiles
 with optional unit tracking. This module serves as the foundation for both
 direct 1D analysis and 2D projection analysis.
 
-This module wraps the existing functions in basic_beam_stats.py to add:
+This module uses the same core computation functions as basic_beam_stats.py
+(copied here to avoid circular dependencies) and adds:
 - Unit tracking for x and y axes
 - Pydantic model structure for validation and serialization
 - Flexible dictionary export with prefix/suffix support
@@ -17,14 +18,131 @@ from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, field_validator
 import logging
 
-from image_analysis.algorithms.basic_beam_stats import (
-    compute_center_of_mass,
-    compute_rms,
-    compute_fwhm,
-    compute_peak_location,
-)
-
 logger = logging.getLogger(__name__)
+
+
+# Core computation functions (copied from basic_beam_stats.py)
+def compute_center_of_mass(profile: np.ndarray) -> float:
+    """Compute the center of mass of a 1‑D profile.
+
+    Parameters
+    ----------
+    profile : np.ndarray
+        1‑D array containing intensity values.
+
+    Returns
+    -------
+    float
+        Center of mass value. Returns ``np.nan`` and logs a warning if the
+        total intensity is non‑positive.
+    """
+    profile = np.asarray(profile, dtype=float)
+    total = profile.sum()
+    if total <= 0:
+        logger.warning(
+            "compute_center_of_mass: Profile has non-positive total intensity. Returning np.nan."
+        )
+        return np.nan
+    coords = np.arange(profile.size)
+    return np.sum(coords * profile) / total
+
+
+def compute_rms(profile: np.ndarray) -> float:
+    """Compute the RMS width of a 1‑D profile.
+
+    Parameters
+    ----------
+    profile : np.ndarray
+        1‑D array containing intensity values.
+
+    Returns
+    -------
+    float
+        RMS width. Returns ``np.nan`` and logs a warning if the total intensity
+        is non‑positive.
+    """
+    profile = np.asarray(profile, dtype=float)
+    total = profile.sum()
+    profile[profile < 0] = 0
+    if total <= 0:
+        logger.warning(
+            "compute_rms: Profile has non-positive total intensity. Returning np.nan."
+        )
+        return np.nan
+    coords = np.arange(profile.size)
+    com = compute_center_of_mass(profile)
+    return np.sqrt(np.sum((coords - com) ** 2 * profile) / total)
+
+
+def compute_fwhm(profile: np.ndarray) -> float:
+    """Compute the full width at half maximum (FWHM) of a 1‑D profile.
+
+    Parameters
+    ----------
+    profile : np.ndarray
+        1‑D array containing intensity values.
+
+    Returns
+    -------
+    float
+        FWHM value. Returns ``np.nan`` and logs a warning if the profile has
+        non‑positive total intensity or cannot determine a half‑maximum.
+    """
+    profile = np.asarray(profile, dtype=float)
+    if profile.sum() <= 0:
+        logger.warning(
+            "compute_fwhm: Profile has non-positive total intensity. Returning np.nan."
+        )
+        return np.nan
+
+    profile -= profile.min()
+    max_val = profile.max()
+    if max_val <= 0:
+        logger.warning(
+            "compute_fwhm: Profile has non-positive peak after baseline shift. Returning np.nan."
+        )
+        return np.nan
+
+    half_max = max_val / 2
+    indices = np.where(profile >= half_max)[0]
+    if len(indices) < 2:
+        return np.nan
+
+    left, right = indices[0], indices[-1]
+
+    def interp_edge(i1, i2):
+        y1, y2 = profile[i1], profile[i2]
+        if y2 == y1:
+            return float(i1)
+        return i1 + (half_max - y1) / (y2 - y1)
+
+    left_edge = interp_edge(left - 1, left) if left > 0 else float(left)
+    right_edge = (
+        interp_edge(right, right + 1) if right < len(profile) - 1 else float(right)
+    )
+
+    return right_edge - left_edge
+
+
+def compute_peak_location(profile: np.ndarray) -> float:
+    """Return the index of the peak value in a 1‑D profile.
+
+    Parameters
+    ----------
+    profile : np.ndarray
+        1‑D array containing intensity values.
+
+    Returns
+    -------
+    float
+        Index of the maximum value. Returns ``np.nan`` and logs a warning if the
+        profile is empty.
+    """
+    profile = np.asarray(profile, dtype=float)
+    if profile.size == 0:
+        logger.warning("compute_peak_location: Profile is empty. Returning np.nan.")
+        return np.nan
+    return int(np.argmax(profile))
 
 
 class LineBasicStats(BaseModel):
