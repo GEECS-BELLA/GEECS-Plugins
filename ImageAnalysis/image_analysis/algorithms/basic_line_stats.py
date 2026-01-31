@@ -262,8 +262,11 @@ class LineBasicStats(BaseModel):
         fwhm_idx = compute_fwhm(y)
         peak_idx = compute_peak_location(y)
 
-        # Peak value is just the max
-        self.peak_value = y[int(peak_idx)] if not np.isnan(peak_idx) else np.nan
+        # Peak value - use numpy indexing which handles float indices
+        if not np.isnan(peak_idx):
+            self.peak_value = y[int(peak_idx)]
+        else:
+            self.peak_value = np.nan
 
         # Integrated intensity is the sum of y-values
         self.integrated_intensity = y.sum()
@@ -284,7 +287,7 @@ class LineBasicStats(BaseModel):
             else:
                 self.CoM = np.nan
 
-            if not np.isnan(rms_idx):
+            if not np.isnan(rms_idx) and not np.isnan(com_idx):
                 # For RMS and FWHM, we need to scale by dx
                 # Use dx at the CoM location
                 idx = int(np.clip(com_idx, 0, len(x) - 2))
@@ -293,7 +296,7 @@ class LineBasicStats(BaseModel):
             else:
                 self.rms = np.nan
 
-            if not np.isnan(fwhm_idx):
+            if not np.isnan(fwhm_idx) and not np.isnan(com_idx):
                 idx = int(np.clip(com_idx, 0, len(x) - 2))
                 dx = x[idx + 1] - x[idx]
                 self.fwhm = fwhm_idx * dx
@@ -301,8 +304,7 @@ class LineBasicStats(BaseModel):
                 self.fwhm = np.nan
 
             if not np.isnan(peak_idx):
-                idx = int(peak_idx)
-                self.peak_location = x[idx]
+                self.peak_location = x[int(peak_idx)]
             else:
                 self.peak_location = np.nan
 
