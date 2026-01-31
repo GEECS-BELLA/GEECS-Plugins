@@ -4,8 +4,7 @@ Provides Pydantic models for computing statistics from 1D line profiles
 with optional unit tracking. This module serves as the foundation for both
 direct 1D analysis and 2D projection analysis.
 
-This module uses the same core computation functions as basic_beam_stats.py
-(copied here to avoid circular dependencies) and adds:
+Features include:
 - Unit tracking for x and y axes
 - Pydantic model structure for validation and serialization
 - Flexible dictionary export with prefix/suffix support
@@ -142,7 +141,7 @@ def compute_peak_location(profile: np.ndarray) -> float:
     if profile.size == 0:
         logger.warning("compute_peak_location: Profile is empty. Returning np.nan.")
         return np.nan
-    return int(np.argmax(profile))
+    return float(np.argmax(profile))
 
 
 class LineBasicStats(BaseModel):
