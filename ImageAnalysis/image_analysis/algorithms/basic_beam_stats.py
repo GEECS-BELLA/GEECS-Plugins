@@ -1,15 +1,11 @@
 """Beam statistics utilities.
 
 Provides data structures and functions for computing beam profile
-statistics from images. The module follows NumPy docstring conventions.
-
-This module has been refactored to use LineBasicStats as the foundation
-for all 1D projection statistics, eliminating code duplication while
-maintaining backward compatibility.
+statistics from images.
 """
 
 from __future__ import annotations
-from typing import NamedTuple, Optional, Union
+from typing import Callable, Literal, NamedTuple, Optional, Union
 import numpy as np
 import logging
 
@@ -78,6 +74,24 @@ class BeamStats(NamedTuple):
     y: ProjectionStats
     x_45: ProjectionStats
     y_45: ProjectionStats
+
+
+class LineByLineResult(NamedTuple):
+    """Result of extracting statistics from each line of an image.
+
+    Attributes
+    ----------
+    positions : np.ndarray
+        Position of each line (indices).
+    values : np.ndarray
+        Computed statistic for each line.
+    weights : np.ndarray
+        Total counts per line (for weighted fitting).
+    """
+
+    positions: np.ndarray
+    values: np.ndarray
+    weights: np.ndarray
 
 
 def _diag_projection(img: np.ndarray) -> np.ndarray:
@@ -182,6 +196,59 @@ def beam_profile_stats(img: np.ndarray) -> BeamStats:
         x_45=_line_stats_to_projection_stats(x45_line_stats),
         y_45=_line_stats_to_projection_stats(y45_line_stats),
     )
+
+
+def extract_line_stats(
+    img: np.ndarray,
+    stat_func: Callable[[np.ndarray], float],
+    axis: Literal["x", "y"] = "x",
+) -> LineByLineResult:
+    """Apply a statistic function to each line (row or column) of an image.
+
+    Parameters
+    ----------
+    img : np.ndarray
+        2D image array.
+    stat_func : Callable[[np.ndarray], float]
+        Function that takes a 1D array (one line) and returns a scalar.
+        Can use functions from basic_line_stats (e.g., compute_center_of_mass,
+        compute_rms) or any custom function.
+    axis : {'x', 'y'}
+        Which axis to iterate over:
+        - 'x': Apply stat_func to each column (positions are column indices)
+        - 'y': Apply stat_func to each row (positions are row indices)
+
+    Returns
+    -------
+    x_values : np.ndarray
+        Position of each line (indices).
+    y_values : np.ndarray
+        Computed statistic for each line.
+    weights : np.ndarray
+        Total counts (sum) for each line, useful for weighted fitting.
+
+    Examples
+    --------
+    >>> from image_analysis.algorithms.basic_line_stats import compute_center_of_mass
+    >>> x, y, w = extract_line_stats(image, compute_center_of_mass, axis='x')
+    >>> # x = [0, 1, 2, ...] column indices
+    >>> # y = CoM for each column
+    >>> # w = total counts per column
+    >>>
+    >>> # For beam tilt detection, fit a line:
+    >>> mask = np.isfinite(y) & (w > 100)
+    >>> slope, intercept = fit_weighted_line(x[mask], y[mask], w[mask])
+    """
+    img = np.asarray(img, dtype=float)
+
+    # axis=0 applies func to each column, axis=1 applies to each row
+    apply_axis = 0 if axis == "x" else 1
+
+    y_values = np.apply_along_axis(stat_func, apply_axis, img)
+    weights = img.sum(axis=apply_axis)
+    x_values = np.arange(len(y_values), dtype=float)
+
+    return LineByLineResult(positions=x_values, values=y_values, weights=weights)
 
 
 def flatten_beam_stats(
