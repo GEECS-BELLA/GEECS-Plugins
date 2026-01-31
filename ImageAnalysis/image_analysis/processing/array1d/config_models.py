@@ -320,14 +320,18 @@ class PipelineConfig(BaseModel):
     Attributes
     ----------
     steps : List[PipelineStepType]
-        Ordered list of processing steps to apply
+        Ordered list of processing steps to apply. Default includes all steps,
+        but steps are only executed if their corresponding config is provided
+        (e.g., ROI step only runs if config.roi is not None).
     """
 
     steps: List[PipelineStepType] = Field(
         default_factory=lambda: [
             PipelineStepType.BACKGROUND,
+            PipelineStepType.ROI,
             PipelineStepType.FILTERING,
             PipelineStepType.THRESHOLDING,
+            PipelineStepType.INTERPOLATION,
         ],
         description="Ordered list of processing steps",
     )
@@ -394,7 +398,8 @@ class Line1DConfig(BaseModel):
         description=(
             "Multiplicative scale factor for x-axis data (e.g., 1e9 to convert seconds to nanoseconds). "
             "Applied FIRST before all other processing steps (ROI, background, filtering, etc.). "
-            "This means ROI boundaries and threshold values should be specified in the scaled units."
+            "This means ROI boundaries and threshold values should be specified in the scaled units. "
+            "Default is 1.0 (no scaling)."
         ),
     )
     y_scale_factor: float = Field(
@@ -402,7 +407,8 @@ class Line1DConfig(BaseModel):
         description=(
             "Multiplicative scale factor for y-axis data (e.g., 1e3 to convert volts to millivolts). "
             "Applied FIRST before all other processing steps (ROI, background, filtering, etc.). "
-            "This means threshold values should be specified in the scaled units."
+            "This means threshold values should be specified in the scaled units. "
+            "Default is 1.0 (no scaling)."
         ),
     )
 
