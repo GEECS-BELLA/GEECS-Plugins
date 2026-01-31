@@ -47,6 +47,7 @@ extend-select = ["D"]  # Enable all pydocstyle checks
 [tool.ruff.lint.per-file-ignores]
 "extras/**" = ["D"]
 "**/third_party_sdks/**" = ["D"]
+"**/tests/**" = ["D"]  # Ignore all docstring rules in test files
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
