@@ -21,7 +21,7 @@ repos:
       - id: check-symlinks
       - id: check-xml
       - id: check-yaml
-        exclude: "(^extras/|.*/third_party_sdks/)"
+        exclude: "(^extras/|.*/third_party_sdks/|.*_ui\\.py$|.*/tests/)"
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.9
