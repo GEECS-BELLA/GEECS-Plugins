@@ -113,7 +113,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
         return result.data  # Return Nx2 array
 
     def preprocess_data(self, data: np.ndarray) -> np.ndarray:
-        """Apply processing pipeline to 1D data.
+        """Apply processing pipeline to 1D data, including optional axis scaling.
 
         Parameters
         ----------
@@ -123,9 +123,20 @@ class Standard1DAnalyzer(ImageAnalyzer):
         Returns
         -------
         np.ndarray
-            Processed Nx2 array
+            Processed Nx2 array with optional axis scaling applied
         """
-        return apply_line_processing_pipeline(data, self.line_config)
+        # Apply scale factors first (before other processing)
+        # This way all downstream processing uses the scaled values
+        scaled_data = data.copy()
+
+        if self.line_config.x_scale_factor is not None:
+            scaled_data[:, 0] *= self.line_config.x_scale_factor
+
+        if self.line_config.y_scale_factor is not None:
+            scaled_data[:, 1] *= self.line_config.y_scale_factor
+
+        # Then apply the rest of the processing pipeline
+        return apply_line_processing_pipeline(scaled_data, self.line_config)
 
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None
