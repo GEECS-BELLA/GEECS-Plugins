@@ -387,6 +387,47 @@ class ThresholdingConfig(BaseModel):
         return v
 
 
+class NormalizationConfig(BaseModel):
+    """
+    Configuration for image normalization.
+
+    Normalizes images by dividing by a normalization factor determined by
+    the configured method. Useful for making images comparable across different
+    exposure times or intensities.
+
+    Attributes
+    ----------
+    enabled : bool
+        Whether normalization is enabled.
+    method : str
+        Normalization method: "total_intensity", "peak_value", or "constant".
+        - "total_intensity": Divide by sum of all pixel values
+        - "peak_value": Divide by maximum pixel value
+        - "constant": Divide by constant_value
+    constant_value : Optional[float]
+        Divisor for "constant" method. Required if method is "constant".
+    """
+
+    enabled: bool = Field(True, description="Enable normalization")
+    method: str = Field(
+        "total_intensity",
+        description='Normalization method: "total_intensity", "peak_value", or "constant"',
+    )
+    constant_value: Optional[float] = Field(
+        None, description="Divisor for constant method"
+    )
+
+    @field_validator("method")
+    def validate_method(cls, v):
+        """Validate that method is one of the supported options."""
+        valid_methods = ["total_intensity", "peak_value", "constant"]
+        if v not in valid_methods:
+            raise ValueError(
+                f"method must be one of {valid_methods}, got '{v}'"
+            )
+        return v
+
+
 class ProcessingStepType(str, Enum):
     """Available processing step types for the pipeline."""
 
@@ -396,6 +437,7 @@ class ProcessingStepType(str, Enum):
     CIRCULAR_MASK = "circular_mask"
     THRESHOLDING = "thresholding"
     FILTERING = "filtering"
+    NORMALIZATION = "normalization"
     TRANSFORMS = "transforms"
 
 
@@ -423,6 +465,7 @@ class PipelineConfig(BaseModel):
             ProcessingStepType.CIRCULAR_MASK,
             ProcessingStepType.THRESHOLDING,
             ProcessingStepType.FILTERING,
+            ProcessingStepType.NORMALIZATION,
             ProcessingStepType.TRANSFORMS,
         ],
         description="Ordered list of processing steps to execute",
@@ -481,6 +524,9 @@ class CameraConfig(BaseModel):
     )
     filtering: Optional[FilteringConfig] = Field(
         None, description="Image filtering settings"
+    )
+    normalization: Optional[NormalizationConfig] = Field(
+        None, description="Image normalization settings"
     )
     transforms: Optional[TransformConfig] = Field(
         None, description="Geometric transform settings"
