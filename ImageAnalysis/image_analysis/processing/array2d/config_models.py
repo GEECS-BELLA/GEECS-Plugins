@@ -400,18 +400,18 @@ class NormalizationConfig(BaseModel):
     enabled : bool
         Whether normalization is enabled.
     method : str
-        Normalization method: "total_intensity", "peak_value", or "constant".
-        - "total_intensity": Divide by sum of all pixel values
-        - "peak_value": Divide by maximum pixel value
+        Normalization method: "image_total", "image_max", or "constant".
+        - "image_total": Divide by sum of all pixel values
+        - "image_max": Divide by maximum pixel value
         - "constant": Divide by constant_value
     constant_value : Optional[float]
         Divisor for "constant" method. Required if method is "constant".
     """
 
-    enabled: bool = Field(True, description="Enable normalization")
+    enabled: bool = Field(False, description="Enable normalization")
     method: str = Field(
-        "total_intensity",
-        description='Normalization method: "total_intensity", "peak_value", or "constant"',
+        "image_total",
+        description='Normalization method: "image_total", "image_max", or "constant"',
     )
     constant_value: Optional[float] = Field(
         None, description="Divisor for constant method"
@@ -420,7 +420,7 @@ class NormalizationConfig(BaseModel):
     @field_validator("method")
     def validate_method(cls, v):
         """Validate that method is one of the supported options."""
-        valid_methods = ["total_intensity", "peak_value", "constant"]
+        valid_methods = ["image_total", "image_max", "constant"]
         if v not in valid_methods:
             raise ValueError(
                 f"method must be one of {valid_methods}, got '{v}'"
@@ -500,6 +500,8 @@ class CameraConfig(BaseModel):
         Image thresholding configuration.
     filtering : Optional[FilteringConfig]
         Image filtering configuration.
+    normalization : Optional[NormalizationConfig]
+        Image normalization configuration.
     transforms : Optional[TransformConfig]
         Geometric transformation configuration.
     """
@@ -561,6 +563,7 @@ class CameraConfig(BaseModel):
             "circular_mask": self.circular_mask,
             "thresholding": self.thresholding,
             "filtering": self.filtering,
+            "normalization": self.normalization,
             "transforms": self.transforms,
         }
 

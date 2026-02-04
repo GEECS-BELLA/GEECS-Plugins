@@ -36,11 +36,11 @@ def apply_normalization(
 
     Notes
     -----
-    - "total_intensity": Divides by sum of all pixel values
-    - "peak_value": Divides by maximum pixel value
+    - "image_total": Divides by sum of all pixel values
+    - "image_max": Divides by maximum pixel value
     - "constant": Divides by specified constant value
     """
-    if config.method == "total_intensity":
+    if config.method == "image_total":
         total = image.sum()
         if total > 0:
             logger.debug(f"Normalizing by total intensity: {total:.6e}")
@@ -51,7 +51,7 @@ def apply_normalization(
             )
             return image
 
-    elif config.method == "peak_value":
+    elif config.method == "image_max":
         peak = image.max()
         if peak > 0:
             logger.debug(f"Normalizing by peak value: {peak:.6e}")
