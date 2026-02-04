@@ -100,6 +100,45 @@ def apply_constant_normalization(
     return image / constant_value
 
 
+def apply_distribute_value_normalization(
+    image: Array2D, constant_value: float
+) -> Array2D:
+    """Normalize image by dividing by total intensity, then multiply by constant.
+
+    Parameters
+    ----------
+    image : Array2D
+        Input image to normalize (should be float64)
+    constant_value : float
+        Multiplier value after normalization by total intensity. Must be non-zero.
+
+    Returns
+    -------
+    Array2D
+        Normalized image. Returns original image if total intensity is zero or constant_value is zero.
+
+    Notes
+    -----
+    This method first divides the image by the sum of all pixel values (normalizing
+    to total intensity of 1.0), then multiplies by the constant_value. This is useful
+    for distributing a known total intensity across the image while preserving the
+    relative intensity distribution.
+    """
+    total = image.sum()
+    if total == 0:
+        logger.warning(
+            "Image has zero total intensity, skipping normalization"
+        )
+        return image
+    if constant_value == 0:
+        logger.warning(
+            "Distribute value normalization requires non-zero constant_value, skipping"
+        )
+        return image
+    logger.debug(f"Normalizing by total intensity and distributing value: {constant_value}")
+    return (image / total) * constant_value
+
+
 def apply_normalization(
     image: Array2D, config: NormalizationConfig
 ) -> Array2D:
@@ -127,6 +166,7 @@ def apply_normalization(
     - IMAGE_TOTAL: Divides by sum of all pixel values
     - IMAGE_MAX: Divides by maximum pixel value
     - CONSTANT: Divides by specified constant value
+    - DISTRIBUTE_VALUE: Divides by sum of all pixel values, then multiplies by constant_value
     """
     if config.method == NormalizationMethod.IMAGE_TOTAL:
         return apply_image_total_normalization(image)
@@ -136,6 +176,9 @@ def apply_normalization(
 
     elif config.method == NormalizationMethod.CONSTANT:
         return apply_constant_normalization(image, config.constant_value)
+
+    elif config.method == NormalizationMethod.DISTRIBUTE_VALUE:
+        return apply_distribute_value_normalization(image, config.constant_value)
 
     else:
         logger.warning(f"Unknown normalization method: {config.method}")

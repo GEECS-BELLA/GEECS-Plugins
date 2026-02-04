@@ -393,6 +393,7 @@ class NormalizationMethod(str, Enum):
     IMAGE_TOTAL = "image_total"
     IMAGE_MAX = "image_max"
     CONSTANT = "constant"
+    DISTRIBUTE_VALUE = "distribute_value"
 
 
 class NormalizationConfig(BaseModel):
@@ -412,8 +413,10 @@ class NormalizationConfig(BaseModel):
         - IMAGE_TOTAL: Divide by sum of all pixel values
         - IMAGE_MAX: Divide by maximum pixel value
         - CONSTANT: Divide by constant_value
+        - DISTRIBUTE_VALUE: Divide by sum of all pixel values, then multiply by constant_value
     constant_value : Optional[float]
-        Divisor for CONSTANT method. Required if method is CONSTANT.
+        Divisor for CONSTANT method, or multiplier for DISTRIBUTE_VALUE method.
+        Required if method is CONSTANT or DISTRIBUTE_VALUE.
     """
 
     enabled: bool = Field(False, description="Whether normalization is enabled")
@@ -427,13 +430,13 @@ class NormalizationConfig(BaseModel):
 
     @field_validator("constant_value")
     def validate_constant_value(cls, v, info):
-        """Ensure constant_value is provided when method is CONSTANT."""
+        """Ensure constant_value is provided when method is CONSTANT or DISTRIBUTE_VALUE."""
         if hasattr(info, "data"):
             method = info.data.get("method")
-            if method == NormalizationMethod.CONSTANT:
+            if method == NormalizationMethod.CONSTANT or method == NormalizationMethod.DISTRIBUTE_VALUE:
                 if v is None or v == 0:
                     raise ValueError(
-                        "constant_value must be non-zero when method is 'constant'"
+                        "constant_value must be non-zero when method is 'constant' or 'distribute_value'"
                     )
         return v
 
