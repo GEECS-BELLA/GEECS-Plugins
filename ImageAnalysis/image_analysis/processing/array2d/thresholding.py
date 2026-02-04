@@ -7,13 +7,10 @@ to images, including constant value thresholds and percentage-based thresholds.
 
 import numpy as np
 import logging
-from typing import Literal
 from ...types import Array2D
+from .config_models import ThresholdMethod, ThresholdMode
 
 logger = logging.getLogger(__name__)
-
-ThresholdMethod = Literal["constant", "percentage_max"]
-ThresholdMode = Literal["binary", "to_zero", "truncate", "to_zero_inv", "truncate_inv"]
 
 
 def apply_constant_threshold(
@@ -53,23 +50,23 @@ def apply_constant_threshold(
     else:
         max_val = np.max(image) if np.max(image) > 0 else 1.0
 
-    if mode == "binary":
+    if mode == ThresholdMode.BINARY:
         # Binary threshold: pixels >= threshold become max_val, others become 0
         result = np.where(image >= threshold_value, max_val, 0.0)
 
-    elif mode == "to_zero":
+    elif mode == ThresholdMode.TO_ZERO:
         # To zero: pixels < threshold become 0, others unchanged
         result = np.where(image >= threshold_value, image, 0.0)
 
-    elif mode == "truncate":
+    elif mode == ThresholdMode.TRUNCATE:
         # Truncate: pixels > threshold become threshold, others unchanged
         result = np.where(image > threshold_value, threshold_value, image)
 
-    elif mode == "to_zero_inv":
+    elif mode == ThresholdMode.TO_ZERO_INV:
         # Inverse to zero: pixels >= threshold become 0, others unchanged
         result = np.where(image >= threshold_value, 0.0, image)
 
-    elif mode == "truncate_inv":
+    elif mode == ThresholdMode.TRUNCATE_INV:
         # Inverse truncate: pixels <= threshold become threshold, others unchanged
         result = np.where(image <= threshold_value, threshold_value, image)
 
@@ -78,7 +75,7 @@ def apply_constant_threshold(
 
     # Apply inversion if requested
     if invert:
-        if mode == "binary":
+        if mode == ThresholdMode.BINARY:
             result = max_val - result
         else:
             # For non-binary modes, invert by subtracting from max
@@ -210,10 +207,10 @@ def get_threshold_value(image: Array2D, method: ThresholdMethod, value: float) -
     """
     image = np.asarray(image, dtype=np.float64)
 
-    if method == "constant":
+    if method == ThresholdMethod.CONSTANT:
         return float(value)
 
-    elif method == "percentage_max":
+    elif method == ThresholdMethod.PERCENTAGE_MAX:
         if not 0 <= value <= 100:
             raise ValueError(f"Percentage must be between 0 and 100, got {value}")
         max_value = np.max(image)
@@ -243,19 +240,27 @@ def validate_threshold_parameters(
     ValueError
         If any parameter is invalid.
     """
-    valid_methods = ["constant", "percentage_max"]
-    if method not in valid_methods:
+    # Validate method is a valid ThresholdMethod enum
+    try:
+        if isinstance(method, str):
+            ThresholdMethod(method)
+    except ValueError:
+        valid_methods = [m.value for m in ThresholdMethod]
         raise ValueError(f"Method must be one of {valid_methods}, got '{method}'")
 
-    valid_modes = ["binary", "to_zero", "truncate", "to_zero_inv", "truncate_inv"]
-    if mode not in valid_modes:
+    # Validate mode is a valid ThresholdMode enum
+    try:
+        if isinstance(mode, str):
+            ThresholdMode(mode)
+    except ValueError:
+        valid_modes = [m.value for m in ThresholdMode]
         raise ValueError(f"Mode must be one of {valid_modes}, got '{mode}'")
 
-    if method == "percentage_max":
+    if method == ThresholdMethod.PERCENTAGE_MAX or (isinstance(method, str) and method == "percentage_max"):
         if not 0 <= value <= 100:
             raise ValueError(f"Percentage value must be between 0 and 100, got {value}")
 
-    elif method == "constant":
+    elif method == ThresholdMethod.CONSTANT or (isinstance(method, str) and method == "constant"):
         if value < 0:
             raise ValueError(
                 f"Constant threshold value must be non-negative, got {value}"

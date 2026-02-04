@@ -1,15 +1,103 @@
 """Image normalization utilities.
 
 Provides functions to normalize images by various methods including total intensity,
-peak value, and constant divisor normalization.
+peak value, and constant divisor normalization. Each normalization method is
+implemented as a separate function for clarity and testability.
 """
 
 import logging
 import numpy as np
 from ...types import Array2D
-from .config_models import NormalizationConfig
+from .config_models import NormalizationConfig, NormalizationMethod
 
 logger = logging.getLogger(__name__)
+
+
+def apply_image_total_normalization(image: Array2D) -> Array2D:
+    """Normalize image by dividing by total intensity (sum of all pixels).
+
+    Parameters
+    ----------
+    image : Array2D
+        Input image to normalize (should be float64)
+
+    Returns
+    -------
+    Array2D
+        Normalized image. Returns original image if total intensity is zero.
+
+    Notes
+    -----
+    This method divides the image by the sum of all pixel values, resulting
+    in an image where the total intensity equals 1.0.
+    """
+    total = image.sum()
+    if total > 0:
+        logger.debug(f"Normalizing by total intensity: {total:.6e}")
+        return image / total
+    else:
+        logger.warning(
+            "Image has zero total intensity, skipping normalization"
+        )
+        return image
+
+
+def apply_image_max_normalization(image: Array2D) -> Array2D:
+    """Normalize image by dividing by peak value (maximum pixel).
+
+    Parameters
+    ----------
+    image : Array2D
+        Input image to normalize (should be float64)
+
+    Returns
+    -------
+    Array2D
+        Normalized image. Returns original image if peak value is zero.
+
+    Notes
+    -----
+    This method divides the image by the maximum pixel value, resulting
+    in an image where the peak intensity equals 1.0.
+    """
+    peak = image.max()
+    if peak > 0:
+        logger.debug(f"Normalizing by peak value: {peak:.6e}")
+        return image / peak
+    else:
+        logger.warning("Image has zero peak value, skipping normalization")
+        return image
+
+
+def apply_constant_normalization(
+    image: Array2D, constant_value: float
+) -> Array2D:
+    """Normalize image by dividing by a constant value.
+
+    Parameters
+    ----------
+    image : Array2D
+        Input image to normalize (should be float64)
+    constant_value : float
+        Divisor value. Must be non-zero.
+
+    Returns
+    -------
+    Array2D
+        Normalized image. Returns original image if constant_value is zero.
+
+    Notes
+    -----
+    This method divides the image by a user-specified constant value.
+    Useful for normalizing to a known reference intensity.
+    """
+    if constant_value == 0:
+        logger.warning(
+            "Constant normalization requires non-zero value, skipping"
+        )
+        return image
+    logger.debug(f"Normalizing by constant: {constant_value}")
+    return image / constant_value
 
 
 def apply_normalization(
@@ -17,9 +105,8 @@ def apply_normalization(
 ) -> Array2D:
     """Apply normalization to image based on configuration.
 
-    Normalizes the image by dividing by a normalization factor determined by
-    the configured method. Handles edge cases gracefully by returning the
-    original image if normalization cannot be performed.
+    This is the main dispatcher function that routes to the appropriate
+    normalization method based on the configuration.
 
     Parameters
     ----------
@@ -36,38 +123,19 @@ def apply_normalization(
 
     Notes
     -----
-    - "image_total": Divides by sum of all pixel values
-    - "image_max": Divides by maximum pixel value
-    - "constant": Divides by specified constant value
+    Supported methods:
+    - IMAGE_TOTAL: Divides by sum of all pixel values
+    - IMAGE_MAX: Divides by maximum pixel value
+    - CONSTANT: Divides by specified constant value
     """
-    if config.method == "image_total":
-        total = image.sum()
-        if total > 0:
-            logger.debug(f"Normalizing by total intensity: {total:.6e}")
-            return image / total
-        else:
-            logger.warning(
-                "Image has zero total intensity, skipping normalization"
-            )
-            return image
+    if config.method == NormalizationMethod.IMAGE_TOTAL:
+        return apply_image_total_normalization(image)
 
-    elif config.method == "image_max":
-        peak = image.max()
-        if peak > 0:
-            logger.debug(f"Normalizing by peak value: {peak:.6e}")
-            return image / peak
-        else:
-            logger.warning("Image has zero peak value, skipping normalization")
-            return image
+    elif config.method == NormalizationMethod.IMAGE_MAX:
+        return apply_image_max_normalization(image)
 
-    elif config.method == "constant":
-        if config.constant_value is None or config.constant_value == 0:
-            logger.warning(
-                "Constant normalization requires non-zero constant_value, skipping"
-            )
-            return image
-        logger.debug(f"Normalizing by constant: {config.constant_value}")
-        return image / config.constant_value
+    elif config.method == NormalizationMethod.CONSTANT:
+        return apply_constant_normalization(image, config.constant_value)
 
     else:
         logger.warning(f"Unknown normalization method: {config.method}")
