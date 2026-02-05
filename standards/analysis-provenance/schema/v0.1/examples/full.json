@@ -25,11 +25,24 @@
         "pandas": "2.2.0"
       },
       "config": {
-        "analyzer_class": "scan_analysis.analyzers.common.array2D_scan_analysis.Array2DScanAnalyzer",
-        "device_name": "UC_HiResMagCam",
+        "scan_analyzer": {
+          "class": "Array2DScanAnalyzer",
+          "module": "scan_analysis.analyzers.common.array2D_scan_analysis",
+          "config": {
+            "type": "array2d",
+            "device_name": "UC_HiResMagCam",
+            "priority": 0,
+            "file_tail": ".png",
+            "skip_plt_show": true,
+            "flag_save_images": true,
+            "analysis_mode": "per_shot",
+            "is_active": true
+          }
+        },
         "image_analyzer": {
-          "class": "image_analysis.offline_analyzers.Undulator.hi_res_mag_cam_analyzer.HiResMagCamAnalyzer",
-          "camera_config": {
+          "class": "HiResMagCamAnalyzer",
+          "module": "image_analysis.offline_analyzers.Undulator.hi_res_mag_cam_analyzer",
+          "config": {
             "roi": {
               "top": 100,
               "bottom": 500,
@@ -86,10 +99,24 @@
         "dirty": true
       },
       "config": {
-        "analyzer_class": "scan_analysis.analyzers.common.array2D_scan_analysis.Array2DScanAnalyzer",
-        "device_name": "ALine_EBeam3",
+        "scan_analyzer": {
+          "class": "Array2DScanAnalyzer",
+          "module": "scan_analysis.analyzers.common.array2D_scan_analysis",
+          "config": {
+            "type": "array2d",
+            "device_name": "ALine_EBeam3",
+            "priority": 10,
+            "file_tail": ".png",
+            "skip_plt_show": true,
+            "flag_save_images": true
+          }
+        },
         "image_analyzer": {
-          "class": "image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"
+          "class": "BeamAnalyzer",
+          "module": "image_analysis.offline_analyzers.beam_analyzer",
+          "config": {
+            "camera_config_name": "UC_ALineEBeam3"
+          }
         }
       },
       "notes": "Testing with local modifications - not yet committed"
