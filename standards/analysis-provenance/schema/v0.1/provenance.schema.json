@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GEECS-BELLA/GEECS-Plugins/standards/analysis-provenance/schema/v0.1",
+  "title": "Analysis Provenance",
+  "description": "Schema for tracking provenance of derived data columns in analysis files",
+  "type": "object",
+  "required": ["schema_version", "analyses"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Version of the provenance specification",
+      "pattern": "^0\\.1$"
+    },
+    "analyses": {
+      "type": "array",
+      "description": "List of analysis entries, ordered chronologically",
+      "items": {
+        "$ref": "#/definitions/analysis_entry"
+      }
+    }
+  },
+  "definitions": {
+    "analysis_entry": {
+      "type": "object",
+      "description": "A single analysis operation that wrote to the data file",
+      "required": ["timestamp", "columns_written"],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 datetime when analysis was performed"
+        },
+        "columns_written": {
+          "type": "array",
+          "description": "Column names that were added or modified",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "software": {
+          "$ref": "#/definitions/software",
+          "description": "Software identification"
+        },
+        "code_version": {
+          "$ref": "#/definitions/code_version",
+          "description": "Source code identification"
+        },
+        "dependencies": {
+          "type": "object",
+          "description": "Key package versions as {name: version}",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "config": {
+          "type": "object",
+          "description": "Configuration used for analysis"
+        },
+        "config_ref": {
+          "type": "string",
+          "description": "Path to external configuration file"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Human-readable context or comments"
+        },
+        "user": {
+          "type": "string",
+          "description": "Username or identifier of who ran the analysis"
+        }
+      }
+    },
+    "software": {
+      "type": "object",
+      "description": "Software identification",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the software, tool, or script"
+        },
+        "version": {
+          "type": "string",
+          "description": "Version string"
+        }
+      }
+    },
+    "code_version": {
+      "type": "object",
+      "description": "Source code identification for reproducibility",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "description": "Repository URL (e.g., GitHub URL)"
+        },
+        "commit": {
+          "type": "string",
+          "description": "Git commit SHA (full or abbreviated)"
+        },
+        "branch": {
+          "type": "string",
+          "description": "Branch name"
+        },
+        "dirty": {
+          "type": "boolean",
+          "description": "True if there were uncommitted changes"
+        }
+      }
+    }
+  }
+}

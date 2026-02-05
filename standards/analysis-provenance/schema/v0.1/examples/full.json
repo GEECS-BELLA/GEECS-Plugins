@@ -1,0 +1,98 @@
+{
+  "schema_version": "0.1",
+  "analyses": [
+    {
+      "timestamp": "2026-02-04T14:30:00Z",
+      "columns_written": [
+        "UC_HiResMagCam peak_energy",
+        "UC_HiResMagCam charge",
+        "UC_HiResMagCam energy_spread"
+      ],
+      "software": {
+        "name": "scan_analysis",
+        "version": "0.2.0"
+      },
+      "code_version": {
+        "repository": "https://github.com/GEECS-BELLA/GEECS-Plugins",
+        "commit": "cc35d3e0e7039089a5e449afce1ef50bad6459e6",
+        "branch": "main",
+        "dirty": false
+      },
+      "dependencies": {
+        "image_analysis": "1.1.0",
+        "numpy": "2.0.0",
+        "scipy": "1.12.0",
+        "pandas": "2.2.0"
+      },
+      "config": {
+        "analyzer_class": "scan_analysis.analyzers.common.array2D_scan_analysis.Array2DScanAnalyzer",
+        "device_name": "UC_HiResMagCam",
+        "image_analyzer": {
+          "class": "image_analysis.offline_analyzers.Undulator.hi_res_mag_cam_analyzer.HiResMagCamAnalyzer",
+          "camera_config": {
+            "roi": {
+              "top": 100,
+              "bottom": 500,
+              "left": 200,
+              "right": 700
+            },
+            "background": {
+              "method": "median",
+              "num_frames": 10
+            },
+            "calibration": {
+              "energy_axis": "horizontal",
+              "dispersion_mm_per_MeV": 0.5
+            }
+          }
+        }
+      },
+      "notes": "Standard undulator analysis with updated calibration from January 2026",
+      "user": "sbarber"
+    },
+    {
+      "timestamp": "2026-02-04T15:45:00Z",
+      "columns_written": [
+        "UC_HiResMagCam peak_energy"
+      ],
+      "software": {
+        "name": "scan_analysis",
+        "version": "0.2.0"
+      },
+      "code_version": {
+        "repository": "https://github.com/GEECS-BELLA/GEECS-Plugins",
+        "commit": "cc35d3e0e7039089a5e449afce1ef50bad6459e6",
+        "branch": "main",
+        "dirty": false
+      },
+      "notes": "Re-ran with corrected energy calibration (dispersion was 0.48 not 0.5)"
+    },
+    {
+      "timestamp": "2026-02-04T16:20:00Z",
+      "columns_written": [
+        "ALine_EBeam3 centroid_x",
+        "ALine_EBeam3 centroid_y",
+        "ALine_EBeam3 sigma_x",
+        "ALine_EBeam3 sigma_y"
+      ],
+      "software": {
+        "name": "scan_analysis",
+        "version": "0.2.0"
+      },
+      "code_version": {
+        "repository": "https://github.com/GEECS-BELLA/GEECS-Plugins",
+        "commit": "cc35d3e0e7039089a5e449afce1ef50bad6459e6",
+        "branch": "main",
+        "dirty": true
+      },
+      "config": {
+        "analyzer_class": "scan_analysis.analyzers.common.array2D_scan_analysis.Array2DScanAnalyzer",
+        "device_name": "ALine_EBeam3",
+        "image_analyzer": {
+          "class": "image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"
+        }
+      },
+      "notes": "Testing with local modifications - not yet committed"
+    }
+  ]
+}
