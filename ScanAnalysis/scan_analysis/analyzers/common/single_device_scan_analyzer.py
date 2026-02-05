@@ -753,25 +753,74 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
     def _log_provenance(
         self, columns_written: list[str], config: dict | None = None
     ) -> None:
-        """Log provenance with image analyzer config automatically extracted.
+        """Log provenance with comprehensive config automatically extracted.
 
-        Overrides base class to automatically extract configuration from the
-        image_analyzer instance if available.
+        Overrides base class to automatically build a configuration dictionary
+        that includes both the scan analyzer config (from factory) and the
+        image analyzer config.
 
         Parameters
         ----------
         columns_written : list[str]
             List of column names that were written to the s-file.
         config : dict, optional
-            Configuration dictionary. If None, will attempt to extract from
-            self.image_analyzer using extract_config_from_analyzer().
+            Configuration dictionary. If None, will build a comprehensive
+            config from self.analyzer_config (if available from factory) and
+            self.image_analyzer.
         """
-        # Auto-extract config from image_analyzer if not provided
-        if config is None and hasattr(self, "image_analyzer"):
-            config = extract_config_from_analyzer(self.image_analyzer)
+        if config is None:
+            config = self._build_provenance_config()
 
         # Call the parent implementation with the extracted config
         super()._log_provenance(columns_written, config=config)
+
+    def _build_provenance_config(self) -> dict | None:
+        """Build a comprehensive provenance config dictionary.
+
+        Combines scan analyzer config (from factory, if available) with
+        image analyzer config extracted from the instance.
+
+        Returns
+        -------
+        dict or None
+            Comprehensive config dictionary containing:
+            - scan_analyzer: class name, module, and config (if from factory)
+            - image_analyzer: class name, module, and runtime config
+        """
+        config = {}
+
+        # Add scan analyzer info
+        scan_analyzer_info = {
+            "class": self.__class__.__name__,
+            "module": self.__class__.__module__,
+        }
+
+        # If we have analyzer_config from factory, include it
+        if hasattr(self, "analyzer_config") and self.analyzer_config is not None:
+            # Pydantic model - convert to dict, excluding the nested image_analyzer
+            # since we'll handle that separately with runtime values
+            analyzer_dict = self.analyzer_config.model_dump(
+                exclude={"image_analyzer"}, exclude_none=True
+            )
+            scan_analyzer_info["config"] = analyzer_dict
+
+        config["scan_analyzer"] = scan_analyzer_info
+
+        # Add image analyzer info
+        if hasattr(self, "image_analyzer") and self.image_analyzer is not None:
+            image_analyzer_info = {
+                "class": self.image_analyzer.__class__.__name__,
+                "module": self.image_analyzer.__class__.__module__,
+            }
+
+            # Extract runtime config from the image analyzer instance
+            runtime_config = extract_config_from_analyzer(self.image_analyzer)
+            if runtime_config:
+                image_analyzer_info["config"] = runtime_config
+
+            config["image_analyzer"] = image_analyzer_info
+
+        return config if config else None
 
     @staticmethod
     def average_data(data_list: list[np.ndarray]) -> Optional[np.ndarray]:

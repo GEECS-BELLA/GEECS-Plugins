@@ -247,6 +247,9 @@ def _create_array2d_analyzer(config: Array2DAnalyzerConfig) -> "ScanAnalyzer":
         # This is safe since we're just adding an attribute, not modifying the class
         analyzer.priority = config.priority
 
+        # Attach the full config for provenance tracking
+        analyzer.analyzer_config = config
+
         return analyzer
     except TypeError as e:
         raise TypeError(
@@ -286,6 +289,9 @@ def _create_array1d_analyzer(config: Array1DAnalyzerConfig) -> "ScanAnalyzer":
 
         # Attach priority for later sorting
         analyzer.priority = config.priority
+
+        # Attach the full config for provenance tracking
+        analyzer.analyzer_config = config
 
         return analyzer
     except TypeError as e:
