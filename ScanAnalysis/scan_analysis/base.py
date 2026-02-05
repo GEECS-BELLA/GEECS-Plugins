@@ -298,6 +298,33 @@ class ScanAnalyzer:
         except Exception as e:
             logger.warning("Failed to remove lock %s: %s", lock_path, e)
 
+    def _log_provenance(self, columns_written: list[str]) -> None:
+        """Log provenance information for columns written to the s-file.
+
+        This method captures git version, package versions, and other metadata
+        for reproducibility tracking.
+
+        Parameters
+        ----------
+        columns_written : list[str]
+            List of column names that were written to the s-file.
+        """
+        if self.auxiliary_file_path is None:
+            return
+
+        try:
+            from scan_analysis.provenance import log_provenance
+
+            log_provenance(
+                data_file=self.auxiliary_file_path,
+                columns_written=columns_written,
+                software_name="scan_analysis",
+                notes=f"Device: {self.device_name}" if self.device_name else None,
+            )
+        except Exception as e:
+            # Provenance logging should never break the main analysis
+            logger.debug(f"Failed to log provenance: {e}")
+
     def _merge_auxiliary_data(
         self, updates: pd.DataFrame, key: str = "Shotnumber"
     ) -> Optional[pd.DataFrame]:
@@ -372,6 +399,12 @@ class ScanAnalyzer:
 
             merged.to_csv(self.auxiliary_file_path, sep="\t", index=False, header=True)
             self.auxiliary_data = merged
+
+            # Log provenance for the columns that were written
+            columns_written = [c for c in updates_clean.columns if c != key]
+            if columns_written:
+                self._log_provenance(columns_written)
+
             return merged
         finally:
             self._release_sfile_lock(lock_path)
