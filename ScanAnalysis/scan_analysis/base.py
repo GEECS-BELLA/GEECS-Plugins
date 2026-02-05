@@ -298,7 +298,9 @@ class ScanAnalyzer:
         except Exception as e:
             logger.warning("Failed to remove lock %s: %s", lock_path, e)
 
-    def _log_provenance(self, columns_written: list[str]) -> None:
+    def _log_provenance(
+        self, columns_written: list[str], config: dict | None = None
+    ) -> None:
         """Log provenance information for columns written to the s-file.
 
         This method captures git version, package versions, and other metadata
@@ -308,6 +310,9 @@ class ScanAnalyzer:
         ----------
         columns_written : list[str]
             List of column names that were written to the s-file.
+        config : dict, optional
+            Configuration dictionary to include in provenance record.
+            Subclasses can extract this from image analyzers or other sources.
         """
         if self.auxiliary_file_path is None:
             return
@@ -319,6 +324,7 @@ class ScanAnalyzer:
                 data_file=self.auxiliary_file_path,
                 columns_written=columns_written,
                 software_name="scan_analysis",
+                config=config,
                 notes=f"Device: {self.device_name}" if self.device_name else None,
             )
         except Exception as e:

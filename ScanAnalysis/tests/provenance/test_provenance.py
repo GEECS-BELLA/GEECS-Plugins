@@ -197,8 +197,71 @@ class TestIO:
         assert not success
 
 
+class TestExtractConfig:
+    """Tests for the extract_config_from_analyzer function."""
+
+    def test_extract_from_camera_config_pydantic(self):
+        """Test extracting config from camera_config (Pydantic model)."""
+        from scan_analysis.provenance import extract_config_from_analyzer
+        from pydantic import BaseModel
+
+        class MockConfig(BaseModel):
+            roi: list = [0, 100, 0, 100]
+            threshold: float = 0.5
+
+        class MockAnalyzer:
+            camera_config = MockConfig()
+
+        analyzer = MockAnalyzer()
+        config = extract_config_from_analyzer(analyzer)
+
+        assert config is not None
+        assert config["roi"] == [0, 100, 0, 100]
+        assert config["threshold"] == 0.5
+
+    def test_extract_from_generic_config(self):
+        """Test extracting config from generic config attribute."""
+        from scan_analysis.provenance import extract_config_from_analyzer
+
+        class MockAnalyzer:
+            config = {"setting1": "value1", "setting2": 42}
+
+        analyzer = MockAnalyzer()
+        config = extract_config_from_analyzer(analyzer)
+
+        assert config is not None
+        assert config["setting1"] == "value1"
+        assert config["setting2"] == 42
+
+    def test_extract_from_get_config_method(self):
+        """Test extracting config from get_config() method."""
+        from scan_analysis.provenance import extract_config_from_analyzer
+
+        class MockAnalyzer:
+            def get_config(self):
+                return {"method_key": "method_value"}
+
+        analyzer = MockAnalyzer()
+        config = extract_config_from_analyzer(analyzer)
+
+        assert config is not None
+        assert config["method_key"] == "method_value"
+
+    def test_returns_none_for_no_config(self):
+        """Test returns None when no config is available."""
+        from scan_analysis.provenance import extract_config_from_analyzer
+
+        class MockAnalyzer:
+            pass
+
+        analyzer = MockAnalyzer()
+        config = extract_config_from_analyzer(analyzer)
+
+        assert config is None
+
+
 class TestCapture:
-    """Test environment capture functions."""
+    """Tests for automatic capture utilities."""
 
     def test_capture_code_version(self):
         """Test capturing git version (may be None if not in repo)."""

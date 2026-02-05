@@ -186,3 +186,63 @@ def get_current_user() -> str | None:
         return getpass.getuser()
     except Exception:
         return None
+
+
+def extract_config_from_analyzer(analyzer) -> dict | None:
+    """
+    Try to extract configuration from an analyzer using various patterns.
+
+    This function attempts multiple patterns to find and serialize configuration
+    from an analyzer object. It supports Pydantic models, plain dicts, and
+    callable `get_config()` methods.
+
+    Args:
+        analyzer: An analyzer object that may have configuration attached.
+
+    Returns
+    -------
+        A dictionary containing the serialized configuration, or None if no
+        configuration could be extracted.
+
+    Notes
+    -----
+    Supported patterns (tried in order):
+    1. `analyzer.camera_config` - Pydantic model (common in ImageAnalyzer subclasses)
+    2. `analyzer.config` - Generic config attribute (Pydantic or dict)
+    3. `analyzer.get_config()` - Callable that returns config dict
+    """
+    config_dict = None
+
+    # Pattern 1: camera_config (common in ImageAnalyzer subclasses)
+    if hasattr(analyzer, "camera_config"):
+        config = analyzer.camera_config
+        if config is not None:
+            if hasattr(config, "model_dump"):
+                try:
+                    config_dict = config.model_dump(mode="json")
+                except Exception as e:
+                    logger.debug(f"Failed to dump camera_config: {e}")
+            elif isinstance(config, dict):
+                config_dict = config
+
+    # Pattern 2: Generic config attribute
+    if config_dict is None and hasattr(analyzer, "config"):
+        config = analyzer.config
+        if config is not None:
+            if hasattr(config, "model_dump"):
+                try:
+                    config_dict = config.model_dump(mode="json")
+                except Exception as e:
+                    logger.debug(f"Failed to dump config: {e}")
+            elif isinstance(config, dict):
+                config_dict = config
+
+    # Pattern 3: get_config() method
+    if config_dict is None and hasattr(analyzer, "get_config"):
+        if callable(analyzer.get_config):
+            try:
+                config_dict = analyzer.get_config()
+            except Exception as e:
+                logger.debug(f"Failed to call get_config(): {e}")
+
+    return config_dict

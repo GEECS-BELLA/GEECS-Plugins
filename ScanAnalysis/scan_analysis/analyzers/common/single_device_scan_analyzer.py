@@ -35,6 +35,7 @@ import numpy as np
 
 # --- Local / Project Imports ---
 from scan_analysis.base import ScanAnalyzer
+from scan_analysis.provenance.capture import extract_config_from_analyzer
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
@@ -748,6 +749,29 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             }
 
         return binned_data
+
+    def _log_provenance(
+        self, columns_written: list[str], config: dict | None = None
+    ) -> None:
+        """Log provenance with image analyzer config automatically extracted.
+
+        Overrides base class to automatically extract configuration from the
+        image_analyzer instance if available.
+
+        Parameters
+        ----------
+        columns_written : list[str]
+            List of column names that were written to the s-file.
+        config : dict, optional
+            Configuration dictionary. If None, will attempt to extract from
+            self.image_analyzer using extract_config_from_analyzer().
+        """
+        # Auto-extract config from image_analyzer if not provided
+        if config is None and hasattr(self, "image_analyzer"):
+            config = extract_config_from_analyzer(self.image_analyzer)
+
+        # Call the parent implementation with the extracted config
+        super()._log_provenance(columns_written, config=config)
 
     @staticmethod
     def average_data(data_list: list[np.ndarray]) -> Optional[np.ndarray]:

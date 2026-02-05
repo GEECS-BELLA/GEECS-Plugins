@@ -18,7 +18,11 @@ Basic Usage:
 """
 
 from scan_analysis.provenance.io import log_provenance, read_provenance
-from scan_analysis.provenance.capture import capture_code_version, capture_dependencies
+from scan_analysis.provenance.capture import (
+    capture_code_version,
+    capture_dependencies,
+    extract_config_from_analyzer,
+)
 from scan_analysis.provenance.models import (
     ProvenanceFile,
     AnalysisEntry,
@@ -33,6 +37,7 @@ __all__ = [
     # Capture utilities
     "capture_code_version",
     "capture_dependencies",
+    "extract_config_from_analyzer",
     # Models (for advanced use)
     "ProvenanceFile",
     "AnalysisEntry",
