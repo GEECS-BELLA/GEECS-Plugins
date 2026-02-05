@@ -169,11 +169,22 @@ A provenance file with all recommended fields:
         "scipy": "1.12.0"
       },
       "config": {
-        "analyzer_class": "Array2DScanAnalyzer",
-        "device_name": "UC_HiResMagCam",
+        "scan_analyzer": {
+          "class": "Array2DScanAnalyzer",
+          "module": "scan_analysis.analyzers.common.array2D_scan_analysis",
+          "config": {
+            "type": "array2d",
+            "device_name": "UC_HiResMagCam",
+            "priority": 0,
+            "file_tail": ".png"
+          }
+        },
         "image_analyzer": {
           "class": "BeamAnalyzer",
-          "camera_config": "UC_HiResMagCam"
+          "module": "image_analysis.offline_analyzers.beam_analyzer",
+          "config": {
+            "camera_config_name": "UC_HiResMagCam"
+          }
         }
       },
       "notes": "Standard undulator analysis with updated calibration"
