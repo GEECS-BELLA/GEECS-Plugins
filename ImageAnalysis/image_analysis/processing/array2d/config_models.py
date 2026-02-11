@@ -6,7 +6,7 @@ including background computation, masking, filtering, and geometric transforms.
 All models use Pydantic for validation and automatic YAML/JSON serialization.
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import Optional, Tuple, List, Union, Dict
 from pathlib import Path
 from enum import Enum
@@ -460,6 +460,11 @@ class CameraConfig(BaseModel):
     transforms : Optional[TransformConfig]
         Geometric transformation configuration.
     """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
 
     name: str = Field(..., description="Camera identifier/name")
     description: Optional[str] = Field(None, description="Camera description")
