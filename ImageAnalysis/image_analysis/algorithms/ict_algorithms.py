@@ -22,52 +22,12 @@ from typing import Optional, Tuple
 import logging
 
 import numpy as np
-from scipy import signal
 from scipy.optimize import curve_fit
 from scipy.fft import fft, fftfreq
 
+from image_analysis.processing.array1d.filtering import apply_butterworth_filter
+
 logger = logging.getLogger(__name__)
-
-
-def apply_butterworth_filter(
-    data: np.ndarray,
-    order: int = 1,
-    crit_f: float = 0.025,
-    filt_type: str = "low",
-) -> np.ndarray:
-    """Apply forward-backward Butterworth filter to data.
-
-    Uses scipy.signal.filtfilt for zero-phase filtering (forward and backward
-    propagation) to avoid phase distortion.
-
-    Parameters
-    ----------
-    data : np.ndarray
-        Input signal array
-    order : int, default=1
-        Filter order (number of poles)
-    crit_f : float, default=0.025
-        Normalized critical frequency (0 < crit_f < 1)
-        where 1.0 corresponds to Nyquist frequency
-    filt_type : str, default='low'
-        Filter type: 'low', 'high', 'band', 'bandstop'
-
-    Returns
-    -------
-    np.ndarray
-        Filtered signal with same shape as input
-    """
-    try:
-        # Design Butterworth filter
-        b, a = signal.butter(order, crit_f, filt_type)
-
-        # Apply filter in forward and backward direction (zero-phase)
-        filtered_data = signal.filtfilt(b, a, data)
-
-        return filtered_data
-    except Exception as e:
-        logger.error(f"Butterworth filter failed: {e}")
-        raise
 
 
 def identify_primary_valley(data: np.ndarray) -> np.ndarray:
@@ -322,113 +282,113 @@ def apply_ict_analysis_with_details(
    butterworth_crit_f: float = 0.125,
    calibration_factor: float = 0.1,
 ) -> Tuple[float, dict]:
-   """Complete ICT analysis pipeline with intermediate processing details.
+    """Complete ICT analysis pipeline with intermediate processing details.
 
-   Implements the 8-step ICT signal processing pipeline and returns both
-   the final charge value and intermediate processing data for visualization.
+    Implements the 8-step ICT signal processing pipeline and returns both
+    the final charge value and intermediate processing data for visualization.
 
-   Parameters
-   ----------
-   data : np.ndarray
-       Input voltage trace from oscilloscope (Volts)
-   dt : float
-       Time step between samples (seconds)
-   butterworth_order : int, default=1
-       Butterworth filter order
-   butterworth_crit_f : float, default=0.125
-       Normalized critical frequency for Butterworth filter
-   calibration_factor : float, default=0.1
-       Calibration factor in V·s/C (volts·seconds per coulomb)
+    Parameters
+    ----------
+    data : np.ndarray
+        Input voltage trace from oscilloscope (Volts)
+    dt : float
+        Time step between samples (seconds)
+    butterworth_order : int, default=1
+        Butterworth filter order
+    butterworth_crit_f : float, default=0.125
+        Normalized critical frequency for Butterworth filter
+    calibration_factor : float, default=0.1
+        Calibration factor in V·s/C (volts·seconds per coulomb)
 
-   Returns
-   -------
-   tuple of (float, dict)
-       - charge_pC: Charge in picocoulombs
-       - details: Dictionary containing intermediate processing data:
-           - 'raw_data': Original input data
-           - 'filtered_data': After Butterworth filter
-           - 'sinusoidal_bg_1': First sinusoidal background fit
-           - 'after_sub1': After first background subtraction
-           - 'sinusoidal_bg_2': Second sinusoidal background fit
-           - 'cleaned_data': Final cleaned data (after both subtractions)
-           - 'signal_region_indices': Indices of integrated region
-           - 'signal_region_start': Start index of integration region
-           - 'signal_region_end': End index of integration region
-           - 'integrated_signal': Integrated signal value
-           - 'charge_pC': Final charge in picocoulombs
+    Returns
+    -------
+    tuple of (float, dict)
+        - charge_pC: Charge in picocoulombs
+        - details: Dictionary containing intermediate processing data:
+            - 'raw_data': Original input data
+            - 'filtered_data': After Butterworth filter
+            - 'sinusoidal_bg_1': First sinusoidal background fit
+            - 'after_sub1': After first background subtraction
+            - 'sinusoidal_bg_2': Second sinusoidal background fit
+            - 'cleaned_data': Final cleaned data (after both subtractions)
+            - 'signal_region_indices': Indices of integrated region
+            - 'signal_region_start': Start index of integration region
+            - 'signal_region_end': End index of integration region
+            - 'integrated_signal': Integrated signal value
+            - 'charge_pC': Final charge in picocoulombs
 
-   Raises
-   ------
-   ValueError
-       If input data is invalid or processing fails
-   """
-   try:
-       # Step 1: Apply Butterworth filter
-       filtered_data = np.array(apply_butterworth_filter(
-           data, order=butterworth_order, crit_f=butterworth_crit_f, filt_type="low"
-       ))
+    Raises
+    ------
+    ValueError
+        If input data is invalid or processing fails
+    """
+    try:
+        # Step 1: Apply Butterworth filter
+        filtered_data = np.array(apply_butterworth_filter(
+            data, order=butterworth_order, crit_f=butterworth_crit_f, filt_type="low"
+        ))
 
-       # Step 2: Identify signal location in RAW data (not filtered)
-       signal_location = np.argmin(data)
-       first_interval_end = signal_location - 100 if signal_location > 100 else None
-       second_interval_start = signal_location + 600 if signal_location + 600 < len(filtered_data) else None
-       signal_region = (first_interval_end, second_interval_start)
+        # Step 2: Identify signal location in RAW data (not filtered)
+        signal_location = np.argmin(data)
+        first_interval_end = signal_location - 100 if signal_location > 100 else None
+        second_interval_start = signal_location + 600 if signal_location + 600 < len(filtered_data) else None
+        signal_region = (first_interval_end, second_interval_start)
 
-       logger.debug(
-           f"Signal location: {signal_location}, "
-           f"Signal region for sinusoid fitting: ({first_interval_end}, {second_interval_start})"
-       )
+        logger.debug(
+            f"Signal location: {signal_location}, "
+            f"Signal region for sinusoid fitting: ({first_interval_end}, {second_interval_start})"
+        )
 
-       # Step 3: Fit sinusoidal background (pass 1)
-       sinusoidal_background_1 = get_sinusoidal_noise(filtered_data, signal_region)
+        # Step 3: Fit sinusoidal background (pass 1)
+        sinusoidal_background_1 = get_sinusoidal_noise(filtered_data, signal_region)
 
-       # Step 4: Subtract sinusoidal background
-       value_after_sub1 = filtered_data - sinusoidal_background_1
+        # Step 4: Subtract sinusoidal background
+        value_after_sub1 = filtered_data - sinusoidal_background_1
 
-       # Step 5: Fit sinusoidal background (pass 2)
-       sinusoidal_background_2 = get_sinusoidal_noise(value_after_sub1, signal_region)
+        # Step 5: Fit sinusoidal background (pass 2)
+        sinusoidal_background_2 = get_sinusoidal_noise(value_after_sub1, signal_region)
 
-       # Step 6: Subtract sinusoidal background again
-       subtracted_value = value_after_sub1 - sinusoidal_background_2
+        # Step 6: Subtract sinusoidal background again
+        subtracted_value = value_after_sub1 - sinusoidal_background_2
 
-       # Step 7: Identify signal region in cleaned data using zero-crossing detection
-       signal_region_indices_clean = identify_primary_valley(subtracted_value)
-       if len(signal_region_indices_clean) == 0:
-           logger.warning("No signal region in cleaned data, returning 0 pC")
-           charge_pC = 0.0
-           signal_region_start = 0
-           signal_region_end = 0
-           integrated_signal = 0.0
-       else:
-           # Step 8: Integrate and calibrate
-           signal_data = np.array(subtracted_value[signal_region_indices_clean])
-           integrated_signal = np.trapz(signal_data, x=None, dx=dt)
-           charge_pC = integrated_signal * (-calibration_factor) * 1e12
-           signal_region_start = signal_region_indices_clean[0]
-           signal_region_end = signal_region_indices_clean[-1]
+        # Step 7: Identify signal region in cleaned data using zero-crossing detection
+        signal_region_indices_clean = identify_primary_valley(subtracted_value)
+        if len(signal_region_indices_clean) == 0:
+            logger.warning("No signal region in cleaned data, returning 0 pC")
+            charge_pC = 0.0
+            signal_region_start = 0
+            signal_region_end = 0
+            integrated_signal = 0.0
+        else:
+            # Step 8: Integrate and calibrate
+            signal_data = np.array(subtracted_value[signal_region_indices_clean])
+            integrated_signal = np.trapz(signal_data, x=None, dx=dt)
+            charge_pC = integrated_signal * (-calibration_factor) * 1e12
+            signal_region_start = signal_region_indices_clean[0]
+            signal_region_end = signal_region_indices_clean[-1]
 
-       logger.debug(
-           f"ICT Analysis: integrated_signal={integrated_signal:.6e}, "
-           f"charge={charge_pC:.2f} pC"
-       )
+        logger.debug(
+            f"ICT Analysis: integrated_signal={integrated_signal:.6e}, "
+            f"charge={charge_pC:.2f} pC"
+        )
 
-       # Build details dictionary
-       details = {
-           'raw_data': data.copy(),
-           'filtered_data': filtered_data.copy(),
-           'sinusoidal_bg_1': sinusoidal_background_1.copy(),
-           'after_sub1': value_after_sub1.copy(),
-           'sinusoidal_bg_2': sinusoidal_background_2.copy(),
-           'cleaned_data': subtracted_value.copy(),
-           'signal_region_indices': signal_region_indices_clean.copy() if len(signal_region_indices_clean) > 0 else np.array([]),
-           'signal_region_start': int(signal_region_start),
-           'signal_region_end': int(signal_region_end),
-           'integrated_signal': float(integrated_signal),
-           'charge_pC': float(charge_pC),
-       }
+        # Build details dictionary
+        details = {
+            'raw_data': data.copy(),
+            'filtered_data': filtered_data.copy(),
+            'sinusoidal_bg_1': sinusoidal_background_1.copy(),
+            'after_sub1': value_after_sub1.copy(),
+            'sinusoidal_bg_2': sinusoidal_background_2.copy(),
+            'cleaned_data': subtracted_value.copy(),
+            'signal_region_indices': signal_region_indices_clean.copy() if len(signal_region_indices_clean) > 0 else np.array([]),
+            'signal_region_start': int(signal_region_start),
+            'signal_region_end': int(signal_region_end),
+            'integrated_signal': float(integrated_signal),
+            'charge_pC': float(charge_pC),
+        }
 
-       return float(charge_pC), details
+        return float(charge_pC), details
 
-   except Exception as e:
-       logger.error(f"ICT analysis with details failed: {e}")
-       raise ValueError(f"ICT analysis pipeline failed: {e}") from e
+    except Exception as e:
+        logger.error(f"ICT analysis with details failed: {e}")
+        raise ValueError(f"ICT analysis pipeline failed: {e}") from e

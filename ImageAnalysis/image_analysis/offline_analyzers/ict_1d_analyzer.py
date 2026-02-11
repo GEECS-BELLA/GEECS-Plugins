@@ -8,6 +8,9 @@ The analyzer inherits from Standard1DAnalyzer and adds:
 - ICT-specific signal processing (Butterworth filter, sinusoid removal)
 - Charge calculation in picocoulombs
 - Single output value (charge_pC) for downstream scan analyzer
+
+ICT-specific configuration (Butterworth filter, calibration) is defined in
+the ict_algorithms module and passed to the analyzer via kwargs.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ import numpy as np
 
 from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
 from image_analysis.types import Array1D, ImageAnalyzerResult
-from image_analysis.algorithms import ict_algorithms
+from image_analysis.algorithms.ict_algorithms import apply_ict_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -34,55 +37,87 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
     - Charge calculation in picocoulombs
     - Single scalar output (charge_pC) for scan analyzer
 
-    The analyzer requires a configuration with an 'ict_analysis' section
-    that specifies Butterworth filter parameters and calibration factor.
+    ICT-specific configuration (Butterworth filter parameters, calibration factor)
+    is passed via keyword arguments to the constructor, not via YAML config.
 
     Parameters
     ----------
     line_config_name : str
-        Name of the line configuration to load (must include ict_analysis section)
-
-    Raises
-    ------
-    ValueError
-        If configuration missing ict_analysis section
+        Name of the line configuration to load
+    butterworth_order : int, default=1
+        Butterworth filter order
+    butterworth_crit_f : float, default=0.125
+        Butterworth critical frequency (normalized)
+    calibration_factor : float, default=0.1
+        Calibration factor in V·s/C
+    detector_type : str, default='bcave'
+        Type of ICT detector
+    extract_dt_from_metadata : bool, default=True
+        Whether to extract dt from TDMS metadata
+    dt_override : float, optional
+        Override dt value (seconds)
 
     Examples
     --------
-    >>> analyzer = ICT1DAnalyzer("U_BCaveICT")
+    >>> analyzer = ICT1DAnalyzer(
+    ...     "U_BCaveICT",
+    ...     butterworth_order=1,
+    ...     butterworth_crit_f=0.125,
+    ...     calibration_factor=0.2,
+    ...     detector_type="bcave"
+    ... )
     >>> file_path = Path("shot_001.tdms")
     >>> data = analyzer.load_image(file_path)
     >>> result = analyzer.analyze_image(data, auxiliary_data={"file_path": file_path})
     >>> charge_pC = result.scalars['charge_pC']
     """
 
-    def __init__(self, line_config_name: str):
-        """Initialize ICT analyzer with configuration validation.
+    def __init__(
+        self,
+        line_config_name: str,
+        butterworth_order: int = 1,
+        butterworth_crit_f: float = 0.125,
+        calibration_factor: float = 0.1,
+        detector_type: str = "bcave",
+        extract_dt_from_metadata: bool = True,
+        dt_override: Optional[float] = None,
+        **kwargs,
+    ):
+        """Initialize ICT analyzer with ICT-specific configuration.
 
         Parameters
         ----------
         line_config_name : str
-            Name of configuration file (must include ict_analysis section)
-
-        Raises
-        ------
-        ValueError
-            If configuration missing ict_analysis section
+            Name of configuration file
+        butterworth_order : int, default=1
+            Butterworth filter order
+        butterworth_crit_f : float, default=0.125
+            Butterworth critical frequency (normalized)
+        calibration_factor : float, default=0.1
+            Calibration factor in V·s/C
+        detector_type : str, default='bcave'
+            Type of ICT detector
+        extract_dt_from_metadata : bool, default=True
+            Whether to extract dt from TDMS metadata
+        dt_override : float, optional
+            Override dt value (seconds)
+        **kwargs
+            Additional arguments passed to parent class
         """
         super().__init__(line_config_name)
 
-        # Validate ICT configuration exists
-        if self.line_config.ict_analysis is None:
-            raise ValueError(
-                f"Configuration '{line_config_name}' must include 'ict_analysis' section"
-            )
-
-        self.ict_config = self.line_config.ict_analysis
+        # Store ICT parameters
+        self.butterworth_order = butterworth_order
+        self.butterworth_crit_f = butterworth_crit_f
+        self.calibration_factor = calibration_factor
+        self.detector_type = detector_type
+        self.extract_dt_from_metadata = extract_dt_from_metadata
+        self.dt_override = dt_override
         self.dt = None  # Will be set during load_image()
 
         logger.info(
             f"Initialized ICT1DAnalyzer with config '{line_config_name}' "
-            f"(detector: {self.ict_config.calibration.detector_type})"
+            f"(detector: {detector_type})"
         )
 
     def load_image(self, file_path: Path) -> Array1D:
@@ -105,15 +140,15 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
         data = super().load_image(file_path)
 
         # Extract dt from TDMS metadata if configured
-        if self.ict_config.extract_dt_from_metadata:
+        if self.extract_dt_from_metadata:
             extracted_dt = self._extract_dt_from_metadata(file_path)
             if extracted_dt is not None:
                 self.dt = extracted_dt
                 logger.debug(f"Extracted dt={self.dt:.2e} s from TDMS metadata")
 
         # Use override if provided
-        if self.ict_config.dt_override is not None:
-            self.dt = self.ict_config.dt_override
+        if self.dt_override is not None:
+            self.dt = self.dt_override
             logger.debug(f"Using dt override: {self.dt:.2e} s")
 
         # Fallback to default
@@ -163,7 +198,7 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
 
         # Apply ICT analysis pipeline (includes Butterworth filter, sinusoid removal, etc.)
         try:
-            charge_pC = ict_algorithms.apply_ict_analysis(
+            charge_pC = apply_ict_analysis(
                 data=voltage_trace,
                 dt=self.dt,
                 butterworth_order=self.ict_config.butterworth.order,

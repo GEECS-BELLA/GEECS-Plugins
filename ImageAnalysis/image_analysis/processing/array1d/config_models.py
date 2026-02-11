@@ -314,88 +314,6 @@ class InterpolationConfig(BaseModel):
         return v
 
 
-class ButterworthFilterConfig(BaseModel):
-    """Configuration for Butterworth filter used in ICT analysis.
-
-    Attributes
-    ----------
-    order : int
-        Filter order (number of poles), must be >= 1
-    critical_frequency : float
-        Normalized critical frequency (0 < crit_f <= 1)
-        where 1.0 corresponds to Nyquist frequency
-    filter_type : str
-        Filter type: 'low', 'high', 'band', 'bandstop'
-    """
-
-    order: int = Field(
-        default=1, ge=1, description="Butterworth filter order (number of poles)"
-    )
-    critical_frequency: float = Field(
-        default=0.125,
-        gt=0,
-        le=1,
-        description="Normalized critical frequency (0 < f <= 1)",
-    )
-    filter_type: str = Field(
-        default="low",
-        description="Filter type: 'low', 'high', 'band', 'bandstop'",
-    )
-
-
-class ICTCalibrationConfig(BaseModel):
-    """Configuration for ICT charge calibration.
-
-    Attributes
-    ----------
-    calibration_factor : float
-        Calibration factor in V·s/C (volts·seconds per coulomb)
-    detector_type : str
-        Type of ICT detector (e.g., 'bcave', 'undulator_exit', 'custom')
-    """
-
-    calibration_factor: float = Field(
-        default=0.1,
-        description="Calibration factor in V·s/C (volts·seconds per coulomb)",
-    )
-    detector_type: str = Field(
-        default="bcave",
-        description="Detector type: 'bcave', 'undulator_exit', 'custom'",
-    )
-
-
-class ICTAnalysisConfig(BaseModel):
-    """Configuration for ICT charge measurement analysis.
-
-    Attributes
-    ----------
-    butterworth : ButterworthFilterConfig
-        Butterworth filter configuration
-    calibration : ICTCalibrationConfig
-        Calibration configuration
-    extract_dt_from_metadata : bool
-        If True, extract time step from TDMS waveform properties
-    dt_override : float, optional
-        Override time step value (seconds). If None, use metadata or default.
-    """
-
-    butterworth: ButterworthFilterConfig = Field(
-        default_factory=ButterworthFilterConfig,
-        description="Butterworth filter configuration",
-    )
-    calibration: ICTCalibrationConfig = Field(
-        default_factory=ICTCalibrationConfig,
-        description="Calibration configuration",
-    )
-    extract_dt_from_metadata: bool = Field(
-        default=True,
-        description="Extract dt from TDMS wf_increment if available",
-    )
-    dt_override: Optional[float] = Field(
-        default=None,
-        description="Override dt value (seconds). If None, use metadata or default.",
-    )
-
 
 class PipelineConfig(BaseModel):
     """Configuration for the 1D processing pipeline.
@@ -472,9 +390,6 @@ class Line1DConfig(BaseModel):
     filtering: Optional[FilteringConfig] = None
     thresholding: Optional[ThresholdingConfig] = None
     pipeline: Optional[PipelineConfig] = Field(default_factory=PipelineConfig)
-    ict_analysis: Optional[ICTAnalysisConfig] = Field(
-        default=None, description="ICT charge measurement analysis configuration"
-    )
 
     @field_validator("processing_dtype", "storage_dtype")
     @classmethod
