@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional, List
 
 import numpy as np
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class Data1DType(str, Enum):
@@ -363,6 +363,11 @@ class Line1DConfig(BaseModel):
     pipeline : PipelineConfig, optional
         Pipeline orchestration configuration
     """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
 
     name: str = Field(..., description="Configuration name/identifier")
     description: str = Field(
