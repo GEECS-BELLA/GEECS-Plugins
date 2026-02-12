@@ -23,7 +23,6 @@ import logging
 
 import numpy as np
 from scipy.optimize import curve_fit
-from scipy.fft import fft, fftfreq
 
 from image_analysis.processing.array1d.filtering import apply_butterworth_filter
 
@@ -230,15 +229,22 @@ def apply_ict_analysis(
     """
     try:
         # Step 1: Apply Butterworth filter
-        value = np.array(apply_butterworth_filter(
-            data, order=butterworth_order, crit_f=butterworth_crit_f, filt_type="low"
-        ))
+        value = np.array(
+            apply_butterworth_filter(
+                data,
+                order=butterworth_order,
+                crit_f=butterworth_crit_f,
+                filt_type="low",
+            )
+        )
 
         # Step 2: Identify signal location in RAW data (not filtered)
         # Use fixed offsets (±100 and +600 samples) from the minimum
         signal_location = np.argmin(data)
         first_interval_end = signal_location - 100 if signal_location > 100 else None
-        second_interval_start = signal_location + 600 if signal_location + 600 < len(value) else None
+        second_interval_start = (
+            signal_location + 600 if signal_location + 600 < len(value) else None
+        )
         signal_region = (first_interval_end, second_interval_start)
 
         logger.debug(
@@ -276,11 +282,11 @@ def apply_ict_analysis(
 
 
 def apply_ict_analysis_with_details(
-   data: np.ndarray,
-   dt: float,
-   butterworth_order: int = 1,
-   butterworth_crit_f: float = 0.125,
-   calibration_factor: float = 0.1,
+    data: np.ndarray,
+    dt: float,
+    butterworth_order: int = 1,
+    butterworth_crit_f: float = 0.125,
+    calibration_factor: float = 0.1,
 ) -> Tuple[float, dict]:
     """Complete ICT analysis pipeline with intermediate processing details.
 
@@ -324,14 +330,23 @@ def apply_ict_analysis_with_details(
     """
     try:
         # Step 1: Apply Butterworth filter
-        filtered_data = np.array(apply_butterworth_filter(
-            data, order=butterworth_order, crit_f=butterworth_crit_f, filt_type="low"
-        ))
+        filtered_data = np.array(
+            apply_butterworth_filter(
+                data,
+                order=butterworth_order,
+                crit_f=butterworth_crit_f,
+                filt_type="low",
+            )
+        )
 
         # Step 2: Identify signal location in RAW data (not filtered)
         signal_location = np.argmin(data)
         first_interval_end = signal_location - 100 if signal_location > 100 else None
-        second_interval_start = signal_location + 600 if signal_location + 600 < len(filtered_data) else None
+        second_interval_start = (
+            signal_location + 600
+            if signal_location + 600 < len(filtered_data)
+            else None
+        )
         signal_region = (first_interval_end, second_interval_start)
 
         logger.debug(
@@ -374,17 +389,19 @@ def apply_ict_analysis_with_details(
 
         # Build details dictionary
         details = {
-            'raw_data': data.copy(),
-            'filtered_data': filtered_data.copy(),
-            'sinusoidal_bg_1': sinusoidal_background_1.copy(),
-            'after_sub1': value_after_sub1.copy(),
-            'sinusoidal_bg_2': sinusoidal_background_2.copy(),
-            'cleaned_data': subtracted_value.copy(),
-            'signal_region_indices': signal_region_indices_clean.copy() if len(signal_region_indices_clean) > 0 else np.array([]),
-            'signal_region_start': int(signal_region_start),
-            'signal_region_end': int(signal_region_end),
-            'integrated_signal': float(integrated_signal),
-            'charge_pC': float(charge_pC),
+            "raw_data": data.copy(),
+            "filtered_data": filtered_data.copy(),
+            "sinusoidal_bg_1": sinusoidal_background_1.copy(),
+            "after_sub1": value_after_sub1.copy(),
+            "sinusoidal_bg_2": sinusoidal_background_2.copy(),
+            "cleaned_data": subtracted_value.copy(),
+            "signal_region_indices": signal_region_indices_clean.copy()
+            if len(signal_region_indices_clean) > 0
+            else np.array([]),
+            "signal_region_start": int(signal_region_start),
+            "signal_region_end": int(signal_region_end),
+            "integrated_signal": float(integrated_signal),
+            "charge_pC": float(charge_pC),
         }
 
         return float(charge_pC), details

@@ -433,7 +433,10 @@ class NormalizationConfig(BaseModel):
         """Ensure constant_value is provided when method is CONSTANT or DISTRIBUTE_VALUE."""
         if hasattr(info, "data"):
             method = info.data.get("method")
-            if method == NormalizationMethod.CONSTANT or method == NormalizationMethod.DISTRIBUTE_VALUE:
+            if (
+                method == NormalizationMethod.CONSTANT
+                or method == NormalizationMethod.DISTRIBUTE_VALUE
+            ):
                 if v is None or v == 0:
                     raise ValueError(
                         "constant_value must be non-zero when method is 'constant' or 'distribute_value'"

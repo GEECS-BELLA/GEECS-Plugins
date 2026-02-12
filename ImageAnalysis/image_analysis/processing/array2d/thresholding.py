@@ -256,11 +256,15 @@ def validate_threshold_parameters(
         valid_modes = [m.value for m in ThresholdMode]
         raise ValueError(f"Mode must be one of {valid_modes}, got '{mode}'")
 
-    if method == ThresholdMethod.PERCENTAGE_MAX or (isinstance(method, str) and method == "percentage_max"):
+    if method == ThresholdMethod.PERCENTAGE_MAX or (
+        isinstance(method, str) and method == "percentage_max"
+    ):
         if not 0 <= value <= 100:
             raise ValueError(f"Percentage value must be between 0 and 100, got {value}")
 
-    elif method == ThresholdMethod.CONSTANT or (isinstance(method, str) and method == "constant"):
+    elif method == ThresholdMethod.CONSTANT or (
+        isinstance(method, str) and method == "constant"
+    ):
         if value < 0:
             raise ValueError(
                 f"Constant threshold value must be non-negative, got {value}"
