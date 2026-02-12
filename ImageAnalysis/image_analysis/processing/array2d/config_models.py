@@ -365,7 +365,7 @@ class ThresholdingConfig(BaseModel):
         Whether to invert the threshold operation.
     """
 
-    enabled: bool = False
+    enabled: bool = Field(False, description="Whether thresholding is enabled")
     method: ThresholdMethod = ThresholdMethod.CONSTANT
     value: float = Field(100.0, ge=0.0, description="Threshold value")
     mode: ThresholdMode = ThresholdMode.BINARY
@@ -387,6 +387,63 @@ class ThresholdingConfig(BaseModel):
         return v
 
 
+class NormalizationMethod(str, Enum):
+    """Supported normalization methods."""
+
+    IMAGE_TOTAL = "image_total"
+    IMAGE_MAX = "image_max"
+    CONSTANT = "constant"
+    DISTRIBUTE_VALUE = "distribute_value"
+
+
+class NormalizationConfig(BaseModel):
+    """
+    Configuration for image normalization.
+
+    Normalizes images by dividing by a normalization factor determined by
+    the configured method. Useful for making images comparable across different
+    exposure times or intensities.
+
+    Attributes
+    ----------
+    enabled : bool
+        Whether normalization is enabled.
+    method : NormalizationMethod
+        Normalization method to use.
+        - IMAGE_TOTAL: Divide by sum of all pixel values
+        - IMAGE_MAX: Divide by maximum pixel value
+        - CONSTANT: Divide by constant_value
+        - DISTRIBUTE_VALUE: Divide by sum of all pixel values, then multiply by constant_value
+    constant_value : Optional[float]
+        Divisor for CONSTANT method, or multiplier for DISTRIBUTE_VALUE method.
+        Required if method is CONSTANT or DISTRIBUTE_VALUE.
+    """
+
+    enabled: bool = Field(False, description="Whether normalization is enabled")
+    method: NormalizationMethod = Field(
+        NormalizationMethod.IMAGE_TOTAL,
+        description="Normalization method to use",
+    )
+    constant_value: Optional[float] = Field(
+        None, description="Divisor for constant method"
+    )
+
+    @field_validator("constant_value")
+    def validate_constant_value(cls, v, info):
+        """Ensure constant_value is provided when method is CONSTANT or DISTRIBUTE_VALUE."""
+        if hasattr(info, "data"):
+            method = info.data.get("method")
+            if (
+                method == NormalizationMethod.CONSTANT
+                or method == NormalizationMethod.DISTRIBUTE_VALUE
+            ):
+                if v is None or v == 0:
+                    raise ValueError(
+                        "constant_value must be non-zero when method is 'constant' or 'distribute_value'"
+                    )
+        return v
+
+
 class ProcessingStepType(str, Enum):
     """Available processing step types for the pipeline."""
 
@@ -396,6 +453,7 @@ class ProcessingStepType(str, Enum):
     CIRCULAR_MASK = "circular_mask"
     THRESHOLDING = "thresholding"
     FILTERING = "filtering"
+    NORMALIZATION = "normalization"
     TRANSFORMS = "transforms"
 
 
@@ -423,6 +481,7 @@ class PipelineConfig(BaseModel):
             ProcessingStepType.CIRCULAR_MASK,
             ProcessingStepType.THRESHOLDING,
             ProcessingStepType.FILTERING,
+            ProcessingStepType.NORMALIZATION,
             ProcessingStepType.TRANSFORMS,
         ],
         description="Ordered list of processing steps to execute",
@@ -457,6 +516,8 @@ class CameraConfig(BaseModel):
         Image thresholding configuration.
     filtering : Optional[FilteringConfig]
         Image filtering configuration.
+    normalization : Optional[NormalizationConfig]
+        Image normalization configuration.
     transforms : Optional[TransformConfig]
         Geometric transformation configuration.
     """
@@ -486,6 +547,9 @@ class CameraConfig(BaseModel):
     )
     filtering: Optional[FilteringConfig] = Field(
         None, description="Image filtering settings"
+    )
+    normalization: Optional[NormalizationConfig] = Field(
+        None, description="Image normalization settings"
     )
     transforms: Optional[TransformConfig] = Field(
         None, description="Geometric transform settings"
@@ -520,6 +584,7 @@ class CameraConfig(BaseModel):
             "circular_mask": self.circular_mask,
             "thresholding": self.thresholding,
             "filtering": self.filtering,
+            "normalization": self.normalization,
             "transforms": self.transforms,
         }
 
