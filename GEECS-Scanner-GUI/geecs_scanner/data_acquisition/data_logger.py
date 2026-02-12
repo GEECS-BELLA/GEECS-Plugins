@@ -247,6 +247,7 @@ class FileMover:
             "FROG",
             "Thorlabs CCS175 Spectrometer",
             "RohdeSchwarz_RTA4000",
+            "ThorlabsWFS",
         ]:
             expected_file_count = 2
         elif device_type in ["MagSpecStitcher", "MagSpecCamera"]:
