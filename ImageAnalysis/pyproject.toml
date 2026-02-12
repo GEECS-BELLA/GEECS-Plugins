@@ -21,7 +21,16 @@ scipy = [
     { version = ">=1.7,<1.8", python = ">=3.7,<3.9" },    # Old scipy for Py 3.7-3.8
     { version = ">=1.11,<2.0", python = ">=3.9" }         # Modern scipy for Py 3.9+
 ]
-Pint = ">=0.24,<=0.28"
+
+# pandas - different versions per Python
+pandas = [
+    { version = "^2.2.3", python = ">=3.9" },
+]
+
+Pint = [
+    { version = ">=0.24,<=0.28", python = ">=3.9" },
+]
+
 pyabel = ">=0.9,<1.0"
 nptdms = "^1.7.0"
 h5py = "*"
