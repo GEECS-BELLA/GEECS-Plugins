@@ -66,12 +66,13 @@ nav:
 
   - Image Analysis:
       - Overview: image_analysis/overview.md
-      - Installation & Setup: image_analysis/installation.md
+#      - Installation & Setup: image_analysis/installation.md
       - API Reference:
           - Core Modules: image_analysis/api/core_modules.md
       - Examples:
           - Basic Usage: image_analysis/examples/basic_offline_analysis.ipynb
-          - Scan Database Utils: image_analysis/examples/understanding_configurations.ipynb
+          - Basic Usage 1D: image_analysis/examples/basic_usage_1D_analyzer.ipynb
+          - Grenouille Analysis: image_analysis/examples/grenouille_analysis.ipynb
   - Scan Analysis:
       - Overview: scan_analysis/overview.md
       - API Reference:

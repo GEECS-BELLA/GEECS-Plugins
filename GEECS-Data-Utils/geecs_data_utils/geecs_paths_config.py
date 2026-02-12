@@ -146,6 +146,25 @@ class GeecsPathsConfig:
         self.image_analysis_configs_path = image_analysis_configs_path
         self.scan_analysis_configs_path = scan_analysis_configs_path
 
+        # Optional FROG DLL paths (for Grenouille pulse retrieval)
+        self.frog_dll_path: Optional[Path] = None
+        self.frog_python32_path: Optional[Path] = None
+
+        if config_path.exists():
+            try:
+                _config = ConfigParser()
+                _config.read(config_path)
+                if _config.has_option("Paths", "frog_dll_path"):
+                    self.frog_dll_path = self._validate_path(
+                        Path(_config["Paths"]["frog_dll_path"])
+                    )
+                if _config.has_option("Paths", "frog_python32_path"):
+                    self.frog_python32_path = self._validate_path(
+                        Path(_config["Paths"]["frog_python32_path"])
+                    )
+            except Exception as e:
+                logger.debug(f"Could not read FROG paths from config: {e}")
+
     def _is_default_server_address(self) -> bool:
         """
         Check if base directory matches the default server address.

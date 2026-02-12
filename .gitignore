@@ -98,3 +98,5 @@ ScanAnalysis/scan_analysis/third_party_sdks/wavekit_43/dlls/x64/log_dll_load.txt
 # GEECS-Data-Utils local scripts
 GEECS-Data-Utils/scripts/release_mac.sh
 GEECS-Data-Utils/dist/
+docs/image_analysis/examples/frog.dat
+docs/scan_analysis/examples/frog.dat
