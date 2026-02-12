@@ -134,10 +134,12 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             # Save to TSV
             df.to_csv(output_path, sep="\t", index=False)
 
+        processed_image = result.retrieved_trace
+
         # Build result with beam-specific data
         result = ImageAnalyzerResult(
             data_type="2d",
-            processed_image=result.retrieved_trace,
+            processed_image=processed_image,
             scalars=scalar_results,
             metadata=initial_result.metadata,
         )
