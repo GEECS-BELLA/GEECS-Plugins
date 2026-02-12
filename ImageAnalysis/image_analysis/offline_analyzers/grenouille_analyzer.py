@@ -58,6 +58,20 @@ class GrenouilleAnalyzer(StandardAnalyzer):
 
         self.retrieval = FrogDllRetrieval.from_config()
 
+        # Read grenouille-specific params from the config's extras, with defaults
+        # that match the algorithm function signature.
+        extras = self.camera_config.model_extra or {}
+        grenouille_params = extras.get("grenouille_analysis_params", {})
+
+        self.delt: float = grenouille_params.get("delt", 0.85) #[fs]
+        self.dellam: float = grenouille_params.get("dellam", -0.085) #[nm], note: dll requires negative value...
+        self.lam0: float = grenouille_params.get("lam0", 400.0)
+        self.N: int = grenouille_params.get("N", 512) # acceptable values: 512, 256, 128, 64
+        self.target_error: float = grenouille_params.get("target_error", 0.001)
+        self.max_time_seconds: float = grenouille_params.get("max_time_seconds", 5)
+
+        logger.info("Initialized GrenouilleAnalyzer with config '%s'", camera_config_name)
+
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
     ) -> ImageAnalyzerResult:
@@ -88,12 +102,12 @@ class GrenouilleAnalyzer(StandardAnalyzer):
         result = self.retrieval.retrieve_pulse(
             # gr_trace, delt=0.89368, dellam=-0.0798546, lam0=400., N=512, target_error=.001, max_time_seconds=5
             processed_image,
-            delt=0.85,
-            dellam=-0.085,
-            lam0=400.0,
-            N=512,
-            target_error=0.001,
-            max_time_seconds=5,
+            delt=self.delt,
+            dellam=-self.dellam,
+            lam0=self.lam0,
+            N=self.N,
+            target_error=self.target_error,
+            max_time_seconds=self.max_time_seconds,
         )
 
         scalar_results = {
