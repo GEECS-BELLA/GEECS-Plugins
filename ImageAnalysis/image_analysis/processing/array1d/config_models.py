@@ -366,6 +366,8 @@ class Line1DConfig(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         arbitrary_types_allowed=True,
+        use_enum_values=True,
+        validate_assignment=True,
     )
 
     name: str = Field(..., description="Configuration name/identifier")
@@ -404,9 +406,3 @@ class Line1DConfig(BaseModel):
         except TypeError:
             raise ValueError(f"Invalid NumPy dtype: {v}")
         return v
-
-    class Config:
-        """Pydantic configuration."""
-
-        use_enum_values = True
-        validate_assignment = True
