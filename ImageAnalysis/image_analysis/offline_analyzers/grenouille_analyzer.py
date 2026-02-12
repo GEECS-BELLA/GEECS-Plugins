@@ -63,14 +63,20 @@ class GrenouilleAnalyzer(StandardAnalyzer):
         extras = self.camera_config.model_extra or {}
         grenouille_params = extras.get("grenouille_analysis_params", {})
 
-        self.delt: float = grenouille_params.get("delt", 0.85) #[fs]
-        self.dellam: float = grenouille_params.get("dellam", -0.085) #[nm], note: dll requires negative value...
+        self.delt: float = grenouille_params.get("delt", 0.85)  # [fs]
+        self.dellam: float = grenouille_params.get(
+            "dellam", -0.085
+        )  # [nm], note: dll requires negative value...
         self.lam0: float = grenouille_params.get("lam0", 400.0)
-        self.N: int = grenouille_params.get("N", 512) # acceptable values: 512, 256, 128, 64
+        self.N: int = grenouille_params.get(
+            "N", 512
+        )  # acceptable values: 512, 256, 128, 64
         self.target_error: float = grenouille_params.get("target_error", 0.001)
         self.max_time_seconds: float = grenouille_params.get("max_time_seconds", 5)
 
-        logger.info("Initialized GrenouilleAnalyzer with config '%s'", camera_config_name)
+        logger.info(
+            "Initialized GrenouilleAnalyzer with config '%s'", camera_config_name
+        )
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
@@ -121,22 +127,36 @@ class GrenouilleAnalyzer(StandardAnalyzer):
         wave_len = len(result.wavelength)
         max_len = max(time_len, wave_len)
 
-        time_padded = np.pad(result.time, (0, max_len - time_len), constant_values=np.nan)
-        temporal_int_padded = np.pad(result.temporal_intensity, (0, max_len - time_len), constant_values=np.nan)
-        temporal_phase_padded = np.pad(result.temporal_phase, (0, max_len - time_len), constant_values=np.nan)
+        time_padded = np.pad(
+            result.time, (0, max_len - time_len), constant_values=np.nan
+        )
+        temporal_int_padded = np.pad(
+            result.temporal_intensity, (0, max_len - time_len), constant_values=np.nan
+        )
+        temporal_phase_padded = np.pad(
+            result.temporal_phase, (0, max_len - time_len), constant_values=np.nan
+        )
 
-        wave_padded = np.pad(result.wavelength, (0, max_len - wave_len), constant_values=np.nan)
-        spectral_int_padded = np.pad(result.spectral_intensity, (0, max_len - wave_len), constant_values=np.nan)
-        spectral_phase_padded = np.pad(result.spectral_phase, (0, max_len - wave_len), constant_values=np.nan)
+        wave_padded = np.pad(
+            result.wavelength, (0, max_len - wave_len), constant_values=np.nan
+        )
+        spectral_int_padded = np.pad(
+            result.spectral_intensity, (0, max_len - wave_len), constant_values=np.nan
+        )
+        spectral_phase_padded = np.pad(
+            result.spectral_phase, (0, max_len - wave_len), constant_values=np.nan
+        )
 
-        df = pd.DataFrame({
-            'time_fs': time_padded,
-            'temporal_intensity': temporal_int_padded,
-            'temporal_phase': temporal_phase_padded,
-            'wavelength_nm': wave_padded,
-            'spectral_intensity': spectral_int_padded,
-            'spectral_phase': spectral_phase_padded,
-        })
+        df = pd.DataFrame(
+            {
+                "time_fs": time_padded,
+                "temporal_intensity": temporal_int_padded,
+                "temporal_phase": temporal_phase_padded,
+                "wavelength_nm": wave_padded,
+                "spectral_intensity": spectral_int_padded,
+                "spectral_phase": spectral_phase_padded,
+            }
+        )
 
         file_path = auxiliary_data.get("file_path", None)
         if file_path is not None:
