@@ -206,10 +206,12 @@ class FrogDllRetrieval:
         Parameters
         ----------
         trace : NDArray[np.float64]
-            2D array of shape (nw, ntau) — the Grenouille/FROG trace image.
-            Wavelength on axis 0 (vertical), time delay on axis 1 (horizontal).
+            2D array of shape (ntau, nw) — the raw Grenouille camera image.
+            Time delay on axis 0 (rows), wavelength on axis 1 (columns).
+            For the standard Grenouille camera this is (576, 768).
+            The time axis will be binned automatically based on grid size N.
         delt : float
-            Time delay step in femtoseconds.
+            Time delay step per raw pixel in femtoseconds (before binning).
         dellam : float
             Wavelength step in nanometers (may be negative per instrument convention).
         lam0 : float
@@ -253,12 +255,27 @@ class FrogDllRetrieval:
                 f"Grid size N must be one of {self.VALID_GRID_SIZES}, got {N}"
             )
 
-        nw, ntau = trace.shape
+        # Pre-bin the time axis (axis 0 = rows = time delay)
+        # This matches LabVIEW's preprocessing before GridData.
+        bin_factor = self.GRID_BINNING[N]
+        n_rows = trace.shape[0]
+        n_binned_rows = n_rows // bin_factor
+        # Trim rows to be evenly divisible by bin_factor, then average
+        trimmed = trace[: n_binned_rows * bin_factor, :]
+        trace = trimmed.reshape(n_binned_rows, bin_factor, -1).mean(axis=1)
+
+        # Scale delt by the bin factor (each binned pixel spans bin_factor
+        # raw pixels in time)
+        delt = delt * bin_factor
+
+        # After binning: axis 0 = time (ntau), axis 1 = wavelength (nw)
+        ntau, nw = trace.shape
         logger.info(
-            "Starting FROG DLL retrieval: trace shape (%d, %d), "
-            "delt=%.4f fs, dellam=%.4f nm, lam0=%.2f nm, N=%d",
-            nw,
+            "Starting FROG DLL retrieval: binned trace shape (%d, %d), "
+            "bin_factor=%d, delt=%.4f fs, dellam=%.4f nm, lam0=%.2f nm, N=%d",
             ntau,
+            nw,
+            bin_factor,
             delt,
             dellam,
             lam0,
