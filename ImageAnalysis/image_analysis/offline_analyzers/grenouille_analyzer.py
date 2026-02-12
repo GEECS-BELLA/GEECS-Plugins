@@ -102,17 +102,27 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             f"{self.camera_name}_frog_error": result.frog_error,
         }
 
-        # Create DataFrame with 6 columns
-        df = pd.DataFrame(
-            {
-                "time_fs": result.time,
-                "temporal_intensity": result.temporal_intensity,
-                "temporal_phase": result.temporal_phase,
-                "wavelength_nm": result.wavelength,
-                "spectral_intensity": result.spectral_intensity,
-                "spectral_phase": result.spectral_phase,
-            }
-        )
+        # Pad shorter array with NaN to match lengths
+        time_len = len(result.time)
+        wave_len = len(result.wavelength)
+        max_len = max(time_len, wave_len)
+
+        time_padded = np.pad(result.time, (0, max_len - time_len), constant_values=np.nan)
+        temporal_int_padded = np.pad(result.temporal_intensity, (0, max_len - time_len), constant_values=np.nan)
+        temporal_phase_padded = np.pad(result.temporal_phase, (0, max_len - time_len), constant_values=np.nan)
+
+        wave_padded = np.pad(result.wavelength, (0, max_len - wave_len), constant_values=np.nan)
+        spectral_int_padded = np.pad(result.spectral_intensity, (0, max_len - wave_len), constant_values=np.nan)
+        spectral_phase_padded = np.pad(result.spectral_phase, (0, max_len - wave_len), constant_values=np.nan)
+
+        df = pd.DataFrame({
+            'time_fs': time_padded,
+            'temporal_intensity': temporal_int_padded,
+            'temporal_phase': temporal_phase_padded,
+            'wavelength_nm': wave_padded,
+            'spectral_intensity': spectral_int_padded,
+            'spectral_phase': spectral_phase_padded,
+        })
 
         file_path = auxiliary_data.get("file_path", None)
         if file_path is not None:
