@@ -1,0 +1,10 @@
+experiment: "Bella"
+devices:
+  - name: "CAM-PL1-TapeDrivePointing"
+    active: true
+    variable: "MaxCounts"
+    threshold: 140
+  - name: "CAM-PL1-Tapetarget_view"
+    active: false
+    variable: "MeanCounts"
+    threshold: 140
