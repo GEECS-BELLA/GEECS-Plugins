@@ -1,3 +1,9 @@
+'''
+GEECS Interlock Server
+date: 2026-02-13
+author: J. Ramirez
+'''
+
 import socket
 import threading
 import time
