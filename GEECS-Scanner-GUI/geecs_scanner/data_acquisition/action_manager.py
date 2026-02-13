@@ -415,12 +415,12 @@ class ActionManager:
 
     def ping_devices_in_action_list(self, action_steps: List[ActionStep]):
         """
-        Verify device connectivity for all unique devices in an action sequence.
+        Verify device connectivity by checking instantiation status.
 
-        This method performs a comprehensive connectivity check by attempting
-        to retrieve the system timestamp from each unique device involved in
-        the action steps. It ensures that all required devices are operational
-        before executing an action sequence.
+        This method performs a lightweight connectivity check by verifying that
+        each device was successfully instantiated. Since instantiation includes
+        an initial TCP connection test, this confirms the device was reachable
+        at that time.
 
         Parameters
         ----------
@@ -429,14 +429,16 @@ class ActionManager:
 
         Raises
         ------
-        GeecsDeviceInstantiationError
-            If any device in the action list is not turned on or cannot be pinged.
+        Exception
+            If any device failed the instantiation connectivity test.
 
         Notes
         -----
         Connectivity Check Process:
         - Identifies unique devices from SetStep and GetStep action types
-        - Attempts to retrieve 'SysTimestamp' from each device
+        - Checks "Device alive on instantiation" state flag
+        - Avoids expensive variable reads or repeated device commands
+        - Devices are automatically deduplicated by the set comprehension
         - Provides early detection of device connectivity issues
         - Prevents execution of actions with unavailable devices
 
@@ -445,29 +447,32 @@ class ActionManager:
         >>> action_mgr = ActionManager('/path/to/experiment')
         >>> steps = [SetStep(device='LaserController', variable='power', value=5.0)]
         >>> action_mgr.ping_devices_in_action_list(steps)
-        # Checks if LaserController is available and responsive
+        # Checks if LaserController was successfully instantiated
 
         See Also
         --------
         _get_or_create_device : Device instantiation utility method
-        return_value : Method for retrieving device variable values
         """
         devices = {
             step.device for step in action_steps if isinstance(step, (SetStep, GetStep))
         }
 
-        logger.info("Checking connectivity for %s devices", len(devices))
+        logger.info(
+            "Checking instantiation status for %d unique device(s)", len(devices)
+        )
 
         for device_name in devices:
             try:
-                timestamp = self.return_value(device_name, "SysTimestamp")
-                logger.debug(
-                    "Device %s connectivity check passed. Timestamp: %s",
-                    device_name,
-                    timestamp,
-                )
+                device = self._get_or_create_device(device_name)
+                if not device.state.get("Device alive on instantiation", False):
+                    raise Exception(
+                        f"Device {device_name} failed instantiation connectivity test"
+                    )
+                logger.debug("Device %s instantiation check passed", device_name)
             except Exception:
-                logger.exception("Device connectivity check failed for %s", device_name)
+                logger.exception(
+                    "Device instantiation check failed for %s", device_name
+                )
                 raise
 
     def clear_action(self, action_name: str):
