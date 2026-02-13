@@ -213,7 +213,7 @@ class LiveTaskRunner:
                                 month=self.date_tag.month,
                                 day=self.date_tag.day,
                                 number=num,
-                                experiment=self.experiment,
+                                experiment=self.date_tag.experiment,
                             )
                         )
         return tags
