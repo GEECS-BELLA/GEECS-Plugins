@@ -61,30 +61,30 @@ class InterlockServer:
         with self.flags_lock:
             return self.interlock_flags.copy()
         
-    def register_monitor(self, name: str, check_func: Callable[[], bool], interval: float = 0.5):
-        """ 
-        Register a monitoring function that periodically checks a condition and updates the interlock flag.
+    # def register_monitor(self, name: str, check_func: Callable[[], bool], interval: float = 0.5):
+    #     """ 
+    #     Register a monitoring function that periodically checks a condition and updates the interlock flag.
 
-        Args:
-            name: identifier for the interlock
-            check_func: returns True if interlock should trigger
-            interval: acquisition interval (sec)
-        """
-        def monitor_loop():
-            self.interlock_flags[name] = False # Initialize
-            while self.server_running:
-                try:
-                    result = check_func()
-                    self.set_interlock(name, result)
-                except Exception as e:
-                    print(f"Error in monitor '{name}': {e}")
-                    self.set_interlock(name, True)  # Set interlock active on error (check w Tony)
-                time.sleep(interval)
+    #     Args:
+    #         name: identifier for the interlock
+    #         check_func: returns True if interlock should trigger
+    #         interval: acquisition interval (sec)
+    #     """
+    #     def monitor_loop():
+    #         self.interlock_flags[name] = False # Initialize
+    #         while self.server_running:
+    #             try:
+    #                 result = check_func()
+    #                 self.set_interlock(name, result)
+    #             except Exception as e:
+    #                 print(f"Error in monitor '{name}': {e}")
+    #                 self.set_interlock(name, True)  # Set interlock active on error (check w Tony)
+    #             time.sleep(interval)
 
-        thread = threading.Thread(target=monitor_loop, daemon=True)
-        self._monitor_threads.append(thread)
-        if self.server_running:
-            thread.start()
+    #     thread = threading.Thread(target=monitor_loop, daemon=True)
+    #     self._monitor_threads.append(thread)
+    #     if self.server_running:
+    #         thread.start()
 
 
 ### TCP Server Code Below - No need to modify unless you want to change the protocol or add authentication, etc. ###
