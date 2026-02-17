@@ -33,7 +33,7 @@ class InterlockServer:
         self._server_thread = None
         self._monitor_threads = []
 
-    def set_interlock(self, name: str, is_active: bool):
+    def set_interlock(self, name: str, check_func: Callable[[], bool]):
         """
         Set an interlock flag manually.
 
@@ -41,12 +41,32 @@ class InterlockServer:
             name: indentifier for the interlock
             is_active: True if the interlock should trigger
         """
-        with self.flags_lock:
-            old_state = self.interlock_flags.get(name, False)
-            self.interlock_flags[name] = is_active
-            if is_active != old_state:
-                status = "ACTIVE" if is_active else "NOT_ACTIVE"
-                print(f"[{name}] Interlock {status}")
+        # with self.flags_lock:
+        #     old_state = self.interlock_flags.get(name, False)
+        #     self.interlock_flags[name] = is_active
+        #     if is_active != old_state:
+        #         status = "ACTIVE" if is_active else "NOT_ACTIVE"
+        #         print(f"[{name}] Interlock {status}")
+        def monitor_loop():
+            while self.server_running:
+                try:
+                    result = check_func()
+                    with self.flags_lock:
+                        old_state = self.interlock_flags.get(name, False)
+                        self.interlock_flags[name] = result
+                        if result != old_state:
+                            status = "ACTIVE" if result else "NOT_ACTIVE"
+                            print(f"[{name}] Interlock {status}")
+                except Exception as e:
+                    print(f"Error in interlock '{name}': {e}")
+                    with self.flags_lock:
+                        self.interlock_flags[name] = True  # Fail Safe - set to unsafe on error
+                time.sleep(0.5) # Adjust the checking interval as needed
+
+        thread = threading.Thread(target=monitor_loop, daemon=True)
+        self._monitor_threads.append(thread)
+        if self.server_running:
+            thread.start()
 
     def get_interlock(self, name: str) -> bool:
         """ 
@@ -158,7 +178,7 @@ class InterlockServer:
         # Start server thread
         self._server_thread = threading.Thread(target=self._server_loop, daemon=True)
         self._server_thread.start()
-        print(f"Interlock server started with {len(self.interlock_flags)} monitor(s)")
+        # print(f"Interlock server started with {len(self.interlock_flags)} monitor(s)")
     
     def stop(self):
         """Stop the interlock server."""
