@@ -475,7 +475,7 @@ class FileMover:
             The task containing file movement parameters such as source and target directories,
             device name, expected timestamp, and shot index.
         """
-        if task.retry_count>0:
+        if task.retry_count > 0:
             time.sleep(0.5)
         self.task_queue.put(task)
 
