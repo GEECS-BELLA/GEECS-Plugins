@@ -729,6 +729,7 @@ class ScanManager:
             # Re-queue tasks that failed during live acquisition (file may
             # not have been on disk yet when the worker first checked).
             self.data_logger.file_mover._post_process_orphan_task()
+            self.data_logger.file_mover.task_queue.join()  # wait for orphan tasks to finish before filesystem sweep
 
             if self.save_local:
                 # Sweep the filesystem for any remaining unmatched files
