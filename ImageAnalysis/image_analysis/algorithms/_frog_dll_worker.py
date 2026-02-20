@@ -96,6 +96,20 @@ def main():
     # Load DLL
     frog = ctypes.WinDLL(dll_path)
 
+    # Seed the C runtime RNG before DLLInit.
+    # The FROG DLL uses rand() internally to generate a random initial
+    # pulse guess.  Without an explicit srand() call the C runtime
+    # defaults to seed=1, which produces a fixed sequence that can be
+    # degenerate for certain grid sizes.  LabVIEW seeds the RNG as part
+    # of its runtime startup; we must do it ourselves.
+    try:
+        msvcrt = ctypes.CDLL("msvcrt")
+        seed = int(time.time()) & 0xFFFFFFFF
+        msvcrt.srand(ctypes.c_uint(seed))
+        print("Seeded RNG: srand({0})".format(seed), file=sys.stderr)
+    except Exception as e:
+        print("Warning: could not seed RNG: {0}".format(e), file=sys.stderr)
+
     # ----------------------------------------------------------------
     # DLLInit — initialize the retrieval engine
     # ----------------------------------------------------------------
