@@ -173,6 +173,17 @@ def main():
     )
 
     # ----------------------------------------------------------------
+    # InitReconField — generate random initial pulse guess
+    # ----------------------------------------------------------------
+    # This DLL function populates the internal E-field reconstruction
+    # arrays with a random initial guess.  Without this call the DLL
+    # starts from zeros/garbage and may never converge.  LabVIEW always
+    # calls this before the iteration loop (when not reusing a previous
+    # retrieval as the starting guess).
+    frog.InitReconField()
+    print("InitReconField called", file=sys.stderr)
+
+    # ----------------------------------------------------------------
     # DoOneIteration loop — iterative pulse retrieval
     # ----------------------------------------------------------------
     frogerr = ctypes.c_double(0.0)
