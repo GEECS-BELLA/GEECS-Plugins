@@ -344,6 +344,10 @@ class FrogDllRetrieval:
                     f"stderr: {result.stderr}"
                 )
 
+            if result.stderr.strip():
+                for line in result.stderr.strip().splitlines():
+                    logger.info("FROG worker: %s", line)
+
             if result.stdout.strip():
                 logger.info("FROG worker: %s", result.stdout.strip())
 
