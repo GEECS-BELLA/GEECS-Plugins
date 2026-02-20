@@ -908,7 +908,7 @@ class ScanManager:
             )
             raise
 
-        time.sleep(1.5)
+        time.sleep(2.5)
 
         device_var = self.scan_config.device_var
         if device_var:
