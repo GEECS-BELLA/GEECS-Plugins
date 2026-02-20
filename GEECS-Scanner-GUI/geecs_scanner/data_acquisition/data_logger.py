@@ -102,7 +102,7 @@ class FileMoveTask:
         None  # The standardized file stem (e.g., "Scan001_DeviceA_005")
     )
     retry_count: int = 0  # Number of times this task has been re-queued
-    max_retries: int = 1  # Maximum number of re-queue attempts before orphaning
+    max_retries: int = 2  # Maximum number of re-queue attempts before orphaning
 
 
 class FileMover:
@@ -475,6 +475,8 @@ class FileMover:
             The task containing file movement parameters such as source and target directories,
             device name, expected timestamp, and shot index.
         """
+        if task.retry_count>0:
+            time.sleep(0.5)
         self.task_queue.put(task)
 
     def _post_process_orphaned_files(
