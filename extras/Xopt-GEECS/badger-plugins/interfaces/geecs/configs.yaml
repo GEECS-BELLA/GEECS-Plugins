@@ -1,7 +1,0 @@
----
-name: geecs
-version: "0.1"
-dependencies:
-  - badger-opt
-  - numpy
-  - geecs_python_api

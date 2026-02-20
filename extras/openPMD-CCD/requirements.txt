@@ -1,4 +1,0 @@
-pillow
-python-dateutil
-numpy
-h5py>=2.5.0
