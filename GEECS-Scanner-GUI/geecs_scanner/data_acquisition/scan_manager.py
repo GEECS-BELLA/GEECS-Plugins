@@ -722,15 +722,21 @@ class ScanManager:
             # Step 6: Process results, save to disk, and log data
             log_df = self.scan_data_manager.process_results(self.results)
 
-            # pass log_df to the post process cleanup method in the file mover of data logger
+            # Signal that the scan is no longer live so orphaned files
+            # are no longer skipped during task processing.
+            self.data_logger.file_mover.scan_is_live = False
+
+            # Re-queue tasks that failed during live acquisition (file may
+            # not have been on disk yet when the worker first checked).
+            self.data_logger.file_mover._post_process_orphan_task()
+
             if self.save_local:
+                # Sweep the filesystem for any remaining unmatched files
+                # and create new tasks for them based on the log DataFrame.
                 self.data_logger.file_mover._post_process_orphaned_files(
                     log_df=log_df,
                     device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping,
                 )
-            else:
-                self.data_logger.file_mover.scan_is_live = False
-                self.data_logger.file_mover._post_process_orphan_task()
 
             self.data_logger.file_mover.shutdown(wait=True)
 
