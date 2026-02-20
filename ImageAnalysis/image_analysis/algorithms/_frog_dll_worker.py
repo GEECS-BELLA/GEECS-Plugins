@@ -96,6 +96,20 @@ def main():
     # Load DLL
     frog = ctypes.WinDLL(dll_path)
 
+    # Seed the C runtime RNG before DLLInit.
+    # The FROG DLL uses rand() internally to generate a random initial
+    # pulse guess.  Without an explicit srand() call the C runtime
+    # defaults to seed=1, which produces a fixed sequence that can be
+    # degenerate for certain grid sizes.  LabVIEW seeds the RNG as part
+    # of its runtime startup; we must do it ourselves.
+    try:
+        msvcrt = ctypes.CDLL("msvcrt")
+        seed = int(time.time()) & 0xFFFFFFFF
+        msvcrt.srand(ctypes.c_uint(seed))
+        print("Seeded RNG: srand({0})".format(seed), file=sys.stderr)
+    except Exception as e:
+        print("Warning: could not seed RNG: {0}".format(e), file=sys.stderr)
+
     # ----------------------------------------------------------------
     # DLLInit — initialize the retrieval engine
     # ----------------------------------------------------------------
@@ -111,6 +125,7 @@ def main():
 
     status = ctypes.c_int16(0)
 
+    init_start = time.time()
     frog.DLLInit(
         ctypes.cast(Er, ctypes.POINTER(ctypes.c_double)),
         ctypes.cast(Ei, ctypes.POINTER(ctypes.c_double)),
@@ -123,13 +138,22 @@ def main():
         ctypes.c_int16(run_type),
         ctypes.byref(status),
     )
+    init_elapsed = time.time() - init_start
+    print(
+        "DLLInit: status={0}, N={1}, geometry={2}, run_type={3}, "
+        "elapsed={4:.3f}s".format(status.value, N, geometry, run_type, init_elapsed),
+        file=sys.stderr,
+    )
 
     if status.value != 0:
-        print("DLLInit returned status {0}".format(status.value), file=sys.stderr)
+        print(
+            "DLLInit returned non-zero status {0}".format(status.value), file=sys.stderr
+        )
 
     # ----------------------------------------------------------------
     # GridData — resample the raw trace onto the N x N grid
     # ----------------------------------------------------------------
+    grid_start = time.time()
     frog.GridData(
         ctypes.cast(rawdata, ctypes.POINTER(ctypes.c_double)),
         ctypes.c_int32(ntau),
@@ -139,6 +163,25 @@ def main():
         ctypes.c_double(lam0),
         ctypes.c_char_p(b"frog_output"),
     )
+    grid_elapsed = time.time() - grid_start
+    print(
+        "GridData: ntau={0}, nw={1}, delt={2:.4f}, dellam={3:.4f}, "
+        "lam0={4:.2f}, elapsed={5:.3f}s".format(
+            ntau, nw, delt, dellam, lam0, grid_elapsed
+        ),
+        file=sys.stderr,
+    )
+
+    # ----------------------------------------------------------------
+    # InitReconField — generate random initial pulse guess
+    # ----------------------------------------------------------------
+    # This DLL function populates the internal E-field reconstruction
+    # arrays with a random initial guess.  Without this call the DLL
+    # starts from zeros/garbage and may never converge.  LabVIEW always
+    # calls this before the iteration loop (when not reusing a previous
+    # retrieval as the starting guess).
+    frog.InitReconField()
+    print("InitReconField called", file=sys.stderr)
 
     # ----------------------------------------------------------------
     # DoOneIteration loop — iterative pulse retrieval
@@ -149,19 +192,39 @@ def main():
     start_time = time.time()
 
     for k in range(max_iterations):
+        iter_start = time.time()
         frog.DoOneIteration(
             ctypes.c_int16(k),
             ctypes.byref(frogerr),
             ctypes.byref(iter_status),
         )
+        iter_elapsed = time.time() - iter_start
         num_iterations = k + 1
+
+        # Log every iteration for first 10, then every 10th, then every 50th
+        if k < 10 or (k < 100 and k % 10 == 0) or k % 50 == 0:
+            print(
+                "Iter {0}: error={1:.6f}, status={2}, elapsed={3:.3f}s".format(
+                    k, frogerr.value, iter_status.value, iter_elapsed
+                ),
+                file=sys.stderr,
+            )
 
         # Early stop on convergence
         if frogerr.value > 0 and frogerr.value < target_error:
+            print(
+                "Converged at iteration {0}: error={1:.6f}".format(k, frogerr.value),
+                file=sys.stderr,
+            )
             break
 
         # Early stop on time limit
         if (time.time() - start_time) > max_time_seconds:
+            print(
+                "Time limit reached at iteration {0}: error={1:.6f}, "
+                "elapsed={2:.1f}s".format(k, frogerr.value, time.time() - start_time),
+                file=sys.stderr,
+            )
             break
 
     # ----------------------------------------------------------------
