@@ -111,6 +111,11 @@ class Array2DAnalyzerConfig(BaseModel):
 
     Attributes
     ----------
+    id : Optional[str]
+        Unique analyzer identifier used for task-queue status tracking.
+        Defaults to ``device_name`` when not provided.  Must be unique
+        across all analyzers in an experiment config when multiple
+        analyzers share the same ``device_name``.
     type : Literal["array2d"]
         Analyzer type identifier (must be "array2d")
     device_name : str
@@ -149,6 +154,10 @@ class Array2DAnalyzerConfig(BaseModel):
     ... )
     """
 
+    id: Optional[str] = Field(
+        default=None,
+        description="Unique analyzer identifier for task-queue tracking. Defaults to device_name.",
+    )
     type: Literal["array2d"] = Field(
         default="array2d", description="Analyzer type identifier"
     )
@@ -185,6 +194,13 @@ class Array2DAnalyzerConfig(BaseModel):
         default=True, description="Whether this analyzer is enabled"
     )
 
+    @model_validator(mode="after")
+    def default_id_to_device_name(self) -> "Array2DAnalyzerConfig":
+        """Set ``id`` to ``device_name`` when the user omits it."""
+        if self.id is None:
+            self.id = self.device_name
+        return self
+
 
 class Array1DAnalyzerConfig(BaseModel):
     """
@@ -195,6 +211,11 @@ class Array1DAnalyzerConfig(BaseModel):
 
     Attributes
     ----------
+    id : Optional[str]
+        Unique analyzer identifier used for task-queue status tracking.
+        Defaults to ``device_name`` when not provided.  Must be unique
+        across all analyzers in an experiment config when multiple
+        analyzers share the same ``device_name``.
     type : Literal["array1d"]
         Analyzer type identifier (must be "array1d")
     device_name : str
@@ -232,6 +253,10 @@ class Array1DAnalyzerConfig(BaseModel):
     ... )
     """
 
+    id: Optional[str] = Field(
+        default=None,
+        description="Unique analyzer identifier for task-queue tracking. Defaults to device_name.",
+    )
     type: Literal["array1d"] = Field(
         default="array1d", description="Analyzer type identifier"
     )
@@ -267,6 +292,13 @@ class Array1DAnalyzerConfig(BaseModel):
     is_active: bool = Field(
         default=True, description="Whether this analyzer is enabled"
     )
+
+    @model_validator(mode="after")
+    def default_id_to_device_name(self) -> "Array1DAnalyzerConfig":
+        """Set ``id`` to ``device_name`` when the user omits it."""
+        if self.id is None:
+            self.id = self.device_name
+        return self
 
 
 # Union type for all analyzer configs

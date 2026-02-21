@@ -243,8 +243,8 @@ def _create_array2d_analyzer(config: Array2DAnalyzerConfig) -> "ScanAnalyzer":
         )
         analyzer = Array2DScanAnalyzer(**kwargs)
 
-        # Attach priority for later sorting
-        # This is safe since we're just adding an attribute, not modifying the class
+        # Attach id and priority for task-queue status tracking and sorting
+        analyzer.id = config.id
         analyzer.priority = config.priority
 
         return analyzer
@@ -284,7 +284,8 @@ def _create_array1d_analyzer(config: Array1DAnalyzerConfig) -> "ScanAnalyzer":
         )
         analyzer = Array1DScanAnalyzer(**kwargs)
 
-        # Attach priority for later sorting
+        # Attach id and priority for task-queue status tracking and sorting
+        analyzer.id = config.id
         analyzer.priority = config.priority
 
         return analyzer
