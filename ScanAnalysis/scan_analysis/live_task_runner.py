@@ -206,7 +206,7 @@ class LiveTaskRunner:
             for f in scan_root.iterdir():
                 if f.is_file():
                     num = extract_scan_number(f.name)
-                    if num is not None:
+                    if num is not None and num >= self.date_tag.number:
                         tags.append(
                             ScanTag(
                                 year=self.date_tag.year,
