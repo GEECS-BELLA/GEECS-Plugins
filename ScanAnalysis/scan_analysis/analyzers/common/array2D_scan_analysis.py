@@ -233,8 +233,11 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
                 )
                 for shot_num, result in self.results.items()
             ]
-            animation_path = self.path_dict["save"] / "noscan.gif"
-            self.renderer.render_animation(contexts, config, animation_path)
+            # TODO: saving a gif should optional and configurable
+            save_gif=False
+            if save_gif:
+                animation_path = self.path_dict["save"] / "noscan.gif"
+                self.renderer.render_animation(contexts, config, animation_path)
 
     def _postprocess_scan(self) -> None:
         """
