@@ -359,3 +359,31 @@ def flatten_beam_stats(
             key = f"{key}{suffix_str}"
             flat[key] = v
     return flat
+
+
+# ---------------------------------------------------------------------------
+# Backward compatibility: re-export functions moved to basic_line_stats
+# ---------------------------------------------------------------------------
+_MOVED_TO_BASIC_LINE_STATS = {
+    "compute_center_of_mass",
+    "compute_rms",
+    "compute_fwhm",
+    "compute_peak_location",
+}
+
+
+def __getattr__(name):
+    if name in _MOVED_TO_BASIC_LINE_STATS:
+        import warnings
+
+        from image_analysis.algorithms import basic_line_stats
+
+        warnings.warn(
+            f"{name} has been moved to image_analysis.algorithms.basic_line_stats. "
+            f"Please update your imports. This backward-compatible re-export will be "
+            f"removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return getattr(basic_line_stats, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
