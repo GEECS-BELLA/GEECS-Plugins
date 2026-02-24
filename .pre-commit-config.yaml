@@ -21,7 +21,7 @@ repos:
       - id: check-symlinks
       - id: check-xml
       - id: check-yaml
-        exclude: "(^extras/|.*/third_party_sdks/)"
+        exclude: "(^extras/|.*/third_party_sdks/|.*_ui\\.py$|.*/tests/)"
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.9
@@ -40,7 +40,7 @@ repos:
       - id: pydocstyle
         additional_dependencies: [tomli]
         args: [--convention=numpy, --add-ignore=D401,D200,D400]
-        exclude: "(^extras/|.*/third_party_sdks/|.*_ui\\.py$)"
+        exclude: "(^extras/|.*/third_party_sdks/|.*_ui\\.py$|.*/tests/)"
 
   - repo: local
     hooks:

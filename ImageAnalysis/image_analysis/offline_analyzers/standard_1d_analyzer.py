@@ -113,7 +113,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
         return result.data  # Return Nx2 array
 
     def preprocess_data(self, data: np.ndarray) -> np.ndarray:
-        """Apply processing pipeline to 1D data.
+        """Apply processing pipeline to 1D data, including optional axis scaling.
 
         Parameters
         ----------
@@ -123,9 +123,20 @@ class Standard1DAnalyzer(ImageAnalyzer):
         Returns
         -------
         np.ndarray
-            Processed Nx2 array
+            Processed Nx2 array with optional axis scaling applied
         """
-        return apply_line_processing_pipeline(data, self.line_config)
+        # Apply scale factors first (before other processing)
+        # This way all downstream processing uses the scaled values
+        scaled_data = data.copy()
+
+        if self.line_config.x_scale_factor is not None:
+            scaled_data[:, 0] *= self.line_config.x_scale_factor
+
+        if self.line_config.y_scale_factor is not None:
+            scaled_data[:, 1] *= self.line_config.y_scale_factor
+
+        # Then apply the rest of the processing pipeline
+        return apply_line_processing_pipeline(scaled_data, self.line_config)
 
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None
@@ -176,6 +187,9 @@ class Standard1DAnalyzer(ImageAnalyzer):
     ) -> Dict[str, Any]:
         """Build input parameters dictionary including metadata from data loading.
 
+        This method implements unit resolution where config units take precedence
+        over file metadata units, allowing for override/fallback functionality.
+
         Parameters
         ----------
         auxiliary_data : dict, optional
@@ -184,7 +198,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
         Returns
         -------
         dict
-            Input parameters dictionary with metadata
+            Input parameters dictionary with metadata and resolved units
         """
         params = {
             "line_name": self.line_config.name,
@@ -193,9 +207,30 @@ class Standard1DAnalyzer(ImageAnalyzer):
             "data_format": self.line_config.data_format,
         }
 
-        # Add metadata from read_1d_data if available
+        # Add metadata from read_1d_data if available, with unit resolution
         if self.data_metadata is not None:
-            params.update(self.data_metadata)
+            # Unit resolution: config units override file metadata
+            # This allows config to provide fallback units (for NPY files)
+            # or override incorrect file metadata
+            x_units = self.line_config.x_units or self.data_metadata.get("x_units")
+            y_units = self.line_config.y_units or self.data_metadata.get("y_units")
+
+            params.update(
+                {
+                    "x_units": x_units,
+                    "y_units": y_units,
+                    "x_label": self.data_metadata.get("x_label"),
+                    "y_label": self.data_metadata.get("y_label"),
+                }
+            )
+        else:
+            # Fallback to config-only units if file wasn't loaded yet
+            params.update(
+                {
+                    "x_units": self.line_config.x_units,
+                    "y_units": self.line_config.y_units,
+                }
+            )
 
         if auxiliary_data:
             params.update(auxiliary_data)

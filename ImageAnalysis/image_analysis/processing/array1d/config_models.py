@@ -320,14 +320,18 @@ class PipelineConfig(BaseModel):
     Attributes
     ----------
     steps : List[PipelineStepType]
-        Ordered list of processing steps to apply
+        Ordered list of processing steps to apply. Default includes all steps,
+        but steps are only executed if their corresponding config is provided
+        (e.g., ROI step only runs if config.roi is not None).
     """
 
     steps: List[PipelineStepType] = Field(
         default_factory=lambda: [
             PipelineStepType.BACKGROUND,
+            PipelineStepType.ROI,
             PipelineStepType.FILTERING,
             PipelineStepType.THRESHOLDING,
+            PipelineStepType.INTERPOLATION,
         ],
         description="Ordered list of processing steps",
     )
@@ -384,6 +388,37 @@ class Line1DConfig(BaseModel):
         default="x vs y",
         description="Description of data format (e.g., 'wavelength vs intensity')",
     )
+
+    # Unit specification (overrides file metadata if provided)
+    x_units: Optional[str] = Field(
+        default=None,
+        description="X-axis units (e.g., 'nm', 'eV', 's'). If provided, overrides file metadata units.",
+    )
+    y_units: Optional[str] = Field(
+        default=None,
+        description="Y-axis units (e.g., 'a.u.', 'V', 'counts'). If provided, overrides file metadata units.",
+    )
+
+    # Scale factors for unit conversion
+    x_scale_factor: float = Field(
+        default=1.0,
+        description=(
+            "Multiplicative scale factor for x-axis data (e.g., 1e9 to convert seconds to nanoseconds). "
+            "Applied FIRST before all other processing steps (ROI, background, filtering, etc.). "
+            "This means ROI boundaries and threshold values should be specified in the scaled units. "
+            "Default is 1.0 (no scaling)."
+        ),
+    )
+    y_scale_factor: float = Field(
+        default=1.0,
+        description=(
+            "Multiplicative scale factor for y-axis data (e.g., 1e3 to convert volts to millivolts). "
+            "Applied FIRST before all other processing steps (ROI, background, filtering, etc.). "
+            "This means threshold values should be specified in the scaled units. "
+            "Default is 1.0 (no scaling)."
+        ),
+    )
+
     processing_dtype: str = Field(
         default="float64", description="NumPy dtype for processing"
     )
