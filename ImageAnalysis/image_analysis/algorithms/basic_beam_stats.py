@@ -348,9 +348,18 @@ class BeamStatType(str, Enum):
     PEAK_LOCATION = "peak_location"
 
 
-#: The default set of beam statistics computed when no explicit selection is
-#: provided.  This matches the historical behaviour (all stats).
-DEFAULT_BEAM_STATS: Set[BeamStatType] = set(BeamStatType)
+#: The default set of beam statistics reported when no explicit selection is
+#: provided.  Excludes the four slope metrics (com_slope_x/y, peak_slope_x/y)
+#: which are expensive and rarely needed.  Per-axis members (COM, RMS, FWHM,
+#: PEAK_LOCATION) act as wildcards and apply to all four axes (x, y, x_45, y_45).
+DEFAULT_BEAM_STATS: Set[BeamStatType] = {
+    BeamStatType.IMAGE_TOTAL,
+    BeamStatType.IMAGE_PEAK_VALUE,
+    BeamStatType.COM,
+    BeamStatType.RMS,
+    BeamStatType.FWHM,
+    BeamStatType.PEAK_LOCATION,
+}
 
 
 class BeamAnalysisConfig(BaseModel):
@@ -367,10 +376,10 @@ class BeamAnalysisConfig(BaseModel):
     """
 
     enabled_stats: Optional[Set[BeamStatType]] = Field(
-        None,
+        default=None,
         description=(
             "Subset of beam statistics to report. "
-            "None (default) means all statistics are included."
+            "None (default) uses DEFAULT_BEAM_STATS which excludes slope metrics."
         ),
     )
 
@@ -406,19 +415,30 @@ def flatten_beam_stats(
         ``"{section}_{field}{suffix}"`` when only suffix is provided,
         or ``"{section}_{field}"`` when neither is provided.
     """
-    # Build the set of allowed key fragments for fast lookup
-    allowed: Optional[Set[str]] = None
-    if enabled_stats is not None:
-        allowed = {s.value for s in enabled_stats}
+    # Resolve None → DEFAULT_BEAM_STATS
+    effective = enabled_stats if enabled_stats is not None else DEFAULT_BEAM_STATS
+
+    # Build set of allowed key fragments for fast lookup.
+    # Image-level members have values like "image_total" which match the
+    # full fragment directly.  Per-axis members have values like "CoM" which
+    # should match *any* axis prefix (x_CoM, y_rms, x_45_fwhm, …).
+    allowed_full: Set[str] = set()  # matches full "field_k" fragments
+    allowed_field: Set[str] = set()  # matches just the "k" portion
+    for s in effective:
+        val = s.value
+        if val.startswith("image_"):
+            allowed_full.add(val)
+        else:
+            allowed_field.add(val)
 
     flat: dict[str, float] = {}
     suffix_str = f"_{suffix}" if suffix else ""
     for field in stats._fields:
         nested = getattr(stats, field)
         for k, v in nested._asdict().items():
-            # Filter if enabled_stats was provided
             fragment = f"{field}_{k}"
-            if allowed is not None and fragment not in allowed:
+            # Allow if the full fragment matches OR the field name matches
+            if fragment not in allowed_full and k not in allowed_field:
                 continue
 
             key = f"{prefix}_{fragment}" if prefix else fragment
