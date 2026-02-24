@@ -84,8 +84,10 @@ class LiveTaskRunner:
             Name of the analyzer configuration group to load (e.g., 'HTT', 'Undulator').
             This specifies which set of analyzers to run, independent of data location.
         date_tag : ScanTag
-            ScanTag with year/month/day/experiment (number ignored).
-            The experiment field in date_tag specifies the data location/source.
+            ScanTag with year/month/day/number/experiment.
+            The number field sets the minimum scan number to process (scans below
+            this number are excluded from discovery and the worklist).
+            The experiment field specifies the data location/source.
         config_dir : Path, optional
             Base dir for scan analysis configs (if None, uses scan_analysis_config.base_dir).
         image_config_dir : Path, optional
@@ -206,7 +208,7 @@ class LiveTaskRunner:
             for f in scan_root.iterdir():
                 if f.is_file():
                     num = extract_scan_number(f.name)
-                    if num is not None:
+                    if num is not None and num >= self.date_tag.number:
                         tags.append(
                             ScanTag(
                                 year=self.date_tag.year,

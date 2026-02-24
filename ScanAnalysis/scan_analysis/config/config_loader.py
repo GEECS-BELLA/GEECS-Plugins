@@ -149,6 +149,12 @@ def _resolve_includes(
             if entry.overrides:
                 data = _deep_merge(data, entry.overrides)
 
+            # Propagate the library id as the analyzer's unique id when
+            # the resolved config does not already carry one (or still has
+            # the device_name default from the model validator).
+            if data.get("id") is None or data.get("id") == data.get("device_name"):
+                data["id"] = analyzer_id
+
             if entry.priority is not None:
                 data["priority"] = entry.priority
             else:
