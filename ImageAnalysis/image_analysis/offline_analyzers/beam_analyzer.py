@@ -26,6 +26,7 @@ from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
 
 # Import beam-specific tools
 from image_analysis.algorithms.basic_beam_stats import (
+    BeamAnalysisConfig,
     beam_profile_stats,
     flatten_beam_stats,
 )
@@ -152,6 +153,11 @@ class BeamAnalyzer(StandardAnalyzer):
         # Initialize parent class
         super().__init__(camera_config_name)
 
+        # Validate analysis config (if present) into a typed model
+        self.analysis_config = BeamAnalysisConfig.model_validate(
+            self.camera_config.analysis or {}
+        )
+
         # Store metric suffix for use in analyze_image
         self.metric_suffix = metric_suffix
 
@@ -192,6 +198,7 @@ class BeamAnalyzer(StandardAnalyzer):
             beam_profile_stats(processed_image),
             prefix=self.camera_config.name,
             suffix=self.metric_suffix,
+            enabled_stats=self.analysis_config.enabled_stats,
         )
 
         # Build result with beam-specific data

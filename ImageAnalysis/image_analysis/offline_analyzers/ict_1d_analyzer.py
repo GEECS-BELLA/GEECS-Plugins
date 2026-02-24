@@ -25,7 +25,10 @@ from typing import Optional, Dict
 
 from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
 from image_analysis.types import Array1D, ImageAnalyzerResult
-from image_analysis.algorithms.ict_algorithms import apply_ict_analysis
+from image_analysis.algorithms.ict_algorithms import (
+    ICTAnalysisConfig,
+    apply_ict_analysis,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,15 +62,10 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
     def __init__(self, line_config_name: str):
         super().__init__(line_config_name)
 
-        # Read ICT-specific params from the config's extras, with defaults
-        # that match the algorithm function signature.
-        extras = self.line_config.model_extra or {}
-        ict_params = extras.get("ict_analysis_params", {})
-
-        self.butterworth_order: int = ict_params.get("butterworth_order", 1)
-        self.butterworth_crit_f: float = ict_params.get("butterworth_crit_f", 0.125)
-        self.calibration_factor: float = ict_params.get("calibration_factor", 0.1)
-        self.dt: Optional[float] = ict_params.get("dt", None)
+        # Validate analysis config (if present) into a typed model
+        self.analysis_config = ICTAnalysisConfig.model_validate(
+            self.line_config.analysis or {}
+        )
 
         logger.info("Initialized ICT1DAnalyzer with config '%s'", line_config_name)
 
@@ -86,10 +84,10 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
 
         line_data = initial_result.line_data
 
-        # Resolve dt: use self.dt if provided, otherwise derive from time column
-        # dt = self.dt
-        if self.dt is None:
-            self.dt = float(line_data[1, 0] - line_data[0, 0])
+        # Resolve dt: use config value if provided, otherwise derive from time column
+        dt = self.analysis_config.dt
+        if dt is None:
+            dt = float(line_data[1, 0] - line_data[0, 0])
 
         # Extract voltage trace (column 1) — algorithm expects 1D voltage array
         voltage_trace = line_data[:, 1]
@@ -98,10 +96,10 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
         try:
             charge_pC = apply_ict_analysis(
                 data=voltage_trace,
-                dt=self.dt,
-                butterworth_order=self.butterworth_order,
-                butterworth_crit_f=self.butterworth_crit_f,
-                calibration_factor=self.calibration_factor,
+                dt=dt,
+                butterworth_order=self.analysis_config.butterworth_order,
+                butterworth_crit_f=self.analysis_config.butterworth_crit_f,
+                calibration_factor=self.analysis_config.calibration_factor,
             )
         except Exception as e:
             logger.error("ICT analysis failed: %s", e)

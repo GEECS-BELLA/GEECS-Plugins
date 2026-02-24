@@ -25,7 +25,10 @@ import matplotlib.pyplot as plt
 # Import the StandardAnalyzer parent class
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
 
-from image_analysis.algorithms.frog_dll_retrieval import FrogDllRetrieval
+from image_analysis.algorithms.frog_dll_retrieval import (
+    FrogDllRetrieval,
+    FrogRetrievalConfig,
+)
 
 from image_analysis.types import ImageAnalyzerResult
 
@@ -58,21 +61,10 @@ class GrenouilleAnalyzer(StandardAnalyzer):
 
         self.retrieval = FrogDllRetrieval.from_config()
 
-        # Read grenouille-specific params from the config's extras, with defaults
-        # that match the algorithm function signature.
-        extras = self.camera_config.model_extra or {}
-        grenouille_params = extras.get("grenouille_analysis_params", {})
-
-        self.delt: float = grenouille_params.get("delt", 0.85)  # [fs]
-        self.dellam: float = grenouille_params.get(
-            "dellam", -0.085
-        )  # [nm], negative for Grenouille convention
-        self.lam0: float = grenouille_params.get("lam0", 400.0)
-        self.N: int = grenouille_params.get(
-            "N", 512
-        )  # acceptable values: 512, 256, 128, 64
-        self.target_error: float = grenouille_params.get("target_error", 0.001)
-        self.max_time_seconds: float = grenouille_params.get("max_time_seconds", 5)
+        # Validate analysis config (if present) into a typed model
+        self.analysis_config = FrogRetrievalConfig.model_validate(
+            self.camera_config.analysis or {}
+        )
 
         logger.info(
             "Initialized GrenouilleAnalyzer with config '%s'", camera_config_name
@@ -107,12 +99,12 @@ class GrenouilleAnalyzer(StandardAnalyzer):
 
         result = self.retrieval.retrieve_pulse(
             processed_image,
-            delt=self.delt,
-            dellam=self.dellam,
-            lam0=self.lam0,
-            N=self.N,
-            target_error=self.target_error,
-            max_time_seconds=self.max_time_seconds,
+            delt=self.analysis_config.delt,
+            dellam=self.analysis_config.dellam,
+            lam0=self.analysis_config.lam0,
+            N=self.analysis_config.N,
+            target_error=self.analysis_config.target_error,
+            max_time_seconds=self.analysis_config.max_time_seconds,
         )
 
         scalar_results = {
