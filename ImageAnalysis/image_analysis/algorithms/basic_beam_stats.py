@@ -5,9 +5,12 @@ statistics from images.
 """
 
 from __future__ import annotations
-from typing import Callable, Literal, NamedTuple, Optional, Union
-import numpy as np
+from enum import Enum
+from typing import Callable, Literal, NamedTuple, Optional, Set, Union
 import logging
+
+import numpy as np
+from pydantic import BaseModel, Field
 
 from image_analysis.algorithms.basic_line_stats import (
     LineBasicStats,
@@ -323,10 +326,60 @@ def compute_slope(
     return float(coeffs[0])
 
 
+class BeamStatType(str, Enum):
+    """Identifiers for individual beam statistics.
+
+    Each value corresponds to a key fragment produced by :func:`flatten_beam_stats`.
+    The full key is ``{section}_{field}`` (e.g., ``"x_rms"`` or ``"image_total"``).
+    """
+
+    # Image-level
+    IMAGE_TOTAL = "image_total"
+    IMAGE_PEAK_VALUE = "image_peak_value"
+    IMAGE_COM_SLOPE_X = "image_com_slope_x"
+    IMAGE_COM_SLOPE_Y = "image_com_slope_y"
+    IMAGE_PEAK_SLOPE_X = "image_peak_slope_x"
+    IMAGE_PEAK_SLOPE_Y = "image_peak_slope_y"
+
+    # Per-axis projection stats  (x, y, x_45, y_45)
+    COM = "CoM"
+    RMS = "rms"
+    FWHM = "fwhm"
+    PEAK_LOCATION = "peak_location"
+
+
+#: The default set of beam statistics computed when no explicit selection is
+#: provided.  This matches the historical behaviour (all stats).
+DEFAULT_BEAM_STATS: Set[BeamStatType] = set(BeamStatType)
+
+
+class BeamAnalysisConfig(BaseModel):
+    """Typed configuration for :class:`BeamAnalyzer`.
+
+    This model is validated from ``camera_config.analysis`` at analyzer init
+    time, giving users IDE autocompletion and config-file validation.
+
+    Attributes
+    ----------
+    enabled_stats : set of BeamStatType, optional
+        Subset of beam statistics to include in the flattened output.
+        ``None`` (the default) means *all* statistics.
+    """
+
+    enabled_stats: Optional[Set[BeamStatType]] = Field(
+        None,
+        description=(
+            "Subset of beam statistics to report. "
+            "None (default) means all statistics are included."
+        ),
+    )
+
+
 def flatten_beam_stats(
     stats: BeamStats,
     prefix: Optional[Union[str, None]] = None,
     suffix: Optional[Union[str, None]] = None,
+    enabled_stats: Optional[Set[BeamStatType]] = None,
 ) -> dict[str, float]:
     """Flatten a :class:`BeamStats` instance into a dictionary.
 
@@ -340,6 +393,9 @@ def flatten_beam_stats(
         Optional suffix to append to each key (underscore is auto-prepended).
         Useful for distinguishing multiple analysis variations (e.g., "curtis"
         becomes "_curtis" in the key).
+    enabled_stats : set of BeamStatType, optional
+        If provided, only keys whose ``{section}_{field}`` fragment matches a
+        member of the set are included.  ``None`` (the default) includes all.
 
     Returns
     -------
@@ -350,12 +406,22 @@ def flatten_beam_stats(
         ``"{section}_{field}{suffix}"`` when only suffix is provided,
         or ``"{section}_{field}"`` when neither is provided.
     """
+    # Build the set of allowed key fragments for fast lookup
+    allowed: Optional[Set[str]] = None
+    if enabled_stats is not None:
+        allowed = {s.value for s in enabled_stats}
+
     flat: dict[str, float] = {}
     suffix_str = f"_{suffix}" if suffix else ""
     for field in stats._fields:
         nested = getattr(stats, field)
         for k, v in nested._asdict().items():
-            key = f"{prefix}_{field}_{k}" if prefix else f"{field}_{k}"
+            # Filter if enabled_stats was provided
+            fragment = f"{field}_{k}"
+            if allowed is not None and fragment not in allowed:
+                continue
+
+            key = f"{prefix}_{fragment}" if prefix else fragment
             key = f"{key}{suffix_str}"
             flat[key] = v
     return flat
