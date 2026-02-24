@@ -40,6 +40,7 @@ These aren't strict rules, but general guidelines as to where various functional
 - **Filtering** (`processing/filtering.py`): Noise reduction and image enhancement
 - **Transforms** (`processing/transforms.py`): Geometric transformations and corrections
 - **Thresholding** (`processing/thresholding.py`): Intensity-based image segmentation
+- **and more** we continually add new features
 
 *Ready-to-Use Analyzers*
 
@@ -50,10 +51,6 @@ These aren't strict rules, but general guidelines as to where various functional
 ## Examples
 
 The [examples folder](examples/) contains Jupyter notebooks demonstrating:
-
-- **[Basic Offline Analysis](examples/basic_offline_analysis.ipynb)**: The 3-line workflow - extreme simplicity through configuration
-- **[Understanding Configurations](examples/understanding_configurations.ipynb)**: How YAML configs make complex analysis simple
-- **[Batch Processing](examples/batch_processing.ipynb)**: Processing multiple images efficiently with the same simple workflow
 
 
 ## A note on integration with Point Grey Camera device type
@@ -70,10 +67,6 @@ See the [examples](examples/) for detailed configuration workflows.
 
 !!! tip "Configuration Management"
     Store camera configurations in version control alongside your analysis scripts to ensure reproducible results and easy collaboration.
-
-## Installation
-
-Please refer to the [installation guide](installation.md) for detailed setup instructions.
 
 ---
 

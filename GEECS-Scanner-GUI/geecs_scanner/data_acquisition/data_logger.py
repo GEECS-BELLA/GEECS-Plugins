@@ -101,6 +101,8 @@ class FileMoveTask:
     new_name: Optional[str] = (
         None  # The standardized file stem (e.g., "Scan001_DeviceA_005")
     )
+    retry_count: int = 0  # Number of times this task has been re-queued
+    max_retries: int = 2  # Maximum number of re-queue attempts before orphaning
 
 
 class FileMover:
@@ -247,6 +249,7 @@ class FileMover:
             "FROG",
             "Thorlabs CCS175 Spectrometer",
             "RohdeSchwarz_RTA4000",
+            "ThorlabsWFS",
         ]:
             expected_file_count = 2
         elif device_type in ["MagSpecStitcher", "MagSpecCamera"]:
@@ -254,13 +257,11 @@ class FileMover:
         else:
             expected_file_count = 1
 
-        # there is some time overhead in saving to the netapp rather than local. It's possible
+        # There is some time overhead in saving to the netapp rather than local. It's possible
         # that the FileMoveTask for a given event is created and queued before the file is
-        # successfully written to the network drive. In that case, no match is found but then
-        # the file is written shortly after. As it stands, each new time stamp is checked
-        # against existing files once, so it's quite possible that a files build up without
-        # getting moved/renamed. In the future, could consider re-queueing a task a fixed number
-        # of times rather than adding a sleep here.
+        # successfully written to disk. Tasks that fail to find a matching file are now
+        # re-queued up to `task.max_retries` times before being marked as orphan tasks,
+        # which are retried during post-scan cleanup.
         if not self.save_local:
             time.sleep(0.1)
 
@@ -329,13 +330,26 @@ class FileMover:
                         break
 
         if not task_success:
-            # Task failed to find a match, log it as an orphaned task
-            logger.info(
-                "failed to find a file for %s with timestamp %s",
-                task.device_name,
-                task.expected_timestamp,
-            )
-            self.orphan_tasks.append(task)
+            if self.scan_is_live and task.retry_count < task.max_retries:
+                # Re-queue the task for another attempt; the file may not
+                # have been written to disk yet.
+                task.retry_count += 1
+                logger.info(
+                    "Re-queuing task for %s with timestamp %s (retry %d/%d)",
+                    task.device_name,
+                    task.expected_timestamp,
+                    task.retry_count,
+                    task.max_retries,
+                )
+                self.move_files_by_timestamp(task)
+            else:
+                # Task exhausted retries (or scan is no longer live); mark as orphan
+                logger.info(
+                    "failed to find a file for %s with timestamp %s",
+                    task.device_name,
+                    task.expected_timestamp,
+                )
+                self.orphan_tasks.append(task)
 
     def _move_file(
         self, task: FileMoveTask, source_file: Path, new_device_name: str
@@ -461,6 +475,8 @@ class FileMover:
             The task containing file movement parameters such as source and target directories,
             device name, expected timestamp, and shot index.
         """
+        if task.retry_count > 0:
+            time.sleep(0.5)
         self.task_queue.put(task)
 
     def _post_process_orphaned_files(

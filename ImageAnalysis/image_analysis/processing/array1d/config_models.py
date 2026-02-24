@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional, List
 
 import numpy as np
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class Data1DType(str, Enum):
@@ -367,6 +367,13 @@ class Line1DConfig(BaseModel):
         Pipeline orchestration configuration
     """
 
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+        use_enum_values=True,
+        validate_assignment=True,
+    )
+
     name: str = Field(..., description="Configuration name/identifier")
     description: str = Field(
         default="", description="Human-readable description of this configuration"
@@ -434,9 +441,3 @@ class Line1DConfig(BaseModel):
         except TypeError:
             raise ValueError(f"Invalid NumPy dtype: {v}")
         return v
-
-    class Config:
-        """Pydantic configuration."""
-
-        use_enum_values = True
-        validate_assignment = True

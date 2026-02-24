@@ -70,26 +70,28 @@ class LiveTaskRunner:
 
     def __init__(
         self,
-        experiment: str,
+        analyzer_group: str,
         date_tag: ScanTag,
         *,
         config_dir: Optional[Path] = None,
         image_config_dir: Optional[Path] = None,
     ):
-        """Initialize runner with experiment, date, and optional config roots.
+        """Initialize runner with analyzer group, date, and optional config roots.
 
         Parameters
         ----------
-        experiment : str
-            Experiment name (e.g., 'Undulator').
+        analyzer_group : str
+            Name of the analyzer configuration group to load (e.g., 'HTT', 'Undulator').
+            This specifies which set of analyzers to run, independent of data location.
         date_tag : ScanTag
             ScanTag with year/month/day/experiment (number ignored).
+            The experiment field in date_tag specifies the data location/source.
         config_dir : Path, optional
             Base dir for scan analysis configs (if None, uses scan_analysis_config.base_dir).
         image_config_dir : Path, optional
             Base dir for image analysis configs (if None, uses image_analysis_config.base_dir).
         """
-        self.experiment = experiment
+        self.analyzer_group = analyzer_group
         self.date_tag = date_tag
         if config_dir:
             scan_analysis_config.set_base_dir(config_dir)
@@ -97,7 +99,7 @@ class LiveTaskRunner:
             image_analysis_config.set_base_dir(image_config_dir)
 
         self.analyzers = load_analyzers_from_config(
-            experiment, config_dir=scan_analysis_config.base_dir
+            analyzer_group, config_dir=scan_analysis_config.base_dir
         )
         self.queue: Queue = Queue()
         self.observer = PollingObserver()
@@ -211,7 +213,7 @@ class LiveTaskRunner:
                                 month=self.date_tag.month,
                                 day=self.date_tag.day,
                                 number=num,
-                                experiment=self.experiment,
+                                experiment=self.date_tag.experiment,
                             )
                         )
         return tags

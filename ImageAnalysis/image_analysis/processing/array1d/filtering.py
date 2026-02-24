@@ -16,11 +16,61 @@ import logging
 from typing import Optional
 
 import numpy as np
-from scipy import ndimage
+from scipy import ndimage, signal
 
 from .config_models import FilteringConfig, FilterMethod
 
 logger = logging.getLogger(__name__)
+
+
+def apply_butterworth_filter(
+    data: np.ndarray,
+    order: int = 1,
+    crit_f: float = 0.125,
+    filt_type: str = "low",
+) -> np.ndarray:
+    """Apply forward-backward Butterworth filter to 1D data.
+
+    Uses scipy.signal.filtfilt for zero-phase filtering (forward and backward
+    propagation) to avoid phase distortion. This is a general-purpose filtering
+    function suitable for any 1D data analysis.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Input signal array (1D)
+    order : int, default=1
+        Filter order (number of poles)
+    crit_f : float, default=0.125
+        Normalized critical frequency (0 < crit_f < 1)
+        where 1.0 corresponds to Nyquist frequency
+    filt_type : str, default='low'
+        Filter type: 'low', 'high', 'band', 'bandstop'
+
+    Returns
+    -------
+    np.ndarray
+        Filtered signal with same shape as input
+
+    Raises
+    ------
+    ValueError
+        If filter parameters are invalid
+    """
+    try:
+        # Design Butterworth filter
+        b, a = signal.butter(order, crit_f, filt_type)
+
+        # Apply filter in forward and backward direction (zero-phase)
+        filtered_data = signal.filtfilt(b, a, data)
+
+        logger.debug(
+            f"Applied Butterworth filter: order={order}, crit_f={crit_f}, type={filt_type}"
+        )
+        return filtered_data
+    except Exception as e:
+        logger.error(f"Butterworth filter failed: {e}")
+        raise ValueError(f"Butterworth filter failed: {e}") from e
 
 
 def apply_gaussian_filter(data: np.ndarray, sigma: float = 1.0) -> np.ndarray:

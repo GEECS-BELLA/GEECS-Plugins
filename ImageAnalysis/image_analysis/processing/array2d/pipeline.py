@@ -19,6 +19,7 @@ from .masking import apply_crosshair_masking, apply_roi_cropping, apply_circular
 from .filtering import apply_filtering_config
 from .transforms import apply_transform_config
 from .thresholding import apply_threshold
+from .normalization import apply_normalization
 from ...utils import ensure_float64_processing
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,13 @@ def _apply_transforms_step(image: Array2D, camera_config: CameraConfig) -> Array
     return image
 
 
+def _apply_normalization_step(image: Array2D, camera_config: CameraConfig) -> Array2D:
+    """Apply normalization if configured."""
+    if camera_config.normalization and camera_config.normalization.enabled:
+        return apply_normalization(image, camera_config.normalization)
+    return image
+
+
 # Step registry mapping step types to their execution functions
 STEP_REGISTRY: Dict[ProcessingStepType, Callable[[Array2D, CameraConfig], Array2D]] = {
     ProcessingStepType.CROSSHAIR_MASKING: _apply_crosshair_step,
@@ -80,6 +88,7 @@ STEP_REGISTRY: Dict[ProcessingStepType, Callable[[Array2D, CameraConfig], Array2
     ProcessingStepType.CIRCULAR_MASK: _apply_circular_mask_step,
     ProcessingStepType.THRESHOLDING: _apply_thresholding_step,
     ProcessingStepType.FILTERING: _apply_filtering_step,
+    ProcessingStepType.NORMALIZATION: _apply_normalization_step,
     ProcessingStepType.TRANSFORMS: _apply_transforms_step,
 }
 
