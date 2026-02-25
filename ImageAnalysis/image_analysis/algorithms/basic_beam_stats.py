@@ -167,30 +167,45 @@ def _line_stats_to_projection_stats(line_stats: LineBasicStats) -> ProjectionSta
     )
 
 
-def beam_profile_stats(img: np.ndarray) -> BeamStats:
+def beam_profile_stats(
+    img: np.ndarray,
+    enabled_stats: Optional[Set[BeamStatType]] = None,
+    include_45: bool = True,
+) -> BeamStats:
     """Compute beam profile statistics from a 2-D image.
 
-    This function computes statistics for 4 projections (x, y, x_45, y_45)
-    using LineBasicStats as the foundation for all 1D calculations.
+    This function computes statistics for up to 4 projections (x, y, x_45, y_45)
+    using LineBasicStats as the foundation for all 1D calculations.  Expensive
+    computations (slopes, 45° projections) are skipped when not requested.
 
     Parameters
     ----------
     img : np.ndarray
         2D image array
+    enabled_stats : set of BeamStatType, optional
+        Statistics to compute.  ``None`` (the default) resolves to
+        :data:`DEFAULT_BEAM_STATS`.  Slope metrics are only computed when
+        at least one slope member is present in this set.
+    include_45 : bool
+        Whether to compute the ±45° diagonal projections.  Default ``True``.
 
     Returns
     -------
     BeamStats
-        Beam statistics including image-level stats and 4 projection stats
+        Beam statistics including image-level stats and projection stats.
+        Fields that were skipped are filled with ``NaN``.
     """
+    effective = enabled_stats if enabled_stats is not None else DEFAULT_BEAM_STATS
+    need_slopes = bool(effective & _SLOPE_STATS)
+
     img = np.asarray(img, dtype=float)
     total_counts = img.sum()
+    nan_proj = ProjectionStats(np.nan, np.nan, np.nan, np.nan)
 
     if total_counts <= 0:
         logger.warning(
             "beam_profile_stats: Image has non-positive total intensity. Returning NaNs."
         )
-        nan_proj = ProjectionStats(np.nan, np.nan, np.nan, np.nan)
         nan_img = ImageStats(
             total=total_counts,
             peak_value=np.nan,
@@ -203,38 +218,60 @@ def beam_profile_stats(img: np.ndarray) -> BeamStats:
             image=nan_img, x=nan_proj, y=nan_proj, x_45=nan_proj, y_45=nan_proj
         )
 
-    # Create 4 projections
+    # --- Standard x/y projections (always computed) ---
     x_proj = img.sum(axis=0)
     y_proj = img.sum(axis=1)
-    x45_proj = _diag_projection(img)  # NW–SE
-    y45_proj = _antidiag_projection(img)  # NE–SW
+    x_stats = _line_stats_to_projection_stats(
+        LineBasicStats(line_data=_projection_to_line_data(x_proj))
+    )
+    y_stats = _line_stats_to_projection_stats(
+        LineBasicStats(line_data=_projection_to_line_data(y_proj))
+    )
 
-    # Compute stats using LineBasicStats (single source of truth)
-    x_line_stats = LineBasicStats(line_data=_projection_to_line_data(x_proj))
-    y_line_stats = LineBasicStats(line_data=_projection_to_line_data(y_proj))
-    x45_line_stats = LineBasicStats(line_data=_projection_to_line_data(x45_proj))
-    y45_line_stats = LineBasicStats(line_data=_projection_to_line_data(y45_proj))
+    # --- 45° projections (skipped when not requested) ---
+    if include_45:
+        x45_stats = _line_stats_to_projection_stats(
+            LineBasicStats(line_data=_projection_to_line_data(_diag_projection(img)))
+        )
+        y45_stats = _line_stats_to_projection_stats(
+            LineBasicStats(
+                line_data=_projection_to_line_data(_antidiag_projection(img))
+            )
+        )
+    else:
+        x45_stats = nan_proj
+        y45_stats = nan_proj
 
-    # Compute straightness metrics
-    com_x_data = extract_line_stats(img, compute_center_of_mass, axis="x")
-    com_y_data = extract_line_stats(img, compute_center_of_mass, axis="y")
-    peak_x_data = extract_line_stats(img, compute_peak_location, axis="x")
-    peak_y_data = extract_line_stats(img, compute_peak_location, axis="y")
+    # --- Slope metrics (skipped when not requested) ---
+    if need_slopes:
+        com_slope_x = compute_slope(
+            *extract_line_stats(img, compute_center_of_mass, axis="x")
+        )
+        com_slope_y = compute_slope(
+            *extract_line_stats(img, compute_center_of_mass, axis="y")
+        )
+        peak_slope_x = compute_slope(
+            *extract_line_stats(img, compute_peak_location, axis="x")
+        )
+        peak_slope_y = compute_slope(
+            *extract_line_stats(img, compute_peak_location, axis="y")
+        )
+    else:
+        com_slope_x = com_slope_y = peak_slope_x = peak_slope_y = np.nan
 
-    # Convert to ProjectionStats (extract 4 of 7 fields)
     return BeamStats(
         image=ImageStats(
             total=total_counts,
             peak_value=np.max(img),
-            com_slope_x=compute_slope(*com_x_data),
-            com_slope_y=compute_slope(*com_y_data),
-            peak_slope_x=compute_slope(*peak_x_data),
-            peak_slope_y=compute_slope(*peak_y_data),
+            com_slope_x=com_slope_x,
+            com_slope_y=com_slope_y,
+            peak_slope_x=peak_slope_x,
+            peak_slope_y=peak_slope_y,
         ),
-        x=_line_stats_to_projection_stats(x_line_stats),
-        y=_line_stats_to_projection_stats(y_line_stats),
-        x_45=_line_stats_to_projection_stats(x45_line_stats),
-        y_45=_line_stats_to_projection_stats(y45_line_stats),
+        x=x_stats,
+        y=y_stats,
+        x_45=x45_stats,
+        y_45=y45_stats,
     )
 
 
@@ -362,6 +399,16 @@ DEFAULT_BEAM_STATS: Set[BeamStatType] = {
 }
 
 
+#: The set of slope-related stat types.  Used by :func:`beam_profile_stats` to
+#: decide whether to run the expensive line-by-line slope computation.
+_SLOPE_STATS: Set[BeamStatType] = {
+    BeamStatType.IMAGE_COM_SLOPE_X,
+    BeamStatType.IMAGE_COM_SLOPE_Y,
+    BeamStatType.IMAGE_PEAK_SLOPE_X,
+    BeamStatType.IMAGE_PEAK_SLOPE_Y,
+}
+
+
 class BeamAnalysisConfig(BaseModel):
     """Typed configuration for :class:`BeamAnalyzer`.
 
@@ -372,7 +419,12 @@ class BeamAnalysisConfig(BaseModel):
     ----------
     enabled_stats : set of BeamStatType, optional
         Subset of beam statistics to include in the flattened output.
-        ``None`` (the default) means *all* statistics.
+        ``None`` (the default) uses :data:`DEFAULT_BEAM_STATS` which excludes
+        slope metrics.
+    include_45_projections : bool
+        Whether to compute the ±45° diagonal projections (x_45, y_45).
+        Default is ``True``.  Set to ``False`` to skip the diagonal sums,
+        which saves computation when only x/y stats are needed.
     """
 
     enabled_stats: Optional[Set[BeamStatType]] = Field(
@@ -380,6 +432,13 @@ class BeamAnalysisConfig(BaseModel):
         description=(
             "Subset of beam statistics to report. "
             "None (default) uses DEFAULT_BEAM_STATS which excludes slope metrics."
+        ),
+    )
+    include_45_projections: bool = Field(
+        default=True,
+        description=(
+            "Whether to compute ±45° diagonal projections. "
+            "Set to False to skip diagonal sums when only x/y stats are needed."
         ),
     )
 

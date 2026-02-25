@@ -193,9 +193,14 @@ class BeamAnalyzer(StandardAnalyzer):
 
         processed_image = initial_result.processed_image
 
-        # Compute beam statistics
+        # Compute beam statistics (skipping expensive computations not needed)
+        beam_stats = beam_profile_stats(
+            processed_image,
+            enabled_stats=self.analysis_config.enabled_stats,
+            include_45=self.analysis_config.include_45_projections,
+        )
         beam_stats_flat = flatten_beam_stats(
-            beam_profile_stats(processed_image),
+            beam_stats,
             prefix=self.camera_config.name,
             suffix=self.metric_suffix,
             enabled_stats=self.analysis_config.enabled_stats,
