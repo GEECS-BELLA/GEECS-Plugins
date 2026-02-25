@@ -3,8 +3,7 @@
 This module provides a specialized analyzer for beam profile analysis that inherits
 from StandardAnalyzer. It adds beam-specific capabilities:
 - Beam statistics calculation (centroid, width, height, FWHM)
-- Gaussian fitting parameters
-- Beam quality metrics
+- Optional slope/straightness metrics
 - Specialized beam rendering with overlays
 - Lineout generation and analysis
 
@@ -20,16 +19,17 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+from pydantic import BaseModel, Field
 
 # Import the StandardAnalyzer parent class
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
 
 # Import beam-specific tools
 from image_analysis.algorithms.basic_beam_stats import (
-    BeamAnalysisConfig,
     beam_profile_stats,
     flatten_beam_stats,
 )
+from image_analysis.algorithms.beam_slopes import compute_beam_slopes
 from image_analysis.types import ImageAnalyzerResult
 from image_analysis.processing.array2d.config_models import (
     BackgroundConfig,
@@ -38,6 +38,29 @@ from image_analysis.processing.array2d.config_models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class BeamAnalysisConfig(BaseModel):
+    """Typed configuration for :class:`BeamAnalyzer`.
+
+    This model is validated from ``camera_config.analysis`` at analyzer init
+    time, giving users IDE autocompletion and config-file validation.
+
+    Attributes
+    ----------
+    compute_slopes : bool
+        Whether to compute beam slope (straightness) metrics.
+        Default is ``False`` because the computation is expensive
+        (line-by-line stats + weighted linear fits).
+    """
+
+    compute_slopes: bool = Field(
+        default=False,
+        description=(
+            "Whether to compute beam slope (straightness) metrics. "
+            "Expensive: involves line-by-line stats + weighted linear fits."
+        ),
+    )
 
 
 def create_variation_analyzer(
@@ -108,15 +131,13 @@ def create_variation_analyzer(
 
 
 class BeamAnalyzer(StandardAnalyzer):
-    """
-    Beam profile analyzer using the StandardAnalyzer framework.
+    """Beam profile analyzer using the StandardAnalyzer framework.
 
-    This analyzer specializes the StandardAnalyzer for beam profile analysis by adding:
-    - Beam statistics calculation (centroid, width, height, FWHM)
-    - Gaussian fitting parameters
-    - Beam quality metrics
-    - Specialized beam rendering with overlays
-    - Lineout generation and analysis
+    This analyzer specializes the StandardAnalyzer for beam profile analysis by
+    composing algorithm calls:
+
+    - **Always**: basic beam stats (projections along x, y, x_45, y_45)
+    - **Optional**: slope/straightness metrics (via ``compute_slopes`` config flag)
 
     All image processing pipeline functionality is inherited from StandardAnalyzer,
     making this class focused purely on beam-specific analysis.
@@ -169,11 +190,11 @@ class BeamAnalyzer(StandardAnalyzer):
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
     ) -> ImageAnalyzerResult:
-        """
-        Run complete beam analysis using the processing pipeline.
+        """Run complete beam analysis using the processing pipeline.
 
         This method extends the StandardAnalyzer's analyze_image method to add
-        beam-specific analysis including statistics calculation and lineouts.
+        beam-specific analysis.  It always computes basic beam stats (projections)
+        and optionally computes slope metrics when configured.
 
         Parameters
         ----------
@@ -193,24 +214,28 @@ class BeamAnalyzer(StandardAnalyzer):
 
         processed_image = initial_result.processed_image
 
-        # Compute beam statistics (skipping expensive computations not needed)
-        beam_stats = beam_profile_stats(
-            processed_image,
-            enabled_stats=self.analysis_config.enabled_stats,
-            include_45=self.analysis_config.include_45_projections,
-        )
-        beam_stats_flat = flatten_beam_stats(
+        # Always: basic beam stats (projections along x, y, x_45, y_45)
+        beam_stats = beam_profile_stats(processed_image)
+        scalars = flatten_beam_stats(
             beam_stats,
             prefix=self.camera_config.name,
             suffix=self.metric_suffix,
-            enabled_stats=self.analysis_config.enabled_stats,
         )
+
+        # Optional: slope/straightness metrics
+        if self.analysis_config.compute_slopes:
+            slope_scalars = compute_beam_slopes(
+                processed_image,
+                prefix=self.camera_config.name,
+                suffix=self.metric_suffix,
+            )
+            scalars.update(slope_scalars)
 
         # Build result with beam-specific data
         result = ImageAnalyzerResult(
             data_type="2d",
             processed_image=processed_image,
-            scalars=beam_stats_flat,
+            scalars=scalars,
             metadata=initial_result.metadata,
         )
 
