@@ -286,35 +286,3 @@ class BeamAnalyzer(StandardAnalyzer):
         add_marker(ax, (100, 100), size=1, color="blue")
 
         return fig, ax
-
-    def visualize(
-        self,
-        results: ImageAnalyzerResult,
-        *,
-        show: bool = True,
-        close: bool = True,
-        ax: Optional[plt.Axes] = None,
-        vmin: Optional[float] = None,
-        vmax: Optional[float] = None,
-        cmap: str = "plasma",
-    ) -> Tuple[plt.Figure, plt.Axes]:
-        """Render a visualization of the analyzed image with beam overlays.
-
-        This is a simple convenience wrapper that calls :meth:`render_image`
-        and optionally shows or closes the figure.
-        """
-        # Call render_image with all parameters
-        fig, ax = self.render_image(
-            result=results,
-            vmin=vmin,
-            vmax=vmax,
-            cmap=cmap,
-            ax=ax,
-        )
-
-        if show:
-            plt.show()
-        if close:
-            plt.close(fig)
-
-        return fig, ax
