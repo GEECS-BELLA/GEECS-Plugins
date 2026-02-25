@@ -238,13 +238,6 @@ _MOVED_TO_BASIC_LINE_STATS = {
     "compute_peak_location",
 }
 
-#: Functions moved to :mod:`beam_slopes` — provide a deprecation shim.
-_MOVED_TO_BEAM_SLOPES = {
-    "extract_line_stats",
-    "compute_slope",
-    "LineByLineResult",
-}
-
 
 def __getattr__(name):
     """Lazy re-exports for backward compatibility."""
@@ -261,19 +254,3 @@ def __getattr__(name):
             stacklevel=2,
         )
         return getattr(basic_line_stats, name)
-
-    if name in _MOVED_TO_BEAM_SLOPES:
-        import warnings
-
-        from image_analysis.algorithms import beam_slopes
-
-        warnings.warn(
-            f"{name} has been moved to image_analysis.algorithms.beam_slopes. "
-            f"Please update your imports. This backward-compatible re-export will be "
-            f"removed in a future version.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return getattr(beam_slopes, name)
-
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
