@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-B-cave Magnetic Spectrometer Stitcher Analysis
+M3Near Gaussian Fit analyzer
 
 Child to ScanAnalysis (./scan_analysis/base.py)
 """
@@ -23,12 +23,15 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 
 
 # %% classes
-class HTTMagSpecAnalysis(ScanAnalysis):
+class Gaussian_Fit(ScanAnalysis):
+    """
+    Analyzer for fitting a gaussian fit to a camera image
+    """
     def __init__(self, scan_tag: ScanTag, device_name: Optional[str] = None, skip_plt_show: bool = True):
         super().__init__(scan_tag, device_name=None, skip_plt_show=skip_plt_show)
 
-        self.device_list = ['HTT-C23_1_MagSpec1', 'HTT-C23_2_MagSpec2', 'HTT-C23_3_MagSpec3', 'HTT-C23_4_MagSpec4']
-        self.background_tag = ScanData.get_scan_tag(year=2025, month=3, day=26, number=7, experiment='Thomson')
+        self.device_list = ['CAM-HPD-M3Near']
+        self.background_tag = ScanData.get_scan_tag(year=2025, month=4, day=28, number=3, experiment='N:\data')
         self.backgrounds = {}
 
         # Check if data directory exists and is not empty
@@ -63,34 +66,35 @@ class HTTMagSpecAnalysis(ScanAnalysis):
         # For each shot, stitch together the three images and project it onto the x-axis.  Save the final lineout
         all_projections = []
         for shot_num in self.auxiliary_data['Shotnumber'].values:
-            stitched_projection = None
-            for device in self.device_list:
-                # For more complex analysis, the actual `image analysis` code within this `for` block could be moved
-                #  to a dedicated ImageAnalysis class, and one could multithread the analysis so that each thread gets
-                #  a single image to analyze.  But for this simple example I am opting to keep it all within this file
-                image_file = ScanData.get_device_shot_path(tag=self.tag, device_name=device,
-                                                           shot_number=int(float(shot_num)))
-                image = read_imaq_png_image(image_file)*1.0
-                image -= self.backgrounds[device]
-                image[np.where(image < 0)] = 0
-                image = image[1:, :]
-                image = median_filter(image, size=3)
-                image = threshold_reduction(image=image, threshold=2)
+            # print(shot_num)
+            # stitched_projection = None
+            # for device in self.device_list:
+            #     # For more complex analysis, the actual `image analysis` code within this `for` block could be moved
+            #     #  to a dedicated ImageAnalysis class, and one could multithread the analysis so that each thread gets
+            #     #  a single image to analyze.  But for this simple example I am opting to keep it all within this file
+            #     image_file = ScanData.get_device_shot_path(tag=self.tag, device_name=device,
+            #                                                shot_number=int(float(shot_num)))
+            #     image = read_imaq_png_image(image_file)*1.0
+            #     image -= self.backgrounds[device]
+            #     image[np.where(image < 0)] = 0
+            #     image = image[1:, :]
+            #     image = median_filter(image, size=3)
+            #     image = threshold_reduction(image=image, threshold=2)
 
-                projection = np.sum(image, axis=0)
-                if stitched_projection is None:
-                    stitched_projection = projection
-                else:
-                    stitched_projection = np.concatenate((stitched_projection, projection))
+            #     projection = np.sum(image, axis=0)
+            #     if stitched_projection is None:
+            #         stitched_projection = projection
+            #     else:
+            #         stitched_projection = np.concatenate((stitched_projection, projection))
 
-                if device == 'HTT-C23_1_MagSpec1':  # Add on some zeros
-                    stitched_projection = np.concatenate((stitched_projection, np.zeros(200)))
+            #     if device == 'HTT-C23_1_MagSpec1':  # Add on some zeros
+            #         stitched_projection = np.concatenate((stitched_projection, np.zeros(200)))
 
-                #plt.imshow(image, aspect='auto', vmin = 0, vmax = 15)
-                #plt.plot(projection)
-                #plt.show()
+            #     #plt.imshow(image, aspect='auto', vmin = 0, vmax = 15)
+            #     #plt.plot(projection)
+            #     #plt.show()
 
-            all_projections.append(stitched_projection)
+            # all_projections.append(stitched_projection)
 
             #plt.plot(stitched_projection)
             #plt.show()
@@ -114,10 +118,85 @@ class HTTMagSpecAnalysis(ScanAnalysis):
 
         self.display_contents.append(str(save_path))
         return self.display_contents
+    
+    def load_data(self, filename):
+        self._update_hole_in(filename)
+        if not self._ref_img_paths:
+            top_dir, _, _, _ = pygc.get_top_dir_from_sfilename(self.reference_sfilename, print_data=False)
+            scan_data, _, _ = pygc.load_scan_data(top_dir, self.reference_sfilename, 
+                                                  diagnostic=self.cam_name, file_ext=".png")
+            self._ref_img_paths = list(scan_data[f"{self.cam_name} file_list"])
+        return super().load_data(filename)
+
+    def analyze_data(self, data, bg=None):
+        """
+        If hole is in, fit a gaussian. Otherwise, only calculate the energy transmission
+        """
+        if self.hole_in:
+            # image is fitted image
+            # This function already subtracts bg
+            image, columns = super().analyze_data(data, bg=bg)
+        else:
+            # image is original image
+            # Still fit gaussian but with 0 hole radius to get normal gaussian fit
+            # image = data
+            # columns = {}
+            if bg:
+                bg_data = super().load_data(bg)
+                data = data - bg_data
+            image, _, columns = self._fit_gaussian_with_hole_and_roi(data, self.hole_x, self.hole_y, 0, self.beam_r)
+        
+        # Calculating energy transmission
+        # Calculate the average mean counts for the reference scan
+        # Only does this once to save time
+        if not self._mean_counts_ref:
+            sum_mean_counts = 0
+            for im_path in self._ref_img_paths:
+                ref_image = super().load_data(im_path)
+                if bg:
+                    bg_data = super().load_data(bg)
+                    ref_image = ref_image - bg_data
+                # Filter out hot pixels
+                ref_image = scipy.ndimage.median_filter(ref_image, 5)
+                sum_mean_counts += np.mean(ref_image)
+            self._mean_counts_ref = sum_mean_counts / len(self._ref_img_paths)
+
+        # Median filter to eliminate hot pixels
+        # if not self.hole_in:
+        image = scipy.ndimage.median_filter(image, 5)
+
+        energy_trans = np.mean(image) / self._mean_counts_ref * 100
+
+        columns["Energy transmission [%]"] = energy_trans
+        return image, columns
+        
+    def write_analyzed_data(self, save_path, data):
+        if self.hole_in:
+            super().write_analyzed_data(save_path, data)
+
+    def _update_hole_in(self, filename):
+        scan_data = self._get_scan_data_from_filename(filename)
+        if self.turn_on_name in scan_data.columns:
+            hole_in_entry = scan_data[self.turn_on_name].to_numpy()[0]
+            if isinstance(hole_in_entry, str):
+                self.hole_in = (hole_in_entry.lower() == "on")
+            elif isinstance(hole_in_entry, (np.float64, float, int)):
+                self.hole_in = bool(hole_in_entry)
+        else:
+            self.hole_in = self.default_on
+
+        # Update analysis diagnostic
+        if self.hole_in:
+            self.analysis_options["analysis_diagnostic"] = "CAM-HPD-M3Near-fitted"
+            self.analysis_options["write_analyzed"] = True
+        else:
+            self.analysis_options["analysis_diagnostic"] = self.diagnostic
+            self.analysis_options["write_analyzed"] = False
 
 
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
-    tag = ScanData.get_scan_tag(year=2025, month=3, day=21, number=10, experiment='Thomson')
+    tag = ScanData.get_scan_tag(year=2025, month=4, day=28, number=68, experiment='N:\data')
+    ScanData.reload_paths_config(default_experiment="Bella")
     analyzer = HTTMagSpecAnalysis(scan_tag=tag, skip_plt_show=False)
     analyzer.run_analysis()
