@@ -11,9 +11,11 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from geecs_python_api.controls.api_defs import ScanTag
 import logging
+from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import median_filter
+from scipy.optimize import curve_fit
 
 from scan_analysis.base import ScanAnalysis
 from image_analysis.utils import read_imaq_png_image
@@ -23,7 +25,7 @@ from geecs_python_api.analysis.scans.scan_data import ScanData
 
 
 # %% classes
-class Gaussian_Fit(ScanAnalysis):
+class GaussianFit(ScanAnalysis):
     """
     Analyzer for fitting a gaussian fit to a camera image
     """
@@ -33,6 +35,11 @@ class Gaussian_Fit(ScanAnalysis):
         self.device_list = ['CAM-HPD-M3Near']
         self.background_tag = ScanData.get_scan_tag(year=2025, month=4, day=28, number=3, experiment='N:\data')
         self.backgrounds = {}
+
+        self.hole_x = 406
+        self.hole_y = 299
+        self.hole_r = 52
+        self.beam_r = 200
 
         # Check if data directory exists and is not empty
         for device in self.device_list:
@@ -59,53 +66,36 @@ class Gaussian_Fit(ScanAnalysis):
             self.backgrounds[device] = average_image
 
     def run_analysis(self, config_options: Optional[str] = None):
-        """ Main function to run the analysis and generate plots. """
-        # For HTU we grab these from files
-        # energy_values, charge_density_matrix
+        """
+        Main function to run the analysis and generate plots. 
+        
+        We fit a gaussian to each image and display the first image as a check that the fitting is working properly.
+        """
+        device = self.device_list[0]  # Only one device in this example
+        dict_for_sfile = defaultdict(list)
 
-        # For each shot, stitch together the three images and project it onto the x-axis.  Save the final lineout
-        all_projections = []
         for shot_num in self.auxiliary_data['Shotnumber'].values:
-            # print(shot_num)
-            # stitched_projection = None
-            # for device in self.device_list:
-            #     # For more complex analysis, the actual `image analysis` code within this `for` block could be moved
-            #     #  to a dedicated ImageAnalysis class, and one could multithread the analysis so that each thread gets
-            #     #  a single image to analyze.  But for this simple example I am opting to keep it all within this file
-            #     image_file = ScanData.get_device_shot_path(tag=self.tag, device_name=device,
-            #                                                shot_number=int(float(shot_num)))
-            #     image = read_imaq_png_image(image_file)*1.0
-            #     image -= self.backgrounds[device]
-            #     image[np.where(image < 0)] = 0
-            #     image = image[1:, :]
-            #     image = median_filter(image, size=3)
-            #     image = threshold_reduction(image=image, threshold=2)
+            print(shot_num)
+            image_file = ScanData.get_device_shot_path(tag=self.tag, device_name=device,
+                                                        shot_number=int(float(shot_num)))
+            image = read_imaq_png_image(image_file)*1.0
+            image -= self.backgrounds[device]
 
-            #     projection = np.sum(image, axis=0)
-            #     if stitched_projection is None:
-            #         stitched_projection = projection
-            #     else:
-            #         stitched_projection = np.concatenate((stitched_projection, projection))
+            filled_img, fit_errors, fit_params = self._fit_gaussian_with_hole_and_roi(image, self.hole_x, self.hole_y, self.hole_r, self.beam_r)
 
-            #     if device == 'HTT-C23_1_MagSpec1':  # Add on some zeros
-            #         stitched_projection = np.concatenate((stitched_projection, np.zeros(200)))
+            for key, value in fit_params.items():
+                col_name = f"{device} {key} Sam control system test"
+                dict_for_sfile[col_name].append(value)
 
-            #     #plt.imshow(image, aspect='auto', vmin = 0, vmax = 15)
-            #     #plt.plot(projection)
-            #     #plt.show()
+            if int(float(shot_num)) == 1:
+                fig, ax = plt.subplots(figsize=(8, 6))
+                im = ax.imshow(filled_img, cmap='viridis')
+                plt.colorbar(im, ax=ax)
+                ax.set_title(f"Shot {shot_num} - Gaussian Fit")
+                ax.set_xlabel("Pixels")
+                ax.set_ylabel("Pixels")
+                plt.show()
 
-            # all_projections.append(stitched_projection)
-
-            #plt.plot(stitched_projection)
-            #plt.show()
-
-        all_projections = np.vstack(all_projections)
-
-        plt.figure(figsize=(10, 6))
-        plt.imshow(all_projections, aspect='auto')
-        plt.xlabel('Stitched Image Horizontal Pixel')
-        plt.ylabel('Shotnumber')
-        plt.title(f"{self.tag.experiment}: {self.tag.month:02d}/{self.tag.day:02d}/{self.tag.year} Scan{self.tag.number:03d} Raw Magspec Waterfall")
 
         save_path = self.save_path / 'RawMagspecWaterfall'
         save_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
@@ -114,89 +104,161 @@ class Gaussian_Fit(ScanAnalysis):
         self.close_or_show_plot()
 
         # Could from here do additional analysis and append scalars to the sfile using:
-        # self.append_to_sfile(self, dict_to_append={'key': list_of_data}):
+        self.append_to_sfile(dict_to_append=dict_for_sfile)
 
         self.display_contents.append(str(save_path))
         return self.display_contents
     
-    def load_data(self, filename):
-        self._update_hole_in(filename)
-        if not self._ref_img_paths:
-            top_dir, _, _, _ = pygc.get_top_dir_from_sfilename(self.reference_sfilename, print_data=False)
-            scan_data, _, _ = pygc.load_scan_data(top_dir, self.reference_sfilename, 
-                                                  diagnostic=self.cam_name, file_ext=".png")
-            self._ref_img_paths = list(scan_data[f"{self.cam_name} file_list"])
-        return super().load_data(filename)
-
-    def analyze_data(self, data, bg=None):
+    def _fit_gaussian_with_hole_and_roi(self, image, center_x, center_y, hole_radius, roi_radius):
         """
-        If hole is in, fit a gaussian. Otherwise, only calculate the energy transmission
+        Fits a 2D Gaussian to an image within an annular ROI (excluding a hole) and predicts intensity inside the hole.
+        
+        Parameters:
+        image (numpy.ndarray): 2D array containing the beam intensity
+        center_x (float): x-coordinate of center
+        center_y (float): y-coordinate of center
+        hole_radius (float): radius of the hole
+        roi_radius (float): radius of the region of interest (must be larger than hole_radius)
+        
+        Returns:
+        tuple: (filled_image, fit_errors, masks)
+            - filled_image: image with hole filled based on Gaussian fit
+            - fit_errors: array of errors between fit and actual data in fitting region
+            - fit_params: dictionary containing parameters of gaussian fit
+        If the function fails, we return:
+            original image, array of zeros, dict of nans
         """
-        if self.hole_in:
-            # image is fitted image
-            # This function already subtracts bg
-            image, columns = super().analyze_data(data, bg=bg)
-        else:
-            # image is original image
-            # Still fit gaussian but with 0 hole radius to get normal gaussian fit
-            # image = data
-            # columns = {}
-            if bg:
-                bg_data = super().load_data(bg)
-                data = data - bg_data
-            image, _, columns = self._fit_gaussian_with_hole_and_roi(data, self.hole_x, self.hole_y, 0, self.beam_r)
+        # Remove negative pixels
+        image[image < 0] = 0
+
+        # Median filter to improve fitting
+        image = median_filter(image, size=3)
+
+        if roi_radius <= hole_radius:
+            raise ValueError("ROI radius must be larger than hole radius")
+
+        # Create coordinate grids
+        y, x = np.indices(image.shape)
         
-        # Calculating energy transmission
-        # Calculate the average mean counts for the reference scan
-        # Only does this once to save time
-        if not self._mean_counts_ref:
-            sum_mean_counts = 0
-            for im_path in self._ref_img_paths:
-                ref_image = super().load_data(im_path)
-                if bg:
-                    bg_data = super().load_data(bg)
-                    ref_image = ref_image - bg_data
-                # Filter out hot pixels
-                ref_image = scipy.ndimage.median_filter(ref_image, 5)
-                sum_mean_counts += np.mean(ref_image)
-            self._mean_counts_ref = sum_mean_counts / len(self._ref_img_paths)
-
-        # Median filter to eliminate hot pixels
-        # if not self.hole_in:
-        image = scipy.ndimage.median_filter(image, 5)
-
-        energy_trans = np.mean(image) / self._mean_counts_ref * 100
-
-        columns["Energy transmission [%]"] = energy_trans
-        return image, columns
+        # Create masks for hole and ROI
+        r = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+        hole_mask = r <= hole_radius
+        roi_mask = r <= roi_radius
+        fitting_mask = roi_mask & ~hole_mask  # Annular region for fitting
         
-    def write_analyzed_data(self, save_path, data):
-        if self.hole_in:
-            super().write_analyzed_data(save_path, data)
+        # Define 2D Gaussian function
+        def gaussian_2d(coords, amplitude, x0, y0, sigma_x, sigma_y, theta, offset):
+            x, y = coords
+            x0 = float(x0)
+            y0 = float(y0)
+            a = (np.cos(theta)**2)/(2*sigma_x**2) + (np.sin(theta)**2)/(2*sigma_y**2)
+            b = -(np.sin(2*theta))/(4*sigma_x**2) + (np.sin(2*theta))/(4*sigma_y**2)
+            c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
+            return amplitude * np.exp(-(a*(x-x0)**2 + 2*b*(x-x0)*(y-y0) + c*(y-y0)**2)) + offset
 
-    def _update_hole_in(self, filename):
-        scan_data = self._get_scan_data_from_filename(filename)
-        if self.turn_on_name in scan_data.columns:
-            hole_in_entry = scan_data[self.turn_on_name].to_numpy()[0]
-            if isinstance(hole_in_entry, str):
-                self.hole_in = (hole_in_entry.lower() == "on")
-            elif isinstance(hole_in_entry, (np.float64, float, int)):
-                self.hole_in = bool(hole_in_entry)
-        else:
-            self.hole_in = self.default_on
+        # Prepare data for fitting
+        x_data = x[fitting_mask]
+        y_data = y[fitting_mask]
+        z_data = image[fitting_mask]
 
-        # Update analysis diagnostic
-        if self.hole_in:
-            self.analysis_options["analysis_diagnostic"] = "CAM-HPD-M3Near-fitted"
-            self.analysis_options["write_analyzed"] = True
-        else:
-            self.analysis_options["analysis_diagnostic"] = self.diagnostic
-            self.analysis_options["write_analyzed"] = False
+        # Initial parameter guess
+        initial_guess = [
+            np.max(image),  # amplitude
+            center_x,       # x0
+            center_y,       # y0
+            image.shape[1]/8,  # sigma_x
+            image.shape[0]/8,  # sigma_y
+            0,             # theta
+            np.min(image)  # offset
+        ]
+
+        try:
+            # Fit the 2D Gaussian
+            popt, _ = curve_fit(
+                lambda coords, *params: gaussian_2d(coords, *params),
+                (x_data, y_data),
+                z_data,
+                p0=initial_guess
+            )
+
+            # Create filled image
+            filled_image = image.copy()
+            predicted_values = gaussian_2d((x, y), *popt)
+            
+            # Fill the hole with predicted values
+            filled_image[hole_mask] = predicted_values[hole_mask]
+            
+            # Calculate errors in fitting region
+            fit_errors = np.zeros_like(image, dtype=np.float64)
+            fit_errors[fitting_mask] = image[fitting_mask] - predicted_values[fitting_mask]
+
+            # Extract fit parameters
+            amplitude, x0, y0, sigma_a, sigma_b, theta, offset = popt
+            
+            # Calculate the real standard deviations in x and y, instead of the rotated ones
+            sigma_x = np.sqrt(sigma_a**2 * np.cos(theta)**2 + sigma_b**2 * np.sin(theta)**2)
+            sigma_y = np.sqrt(sigma_b**2 * np.cos(theta)**2 + sigma_a**2 * np.sin(theta)**2)
+            
+            # Calculate overall RMS error (original metric)
+            actual_values = image[fitting_mask]
+            fitted_values = predicted_values[fitting_mask]
+            rms_error = np.sqrt(np.mean((actual_values - fitted_values)**2)) / np.mean(actual_values)
+            
+            # Calculate RMS error within 2-sigma of the beam center
+            # Create elliptical 2-sigma mask around the fitted centroid
+            # Use the fitted parameters to define the 2-sigma ellipse
+            cos_theta = np.cos(theta)
+            sin_theta = np.sin(theta)
+            
+            # Transform coordinates to the rotated frame
+            x_rot = (x - x0) * cos_theta + (y - y0) * sin_theta
+            y_rot = -(x - x0) * sin_theta + (y - y0) * cos_theta
+            
+            # Create 2-sigma elliptical mask
+            ellipse_condition = (x_rot / (2 * sigma_a))**2 + (y_rot / (2 * sigma_b))**2 <= 1
+            
+            # Combine with fitting mask to only consider points used in fitting
+            two_sigma_mask = fitting_mask & ellipse_condition
+            
+            if np.any(two_sigma_mask):
+                actual_values_2sigma = image[two_sigma_mask]
+                fitted_values_2sigma = predicted_values[two_sigma_mask]
+                rms_error_2sigma = np.sqrt(np.mean((actual_values_2sigma - fitted_values_2sigma)**2)) / np.mean(actual_values_2sigma)
+            else:
+                # If no points within 2-sigma (shouldn't happen in normal cases)
+                rms_error_2sigma = np.nan
+            
+            # Create masks dictionary for visualization
+            masks = {
+                'hole_mask': hole_mask,
+                'roi_mask': roi_mask,
+                'fitting_mask': fitting_mask,
+                'two_sigma_mask': two_sigma_mask  # Add the 2-sigma mask for debugging
+            }
+            
+            fit_params_names = ['amplitude', 'gauss x0', 'gauss y0', 'sigma_a', 'sigma_b', 'theta', 'offset']
+            fit_params = {x: y for x, y in zip(fit_params_names, popt)}
+            fit_params['sigma_x'] = sigma_x
+            fit_params['sigma_y'] = sigma_y
+            fit_params['rms_error'] = rms_error
+            fit_params['rms_error_2sigma'] = rms_error_2sigma
+
+            return filled_image, fit_errors, fit_params
+
+        except RuntimeError:
+            print("Error: Failed to fit Gaussian. Try adjusting initial parameters.")
+            fit_params_names = ['amplitude', 'gauss x0', 'gauss y0', 'sigma_a', 'sigma_b', 'theta', 'offset']
+            fit_params = {x: np.nan for x in fit_params_names}
+            fit_params['rms_error'] = np.nan
+            fit_params['rms_error_2sigma'] = np.nan
+            fit_params['sigma_x'] = np.nan
+            fit_params['sigma_y'] = np.nan
+            return image, np.zeros_like(image, dtype=np.float64), fit_params
 
 
 if __name__ == "__main__":
     from geecs_python_api.analysis.scans.scan_data import ScanData
     tag = ScanData.get_scan_tag(year=2025, month=4, day=28, number=68, experiment='N:\data')
     ScanData.reload_paths_config(default_experiment="Bella")
-    analyzer = HTTMagSpecAnalysis(scan_tag=tag, skip_plt_show=False)
+    analyzer = GaussianFit(scan_tag=tag, skip_plt_show=False)
     analyzer.run_analysis()
