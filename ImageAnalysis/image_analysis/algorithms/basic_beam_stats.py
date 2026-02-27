@@ -10,7 +10,7 @@ such as :mod:`image_analysis.algorithms.beam_slopes`.
 
 from __future__ import annotations
 
-from typing import NamedTuple, Optional, Union
+from typing import NamedTuple, Optional, Set, Union
 import logging
 
 import numpy as np
@@ -193,6 +193,7 @@ def flatten_beam_stats(
     stats: BeamStats,
     prefix: Optional[Union[str, None]] = None,
     suffix: Optional[Union[str, None]] = None,
+    include: Optional[Set[str]] = None,
 ) -> dict[str, float]:
     """Flatten a :class:`BeamStats` instance into a dictionary.
 
@@ -206,6 +207,10 @@ def flatten_beam_stats(
         Optional suffix to append to each key (underscore is auto-prepended).
         Useful for distinguishing multiple analysis variations (e.g., "curtis"
         becomes "_curtis" in the key).
+    include : set of str, optional
+        If provided, only emit entries whose *fragment* (the part without
+        prefix/suffix, e.g. ``"image_total"``, ``"x_CoM"``) is in this set.
+        ``None`` (the default) emits all entries.
 
     Returns
     -------
@@ -222,6 +227,8 @@ def flatten_beam_stats(
         nested = getattr(stats, field)
         for k, v in nested._asdict().items():
             fragment = f"{field}_{k}"
+            if include is not None and fragment not in include:
+                continue
             key = f"{prefix}_{fragment}" if prefix else fragment
             key = f"{key}{suffix_str}"
             flat[key] = v

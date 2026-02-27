@@ -14,7 +14,7 @@ the StandardAnalyzer for all image processing pipeline functionality.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple, Dict
+from typing import Optional, Set, Tuple, Dict
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -44,6 +44,12 @@ class BeamAnalysisConfig(BaseModel):
     ----------
     compute_slopes : bool
         Whether to compute beam slope (straightness) metrics.
+    enabled_stats : set of str or None
+        If provided, only these beam-stat fragments are emitted by
+        ``flatten_beam_stats``.  Valid fragments are any combination of
+        ``{section}_{field}`` names, e.g. ``"image_total"``, ``"x_CoM"``,
+        ``"y_rms"``, ``"x_45_fwhm"``.  ``None`` (the default) emits all
+        18 stats.
     """
 
     compute_slopes: bool = Field(
@@ -51,6 +57,13 @@ class BeamAnalysisConfig(BaseModel):
         description=(
             "Whether to compute beam slope (straightness) metrics. "
             "Expensive: involves line-by-line stats + weighted linear fits."
+        ),
+    )
+    enabled_stats: Optional[Set[str]] = Field(
+        default=None,
+        description=(
+            "If provided, only emit these beam-stat fragments "
+            "(e.g. 'image_total', 'x_CoM'). None = emit all."
         ),
     )
 
@@ -145,6 +158,7 @@ class BeamAnalyzer(StandardAnalyzer):
             beam_stats,
             prefix=self.camera_config.name,
             suffix=self.metric_suffix,
+            include=self.analysis_config.enabled_stats,
         )
 
         # Optional: slope/straightness metrics

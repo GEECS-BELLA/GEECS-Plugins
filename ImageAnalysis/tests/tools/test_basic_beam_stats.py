@@ -99,5 +99,27 @@ def test_flatten_beam_stats_no_prefix():
     assert "y_45_fwhm" in flat
 
 
+def test_flatten_beam_stats_include_filter():
+    """Only requested fragments appear when include is provided."""
+    img = np.zeros((3, 3))
+    img[1, 1] = 5
+    stats = bbs.beam_profile_stats(img)
+
+    # Request only two fragments
+    flat = bbs.flatten_beam_stats(stats, prefix="cam", include={"image_total", "x_CoM"})
+
+    assert set(flat.keys()) == {"cam_image_total", "cam_x_CoM"}
+    assert flat["cam_image_total"] == 5.0
+
+
+def test_flatten_beam_stats_include_empty_set():
+    """An empty include set produces an empty dict."""
+    img = np.zeros((3, 3))
+    img[1, 1] = 5
+    stats = bbs.beam_profile_stats(img)
+    flat = bbs.flatten_beam_stats(stats, include=set())
+    assert flat == {}
+
+
 if __name__ == "__main__":
     pytest.main()
