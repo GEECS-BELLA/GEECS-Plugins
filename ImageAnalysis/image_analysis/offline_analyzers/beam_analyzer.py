@@ -3,8 +3,7 @@
 This module provides a specialized analyzer for beam profile analysis that inherits
 from StandardAnalyzer. It adds beam-specific capabilities:
 - Beam statistics calculation (centroid, width, height, FWHM)
-- Gaussian fitting parameters
-- Beam quality metrics
+- Optional slope/straightness metrics
 - Specialized beam rendering with overlays
 - Lineout generation and analysis
 
@@ -15,11 +14,11 @@ the StandardAnalyzer for all image processing pipeline functionality.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple, Dict
-from pathlib import Path
+from typing import Optional, Set, Tuple, Dict
 
 import numpy as np
 import matplotlib.pyplot as plt
+from pydantic import BaseModel, Field
 
 # Import the StandardAnalyzer parent class
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
@@ -29,93 +28,54 @@ from image_analysis.algorithms.basic_beam_stats import (
     beam_profile_stats,
     flatten_beam_stats,
 )
+from image_analysis.algorithms.beam_slopes import compute_beam_slopes
 from image_analysis.types import ImageAnalyzerResult
-from image_analysis.processing.array2d.config_models import (
-    BackgroundConfig,
-    BackgroundMethod,
-    DynamicComputationConfig,
-)
 
 logger = logging.getLogger(__name__)
 
 
-def create_variation_analyzer(
-    camera_config_name: str,
-    percentile: float = 50.0,
-    method: BackgroundMethod = BackgroundMethod.PERCENTILE_DATASET,
-    additional_constant: float = 0.0,
-    name_suffix: str = "_variation",
-) -> "BeamAnalyzer":
-    """Create a BeamAnalyzer configured for variation analysis.
+class BeamAnalysisConfig(BaseModel):
+    """Typed configuration for :class:`BeamAnalyzer`.
 
-    This is a convenience function that configures dynamic background subtraction
-    for analyzing shot-to-shot beam fluctuations on stable beams. The dynamic
-    background is computed from the dataset and subtracted from each image,
-    revealing the parts of the beam that fluctuate from shot to shot.
+    This model is validated from ``camera_config.analysis`` at analyzer init
+    time, giving users IDE autocompletion and config-file validation.
 
-    Parameters
+    Attributes
     ----------
-    camera_config_name : str
-        Name of the camera configuration to load (e.g., "UC_ALineEBeam3")
-    percentile : float, default=50.0
-        Percentile for background computation (only used if method is PERCENTILE_DATASET).
-        For stable beams, 50.0 (median) is typically a good choice.
-    method : BackgroundMethod, default=PERCENTILE_DATASET
-        Background computation method. Options include:
-        - PERCENTILE_DATASET: Use a percentile of the dataset
-        - MEDIAN: Use the median of the dataset
-        - CONSTANT: Use a constant value
-    name_suffix : str, default="_variation"
-        Suffix to append to camera name for scalar result prefixes.
-        This ensures variation analysis results are clearly distinguished
-        from standard analysis results in the output data.
-    additional_constant : float, default = 0.0
-        additional background offset after dynamic bkg subtraction
-
-    Returns
-    -------
-    BeamAnalyzer
-        Configured analyzer for variation analysis with dynamic background enabled
-
-    Notes
-    -----
-    The dynamic background is computed during batch processing and saved to
-    ``{scan_dir}/computed_background.npy`` for inspection and reuse.
+    compute_slopes : bool
+        Whether to compute beam slope (straightness) metrics.
+    enabled_stats : set of str or None
+        If provided, only these beam-stat fragments are emitted by
+        ``flatten_beam_stats``.  Valid fragments are any combination of
+        ``{section}_{field}`` names, e.g. ``"image_total"``, ``"x_CoM"``,
+        ``"y_rms"``, ``"x_45_fwhm"``.  ``None`` (the default) emits all
+        18 stats.
     """
-    variation_bg_config = BackgroundConfig(
-        enabled=True,
-        method=BackgroundMethod.FROM_FILE,
-        file_path=Path("{scan_dir}/computed_background.npy"),
-        constant_level=0,
-        dynamic_computation=DynamicComputationConfig(
-            enabled=True,
-            method=method,
-            percentile=percentile,
-            auto_save_path=Path("{scan_dir}/computed_background.npy"),
+
+    compute_slopes: bool = Field(
+        default=False,
+        description=(
+            "Whether to compute beam slope (straightness) metrics. "
+            "Expensive: involves line-by-line stats + weighted linear fits."
         ),
-        additional_constant=additional_constant,
     )
-
-    analyzer = BeamAnalyzer(
-        camera_config_name=camera_config_name,
-        name_suffix=name_suffix,
+    enabled_stats: Optional[Set[str]] = Field(
+        default=None,
+        description=(
+            "If provided, only emit these beam-stat fragments "
+            "(e.g. 'image_total', 'x_CoM'). None = emit all."
+        ),
     )
-
-    analyzer.update_config(background=variation_bg_config)
-
-    return analyzer
 
 
 class BeamAnalyzer(StandardAnalyzer):
-    """
-    Beam profile analyzer using the StandardAnalyzer framework.
+    """Beam profile analyzer using the StandardAnalyzer framework.
 
-    This analyzer specializes the StandardAnalyzer for beam profile analysis by adding:
-    - Beam statistics calculation (centroid, width, height, FWHM)
-    - Gaussian fitting parameters
-    - Beam quality metrics
-    - Specialized beam rendering with overlays
-    - Lineout generation and analysis
+    This analyzer specializes the StandardAnalyzer for beam profile analysis by
+    composing algorithm calls:
+
+    - **Always**: basic beam stats (projections along x, y, x_45, y_45)
+    - **Optional**: slope/straightness metrics (via ``compute_slopes`` config flag)
 
     All image processing pipeline functionality is inherited from StandardAnalyzer,
     making this class focused purely on beam-specific analysis.
@@ -152,6 +112,11 @@ class BeamAnalyzer(StandardAnalyzer):
         # Initialize parent class
         super().__init__(camera_config_name)
 
+        # Validate analysis config (if present) into a typed model
+        self.analysis_config = BeamAnalysisConfig.model_validate(
+            self.camera_config.analysis or {}
+        )
+
         # Store metric suffix for use in analyze_image
         self.metric_suffix = metric_suffix
 
@@ -163,11 +128,11 @@ class BeamAnalyzer(StandardAnalyzer):
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
     ) -> ImageAnalyzerResult:
-        """
-        Run complete beam analysis using the processing pipeline.
+        """Run complete beam analysis using the processing pipeline.
 
         This method extends the StandardAnalyzer's analyze_image method to add
-        beam-specific analysis including statistics calculation and lineouts.
+        beam-specific analysis.  It always computes basic beam stats (projections)
+        and optionally computes slope metrics when configured.
 
         Parameters
         ----------
@@ -187,18 +152,29 @@ class BeamAnalyzer(StandardAnalyzer):
 
         processed_image = initial_result.processed_image
 
-        # Compute beam statistics
-        beam_stats_flat = flatten_beam_stats(
-            beam_profile_stats(processed_image),
+        # Always: basic beam stats (projections along x, y, x_45, y_45)
+        beam_stats = beam_profile_stats(processed_image)
+        scalars = flatten_beam_stats(
+            beam_stats,
             prefix=self.camera_config.name,
             suffix=self.metric_suffix,
+            include=self.analysis_config.enabled_stats,
         )
+
+        # Optional: slope/straightness metrics
+        if self.analysis_config.compute_slopes:
+            slope_scalars = compute_beam_slopes(
+                processed_image,
+                prefix=self.camera_config.name,
+                suffix=self.metric_suffix,
+            )
+            scalars.update(slope_scalars)
 
         # Build result with beam-specific data
         result = ImageAnalyzerResult(
             data_type="2d",
             processed_image=processed_image,
-            scalars=beam_stats_flat,
+            scalars=scalars,
             metadata=initial_result.metadata,
         )
 
@@ -247,37 +223,5 @@ class BeamAnalyzer(StandardAnalyzer):
         # Add beam-specific overlays
         add_xy_projections(ax, result)
         add_marker(ax, (100, 100), size=1, color="blue")
-
-        return fig, ax
-
-    def visualize(
-        self,
-        results: ImageAnalyzerResult,
-        *,
-        show: bool = True,
-        close: bool = True,
-        ax: Optional[plt.Axes] = None,
-        vmin: Optional[float] = None,
-        vmax: Optional[float] = None,
-        cmap: str = "plasma",
-    ) -> Tuple[plt.Figure, plt.Axes]:
-        """Render a visualization of the analyzed image with beam overlays.
-
-        This is a simple convenience wrapper that calls :meth:`render_image`
-        and optionally shows or closes the figure.
-        """
-        # Call render_image with all parameters
-        fig, ax = self.render_image(
-            result=results,
-            vmin=vmin,
-            vmax=vmax,
-            cmap=cmap,
-            ax=ax,
-        )
-
-        if show:
-            plt.show()
-        if close:
-            plt.close(fig)
 
         return fig, ax
