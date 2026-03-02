@@ -73,6 +73,7 @@ class GrenouilleAnalyzer(StandardAnalyzer):
         )  # acceptable values: 512, 256, 128, 64
         self.target_error: float = grenouille_params.get("target_error", 0.001)
         self.max_time_seconds: float = grenouille_params.get("max_time_seconds", 5)
+        self.max_iterations: float = grenouille_params.get("max_iterations", 1000000000)
 
         logger.info(
             "Initialized GrenouilleAnalyzer with config '%s'", camera_config_name
@@ -113,6 +114,7 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             N=self.N,
             target_error=self.target_error,
             max_time_seconds=self.max_time_seconds,
+            max_iterations = self.max_iterations,
         )
 
         scalar_results = {
