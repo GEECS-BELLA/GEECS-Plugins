@@ -74,9 +74,7 @@ class FrogRetrievalConfig(BaseModel):
     max_time_seconds: float = Field(
         5.0, description="Max wall-clock time for retrieval [s]"
     )
-    max_iterations: int = Field(
-        1000000000, description="Max iterations for retrieval"
-    )
+    max_iterations: int = Field(1000000000, description="Max iterations for retrieval")
 
 
 @dataclass
