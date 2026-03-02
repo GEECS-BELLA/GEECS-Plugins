@@ -129,8 +129,8 @@ class BeamAnalyzer(StandardAnalyzer):
     def __init__(
         self,
         camera_config_name: str,
-        name_suffix: Optional[str] = None,
-        metric_suffix: Optional[str] = None,
+        # name_suffix: Optional[str] = None,
+        # metric_suffix: Optional[str] = None,
     ):
         """Initialize the beam analyzer with external configuration.
 
@@ -138,27 +138,27 @@ class BeamAnalyzer(StandardAnalyzer):
         ----------
         camera_config_name : str
             Name of the camera configuration to load (e.g., "UC_ALineEBeam3")
-        name_suffix : str, optional
-            Suffix to append to camera name for scalar result prefixes.
-            Useful for distinguishing multiple analysis passes on the same camera.
-            For example, use "_variation" to distinguish variation analysis results
-            from standard analysis results.
-        metric_suffix : str, optional
-            Suffix to append to all metric names (underscore is auto-prepended).
-            For example, "curtis" becomes "_curtis" in the output keys.
-            Useful for tracking different analysis variations while keeping the
-            same camera name. (e.g., "camera_x_rms_curtis").
+        # name_suffix : str, optional
+        #     Suffix to append to camera name for scalar result prefixes.
+        #     Useful for distinguishing multiple analysis passes on the same camera.
+        #     For example, use "_variation" to distinguish variation analysis results
+        #     from standard analysis results.
+        # metric_suffix : str, optional
+        #     Suffix to append to all metric names (underscore is auto-prepended).
+        #     For example, "curtis" becomes "_curtis" in the output keys.
+        #     Useful for tracking different analysis variations while keeping the
+        #     same camera name. (e.g., "camera_x_rms_curtis").
         """
-        # Initialize parent class
-        super().__init__(camera_config_name)
+        # # Initialize parent class
+        # super().__init__(camera_config_name)
 
-        # Store metric suffix for use in analyze_image
-        self.metric_suffix = metric_suffix
+        # # Store metric suffix for use in analyze_image
+        # self.metric_suffix = metric_suffix
 
-        # Apply name suffix if provided
-        if name_suffix:
-            self.camera_config.name = f"{self.camera_config.name}{name_suffix}"
-            logger.info(f"Camera name set to: {self.camera_config.name}")
+        # # Apply name suffix if provided
+        # if name_suffix:
+        #     self.camera_config.name = f"{self.camera_config.name}{name_suffix}"
+        #     logger.info(f"Camera name set to: {self.camera_config.name}")
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None

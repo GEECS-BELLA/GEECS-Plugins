@@ -45,6 +45,8 @@ class GrenouilleAnalyzer(StandardAnalyzer):
     def __init__(
         self,
         camera_config_name: str,
+        name_suffix: Optional[str] = None,
+        metric_suffix: Optional[str] = None,
     ):
         """Initialize the beam analyzer with external configuration.
 
@@ -54,7 +56,11 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             Name of the camera configuration to load (e.g., "UC_ALineEBeam3")
         """
         # Initialize parent class
-        super().__init__(camera_config_name)
+        super().__init__(
+            camera_config_name=camera_config_name,
+            name_suffix=name_suffix,
+            metric_suffix=metric_suffix
+        )
 
         self.retrieval = FrogDllRetrieval.from_config()
 
@@ -73,6 +79,7 @@ class GrenouilleAnalyzer(StandardAnalyzer):
         )  # acceptable values: 512, 256, 128, 64
         self.target_error: float = grenouille_params.get("target_error", 0.001)
         self.max_time_seconds: float = grenouille_params.get("max_time_seconds", 5)
+        self.max_iterations: int = grenouille_params.get("max_iterations", 1000000000)
 
         logger.info(
             "Initialized GrenouilleAnalyzer with config '%s'", camera_config_name
@@ -113,6 +120,7 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             N=self.N,
             target_error=self.target_error,
             max_time_seconds=self.max_time_seconds,
+            max_iterations=self.max_iterations,
         )
 
         scalar_results = {
