@@ -60,6 +60,8 @@ class FrogRetrievalConfig(BaseModel):
         Target FROG error for early stopping.
     max_time_seconds : float
         Maximum wall-clock time for the retrieval.
+    max_iterations : int
+        Maximum iterations for the retrieval.
     """
 
     delt: float = Field(0.85, description="Time delay step per pixel [fs]")
@@ -70,7 +72,10 @@ class FrogRetrievalConfig(BaseModel):
     N: int = Field(512, description="DLL grid size (512, 256, 128, or 64)")
     target_error: float = Field(0.005, description="Target FROG error for early stop")
     max_time_seconds: float = Field(
-        60.0, description="Max wall-clock time for retrieval [s]"
+        5.0, description="Max wall-clock time for retrieval [s]"
+    )
+    max_iterations: int = Field(
+        1000000000.0, description="Max iterations for retrieval"
     )
 
 
