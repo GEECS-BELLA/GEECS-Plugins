@@ -7,7 +7,7 @@ All models use Pydantic for validation and automatic YAML/JSON serialization.
 """
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
-from typing import Optional, Tuple, List, Union, Dict
+from typing import Any, Optional, Tuple, List, Union, Dict
 from pathlib import Path
 from enum import Enum
 
@@ -556,6 +556,16 @@ class CameraConfig(BaseModel):
     )
     pipeline: Optional[PipelineConfig] = Field(
         None, description="Processing pipeline configuration"
+    )
+
+    # Analyzer-specific configuration
+    analysis: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Analyzer-specific configuration dictionary. Each analyzer validates "
+            "this at init time using its own typed Pydantic model "
+            "(e.g., BeamAnalysisConfig, FrogRetrievalConfig)."
+        ),
     )
 
     @field_validator("bit_depth")

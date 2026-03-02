@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, Optional, Union, List, Tuple
-from pydantic import BaseModel
 
+import matplotlib.pyplot as plt
 import numpy as np
+from pydantic import BaseModel
 
 # Import the new processing framework
 from image_analysis.config_loader import load_camera_config
@@ -310,3 +311,107 @@ class StandardAnalyzer(ImageAnalyzer):
         )
 
         return result
+
+    # ------------------------------------------------------------------
+    # Visualization helpers (override in subclasses for custom overlays)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def render_image(
+        result: ImageAnalyzerResult,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        cmap: str = "plasma",
+        figsize: Tuple[float, float] = (4, 4),
+        dpi: int = 150,
+        ax: Optional[plt.Axes] = None,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Render the processed image from an analysis result.
+
+        Provides a baseline rendering that subclasses can extend by
+        overriding this method and adding domain-specific overlays.
+
+        Parameters
+        ----------
+        result : ImageAnalyzerResult
+            The analysis result containing the processed image.
+        vmin, vmax : float, optional
+            Colour-scale limits.
+        cmap : str
+            Matplotlib colour-map name.
+        figsize : tuple of float
+            Figure size in inches ``(width, height)``.
+        dpi : int
+            Figure resolution.
+        ax : matplotlib Axes, optional
+            Existing axes to draw into.  A new figure is created when
+            *None*.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+        ax : matplotlib.axes.Axes
+        """
+        from image_analysis.tools.rendering import base_render_image
+
+        fig, ax = base_render_image(
+            result=result,
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
+            figsize=figsize,
+            dpi=dpi,
+            ax=ax,
+        )
+        return fig, ax
+
+    def visualize(
+        self,
+        results: ImageAnalyzerResult,
+        *,
+        show: bool = True,
+        close: bool = True,
+        ax: Optional[plt.Axes] = None,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        cmap: str = "plasma",
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Render and optionally display a visualization of the result.
+
+        Convenience wrapper around :meth:`render_image` that handles
+        ``plt.show()`` / ``plt.close()`` lifecycle.
+
+        Parameters
+        ----------
+        results : ImageAnalyzerResult
+            Analysis result to visualize.
+        show : bool
+            Call ``plt.show()`` after rendering.
+        close : bool
+            Call ``plt.close(fig)`` after rendering.
+        ax : matplotlib Axes, optional
+            Existing axes to draw into.
+        vmin, vmax : float, optional
+            Colour-scale limits.
+        cmap : str
+            Matplotlib colour-map name.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+        ax : matplotlib.axes.Axes
+        """
+        fig, ax = self.render_image(
+            result=results,
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
+            ax=ax,
+        )
+
+        if show:
+            plt.show()
+        if close:
+            plt.close(fig)
+
+        return fig, ax
