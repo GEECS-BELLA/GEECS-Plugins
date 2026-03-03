@@ -287,6 +287,13 @@ class StandardAnalyzer(ImageAnalyzer):
                 )
 
             logger.info("Configuration updated: %s", list(section_updates.keys()))
+    
+    def apply_metric_suffix(self, scalars: dict) -> dict:
+        """Return a new dict with the metric suffix appended to each scalar key."""
+        # no-op if no suffix configured or no scalars present
+        if not self.metric_suffix or not scalars:
+            return scalars or {}
+        return {f"{k}{self.metric_suffix}": v for k, v in scalars.items()}
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
@@ -322,13 +329,23 @@ class StandardAnalyzer(ImageAnalyzer):
         # Build input parameters dictionary
         input_params = self._build_input_parameters()
 
+        # Ensure `scalars` exists (subclasses may add keys later)
+        scalars: Dict[str, Any] = {}
+
+        # Apply metric suffix (no-op if empty or no suffix)
+        scalars = self.apply_metric_suffix(scalars)
+
         # Build and return result
         result = ImageAnalyzerResult(
             data_type="2d",
             processed_image=final_image,
-            scalars={},  # No scalars by default, subclasses can add them
+            scalars=scalars,  # No scalars by default, subclasses can add them
             metadata=input_params,
         )
+
+        # Apply metric suffix to whatever scalars are present right before returning
+        if getattr(result, "scalars", None):
+            result.scalars = self.apply_metric_suffix(result.scalars)
 
         return result
 

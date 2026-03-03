@@ -182,5 +182,9 @@ class GrenouilleAnalyzer(StandardAnalyzer):
                 "horizontal_projection": processed_image.sum(axis=0),
                 "vertical_projection": processed_image.sum(axis=1),
             }
+        
+        # Apply metric suffix to final scalars dict (no-op if empty or no suffix)
+        if getattr(result, "scalars", None):
+            result.scalars = self.apply_metric_suffix(result.scalars)
 
         return result
