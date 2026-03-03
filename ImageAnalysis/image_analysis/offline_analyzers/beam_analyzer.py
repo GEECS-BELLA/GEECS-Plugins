@@ -110,20 +110,16 @@ class BeamAnalyzer(StandardAnalyzer):
             same camera name. (e.g., "camera_x_rms_curtis").
         """
         # Initialize parent class
-        super().__init__(camera_config_name)
+        super().__init__(
+            camera_config_name=camera_config_name,
+            name_suffix=name_suffix,
+            metric_suffix=metric_suffix,
+        )
 
         # Validate analysis config (if present) into a typed model
         self.analysis_config = BeamAnalysisConfig.model_validate(
             self.camera_config.analysis or {}
         )
-
-        # Store metric suffix for use in analyze_image
-        self.metric_suffix = metric_suffix
-
-        # Apply name suffix if provided
-        if name_suffix:
-            self.camera_config.name = f"{self.camera_config.name}{name_suffix}"
-            logger.info(f"Camera name set to: {self.camera_config.name}")
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None

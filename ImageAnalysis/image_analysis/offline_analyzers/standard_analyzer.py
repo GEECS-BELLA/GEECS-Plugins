@@ -61,11 +61,23 @@ class StandardAnalyzer(ImageAnalyzer):
     ----------
     camera_config_name : str
         Name of the camera configuration to load (e.g., "undulator_exit_cam")
+    name_suffix : str, optional
+        Suffix to append to camera name for scalar result prefixes.
+        Useful for distinguishing multiple analysis passes on the same camera.
+        For example, use "_variation" to distinguish variation analysis results
+        from standard analysis results.
+    metric_suffix : str, optional
+        Suffix to append to all metric names (underscore is auto-prepended).
+        For example, "curtis" becomes "_curtis" in the output keys.
+        Useful for tracking different analysis variations while keeping the
+        same camera name. (e.g., "camera_x_rms_curtis").
     """
 
     def __init__(
         self,
         camera_config_name: str,
+        name_suffix: Optional[str] = None,
+        metric_suffix: Optional[str] = None,
     ):
         """Initialize the standard analyzer with external configuration."""
         # Load camera configuration
@@ -85,6 +97,14 @@ class StandardAnalyzer(ImageAnalyzer):
         # Store analyzer state
         self.camera_config_name = camera_config_name
         self.run_analyze_image_asynchronously = True
+
+        # Store metric suffix for use in analyze_image
+        self.metric_suffix = metric_suffix
+
+        # Apply name suffix if provided
+        if name_suffix:
+            self.camera_config.name = f"{self.camera_config.name}{name_suffix}"
+            logger.info(f"Camera name set to: {self.camera_config.name}")
 
         # Initialize base class with the background manager
         super().__init__(background_manager=self.background_manager)
@@ -268,6 +288,13 @@ class StandardAnalyzer(ImageAnalyzer):
 
             logger.info("Configuration updated: %s", list(section_updates.keys()))
 
+    def apply_metric_suffix(self, scalars: dict) -> dict:
+        """Return a new dict with the metric suffix appended to each scalar key."""
+        # no-op if no suffix configured or no scalars present
+        if not self.metric_suffix or not scalars:
+            return scalars or {}
+        return {f"{k}{self.metric_suffix}": v for k, v in scalars.items()}
+
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
     ) -> ImageAnalyzerResult:
@@ -302,13 +329,23 @@ class StandardAnalyzer(ImageAnalyzer):
         # Build input parameters dictionary
         input_params = self._build_input_parameters()
 
+        # Ensure `scalars` exists (subclasses may add keys later)
+        scalars: Dict[str, Any] = {}
+
+        # Apply metric suffix (no-op if empty or no suffix)
+        scalars = self.apply_metric_suffix(scalars)
+
         # Build and return result
         result = ImageAnalyzerResult(
             data_type="2d",
             processed_image=final_image,
-            scalars={},  # No scalars by default, subclasses can add them
+            scalars=scalars,  # No scalars by default, subclasses can add them
             metadata=input_params,
         )
+
+        # Apply metric suffix to whatever scalars are present right before returning
+        if getattr(result, "scalars", None):
+            result.scalars = self.apply_metric_suffix(result.scalars)
 
         return result
 

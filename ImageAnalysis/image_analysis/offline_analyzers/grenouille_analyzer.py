@@ -46,6 +46,8 @@ class GrenouilleAnalyzer(StandardAnalyzer):
     def __init__(
         self,
         camera_config_name: str,
+        name_suffix: Optional[str] = None,
+        metric_suffix: Optional[str] = None,
     ):
         """Initialize the beam analyzer with external configuration.
 
@@ -55,7 +57,11 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             Name of the camera configuration to load (e.g., "UC_ALineEBeam3")
         """
         # Initialize parent class
-        super().__init__(camera_config_name)
+        super().__init__(
+            camera_config_name=camera_config_name,
+            name_suffix=name_suffix,
+            metric_suffix=metric_suffix,
+        )
 
         self.retrieval = FrogDllRetrieval.from_config()
 
@@ -174,5 +180,9 @@ class GrenouilleAnalyzer(StandardAnalyzer):
                 "horizontal_projection": processed_image.sum(axis=0),
                 "vertical_projection": processed_image.sum(axis=1),
             }
+
+        # Apply metric suffix to final scalars dict (no-op if empty or no suffix)
+        if getattr(result, "scalars", None):
+            result.scalars = self.apply_metric_suffix(result.scalars)
 
         return result
