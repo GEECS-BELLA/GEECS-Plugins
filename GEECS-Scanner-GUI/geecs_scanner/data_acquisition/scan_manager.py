@@ -654,7 +654,7 @@ class ScanManager:
 
         # Original timeout-based synchronization method
         logger.info("Using timeout-based synchronization method")
-        timeout = 25.5  # seconds
+        timeout = 15.5  # seconds
         start_time = time.time()
         while not self.data_logger.devices_synchronized:
             if time.time() - start_time > timeout:
