@@ -122,6 +122,18 @@ def get_database_dict():
     return database_dict.get_database()
 
 
+class DeviceSynchronizationError(Exception):
+    """Base class for device synchronization failures."""
+
+    pass
+
+
+class DeviceSynchronizationTimeout(DeviceSynchronizationError):
+    """Raised when devices fail to synchronize within timeout."""
+
+    pass
+
+
 class ScanManager:
     """Manage the execution of scans in the GEECS system.
 
@@ -568,6 +580,11 @@ class ScanManager:
 
                 logger.info("scan %s: completed normally", scan_id)
 
+        except DeviceSynchronizationError as sync_err:
+            logger.error(
+                "Scan aborted due to device synchronization failure: %s", sync_err
+            )
+
         except Exception:
             logger.exception("Error during scan execution")
 
@@ -637,23 +654,24 @@ class ScanManager:
 
         # Original timeout-based synchronization method
         logger.info("Using timeout-based synchronization method")
-        timeout = 25.5  # seconds
+        timeout = 15.5  # seconds
         start_time = time.time()
         while not self.data_logger.devices_synchronized:
             if time.time() - start_time > timeout:
                 logger.error(
                     "Timeout reached while waiting for devices to synchronize."
                 )
-                logger.info("Stopping scanning.")
-                self.stop_scan()
-                return
+                raise DeviceSynchronizationTimeout(
+                    "Devices failed to synchronize within the allowed timeout."
+                )
+
             if self.data_logger.all_devices_in_standby:
                 logger.info("Sending single-shot trigger to synchronize devices.")
 
                 res = self._set_trigger("SINGLESHOT")
                 logger.info("Result of single shot command: %s", res)
-                # wait 2 seconds after the test fire to allow time for shot to execute and for devices to respond
-                time.sleep(2)
+                # wait 3.5 seconds after the test fire to allow time for shot to execute and for devices to respond
+                time.sleep(3.5)
                 if self.data_logger.devices_synchronized:
                     logger.info("Devices synchronized using timeout method.")
                     break
