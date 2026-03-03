@@ -332,9 +332,6 @@ class StandardAnalyzer(ImageAnalyzer):
         # Ensure `scalars` exists (subclasses may add keys later)
         scalars: Dict[str, Any] = {}
 
-        # Apply metric suffix (no-op if empty or no suffix)
-        scalars = self.apply_metric_suffix(scalars)
-
         # Build and return result
         result = ImageAnalyzerResult(
             data_type="2d",
@@ -342,10 +339,6 @@ class StandardAnalyzer(ImageAnalyzer):
             scalars=scalars,  # No scalars by default, subclasses can add them
             metadata=input_params,
         )
-
-        # Apply metric suffix to whatever scalars are present right before returning
-        if getattr(result, "scalars", None):
-            result.scalars = self.apply_metric_suffix(result.scalars)
 
         return result
 
