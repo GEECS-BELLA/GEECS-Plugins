@@ -105,7 +105,7 @@ class StandardAnalyzer(ImageAnalyzer):
         if name_suffix:
             self.camera_config.name = f"{self.camera_config.name}{name_suffix}"
             logger.info(f"Camera name set to: {self.camera_config.name}")
-        
+
         # Initialize base class with the background manager
         super().__init__(background_manager=self.background_manager)
 
@@ -287,7 +287,7 @@ class StandardAnalyzer(ImageAnalyzer):
                 )
 
             logger.info("Configuration updated: %s", list(section_updates.keys()))
-    
+
     def apply_metric_suffix(self, scalars: dict) -> dict:
         """Return a new dict with the metric suffix appended to each scalar key."""
         # no-op if no suffix configured or no scalars present

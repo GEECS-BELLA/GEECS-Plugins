@@ -60,11 +60,10 @@ class GrenouilleAnalyzer(StandardAnalyzer):
         super().__init__(
             camera_config_name=camera_config_name,
             name_suffix=name_suffix,
-            metric_suffix=metric_suffix
+            metric_suffix=metric_suffix,
         )
 
         self.retrieval = FrogDllRetrieval.from_config()
-
 
         # Validate analysis config (if present) into a typed model
         self.analysis_config = FrogRetrievalConfig.model_validate(
@@ -104,7 +103,6 @@ class GrenouilleAnalyzer(StandardAnalyzer):
 
         result = self.retrieval.retrieve_pulse(
             processed_image,
-
             delt=self.analysis_config.delt,
             dellam=self.analysis_config.dellam,
             lam0=self.analysis_config.lam0,
@@ -182,7 +180,7 @@ class GrenouilleAnalyzer(StandardAnalyzer):
                 "horizontal_projection": processed_image.sum(axis=0),
                 "vertical_projection": processed_image.sum(axis=1),
             }
-        
+
         # Apply metric suffix to final scalars dict (no-op if empty or no suffix)
         if getattr(result, "scalars", None):
             result.scalars = self.apply_metric_suffix(result.scalars)
