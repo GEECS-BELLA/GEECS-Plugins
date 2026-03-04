@@ -94,7 +94,7 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
 
         # Run ICT analysis
         try:
-            charge_pC = apply_ict_analysis(
+            charge_pC, peak_time_us = apply_ict_analysis(
                 data=voltage_trace,
                 dt=dt,
                 butterworth_order=self.analysis_config.butterworth_order,
@@ -104,13 +104,21 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
         except Exception as e:
             logger.error("ICT analysis failed: %s", e)
             charge_pC = 0.0
+            peak_time_us = 0.0
 
         result = ImageAnalyzerResult(
             data_type="1d",
             line_data=image,
-            scalars={"charge_pC": charge_pC},
+            scalars={
+                f"{self.camera_name}_charge_pC": charge_pC,
+                f"{self.camera_name}_ICT Signal Peak_us": peak_time_us,
+            },
         )
 
-        logger.debug("ICT analysis complete: charge=%.2f pC", charge_pC)
+        logger.debug(
+            "ICT analysis complete: charge=%.2f pC, peak_time=%.2f us",
+            charge_pC,
+            peak_time_us,
+        )
 
         return result
