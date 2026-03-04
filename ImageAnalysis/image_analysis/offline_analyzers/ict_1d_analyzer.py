@@ -112,6 +112,10 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
             scalars={"charge_pC": charge_pC, "ICT Signal Peak_us": peak_time_us},
         )
 
-        logger.debug("ICT analysis complete: charge=%.2f pC, peak_time=%.2f us", charge_pC, peak_time_us)
+        logger.debug(
+            "ICT analysis complete: charge=%.2f pC, peak_time=%.2f us",
+            charge_pC,
+            peak_time_us,
+        )
 
         return result
