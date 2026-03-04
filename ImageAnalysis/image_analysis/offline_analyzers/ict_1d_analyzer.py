@@ -109,7 +109,10 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
         result = ImageAnalyzerResult(
             data_type="1d",
             line_data=image,
-            scalars={"charge_pC": charge_pC, "ICT Signal Peak_us": peak_time_us},
+            scalars={
+                f"{self.camera_name}_charge_pC": charge_pC,
+                f"{self.camera_name}_ICT Signal Peak_us": peak_time_us,
+            },
         )
 
         logger.debug(
