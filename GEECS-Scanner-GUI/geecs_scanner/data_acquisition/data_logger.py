@@ -265,13 +265,16 @@ class FileMover:
         if not self.save_local:
             time.sleep(0.1)
 
+        # Track found files across ALL variant directories, not per-variant.
+        # For devices like FROG, the expected files are spread across multiple
+        # variant directories (e.g., -Temporal and -Spatial), so we need to
+        # accumulate the count across all of them.
         task_success = False
+        found_files_count = 0
         for variant in variant_dirs:
-            task_success = False
             adjusted_target_dir = target_dir.parent / variant.name
             adjusted_target_dir.mkdir(parents=True, exist_ok=True)
 
-            found_files_count = 0
             for file in variant.glob("*"):
                 if not file.is_file():
                     continue
@@ -328,6 +331,10 @@ class FileMover:
                     if found_files_count == expected_file_count:
                         task_success = True
                         break
+
+            # Break out of the outer variant loop if we've found all expected files
+            if task_success:
+                break
 
         if not task_success:
             if self.scan_is_live and task.retry_count < task.max_retries:
@@ -485,11 +492,12 @@ class FileMover:
         """
         Attempt to recover and process orphaned files based on device timestamps and log data.
 
-        For each device listed in the `device_save_paths_mapping`, recursively search the source
-        directory for files containing the device name. For each file found, extract its timestamp
-        and compare it to acquisition timestamps in `log_df`. If a match is found within a tolerance
-        window, determine the corresponding shot number, construct a `FileMoveTask`, and enqueue it
-        for processing.
+        For each device listed in the `device_save_paths_mapping`, search the source
+        directory and its variant directories (sibling directories whose names start with
+        the device name) for unprocessed files. For each file found, extract its timestamp
+        and compare it to acquisition timestamps in `log_df`. If a match is found within a
+        tolerance window, determine the corresponding shot number, construct a `FileMoveTask`,
+        and enqueue it for processing.
 
         Parameters
         ----------
@@ -507,7 +515,9 @@ class FileMover:
         -----
         - Matching is done using a configurable timestamp tolerance (`0.0011` seconds).
         - Orphan files are those not processed during live acquisition but present on disk.
-        - This method assumes a filename format of `{device_name}_{random}.ext`.
+        - Files already in `processed_files` are skipped to avoid redundant work.
+        - Searches variant directories (e.g., DeviceName-Temporal, DeviceName-Spatial)
+          in addition to the base source directory, using the same pattern as `_process_task`.
         """
         logger.info("looking to handle orphaned data files")
         tolerance = 0.0011  # Adjust as needed
@@ -516,24 +526,62 @@ class FileMover:
             target_dir = Path(device_info["target_dir"])
             device_type = device_info["device_type"]
 
-            # Create a list of (shotnumber, timestamp) pairs from the df. Ensure the df columns are named appropriately.
+            # Create a list of (shotnumber, timestamp) pairs from the df.
             # *NOTE* Using `acq_timestamp` for data that was logged
+            acq_col = f"{device_name} acq_timestamp"
+            if acq_col not in log_df.columns:
+                logger.info(
+                    "No acq_timestamp column for %s in log_df; skipping orphan sweep.",
+                    device_name,
+                )
+                continue
+
             shot_timestamp_pairs = [
-                (row["Shotnumber"], row[f"{device_name} acq_timestamp"])
+                (row["Shotnumber"], row[acq_col])
                 for _, row in log_df.iterrows()
-                if pd.notnull(row[f"{device_name} acq_timestamp"])
+                if pd.notnull(row[acq_col])
             ]
 
-            # Recursively find orphaned files that include the device name.
-            orphan_files = [
-                f
-                for f in source_dir.rglob("*")
-                if f.is_file() and device_name in f.name
-            ]
+            if not shot_timestamp_pairs:
+                logger.info(
+                    "No valid timestamps for %s; skipping orphan sweep.", device_name
+                )
+                continue
+
+            # Search variant directories (siblings whose names start with device_name),
+            # using the same pattern as _process_task. This ensures we find files in
+            # directories like DeviceName-Temporal, DeviceName-Spatial, etc.
+            home_dir = source_dir.parent
+            if home_dir.exists():
+                variant_dirs = [
+                    d
+                    for d in home_dir.iterdir()
+                    if d.is_dir() and d.name.startswith(device_name)
+                ]
+            else:
+                logger.warning(
+                    "Parent directory %s does not exist for %s; skipping orphan sweep.",
+                    home_dir,
+                    device_name,
+                )
+                continue
+
+            # Collect orphan files from all variant directories, skipping already-processed files.
+            orphan_files = []
+            for variant_dir in variant_dirs:
+                for f in variant_dir.glob("*"):
+                    if f.is_file() and f not in self.processed_files:
+                        orphan_files.append(f)
+
+            logger.info(
+                "Found %d candidate orphan files for %s across %d variant dirs.",
+                len(orphan_files),
+                device_name,
+                len(variant_dirs),
+            )
 
             for file in orphan_files:
                 file_ts = extract_timestamp_from_file(file, device_type)
-                logger.info("Found orphan file %s with timestamp %s", file, file_ts)
                 matched_shot = None
 
                 # Find the matching shot number using the pairs from the DataFrame.
@@ -543,6 +591,9 @@ class FileMover:
                         break
 
                 if matched_shot is not None:
+                    logger.info(
+                        "Found orphan file %s matching shot %s", file, matched_shot
+                    )
                     # Extract unique random part from the filename.
                     random_part = file.stem.replace(f"{device_name}_", "")
 
@@ -556,12 +607,6 @@ class FileMover:
                         shot_index=matched_shot,
                         random_part=random_part,
                     )
-                    logger.info(
-                        "Enqueuing orphan task for {file} with shot number %s",
-                        matched_shot,
-                    )
-                    # Process the task using your FileMover's method.
-
                     self.move_files_by_timestamp(task)
                 else:
                     logger.warning(
