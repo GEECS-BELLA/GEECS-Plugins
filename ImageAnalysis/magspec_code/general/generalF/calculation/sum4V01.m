@@ -1,0 +1,1 @@
+%%%%%%%%%% Function sum4V01.m %%%%%%%%%%% Sum of 4 matrix, ver.1%% Kei Nakamura% Created on Friday, January 12th 2007.% Modified on%% function sum4 = sum4V01(a, b, c, d);% gives mean value of 4 matrices a, b, c, and d.function sum4 = sum4V01(a, b, c, d);sum4 = [sum(sum(a)) sum(sum(b)) sum(sum(c)) sum(sum(d))];

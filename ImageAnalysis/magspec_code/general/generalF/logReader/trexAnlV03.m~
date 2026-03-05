@@ -1,0 +1,1180 @@
+%%%%%%%%%% PROGRAM trexAnlV03.m %%%%%%%%%%
+% TREX Analysis ver.03
+
+% Kei Nakamura
+% Created on Friday, July 25th 2008.
+% Modified on Thursday, September 18th 2008.
+
+% This program analyze 100TW data.
+% masterlog, enecal, and ssa required
+
+% ver.2: after new calibration ALS
+% ver.3: include osm analysis
+
+clear all
+%close all
+
+% input parameters
+mode = 1;   % 1 for server, 2 for local
+mChg = 0;   % 0: full charge, 16: roi1 charge
+optn = 1;   % 1 for option on
+clm = 133;  % number of elements in the masterlog (not 2)
+tr = 5;    % 5:tr-energy meter, 30: CCD-tr, clm+13: laser loss[mJ],
+dly = clm+28;    % 44: aim dly, 45: scope dly, clm+24-29: t0-t200A,
+opt1 = 113;
+opt2 = clm+2;
+opt3 = clm+16;
+
+day = 27;   % 1: 12/2/2005, 2: 12/14/2005, 3: 3/2/2006, 4: 3/17/2006,
+            % 5: 3/22/2006, 6: 3/28/2006, 7: 3/31/2006-cap1,
+            % 8: 3/31/2006lcap2, % 12: 02/20/2007, 13: 3/1/2007, 14: 3/12/07,
+            % 15: 3/27/07, 16: 3/29/07, 17: 4/5/07 18: 8/17/07,
+            % 19: 11/8/2007, 20: 1/24/2007, 21: 4/15/2008, 22: 5/8/2008
+            % 23: 5/21/2008, 24: 6/04/2008, 25: 6/17/2008, 26: 6/24/2008
+            % 27: 6/26/2008, 28: 7/01/2008, 29: 7/9/2008, 30: 7/14/2008
+            % 31: 7/17/2008, 32: 7/21/2008,
+
+% scan to plot
+scanS = input('input scans like, 1:4,8,10:12 : ', 's'); % scan string
+%scanS = '10:15,20,23:25,30:33';     % for day=27
+%scanS = '10:15,20';
+%scanS = '11';
+scanN = str2num(scanS);
+
+% plot control
+erb = 2;    % errorbar 1->sigma, 2-> min-max
+cutoff = 4;     % cutoff for statistics
+stpA = 0.4; % step for power [a0]
+stpN0 = 30; % step for density [10^18]
+stpTm = 21; % step for timing [ns]
+stpBp = 10; % step for backing pressure [torr]
+stpTax = 6; % step for TA4-x
+stpTay = 6; % step for TA4-y
+stpFs = 100;  % step for fs
+stpJ = 1500;     % step for mJ
+
+stpG = [15 15]; % step for plot of Gas
+stpP = [2 2]; % step for plot of Pointing
+stpL = [5 5]; % step for plot of Laser
+
+zAxA = 0;        % z-ax for beam angle [mrad]
+zAxB = 0;           % z-ax for loss->wake&beam eff. [%]
+zAxC = 0;%[0,20];   % max y for charge plot [pC]
+zAxD = 0;%[2,5];       % z-ax for beam Divergence [mrad]
+zAxE = 0;%[150,550];   % max y for Energy plot [MeV]
+zAxF = 0;           % z-ax for laser->wake&beam eff. [%]
+zAxG = 0;%[45,70];       % z-ax for guided spot [mu]
+zAxJ = 0;%[0,2.5];       % z-ax for total energy [mJ]
+zAxL = 0;%[35,50];       % z-ax for loss [mJ]
+zAxO = 0;
+zAxP = [0,100];       % z-ax for probability
+zAxSp = 0;%[0,60];       % z ax for energy spread [MeV]
+zAxS = [0,20];       % z ax for statistics
+zAxW = 0;           % z ax for wake energy [Jm]
+
+yMaxG = 200;    % max y for guiding spot plot
+yMaxL = 100;    % max y for loss plot
+yMaxP = 100;    % max y for probablity plot
+yMaxH = 20;     % mas y for histogram
+minI = -11;     % min input for plot
+maxI = 11;      % max input for plot
+
+% misc.
+prs5 = fEscMakerV01('%s',5);
+prf4 = fEscMakerV01('%f',4);
+prs6 = fEscMakerV01('%s',6);
+prf6 = fEscMakerV01('%f',6);
+prs7 = fEscMakerV01('%s',7);
+prf7 = fEscMakerV01('%f',7);
+prs9 = fEscMakerV01('%s',9);
+prf9 = fEscMakerV01('%f',9);
+cDir = pwd;                     % current direcrtory
+[mDir,clbDir,mstr] = fTrexMthDrcV03(day,mode);         % mother directory: Scan folder
+clb = trexClbV02(day,0);
+
+% output file
+outNam = input('output logfile name: ','s');
+logOut = strcat(outNam,'.txt');
+fidO=fopen(logOut,'w'); % fid Out
+
+% move to the mother directory, read masterlog
+cd(mDir);
+cd('analysis')
+prt = getPartStrV02(mstr,'z','.');
+mstr = [prt,'2.txt'];
+[ttl,dat] = fLogReadV01(mstr);
+
+% scan selection
+indK = 1;
+for ii=1:numel(scanN)
+    k = find(dat(:,116)==scanN(ii));
+    numK = numel(k);
+    j(indK:indK+numK-1) = k;
+    indK = indK+numK;
+end
+dat = dat(j,:);     % throw away scans
+[sht,dlt] = size(dat);
+
+% flag for shots with proper timing
+f1 = zeros(sht,1);
+if dly>clm;
+    list = find(dat(:,117)>0);
+else
+    list = find(dat(:,dly)>-200&dat(:,dly)<1000);
+end
+flgTtl(1,1) = {1};
+flgTtl(1,2) = {'Timing'};
+f1(list) = 1;   % put flag
+
+% put flag on any beam
+f2 = zeros(sht,1);
+list = find(dat(:,52)~=0);  % if mean energy ~= 0 -> processed
+flgTtl(2,1) = {2};
+flgTtl(2,2) = {'Beam on'};
+f2(list) = 1;   % put flag
+
+% flag for beams with single peak structure
+f3 = zeros(sht,1);
+list = find(dat(:,52)~=0&dat(:,60)==dat(:,61)&dat(:,63)<20);
+flgTtl(3,1) = {3};
+flgTtl(3,2) = {'single-peak beam'};
+f3(list) = 1;   % put flag
+
+% flag for valid optical spectrum
+f4 = zeros(sht,1);
+list = find(dat(:,129)>0);
+flgTtl(4,1) = {4};
+flgTtl(4,2) = {'valid OSM'};
+f4(list) = 1;   % put flag
+
+% optional flag
+op = zeros(sht,1);
+k = find(dat(:,13)>81&dat(:,13)<89);
+if optn==1;
+    op(k) = 1;       % with optino
+else
+    op(:) = 1;           % no option
+end
+
+
+% figure 1 guide
+fig1 = figure(1);
+set(gcf,'color',[1 1 1]);
+set(fig1, 'Position', [121 214 900 400]);
+
+% density-timing dep. of spot
+k = find(op==1&f1==1);
+sk = size(k);
+subplot(2,3,1);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,clm+14),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{clm+14,2};
+    tt = strcat('Spot size: mean = ',num2str(round(mean(dat(k,clm+14)))),'\mum');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxG,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% spot size dep. of TA4
+subplot(2,3,2);
+k = find(op==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,clm+14),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{clm+14,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,clm+14)))),'\mum');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxG,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% spot size dep. on a0 and length
+subplot(2,3,3);
+k = find(op==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,clm+14),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{clm+14,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,clm+14)))),'\mu');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxG,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% density-timing dep. of laser energy loss
+k = find(op==1&f1==1);
+sk = size(k);
+subplot(2,3,4);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,tr),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{tr,2};
+    tt = strcat('Spot size: mean = ',num2str(round(mean(dat(k,tr)))),'mJ');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxL,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% of laser energy loss. of TA4
+subplot(2,3,5);
+k = find(op==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,tr),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{tr,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,tr)))),'mJ');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxL,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% of laser energy loss
+subplot(2,3,6);
+k = find(op==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,tr),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{tr,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,tr)))),'mJ');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxL,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+colormap autumn;
+
+
+% figure 2, injection probability
+fig2 = figure(2);
+set(gcf,'color',[1 1 1]);
+set(fig2, 'Position', [156 184 900 400]);
+
+k = find(op==1&f1==1);
+sk = size(k);
+subplot(2,3,1);
+if sk(1)~0;
+    [plt sX sY tot] = fTrexFrqV01(dat(k,dly),dat(k,clm+15),f2(k),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = 'injection[%]';
+    tt = strcat('Injection: mean = ',num2str(round(tot)),'%');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxP,cutoff,0);
+    fprintf(fidO,prs7,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots');
+    fprintf(fidO,prf7,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% injection dep. of TA4
+subplot(2,3,2);
+k = find(op==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY tot] = fTrexFrqV01(dat(k,17),dat(k,18),f2(k),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = 'injection[%]';
+    tt = strcat('mean = ',num2str(round(tot)),'%');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxP,cutoff,0);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs7,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots');
+    fprintf(fidO,prf7,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% injection dep on a0 and length
+subplot(2,3,3);
+k = find(op==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY tot] = fTrexFrqV01(dat(k,clm+12),dat(k,clm+9),f2(k),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = 'injection[%]';
+    tt = strcat('mean = ',num2str(round(tot)),'%');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxP,cutoff,0);
+    fprintf(fidO,prs7,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots');
+    fprintf(fidO,prf7,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% mono injection for all beam
+k = find(op==1&f1==1);
+sk = size(k);
+subplot(2,3,4);
+if sk(1)~0;
+    [plt sX sY tot] = fTrexFrqV01(dat(k,dly),dat(k,clm+15),f3(k),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = 'mono-injection[%]';
+    tt = strcat('Injection: mean = ',num2str(round(tot)),'%');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxP,cutoff,0);
+    fprintf(fidO,prs7,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots');
+    fprintf(fidO,prf7,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% injection dep. of TA4
+subplot(2,3,5);
+k = find(op==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY tot] = fTrexFrqV01(dat(k,17),dat(k,18),f3(k),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = 'mono-injection[%]';
+    tt = strcat('mean = ',num2str(round(tot)),'%');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxP,cutoff,0);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs7,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots');
+    fprintf(fidO,prf7,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% injection dep on a0 and length
+subplot(2,3,6);
+k = find(op==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY tot] = fTrexFrqV01(dat(k,clm+12),dat(k,clm+9),f3(k),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = 'mono-injection[%]';
+    tt = strcat('mean = ',num2str(round(tot)),'%');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxP,cutoff,0);
+    fprintf(fidO,prs7,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots');
+    fprintf(fidO,prf7,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+colormap('cool');
+
+
+% figure 3 electron beam paramater 1 (charge, divergence, pinting)
+fig3 = figure(3);
+set(gcf,'color',[1 1 1]);
+set(fig3, 'Position', [90 44 900 600]);
+
+% roi charge vs density and timing
+k = find(op==1&f1==1&f2==1);
+sk = size(k);
+subplot(3,3,1);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,48+mChg),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{48+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,48+mChg)))),'[pC]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxC,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% roi charge aginst input position
+subplot(3,3,2);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,48+mChg),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{48+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,48+mChg)))),'[pC]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxC,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% roi charge aginst power and pulse length
+subplot(3,3,3);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,48+mChg),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{48+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,48+mChg)))),'[pC]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxC,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% beam divergence aginst density and timing
+k = find(op==1&f1==1&f2==1);
+sk = size(k);
+subplot(3,3,4);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,57+mChg),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{57+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,57+mChg)))),'[mrad]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxD,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% beam divergence aginst input position
+subplot(3,3,5);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,57+mChg),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{57+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,57+mChg)))),'[mrad]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxD,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% beam divergence aginst power and pulse length
+subplot(3,3,6);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,57+mChg),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{57+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,57+mChg)))),'[mrad]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxD,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% beam angle aginst timing and density
+k = find(op==1&f1==1&f2==1);
+sk = size(k);
+subplot(3,3,7);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,58+mChg),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{58+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,58+mChg)))),'[mrad]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxA,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% beam angle of TA4
+subplot(3,3,8);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,58+mChg),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{58+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,58+mChg)))),'[mrad]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxA,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% beam anglet on a0 and length
+subplot(3,3,9);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,58+mChg),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{58+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,58+mChg)))),'[mrad]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxA,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+colormap('hot');
+
+
+% figure 4 electron beam paramater
+fig4 = figure(4);
+set(gcf,'color',[1 1 1]);
+set(fig4, 'Position', [140 40 900 600]);
+
+% peak energy vs density and timing
+k = find(op==1&f1==1&f2==1);
+sk = size(k);
+subplot(3,3,1);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,59+mChg),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{59+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,59+mChg)))),'[MeV]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxE,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% peak energy aginst input position
+subplot(3,3,2);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,59+mChg),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{59+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,59+mChg)))),'[MeV]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxE,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% peak energy aginst power and pulse length
+subplot(3,3,3);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,59+mChg),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{59+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,59+mChg)))),'[MeV]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxE,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% energy spread aginst density and timing
+k = find(op==1&f1==1&f2==1);
+sk = size(k);
+subplot(3,3,4);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,63+mChg),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{63+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,63+mChg)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxSp,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% energy spread aginst input position
+subplot(3,3,5);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,63+mChg),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{63+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,63+mChg)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxSp,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% energy spread aginst power and pulse length
+subplot(3,3,6);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,63+mChg),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{63+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,63+mChg)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxSp,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% beam total energy aginst timing and density
+k = find(op==1&f1==1&f2==1);
+sk = size(k);
+subplot(3,3,7);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,49+mChg),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{49+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,49+mChg)))),'[mJ]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxJ,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% beam total energy of TA4
+subplot(3,3,8);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,49+mChg),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{49+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,49+mChg)))),'[mJ]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxJ,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% beam total energy on a0 and length
+subplot(3,3,9);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,49+mChg),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{49+mChg,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,49+mChg)))),'[mJ]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxJ,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+
+% figure 5 for optical spectrometer
+fig5 = figure(5);
+set(gcf,'color',[1 1 1]);
+set(fig5, 'Position', [90 34 900 600]);
+
+k = find(op==1&f1==1&f4==1);
+sk = size(k);
+subplot(3,3,1);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,131),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{131,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,opt1)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxO,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% wake aginst input position
+subplot(3,3,2);
+k = find(op==1&f4==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,131),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{131,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,131)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxO,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% wake aginst power and pulse length
+subplot(3,3,3);
+k = find(op==1&f4==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,131),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{131,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,131)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxO,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+k = find(op==1&f1==1&f4==1);
+sk = size(k);
+subplot(3,3,4);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,132),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{132,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,132)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxO,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% loss->wake&beam aginst input position
+subplot(3,3,5);
+k = find(op==1&f4==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,132),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{132,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,132)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxO,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% loss->wake&beam aginst power and pulse length
+subplot(3,3,6);
+k = find(op==1&f4==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,132),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{132,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,132)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxO,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% laser->wake&beam aginst timing and density
+k = find(op==1&f1==1&f4==1);
+sk = size(k);
+subplot(3,3,7);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,133),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{133,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,133)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxO,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% laser->wake&beam of TA4
+subplot(3,3,8);
+k = find(op==1&f4==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,133),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{133,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,133)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxO,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% laser->wake&beam on a0 and length
+subplot(3,3,9);
+k = find(op==1&f4==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,133),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{133,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,133)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxO,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+colormap('copper');
+
+
+
+% figure 7 optional parameter
+fig7 = figure(7);
+set(gcf,'color',[1 1 1]);
+set(fig7, 'Position', [90 34 900 600]);
+
+k = find(op==1&f1==1&f2==1);
+sk = size(k);
+subplot(3,3,1);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,opt1),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{opt1,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,opt1)))),'[]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxW,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% wake aginst input position
+subplot(3,3,2);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,opt1),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{opt1,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,opt1)))),'[]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxW,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% wake aginst power and pulse length
+subplot(3,3,3);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,opt1),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{opt1,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,opt1)))),'[mJ]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxW,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+k = find(op==1&f1==1&f2==1);
+sk = size(k);
+subplot(3,3,4);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,opt2),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{opt2,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,opt2)))),'[]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxB,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% loss->wake&beam aginst input position
+subplot(3,3,5);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,opt2),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{opt2,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,opt2)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxB,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% loss->wake&beam aginst power and pulse length
+subplot(3,3,6);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,opt2),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{opt2,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,opt2)))),'[%]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxB,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% laser->wake&beam aginst timing and density
+k = find(op==1&f1==1&f2==1);
+sk = size(k);
+subplot(3,3,7);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,opt3),stpTm,stpN0);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = ttl{opt3,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,opt3)))),'[]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpG,zAxF,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% laser->wake&beam of TA4
+subplot(3,3,8);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,opt3),stpTax,stpTay);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = ttl{opt3,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,opt3)))),'[]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpP,zAxF,cutoff,erb);
+    %axis([minI maxI minI maxI]);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+
+% laser->wake&beam on a0 and length
+subplot(3,3,9);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)>1;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,opt3),stpA,stpFs);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = ttl{opt3,2};
+    tt = strcat('mean = ',num2str(round(mean(dat(k,opt3)))),'[]');
+    tt2 = strcat(num2str(sk(1)),'shots');
+    lbl{4} = strcat(tt,',',tt2);
+    ok = fTrex3dPltV06(plt,sX,sY,lbl,stpL,zAxF,cutoff,erb);
+    fprintf(fidO,prs9,lbl{1},lbl{2},lbl{3},'sigX','sigY','sigZ','shots','m-min','max-m');
+    fprintf(fidO,prf9,plt');
+    fprintf(fidO,'\n');
+else
+    plot(0);
+end
+colormap('copper');
+
+% figure6 for statistics
+fig6 = figure(6);
+set(gcf,'color',[1 1 1]);
+set(fig6, 'Position', [248 113 900 400]);
+
+% Histogram for statistics
+subplot(2,3,1);
+k = find(op==1&f1==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,1),stpTm,stpN0);
+    plt(:,3) = plt(:,7);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = 'shots';
+    lbl{4} = strcat('Histogram, total: ',num2str(sk(1)),'shots');
+    ok = fTrex3dPltV04(plt,sX,sY,lbl,stpG,zAxS,0);
+else
+    plot(0);
+end
+% histogram for input position
+subplot(2,3,2);
+k = find(op==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,1),stpTax,stpTay);
+    plt(:,3) = plt(:,7);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = 'shots';
+    lbl{4} = strcat('Histogram, total: ',num2str(sk(1)),'shots');
+    ok = fTrex3dPltV04(plt,sX,sY,lbl,stpP,zAxS,0);
+    %axis([minI maxI minI maxI]);
+else
+    plot(0);
+end
+% histogram for laser parameter
+subplot(2,3,3);
+k = find(op==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,1),stpA,stpFs);
+    plt(:,3) = plt(:,7);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = 'shots';
+    lbl{4} = strcat('Histogram, total: ',num2str(sk(1)),'shots');
+    ok = fTrex3dPltV04(plt,sX,sY,lbl,stpL,zAxS,0);
+else
+    plot(0);
+end
+
+% statistics, histogram for beam
+k = find(op==1&f1==1&f2==1);
+sk = size(k);
+subplot(2,3,4);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,dly),dat(k,clm+15),dat(k,1),stpTm,stpN0);
+    plt(:,3) = plt(:,7);
+    lbl{1} = ttl{dly,2}; lbl{2} = ttl{clm+15,2}; lbl{3} = 'shots';
+    lbl{4} = strcat('Histogram, total: ',num2str(sk(1)),'shots');
+    ok = fTrex3dPltV04(plt,sX,sY,lbl,stpG,zAxS,0);
+else
+    plot(0);
+end
+% cut off energy aginst input position
+subplot(2,3,5);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,17),dat(k,18),dat(k,1),stpTax,stpTay);
+    plt(:,3) = plt(:,7);
+    lbl{1} = ttl{17,2}; lbl{2} = ttl{18,2}; lbl{3} = 'shots';
+    lbl{4} = strcat('Histogram, total: ',num2str(sk(1)),'shots');
+    ok = fTrex3dPltV04(plt,sX,sY,lbl,stpP,zAxS,0);
+else
+    plot(0);
+end
+% cut off energy aginst power and pulse length
+subplot(2,3,6);
+k = find(op==1&f2==1);
+sk = size(k);
+if sk(1)~0;
+    [plt sX sY] = fTrex3DSttV02(dat(k,clm+12),dat(k,clm+9),dat(k,1),stpA,stpFs);
+    plt(:,3) = plt(:,7);
+    lbl{1} = ttl{clm+12,2}; lbl{2} = ttl{clm+9,2}; lbl{3} = 'shots';
+    lbl{4} = strcat('Histogram, total: ',num2str(sk(1)),'shots');
+    ok = fTrex3dPltV04(plt,sX,sY,lbl,stpL,zAxS,0);
+else
+    plot(0);
+end
+
+
+% log in laser plasma parameters
+k = find(op==1&f1==1);
+prm = [mean(dat(k,clm+10)), min(dat(k,clm+10)),max(dat(k,clm+10)),100*std(dat(k,clm+10))/mean(dat(k,clm+10));
+ mean(dat(k,clm+9)), min(dat(k,clm+9)),max(dat(k,clm+9)),100*std(dat(k,clm+9))/mean(dat(k,clm+9));
+ mean(dat(k,clm+11)), min(dat(k,clm+11)),max(dat(k,clm+11)),100*std(dat(k,clm+11))/mean(dat(k,clm+11));
+ mean(dat(k,clm+12)), min(dat(k,clm+12)),max(dat(k,clm+12)),100*std(dat(k,clm+12))/mean(dat(k,clm+12));
+ mean(dat(k,clm+15)), min(dat(k,clm+15)),max(dat(k,clm+15)),100*std(dat(k,clm+15))/mean(dat(k,clm+15));];
+
+fprintf(fidO,prs5,'','mean','min','max','flc[%]');
+fprintf(fidO,['%s\t',prf4],'Energy in [mJ]',prm(1,:));
+fprintf(fidO,['%s\t',prf4],'Pulse length [fs]',prm(2,:));
+fprintf(fidO,['%s\t',prf4],'Peak power [TW]',prm(3,:));
+fprintf(fidO,['%s\t',prf4],'a0',prm(4,:));
+fprintf(fidO,['%s\t',prf4],'n0',prm(5,:));
+fprintf(fidO,'\n');
+
+cd(cDir);
+fclose(fidO);

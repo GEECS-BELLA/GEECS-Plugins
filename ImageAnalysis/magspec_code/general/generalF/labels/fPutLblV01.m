@@ -1,0 +1,1 @@
+%%%%%%%%%% Function fPutLblV01.m %%%%%%%%%%% Function Put Label, ver.1% Kei Nakamura% Created on Monday, April 23rd 2007.% Modified on %% function ok = fPutLblV01(ttl,x,y);% put labelsfunction ok = fPutLblV01(ttl,x,y);  %function headerok = 0;title(ttl);xlabel(x);ylabel(y);
