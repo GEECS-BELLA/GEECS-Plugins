@@ -5,12 +5,16 @@ Provides analysis for magnetic spectrometer images with pixel-to-energy
 conversion using device-specific calibrations.
 """
 
+import csv
 import numpy as np
 import logging
-from typing import Optional, Tuple, Dict, List, Callable
+from typing import Optional, Tuple, Dict, List, Callable, Annotated, Union, Literal, Any
 from pathlib import Path
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
 import matplotlib.pyplot as plt
+from scipy.interpolate import CubicSpline
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 from image_analysis.tools.rendering import base_render_image
 from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
@@ -20,39 +24,445 @@ from image_analysis.algorithms.axis_interpolation import interpolate_image_axis
 logger = logging.getLogger(__name__)
 
 
+class EnergyCalibration(ABC):
+    """Interface for mapping image column index to energy."""
+
+    @abstractmethod
+    def build_axis(self, image_width: int) -> np.ndarray:
+        """Return energy axis values corresponding to image columns."""
+        raise NotImplementedError
+
+
 @dataclass
-class MagSpecCalibration:
-    """
-    Calibration specification for pixel-to-energy mapping.
+class PolynomialCalibration(EnergyCalibration):
+    """Polynomial energy calibration: E(pixel) = c0 + c1*x + c2*x^2 + ..."""
 
-    Supports three calibration types:
-    - polynomial: Uses polynomial coefficients
-    - array: Uses pre-computed array (from file or inline)
-    - callable: Uses custom function
-    """
-
-    type: str  # "polynomial", "array", or "callable"
-    coeffs: Optional[List[float]] = None  # For polynomial
-    values: Optional[np.ndarray] = None  # For inline array
-    file: Optional[str] = None  # For array from file
-    function: Optional[Callable[[np.ndarray], np.ndarray]] = None  # For callable
+    coeffs: List[float]
 
     def __post_init__(self):
-        """Validate calibration configuration."""
-        if self.type not in ["polynomial", "array", "callable"]:
+        """Validate polynomial calibration coefficients."""
+        if not self.coeffs:
+            raise ValueError("PolynomialCalibration requires non-empty coeffs")
+
+    def build_axis(self, image_width: int) -> np.ndarray:
+        """Build a pixel-to-energy axis from polynomial coefficients."""
+        pixel_axis = np.arange(image_width)
+        pixel_to_energy = np.zeros_like(pixel_axis, dtype=float)
+        for i, coeff in enumerate(self.coeffs):
+            pixel_to_energy += coeff * np.power(pixel_axis, i)
+        return pixel_to_energy
+
+
+@dataclass
+class ArrayCalibration(EnergyCalibration):
+    """Calibration from a precomputed axis array (inline or .npy file)."""
+
+    values: Optional[np.ndarray] = None
+    file: Optional[str] = None
+
+    def __post_init__(self):
+        """Validate that inline values or a file path is provided."""
+        if self.values is None and self.file is None:
+            raise ValueError("ArrayCalibration requires 'values' or 'file'")
+
+    def build_axis(self, image_width: int) -> np.ndarray:
+        """Build a pixel-to-energy axis from an array or `.npy` file."""
+        if self.file is not None:
+            cal_path = Path(self.file)
+            if not cal_path.is_absolute():
+                if not cal_path.exists():
+                    cal_path = Path(__file__).parent.parent / cal_path
+            pixel_to_energy = np.load(cal_path)
+        else:
+            pixel_to_energy = np.asarray(self.values, dtype=float)
+
+        if len(pixel_to_energy) != image_width:
             raise ValueError(
-                f"Calibration type must be 'polynomial', 'array', or 'callable', "
-                f"got '{self.type}'"
+                f"Calibration array length ({len(pixel_to_energy)}) "
+                f"doesn't match image width ({image_width})"
+            )
+        return pixel_to_energy
+
+
+@dataclass
+class CallableCalibration(EnergyCalibration):
+    """Calibration built by evaluating a custom function on pixel index."""
+
+    function: Callable[[np.ndarray], np.ndarray]
+
+    def __post_init__(self):
+        """Validate callable calibration function."""
+        if self.function is None:
+            raise ValueError("CallableCalibration requires 'function'")
+
+    def build_axis(self, image_width: int) -> np.ndarray:
+        """Build a pixel-to-energy axis by evaluating a callable."""
+        pixel_axis = np.arange(image_width)
+        pixel_to_energy = np.asarray(self.function(pixel_axis), dtype=float)
+        if len(pixel_to_energy) != image_width:
+            raise ValueError(
+                f"Callable calibration returned length ({len(pixel_to_energy)}) "
+                f"but image width is ({image_width})"
+            )
+        return pixel_to_energy
+
+
+@dataclass
+class DnnAxisCalibration(EnergyCalibration):
+    """
+    MATLAB-style DNN magspec horizontal-axis calibration inputs.
+
+    This mirrors the `fDnnAxisClbEach.m` x-axis path:
+    pixel -> screen position [mm] -> momentum [MeV/c/T] via spline ->
+    energy-like axis [MeV] via magnetic field scaling.
+    """
+
+    fov_mm: float
+    roi_width_px: int
+    left_edge_mm: float
+    x_start_px: int
+    x_end_px: int
+    traj_screen_mm: np.ndarray
+    traj_momentum_mev_c_per_t: np.ndarray
+    magnetic_field_t: float = 1.0
+
+    def __post_init__(self):
+        """Validate MATLAB-style DNN calibration inputs."""
+        if self.roi_width_px <= 0:
+            raise ValueError("roi_width_px must be > 0")
+        if self.x_start_px < 1 or self.x_end_px < self.x_start_px:
+            raise ValueError(
+                "x_start_px/x_end_px must be 1-based inclusive indices with "
+                "x_end_px >= x_start_px >= 1"
+            )
+        if self.x_end_px > self.roi_width_px:
+            raise ValueError(
+                f"x_end_px ({self.x_end_px}) cannot exceed roi_width_px "
+                f"({self.roi_width_px})"
             )
 
-        if self.type == "polynomial" and self.coeffs is None:
-            raise ValueError("Polynomial calibration requires 'coeffs'")
+        self.traj_screen_mm = np.asarray(self.traj_screen_mm, dtype=float)
+        self.traj_momentum_mev_c_per_t = np.asarray(
+            self.traj_momentum_mev_c_per_t, dtype=float
+        )
 
-        if self.type == "array" and self.values is None and self.file is None:
-            raise ValueError("Array calibration requires 'values' or 'file'")
+        if self.traj_screen_mm.shape != self.traj_momentum_mev_c_per_t.shape:
+            raise ValueError(
+                "traj_screen_mm and traj_momentum_mev_c_per_t must have the same shape"
+            )
+        if self.traj_screen_mm.ndim != 1 or self.traj_screen_mm.size < 2:
+            raise ValueError("trajectory arrays must be 1D with at least 2 points")
 
-        if self.type == "callable" and self.function is None:
-            raise ValueError("Callable calibration requires 'function'")
+    @classmethod
+    def from_dnn_calibration_files(
+        cls,
+        camera_calibration_file: str,
+        trajectory_calibration_file: str,
+        camera_number: int,
+        magnetic_field_t: float = 1.0,
+    ) -> "DnnAxisCalibration":
+        """
+        Load DNN calibration constants from MATLAB-era tab-delimited text files.
+
+        Parameters
+        ----------
+        camera_calibration_file : str
+            Path to camera calibration table (e.g., `260224DnnVarianCam.txt`)
+        trajectory_calibration_file : str
+            Path to trajectory calibration table (e.g., `170925DnnVarianTrj.txt`)
+        camera_number : int
+            Camera id from `cam number` column. For the standard 4-camera
+            magspec: 1-2 use front trajectory, 3-4 use side trajectory.
+        magnetic_field_t : float, default=1.0
+            Magnetic field scaling used in MATLAB (`fld * xA.mmt`).
+        """
+        if camera_number not in (1, 2, 3, 4):
+            raise ValueError(
+                "camera_number must be one of (1, 2, 3, 4) for DNN magspec cameras"
+            )
+
+        cam_rows = cls._read_tab_delimited_rows(camera_calibration_file)
+        trj_rows = cls._read_tab_delimited_rows(trajectory_calibration_file)
+
+        cam_row = None
+        for row in cam_rows:
+            if int(float(row["cam number"])) == camera_number:
+                cam_row = row
+                break
+        if cam_row is None:
+            raise ValueError(
+                f"Camera number {camera_number} not found in '{camera_calibration_file}'"
+            )
+
+        split_idx = None
+        for i, row in enumerate(trj_rows):
+            if float(row["side logic"]) == 1.0:
+                split_idx = i
+                break
+        if split_idx is None:
+            raise ValueError(
+                "No 'side logic == 1' split found in trajectory calibration file"
+            )
+
+        if camera_number in (1, 2):
+            trj_subset = trj_rows[:split_idx]
+            screen_col = "front screen [m]"
+        else:
+            trj_subset = trj_rows[split_idx:]
+            screen_col = "side screen [m]"
+
+        traj_screen_mm = 1000.0 * np.asarray(
+            [float(r[screen_col]) for r in trj_subset], dtype=float
+        )
+        traj_momentum_mev_c_per_t = np.asarray(
+            [float(r["momentum [MeV/c]"]) for r in trj_subset], dtype=float
+        )
+
+        return cls(
+            fov_mm=float(cam_row["FOV [mm]"]),
+            roi_width_px=int(float(cam_row["ROI width"])),
+            left_edge_mm=float(cam_row["Left edge [mm]"]),
+            x_start_px=int(float(cam_row["X Start"])),
+            x_end_px=int(float(cam_row["X End"])),
+            traj_screen_mm=traj_screen_mm,
+            traj_momentum_mev_c_per_t=traj_momentum_mev_c_per_t,
+            magnetic_field_t=magnetic_field_t,
+        )
+
+    @staticmethod
+    def _read_tab_delimited_rows(file_path: str) -> List[Dict[str, str]]:
+        resolved_path = Path(file_path)
+        if not resolved_path.is_absolute():
+            if not resolved_path.exists():
+                resolved_path = Path(__file__).parent.parent / resolved_path
+        with resolved_path.open(newline="") as f:
+            return list(csv.DictReader(f, delimiter="\t"))
+
+    def build_axis(self, image_width: int) -> np.ndarray:
+        """Build MATLAB-style DNN energy-like axis for the current image width."""
+        expected_width = self.x_end_px - self.x_start_px + 1
+        if expected_width != image_width:
+            raise ValueError(
+                f"dnn_axis calibration ROI width ({expected_width}) "
+                f"doesn't match image width ({image_width}). "
+                f"Check ROI cropping and X Start/X End settings."
+            )
+
+        # MATLAB fDnnAxisClbEach.m:
+        #   dx = fov/width
+        #   xx = leftPos:-dx:(leftPos-fov+dx)
+        #   x_mm = xx(xSt:xEd)
+        dx_mm = self.fov_mm / self.roi_width_px
+        x_mm_full = self.left_edge_mm - dx_mm * np.arange(
+            self.roi_width_px, dtype=float
+        )
+        x_mm = x_mm_full[self.x_start_px - 1 : self.x_end_px]
+
+        # MATLAB uses interp1(..., 'spline') for momentum on screen axis.
+        order = np.argsort(self.traj_screen_mm)
+        traj_screen = self.traj_screen_mm[order]
+        traj_momentum = self.traj_momentum_mev_c_per_t[order]
+        spline = CubicSpline(traj_screen, traj_momentum, extrapolate=False)
+        momentum_axis = spline(x_mm)
+
+        if np.any(~np.isfinite(momentum_axis)):
+            raise ValueError(
+                "dnn_axis interpolation produced non-finite momentum values. "
+                "Check screen range overlap between camera geometry and trajectory table."
+            )
+
+        # MATLAB writes energy-like axis as fld * normalized momentum.
+        return self.magnetic_field_t * momentum_axis
+
+
+@dataclass
+class AxisResampler:
+    """Resample image columns onto a uniform energy axis."""
+
+    energy_range: Tuple[float, float]
+    num_points: int
+
+    def resample(
+        self, image: np.ndarray, pixel_to_energy_axis: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Resample image columns to a uniform energy axis."""
+        return interpolate_image_axis(
+            image,
+            pixel_to_energy_axis,
+            axis=1,
+            num_points=self.num_points,
+            physical_min=self.energy_range[0],
+            physical_max=self.energy_range[1],
+        )
+
+
+class PolynomialCalSpec(BaseModel):
+    """External config spec for polynomial calibration."""
+
+    kind: Literal["polynomial"]
+    coeffs: List[float]
+
+    @field_validator("coeffs")
+    def validate_coeffs(cls, v):
+        """Validate polynomial coefficients list."""
+        if len(v) == 0:
+            raise ValueError("coeffs must contain at least one element")
+        return v
+
+
+class ArrayCalSpec(BaseModel):
+    """External config spec for array-based calibration."""
+
+    kind: Literal["array"]
+    values: Optional[List[float]] = None
+    file: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_values_or_file(self):
+        """Validate that at least one array calibration source is provided."""
+        if self.values is None and self.file is None:
+            raise ValueError("array calibration requires 'values' or 'file'")
+        return self
+
+
+class CallableCalSpec(BaseModel):
+    """External config spec for callable calibration (programmatic only)."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    kind: Literal["callable"]
+    function: Callable[[np.ndarray], np.ndarray]
+
+
+class DnnAxisCalSpec(BaseModel):
+    """External config spec for MATLAB-style DNN axis calibration."""
+
+    kind: Literal["dnn_axis"]
+    camera_calibration_file: str
+    trajectory_calibration_file: str
+    camera_number: int = Field(..., ge=1, le=4)
+    magnetic_field_t: float = 1.0
+
+
+CalibrationSpec = Annotated[
+    Union[PolynomialCalSpec, ArrayCalSpec, CallableCalSpec, DnnAxisCalSpec],
+    Field(discriminator="kind"),
+]
+
+
+class MagSpecAnalyzerConfig(BaseModel):
+    """
+    High-level external configuration for MagSpecManualCalibAnalyzer.
+
+    This is intended to live under camera config `analysis.magspec`.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    mag_field: str = "custom"
+    calibration: CalibrationSpec
+    energy_range: Tuple[float, float]
+    num_energy_points: int = 500
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
+
+    @field_validator("energy_range")
+    def validate_energy_range(cls, v):
+        """Validate energy range bounds."""
+        if len(v) != 2:
+            raise ValueError("energy_range must be a 2-tuple/list")
+        if v[1] <= v[0]:
+            raise ValueError("energy_range max must be greater than min")
+        return v
+
+    @classmethod
+    def from_camera_analysis(
+        cls, analysis: Optional[Dict[str, Any]]
+    ) -> Optional["MagSpecAnalyzerConfig"]:
+        """
+        Parse magspec config from camera `analysis` dict.
+
+        Preferred shape:
+        analysis:
+          magspec:
+            ...
+
+        Backward-compatible fallback:
+        analysis:
+          calibration: ...
+          energy_range: ...
+          ...
+        """
+        if not analysis:
+            return None
+
+        if isinstance(analysis.get("magspec"), dict):
+            return cls.model_validate(analysis["magspec"])
+
+        if "calibration" in analysis and "energy_range" in analysis:
+            return cls.model_validate(analysis)
+
+        return None
+
+    @classmethod
+    def for_uc_hiresmag(
+        cls,
+        mag_field: str = "825mT",
+        energy_range: Optional[Tuple[float, float]] = None,
+        num_energy_points: int = 500,
+        flip_horizontal: bool = False,
+        flip_vertical: bool = False,
+    ) -> "MagSpecAnalyzerConfig":
+        """Preset pydantic config for UC_HiResMagCam."""
+        calibrations = {
+            "800mT": [8.66599527e01, 1.78007126e-02, 1.10546749e-06],
+            "825mT": [8.93681013e01, 1.83568540e-02, 1.14012869e-06],
+        }
+        if mag_field not in calibrations:
+            raise ValueError(
+                f"Mag field '{mag_field}' not available for UC_HiResMagCam. "
+                f"Available: {list(calibrations.keys())}"
+            )
+        return cls(
+            mag_field=mag_field,
+            calibration=PolynomialCalSpec(
+                kind="polynomial", coeffs=calibrations[mag_field]
+            ),
+            energy_range=energy_range or (20, 150),
+            num_energy_points=num_energy_points,
+            flip_horizontal=flip_horizontal,
+            flip_vertical=flip_vertical,
+        )
+
+    def to_runtime_config(self) -> "MagSpecConfig":
+        """Convert pydantic external config to runtime dataclass config."""
+        cal_spec = self.calibration
+
+        if isinstance(cal_spec, PolynomialCalSpec):
+            calibration = PolynomialCalibration(coeffs=cal_spec.coeffs)
+        elif isinstance(cal_spec, ArrayCalSpec):
+            values = None if cal_spec.values is None else np.asarray(cal_spec.values)
+            calibration = ArrayCalibration(values=values, file=cal_spec.file)
+        elif isinstance(cal_spec, CallableCalSpec):
+            calibration = CallableCalibration(function=cal_spec.function)
+        elif isinstance(cal_spec, DnnAxisCalSpec):
+            calibration = DnnAxisCalibration.from_dnn_calibration_files(
+                camera_calibration_file=cal_spec.camera_calibration_file,
+                trajectory_calibration_file=cal_spec.trajectory_calibration_file,
+                camera_number=cal_spec.camera_number,
+                magnetic_field_t=cal_spec.magnetic_field_t,
+            )
+        else:
+            raise ValueError(f"Unsupported calibration spec type: {type(cal_spec)}")
+
+        return MagSpecConfig(
+            mag_field=self.mag_field,
+            calibration=calibration,
+            energy_range=self.energy_range,
+            num_energy_points=self.num_energy_points,
+            flip_horizontal=self.flip_horizontal,
+            flip_vertical=self.flip_vertical,
+        )
 
 
 @dataclass
@@ -64,8 +474,8 @@ class MagSpecConfig:
     ----------
     mag_field : str
         Magnetic field setting identifier (e.g., "825mT")
-    calibration : MagSpecCalibration
-        Pixel-to-energy calibration specification (always in canonical orientation)
+    calibration : EnergyCalibration
+        Pixel-to-energy calibration strategy (always in canonical orientation)
     energy_range : tuple of (float, float)
         Energy range in MeV (min, max)
     num_energy_points : int, default=500
@@ -86,7 +496,7 @@ class MagSpecConfig:
     """
 
     mag_field: str
-    calibration: MagSpecCalibration
+    calibration: EnergyCalibration
     energy_range: Tuple[float, float]
     num_energy_points: int = 500
     flip_horizontal: bool = False
@@ -127,28 +537,13 @@ class MagSpecConfig:
         ValueError
             If mag_field is not recognized
         """
-        # Calibration coefficients for UC_HiResMagCam
-        calibrations = {
-            "800mT": [8.66599527e01, 1.78007126e-02, 1.10546749e-06],
-            "825mT": [8.93681013e01, 1.83568540e-02, 1.14012869e-06],
-        }
-
-        if mag_field not in calibrations:
-            raise ValueError(
-                f"Mag field '{mag_field}' not available for UC_HiResMagCam. "
-                f"Available: {list(calibrations.keys())}"
-            )
-
-        return cls(
+        return MagSpecAnalyzerConfig.for_uc_hiresmag(
             mag_field=mag_field,
-            calibration=MagSpecCalibration(
-                type="polynomial", coeffs=calibrations[mag_field]
-            ),
-            energy_range=energy_range or (20, 150),
+            energy_range=energy_range,
             num_energy_points=num_energy_points,
             flip_horizontal=flip_horizontal,
             flip_vertical=flip_vertical,
-        )
+        ).to_runtime_config()
 
 
 class MagSpecManualCalibAnalyzer(BeamAnalyzer):
@@ -159,6 +554,7 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
     - Polynomial coefficients
     - Pre-computed arrays (from file or inline)
     - Custom calibration functions
+    - MATLAB-style DNN camera + trajectory calibration
     """
 
     def __init__(
@@ -174,8 +570,10 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         camera_config_name : str
             Camera configuration name (loaded from config system)
         magspec_config : MagSpecConfig, optional
-            Magnetic spectrometer configuration. If None, attempts to use
-            UC_HiResMagCam preset with default settings.
+            Magnetic spectrometer runtime configuration. If None, the analyzer
+            first tries to parse `camera_config.analysis["magspec"]` using
+            MagSpecAnalyzerConfig. If not available, it falls back to the
+            UC_HiResMagCam preset when camera_name is "UC_HiResMagCam".
 
         Raises
         ------
@@ -184,15 +582,22 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         """
         super().__init__(camera_config_name)
 
-        # Use provided config or create default for UC_HiResMagCam
+        # Use provided config, or parse from camera_config.analysis, or fallback preset
         if magspec_config is None:
-            if self.camera_name == "UC_HiResMagCam":
+            parsed_cfg = MagSpecAnalyzerConfig.from_camera_analysis(
+                self.camera_config.analysis
+            )
+            if parsed_cfg is not None:
+                self.magspec_config = parsed_cfg.to_runtime_config()
+                logger.info("Loaded magspec configuration from camera_config.analysis")
+            elif self.camera_name == "UC_HiResMagCam":
                 self.magspec_config = MagSpecConfig.for_uc_hiresmag()
                 logger.info("Using default UC_HiResMagCam configuration")
             else:
                 raise ValueError(
                     f"magspec_config required for camera '{self.camera_name}'. "
-                    f"Use MagSpecConfig.for_uc_hiresmag() or create custom config."
+                    f"Provide MagSpecAnalyzerConfig under analysis.magspec, "
+                    f"use MagSpecConfig.for_uc_hiresmag(), or pass a custom magspec_config."
                 )
         else:
             self.magspec_config = magspec_config
@@ -216,54 +621,8 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         np.ndarray
             Array mapping pixel index to energy value
         """
-        cal = self.magspec_config.calibration
-
-        # Get image width
         image_width = image.shape[1]
-
-        # Create pixel axis
-        pixel_axis = np.arange(image_width)
-
-        if cal.type == "polynomial":
-            # Polynomial calibration: sum(coeffs[i] * x^i)
-            pixel_to_energy = np.zeros_like(pixel_axis, dtype=float)
-            for i, coeff in enumerate(cal.coeffs):
-                pixel_to_energy += coeff * np.power(pixel_axis, i)
-            logger.debug(
-                f"Built polynomial calibration with {len(cal.coeffs)} coefficients"
-            )
-
-        elif cal.type == "array":
-            # Pre-computed array calibration
-            if cal.file is not None:
-                # Load from file
-                cal_path = Path(cal.file)
-                if not cal_path.is_absolute():
-                    # Try to resolve relative to package
-                    cal_path = Path(__file__).parent.parent / cal_path
-                pixel_to_energy = np.load(cal_path)
-                logger.debug(f"Loaded calibration array from {cal_path}")
-            else:
-                # Use inline array
-                pixel_to_energy = cal.values
-                logger.debug("Using inline calibration array")
-
-            # Validate length
-            if len(pixel_to_energy) != image_width:
-                raise ValueError(
-                    f"Calibration array length ({len(pixel_to_energy)}) "
-                    f"doesn't match image width ({image_width})"
-                )
-
-        elif cal.type == "callable":
-            # Custom function calibration
-            pixel_to_energy = cal.function(pixel_axis)
-            logger.debug("Applied callable calibration function")
-
-        else:
-            raise ValueError(f"Unknown calibration type: {cal.type}")
-
-        return pixel_to_energy
+        return self.magspec_config.calibration.build_axis(image_width=image_width)
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
@@ -312,19 +671,17 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
             final_image = final_image[::-1, :]
             logger.debug("Applied vertical flip to align with canonical calibration")
 
-        # Build energy calibration (always canonical/increasing)
-        pixel_to_energy = self._build_energy_calibration(image=final_image)
-
-        # Apply energy axis interpolation
-        # Both image and calibration are now in canonical orientation
-        interp_image, energy_axis = interpolate_image_axis(
-            final_image,
-            pixel_to_energy,
-            axis=1,  # Horizontal = energy
-            num_points=self.magspec_config.num_energy_points,
-            physical_min=self.magspec_config.energy_range[0],
-            physical_max=self.magspec_config.energy_range[1],
+        # Stage 1: pixel -> energy calibration
+        pixel_to_energy = self.magspec_config.calibration.build_axis(
+            image_width=final_image.shape[1]
         )
+
+        # Stage 2: axis resampling to uniform energy grid
+        resampler = AxisResampler(
+            energy_range=self.magspec_config.energy_range,
+            num_points=self.magspec_config.num_energy_points,
+        )
+        interp_image, energy_axis = resampler.resample(final_image, pixel_to_energy)
 
         # Compute analysis metrics
         scalars = self._compute_metrics(interp_image, energy_axis)
