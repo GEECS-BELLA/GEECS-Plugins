@@ -296,6 +296,101 @@ class AxisResampler:
         )
 
 
+class ChargeCalibration(ABC):
+    """Interface for converting image counts to charge-like units."""
+
+    @abstractmethod
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        """Apply charge calibration to an image."""
+        raise NotImplementedError
+
+
+@dataclass
+class ScalarChargeCalibration(ChargeCalibration):
+    """
+    Scalar charge calibration.
+
+    Multiplies the whole image by one factor (e.g., `c2c` in fC/count).
+    """
+
+    factor_fc_per_count: float
+
+    def __post_init__(self):
+        """Validate scalar charge calibration factor."""
+        if not np.isfinite(self.factor_fc_per_count):
+            raise ValueError("factor_fc_per_count must be finite")
+
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        """Apply scalar counts-to-charge calibration."""
+        return image * self.factor_fc_per_count
+
+    @classmethod
+    def from_dnn_calibration_files(
+        cls,
+        camera_calibration_file: str,
+        lanex_calibration_file: str,
+        camera_number: int,
+    ) -> "ScalarChargeCalibration":
+        """
+        Build scalar c2c from DNN camera and LANEX calibration text tables.
+
+        This mirrors MATLAB `fDnnLanex -> fLanexClbOutV01 + fLanexClbV02`:
+        - select LANEX set from camera table `set` column
+        - compute z = (cam_fov - fov_offset) / fov_slope
+        - alsR = sense2*z^2 + sense1*z + sense0
+        - screen factor: 1.0 for "back", 1.98 otherwise
+        - c2c = screen_factor * alsR / 146
+        - sensitivity correction: c2c /= camera_sensitivity
+        """
+        cam_rows = DnnAxisCalibration._read_tab_delimited_rows(camera_calibration_file)
+        lanex_rows = DnnAxisCalibration._read_tab_delimited_rows(lanex_calibration_file)
+
+        cam_row = None
+        for row in cam_rows:
+            if int(float(row["cam number"])) == camera_number:
+                cam_row = row
+                break
+        if cam_row is None:
+            raise ValueError(
+                f"Camera number {camera_number} not found in '{camera_calibration_file}'"
+            )
+
+        set_n = int(float(cam_row["set"]))
+        screen = str(cam_row.get("screen", "")).strip().lower()
+        cam_fov = float(cam_row["FOV [mm]"])
+        sensitivity = float(cam_row.get("sensitivity", 1.0))
+        if sensitivity == 0.0:
+            raise ValueError("Camera sensitivity cannot be zero for charge calibration")
+
+        # Prefer explicit setting-number matching when available.
+        lanex_row = None
+        for row in lanex_rows:
+            if "setting number" in row and int(float(row["setting number"])) == set_n:
+                lanex_row = row
+                break
+        if lanex_row is None:
+            idx = set_n - 1
+            if idx < 0 or idx >= len(lanex_rows):
+                raise ValueError(
+                    f"LANEX set {set_n} not available in '{lanex_calibration_file}'"
+                )
+            lanex_row = lanex_rows[idx]
+
+        fov_slope = float(lanex_row["FOV slope"])
+        fov_offset = float(lanex_row["FOV offset"])
+        sense2 = float(lanex_row["sensitivity 2"])
+        sense1 = float(lanex_row["sensitivity 1"])
+        sense0 = float(lanex_row["sensitivity 0"])
+
+        z = (cam_fov - fov_offset) / fov_slope
+        als_ratio = sense2 * z**2 + sense1 * z + sense0
+        screen_factor = 1.0 if screen == "back" else 1.98
+        c2c = screen_factor * als_ratio / 146.0
+        c2c /= sensitivity
+
+        return cls(factor_fc_per_count=c2c)
+
+
 class PolynomialCalSpec(BaseModel):
     """External config spec for polynomial calibration."""
 
@@ -350,17 +445,41 @@ CalibrationSpec = Annotated[
 ]
 
 
+class ScalarChargeCalSpec(BaseModel):
+    """External config spec for scalar charge calibration."""
+
+    kind: Literal["scalar"]
+    factor_fc_per_count: float
+
+
+class DnnLanexChargeCalSpec(BaseModel):
+    """External config spec for DNN LANEX scalar charge calibration."""
+
+    kind: Literal["dnn_lanex"]
+    camera_calibration_file: str
+    lanex_calibration_file: str
+    camera_number: int = Field(..., ge=1, le=4)
+
+
+ChargeCalibrationSpec = Annotated[
+    Union[ScalarChargeCalSpec, DnnLanexChargeCalSpec],
+    Field(discriminator="kind"),
+]
+
+
 class MagSpecAnalyzerConfig(BaseModel):
     """
     High-level external configuration for MagSpecManualCalibAnalyzer.
 
     This is intended to live under camera config `analysis.magspec`.
+    Includes both energy-axis calibration and optional charge calibration.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     mag_field: str = "custom"
     calibration: CalibrationSpec
+    charge_calibration: Optional[ChargeCalibrationSpec] = None
     energy_range: Tuple[float, float]
     num_energy_points: int = 500
     flip_horizontal: bool = False
@@ -455,9 +574,28 @@ class MagSpecAnalyzerConfig(BaseModel):
         else:
             raise ValueError(f"Unsupported calibration spec type: {type(cal_spec)}")
 
+        charge_spec = self.charge_calibration
+        if charge_spec is None:
+            charge_calibration = None
+        elif isinstance(charge_spec, ScalarChargeCalSpec):
+            charge_calibration = ScalarChargeCalibration(
+                factor_fc_per_count=charge_spec.factor_fc_per_count
+            )
+        elif isinstance(charge_spec, DnnLanexChargeCalSpec):
+            charge_calibration = ScalarChargeCalibration.from_dnn_calibration_files(
+                camera_calibration_file=charge_spec.camera_calibration_file,
+                lanex_calibration_file=charge_spec.lanex_calibration_file,
+                camera_number=charge_spec.camera_number,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported charge calibration spec type: {type(charge_spec)}"
+            )
+
         return MagSpecConfig(
             mag_field=self.mag_field,
             calibration=calibration,
+            charge_calibration=charge_calibration,
             energy_range=self.energy_range,
             num_energy_points=self.num_energy_points,
             flip_horizontal=self.flip_horizontal,
@@ -478,6 +616,9 @@ class MagSpecConfig:
         Pixel-to-energy calibration strategy (always in canonical orientation)
     energy_range : tuple of (float, float)
         Energy range in MeV (min, max)
+    charge_calibration : Optional[ChargeCalibration]
+        Optional counts-to-charge calibration strategy applied before
+        energy-axis resampling.
     num_energy_points : int, default=500
         Number of points in uniform energy grid
     flip_horizontal : bool, default=False
@@ -498,6 +639,7 @@ class MagSpecConfig:
     mag_field: str
     calibration: EnergyCalibration
     energy_range: Tuple[float, float]
+    charge_calibration: Optional[ChargeCalibration] = None
     num_energy_points: int = 500
     flip_horizontal: bool = False
     flip_vertical: bool = False
@@ -671,6 +813,10 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
             final_image = final_image[::-1, :]
             logger.debug("Applied vertical flip to align with canonical calibration")
 
+        # Optional charge calibration (counts -> charge-like units)
+        if self.magspec_config.charge_calibration is not None:
+            final_image = self.magspec_config.charge_calibration.apply(final_image)
+
         # Stage 1: pixel -> energy calibration
         pixel_to_energy = self.magspec_config.calibration.build_axis(
             image_width=final_image.shape[1]
@@ -696,6 +842,7 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
                 "mag_field": self.magspec_config.mag_field,
                 "flip_horizontal": self.magspec_config.flip_horizontal,
                 "flip_vertical": self.magspec_config.flip_vertical,
+                "charge_calibrated": self.magspec_config.charge_calibration is not None,
             },
         )
 
