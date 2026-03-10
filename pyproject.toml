@@ -18,7 +18,7 @@ tomli = "^2.2.1"
 geecs-scanner-gui = { path = "GEECS-Scanner-GUI", develop = true }
 geecs-pythonapi = {path = "GEECS-PythonAPI", develop = true}
 imageanalysis = { path = "ImageAnalysis", develop = true }
-geecs_data_utils = { path = "GEECS-Data-Utils", develop = true }
+geecs_data_utils = { path = "GEECS-Data-Utils", develop = true, extras = ["ml"] }
 scananalysis = {path = "ScanAnalysis", develop = true}
 LogMaker4GoogleDocs = {path = "LogMaker4GoogleDocs", develop = true}
 
