@@ -429,6 +429,20 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
 
         cal = self.magspec_config.calibration
 
+        # check if magnetic field is being passed through analyze_image,
+        # overriding the config value in the DNN calibration (if present)
+        aux_mag_field = (
+            auxiliary_data.get("magnetic_field_t", None) if auxiliary_data else None
+        )
+        if isinstance(cal, DnnAxisCalibration) and aux_mag_field is not None:
+            logger.info(
+                "Overriding DNN calibration magnetic field with auxiliary value: "
+                "config=%s T, auxiliary=%s T",
+                cal.magnetic_field_t,
+                aux_mag_field,
+            )
+            cal.magnetic_field_t = aux_mag_field
+
         # Charge calibration (if available)
         charge_factor = cal.get_charge_factor()
         if charge_factor is not None:
