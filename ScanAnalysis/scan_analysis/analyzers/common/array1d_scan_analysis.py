@@ -108,6 +108,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         flag_save_data: bool = True,
         renderer_kwargs: Optional[Dict[str, Any]] = None,
         analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
+        preload_images: bool = True,
     ):
         """Initialize the analyzer with an ImageAnalyzer and Line1DRenderer.
 
@@ -173,6 +174,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             skip_plt_show=skip_plt_show,
             flag_save_data=flag_save_data,
             analysis_mode=analysis_mode,
+            preload_images=preload_images,
         )
 
     def _get_renderer_config(self):

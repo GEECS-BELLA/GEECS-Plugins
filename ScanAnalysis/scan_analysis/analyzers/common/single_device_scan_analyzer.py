@@ -98,8 +98,20 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         skip_plt_show: bool = True,
         flag_save_data: bool = True,
         analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
+        preload_images: bool = True,
     ):
-        """Initialize the analyzer and validate concurrency constraints."""
+        """Initialize the analyzer and validate concurrency constraints.
+
+        Parameters
+        ----------
+        preload_images : bool, default=True
+            If True, load all images into memory before analysis (required for
+            batch preprocessing and per_bin mode). If False, use a streaming
+            pipeline that loads, analyzes, and discards one image at a time,
+            keeping peak memory proportional to ``max_workers`` instead of
+            the total number of shots. Batch preprocessing is skipped in
+            streaming mode.
+        """
         if not device_name:
             raise ValueError("SingleDeviceScanAnalyzer requires a device_name.")
 
@@ -115,6 +127,16 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.flag_save_data = flag_save_data
         self.file_tail = file_tail
         self.analysis_mode = analysis_mode
+        self.preload_images = preload_images
+
+        # Validate configuration
+        if not preload_images and analysis_mode == "per_bin":
+            logger.warning(
+                "preload_images=False is incompatible with analysis_mode='per_bin' "
+                "(per_bin requires all images to compute bin averages). "
+                "Falling back to preload_images=True."
+            )
+            self.preload_images = True
 
         # Check if image_analyzer is pickleable
         try:
@@ -210,18 +232,37 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             return
 
     def _process_all_shots(self):
-        """Load data files, run batch analysis (optional), then mode-based analysis."""
-        self._load_all_data()
-        self._run_batch_analysis()
+        """Load data files, run batch analysis (optional), then mode-based analysis.
 
-        # Prepare analysis units based on mode
-        if self.analysis_mode == "per_shot":
-            analysis_units = self._prepare_per_shot_units()
-        else:  # per_bin
-            analysis_units = self._prepare_per_bin_units()
+        When ``preload_images`` is True (default), all images are loaded into
+        memory first, enabling batch preprocessing and per-bin averaging.
 
-        # Run unified analysis loop
-        self._analyze_units(analysis_units)
+        When ``preload_images`` is False, a streaming pipeline is used that
+        loads each image on-the-fly, analyzes it, and discards the raw data
+        immediately.  This keeps peak memory proportional to ``max_workers``
+        rather than the total shot count, which is critical for large scans
+        (e.g. 1000+ shots).
+        """
+        if self.preload_images:
+            # Original path: load everything, batch preprocess, then analyze
+            self._load_all_data()
+            self._run_batch_analysis()
+
+            # Prepare analysis units based on mode
+            if self.analysis_mode == "per_shot":
+                analysis_units = self._prepare_per_shot_units()
+            else:  # per_bin
+                analysis_units = self._prepare_per_bin_units()
+
+            # Run unified analysis loop
+            self._analyze_units(analysis_units)
+        else:
+            # Streaming path: build file map, resolve paths, then
+            # load+analyze+discard per shot without holding all images in RAM.
+            self._build_data_file_map()
+            self._resolve_background_paths()
+            self.stateful_results = {}
+            self._analyze_units_streaming()
 
     def _build_data_file_map(self) -> None:
         """
@@ -576,6 +617,112 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
                 except Exception as e:
                     logger.error(f"Analysis failed for unit {unit_key}: {e}")
+
+    def _analyze_units_streaming(self) -> None:
+        """
+        Load, analyze, and discard images one at a time (streaming mode).
+
+        Instead of holding all raw images in memory, this method loads each
+        image just before analysis and discards the raw data immediately after.
+        Peak memory is proportional to ``max_workers`` (concurrent images)
+        rather than total shot count.
+
+        Only the lightweight :class:`ImageAnalyzerResult` objects (processed
+        image + scalars) are retained in ``self.results``.
+
+        Notes
+        -----
+        Batch preprocessing (``analyze_image_batch``) is skipped in streaming
+        mode since it requires all images simultaneously.
+        """
+        logger.info(
+            "Starting streaming analysis (preload_images=False) for %d shots",
+            len(self._data_file_map),
+        )
+        self.results: dict[int, ImageAnalyzerResult] = {}
+        self._pending_aux_updates: list[dict] = []
+
+        # Streaming always uses threads: the _load_and_analyze closure
+        # captures `self`, which is not pickleable for ProcessPoolExecutor.
+        # ThreadPoolExecutor is also better suited here because the workload
+        # is mixed I/O (image loading) and CPU (analysis), and numpy releases
+        # the GIL for the heavy numerical parts.
+        logger.info(
+            "Using ThreadPoolExecutor with max_workers=%d for streaming analysis",
+            self.max_workers,
+        )
+
+        def _load_and_analyze(shot_num: int, file_path: Path):
+            """Load a single image, analyze it, and return the result."""
+            image = self.image_analyzer.load_image(file_path)
+            if image is None:
+                return None
+            auxiliary = {"file_path": file_path, **self.stateful_results}
+            result = self.image_analyzer.analyze_image(image, auxiliary)
+            # image is discarded when this function returns
+            return result
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(_load_and_analyze, shot_num, file_path): shot_num
+                for shot_num, file_path in self._data_file_map.items()
+            }
+
+            logger.info("Submitted %d streaming analysis tasks.", len(futures))
+
+            for future in as_completed(futures):
+                shot_num = futures[future]
+                try:
+                    result: ImageAnalyzerResult = future.result()
+                    if result is None:
+                        logger.warning(
+                            "Shot %d: load_image returned None, skipping.", shot_num
+                        )
+                        continue
+
+                    analysis_results = result.scalars
+
+                    if self._has_valid_result(result):
+                        self.results[shot_num] = result
+                        logger.info("Shot %d: valid data stored.", shot_num)
+                    else:
+                        logger.info(
+                            "Shot %d: no valid data returned from analysis.", shot_num
+                        )
+
+                    # Collect numeric scalars and update s-file data
+                    numeric_updates = {
+                        key: value
+                        for key, value in analysis_results.items()
+                        if isinstance(value, (int, float, np.number))
+                    }
+                    non_numeric = set(analysis_results) - set(numeric_updates)
+                    if non_numeric:
+                        logger.warning(
+                            f"[{self.__class__.__name__} using "
+                            f"{self.image_analyzer.__class__.__name__}] "
+                            f"Non-numeric scalar keys skipped: {sorted(non_numeric)}"
+                        )
+
+                    if numeric_updates:
+                        for key, value in numeric_updates.items():
+                            self.auxiliary_data.loc[
+                                self.auxiliary_data["Shotnumber"] == shot_num, key
+                            ] = value
+                        self._pending_aux_updates.append(
+                            {"Shotnumber": shot_num, **numeric_updates}
+                        )
+
+                except Exception as e:
+                    logger.error(
+                        "Streaming analysis failed for shot %d: %s", shot_num, e
+                    )
+
+        logger.info(
+            "Streaming analysis complete: %d/%d shots produced valid results.",
+            len(self.results),
+            len(self._data_file_map),
+        )
 
     def _postprocess_noscan(self) -> None:
         """
