@@ -1,12 +1,14 @@
-"""Grenouille (FROG) Analyzer using the StandardAnalyzer framework.
+"""Downramp Phase Analyzer using the StandardAnalyzer framework.
 
-This module provides a specialized analyzer for FROG pulse retrieval that
-inherits from StandardAnalyzer. It adds Grenouille-specific capabilities:
-- Pulse retrieval via FROG DLL
-- Temporal and spectral FWHM extraction
-- Retrieved trace and lineout export
+This module provides a specialized analyzer for plasma downramp shock
+analysis that inherits from StandardAnalyzer. It adds shock-specific
+capabilities:
+- Shock angle estimation
+- Shock gradient and position detection
+- Plateau and peak-to-plateau delta calculation
+- Combined diagnostic figure output (vector PDF)
 
-The GrenouilleAnalyzer focuses purely on FROG-specific analysis while
+The DownrampPhaseAnalyzer focuses purely on shock-specific analysis while
 leveraging the StandardAnalyzer for all image processing pipeline
 functionality.
 """
@@ -24,6 +26,7 @@ if TYPE_CHECKING:
 import numpy as np
 import scipy.ndimage as ndimage
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 
 # Import the StandardAnalyzer parent class
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
@@ -122,7 +125,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         )
 
         logger.info(
-            "Initialized GrenouilleAnalyzer with config '%s'", camera_config_name
+            "Initialized DownrampPhaseAnalyzer with config '%s'", camera_config_name
         )
 
     def analyze_image(
@@ -202,13 +205,18 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
     ) -> dict:
         """Compute shock metrics, assemble composite figure, and return results.
 
+        Creates a single figure with three subplots for all diagnostic plots,
+        keeping output in true vector format when saved as PDF.
+
         Workflow
         --------
         - Rotate phase for analysis.
-        - Compute shock angle.
-        - Compute max gradient and location.
-        - Compute plateau average and peak-to-plateau delta.
-        - Save a composite of the three diagnostic plots when `file_path` is set.
+        - Create a single figure with 3 subplots.
+        - Compute shock angle (plots on subplot 0).
+        - Compute max gradient and location (plots on subplot 1).
+        - Compute plateau average and peak-to-plateau delta (plots on subplot 2).
+        - Save the combined figure as PDF when `file_path` is set.
+        - Always close the figure to prevent memory leaks.
 
         Parameters
         ----------
@@ -234,13 +242,35 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
 
         rotated_phase = rotated_data
 
-        shock_angle = self.get_shock_angle(rotated_phase)
-        max_slope, best_center = self.get_shock_gradient_and_position(
-            rotated_phase, window_size=window_size
-        )
-        plateau_value, delta = self.calculate_delta_plateau(
-            rotated_phase, best_center, window_size=window_size
-        )
+        # Create a single figure with 3 subplots for all diagnostics
+        combined_fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+
+        try:
+            shock_angle = self.get_shock_angle(rotated_phase, ax=axs[0])
+            max_slope, best_center = self.get_shock_gradient_and_position(
+                rotated_phase, ax=axs[1], window_size=window_size
+            )
+            plateau_value, delta = self.calculate_delta_plateau(
+                rotated_phase, best_center, ax=axs[2], window_size=window_size
+            )
+
+            axs[0].set_title("Shock Angle Determination")
+            axs[1].set_title("Shock Gradient & Position")
+            axs[2].set_title("Plateau estimation")
+
+            combined_fig.tight_layout()
+
+            if self.file_path is not None:
+                combined_save_path = (
+                    self.file_path.parent
+                    / f"{self.file_path.stem}_combined_shock_analysis.pdf"
+                )
+                combined_fig.savefig(combined_save_path)
+                logger.info(
+                    "Combined shock analysis figure saved to %s", combined_save_path
+                )
+        finally:
+            plt.close(combined_fig)
 
         results = {
             "Plasma downramp shock_angle": shock_angle,
@@ -251,62 +281,20 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         }
 
         merged = {**results, **slopes}
-
-        def fig_to_array(fig, keep_alpha: bool = False) -> np.ndarray:
-            """Return H×W×3 (RGB) or H×W×4 (RGBA) uint8 from a Matplotlib figure, all backends."""
-            fig.canvas.draw()  # ensure renderer exists/updated
-            rgba = np.asarray(
-                fig.canvas.renderer.buffer_rgba()
-            )  # shape (H, W, 4), dtype=uint8
-            return rgba if keep_alpha else rgba[:, :, :3]
-
-        fig1 = self.shock_angle_fig
-        fig2 = self.shock_grad_fig
-        fig3 = self.delta_plateau_fig
-
-        img1 = fig_to_array(fig1)
-        plt.close(fig1)
-        img2 = fig_to_array(fig2)
-        plt.close(fig2)
-        img3 = fig_to_array(fig3)
-        plt.close(fig3)
-
-        combined_fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-        axs[0].imshow(img1)
-        axs[0].set_title("Shock Angle Determination")
-        axs[0].axis("off")
-
-        axs[1].imshow(img2)
-        axs[1].set_title("Shock Gradient & Position")
-        axs[1].axis("off")
-
-        axs[2].imshow(img3)
-        axs[2].set_title("Plateau estimation")
-        axs[2].axis("off")
-
-        plt.tight_layout()
-        if self.file_path is not None:
-            combined_save_path = (
-                self.file_path.parent
-                / f"{self.file_path.stem}_combined_shock_analysis.pdf"
-            )
-            combined_fig.savefig(combined_save_path)
-            plt.close(combined_fig)
-            logger.info(
-                "Combined shock analysis figure saved to %s", combined_save_path
-            )
-
-        results["combined_fig"] = combined_fig
         return merged
 
-    def get_shock_angle(self, image: np.ndarray, window_size: int = 20) -> float:
+    def get_shock_angle(
+        self, image: np.ndarray, ax: Axes, window_size: int = 20
+    ) -> float:
         """
-        Estimate the shock angle by finding the local slope per row and fitting a line to these positions.
+        Estimate the shock angle by finding the local slope per row and fitting a line.
 
         Parameters
         ----------
         image : np.ndarray
             2D phase or intensity map to analyze.
+        ax : matplotlib.axes.Axes
+            Axes to plot on.
         window_size : int, default=20
             Window width for local linear fits when finding row-wise maxima.
 
@@ -314,14 +302,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         -------
         float
             Shock angle in radians.
-
-        Side Effects
-        ------------
-        Stores a matplotlib figure showing the image with the fitted shock angle line
-        in `self.shock_angle_fig`.
         """
-        fig = plt.figure(figsize=(6, 4))
-
         H, W = image.shape
         max_slope_positions = []
 
@@ -348,24 +329,23 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
             slope_line = 0.0
             angle_rad = np.nan
 
-        plt.imshow(image, origin="lower", cmap="plasma")
-        plt.title("Shock angle estimation")
+        ax.imshow(image, origin="lower", cmap="plasma")
+        ax.set_title("Shock angle estimation")
 
         # Only plot if we have a valid fit
         if len(rows_valid) >= 2:
             intercept = coeffs[1]
-            plt.plot(
+            ax.plot(
                 slope_line * rows_valid + intercept,  # y-values along valid rows
                 rows_valid,  # x-axis = row indices
                 color="cyan",
                 linewidth=2,
-                linestyle="--",  # makes it dashed; use ':' for dotted
-                alpha=0.7,  # 0 = transparent, 1 = fully opaque
+                linestyle="--",
+                alpha=0.7,
                 label="Shock angle fit",
             )
 
-        plt.legend()
-        self.shock_angle_fig = fig
+        ax.legend()
 
         return angle_rad
 
@@ -422,7 +402,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         return max_slope, best_center, best_fit_x, best_fit_y
 
     def get_shock_gradient_and_position(
-        self, image: np.ndarray, window_size: int = 20
+        self, image: np.ndarray, ax: Axes, window_size: int = 20
     ) -> tuple[float, int]:
         """Find the maximum local slope and its position from a vertical sum profile.
 
@@ -430,6 +410,8 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         ----------
         image : numpy.ndarray
             Phase map for analysis.
+        ax : matplotlib.axes.Axes
+            Axes to plot on.
         window_size : int, default=20
             Window width for local linear fits.
 
@@ -440,27 +422,24 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         int
             Center column index of the window with maximum slope.
         """
-        fig = plt.figure(figsize=(6, 4))
-
         profile = np.sum(image, axis=0)
         max_slope, best_center, best_x, best_y = self.find_max_local_slope(
             profile, window_size
         )
 
         # Plot
-        plt.plot(np.arange(len(profile)), profile, label="Summed phase", color="blue")
+        ax.plot(np.arange(len(profile)), profile, label="Summed phase", color="blue")
         if best_x is not None and best_y is not None:
-            plt.plot(best_x, best_y, "r-", linewidth=2, label="Max local slope")
-        plt.xlabel("pixel (10.1 um per pixel)")
-        plt.ylabel("Vertical sum of phase")
-        plt.title("Shock gradient and position estimator")
-        plt.legend()
-        self.shock_grad_fig = fig
+            ax.plot(best_x, best_y, "r-", linewidth=2, label="Max local slope")
+        ax.set_xlabel("pixel (10.1 um per pixel)")
+        ax.set_ylabel("Vertical sum of phase")
+        ax.set_title("Shock gradient and position estimator")
+        ax.legend()
 
         return max_slope, best_center
 
     def calculate_delta_plateau(
-        self, image: np.ndarray, best_center: int, window_size: int = 20
+        self, image: np.ndarray, best_center: int, ax: Axes, window_size: int = 20
     ) -> tuple[float, float]:
         """Compute plateau average and peak-to-plateau delta from a vertical sum profile.
 
@@ -470,6 +449,8 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
             Phase map.
         best_center : int
             Center column for the steepest gradient window.
+        ax : matplotlib.axes.Axes
+            Axes to plot on.
         window_size : int, default=20
             Window width used by the gradient step.
 
@@ -494,26 +475,24 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         plateau_value = np.mean(plateau_region)
         delta = overall_max - plateau_value
 
-        fig = plt.figure(figsize=(6, 4))
-        plt.plot(x, profile, label="Summed phase", color="blue")
-        plt.xlabel("pixel (10.1 um per pixel")
-        plt.ylabel("Vertically summed phase")
-        plt.title("Plateau and Peak to Plateau estimate")
-        plt.axvspan(
+        ax.plot(x, profile, label="Summed phase", color="blue")
+        ax.set_xlabel("pixel (10.1 um per pixel)")
+        ax.set_ylabel("Vertically summed phase")
+        ax.set_title("Plateau and Peak to Plateau estimate")
+        ax.axvspan(
             start_index, end_index, color="green", alpha=0.3, label="Plateau Region"
         )
         max_index = np.argmax(profile)
-        plt.axvline(
+        ax.axvline(
             x=max_index, color="red", linestyle="--", label=f"Max (col {max_index})"
         )
-        plt.axhline(
+        ax.axhline(
             y=plateau_value,
             color="purple",
             linestyle="--",
             label=f"Plateau Avg: {plateau_value:.2f}",
         )
-        plt.legend()
-        self.delta_plateau_fig = fig
+        ax.legend()
         logger.info(
             "Overall max: %f, Plateau avg: %f, Delta: %f",
             overall_max,
