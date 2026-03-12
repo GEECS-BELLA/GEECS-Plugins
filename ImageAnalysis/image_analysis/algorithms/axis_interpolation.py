@@ -90,15 +90,19 @@ def interpolate_image_axis(
         )
         physical_max = calib_max
 
-    # Create uniform physical axis
+    # Compute original bin widths
+    dE = np.gradient(pixel_to_physical)
+
+    # Uniform axis
     uniform_axis = np.linspace(physical_min, physical_max, num_points)
 
-    # Interpolate
-    if axis == 1:  # Horizontal (typical for energy dispersion)
-        # Interpolate each row
+    if axis == 1:
         output = np.zeros((image.shape[0], num_points), dtype=image.dtype)
+
         for i in range(image.shape[0]):
-            output[i] = np.interp(uniform_axis, pixel_to_physical, image[i, :])
+            density = image[i, :] / dE
+            density_interp = np.interp(uniform_axis, pixel_to_physical, density)
+            output[i] = density_interp
         logger.debug(
             f"Interpolated {image.shape[0]} rows from {image.shape[1]} to {num_points} points"
         )
